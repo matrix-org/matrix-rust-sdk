@@ -27,7 +27,7 @@ use vodozemac::{
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
-    error::{EventError, OlmResult},
+    error::{EventError, OlmResult, SessionPickleError},
     types::{
         events::room::encrypted::{OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent},
         DeviceKeys, EventEncryptionAlgorithm,
@@ -45,8 +45,8 @@ pub struct Session {
     pub session_id: Arc<str>,
     /// The Key of the sender
     pub sender_key: Curve25519PublicKey,
-    /// The signed device keys
-    pub device_keys: DeviceKeys,
+    /// Our own signed device keys
+    pub our_device_keys: DeviceKeys,
     /// Has this been created using the fallback key
     pub created_using_fallback_key: bool,
     /// When the session was created
@@ -151,12 +151,12 @@ impl Session {
                 recipient_device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
 
             let payload = json!({
-                "sender": &self.device_keys.user_id,
-                "sender_device": &self.device_keys.device_id,
+                "sender": &self.our_device_keys.user_id,
+                "sender_device": &self.our_device_keys.device_id,
                 "keys": {
-                    "ed25519": self.device_keys.ed25519_key().unwrap().to_base64(),
+                    "ed25519": self.our_device_keys.ed25519_key().expect("Device doesn't have ed25519 key").to_base64(),
                 },
-                "device_keys": self.device_keys,
+                "device_keys": self.our_device_keys,
                 "recipient": recipient_device.user_id(),
                 "recipient_keys": {
                     "ed25519": recipient_signing_key.to_base64(),
@@ -174,14 +174,20 @@ impl Session {
             EventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => OlmV1Curve25519AesSha2Content {
                 ciphertext,
                 recipient_key: self.sender_key,
-                sender_key: self.device_keys.curve25519_key().unwrap(),
+                sender_key: self
+                    .our_device_keys
+                    .curve25519_key()
+                    .expect("Device doesn't have curve25519 key"),
                 message_id,
             }
             .into(),
             #[cfg(feature = "experimental-algorithms")]
             EventEncryptionAlgorithm::OlmV2Curve25519AesSha2 => OlmV2Curve25519AesSha2Content {
                 ciphertext,
-                sender_key: self.device_keys.curve25519_key().unwrap(),
+                sender_key: self
+                    .device_keys
+                    .curve25519_key()
+                    .expect("Device doesn't have curve25519 key"),
                 message_id,
             }
             .into(),
@@ -223,30 +229,32 @@ impl Session {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - Our own user id that the session belongs to.
-    ///
-    /// * `device_id` - Our own device ID that the session belongs to.
-    ///
-    /// * `our_identity_keys` - An clone of the Arc to our own identity keys.
+    /// * `our_device_keys` - Our own signed device keys.
     ///
     /// * `pickle` - The pickled version of the `Session`.
-    ///
-    /// * `pickle_mode` - The mode that was used to pickle the session, either
-    /// an unencrypted mode or an encrypted using passphrase.
-    pub fn from_pickle(device_keys: DeviceKeys, pickle: PickledSession) -> Self {
-        // FIXME: assert that device_keys has curve25519 and ed25519 keys
+    pub fn from_pickle(
+        our_device_keys: DeviceKeys,
+        pickle: PickledSession,
+    ) -> Result<Self, SessionPickleError> {
+        if our_device_keys.curve25519_key().is_none() {
+            return Err(SessionPickleError::MissingIdentityKey);
+        }
+        if our_device_keys.ed25519_key().is_none() {
+            return Err(SessionPickleError::MissingSigningKey);
+        }
+
         let session: vodozemac::olm::Session = pickle.pickle.into();
         let session_id = session.session_id();
 
-        Session {
+        Ok(Session {
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             created_using_fallback_key: pickle.created_using_fallback_key,
             sender_key: pickle.sender_key,
-            device_keys,
+            our_device_keys,
             creation_time: pickle.creation_time,
             last_use_time: pickle.last_use_time,
-        }
+        })
     }
 }
 
@@ -278,6 +286,7 @@ pub struct PickledSession {
 
 #[cfg(test)]
 mod tests {
+    use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, user_id};
     use serde_json::{self, Value};
@@ -320,15 +329,9 @@ mod tests {
             .unwrap();
 
         #[cfg(feature = "experimental-algorithms")]
-        let ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(content) = message
-        else {
-            panic!("Invalid encrypted event algorithm {}", message.algorithm());
-        };
+        assert_let!(ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(content) = message);
         #[cfg(not(feature = "experimental-algorithms"))]
-        let ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(content) = message
-        else {
-            panic!("Invalid encrypted event algorithm {}", message.algorithm());
-        };
+        assert_let!(ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(content) = message);
 
         let prekey = if let OlmMessage::PreKey(m) = content.ciphertext {
             m

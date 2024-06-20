@@ -922,7 +922,7 @@ impl Account {
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             sender_key: identity_key,
-            device_keys: our_device_keys,
+            our_device_keys,
             created_using_fallback_key: fallback_used,
             creation_time: now,
             last_use_time: now,
@@ -1053,7 +1053,7 @@ impl Account {
             inner: Arc::new(Mutex::new(result.session)),
             session_id: session_id.into(),
             sender_key: their_identity_key,
-            device_keys: our_device_keys,
+            our_device_keys,
             created_using_fallback_key: false,
             creation_time: now,
             last_use_time: now,
@@ -1301,25 +1301,13 @@ impl Account {
                         );
 
                         return Err(OlmError::SessionWedged(
-                            session.device_keys.user_id.to_owned(),
+                            session.our_device_keys.user_id.to_owned(),
                             session.sender_key(),
                         ));
                     }
                 }
 
-                // We didn't find a matching session; try to create a new session.
-                // Try to get our own stored device keys.
-                let device_keys = store
-                    .get_device(&self.user_id, &self.device_id)
-                    .await
-                    .unwrap_or(None)
-                    .map(|read_only_device| read_only_device.as_device_keys().clone());
-                // If we don't have our device keys stored, fall back to
-                // generating a fresh device keys from our own Account.
-                let device_keys = match device_keys {
-                    Some(device_keys) => device_keys,
-                    None => self.device_keys(),
-                };
+                let device_keys = store.get_own_device().await?.as_device_keys().clone();
                 let result =
                     match self.create_inbound_session(sender_key, device_keys, prekey_message) {
                         Ok(r) => r,

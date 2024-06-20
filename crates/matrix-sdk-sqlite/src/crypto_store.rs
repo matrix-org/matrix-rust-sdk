@@ -931,7 +931,8 @@ impl CryptoStore for SqliteCryptoStore {
                 .into_iter()
                 .map(|bytes| {
                     let pickle = self.deserialize_value(&bytes)?;
-                    Ok(Session::from_pickle(device_keys.clone(), pickle))
+                    Session::from_pickle(device_keys.clone(), pickle)
+                        .map_err(|_| Error::AccountUnset)
                 })
                 .collect::<Result<_>>()?;
 

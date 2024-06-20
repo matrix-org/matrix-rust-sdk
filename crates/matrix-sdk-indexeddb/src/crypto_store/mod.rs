@@ -902,8 +902,9 @@ impl_crypto_store! {
                         device_keys.clone(),
                         p,
                     )
+                        .map_err(|_| IndexeddbCryptoStoreError::CryptoStoreError(CryptoStoreError::AccountUnset))
                 }))
-                .collect::<Vec<Session>>();
+                .collect::<Result<Vec<Session>>>()?;
 
             self.session_cache.set_for_sender(sender_key, sessions);
         }
