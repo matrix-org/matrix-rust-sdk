@@ -552,7 +552,7 @@ impl Oidc {
         registrations: &OidcRegistrations,
     ) -> std::result::Result<(), OidcError> {
         let issuer = Url::parse(self.issuer().ok_or(OidcError::MissingAuthenticationIssuer)?)
-            .map_err(|e| OidcError::Url(e))?;
+            .map_err(OidcError::Url)?;
         let client_id =
             self.client_credentials().ok_or(OidcError::NotRegistered)?.client_id().to_owned();
 
@@ -565,6 +565,8 @@ impl Oidc {
 
     /// Attempts to load an existing OIDC dynamic client registration for a
     /// given issuer.
+    ///
+    /// Returns `true` if an existing registration was found and `false` if not.
     fn load_client_registration(
         &self,
         issuer: String,

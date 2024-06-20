@@ -118,22 +118,26 @@ pub async fn mock_environment(
 
 #[async_test]
 async fn test_high_level_login() -> anyhow::Result<()> {
+    // Given a fresh environment.
     let (oidc, _server, metadata, registrations) = mock_environment().await.unwrap();
-
     assert!(oidc.issuer().is_none());
     assert!(oidc.client_metadata().is_none());
     assert!(oidc.client_credentials().is_none());
 
+    // When getting the OIDC login URL.
     let authorization_data =
         oidc.url_for_oidc_login(metadata.clone(), registrations).await.unwrap();
 
+    // Then the client should be configured correctly.
     assert!(oidc.issuer().is_some());
     assert!(oidc.client_metadata().is_some());
     assert!(oidc.client_credentials().is_some());
 
+    // When completing the login with a valid callback.
     let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
     callback_uri.set_query(Some(&format!("code=42&state={}", authorization_data.state)));
 
+    // Then the login should succeed.
     oidc.login_with_oidc_callback(&authorization_data, callback_uri).await?;
 
     Ok(())
@@ -141,8 +145,8 @@ async fn test_high_level_login() -> anyhow::Result<()> {
 
 #[async_test]
 async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
+    // Given a client ready to complete login.
     let (oidc, _server, metadata, registrations) = mock_environment().await.unwrap();
-
     let authorization_data =
         oidc.url_for_oidc_login(metadata.clone(), registrations).await.unwrap();
 
@@ -150,12 +154,14 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
     assert!(oidc.client_metadata().is_some());
     assert!(oidc.client_credentials().is_some());
 
+    // When completing login with a cancellation callback.
     let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
     callback_uri
         .set_query(Some(&format!("error=access_denied&state={}", authorization_data.state)));
 
     let error = oidc.login_with_oidc_callback(&authorization_data, callback_uri).await.unwrap_err();
 
+    // Then a cancellation error should be thrown.
     assert_matches!(error, Error::Oidc(OidcError::CancelledAuthorization));
 
     Ok(())
@@ -163,8 +169,8 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
 
 #[async_test]
 async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
+    // Given a client ready to complete login.
     let (oidc, _server, metadata, registrations) = mock_environment().await.unwrap();
-
     let authorization_data =
         oidc.url_for_oidc_login(metadata.clone(), registrations).await.unwrap();
 
@@ -172,11 +178,13 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
     assert!(oidc.client_metadata().is_some());
     assert!(oidc.client_credentials().is_some());
 
+    // When completing login with an old/tampered state.
     let mut callback_uri = metadata.redirect_uris.clone().unwrap().first().unwrap().clone();
     callback_uri.set_query(Some("code=42&state=imposter_alert"));
 
     let error = oidc.login_with_oidc_callback(&authorization_data, callback_uri).await.unwrap_err();
 
+    // Then the login should fail by flagging the invalid state.
     assert_matches!(error, Error::Oidc(OidcError::InvalidState));
 
     Ok(())

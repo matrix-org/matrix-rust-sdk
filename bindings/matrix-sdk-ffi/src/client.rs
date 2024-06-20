@@ -381,6 +381,7 @@ impl Client {
 
         let data =
             self.inner.oidc().url_for_oidc_login(oidc_metadata, registrations).await.map_err(
+                // TODO: Introduce an OidcError in the FFI with a From implementation.
                 |e| match e {
                     OidcError::MissingAuthenticationIssuer => AuthenticationError::OidcNotSupported,
                     OidcError::MissingRedirectUri => AuthenticationError::OidcMetadataInvalid,
@@ -400,6 +401,7 @@ impl Client {
         let url = Url::parse(&callback_url).or(Err(AuthenticationError::OidcCallbackUrlInvalid))?;
 
         self.inner.oidc().login_with_oidc_callback(&authorization_data, url).await.map_err(
+            // TODO: Introduce an OidcError in the FFI with a From implementation.
             |e| match e {
                 Error::Oidc(OidcError::InvalidCallbackUrl) => {
                     AuthenticationError::OidcCallbackUrlInvalid
