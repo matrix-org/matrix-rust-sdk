@@ -65,7 +65,6 @@ impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
         match value {
             SlidingSync(error) => Self::SlidingSync { error: error.to_string() },
             UnknownList(list_name) => Self::UnknownList { list_name },
-            InputCannotBeApplied(_) => Self::InputCannotBeApplied,
             RoomNotFound(room_id) => Self::RoomNotFound { room_name: room_id.to_string() },
             TimelineAlreadyExists(room_id) => {
                 Self::TimelineAlreadyExists { room_name: room_id.to_string() }

@@ -23,32 +23,22 @@
 //!
 //! As such, the `RoomListService` works as an opinionated state machine. The
 //! states are defined by [`State`]. Actions are attached to the each state
-//! transition. Apart from that, one can apply [`Input`]s on the state machine,
-//! like notifying that the client app viewport of the room list has changed (if
-//! the user of the client app has scrolled in the room list for example) etc.
+//! transition.
 //!
 //! The API is purposely small. Sliding Sync is versatile. `RoomListService` is
 //! _one_ specific usage of Sliding Sync.
 //!
 //! # Basic principle
 //!
-//! `RoomListService` works with 2 Sliding Sync List:
+//! `RoomListService` works with 1 Sliding Sync List:
 //!
-//! * `all_rooms` (referred by the constant [`ALL_ROOMS_LIST_NAME`]) is the main
+//! * `all_rooms` (referred by the constant [`ALL_ROOMS_LIST_NAME`]) is the only
 //!   list. Its goal is to load all the user' rooms. It starts with a
 //!   [`SlidingSyncMode::Selective`] sync-mode with a small range (i.e. a small
 //!   set of rooms) to load the first rooms quickly, and then updates to a
 //!   [`SlidingSyncMode::Growing`] sync-mode to load the remaining rooms “in the
 //!   background”: it will sync the existing rooms and will fetch new rooms, by
 //!   a certain batch size.
-//! * `visible_rooms` (referred by the constant [`VISIBLE_ROOMS_LIST_NAME`]) is
-//!   the “reactive” list. Its goal is to react to the client app user actions.
-//!   If the user scrolls in the room list, the `visible_rooms` will be
-//!   configured to sync for the particular range of rooms the user is actually
-//!   seeing (the rooms in the current viewport). `visible_rooms` has a
-//!   different configuration than `all_rooms` as it loads more timeline events:
-//!   it means that the room will already have a “history”, a timeline, ready to
-//!   be presented when the user enters the room.
 //!
 //! This behavior has proven to be empirically satisfying to provide a fast and
 //! fluid user experience for a Matrix client.
@@ -67,9 +57,8 @@ mod room_list;
 mod state;
 
 use std::{
-    future::ready,
     num::NonZeroUsize,
-    sync::{Arc, Mutex as StdMutex},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -77,8 +66,8 @@ use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::{pin_mut, Stream, StreamExt};
 use matrix_sdk::{
-    event_cache::EventCacheError, sliding_sync::Ranges, Client, Error as SlidingSyncError,
-    SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
+    event_cache::EventCacheError, Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList,
+    SlidingSyncMode,
 };
 use matrix_sdk_base::ring_buffer::RingBuffer;
 pub use room::*;
@@ -94,7 +83,7 @@ use ruma::{
 };
 pub use state::*;
 use thiserror::Error;
-use tokio::{sync::Mutex, time::timeout};
+use tokio::time::timeout;
 
 use crate::timeline;
 
@@ -113,13 +102,7 @@ pub struct RoomListService {
     state: SharedObservable<State>,
 
     /// Room cache, to avoid recreating `Room`s every time users fetch them.
-    rooms: Arc<StdMutex<RingBuffer<Room>>>,
-
-    /// The current viewport ranges.
-    ///
-    /// This is useful to avoid resetting the ranges to the same value,
-    /// which would cancel the current in-flight sync request.
-    viewport_ranges: Mutex<Ranges>,
+    rooms: Arc<Mutex<RingBuffer<Room>>>,
 }
 
 impl RoomListService {
@@ -174,7 +157,7 @@ impl RoomListService {
         }
 
         let sliding_sync = builder
-            .add_cached_list(configure_all_or_visible_rooms_list(
+            .add_cached_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
                     .sync_mode(
                         SlidingSyncMode::new_selective()
@@ -187,8 +170,23 @@ impl RoomListService {
                         (StateEventType::RoomMember, "$ME".to_owned()),
                         (StateEventType::RoomName, "".to_owned()),
                         (StateEventType::RoomPowerLevels, "".to_owned()),
+                    ])
+                    .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
+                    .include_heroes(Some(true))
+                    .filters(Some(assign!(SyncRequestListFilters::default(), {
+                        // As defined in the [SlidingSync MSC](https://github.com/matrix-org/matrix-spec-proposals/blob/9450ced7fb9cf5ea9077d029b3adf36aebfa8709/proposals/3575-sync.md?plain=1#L444)
+                        // If unset, both invited and joined rooms are returned. If false, no invited rooms are
+                        // returned. If true, only invited rooms are returned.
+                        is_invite: None,
+                        is_tombstoned: Some(false),
+                        not_room_types: vec!["m.space".to_owned()],
+                    })))
+                    .bump_event_types(&[
+                        TimelineEventType::RoomMessage,
+                        TimelineEventType::RoomEncrypted,
+                        TimelineEventType::Sticker,
                     ]),
-            ))
+            )
             .await
             .map_err(Error::SlidingSync)?
             .build()
@@ -203,8 +201,7 @@ impl RoomListService {
             client,
             sliding_sync,
             state: SharedObservable::new(State::Init),
-            rooms: Arc::new(StdMutex::new(RingBuffer::new(Self::ROOM_OBJECT_CACHE_SIZE))),
-            viewport_ranges: Mutex::new(vec![VISIBLE_ROOMS_DEFAULT_RANGE]),
+            rooms: Arc::new(Mutex::new(RingBuffer::new(Self::ROOM_OBJECT_CACHE_SIZE))),
         })
     }
 
@@ -392,38 +389,6 @@ impl RoomListService {
         self.list_for(ALL_ROOMS_LIST_NAME).await
     }
 
-    /// Pass an [`Input`] onto the state machine.
-    pub async fn apply_input(&self, input: Input) -> Result<InputResult, Error> {
-        use Input::*;
-
-        match input {
-            Viewport(ranges) => self.update_viewport(ranges).await,
-        }
-    }
-
-    async fn update_viewport(&self, ranges: Ranges) -> Result<InputResult, Error> {
-        let mut viewport_ranges = self.viewport_ranges.lock().await;
-
-        // Is it worth updating the viewport?
-        // The viewport has the same ranges. Don't update it.
-        if *viewport_ranges == ranges {
-            return Ok(InputResult::Ignored);
-        }
-
-        self.sliding_sync
-            .on_list(VISIBLE_ROOMS_LIST_NAME, |list| {
-                list.set_sync_mode(SlidingSyncMode::new_selective().add_ranges(ranges.clone()));
-
-                ready(())
-            })
-            .await
-            .ok_or_else(|| Error::InputCannotBeApplied(Input::Viewport(ranges.clone())))?;
-
-        *viewport_ranges = ranges;
-
-        Ok(InputResult::Applied)
-    }
-
     /// Get a [`Room`] if it exists.
     pub fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
         let mut rooms = self.rooms.lock().unwrap();
@@ -449,32 +414,6 @@ impl RoomListService {
     }
 }
 
-/// Configure the Sliding Sync list for `ALL_ROOMS_LIST_NAME` and
-/// `VISIBLE_ROOMS_LIST_NAME`.
-///
-/// This function configures the `sort`, the `filters` and the`bump_event_types`
-/// properties, so that they are exactly the same.
-fn configure_all_or_visible_rooms_list(
-    list_builder: SlidingSyncListBuilder,
-) -> SlidingSyncListBuilder {
-    list_builder
-        .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
-        .include_heroes(Some(true))
-        .filters(Some(assign!(SyncRequestListFilters::default(), {
-            // As defined in the [SlidingSync MSC](https://github.com/matrix-org/matrix-spec-proposals/blob/9450ced7fb9cf5ea9077d029b3adf36aebfa8709/proposals/3575-sync.md?plain=1#L444)
-            // If unset, both invited and joined rooms are returned. If false, no invited rooms are
-            // returned. If true, only invited rooms are returned.
-            is_invite: None,
-            is_tombstoned: Some(false),
-            not_room_types: vec!["m.space".to_owned()],
-        })))
-        .bump_event_types(&[
-            TimelineEventType::RoomMessage,
-            TimelineEventType::RoomEncrypted,
-            TimelineEventType::Sticker,
-        ])
-}
-
 /// [`RoomList`]'s errors.
 #[derive(Debug, Error)]
 pub enum Error {
@@ -485,10 +424,6 @@ pub enum Error {
     /// An operation has been requested on an unknown list.
     #[error("Unknown list `{0}`")]
     UnknownList(String),
-
-    /// An input was asked to be applied but it wasn't possible to apply it.
-    #[error("The input cannot be applied: {0:?}")]
-    InputCannotBeApplied(Input),
 
     /// The requested room doesn't exist.
     #[error("Room `{0}` not found")]
@@ -502,32 +437,6 @@ pub enum Error {
 
     #[error("The attached event cache ran into an error")]
     EventCache(#[from] EventCacheError),
-}
-
-/// An input for the [`RoomList`]' state machine.
-///
-/// An input is something that has happened or is happening or is requested by
-/// the client app using this [`RoomList`].
-#[derive(Debug)]
-pub enum Input {
-    /// The client app's viewport of the room list has changed.
-    ///
-    /// Use this input when the user of the client app is scrolling inside the
-    /// room list, and the viewport has changed. The viewport is defined as the
-    /// range of visible rooms in the room list.
-    Viewport(Ranges),
-}
-
-/// An [`Input`] Ok result: whether it's been applied, or ignored.
-#[derive(Debug, Eq, PartialEq)]
-pub enum InputResult {
-    /// The input has been applied.
-    Applied,
-
-    /// The input has been ignored.
-    ///
-    /// Note that this is not an error. The input was valid, but simply ignored.
-    Ignored,
 }
 
 /// An hint whether a _sync spinner/loader/toaster_ should be prompted to the
