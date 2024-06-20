@@ -185,7 +185,7 @@ impl Session {
             EventEncryptionAlgorithm::OlmV2Curve25519AesSha2 => OlmV2Curve25519AesSha2Content {
                 ciphertext,
                 sender_key: self
-                    .device_keys
+                    .our_device_keys
                     .curve25519_key()
                     .expect("Device doesn't have curve25519 key"),
                 message_id,
