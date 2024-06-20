@@ -178,7 +178,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
 
             #[cfg(feature = "e2e-encryption")]
             if room.is_encrypted().await? {
-                Span::current().record("encrypted_room", true);
+                Span::current().record("is_room_encrypted", true);
                 // Reactions are currently famously not encrypted, skip encrypting
                 // them until they are.
                 if event_type == "m.reaction" {
@@ -212,7 +212,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
                     event_type = "m.room.encrypted";
                 }
             } else {
-                Span::current().record("encrypted_room", false);
+                Span::current().record("is_room_encrypted", false);
                 trace!("Sending plaintext event because the room is NOT encrypted.",);
             };
 
