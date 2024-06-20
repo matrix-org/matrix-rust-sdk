@@ -487,15 +487,6 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub(crate) fn set_session_delegate_inner(
-        self: Arc<Self>,
-        session_delegate: Arc<dyn ClientSessionDelegate>,
-    ) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.session_delegate = Some(session_delegate);
-        Arc::new(builder)
-    }
-
     pub(crate) async fn build_inner(self: Arc<Self>) -> Result<Client, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = builder.inner;
