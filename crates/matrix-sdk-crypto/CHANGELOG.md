@@ -2,6 +2,9 @@
 
 Changes:
 
+- Log the content of received to-device events.
+  ([#3591](https://github.com/matrix-org/matrix-rust-sdk/pull/3591))
+
 - Sign the device keys with the user-identity (i.e. cross-signing keys) if
   we're uploading the device keys and if the cross-signing keys are available.
   This approach eliminates the need to upload signatures in a separate request,
@@ -104,7 +107,7 @@ Additions:
   ([#3194](https://github.com/matrix-org/matrix-rust-sdk/pull/3194))
 
 
-## 0.7.1 
+## 0.7.1
 
 Security fixes:
 
