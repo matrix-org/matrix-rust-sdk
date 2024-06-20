@@ -1686,12 +1686,14 @@ impl Room {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    #[instrument(skip_all, fields(event_type, room_id = ?self.room_id(), transaction_id, encrypted, event_id))]
+    #[instrument(skip_all, fields(event_type, room_id = ?self.room_id(), transaction_id, is_room_encrypted, event_id))]
     pub fn send_raw<'a>(
         &'a self,
         event_type: &'a str,
         content: impl IntoRawMessageLikeEventContent,
     ) -> SendRawMessageLikeEvent<'a> {
+        // Note: the recorded instrument fields are saved in
+        // `SendRawMessageLikeEvent::into_future`.
         SendRawMessageLikeEvent::new(self, event_type, content)
     }
 

@@ -5,6 +5,10 @@ Changes:
 - Log the content of received to-device events.
   ([#3591](https://github.com/matrix-org/matrix-rust-sdk/pull/3591))
 
+- Attempt to decrypt bundled events (reactions and the latest thread reply) if
+  they are found in the unsigned part of an event.
+  ([#3468](https://github.com/matrix-org/matrix-rust-sdk/pull/3468))
+
 - Sign the device keys with the user-identity (i.e. cross-signing keys) if
   we're uploading the device keys and if the cross-signing keys are available.
   This approach eliminates the need to upload signatures in a separate request,

@@ -51,6 +51,7 @@ use ruma::{
             redaction::RoomRedactionEventContent,
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        SyncMessageLikeEvent,
     },
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -411,44 +412,37 @@ impl Timeline {
             return timeline_item.replied_to_info();
         }
 
-        let event = match self.room().event(event_id).await {
-            Ok(event) => event,
-            Err(error) => {
-                error!("Failed to fetch event with ID {event_id} with error: {error}");
-                return Err(UnsupportedReplyItem::MISSING_EVENT);
-            }
-        };
+        let event = self.room().event(event_id).await.map_err(|error| {
+            error!("Failed to fetch event with ID {event_id} with error: {error}");
+            UnsupportedReplyItem::MissingEvent
+        })?;
 
-        // We need to get the content and we can do that by casting
-        // the event as a `AnySyncTimelineEvent` which is the same as a
-        // `AnyTimelineEvent`, but without the `room_id` field.
-        // The cast is valid because we are just losing track of such field.
+        // We need to get the content and we can do that by casting the event as a
+        // `AnySyncTimelineEvent` which is the same as a `AnyTimelineEvent`, but without
+        // the `room_id` field. The cast is valid because we are just losing
+        // track of such field.
         let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
-        let sync_event = match raw_sync_event.deserialize() {
-            Ok(event) => event,
-            Err(error) => {
-                error!("Failed to deserialize event with ID {event_id} with error: {error}");
-                return Err(UnsupportedReplyItem::FAILED_TO_DESERIALIZE_EVENT);
-            }
-        };
+        let sync_event = raw_sync_event.deserialize().map_err(|error| {
+            error!("Failed to deserialize event with ID {event_id} with error: {error}");
+            UnsupportedReplyItem::FailedToDeserializeEvent
+        })?;
 
         let reply_content = match &sync_event {
             AnySyncTimelineEvent::MessageLike(message_like_event) => {
-                if let AnySyncMessageLikeEvent::RoomMessage(message_event) = message_like_event {
-                    if let Some(original_message) = message_event.as_original() {
-                        ReplyContent::Message(Message::from_event(
-                            original_message.content.clone(),
-                            message_like_event.relations(),
-                            &self.items().await,
-                        ))
-                    } else {
-                        ReplyContent::Raw(raw_sync_event)
-                    }
+                if let AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
+                    original_message,
+                )) = message_like_event
+                {
+                    ReplyContent::Message(Message::from_event(
+                        original_message.content.clone(),
+                        message_like_event.relations(),
+                        &self.items().await,
+                    ))
                 } else {
                     ReplyContent::Raw(raw_sync_event)
                 }
             }
-            AnySyncTimelineEvent::State(_) => return Err(UnsupportedReplyItem::STATE_EVENT),
+            AnySyncTimelineEvent::State(_) => return Err(UnsupportedReplyItem::StateEvent),
         };
 
         Ok(RepliedToInfo {
@@ -518,47 +512,40 @@ impl Timeline {
             return timeline_item.edit_info();
         }
 
-        let event = match self.room().event(event_id).await {
-            Ok(event) => event,
-            Err(error) => {
-                error!("Failed to fetch event with ID {event_id} with error: {error}");
-                return Err(UnsupportedEditItem::MISSING_EVENT);
-            }
-        };
+        let event = self.room().event(event_id).await.map_err(|error| {
+            error!("Failed to fetch event with ID {event_id} with error: {error}");
+            UnsupportedEditItem::MissingEvent
+        })?;
 
         // We need to get the content and we can do that by casting
         // the event as a `AnySyncTimelineEvent` which is the same as a
         // `AnyTimelineEvent`, but without the `room_id` field.
         // The cast is valid because we are just losing track of such field.
         let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
-        let event = match raw_sync_event.deserialize() {
-            Ok(event) => event,
-            Err(error) => {
-                error!("Failed to deserialize event with ID {event_id} with error: {error}");
-                return Err(UnsupportedEditItem::FAILED_TO_DESERIALIZE_EVENT);
-            }
-        };
+        let event = raw_sync_event.deserialize().map_err(|error| {
+            error!("Failed to deserialize event with ID {event_id} with error: {error}");
+            UnsupportedEditItem::FailedToDeserializeEvent
+        })?;
 
         if event.sender() != self.room().own_user_id() {
-            return Err(UnsupportedEditItem::NOT_OWN_EVENT);
+            return Err(UnsupportedEditItem::NotOwnEvent);
         };
 
         if let AnySyncTimelineEvent::MessageLike(message_like_event) = &event {
-            if let AnySyncMessageLikeEvent::RoomMessage(message_event) = message_like_event {
-                if let Some(original_message) = message_event.as_original() {
-                    let message = Message::from_event(
-                        original_message.content.clone(),
-                        message_like_event.relations(),
-                        &self.items().await,
-                    );
-                    return Ok(EditInfo {
-                        event_id: event_id.to_owned(),
-                        original_message: message,
-                    });
-                }
+            if let AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
+                original_message,
+            )) = message_like_event
+            {
+                let message = Message::from_event(
+                    original_message.content.clone(),
+                    message_like_event.relations(),
+                    &self.items().await,
+                );
+                return Ok(EditInfo { event_id: event_id.to_owned(), original_message: message });
             }
         }
-        Err(UnsupportedEditItem::NOT_ROOM_MESSAGE)
+
+        Err(UnsupportedEditItem::NotRoomMessage)
     }
 
     pub async fn edit_poll(
@@ -572,14 +559,14 @@ impl Timeline {
 
         // Early returns here must be in sync with `EventTimelineItem::is_editable`.
         if !edit_item.is_own() {
-            return Err(UnsupportedEditItem::NOT_OWN_EVENT.into());
+            return Err(UnsupportedEditItem::NotOwnEvent.into());
         }
         let Some(event_id) = edit_item.event_id() else {
-            return Err(UnsupportedEditItem::MISSING_EVENT_ID.into());
+            return Err(UnsupportedEditItem::MissingEvent.into());
         };
 
         let TimelineItemContent::Poll(_) = edit_item.content() else {
-            return Err(UnsupportedEditItem::NOT_POLL_EVENT.into());
+            return Err(UnsupportedEditItem::NotPollEvent.into());
         };
 
         let content = ReplacementUnstablePollStartEventContent::plain_text(
