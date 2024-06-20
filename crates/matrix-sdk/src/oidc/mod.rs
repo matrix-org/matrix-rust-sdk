@@ -498,8 +498,9 @@ impl Oidc {
             }
         };
 
-        // Given the InvalidState error already exists, I wonder if this was ever
-        // necessary to manually check?
+        // This check will also be done in `finish_authorization`, however it requires
+        // the client to have called `abort_authorization` which we can't guarantee so
+        // lets double check with their supplied authorization data to be safe.
         if code.state != authorization_data.state {
             return Err(OidcError::InvalidState.into());
         };

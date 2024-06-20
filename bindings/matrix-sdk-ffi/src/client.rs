@@ -392,6 +392,11 @@ impl Client {
         Ok(Arc::new(data))
     }
 
+    #[allow(dead_code)] // Will be exposed when AuthenticationService is removed.
+    pub(crate) async fn abort_oidc_login(&self, authorization_data: Arc<OidcAuthorizationData>) {
+        self.inner.oidc().abort_authorization(&authorization_data.state).await;
+    }
+
     /// Completes the OIDC login process.
     pub(crate) async fn login_with_oidc_callback(
         &self,
