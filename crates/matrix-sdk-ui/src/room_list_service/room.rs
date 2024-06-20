@@ -17,7 +17,7 @@
 use std::{ops::Deref, sync::Arc};
 
 use async_once_cell::OnceCell as AsyncOnceCell;
-use matrix_sdk::{Client, SlidingSync};
+use matrix_sdk::SlidingSync;
 use ruma::{api::client::sync::sync_events::v4::RoomSubscription, events::StateEventType, RoomId};
 
 use super::Error;
@@ -56,21 +56,14 @@ impl Deref for Room {
 
 impl Room {
     /// Create a new `Room`.
-    pub(super) fn new(
-        client: &Client,
-        room_id: &RoomId,
-        sliding_sync: &Arc<SlidingSync>,
-    ) -> Result<Self, Error> {
-        let room =
-            client.get_room(room_id).ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))?;
-
-        Ok(Self {
+    pub(super) fn new(room: matrix_sdk::Room, sliding_sync: &Arc<SlidingSync>) -> Self {
+        Self {
             inner: Arc::new(RoomInner {
                 sliding_sync: sliding_sync.clone(),
                 room,
                 timeline: AsyncOnceCell::new(),
             }),
-        })
+        }
     }
 
     /// Get the room ID.

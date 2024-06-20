@@ -433,7 +433,10 @@ impl RoomListService {
             return Ok(room.clone());
         }
 
-        let room = Room::new(&self.client, room_id, &self.sliding_sync)?;
+        let room = Room::new(
+            self.client.get_room(room_id).ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))?,
+            &self.sliding_sync,
+        );
 
         // Save for later.
         rooms.push(room.clone());
