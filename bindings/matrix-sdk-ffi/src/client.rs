@@ -60,7 +60,7 @@ use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
-    authentication_service::{AuthenticationError, HomeserverLoginDetails, OidcConfiguration},
+    authentication::{AuthenticationError, HomeserverLoginDetails, OidcConfiguration},
     client,
     encryption::Encryption,
     notification::NotificationClient,
