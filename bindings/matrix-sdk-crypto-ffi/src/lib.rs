@@ -470,7 +470,7 @@ fn collect_sessions(
             last_use_time,
         };
 
-        let session = Session::from_pickle(device_keys.clone(), pickle);
+        let session = Session::from_pickle(device_keys.clone(), pickle)?;
 
         sessions.push(session);
         processed_steps += 1;
