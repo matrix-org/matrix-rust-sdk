@@ -19,7 +19,7 @@ use zeroize::Zeroizing;
 
 use super::{client::Client, RUNTIME};
 use crate::{
-    authentication_service::OidcConfiguration, client::ClientSessionDelegate, error::ClientError,
+    authentication::OidcConfiguration, client::ClientSessionDelegate, error::ClientError,
     helpers::unwrap_or_clone_arc, task_handle::TaskHandle,
 };
 
