@@ -346,7 +346,7 @@ where
 
         let client = &self.auth.client;
         let homeserver = client.homeserver();
-        info!(%homeserver, "Logging in");
+        info!(%homeserver, "Logging in banana test");
 
         let (signal_tx, signal_rx) = oneshot::channel();
         let (data_tx, data_rx) = oneshot::channel();
