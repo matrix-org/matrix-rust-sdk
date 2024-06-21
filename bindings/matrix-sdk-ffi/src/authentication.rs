@@ -15,86 +15,6 @@ use matrix_sdk::{
 };
 use url::Url;
 
-#[derive(Debug, thiserror::Error, uniffi::Error)]
-#[uniffi(flat_error)]
-pub enum OidcError {
-    #[error(
-        "The homeserver doesn't provide an authentication issuer in its well-known configuration."
-    )]
-    NotSupported,
-    #[error("Unable to use OIDC as the supplied client metadata is invalid.")]
-    MetadataInvalid,
-    #[error("Failed to use the supplied registrations file path.")]
-    RegistrationsPathInvalid,
-    #[error("The supplied callback URL used to complete OIDC is invalid.")]
-    CallbackUrlInvalid,
-    #[error("The OIDC login was cancelled by the user.")]
-    Cancelled,
-
-    #[error("An error occurred: {message}")]
-    Generic { message: String },
-}
-
-impl From<OidcRegistrationsError> for OidcError {
-    fn from(e: OidcRegistrationsError) -> OidcError {
-        match e {
-            OidcRegistrationsError::InvalidFilePath => OidcError::RegistrationsPathInvalid,
-            _ => OidcError::Generic { message: e.to_string() },
-        }
-    }
-}
-
-impl From<SdkOidcError> for OidcError {
-    fn from(e: SdkOidcError) -> OidcError {
-        match e {
-            SdkOidcError::MissingAuthenticationIssuer => OidcError::NotSupported,
-            SdkOidcError::MissingRedirectUri => OidcError::MetadataInvalid,
-            SdkOidcError::InvalidCallbackUrl => OidcError::CallbackUrlInvalid,
-            SdkOidcError::InvalidState => OidcError::CallbackUrlInvalid,
-            SdkOidcError::CancelledAuthorization => OidcError::Cancelled,
-            _ => OidcError::Generic { message: e.to_string() },
-        }
-    }
-}
-
-impl From<Error> for OidcError {
-    fn from(e: Error) -> OidcError {
-        match e {
-            Error::Oidc(e) => e.into(),
-            _ => OidcError::Generic { message: e.to_string() },
-        }
-    }
-}
-
-/// The configuration to use when authenticating with OIDC.
-#[derive(uniffi::Record)]
-pub struct OidcConfiguration {
-    /// The name of the client that will be shown during OIDC authentication.
-    pub client_name: Option<String>,
-    /// The redirect URI that will be used when OIDC authentication is
-    /// successful.
-    pub redirect_uri: String,
-    /// A URI that contains information about the client.
-    pub client_uri: Option<String>,
-    /// A URI that contains the client's logo.
-    pub logo_uri: Option<String>,
-    /// A URI that contains the client's terms of service.
-    pub tos_uri: Option<String>,
-    /// A URI that contains the client's privacy policy.
-    pub policy_uri: Option<String>,
-    /// An array of e-mail addresses of people responsible for this client.
-    pub contacts: Option<Vec<String>>,
-
-    /// Pre-configured registrations for use with issuers that don't support
-    /// dynamic client registration.
-    pub static_registrations: HashMap<String, String>,
-
-    /// A file path where any dynamic registrations should be stored.
-    ///
-    /// Suggested value: `{base_path}/oidc/registrations.json`
-    pub dynamic_registrations_file: String,
-}
-
 #[derive(uniffi::Object)]
 pub struct HomeserverLoginDetails {
     pub(crate) url: String,
@@ -125,6 +45,35 @@ impl HomeserverLoginDetails {
     pub fn supports_password_login(&self) -> bool {
         self.supports_password_login
     }
+}
+
+/// The configuration to use when authenticating with OIDC.
+#[derive(uniffi::Record)]
+pub struct OidcConfiguration {
+    /// The name of the client that will be shown during OIDC authentication.
+    pub client_name: Option<String>,
+    /// The redirect URI that will be used when OIDC authentication is
+    /// successful.
+    pub redirect_uri: String,
+    /// A URI that contains information about the client.
+    pub client_uri: Option<String>,
+    /// A URI that contains the client's logo.
+    pub logo_uri: Option<String>,
+    /// A URI that contains the client's terms of service.
+    pub tos_uri: Option<String>,
+    /// A URI that contains the client's privacy policy.
+    pub policy_uri: Option<String>,
+    /// An array of e-mail addresses of people responsible for this client.
+    pub contacts: Option<Vec<String>>,
+
+    /// Pre-configured registrations for use with issuers that don't support
+    /// dynamic client registration.
+    pub static_registrations: HashMap<String, String>,
+
+    /// A file path where any dynamic registrations should be stored.
+    ///
+    /// Suggested value: `{base_path}/oidc/registrations.json`
+    pub dynamic_registrations_file: String,
 }
 
 impl TryInto<VerifiedClientMetadata> for &OidcConfiguration {
@@ -163,6 +112,59 @@ impl TryInto<VerifiedClientMetadata> for &OidcConfiguration {
         .map_err(|_| OidcError::MetadataInvalid)
     }
 }
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum OidcError {
+    #[error(
+        "The homeserver doesn't provide an authentication issuer in its well-known configuration."
+    )]
+    NotSupported,
+    #[error("Unable to use OIDC as the supplied client metadata is invalid.")]
+    MetadataInvalid,
+    #[error("Failed to use the supplied registrations file path.")]
+    RegistrationsPathInvalid,
+    #[error("The supplied callback URL used to complete OIDC is invalid.")]
+    CallbackUrlInvalid,
+    #[error("The OIDC login was cancelled by the user.")]
+    Cancelled,
+
+    #[error("An error occurred: {message}")]
+    Generic { message: String },
+}
+
+impl From<SdkOidcError> for OidcError {
+    fn from(e: SdkOidcError) -> OidcError {
+        match e {
+            SdkOidcError::MissingAuthenticationIssuer => OidcError::NotSupported,
+            SdkOidcError::MissingRedirectUri => OidcError::MetadataInvalid,
+            SdkOidcError::InvalidCallbackUrl => OidcError::CallbackUrlInvalid,
+            SdkOidcError::InvalidState => OidcError::CallbackUrlInvalid,
+            SdkOidcError::CancelledAuthorization => OidcError::Cancelled,
+            _ => OidcError::Generic { message: e.to_string() },
+        }
+    }
+}
+
+impl From<OidcRegistrationsError> for OidcError {
+    fn from(e: OidcRegistrationsError) -> OidcError {
+        match e {
+            OidcRegistrationsError::InvalidFilePath => OidcError::RegistrationsPathInvalid,
+            _ => OidcError::Generic { message: e.to_string() },
+        }
+    }
+}
+
+impl From<Error> for OidcError {
+    fn from(e: Error) -> OidcError {
+        match e {
+            Error::Oidc(e) => e.into(),
+            _ => OidcError::Generic { message: e.to_string() },
+        }
+    }
+}
+
+/* Helpers */
 
 trait OptionExt {
     /// Convenience method to convert a string to a URL and returns it as a
