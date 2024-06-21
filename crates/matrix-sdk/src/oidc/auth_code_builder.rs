@@ -236,9 +236,20 @@ impl OidcAuthCodeUrlBuilder {
 
 /// The data needed to perform authorization using OpenID Connect.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct OidcAuthorizationData {
     /// The URL that should be presented.
     pub url: Url,
-    /// A unique identifier for the request.
+    /// A unique identifier for the request, used to ensure the response
+    /// originated from the authentication issuer.
     pub state: String,
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+impl OidcAuthorizationData {
+    /// The login URL to use for authorization.
+    pub fn login_url(&self) -> String {
+        self.url.to_string()
+    }
 }
