@@ -11,8 +11,9 @@ use matrix_sdk::{
         ServerName, UserId,
     },
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError,
-    ClientBuilder as MatrixClientBuilder, IdParseError,
+    ClientBuilder as MatrixClientBuilder, HttpError, IdParseError, RumaApiError,
 };
+use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::{debug, error};
 use url::Url;
 use zeroize::Zeroizing;
@@ -182,10 +183,19 @@ impl From<qrcode::LoginProgress> for QrLoginProgress {
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum ClientBuildError {
+    #[error("The supplied server name is invalid.")]
+    InvalidServerName,
     #[error(transparent)]
-    Sdk(MatrixClientBuildError),
+    ServerUnreachable(HttpError),
+    #[error(transparent)]
+    WellKnownLookupFailed(RumaApiError),
+    #[error(transparent)]
+    WellKnownDeserializationError(DeserializationError),
     #[error("The homeserver doesn't provide a trusted sliding sync proxy in its well-known configuration.")]
     SlidingSyncNotAvailable,
+
+    #[error(transparent)]
+    Sdk(MatrixClientBuildError),
 
     #[error("Failed to build the client: {message}")]
     Generic { message: String },
@@ -194,9 +204,18 @@ pub enum ClientBuildError {
 impl From<MatrixClientBuildError> for ClientBuildError {
     fn from(e: MatrixClientBuildError) -> Self {
         match e {
+            MatrixClientBuildError::InvalidServerName => ClientBuildError::InvalidServerName,
+            MatrixClientBuildError::Http(e) => ClientBuildError::ServerUnreachable(e),
+            MatrixClientBuildError::AutoDiscovery(FromHttpResponseError::Server(e)) => {
+                ClientBuildError::WellKnownLookupFailed(e)
+            }
+            MatrixClientBuildError::AutoDiscovery(FromHttpResponseError::Deserialization(e)) => {
+                ClientBuildError::WellKnownDeserializationError(e)
+            }
             MatrixClientBuildError::SlidingSyncNotAvailable => {
                 ClientBuildError::SlidingSyncNotAvailable
             }
+
             _ => ClientBuildError::Sdk(e),
         }
     }
