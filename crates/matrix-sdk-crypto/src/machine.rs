@@ -66,7 +66,7 @@ use crate::{
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
-        OlmDecryptionInfo, PrivateCrossSigningIdentity, SessionType, StaticAccountData,
+        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData, SessionType, StaticAccountData,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -809,11 +809,14 @@ impl OlmMachine {
         event: &DecryptedRoomKeyEvent,
         content: &MegolmV1AesSha2Content,
     ) -> OlmResult<Option<InboundGroupSession>> {
+        let sender_data = SenderData::unknown();
+
         let session = InboundGroupSession::new(
             sender_key,
             event.keys.ed25519,
             &content.room_id,
             &content.session_key,
+            sender_data,
             event.content.algorithm(),
             None,
         );
@@ -2410,7 +2413,8 @@ pub(crate) mod tests {
         error::{EventError, SetRoomSettingsError},
         machine::{EncryptionSyncChanges, OlmMachine},
         olm::{
-            BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, OutboundGroupSession, VerifyJson,
+            BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, OutboundGroupSession,
+            SenderData, VerifyJson,
         },
         session_manager::CollectStrategy,
         store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore, RoomSettings},
@@ -3706,6 +3710,7 @@ pub(crate) mod tests {
             Ed25519PublicKey::from_base64("loz5i40dP+azDtWvsD0L/xpnCjNkmrcvtXVXzCHX8Vw").unwrap(),
             fake_room_id,
             &olm,
+            SenderData::unknown(),
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
         )
@@ -3723,6 +3728,7 @@ pub(crate) mod tests {
             Ed25519PublicKey::from_base64("48f3WQAMGwYLBg5M5qUhqnEVA8yeibjZpPsShoWMFT8").unwrap(),
             fake_room_id,
             &olm,
+            SenderData::unknown(),
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
         )

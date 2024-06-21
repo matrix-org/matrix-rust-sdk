@@ -22,7 +22,7 @@ use serde_json::{value::to_raw_value, Value};
 use vodozemac::megolm::SessionKey;
 
 use super::{EventType, ToDeviceEvent};
-use crate::types::EventEncryptionAlgorithm;
+use crate::types::{DeviceKeys, EventEncryptionAlgorithm};
 
 /// The `m.room_key` to-device event.
 pub type RoomKeyEvent = ToDeviceEvent<RoomKeyContent>;
@@ -113,6 +113,8 @@ pub struct MegolmV1AesSha2Content {
     ///
     /// [`InboundGroupSession`]: vodozemac::megolm::InboundGroupSession
     pub session_key: SessionKey,
+    /// The device keys if supplied as per MSC4147
+    pub device_keys: Option<DeviceKeys>,
     /// Any other, custom and non-specced fields of the content.
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
@@ -120,8 +122,13 @@ pub struct MegolmV1AesSha2Content {
 
 impl MegolmV1AesSha2Content {
     /// Create a new `m.megolm.v1.aes-sha2` `m.room_key` content.
-    pub fn new(room_id: OwnedRoomId, session_id: String, session_key: SessionKey) -> Self {
-        Self { room_id, session_id, session_key, other: Default::default() }
+    pub fn new(
+        room_id: OwnedRoomId,
+        session_id: String,
+        session_key: SessionKey,
+        device_keys: Option<DeviceKeys>,
+    ) -> Self {
+        Self { room_id, session_id, session_key, device_keys, other: Default::default() }
     }
 }
 

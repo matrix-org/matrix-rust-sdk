@@ -31,7 +31,7 @@ pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
 use matrix_sdk_common::deserialized_responses::ShieldState as RustShieldState;
 use matrix_sdk_crypto::{
-    olm::{IdentityKeys, InboundGroupSession, Session},
+    olm::{IdentityKeys, InboundGroupSession, SenderData, Session},
     store::{Changes, CryptoStore, PendingChanges, RoomSettings as RustRoomSettings},
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
     CollectStrategy, EncryptionSettings as RustEncryptionSettings,
@@ -471,6 +471,7 @@ fn collect_sessions(
                     Ok((algorithm, key))
                 })
                 .collect::<anyhow::Result<_>>()?,
+            sender_data: SenderData::legacy(),
             room_id: RoomId::parse(session.room_id)?,
             imported: session.imported,
             backed_up: session.backed_up,
