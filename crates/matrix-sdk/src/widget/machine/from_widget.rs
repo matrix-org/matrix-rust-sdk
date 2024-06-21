@@ -15,9 +15,10 @@
 use std::fmt;
 
 use ruma::{
+    api::client::future,
     events::{AnyTimelineEvent, MessageLikeEventType, StateEventType},
     serde::Raw,
-    OwnedEventId, RoomId,
+    OwnedEventId, OwnedRoomId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -132,8 +133,65 @@ pub(super) struct ReadEventResponse {
     pub(super) events: Vec<Raw<AnyTimelineEvent>>,
 }
 
-#[derive(Serialize)]
-pub(super) struct SendEventResponse<'a> {
-    pub(super) room_id: &'a RoomId,
-    pub(super) event_id: OwnedEventId,
+#[derive(Serialize, Debug)]
+pub struct SendEventResponse {
+    /// The room id for the send event.
+    pub room_id: Option<OwnedRoomId>,
+    /// The event id of the send event. Its optional because if its a future one does not get
+    /// the event_id at this point.
+    pub event_id: Option<OwnedEventId>,
+    /// A token to send/insert the future into the DAG.
+    pub send_token: Option<String>,
+    /// A token to cancel this future. It will never be send if this is called.
+    pub cancel_token: Option<String>,
+    /// The `future_group_id` generated for this future. Used to connect multiple futures
+    /// only one of the connected futures will be sent and inserted into the DAG.
+    pub future_group_id: Option<String>,
+    /// A token used to refresh the timer of the future. This allows
+    /// to implement heartbeat like capabilities. An event is only sent once
+    /// a refresh in the timeout interval is missed.
+    ///
+    /// If the future does not have a timeout this will be `None`.
+    pub refresh_token: Option<String>,
+}
+
+impl SendEventResponse {
+    pub fn from_event_id(event_id: OwnedEventId) -> Self {
+        SendEventResponse {
+            room_id: None,
+            event_id: Some(event_id),
+            send_token: None,
+            cancel_token: None,
+            future_group_id: None,
+            refresh_token: None,
+        }
+    }
+    pub fn set_room_id(&mut self, room_id: OwnedRoomId) {
+        self.room_id = Some(room_id);
+    }
+}
+impl Into<SendEventResponse> for future::send_future_message_event::unstable::Response {
+    fn into(self) -> SendEventResponse {
+        SendEventResponse {
+            room_id: None,
+            event_id: None,
+            send_token: Some(self.send_token),
+            cancel_token: Some(self.cancel_token),
+            future_group_id: Some(self.future_group_id),
+            refresh_token: self.refresh_token,
+        }
+    }
+}
+
+impl Into<SendEventResponse> for future::send_future_state_event::unstable::Response {
+    fn into(self) -> SendEventResponse {
+        SendEventResponse {
+            room_id: None,
+            event_id: None,
+            send_token: Some(self.send_token),
+            cancel_token: Some(self.cancel_token),
+            future_group_id: Some(self.future_group_id),
+            refresh_token: self.refresh_token,
+        }
+    }
 }
