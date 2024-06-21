@@ -2,7 +2,7 @@
 
 Changes:
 
-- Log the content of received to-device events.
+- Log the content of received `m.room_key.withheld` to-device events.
   ([#3591](https://github.com/matrix-org/matrix-rust-sdk/pull/3591))
 
 - Attempt to decrypt bundled events (reactions and the latest thread reply) if
