@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::{self, Debug},
     mem::ManuallyDrop,
     sync::{Arc, RwLock},
 };
@@ -58,6 +59,7 @@ use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
+    authentication_service::AuthenticationError,
     client,
     encryption::Encryption,
     notification::NotificationClient,
@@ -166,6 +168,52 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
             current: value.current.try_into().unwrap_or(u64::MAX),
             total: value.total.try_into().unwrap_or(u64::MAX),
         }
+    }
+}
+
+/// An object encapsulating the SSO login flow
+#[derive(uniffi::Object)]
+pub struct SsoHandler {
+    /// The wrapped Client.
+    client: Arc<Client>,
+
+    /// The underlying URL for authentication.
+    #[allow(dead_code)]
+    pub url: String,
+}
+
+#[uniffi::export]
+impl SsoHandler {
+    /// Completes the SSO login process.
+    pub async fn finish(&self, callback_url: String) -> Result<(), AuthenticationError> {
+        let auth = self.client.inner.matrix_auth();
+
+        let url =
+            Url::parse(&callback_url).map_err(|_| AuthenticationError::SsoCallbackUrlInvalid)?;
+
+        #[derive(Deserialize)]
+        struct QueryParameters {
+            #[serde(rename = "loginToken")]
+            login_token: Option<String>,
+        }
+
+        let query_string = url.query().unwrap_or("");
+        let query: QueryParameters = serde_html_form::from_str(query_string)
+            .map_err(|_| AuthenticationError::SsoCallbackUrlInvalid)?;
+        let token =
+            query.login_token.ok_or(AuthenticationError::SsoCallbackUrlMissingLoginToken)?;
+
+        auth.login_token(token.as_str())
+            .await
+            .map_err(|_| AuthenticationError::SsoLoginWithTokenFailed)?;
+
+        Ok(())
+    }
+}
+
+impl Debug for SsoHandler {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(fmt, "SsoHandler")
     }
 }
 
@@ -350,6 +398,23 @@ impl Client {
 }
 
 impl Client {
+    /// Returns a handler to start the SSO login process. The URL available via
+    /// the handler's `url` field should be opened in a web view. Once the
+    /// web view succeeds, call `finish` on the handler with the callback
+    /// URL.
+    pub(crate) async fn start_sso_login(
+        self: &Arc<Self>,
+        redirect_url: String,
+        idp_id: Option<String>,
+    ) -> Result<Arc<SsoHandler>, AuthenticationError> {
+        let auth = self.inner.matrix_auth();
+        let url = auth
+            .get_sso_login_url(redirect_url.as_str(), idp_id.as_deref())
+            .await
+            .map_err(|e| AuthenticationError::Generic { message: e.to_string() })?;
+        Ok(Arc::new(SsoHandler { client: Arc::clone(self), url }))
+    }
+
     /// Restores the client from an `AuthSession`.
     pub(crate) async fn restore_session_inner(
         &self,
@@ -1457,5 +1522,63 @@ impl MediaFileHandle {
                 }
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use matrix_sdk_test::{async_test, test_json};
+    use serde::Deserialize;
+    use url::Url;
+    use wiremock::{
+        matchers::{method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
+
+    use crate::client_builder::ClientBuilder;
+
+    #[async_test]
+    async fn test_start_sso_login_adds_redirect_url_to_login_url() {
+        let homeserver = make_mock_homeserver().await;
+        let builder = ClientBuilder::new().server_name_or_homeserver_url(homeserver.uri());
+        let client = Arc::new(builder.build_inner().await.expect("Should build client"));
+
+        let handler = client
+            .start_sso_login("app://redirect".to_owned(), None)
+            .await
+            .expect("Should create SSO handler");
+
+        let url = Url::parse(&handler.url).expect("Should generate a valid SSO login URL");
+
+        #[derive(Deserialize)]
+        struct QueryParameters {
+            #[serde(rename = "redirectUrl")]
+            redirect_url: Option<String>,
+        }
+
+        let query_string = url.query().unwrap_or("");
+        let query: QueryParameters = serde_html_form::from_str(query_string)
+            .expect("Should deserialize query parameters from SSO login URL");
+
+        assert_eq!(query.redirect_url, Some("app://redirect".to_owned()));
+    }
+
+    /* Helper functions */
+
+    async fn make_mock_homeserver() -> MockServer {
+        let homeserver = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
+            .mount(&homeserver)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/r0/login"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_TYPES))
+            .mount(&homeserver)
+            .await;
+        homeserver
     }
 }

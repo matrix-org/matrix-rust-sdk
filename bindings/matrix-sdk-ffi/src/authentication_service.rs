@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    fmt::{self, Debug},
     path::Path,
     sync::{Arc, RwLock as StdRwLock},
 };
@@ -23,7 +22,6 @@ use matrix_sdk::{
     ClientBuildError as MatrixClientBuildError, HttpError, RumaApiError,
 };
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
-use serde::Deserialize;
 use tokio::sync::RwLock as AsyncRwLock;
 use url::Url;
 use zeroize::Zeroize;
@@ -195,62 +193,6 @@ impl OidcAuthenticationData {
     /// The login URL to use for authentication.
     pub fn login_url(&self) -> String {
         self.url.to_string()
-    }
-}
-
-#[derive(uniffi::Object)]
-pub struct SsoHandler {
-    /// The wrapped authentication service.
-    service: Arc<AuthenticationService>,
-
-    /// The underlying URL for authentication.
-    #[allow(dead_code)]
-    pub url: String,
-}
-
-#[uniffi::export]
-impl SsoHandler {
-    /// Completes the SSO login process.
-    pub async fn finish(&self, callback_url: String) -> Result<Arc<Client>, AuthenticationError> {
-        let client_guard = self.service.client.read().await;
-        let Some(client) = client_guard.as_ref() else {
-            return Err(AuthenticationError::ClientMissing);
-        };
-
-        let auth = client.inner.matrix_auth();
-
-        let url =
-            Url::parse(&callback_url).map_err(|_| AuthenticationError::SsoCallbackUrlInvalid)?;
-
-        #[derive(Deserialize)]
-        struct QueryParameters {
-            #[serde(rename = "loginToken")]
-            login_token: Option<String>,
-        }
-
-        let query_string = url.query().unwrap_or("");
-        let query: QueryParameters = serde_html_form::from_str(query_string)
-            .map_err(|_| AuthenticationError::SsoCallbackUrlInvalid)?;
-        let token =
-            query.login_token.ok_or(AuthenticationError::SsoCallbackUrlMissingLoginToken)?;
-
-        auth.login_token(token.as_str())
-            .await
-            .map_err(|_| AuthenticationError::SsoLoginWithTokenFailed)?;
-
-        drop(client_guard);
-
-        let Some(client) = self.service.client.write().await.take() else {
-            return Err(AuthenticationError::ClientMissing);
-        };
-
-        Ok(Arc::new(client))
-    }
-}
-
-impl Debug for SsoHandler {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(fmt, "SsoHandler")
     }
 }
 
@@ -520,31 +462,6 @@ impl AuthenticationService {
 
         Ok(Arc::new(client))
     }
-
-    /// Returns a handler to start the SSO login process. The URL available via
-    /// the handler's `url` field should be opened in a web view. Once the
-    /// web view succeeds, call `finish` on the handler with the callback
-    /// URL.
-    pub async fn start_sso_login(
-        self: &Arc<Self>,
-        redirect_url: String,
-        idp_id: Option<String>,
-    ) -> Result<Arc<SsoHandler>, AuthenticationError> {
-        let client_guard = self.client.read().await;
-        let Some(client) = client_guard.as_ref() else {
-            return Err(AuthenticationError::ClientMissing);
-        };
-
-        let auth = client.inner.matrix_auth();
-        let url = auth
-            .get_sso_login_url(redirect_url.as_str(), idp_id.as_deref())
-            .await
-            .map_err(|e| AuthenticationError::Generic { message: e.to_string() })?;
-
-        drop(client_guard);
-
-        Ok(Arc::new(SsoHandler { service: Arc::clone(self), url }))
-    }
 }
 
 impl AuthenticationService {
@@ -767,110 +684,5 @@ impl OptionExt for Option<String> {
                 ))
             })
             .transpose()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use matrix_sdk_test::{async_test, test_json};
-    use serde::Deserialize;
-    use serde_json::{json_internal, Value as JsonValue};
-    use url::Url;
-    use wiremock::{
-        matchers::{method, path},
-        Mock, MockServer, ResponseTemplate,
-    };
-
-    use super::AuthenticationService;
-
-    #[async_test]
-    async fn test_start_sso_login_adds_redirect_url_to_login_url() {
-        let service = AuthenticationService::new(
-            "generated".to_owned(),
-            None,
-            None,
-            vec![],
-            None,
-            None,
-            None,
-            None,
-            None,
-        );
-
-        let server = MockServer::start().await;
-        let homeserver = make_mock_homeserver().await;
-
-        Mock::given(method("GET"))
-            .and(path("/.well-known/matrix/client"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(make_well_known_json(
-                &homeserver.uri(),
-                Some("https://localhost:1234"),
-            )))
-            .mount(&server)
-            .await;
-
-        service.configure_homeserver(server.uri()).await.expect("Should configure home server");
-
-        let handler = service
-            .start_sso_login("app://redirect".to_owned(), None)
-            .await
-            .expect("Should create SSO handler");
-
-        let url = Url::parse(&handler.url).expect("Should generate a valid SSO login URL");
-
-        #[derive(Deserialize)]
-        struct QueryParameters {
-            #[serde(rename = "redirectUrl")]
-            redirect_url: Option<String>,
-        }
-
-        let query_string = url.query().unwrap_or("");
-        let query: QueryParameters = serde_html_form::from_str(query_string)
-            .expect("Should deserialize query parameters from SSO login URL");
-
-        assert_eq!(query.redirect_url, Some("app://redirect".to_owned()));
-    }
-
-    /* Helper functions */
-
-    async fn make_mock_homeserver() -> MockServer {
-        let homeserver = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/versions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
-            .mount(&homeserver)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/r0/login"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_TYPES))
-            .mount(&homeserver)
-            .await;
-        homeserver
-    }
-
-    fn make_well_known_json(
-        homeserver_url: &str,
-        sliding_sync_proxy_url: Option<&str>,
-    ) -> JsonValue {
-        ::serde_json::Value::Object({
-            let mut object = ::serde_json::Map::new();
-            let _ = object.insert(
-                "m.homeserver".into(),
-                json_internal!({
-                    "base_url": homeserver_url
-                }),
-            );
-
-            if let Some(sliding_sync_proxy_url) = sliding_sync_proxy_url {
-                let _ = object.insert(
-                    "org.matrix.msc3575.proxy".into(),
-                    json_internal!({
-                        "url": sliding_sync_proxy_url
-                    }),
-                );
-            }
-
-            object
-        })
     }
 }
