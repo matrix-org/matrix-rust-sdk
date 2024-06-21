@@ -17,16 +17,18 @@
 use std::marker::PhantomData;
 
 use ruma::{
-    api::client::account::request_openid_token,
+    api::client::{account::request_openid_token, future::FutureParameters},
     events::{AnyTimelineEvent, MessageLikeEventType, StateEventType, TimelineEventType},
     serde::Raw,
-    OwnedEventId,
 };
 use serde::Deserialize;
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
 
-use super::{incoming::MatrixDriverResponse, Action, MatrixDriverRequestMeta, WidgetMachine};
+use super::{
+    from_widget::SendEventResponse, incoming::MatrixDriverResponse, Action,
+    MatrixDriverRequestMeta, WidgetMachine,
+};
 use crate::widget::{Capabilities, StateKeySelector};
 
 #[derive(Clone, Debug)]
@@ -217,6 +219,8 @@ pub(crate) struct SendEventRequest {
     pub(crate) state_key: Option<String>,
     /// Raw content of an event.
     pub(crate) content: Box<RawJsonValue>,
+    /// Addition send event parameters to send a future
+    pub(crate) future_parameters: Option<FutureParameters>,
 }
 
 impl From<SendEventRequest> for MatrixDriverRequestData {
@@ -226,10 +230,10 @@ impl From<SendEventRequest> for MatrixDriverRequestData {
 }
 
 impl MatrixDriverRequest for SendEventRequest {
-    type Response = OwnedEventId;
+    type Response = SendEventResponse;
 }
 
-impl FromMatrixDriverResponse for OwnedEventId {
+impl FromMatrixDriverResponse for SendEventResponse {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
             MatrixDriverResponse::MatrixEventSent(response) => Some(response),
