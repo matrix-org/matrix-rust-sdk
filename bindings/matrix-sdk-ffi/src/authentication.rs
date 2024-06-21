@@ -9,98 +9,60 @@ use matrix_sdk::{
             registration::{ClientMetadata, Localized, VerifiedClientMetadata},
             requests::GrantType,
         },
-        OidcError,
+        OidcError as SdkOidcError,
     },
-    ClientBuildError as MatrixClientBuildError, HttpError, RumaApiError,
+    Error,
 };
-use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use url::Url;
-
-use crate::client_builder::ClientBuildError;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
-pub enum AuthenticationError {
-    #[error("The supplied server name is invalid.")]
-    InvalidServerName,
-    #[error(transparent)]
-    ServerUnreachable(HttpError),
-    #[error(transparent)]
-    WellKnownLookupFailed(RumaApiError),
-    #[error(transparent)]
-    WellKnownDeserializationError(DeserializationError),
-    #[error("The homeserver doesn't provide a trusted sliding sync proxy in its well-known configuration.")]
-    SlidingSyncNotAvailable,
-
+pub enum OidcError {
     #[error(
         "The homeserver doesn't provide an authentication issuer in its well-known configuration."
     )]
-    OidcNotSupported,
-    #[error("Unable to use OIDC as no client metadata has been supplied.")]
-    OidcMetadataMissing,
+    NotSupported,
     #[error("Unable to use OIDC as the supplied client metadata is invalid.")]
-    OidcMetadataInvalid,
+    MetadataInvalid,
     #[error("Failed to use the supplied registrations file path.")]
-    OidcRegistrationsPathInvalid,
+    RegistrationsPathInvalid,
     #[error("The supplied callback URL used to complete OIDC is invalid.")]
-    OidcCallbackUrlInvalid,
+    CallbackUrlInvalid,
     #[error("The OIDC login was cancelled by the user.")]
-    OidcCancelled,
-    #[error("An error occurred with OIDC: {message}")]
-    OidcError { message: String },
+    Cancelled,
 
     #[error("An error occurred: {message}")]
     Generic { message: String },
 }
 
-impl From<anyhow::Error> for AuthenticationError {
-    fn from(e: anyhow::Error) -> AuthenticationError {
-        AuthenticationError::Generic { message: e.to_string() }
-    }
-}
-
-impl From<ClientBuildError> for AuthenticationError {
-    fn from(e: ClientBuildError) -> AuthenticationError {
+impl From<OidcRegistrationsError> for OidcError {
+    fn from(e: OidcRegistrationsError) -> OidcError {
         match e {
-            ClientBuildError::Sdk(MatrixClientBuildError::InvalidServerName) => {
-                AuthenticationError::InvalidServerName
-            }
-
-            ClientBuildError::Sdk(MatrixClientBuildError::Http(e)) => {
-                AuthenticationError::ServerUnreachable(e)
-            }
-
-            ClientBuildError::Sdk(MatrixClientBuildError::AutoDiscovery(
-                FromHttpResponseError::Server(e),
-            )) => AuthenticationError::WellKnownLookupFailed(e),
-
-            ClientBuildError::Sdk(MatrixClientBuildError::AutoDiscovery(
-                FromHttpResponseError::Deserialization(e),
-            )) => AuthenticationError::WellKnownDeserializationError(e),
-
-            ClientBuildError::SlidingSyncNotAvailable => {
-                AuthenticationError::SlidingSyncNotAvailable
-            }
-
-            _ => AuthenticationError::Generic { message: e.to_string() },
+            OidcRegistrationsError::InvalidFilePath => OidcError::RegistrationsPathInvalid,
+            _ => OidcError::Generic { message: e.to_string() },
         }
     }
 }
 
-impl From<OidcRegistrationsError> for AuthenticationError {
-    fn from(e: OidcRegistrationsError) -> AuthenticationError {
+impl From<SdkOidcError> for OidcError {
+    fn from(e: SdkOidcError) -> OidcError {
         match e {
-            OidcRegistrationsError::InvalidFilePath => {
-                AuthenticationError::OidcRegistrationsPathInvalid
-            }
-            _ => AuthenticationError::OidcError { message: e.to_string() },
+            SdkOidcError::MissingAuthenticationIssuer => OidcError::NotSupported,
+            SdkOidcError::MissingRedirectUri => OidcError::MetadataInvalid,
+            SdkOidcError::InvalidCallbackUrl => OidcError::CallbackUrlInvalid,
+            SdkOidcError::InvalidState => OidcError::CallbackUrlInvalid,
+            SdkOidcError::CancelledAuthorization => OidcError::Cancelled,
+            _ => OidcError::Generic { message: e.to_string() },
         }
     }
 }
 
-impl From<OidcError> for AuthenticationError {
-    fn from(e: OidcError) -> AuthenticationError {
-        AuthenticationError::OidcError { message: e.to_string() }
+impl From<Error> for OidcError {
+    fn from(e: Error) -> OidcError {
+        match e {
+            Error::Oidc(e) => e.into(),
+            _ => OidcError::Generic { message: e.to_string() },
+        }
     }
 }
 
@@ -166,11 +128,11 @@ impl HomeserverLoginDetails {
 }
 
 impl TryInto<VerifiedClientMetadata> for &OidcConfiguration {
-    type Error = AuthenticationError;
+    type Error = OidcError;
 
     fn try_into(self) -> Result<VerifiedClientMetadata, Self::Error> {
-        let redirect_uri = Url::parse(&self.redirect_uri)
-            .map_err(|_| AuthenticationError::OidcCallbackUrlInvalid)?;
+        let redirect_uri =
+            Url::parse(&self.redirect_uri).map_err(|_| OidcError::CallbackUrlInvalid)?;
         let client_name = self.client_name.as_ref().map(|n| Localized::new(n.to_owned(), []));
         let client_uri = self.client_uri.localized_url()?;
         let logo_uri = self.logo_uri.localized_url()?;
@@ -198,24 +160,21 @@ impl TryInto<VerifiedClientMetadata> for &OidcConfiguration {
             ..Default::default()
         }
         .validate()
-        .map_err(|_| AuthenticationError::OidcMetadataInvalid)
+        .map_err(|_| OidcError::MetadataInvalid)
     }
 }
 
 trait OptionExt {
     /// Convenience method to convert a string to a URL and returns it as a
     /// Localized URL. No localization is actually performed.
-    fn localized_url(&self) -> Result<Option<Localized<Url>>, AuthenticationError>;
+    fn localized_url(&self) -> Result<Option<Localized<Url>>, OidcError>;
 }
 
 impl OptionExt for Option<String> {
-    fn localized_url(&self) -> Result<Option<Localized<Url>>, AuthenticationError> {
+    fn localized_url(&self) -> Result<Option<Localized<Url>>, OidcError> {
         self.as_deref()
-            .map(|uri| -> Result<Localized<Url>, AuthenticationError> {
-                Ok(Localized::new(
-                    Url::parse(uri).map_err(|_| AuthenticationError::OidcMetadataInvalid)?,
-                    [],
-                ))
+            .map(|uri| -> Result<Localized<Url>, OidcError> {
+                Ok(Localized::new(Url::parse(uri).map_err(|_| OidcError::MetadataInvalid)?, []))
             })
             .transpose()
     }

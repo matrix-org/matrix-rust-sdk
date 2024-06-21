@@ -17,7 +17,7 @@ use matrix_sdk::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
         },
-        OidcAuthorizationData, OidcError, OidcSession,
+        OidcAuthorizationData, OidcSession,
     },
     ruma::{
         api::client::{
@@ -36,7 +36,7 @@ use matrix_sdk::{
         serde::Raw,
         EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
     },
-    AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
+    AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
 };
 use matrix_sdk_ui::notification_client::{
     NotificationClient as MatrixNotificationClient,
@@ -60,7 +60,7 @@ use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
-    authentication::{AuthenticationError, HomeserverLoginDetails, OidcConfiguration},
+    authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError},
     client,
     encryption::Encryption,
     notification::NotificationClient,
@@ -294,7 +294,7 @@ impl Client {
     pub async fn url_for_oidc_login(
         &self,
         oidc_configuration: &OidcConfiguration,
-    ) -> Result<Arc<OidcAuthorizationData>, AuthenticationError> {
+    ) -> Result<Arc<OidcAuthorizationData>, OidcError> {
         let oidc_metadata: VerifiedClientMetadata = oidc_configuration.try_into()?;
         let registrations_file = Path::new(&oidc_configuration.dynamic_registrations_file);
         let static_registrations = oidc_configuration
@@ -314,15 +314,7 @@ impl Client {
             static_registrations,
         )?;
 
-        let data =
-            self.inner.oidc().url_for_oidc_login(oidc_metadata, registrations).await.map_err(
-                // TODO: Introduce an OidcError in the FFI with a From implementation.
-                |e| match e {
-                    OidcError::MissingAuthenticationIssuer => AuthenticationError::OidcNotSupported,
-                    OidcError::MissingRedirectUri => AuthenticationError::OidcMetadataInvalid,
-                    _ => AuthenticationError::OidcError { message: e.to_string() },
-                },
-            )?;
+        let data = self.inner.oidc().url_for_oidc_login(oidc_metadata, registrations).await?;
 
         Ok(Arc::new(data))
     }
@@ -338,22 +330,10 @@ impl Client {
         &self,
         authorization_data: Arc<OidcAuthorizationData>,
         callback_url: String,
-    ) -> Result<(), AuthenticationError> {
-        let url = Url::parse(&callback_url).or(Err(AuthenticationError::OidcCallbackUrlInvalid))?;
+    ) -> Result<(), OidcError> {
+        let url = Url::parse(&callback_url).or(Err(OidcError::CallbackUrlInvalid))?;
 
-        self.inner.oidc().login_with_oidc_callback(&authorization_data, url).await.map_err(
-            // TODO: Introduce an OidcError in the FFI with a From implementation.
-            |e| match e {
-                Error::Oidc(OidcError::InvalidCallbackUrl) => {
-                    AuthenticationError::OidcCallbackUrlInvalid
-                }
-                Error::Oidc(OidcError::InvalidState) => AuthenticationError::OidcCallbackUrlInvalid,
-                Error::Oidc(OidcError::CancelledAuthorization) => {
-                    AuthenticationError::OidcCancelled
-                }
-                _ => AuthenticationError::OidcError { message: e.to_string() },
-            },
-        )?;
+        self.inner.oidc().login_with_oidc_callback(&authorization_data, url).await?;
 
         Ok(())
     }
