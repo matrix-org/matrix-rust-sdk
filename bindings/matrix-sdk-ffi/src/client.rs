@@ -1529,6 +1529,7 @@ impl MediaFileHandle {
 mod tests {
     use std::sync::Arc;
 
+    use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
     use serde::Deserialize;
     use url::Url;
@@ -1537,7 +1538,7 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
     };
 
-    use crate::client_builder::ClientBuilder;
+    use crate::{authentication_service::AuthenticationError, client_builder::ClientBuilder};
 
     #[async_test]
     async fn test_start_sso_login_adds_redirect_url_to_login_url() {
@@ -1565,6 +1566,39 @@ mod tests {
         assert_eq!(query.redirect_url, Some("app://redirect".to_owned()));
     }
 
+    #[async_test]
+    async fn test_finish_sso_login_with_login_token_succeeds() {
+        let homeserver = make_mock_homeserver().await;
+        let builder = ClientBuilder::new().server_name_or_homeserver_url(homeserver.uri());
+        let client = Arc::new(builder.build_inner().await.expect("Should build client"));
+
+        let handler = client
+            .start_sso_login("app://redirect".to_owned(), None)
+            .await
+            .expect("Should create SSO handler");
+
+        handler
+            .finish("app://redirect?loginToken=foo".to_owned())
+            .await
+            .expect("Should log in with token");
+    }
+
+    #[tokio::test]
+    async fn test_finish_sso_login_without_login_token_fails() {
+        let homeserver = make_mock_homeserver().await;
+        let builder = ClientBuilder::new().server_name_or_homeserver_url(homeserver.uri());
+        let client = Arc::new(builder.build_inner().await.expect("Should build client"));
+
+        let handler = client
+            .start_sso_login("app://redirect".to_owned(), None)
+            .await
+            .expect("Should create SSO handler");
+
+        let result = handler.finish("app://redirect?foo=bar".to_owned()).await;
+
+        assert_matches!(result, Err(AuthenticationError::SsoCallbackUrlMissingLoginToken));
+    }
+
     /* Helper functions */
 
     async fn make_mock_homeserver() -> MockServer {
@@ -1577,6 +1611,11 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/_matrix/client/r0/login"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_TYPES))
+            .mount(&homeserver)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/r0/login"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN))
             .mount(&homeserver)
             .await;
         homeserver

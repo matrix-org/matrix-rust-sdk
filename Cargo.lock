@@ -3385,6 +3385,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "as_variant",
+ "assert_matches",
  "async-compat",
  "extension-trait",
  "eyeball-im",
