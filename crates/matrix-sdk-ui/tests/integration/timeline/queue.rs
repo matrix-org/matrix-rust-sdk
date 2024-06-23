@@ -60,7 +60,7 @@ async fn test_message_order() {
         .and(body_string_contains("First!"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(&json!({ "event_id": "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP" }))
+                .set_body_json(json!({ "event_id": "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP" }))
                 .set_delay(Duration::from_millis(200)),
         )
         .mount(&server)
@@ -73,7 +73,7 @@ async fn test_message_order() {
         .and(body_string_contains("Second."))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(&json!({ "event_id": "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ" }))
+                .set_body_json(json!({ "event_id": "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ" }))
                 .set_delay(Duration::from_millis(100)),
         )
         .mount(&server)
@@ -172,7 +172,7 @@ async fn test_retry_order() {
         .and(body_string_contains("First!"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(&json!({ "event_id": "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP" }))
+                .set_body_json(json!({ "event_id": "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP" }))
                 .set_delay(Duration::from_millis(100)),
         )
         .mount(&server)
@@ -185,7 +185,7 @@ async fn test_retry_order() {
         .and(body_string_contains("Second."))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(&json!({ "event_id": "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ" }))
+                .set_body_json(json!({ "event_id": "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ" }))
                 .set_delay(Duration::from_millis(200)),
         )
         .mount(&server)
@@ -252,7 +252,7 @@ async fn test_clear_with_echoes() {
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(&json!({ "event_id": "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP" }))
+                .set_body_json(json!({ "event_id": "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP" }))
                 .set_delay(Duration::from_secs(3600)),
         )
         .mount(&server)
@@ -320,7 +320,7 @@ async fn test_no_duplicate_day_divider() {
         .and(body_string_contains("First!"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(&json!({
+                .set_body_json(json!({
                     "event_id": "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP",
                 }))
                 .set_delay(Duration::from_millis(200)),
@@ -335,7 +335,7 @@ async fn test_no_duplicate_day_divider() {
         .and(body_string_contains("Second."))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(&json!({
+                .set_body_json(json!({
                     "event_id": "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ",
                 }))
                 .set_delay(Duration::from_millis(100)),
