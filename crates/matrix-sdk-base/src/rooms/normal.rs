@@ -1535,10 +1535,7 @@ mod tests {
             },
             room::{
                 canonical_alias::RoomCanonicalAliasEventContent,
-                encryption::{
-                    OriginalRoomEncryptionEvent, OriginalSyncRoomEncryptionEvent,
-                    RoomEncryptionEventContent,
-                },
+                encryption::{OriginalSyncRoomEncryptionEvent, RoomEncryptionEventContent},
                 member::{
                     MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
                     SyncRoomMemberEvent,
@@ -2553,8 +2550,8 @@ mod tests {
     fn test_encryption_is_set_when_encryption_event_is_received() {
         let (_store, room) = make_room_test_helper(RoomState::Joined);
 
-        assert_eq!(room.is_encryption_state_synced(), false);
-        assert_eq!(room.is_encrypted(), false);
+        assert!(room.is_encryption_state_synced().not());
+        assert!(room.is_encrypted().not());
 
         let encryption_content =
             RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
@@ -2572,7 +2569,7 @@ mod tests {
         ));
         receive_state_events(&room, vec![&encryption_event]);
 
-        assert_eq!(room.is_encryption_state_synced(), true);
-        assert_eq!(room.is_encrypted(), true);
+        assert!(room.is_encryption_state_synced());
+        assert!(room.is_encrypted());
     }
 }
