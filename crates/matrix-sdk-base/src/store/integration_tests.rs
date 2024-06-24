@@ -1323,7 +1323,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         {
             assert_eq!(pending[0].transaction_id, txn0);
 
-            let deserialized = pending[0].event.as_content().unwrap();
+            let deserialized = pending[0].event.deserialize().unwrap();
             assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
             assert_eq!(content.body(), "msg0");
 
@@ -1350,7 +1350,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(pending[0].transaction_id, txn0);
 
         for i in 0..4 {
-            let deserialized = pending[i].event.as_content().unwrap();
+            let deserialized = pending[i].event.deserialize().unwrap();
             assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
             assert_eq!(content.body(), format!("msg{i}"));
             assert!(!pending[i].is_wedged);
