@@ -63,7 +63,7 @@ async fn test_echo() {
         .and(header("authorization", "Bearer 1234"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(&json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })),
+                .set_body_json(json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })),
         )
         .mount(&server)
         .await;
@@ -188,7 +188,7 @@ async fn test_retry_failed() {
         .and(header("authorization", "Bearer 1234"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(&json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })),
+                .set_body_json(json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })),
         )
         .mount(&server)
         .await;
@@ -229,7 +229,7 @@ async fn test_dedup_by_event_id_late() {
         .and(header("authorization", "Bearer 1234"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(&json!({ "event_id": event_id }))
+                .set_body_json(json!({ "event_id": event_id }))
                 // Not great to use a timer for this, but it's what wiremock gives us right now.
                 // Ideally we'd wait on a channel to produce a value or sth. like that.
                 .set_delay(Duration::from_millis(100)),

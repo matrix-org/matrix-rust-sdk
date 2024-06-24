@@ -654,7 +654,7 @@ impl_state_store!({
                                 .delete(&self.encode_key(keys::STRIPPED_USER_IDS, key))?;
 
                             user_ids.put_key_val_owned(
-                                &self.encode_key(keys::USER_IDS, key),
+                                self.encode_key(keys::USER_IDS, key),
                                 &self.serialize_event(&RoomMember::from(&event))?,
                             )?;
 
@@ -662,7 +662,7 @@ impl_state_store!({
                                 profile_changes.and_then(|p| p.get(event.state_key()))
                             {
                                 profiles.put_key_val_owned(
-                                    &self.encode_key(keys::PROFILES, key),
+                                    self.encode_key(keys::PROFILES, key),
                                     &self.serialize_event(&profile)?,
                                 )?;
                             }
@@ -721,7 +721,7 @@ impl_state_store!({
                             let key = (room, state_key);
 
                             user_ids.put_key_val_owned(
-                                &self.encode_key(keys::STRIPPED_USER_IDS, key),
+                                self.encode_key(keys::STRIPPED_USER_IDS, key),
                                 &self.serialize_event(&RoomMember::from(&event))?,
                             )?;
                         }

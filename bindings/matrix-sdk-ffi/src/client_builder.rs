@@ -11,15 +11,16 @@ use matrix_sdk::{
         ServerName, UserId,
     },
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError,
-    ClientBuilder as MatrixClientBuilder, IdParseError,
+    ClientBuilder as MatrixClientBuilder, HttpError, IdParseError, RumaApiError,
 };
+use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::{debug, error};
 use url::Url;
 use zeroize::Zeroizing;
 
 use super::{client::Client, RUNTIME};
 use crate::{
-    authentication_service::OidcConfiguration, client::ClientSessionDelegate, error::ClientError,
+    authentication::OidcConfiguration, client::ClientSessionDelegate, error::ClientError,
     helpers::unwrap_or_clone_arc, task_handle::TaskHandle,
 };
 
@@ -182,10 +183,19 @@ impl From<qrcode::LoginProgress> for QrLoginProgress {
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum ClientBuildError {
+    #[error("The supplied server name is invalid.")]
+    InvalidServerName,
     #[error(transparent)]
-    Sdk(MatrixClientBuildError),
+    ServerUnreachable(HttpError),
+    #[error(transparent)]
+    WellKnownLookupFailed(RumaApiError),
+    #[error(transparent)]
+    WellKnownDeserializationError(DeserializationError),
     #[error("The homeserver doesn't provide a trusted sliding sync proxy in its well-known configuration.")]
     SlidingSyncNotAvailable,
+
+    #[error(transparent)]
+    Sdk(MatrixClientBuildError),
 
     #[error("Failed to build the client: {message}")]
     Generic { message: String },
@@ -194,9 +204,18 @@ pub enum ClientBuildError {
 impl From<MatrixClientBuildError> for ClientBuildError {
     fn from(e: MatrixClientBuildError) -> Self {
         match e {
+            MatrixClientBuildError::InvalidServerName => ClientBuildError::InvalidServerName,
+            MatrixClientBuildError::Http(e) => ClientBuildError::ServerUnreachable(e),
+            MatrixClientBuildError::AutoDiscovery(FromHttpResponseError::Server(e)) => {
+                ClientBuildError::WellKnownLookupFailed(e)
+            }
+            MatrixClientBuildError::AutoDiscovery(FromHttpResponseError::Deserialization(e)) => {
+                ClientBuildError::WellKnownDeserializationError(e)
+            }
             MatrixClientBuildError::SlidingSyncNotAvailable => {
                 ClientBuildError::SlidingSyncNotAvailable
             }
+
             _ => ClientBuildError::Sdk(e),
         }
     }
@@ -483,15 +502,6 @@ impl ClientBuilder {
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.cross_process_refresh_lock_id = Some(process_id);
-        builder.session_delegate = Some(session_delegate);
-        Arc::new(builder)
-    }
-
-    pub(crate) fn set_session_delegate_inner(
-        self: Arc<Self>,
-        session_delegate: Arc<dyn ClientSessionDelegate>,
-    ) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
         builder.session_delegate = Some(session_delegate);
         Arc::new(builder)
     }

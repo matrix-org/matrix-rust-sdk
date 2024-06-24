@@ -42,7 +42,7 @@ pub enum OidcRegistrationsError {
     InvalidFilePath,
     /// An error occurred whilst saving the registration data.
     #[error("Failed to save the registration data {0}.")]
-    SaveFailure(#[source] Box<dyn std::error::Error>),
+    SaveFailure(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// A client ID that has been registered with an OpenID Connect provider.
