@@ -196,8 +196,7 @@ impl SsoHandler {
     pub async fn finish(&self, callback_url: String) -> Result<(), SsoError> {
         let auth = self.client.inner.matrix_auth();
 
-        let url =
-            Url::parse(&callback_url).map_err(|_| SsoError::CallbackUrlInvalid)?;
+        let url = Url::parse(&callback_url).map_err(|_| SsoError::CallbackUrlInvalid)?;
 
         #[derive(Deserialize)]
         struct QueryParameters {
@@ -206,14 +205,11 @@ impl SsoHandler {
         }
 
         let query_string = url.query().unwrap_or("");
-        let query: QueryParameters = serde_html_form::from_str(query_string)
-            .map_err(|_| SsoError::CallbackUrlInvalid)?;
-        let token =
-            query.login_token.ok_or(SsoError::CallbackUrlInvalid)?;
+        let query: QueryParameters =
+            serde_html_form::from_str(query_string).map_err(|_| SsoError::CallbackUrlInvalid)?;
+        let token = query.login_token.ok_or(SsoError::CallbackUrlInvalid)?;
 
-        auth.login_token(token.as_str())
-            .await
-            .map_err(|_| SsoError::LoginWithTokenFailed)?;
+        auth.login_token(token.as_str()).await.map_err(|_| SsoError::LoginWithTokenFailed)?;
 
         Ok(())
     }
