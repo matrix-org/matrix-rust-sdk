@@ -284,6 +284,7 @@ impl RoomSendQueue {
                 room: self.clone(),
                 transaction_id: transaction_id.clone(),
             },
+            is_wedged: false,
         }));
 
         Ok(AbortSendHandle { transaction_id, room: self.clone() })
@@ -325,10 +326,14 @@ impl RoomSendQueue {
             .local_echoes()
             .await?
             .into_iter()
-            .map(|(transaction_id, content)| LocalEcho {
-                transaction_id: transaction_id.clone(),
-                serialized_event: content,
-                abort_handle: AbortSendHandle { room: self.clone(), transaction_id },
+            .map(|queued| LocalEcho {
+                transaction_id: queued.transaction_id.clone(),
+                serialized_event: queued.event,
+                abort_handle: AbortSendHandle {
+                    room: self.clone(),
+                    transaction_id: queued.transaction_id,
+                },
+                is_wedged: queued.is_wedged,
             })
             .collect();
 
@@ -644,20 +649,14 @@ impl QueueStorage {
 
     /// Returns a list of the local echoes, that is, all the events that we're
     /// about to send but that haven't been sent yet (or are being sent).
-    async fn local_echoes(
-        &self,
-    ) -> Result<Vec<(OwnedTransactionId, SerializableEventContent)>, RoomSendQueueStorageError>
-    {
+    async fn local_echoes(&self) -> Result<Vec<QueuedEvent>, RoomSendQueueStorageError> {
         Ok(self
             .client
             .get()
             .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
             .store()
             .load_send_queue_events(&self.room_id)
-            .await?
-            .into_iter()
-            .map(|queued| (queued.transaction_id, queued.event))
-            .collect::<Vec<_>>())
+            .await?)
     }
 }
 
@@ -671,6 +670,9 @@ pub struct LocalEcho {
     pub serialized_event: SerializableEventContent,
     /// A handle to abort sending the associated event.
     pub abort_handle: AbortSendHandle,
+    /// Whether trying to send this local echo failed in the past with an
+    /// unrecoverable error (see [`SendQueueRoomError::is_recoverable`]).
+    pub is_wedged: bool,
 }
 
 /// An update to a room send queue, observable with
