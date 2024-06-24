@@ -273,21 +273,7 @@ impl TimelineBuilder {
             Some(spawn({
                 // Handles existing local echoes first.
                 for echo in local_echoes {
-                    let content = match echo.serialized_event.deserialize() {
-                        Ok(d) => d,
-                        Err(err) => {
-                            warn!("error deserializing local echo (at start): {err}");
-                            continue;
-                        }
-                    };
-
-                    timeline
-                        .handle_local_event(
-                            echo.transaction_id,
-                            TimelineEventKind::Message { content, relations: Default::default() },
-                            Some(echo.abort_handle),
-                        )
-                        .await;
+                    handle_local_echo(echo, &timeline).await;
                 }
 
                 let span = info_span!(parent: Span::none(), "local_echo_handler", room_id = ?room.room_id());
@@ -300,29 +286,8 @@ impl TimelineBuilder {
                     loop {
                         match listener.recv().await {
                             Ok(update) => match update {
-                                RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
-                                    transaction_id,
-                                    serialized_event,
-                                    abort_handle,
-                                }) => {
-                                    let content = match serialized_event.deserialize() {
-                                        Ok(d) => d,
-                                        Err(err) => {
-                                            warn!("error deserializing local echo (live): {err}");
-                                            continue;
-                                        }
-                                    };
-
-                                    timeline
-                                        .handle_local_event(
-                                            transaction_id,
-                                            TimelineEventKind::Message {
-                                                content,
-                                                relations: Default::default(),
-                                            },
-                                            Some(abort_handle),
-                                        )
-                                        .await;
+                                RoomSendQueueUpdate::NewLocalEvent(echo) => {
+                                    handle_local_echo(echo, &timeline).await;
                                 }
 
                                 RoomSendQueueUpdate::CancelledLocalEvent { transaction_id } => {
@@ -441,5 +406,43 @@ impl TimelineBuilder {
         }
 
         Ok(timeline)
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("local echo failed to send in a previous session")]
+struct MissingLocalEchoFailError;
+
+async fn handle_local_echo(echo: LocalEcho, timeline: &TimelineInner) {
+    let content = match echo.serialized_event.deserialize() {
+        Ok(d) => d,
+        Err(err) => {
+            warn!("error deserializing local echo (at start): {err}");
+            return;
+        }
+    };
+
+    timeline
+        .handle_local_event(
+            echo.transaction_id.clone(),
+            TimelineEventKind::Message { content, relations: Default::default() },
+            Some(echo.abort_handle),
+        )
+        .await;
+
+    if echo.is_wedged {
+        timeline
+            .update_event_send_state(
+                &echo.transaction_id,
+                EventSendState::SendingFailed {
+                    // Put a dummy error in this case, since we're not persisting the errors that
+                    // occurred in previous sessions.
+                    error: Arc::new(matrix_sdk::Error::UnknownError(Box::new(
+                        MissingLocalEchoFailError,
+                    ))),
+                    is_recoverable: false,
+                },
+            )
+            .await;
     }
 }

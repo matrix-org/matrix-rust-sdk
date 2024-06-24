@@ -58,6 +58,8 @@ macro_rules! assert_update {
                 serialized_event,
                 transaction_id: txn,
                 abort_handle,
+                // New local echoes should always start as not wedged.
+                is_wedged: false,
             }))) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
 

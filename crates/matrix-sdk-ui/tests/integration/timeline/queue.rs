@@ -216,6 +216,84 @@ async fn test_retry_order() {
 }
 
 #[async_test]
+async fn test_reloaded_failed_local_echoes_are_marked_as_failed() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+
+    let (client, server) = logged_in_client_with_server().await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut sync_response_builder = SyncResponseBuilder::new();
+    sync_response_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_response_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = Arc::new(room.timeline().await.unwrap());
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    // When trying to send an event, return with a 500 error, which is interpreted
+    // as a transient error.
+    server.reset().await;
+    mock_encryption_state(&server, false).await;
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(413).set_body_json(json!({
+            // From https://spec.matrix.org/v1.10/client-server-api/#standard-error-response
+            "errcode": "M_TOO_LARGE",
+            "error": "Sounds like you have a lot to say!"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // Sending an event will respond with a 500, resulting in a failed-to-send
+    // state.
+    timeline.send(RoomMessageEventContent::text_plain("wall of text").into()).await.unwrap();
+
+    // Let the send queue handle the event.
+    yield_now().await;
+
+    // Local echoes are available after the send queue has processed these.
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
+        assert_eq!(value.content().as_message().unwrap().body(), "wall of text");
+    });
+
+    // Local echoes are updated with the failed send state as soon as the error
+    // response has been received.
+    assert_let!(Some(VectorDiff::Set { index: 0, value: first }) = timeline_stream.next().await);
+    let (error, is_recoverable) = assert_matches!(first.send_state().unwrap(), EventSendState::SendingFailed { error, is_recoverable } => (error, is_recoverable));
+
+    // The error is not recoverable.
+    assert!(!is_recoverable);
+    // And it's properly pattern-matched.
+    assert_matches!(
+        error.as_client_api_error().unwrap().error_kind(),
+        Some(ruma::api::client::error::ErrorKind::TooLarge)
+    );
+
+    assert_pending!(timeline_stream);
+
+    // Recreating a new timeline will show the wedged local echo.
+    let timeline = Arc::new(room.timeline().await.unwrap());
+    let (initial, _) = timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    assert_eq!(initial.len(), 1);
+    assert_eq!(initial[0].content().as_message().unwrap().body(), "wall of text");
+    assert_let!(
+        Some(EventSendState::SendingFailed { error, is_recoverable }) = initial[0].send_state()
+    );
+
+    // Same recoverable status as above.
+    assert!(!is_recoverable);
+    // But the error details have been lost.
+    assert!(error.as_client_api_error().is_none());
+}
+
+#[async_test]
 async fn test_clear_with_echoes() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
