@@ -65,8 +65,8 @@ pub enum CollectStrategy {
         /// conversation. A device is trusted if any of the following is true:
         ///     - It was manually marked as trusted.
         ///     - It was marked as verified via interactive verification.
-        ///     - It is signed by its owner identity, and this identity has
-        ///       been trusted via interactive verification.
+        ///     - It is signed by its owner identity, and this identity has been
+        ///       trusted via interactive verification.
         ///     - It is the current own device of the user.
         only_allow_trusted_devices: bool,
     }, // XXX some new strategy to be defined later
@@ -140,38 +140,7 @@ impl CollectRecipientsHelper {
         // of the devices in the session got deleted or blacklisted in the
         // meantime. If so, we should also rotate the session.
         if !should_rotate {
-            for (user_id, devices) in &sharing_result.allowed_devices {
-                // Device IDs that should receive this session
-                let recipient_device_ids: BTreeSet<&DeviceId> =
-                    devices.iter().map(|d| d.device_id()).collect();
-
-                if let Some(shared) = outbound.shared_with_set.read().unwrap().get(user_id) {
-                    // Devices that received this session
-                    let shared: BTreeSet<OwnedDeviceId> = shared.keys().cloned().collect();
-                    let shared: BTreeSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
-
-                    // The set difference between
-                    //
-                    // 1. Devices that had previously received the session, and
-                    // 2. Devices that would now receive the session
-                    //
-                    // Represents newly deleted, unauthorised or blacklisted devices. If this
-                    // set is non-empty, we must rotate.
-                    let newly_excluded =
-                        shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
-
-                    should_rotate = !newly_excluded.is_empty();
-                    if should_rotate {
-                        // We have concluded that it should rotate, no need to continue checking
-                        // other users
-                        debug!(
-                                "Rotating a room key due to at least these devices being deleted/blacklisted {:?}",
-                                newly_excluded,
-                            );
-                        break;
-                    }
-                };
-            }
+            should_rotate = has_newly_excluded_devices(&sharing_result, outbound);
         }
 
         trace!(should_rotate, "Done calculating group session recipients");
@@ -184,7 +153,6 @@ impl CollectRecipientsHelper {
     }
 
     async fn collect_session_recipients_device_based(
-        // &self,
         store: &Store,
         users: BTreeSet<&UserId>,
         only_allow_trusted_devices: bool,
@@ -234,6 +202,53 @@ impl CollectRecipientsHelper {
 
         Ok(KeySharingResult { allowed_devices, withheld_devices })
     }
+}
+
+/// The outbound session struct stores to what devices it was already shared.
+/// If one of the device the session was already shared with is not anymore in
+/// the set to share with, the outbound session should be rotated to deny access
+/// to future messages by the removed devices.
+fn has_newly_excluded_devices(
+    sharing_result: &KeySharingResult,
+    outbound: &OutboundGroupSession,
+) -> bool {
+    // Earlier in the flow we already checked if a user has left, so we just need to
+    // check if the users that we are going to share with have a
+    // deleted/unauthorised device.
+    for (user_id, devices) in &sharing_result.allowed_devices {
+        // Device IDs that should receive this session
+        let recipient_device_ids: BTreeSet<&DeviceId> =
+            devices.iter().map(|d| d.device_id()).collect();
+
+        if let Some(shared) = outbound.shared_with_set.read().unwrap().get(user_id) {
+            // Devices that received this session
+            let shared: BTreeSet<OwnedDeviceId> = shared.keys().cloned().collect();
+            let shared: BTreeSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
+
+            // The set difference between
+            //
+            // 1. Devices that had previously received the session, and
+            // 2. Devices that would now receive the session
+            //
+            // Represents newly deleted, unauthorised or blacklisted devices. If this
+            // set is non-empty, we must rotate.
+            let newly_excluded = shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
+
+            if !newly_excluded.is_empty() {
+                // We have concluded that it should rotate, no need to continue checking
+                // other users
+                debug!(
+                    "Rotating a room key due to at least these devices being deleted/blacklisted {:?}",
+                    newly_excluded,
+                );
+                return true;
+            }
+        }
+    }
+    // We reach this point if there are no removed devices or if the new set of
+    // device to share with is empty. If the set to share with is empty we don't
+    // need to rotate yet as no new device would receive the key anyhow
+    false
 }
 
 #[cfg(test)]
@@ -388,13 +403,16 @@ mod tests {
 
         assert_eq!(dan_devices_shared.len(), 1);
         let dan_device_that_will_get_the_key = &dan_devices_shared[0];
-        assert_eq!(dan_device_that_will_get_the_key.device_id().as_str(), "JHPUERYQUW");
+        assert_eq!(
+            dan_device_that_will_get_the_key.device_id().as_str(),
+            KeyDistributionTestData::dan_signed_device_id()
+        );
 
-        // Check withthelds for others
+        // Check withhelds for others
         let (_, code) = share_result
             .withheld_devices
             .iter()
-            .find(|(d, _)| d.device_id().as_str() == "FRGNMZVOKA")
+            .find(|(d, _)| d.device_id() == KeyDistributionTestData::dan_unsigned_device_id())
             .expect("This dan's device should receive a withheld code");
 
         assert_eq!(code.as_str(), WithheldCode::Unverified.as_str());
@@ -402,7 +420,7 @@ mod tests {
         let (_, code) = share_result
             .withheld_devices
             .iter()
-            .find(|(d, _)| d.device_id().as_str() == "HVCXJTHMBM")
+            .find(|(d, _)| d.device_id() == KeyDistributionTestData::dave_device_id())
             .expect("This daves's device should receive a withheld code");
 
         assert_eq!(code.as_str(), WithheldCode::Unverified.as_str());
@@ -494,6 +512,57 @@ mod tests {
         let encryption_settings =
             EncryptionSettings { sharing_strategy: updated_strategy, ..Default::default() };
 
+        let share_result = CollectRecipientsHelper::collect_session_recipients(
+            &encryption_settings,
+            machine.store(),
+            vec![KeyDistributionTestData::dan_id()].into_iter(),
+            &group_session,
+        )
+        .await
+        .unwrap();
+
+        assert!(share_result.should_rotate);
+    }
+
+    /// Test that the session is rotated when a device is removed from the
+    /// recipients. In that case we simulate that dan has logged out one of
+    /// his devices.
+    #[async_test]
+    async fn test_should_rotate_based_on_device_excluded() {
+        let machine = set_up_test_machine().await;
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_device_based(false);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let requests = machine
+            .share_room_key(
+                fake_room_id,
+                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                encryption_settings.clone(),
+            )
+            .await
+            .unwrap();
+
+        for r in requests {
+            machine
+                .inner
+                .group_session_manager
+                .mark_request_as_sent(r.as_ref().txn_id.as_ref())
+                .await
+                .unwrap();
+        }
+        // Try to share again after dan has removed one of his devices
+        let keys_query = KeyDistributionTestData::dan_keys_query_response_device_loggedout();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let group_session =
+            machine.store().get_outbound_group_session(fake_room_id).await.unwrap().unwrap();
+        // share again
         let share_result = CollectRecipientsHelper::collect_session_recipients(
             &encryption_settings,
             machine.store(),
