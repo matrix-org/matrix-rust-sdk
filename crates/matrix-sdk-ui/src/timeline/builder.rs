@@ -267,10 +267,10 @@ impl TimelineBuilder {
         });
 
         let local_echo_listener_handle = if is_live {
-            Some(spawn({
-                let timeline = inner.clone();
-                let (local_echoes, mut listener) = room.send_queue().subscribe().await;
+            let timeline = inner.clone();
+            let (local_echoes, mut listener) = room.send_queue().subscribe().await?;
 
+            Some(spawn({
                 // Handles existing local echoes first.
                 for echo in local_echoes {
                     timeline
@@ -318,11 +318,15 @@ impl TimelineBuilder {
                                     }
                                 }
 
-                                RoomSendQueueUpdate::SendError { transaction_id, error } => {
+                                RoomSendQueueUpdate::SendError {
+                                    transaction_id,
+                                    error,
+                                    is_recoverable,
+                                } => {
                                     timeline
                                         .update_event_send_state(
                                             &transaction_id,
-                                            EventSendState::SendingFailed { error },
+                                            EventSendState::SendingFailed { error, is_recoverable },
                                         )
                                         .await;
                                 }

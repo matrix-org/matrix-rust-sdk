@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
-
 use matrix_sdk::{
     event_cache::{paginator::PaginatorError, EventCacheError},
-    send_queue::RoomSendQueueError,
+    send_queue::{RoomSendQueueError, RoomSendQueueStorageError},
 };
 use ruma::OwnedTransactionId;
 use thiserror::Error;
@@ -68,6 +66,10 @@ pub enum Error {
     /// An error happened during pagination.
     #[error("An error happened during pagination.")]
     PaginationError(#[from] PaginationError),
+
+    /// An error happened while operating the room's send queue.
+    #[error(transparent)]
+    SendQueueError(#[from] RoomSendQueueError),
 }
 
 #[derive(Error, Debug)]
@@ -81,50 +83,22 @@ pub enum PaginationError {
     Paginator(#[source] PaginatorError),
 }
 
-#[derive(Error)]
-#[error("{0}")]
-pub struct UnsupportedReplyItem(UnsupportedReplyItemInner);
-
-impl UnsupportedReplyItem {
-    pub(super) const MISSING_EVENT_ID: Self = Self(UnsupportedReplyItemInner::MissingEventId);
-    pub(super) const MISSING_JSON: Self = Self(UnsupportedReplyItemInner::MissingJson);
-}
-
-#[cfg(not(tarpaulin_include))]
-impl fmt::Debug for UnsupportedReplyItem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
 #[derive(Debug, Error)]
-enum UnsupportedReplyItemInner {
+pub enum UnsupportedReplyItem {
     #[error("local messages whose event ID is not known can't be replied to currently")]
     MissingEventId,
     #[error("redacted events whose JSON form isn't available can't be replied")]
     MissingJson,
-}
-
-#[derive(Error)]
-#[error("{0}")]
-pub struct UnsupportedEditItem(UnsupportedEditItemInner);
-
-impl UnsupportedEditItem {
-    pub(super) const MISSING_EVENT_ID: Self = Self(UnsupportedEditItemInner::MissingEventId);
-    pub(super) const NOT_ROOM_MESSAGE: Self = Self(UnsupportedEditItemInner::NotRoomMessage);
-    pub(super) const NOT_POLL_EVENT: Self = Self(UnsupportedEditItemInner::NotPollEvent);
-    pub(super) const NOT_OWN_EVENT: Self = Self(UnsupportedEditItemInner::NotOwnEvent);
-}
-
-#[cfg(not(tarpaulin_include))]
-impl fmt::Debug for UnsupportedEditItem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
+    #[error("event to reply to not found")]
+    MissingEvent,
+    #[error("failed to deserialize event to reply to")]
+    FailedToDeserializeEvent,
+    #[error("tried to reply to a state event")]
+    StateEvent,
 }
 
 #[derive(Debug, Error)]
-enum UnsupportedEditItemInner {
+pub enum UnsupportedEditItem {
     #[error("local messages whose event ID is not known can't be edited currently")]
     MissingEventId,
     #[error("tried to edit a non-message event")]
@@ -133,6 +107,10 @@ enum UnsupportedEditItemInner {
     NotPollEvent,
     #[error("tried to edit another user's event")]
     NotOwnEvent,
+    #[error("event to edit not found")]
+    MissingEvent,
+    #[error("failed to deserialize event to edit")]
+    FailedToDeserializeEvent,
 }
 
 #[derive(Debug, Error)]
@@ -144,7 +122,7 @@ pub enum SendEventError {
     UnsupportedEditItem(#[from] UnsupportedEditItem),
 
     #[error(transparent)]
-    SendError(#[from] RoomSendQueueError),
+    RoomQueueError(#[from] RoomSendQueueError),
 }
 
 #[derive(Debug, Error)]
@@ -154,4 +132,7 @@ pub enum RedactEventError {
 
     #[error(transparent)]
     SdkError(#[from] matrix_sdk::Error),
+
+    #[error("an error happened while interacting with the room queue")]
+    RoomQueueError(#[source] RoomSendQueueStorageError),
 }

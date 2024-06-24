@@ -416,6 +416,10 @@ async fn test_timeline_duplicated_events() -> Result<()> {
         assert_timeline_stream! {
             [timeline_stream]
             update[3] "$x3:bar.org";
+            update[1] "$x1:bar.org";
+            remove[1];
+            append    "$x1:bar.org";
+            update[3] "$x1:bar.org";
             append    "$x4:bar.org";
         };
     }

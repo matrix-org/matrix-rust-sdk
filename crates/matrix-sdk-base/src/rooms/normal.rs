@@ -29,7 +29,7 @@ use ruma::events::AnySyncTimelineEvent;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
-        call::member::Membership,
+        call::member::MembershipData,
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
@@ -110,26 +110,36 @@ pub struct Room {
 /// calculate the room display name.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct RoomSummary {
-    /// The heroes of the room, members that should be used for the room display
-    /// name.
+    /// The heroes of the room, members that can be used as a fallback for the
+    /// room's display name or avatar if these haven't been set.
     ///
     /// This was called `heroes` and contained raw `String`s of the `UserId`
-    /// before; changing the field's name helped with avoiding a migration.
+    /// before. Following this it was called `heroes_user_ids` and a
+    /// complimentary `heroes_names` existed too; changing the field's name
+    /// helped with avoiding a migration.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) heroes_user_ids: Vec<OwnedUserId>,
-    /// The heroes names, as returned by a server, if available.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) heroes_names: Vec<String>,
+    pub(crate) room_heroes: Vec<RoomHero>,
     /// The number of members that are considered to be joined to the room.
     pub(crate) joined_member_count: u64,
     /// The number of members that are considered to be invited to the room.
     pub(crate) invited_member_count: u64,
 }
 
+/// Information about a member considered to be a room hero.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RoomHero {
+    /// The user id of the hero.
+    pub user_id: OwnedUserId,
+    /// The display name of the hero.
+    pub display_name: Option<String>,
+    /// The avatar url of the hero.
+    pub avatar_url: Option<OwnedMxcUri>,
+}
+
 #[cfg(test)]
 impl RoomSummary {
-    pub(crate) fn heroes(&self) -> &[OwnedUserId] {
-        &self.heroes_user_ids
+    pub(crate) fn heroes(&self) -> &[RoomHero] {
+        &self.room_heroes
     }
 }
 
@@ -462,7 +472,7 @@ impl Room {
 
     /// Returns a Vec of userId's that participate in the room call.
     ///
-    /// matrix_rtc memberships with application "m.call" and scope "m.room" are
+    /// MatrixRTC memberships with application "m.call" and scope "m.room" are
     /// considered. A user can occur twice if they join with two devices.
     /// convert to a set depending if the different users are required or the
     /// amount of sessions.
@@ -517,21 +527,26 @@ impl Room {
         // From here, use some heroes to compute the room's name.
         let own_user_id = self.own_user_id().as_str();
 
-        let (heroes, num_joined_guess): (Vec<String>, _) = if !summary.heroes_names.is_empty() {
-            // Straightforward path: pass through the heroes names, don't give a guess of
-            // the number of members.
-            (summary.heroes_names, None)
-        } else if !summary.heroes_user_ids.is_empty() {
-            // Use the heroes, if available.
-            let heroes = summary.heroes_user_ids;
-
-            let mut names = Vec::with_capacity(heroes.len());
-            for user_id in heroes {
-                if user_id == own_user_id {
+        let (heroes, num_joined_guess): (Vec<String>, _) = if !summary.room_heroes.is_empty() {
+            let mut names = Vec::with_capacity(summary.room_heroes.len());
+            for hero in &summary.room_heroes {
+                if hero.user_id == own_user_id {
                     continue;
                 }
-                if let Some(member) = self.get_member(&user_id).await? {
-                    names.push(member.name().to_owned());
+                if let Some(display_name) = &hero.display_name {
+                    names.push(display_name.clone());
+                    continue;
+                }
+                match self.get_member(&hero.user_id).await {
+                    Ok(Some(member)) => {
+                        names.push(member.name().to_owned());
+                    }
+                    Ok(None) => {
+                        warn!("Ignoring hero, no member info for {}", hero.user_id);
+                    }
+                    Err(error) => {
+                        warn!("Ignoring hero, error getting member: {}", error);
+                    }
                 }
             }
 
@@ -692,6 +707,11 @@ impl Room {
         }
 
         Ok(members)
+    }
+
+    /// Get the heroes for this room.
+    pub fn heroes(&self) -> Vec<RoomHero> {
+        self.inner.read().heroes().to_vec()
     }
 
     /// Get the list of `RoomMember`s that are considered to be joined members
@@ -1128,7 +1148,16 @@ impl RoomInfo {
 
         if !summary.is_empty() {
             if !summary.heroes.is_empty() {
-                self.summary.heroes_user_ids = summary.heroes.clone();
+                self.summary.room_heroes = summary
+                    .heroes
+                    .iter()
+                    .map(|hero_id| RoomHero {
+                        user_id: hero_id.to_owned(),
+                        display_name: None,
+                        avatar_url: None,
+                    })
+                    .collect();
+
                 changed = true;
             }
 
@@ -1158,11 +1187,15 @@ impl RoomInfo {
         self.summary.invited_member_count = count;
     }
 
-    /// Updates the heroes user ids.
+    /// Updates the room heroes.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub(crate) fn update_heroes(&mut self, heroes: Vec<OwnedUserId>, names: Vec<String>) {
-        self.summary.heroes_user_ids = heroes;
-        self.summary.heroes_names = names;
+    pub(crate) fn update_heroes(&mut self, heroes: Vec<RoomHero>) {
+        self.summary.room_heroes = heroes;
+    }
+
+    /// The heroes for this room.
+    pub fn heroes(&self) -> &[RoomHero] {
+        &self.summary.room_heroes
     }
 
     /// The number of active members (invited + joined) in the room.
@@ -1289,7 +1322,7 @@ impl RoomInfo {
     /// associated UserId's in this room.
     ///
     /// The vector is ordered by oldest membership to newest.
-    fn active_matrix_rtc_memberships(&self) -> Vec<(OwnedUserId, &Membership)> {
+    fn active_matrix_rtc_memberships(&self) -> Vec<(OwnedUserId, MembershipData<'_>)> {
         let mut v = self
             .base_info
             .rtc_member
@@ -1304,7 +1337,7 @@ impl RoomInfo {
             })
             .flatten()
             .collect::<Vec<_>>();
-        v.sort_by_key(|(_, m)| m.created_ts);
+        v.sort_by_key(|(_, m)| m.created_ts());
         v
     }
 
@@ -1313,7 +1346,7 @@ impl RoomInfo {
     /// returns Memberships with application "m.call" and scope "m.room".
     ///
     /// The vector is ordered by oldest membership user to newest.
-    fn active_room_call_memberships(&self) -> Vec<(OwnedUserId, &Membership)> {
+    fn active_room_call_memberships(&self) -> Vec<(OwnedUserId, MembershipData<'_>)> {
         self.active_matrix_rtc_memberships()
             .into_iter()
             .filter(|(_user_id, m)| m.is_room_call())
@@ -1485,8 +1518,9 @@ mod tests {
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         events::{
             call::member::{
-                Application, CallApplicationContent, CallMemberEventContent, Focus, LivekitFocus,
-                Membership, MembershipInit, OriginalSyncCallMemberEvent,
+                Application, CallApplicationContent, CallMemberEventContent, Focus,
+                LegacyMembershipData, LegacyMembershipDataInit, LivekitFocus,
+                OriginalSyncCallMemberEvent,
             },
             room::{
                 canonical_alias::RoomCanonicalAliasEventContent,
@@ -1508,7 +1542,7 @@ mod tests {
 
     #[cfg(feature = "experimental-sliding-sync")]
     use super::SyncInfo;
-    use super::{compute_display_name_from_heroes, Room, RoomInfo, RoomState};
+    use super::{compute_display_name_from_heroes, Room, RoomHero, RoomInfo, RoomState};
     #[cfg(any(feature = "experimental-sliding-sync", feature = "e2e-encryption"))]
     use crate::latest_event::LatestEvent;
     use crate::{
@@ -1535,8 +1569,11 @@ mod tests {
                 notification_count: 2,
             },
             summary: RoomSummary {
-                heroes_user_ids: vec![owned_user_id!("@somebody:example.org")],
-                heroes_names: vec![],
+                room_heroes: vec![RoomHero {
+                    user_id: owned_user_id!("@somebody:example.org"),
+                    display_name: None,
+                    avatar_url: None,
+                }],
                 joined_member_count: 5,
                 invited_member_count: 0,
             },
@@ -1561,7 +1598,11 @@ mod tests {
                 "notification_count": 2,
             },
             "summary": {
-                "heroes_user_ids": ["@somebody:example.org"],
+                "room_heroes": [{
+                    "user_id": "@somebody:example.org",
+                    "display_name": null,
+                    "avatar_url": null
+                }],
                 "joined_member_count": 5,
                 "invited_member_count": 0,
             },
@@ -1613,7 +1654,7 @@ mod tests {
         // The following JSON should never change if we want to be able to read in old
         // cached state
 
-        use ruma::owned_user_id;
+        use ruma::{owned_mxc_uri, owned_user_id};
         let info_json = json!({
             "room_id": "!gda78o:server.tld",
             "room_state": "Invited",
@@ -1622,8 +1663,11 @@ mod tests {
                 "notification_count": 2,
             },
             "summary": {
-                "heroes_user_ids": ["@somebody:example.org"],
-                "heroes_names": ["Somebody"],
+                "room_heroes": [{
+                    "user_id": "@somebody:example.org",
+                    "display_name": "Somebody",
+                    "avatar_url": "mxc://example.org/abc"
+                }],
                 "joined_member_count": 5,
                 "invited_member_count": 0,
             },
@@ -1654,8 +1698,14 @@ mod tests {
         assert_eq!(info.room_state, RoomState::Invited);
         assert_eq!(info.notification_counts.highlight_count, 1);
         assert_eq!(info.notification_counts.notification_count, 2);
-        assert_eq!(info.summary.heroes_user_ids, vec![owned_user_id!("@somebody:example.org")]);
-        assert_eq!(info.summary.heroes_names, vec!["Somebody".to_owned()]);
+        assert_eq!(
+            info.summary.room_heroes,
+            vec![RoomHero {
+                user_id: owned_user_id!("@somebody:example.org"),
+                display_name: Some("Somebody".to_owned()),
+                avatar_url: Some(owned_mxc_uri!("mxc://example.org/abc")),
+            }]
+        );
         assert_eq!(info.summary.joined_member_count, 5);
         assert_eq!(info.summary.invited_member_count, 0);
         assert!(info.members_synced);
@@ -2341,11 +2391,11 @@ mod tests {
     }
 
     fn call_member_state_event(
-        memberships: Vec<Membership>,
+        memberships: Vec<LegacyMembershipData>,
         ev_id: &str,
         user_id: &UserId,
     ) -> AnySyncStateEvent {
-        let content = CallMemberEventContent::new(memberships);
+        let content = CallMemberEventContent::new_legacy(memberships);
 
         AnySyncStateEvent::CallMember(SyncStateEvent::Original(OriginalSyncCallMemberEvent {
             content,
@@ -2363,7 +2413,7 @@ mod tests {
         device_id: &str,
         membership_id: &str,
         minutes_ago: u32,
-    ) -> Membership {
+    ) -> LegacyMembershipData {
         let application = Application::Call(CallApplicationContent::new(
             "my_call_id_1".to_owned(),
             ruma::events::call::member::CallScope::Room,
@@ -2374,7 +2424,7 @@ mod tests {
         ))];
 
         assign!(
-            Membership::from(MembershipInit {
+            LegacyMembershipData::from(LegacyMembershipDataInit {
                 application,
                 device_id: device_id.to_owned(),
                 expires: Duration::from_millis(3_600_000),

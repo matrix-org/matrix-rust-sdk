@@ -55,6 +55,12 @@ pub enum EventSendState {
     SendingFailed {
         /// Details about how sending the event failed.
         error: Arc<Error>,
+        /// Whether the error is considered recoverable or not.
+        ///
+        /// An error that's recoverable will disable the room's send queue,
+        /// while an unrecoverable error will be parked, until the user
+        /// decides to cancel sending it.
+        is_recoverable: bool,
     },
     /// The local event has been sent successfully to the server.
     Sent {

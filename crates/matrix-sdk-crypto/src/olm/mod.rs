@@ -51,7 +51,7 @@ pub(crate) mod tests {
         serde::Raw,
         user_id, DeviceId, UserId,
     };
-    use serde_json::{json, Value};
+    use serde_json::{from_value, json, Value};
     use vodozemac::{
         olm::{OlmMessage, SessionConfig},
         Curve25519PublicKey, Ed25519PublicKey,
@@ -250,7 +250,7 @@ pub(crate) mod tests {
 
         if let AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
             MessageLikeEvent::Original(e),
-        )) = decrypted.deserialize().unwrap()
+        )) = from_value(decrypted.into()).unwrap()
         {
             assert_matches!(e.content.relates_to, Some(Relation::Replacement(_)));
         } else {

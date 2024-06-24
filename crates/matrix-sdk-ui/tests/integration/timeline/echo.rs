@@ -63,7 +63,7 @@ async fn test_echo() {
         .and(header("authorization", "Bearer 1234"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(&json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })),
+                .set_body_json(json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })),
         )
         .mount(&server)
         .await;
@@ -138,9 +138,6 @@ async fn test_retry_failed() {
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
 
     client.send_queue().set_enabled(true);
 
@@ -149,34 +146,52 @@ async fn test_retry_failed() {
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
+    // When trying to send an event, return with a 500 error, which is interpreted
+    // as a transient error.
+    server.reset().await;
+    mock_encryption_state(&server, false).await;
+    let scoped_faulty_send = Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(3)
+        .mount_as_scoped(&server)
+        .await;
+
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await.unwrap();
 
     // Let the send queue handle the event.
     yield_now().await;
 
-    // First, local echo is added
+    // First, local echo is added.
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
         assert_matches!(value.send_state(), Some(EventSendState::NotSentYet));
     });
 
-    // Sending fails, the mock server has no matching route yet
+    // Sending fails, because the error is a transient one that's recoverable,
+    // indicating something's wrong on the client side.
     assert_let!(Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next().await);
-    assert_matches!(item.send_state(), Some(EventSendState::SendingFailed { .. }));
-
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(&json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })),
-        )
-        .mount(&server)
-        .await;
+    assert_matches!(
+        item.send_state(),
+        Some(EventSendState::SendingFailed { is_recoverable: true, .. })
+    );
 
     // This doesn't disable the send queue at the global level…
     assert!(client.send_queue().is_enabled());
     // …but does so at the local level.
     assert!(!room.send_queue().is_enabled());
+
+    // Have the endpoint return a success result, and re-enable the queue.
+    drop(scoped_faulty_send);
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })),
+        )
+        .mount(&server)
+        .await;
 
     room.send_queue().set_enabled(true);
 
@@ -214,7 +229,7 @@ async fn test_dedup_by_event_id_late() {
         .and(header("authorization", "Bearer 1234"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(&json!({ "event_id": event_id }))
+                .set_body_json(json!({ "event_id": event_id }))
                 // Not great to use a timer for this, but it's what wiremock gives us right now.
                 // Ideally we'd wait on a channel to produce a value or sth. like that.
                 .set_delay(Duration::from_millis(100)),
@@ -297,7 +312,7 @@ async fn test_cancel_failed() {
     assert_matches!(value.send_state(), Some(EventSendState::SendingFailed { .. }));
 
     // Discard, assert the local echo is found
-    assert!(handle.abort().await);
+    assert!(handle.abort().await.unwrap());
 
     // Observable local echo being removed
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 0 }));

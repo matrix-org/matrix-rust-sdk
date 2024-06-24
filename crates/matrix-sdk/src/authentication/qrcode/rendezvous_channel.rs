@@ -96,7 +96,7 @@ fn response_to_error(status: StatusCode, body: Vec<u8>) -> HttpError {
 
             error.into()
         }
-        Err(e) => e.into(),
+        Err(e) => HttpError::IntoHttp(e),
     }
 }
 

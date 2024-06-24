@@ -454,10 +454,17 @@ impl Timeline {
     pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
-        reply_item: Arc<EventTimelineItem>,
+        event_id: String,
     ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let replied_to_info = self
+            .inner
+            .replied_to_info_from_event_id(&event_id)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
+
         self.inner
-            .send_reply((*msg).clone(), &reply_item.0, ForwardThread::Yes)
+            .send_reply((*msg).clone(), replied_to_info, ForwardThread::Yes)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
@@ -466,10 +473,17 @@ impl Timeline {
     pub async fn edit(
         &self,
         new_content: Arc<RoomMessageEventContentWithoutRelation>,
-        edit_item: Arc<EventTimelineItem>,
+        event_id: String,
     ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let edit_info = self
+            .inner
+            .edit_info_from_event_id(&event_id)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
+
         self.inner
-            .edit((*new_content).clone(), &edit_item.0)
+            .edit((*new_content).clone(), edit_info)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
@@ -647,12 +661,15 @@ impl AbortSendHandle {
     ///
     /// This has an effect only on the first call; subsequent calls will always
     /// return `false`.
-    async fn abort(self: Arc<Self>) -> bool {
+    async fn abort(self: Arc<Self>) -> Result<bool, ClientError> {
         if let Some(inner) = self.inner.lock().await.take() {
-            inner.abort().await
+            Ok(inner
+                .abort()
+                .await
+                .map_err(|err| anyhow::anyhow!("error when saving in store: {err}"))?)
         } else {
             warn!("trying to abort an send handle that's already been actioned");
-            false
+            Ok(false)
         }
     }
 }
@@ -852,7 +869,16 @@ pub enum EventSendState {
     NotSentYet,
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
-    SendingFailed { error: String },
+    SendingFailed {
+        /// Stringified error message.
+        error: String,
+        /// Whether the error is considered recoverable or not.
+        ///
+        /// An error that's recoverable will disable the room's send queue,
+        /// while an unrecoverable error will be parked, until the user
+        /// decides to cancel sending it.
+        is_recoverable: bool,
+    },
     /// The local event has been sent successfully to the server.
     Sent { event_id: String },
 }
@@ -863,7 +889,9 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
 
         match value {
             NotSentYet => Self::NotSentYet,
-            SendingFailed { error } => Self::SendingFailed { error: error.to_string() },
+            SendingFailed { error, is_recoverable } => {
+                Self::SendingFailed { error: error.to_string(), is_recoverable: *is_recoverable }
+            }
             Sent { event_id } => Self::Sent { event_id: event_id.to_string() },
         }
     }

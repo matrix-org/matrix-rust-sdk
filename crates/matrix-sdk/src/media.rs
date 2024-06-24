@@ -271,6 +271,7 @@ impl Media {
 
         let content: Vec<u8> = match &request.source {
             MediaSource::Encrypted(file) => {
+                #[allow(deprecated)]
                 let request = get_content::v3::Request::from_url(&file.url)?;
                 let content: Vec<u8> = self.client.send(request, None).await?.file;
 
@@ -296,10 +297,12 @@ impl Media {
             }
             MediaSource::Plain(uri) => {
                 if let MediaFormat::Thumbnail(size) = &request.format {
+                    #[allow(deprecated)]
                     let request =
                         get_content_thumbnail::v3::Request::from_url(uri, size.width, size.height)?;
                     self.client.send(request, None).await?.file
                 } else {
+                    #[allow(deprecated)]
                     let request = get_content::v3::Request::from_url(uri)?;
                     self.client.send(request, None).await?.file
                 }

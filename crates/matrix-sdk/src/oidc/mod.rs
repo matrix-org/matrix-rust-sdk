@@ -170,6 +170,7 @@ use std::{collections::HashMap, fmt, sync::Arc};
 use as_variant::as_variant;
 use eyeball::SharedObservable;
 use futures_core::Stream;
+use http::StatusCode;
 pub use mas_oidc_client::{error, requests, types};
 use mas_oidc_client::{
     requests::{
@@ -178,10 +179,11 @@ use mas_oidc_client::{
     },
     types::{
         client_credentials::ClientCredentials,
-        errors::ClientError,
+        errors::{ClientError, ClientErrorCode::AccessDenied},
         iana::oauth::OAuthTokenTypeHint,
         oidc::{AccountManagementAction, VerifiedProviderMetadata},
         registration::{ClientRegistrationResponse, VerifiedClientMetadata},
+        requests::Prompt,
         scope::{MatrixApiScopeToken, Scope, ScopeToken},
         IdToken,
     },
@@ -219,6 +221,7 @@ use self::{
 use crate::{
     authentication::{qrcode::LoginWithQrCode, AuthData},
     client::SessionChange,
+    oidc::registrations::{ClientId, OidcRegistrations},
     Client, HttpError, RefreshTokenError, Result,
 };
 
@@ -432,6 +435,160 @@ impl Oidc {
         client_metadata: VerifiedClientMetadata,
     ) -> LoginWithQrCode<'a> {
         LoginWithQrCode::new(&self.client, client_metadata, data)
+    }
+
+    /// A higher level wrapper around the configuration and login methods that
+    /// will take some client metadata, register the client if needed and begin
+    /// the login process, returning the authorization data required to show a
+    /// webview for a user to login to their account. Call
+    /// [`Oidc::login_with_oidc_callback`] to finish the process when the
+    /// webview is complete.
+    pub async fn url_for_oidc_login(
+        &self,
+        client_metadata: VerifiedClientMetadata,
+        registrations: OidcRegistrations,
+    ) -> Result<OidcAuthorizationData, OidcError> {
+        let issuer = match self.fetch_authentication_issuer().await {
+            Ok(issuer) => issuer,
+            Err(error) => {
+                if error
+                    .as_client_api_error()
+                    .is_some_and(|err| err.status_code == StatusCode::NOT_FOUND)
+                {
+                    return Err(OidcError::MissingAuthenticationIssuer);
+                } else {
+                    return Err(OidcError::UnknownError(Box::new(error)));
+                }
+            }
+        };
+
+        let redirect_uris =
+            client_metadata.redirect_uris.clone().ok_or(OidcError::MissingRedirectUri)?;
+
+        let redirect_url = redirect_uris.first().ok_or(OidcError::MissingRedirectUri)?;
+
+        self.configure(issuer, client_metadata, registrations).await?;
+
+        let mut data_builder = self.login(redirect_url.clone(), None)?;
+        data_builder = data_builder.prompt(vec![Prompt::Consent]);
+        let data = data_builder.build().await?;
+
+        Ok(data)
+    }
+
+    /// A higher level wrapper around the methods to complete a login after the
+    /// user has logged in through a webview. This method should be used in
+    /// tandem with [`Oidc::url_for_oidc_login`].
+    pub async fn login_with_oidc_callback(
+        &self,
+        authorization_data: &OidcAuthorizationData,
+        callback_url: Url,
+    ) -> Result<()> {
+        let response = AuthorizationResponse::parse_uri(&callback_url)
+            .or(Err(OidcError::InvalidCallbackUrl))?;
+
+        let code = match response {
+            AuthorizationResponse::Success(code) => code,
+            AuthorizationResponse::Error(err) => {
+                if err.error.error == AccessDenied {
+                    // The user cancelled the login in the web view.
+                    return Err(OidcError::CancelledAuthorization.into());
+                }
+                return Err(OidcError::Authorization(err).into());
+            }
+        };
+
+        // This check will also be done in `finish_authorization`, however it requires
+        // the client to have called `abort_authorization` which we can't guarantee so
+        // lets double check with their supplied authorization data to be safe.
+        if code.state != authorization_data.state {
+            return Err(OidcError::InvalidState.into());
+        };
+
+        self.finish_authorization(code).await?;
+        self.finish_login().await?;
+
+        Ok(())
+    }
+
+    /// Higher level wrapper that restores the OIDC client with automatic
+    /// static/dynamic client registration.
+    async fn configure(
+        &self,
+        issuer: String,
+        client_metadata: VerifiedClientMetadata,
+        registrations: OidcRegistrations,
+    ) -> std::result::Result<(), OidcError> {
+        if self.client_credentials().is_some() {
+            tracing::info!("OIDC is already configured.");
+            return Ok(());
+        };
+
+        if self.load_client_registration(issuer.clone(), client_metadata.clone(), &registrations) {
+            tracing::info!("OIDC configuration loaded from disk.");
+            return Ok(());
+        }
+
+        tracing::info!("Registering this client for OIDC.");
+        let registration_response =
+            self.register_client(&issuer, client_metadata.clone(), None).await?;
+
+        // The format of the credentials changes according to the client metadata that
+        // was sent. Public clients only get a client ID.
+        let credentials =
+            ClientCredentials::None { client_id: registration_response.client_id.clone() };
+        self.restore_registered_client(issuer, client_metadata, credentials);
+
+        tracing::info!("Persisting OIDC registration data.");
+        self.store_client_registration(&registrations)
+            .map_err(|e| OidcError::UnknownError(Box::new(e)))?;
+
+        Ok(())
+    }
+
+    /// Stores the current OIDC dynamic client registration so it can be re-used
+    /// if we ever log in via the same issuer again.
+    fn store_client_registration(
+        &self,
+        registrations: &OidcRegistrations,
+    ) -> std::result::Result<(), OidcError> {
+        let issuer = Url::parse(self.issuer().ok_or(OidcError::MissingAuthenticationIssuer)?)
+            .map_err(OidcError::Url)?;
+        let client_id =
+            self.client_credentials().ok_or(OidcError::NotRegistered)?.client_id().to_owned();
+
+        registrations
+            .set_and_write_client_id(ClientId(client_id), issuer)
+            .map_err(|e| OidcError::UnknownError(Box::new(e)))?;
+
+        Ok(())
+    }
+
+    /// Attempts to load an existing OIDC dynamic client registration for a
+    /// given issuer.
+    ///
+    /// Returns `true` if an existing registration was found and `false` if not.
+    fn load_client_registration(
+        &self,
+        issuer: String,
+        oidc_metadata: VerifiedClientMetadata,
+        registrations: &OidcRegistrations,
+    ) -> bool {
+        let Ok(issuer_url) = Url::parse(&issuer) else {
+            error!("Failed to parse {issuer:?}");
+            return false;
+        };
+        let Some(client_id) = registrations.client_id(&issuer_url) else {
+            return false;
+        };
+
+        self.restore_registered_client(
+            issuer,
+            oidc_metadata,
+            ClientCredentials::None { client_id: client_id.0 },
+        );
+
+        true
     }
 
     /// The OpenID Connect Provider used for authorization.
@@ -1499,6 +1656,14 @@ pub enum OidcError {
     #[error("no dynamic registration support")]
     NoRegistrationSupport,
 
+    /// The client has not registered while the operation requires it.
+    #[error("client not registered")]
+    NotRegistered,
+
+    /// The supplied redirect URIs are missing or empty.
+    #[error("missing or empty redirect URIs")]
+    MissingRedirectUri,
+
     /// The device ID was not returned by the homeserver after login.
     #[error("missing device ID in response")]
     MissingDeviceId,
@@ -1511,6 +1676,18 @@ pub enum OidcError {
     /// value.
     #[error("the supplied state is unexpected")]
     InvalidState,
+
+    /// The user cancelled authorization in the web view.
+    #[error("authorization cancelled")]
+    CancelledAuthorization,
+
+    /// The login was completed with an invalid callback.
+    #[error("the supplied callback URL is invalid")]
+    InvalidCallbackUrl,
+
+    /// An error occurred during authorization.
+    #[error("authorization failed")]
+    Authorization(AuthorizationError),
 
     /// The device ID is invalid.
     #[error("invalid device ID")]

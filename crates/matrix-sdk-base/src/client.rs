@@ -21,6 +21,10 @@ use std::{
 use std::{ops::Deref, sync::Arc};
 
 use eyeball::{SharedObservable, Subscriber};
+#[cfg(not(target_arch = "wasm32"))]
+use eyeball_im::{Vector, VectorDiff};
+#[cfg(not(target_arch = "wasm32"))]
+use futures_util::Stream;
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
@@ -167,6 +171,13 @@ impl BaseClient {
     /// Get all the rooms this client knows about, filtered by room state.
     pub fn rooms_filtered(&self, filter: RoomStateFilter) -> Vec<Room> {
         self.store.rooms_filtered(filter)
+    }
+
+    /// Get a stream of all the rooms changes, in addition to the existing
+    /// rooms.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>>) {
+        self.store.rooms_stream()
     }
 
     /// Lookup the Room for the given RoomId, or create one, if it didn't exist
@@ -1668,6 +1679,8 @@ mod tests {
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     #[async_test]
     async fn test_when_there_are_no_latest_encrypted_events_decrypting_them_does_nothing() {
+        use crate::StateChanges;
+
         // Given a room
         let user_id = user_id!("@u:u.to");
         let room_id = room_id!("!r:u.to");
@@ -1679,7 +1692,7 @@ mod tests {
         assert!(room.latest_event().is_none());
 
         // When I tell it to do some decryption
-        let mut changes = crate::StateChanges::default();
+        let mut changes = StateChanges::default();
         client.decrypt_latest_events(&room, &mut changes).await;
 
         // Then nothing changed

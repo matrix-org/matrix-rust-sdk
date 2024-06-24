@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     fmt::{self, Debug},
     mem::ManuallyDrop,
+    path::Path,
     sync::{Arc, RwLock},
 };
 
@@ -9,6 +10,7 @@ use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
     media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
     oidc::{
+        registrations::{ClientId, OidcRegistrations},
         requests::account_management::AccountManagementActionFull,
         types::{
             client_credentials::ClientCredentials,
@@ -16,7 +18,7 @@ use matrix_sdk::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
         },
-        OidcSession,
+        OidcAuthorizationData, OidcSession,
     },
     ruma::{
         api::client::{
@@ -59,7 +61,7 @@ use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
-    authentication_service::AuthenticationError,
+    authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError},
     client,
     encryption::Encryption,
     notification::NotificationClient,
@@ -185,11 +187,11 @@ pub struct SsoHandler {
 #[uniffi::export]
 impl SsoHandler {
     /// Completes the SSO login process.
-    pub async fn finish(&self, callback_url: String) -> Result<(), AuthenticationError> {
+    pub async fn finish(&self, callback_url: String) -> Result<(), SsoError> {
         let auth = self.client.inner.matrix_auth();
 
         let url =
-            Url::parse(&callback_url).map_err(|_| AuthenticationError::SsoCallbackUrlInvalid)?;
+            Url::parse(&callback_url).map_err(|_| SsoError::CallbackUrlInvalid)?;
 
         #[derive(Deserialize)]
         struct QueryParameters {
@@ -199,13 +201,13 @@ impl SsoHandler {
 
         let query_string = url.query().unwrap_or("");
         let query: QueryParameters = serde_html_form::from_str(query_string)
-            .map_err(|_| AuthenticationError::SsoCallbackUrlInvalid)?;
+            .map_err(|_| SsoError::CallbackUrlInvalid)?;
         let token =
-            query.login_token.ok_or(AuthenticationError::SsoCallbackUrlMissingLoginToken)?;
+            query.login_token.ok_or(SsoError::CallbackUrlInvalid)?;
 
         auth.login_token(token.as_str())
             .await
-            .map_err(|_| AuthenticationError::SsoLoginWithTokenFailed)?;
+            .map_err(|_| SsoError::LoginWithTokenFailed)?;
 
         Ok(())
     }
@@ -299,6 +301,20 @@ impl Client {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl Client {
+    /// Information about login options for the client's homeserver.
+    pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
+        let supports_oidc_login = self.inner.oidc().fetch_authentication_issuer().await.is_ok();
+        let supports_password_login = self.supports_password_login().await.ok().unwrap_or(false);
+        let sliding_sync_proxy = self.sliding_sync_proxy().map(|proxy_url| proxy_url.to_string());
+
+        Arc::new(HomeserverLoginDetails {
+            url: self.homeserver(),
+            sliding_sync_proxy,
+            supports_oidc_login,
+            supports_password_login,
+        })
+    }
+
     /// Login using a username and password.
     pub async fn login(
         &self,
@@ -315,6 +331,73 @@ impl Client {
             builder = builder.device_id(device_id);
         }
         builder.send().await?;
+        Ok(())
+    }
+
+    /// Returns a handler to start the SSO login process. The URL available via
+    /// the handler's `url` field should be opened in a web view. Once the web
+    /// view succeeds, call `finish` on the handler with the callback URL.
+    pub(crate) async fn start_sso_login(
+        self: &Arc<Self>,
+        redirect_url: String,
+        idp_id: Option<String>,
+    ) -> Result<Arc<SsoHandler>, SsoError> {
+        let auth = self.inner.matrix_auth();
+        let url = auth
+            .get_sso_login_url(redirect_url.as_str(), idp_id.as_deref())
+            .await
+            .map_err(|e| SsoError::Generic { message: e.to_string() })?;
+        Ok(Arc::new(SsoHandler { client: Arc::clone(self), url }))
+    }
+
+    /// Requests the URL needed for login in a web view using OIDC. Once the web
+    /// view has succeeded, call `login_with_oidc_callback` with the callback it
+    /// returns. If a failure occurs and a callback isn't available, make sure
+    /// to call `abort_oidc_login` to inform the client of this.
+    pub async fn url_for_oidc_login(
+        &self,
+        oidc_configuration: &OidcConfiguration,
+    ) -> Result<Arc<OidcAuthorizationData>, OidcError> {
+        let oidc_metadata: VerifiedClientMetadata = oidc_configuration.try_into()?;
+        let registrations_file = Path::new(&oidc_configuration.dynamic_registrations_file);
+        let static_registrations = oidc_configuration
+            .static_registrations
+            .iter()
+            .filter_map(|(issuer, client_id)| {
+                let Ok(issuer) = Url::parse(issuer) else {
+                    tracing::error!("Failed to parse {:?}", issuer);
+                    return None;
+                };
+                Some((issuer, ClientId(client_id.clone())))
+            })
+            .collect::<HashMap<_, _>>();
+        let registrations = OidcRegistrations::new(
+            registrations_file,
+            oidc_metadata.clone(),
+            static_registrations,
+        )?;
+
+        let data = self.inner.oidc().url_for_oidc_login(oidc_metadata, registrations).await?;
+
+        Ok(Arc::new(data))
+    }
+
+    /// Aborts an existing OIDC login operation that might have been cancelled,
+    /// failed etc.
+    pub async fn abort_oidc_login(&self, authorization_data: Arc<OidcAuthorizationData>) {
+        self.inner.oidc().abort_authorization(&authorization_data.state).await;
+    }
+
+    /// Completes the OIDC login process.
+    pub async fn login_with_oidc_callback(
+        &self,
+        authorization_data: Arc<OidcAuthorizationData>,
+        callback_url: String,
+    ) -> Result<(), OidcError> {
+        let url = Url::parse(&callback_url).or(Err(OidcError::CallbackUrlInvalid))?;
+
+        self.inner.oidc().login_with_oidc_callback(&authorization_data, url).await?;
+
         Ok(())
     }
 
@@ -398,23 +481,6 @@ impl Client {
 }
 
 impl Client {
-    /// Returns a handler to start the SSO login process. The URL available via
-    /// the handler's `url` field should be opened in a web view. Once the
-    /// web view succeeds, call `finish` on the handler with the callback
-    /// URL.
-    pub(crate) async fn start_sso_login(
-        self: &Arc<Self>,
-        redirect_url: String,
-        idp_id: Option<String>,
-    ) -> Result<Arc<SsoHandler>, AuthenticationError> {
-        let auth = self.inner.matrix_auth();
-        let url = auth
-            .get_sso_login_url(redirect_url.as_str(), idp_id.as_deref())
-            .await
-            .map_err(|e| AuthenticationError::Generic { message: e.to_string() })?;
-        Ok(Arc::new(SsoHandler { client: Arc::clone(self), url }))
-    }
-
     /// Restores the client from an `AuthSession`.
     pub(crate) async fn restore_session_inner(
         &self,
@@ -1538,7 +1604,7 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
     };
 
-    use crate::{authentication_service::AuthenticationError, client_builder::ClientBuilder};
+    use crate::{authentication::SsoError, client_builder::ClientBuilder};
 
     #[async_test]
     async fn test_start_sso_login_adds_redirect_url_to_login_url() {
@@ -1596,7 +1662,7 @@ mod tests {
 
         let result = handler.finish("app://redirect?foo=bar".to_owned()).await;
 
-        assert_matches!(result, Err(AuthenticationError::SsoCallbackUrlMissingLoginToken));
+        assert_matches!(result, Err(SsoError::CallbackUrlInvalid));
     }
 
     /* Helper functions */

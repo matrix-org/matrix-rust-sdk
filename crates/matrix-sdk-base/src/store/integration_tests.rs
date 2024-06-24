@@ -18,17 +18,19 @@ use ruma::{
                 MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
                 SyncRoomMemberEvent,
             },
+            message::RoomMessageEventContent,
             power_levels::RoomPowerLevelsEventContent,
             topic::RoomTopicEventContent,
             MediaSource,
         },
-        AnyEphemeralRoomEventContent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
-        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncStateEvent,
-        GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, SyncStateEvent,
+        AnyEphemeralRoomEventContent, AnyGlobalAccountDataEvent, AnyMessageLikeEventContent,
+        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
+        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
+        SyncStateEvent,
     },
     mxc_uri, room_id,
     serde::Raw,
-    uint, user_id, EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
+    uint, user_id, EventId, OwnedEventId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use serde_json::{json, value::Value as JsonValue};
 
@@ -36,7 +38,7 @@ use super::DynStateStore;
 use crate::{
     deserialized_responses::MemberEvent,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
-    store::{Result, StateStoreExt},
+    store::{Result, SerializableEventContent, StateStoreExt},
     RoomInfo, RoomMemberships, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
 
@@ -85,6 +87,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_presence_saving(&self);
     /// Test display names saving.
     async fn test_display_names_saving(&self);
+    /// Test operations with the send queue.
+    async fn test_send_queue(&self);
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -1296,6 +1300,92 @@ impl StateStoreIntegrationTests for DynStateStore {
         let names = self.get_users_with_display_names(room_id, &[]).await;
         assert!(names.unwrap().is_empty());
     }
+
+    #[allow(clippy::needless_range_loop)]
+    async fn test_send_queue(&self) {
+        let room_id = room_id!("!test_send_queue:localhost");
+
+        // No queued event in store at first.
+        let events = self.load_send_queue_events(room_id).await.unwrap();
+        assert!(events.is_empty());
+
+        // Saving one thing should work.
+        let txn0 = TransactionId::new();
+        let event0 =
+            SerializableEventContent::new(RoomMessageEventContent::text_plain("msg0").into())
+                .unwrap();
+        self.save_send_queue_event(room_id, txn0.clone(), event0).await.unwrap();
+
+        // Reading it will work.
+        let pending = self.load_send_queue_events(room_id).await.unwrap();
+
+        assert_eq!(pending.len(), 1);
+        {
+            assert_eq!(pending[0].transaction_id, txn0);
+
+            let deserialized = pending[0].event.as_content().unwrap();
+            assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
+            assert_eq!(content.body(), "msg0");
+
+            assert!(!pending[0].is_wedged);
+        }
+
+        // Saving another three things should work.
+        for i in 1..=3 {
+            let txn = TransactionId::new();
+            let event = SerializableEventContent::new(
+                RoomMessageEventContent::text_plain(format!("msg{i}")).into(),
+            )
+            .unwrap();
+
+            self.save_send_queue_event(room_id, txn, event).await.unwrap();
+        }
+
+        // Reading all the events should work.
+        let pending = self.load_send_queue_events(room_id).await.unwrap();
+
+        // All the events should be retrieved, in the same order.
+        assert_eq!(pending.len(), 4);
+
+        assert_eq!(pending[0].transaction_id, txn0);
+
+        for i in 0..4 {
+            let deserialized = pending[i].event.as_content().unwrap();
+            assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
+            assert_eq!(content.body(), format!("msg{i}"));
+            assert!(!pending[i].is_wedged);
+        }
+
+        // Marking an event as wedged works.
+        let txn2 = &pending[2].transaction_id;
+        self.update_send_queue_event_status(room_id, txn2, true).await.unwrap();
+
+        // And it is reflected.
+        let pending = self.load_send_queue_events(room_id).await.unwrap();
+
+        // All the events should be retrieved, in the same order.
+        assert_eq!(pending.len(), 4);
+        assert_eq!(pending[0].transaction_id, txn0);
+        assert_eq!(pending[2].transaction_id, *txn2);
+        assert!(pending[2].is_wedged);
+        for i in 0..4 {
+            if i != 2 {
+                assert!(!pending[i].is_wedged);
+            }
+        }
+
+        // Removing an event works.
+        self.remove_send_queue_event(room_id, &txn0).await.unwrap();
+
+        // And it is reflected.
+        let pending = self.load_send_queue_events(room_id).await.unwrap();
+
+        assert_eq!(pending.len(), 3);
+        assert_eq!(pending[1].transaction_id, *txn2);
+        for i in 0..3 {
+            assert_ne!(pending[i].transaction_id, txn0);
+        }
+    }
 }
 
 /// Macro building to allow your StateStore implementation to run the entire
@@ -1337,11 +1427,13 @@ macro_rules! statestore_integration_tests {
             }
         }
     };
+
     () => {
         mod statestore_integration_tests {
             $crate::statestore_integration_tests!(@inner);
         }
     };
+
     (@inner) => {
         use matrix_sdk_test::async_test;
 
@@ -1449,6 +1541,12 @@ macro_rules! statestore_integration_tests {
         async fn test_display_names_saving() {
             let store = get_store().await.expect("creating store failed").into_state_store();
             store.test_display_names_saving().await;
+        }
+
+        #[async_test]
+        async fn test_send_queue() {
+            let store = get_store().await.expect("creating store failed").into_state_store();
+            store.test_send_queue().await;
         }
     };
 }
