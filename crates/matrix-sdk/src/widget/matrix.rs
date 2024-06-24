@@ -22,20 +22,21 @@ use ruma::{
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         filter::RoomEventFilter,
+        future,
     },
     assign,
     events::{
-        AnySyncTimelineEvent, AnyTimelineEvent, MessageLikeEventType, StateEventType,
-        TimelineEventType,
+        AnyMessageLikeEventContent, AnyStateEventContent, AnySyncTimelineEvent, AnyTimelineEvent,
+        MessageLikeEventType, StateEventType, TimelineEventType,
     },
     serde::Raw,
-    OwnedEventId, RoomId,
+    RoomId, TransactionId,
 };
 use serde_json::value::RawValue as RawJsonValue;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tracing::error;
 
-use super::StateKeySelector;
+use super::{machine::SendEventResponse, StateKeySelector};
 use crate::{
     event_handler::EventHandlerDropGuard, room::MessagesOptions, HttpResult, Result, Room,
 };
@@ -112,11 +113,36 @@ impl MatrixDriver {
         event_type: TimelineEventType,
         state_key: Option<String>,
         content: Box<RawJsonValue>,
-    ) -> Result<OwnedEventId> {
+        future: Option<future::FutureParameters>,
+    ) -> Result<SendEventResponse> {
         let type_str = event_type.to_string();
-        Ok(match state_key {
-            Some(key) => self.room.send_state_event_raw(&type_str, &key, content).await?.event_id,
-            None => self.room.send_raw(&type_str, content).await?.event_id,
+        Ok(match (state_key, future) {
+            (None, None) => SendEventResponse::from_event_id(
+                self.room.send_raw(&type_str, content).await?.event_id,
+            ),
+            (Some(key), None) => SendEventResponse::from_event_id(
+                self.room.send_state_event_raw(&type_str, &key, content).await?.event_id,
+            ),
+            (None, Some(future)) => {
+                let r = future::send_future_message_event::unstable::Request::new_raw(
+                    self.room.room_id().to_owned(),
+                    TransactionId::new().to_owned(),
+                    MessageLikeEventType::from(type_str),
+                    future,
+                    Raw::<AnyMessageLikeEventContent>::from_json(content),
+                );
+                self.room.client.send(r, None).await.map(|r| r.into())?
+            }
+            (Some(key), Some(future)) => {
+                let r = future::send_future_state_event::unstable::Request::new_raw(
+                    self.room.room_id().to_owned(),
+                    key,
+                    StateEventType::from(type_str),
+                    future,
+                    Raw::<AnyStateEventContent>::from_json(content),
+                );
+                self.room.client.send(r, None).await.map(|r| r.into())?
+            }
         })
     }
 

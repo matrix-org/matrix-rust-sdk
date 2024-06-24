@@ -35,7 +35,7 @@ use self::{
     },
     from_widget::{
         FromWidgetErrorResponse, FromWidgetRequest, ReadEventRequest, ReadEventResponse,
-        SendEventResponse, SupportedApiVersionsResponse,
+        SupportedApiVersionsResponse,
     },
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
     openid::{OpenIdResponse, OpenIdState},
@@ -64,6 +64,7 @@ mod to_widget;
 
 pub(crate) use self::{
     driver_req::{MatrixDriverRequestData, ReadStateEventRequest, SendEventRequest},
+    from_widget::SendEventResponse,
     incoming::{IncomingMessage, MatrixDriverResponse},
 };
 
@@ -343,10 +344,11 @@ impl WidgetMachine {
         }
 
         let (request, action) = self.send_matrix_driver_request(request);
-        request.then(|result, machine| {
-            let room_id = &machine.room_id;
-            let response = result.map(|event_id| SendEventResponse { event_id, room_id });
-            vec![machine.send_from_widget_result_response(raw_request, response)]
+        request.then(|mut result, machine| {
+            if let Ok(r) = result.as_mut() {
+                r.set_room_id(machine.room_id.clone().to_owned());
+            }
+            vec![machine.send_from_widget_result_response(raw_request, result)]
         });
         action
     }
