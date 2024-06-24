@@ -65,7 +65,7 @@ pub enum CollectStrategy {
         /// conversation. A device is trusted if any of the following is true:
         ///     - It was manually marked as trusted.
         ///     - It was marked as verified via interactive verification.
-        ///     - It is signed by it's owner identity, and this identity has
+        ///     - It is signed by its owner identity, and this identity has
         ///       been trusted via interactive verification.
         ///     - It is the current own device of the user.
         only_allow_trusted_devices: bool,
