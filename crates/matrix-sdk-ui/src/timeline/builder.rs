@@ -273,13 +273,18 @@ impl TimelineBuilder {
             Some(spawn({
                 // Handles existing local echoes first.
                 for echo in local_echoes {
+                    let content = match echo.serialized_event.deserialize() {
+                        Ok(d) => d,
+                        Err(err) => {
+                            warn!("error deserializing local echo (at start): {err}");
+                            continue;
+                        }
+                    };
+
                     timeline
                         .handle_local_event(
                             echo.transaction_id,
-                            TimelineEventKind::Message {
-                                content: echo.content,
-                                relations: Default::default(),
-                            },
+                            TimelineEventKind::Message { content, relations: Default::default() },
                             Some(echo.abort_handle),
                         )
                         .await;
@@ -297,9 +302,17 @@ impl TimelineBuilder {
                             Ok(update) => match update {
                                 RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
                                     transaction_id,
-                                    content,
+                                    serialized_event,
                                     abort_handle,
                                 }) => {
+                                    let content = match serialized_event.deserialize() {
+                                        Ok(d) => d,
+                                        Err(err) => {
+                                            warn!("error deserializing local echo (live): {err}");
+                                            continue;
+                                        }
+                                    };
+
                                     timeline
                                         .handle_local_event(
                                             transaction_id,

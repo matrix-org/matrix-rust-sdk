@@ -22,11 +22,15 @@ use std::{
     },
 };
 
-use matrix_sdk_base::{store::SerializableEventContent, RoomState, StoreError};
+use matrix_sdk_base::{
+    store::{QueuedEvent, SerializableEventContent},
+    RoomState, StoreError,
+};
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use ruma::{
-    events::AnyMessageLikeEventContent, OwnedEventId, OwnedRoomId, OwnedTransactionId,
-    TransactionId,
+    events::{AnyMessageLikeEventContent, EventContent as _},
+    serde::Raw,
+    OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
 };
 use tokio::sync::{broadcast, Notify, RwLock};
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -241,6 +245,50 @@ impl RoomSendQueue {
         }
     }
 
+    /// Queues a raw event for sending it to this room.
+    ///
+    /// This immediately returns, and will push the event to be sent into a
+    /// queue, handled in the background.
+    ///
+    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling
+    /// the [`Self::subscribe()`] method to get updates about the sending of
+    /// that event.
+    ///
+    /// By default, if sending the event fails on the first attempt, it will be
+    /// retried a few times. If sending failed, the entire client's sending
+    /// queue will be disabled, and it will need to be manually re-enabled
+    /// by the caller.
+    pub async fn send_raw(
+        &self,
+        content: Raw<AnyMessageLikeEventContent>,
+        event_type: String,
+    ) -> Result<AbortSendHandle, RoomSendQueueError> {
+        let Some(room) = self.inner.room.get() else {
+            return Err(RoomSendQueueError::RoomDisappeared);
+        };
+        if room.state() != RoomState::Joined {
+            return Err(RoomSendQueueError::RoomNotJoined);
+        }
+
+        let content = SerializableEventContent::from_raw(content, event_type);
+
+        let transaction_id = self.inner.queue.push(content.clone()).await?;
+        trace!(%transaction_id, "manager sends a raw event to the background task");
+
+        self.inner.notifier.notify_one();
+
+        let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+            transaction_id: transaction_id.clone(),
+            serialized_event: content,
+            abort_handle: AbortSendHandle {
+                room: self.clone(),
+                transaction_id: transaction_id.clone(),
+            },
+        }));
+
+        Ok(AbortSendHandle { transaction_id, room: self.clone() })
+    }
+
     /// Queues an event for sending it to this room.
     ///
     /// This immediately returns, and will push the event to be sent into a
@@ -258,28 +306,11 @@ impl RoomSendQueue {
         &self,
         content: AnyMessageLikeEventContent,
     ) -> Result<AbortSendHandle, RoomSendQueueError> {
-        let Some(room) = self.inner.room.get() else {
-            return Err(RoomSendQueueError::RoomDisappeared);
-        };
-        if room.state() != RoomState::Joined {
-            return Err(RoomSendQueueError::RoomNotJoined);
-        }
-
-        let transaction_id = self.inner.queue.push(content.clone()).await?;
-        trace!(%transaction_id, "manager sends an event to the background task");
-
-        self.inner.notifier.notify_one();
-
-        let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
-            transaction_id: transaction_id.clone(),
-            content,
-            abort_handle: AbortSendHandle {
-                room: self.clone(),
-                transaction_id: transaction_id.clone(),
-            },
-        }));
-
-        Ok(AbortSendHandle { transaction_id, room: self.clone() })
+        self.send_raw(
+            Raw::new(&content).map_err(RoomSendQueueStorageError::JsonSerialization)?,
+            content.event_type().to_string(),
+        )
+        .await
     }
 
     /// Returns the current local events as well as a receiver to listen to the
@@ -296,7 +327,7 @@ impl RoomSendQueue {
             .into_iter()
             .map(|(transaction_id, content)| LocalEcho {
                 transaction_id: transaction_id.clone(),
-                content,
+                serialized_event: content,
                 abort_handle: AbortSendHandle { room: self.clone(), transaction_id },
             })
             .collect();
@@ -356,8 +387,9 @@ impl RoomSendQueue {
                 continue;
             };
 
+            let (event, event_type) = queued_event.event.raw();
             match room
-                .send(queued_event.event)
+                .send_raw(&event_type.to_string(), event)
                 .with_transaction_id(&queued_event.transaction_id)
                 .with_request_config(RequestConfig::short_retry())
                 .await
@@ -485,17 +517,6 @@ struct RoomSendQueueInner {
     _task: JoinHandle<()>,
 }
 
-/// Same as [`QueuedEvent`], but the event is deserialized.
-///
-/// Only local to this file.
-struct DeserializedQueuedEvent {
-    /// The content of the message-like event we'd like to send.
-    pub event: AnyMessageLikeEventContent,
-
-    /// Unique transaction id for the queued event, acting as a key.
-    pub transaction_id: OwnedTransactionId,
-}
-
 #[derive(Clone)]
 struct QueueStorage {
     /// Reference to the client, to get access to the underlying store.
@@ -519,11 +540,9 @@ impl QueueStorage {
     /// Returns the transaction id chosen to identify the request.
     async fn push(
         &self,
-        content: AnyMessageLikeEventContent,
+        serializable: SerializableEventContent,
     ) -> Result<OwnedTransactionId, RoomSendQueueStorageError> {
         let transaction_id = TransactionId::new();
-
-        let serializable = SerializableEventContent::new(content)?;
 
         self.client
             .get()
@@ -539,9 +558,7 @@ impl QueueStorage {
     ///
     /// It is required to call [`Self::mark_as_sent`] after it's been
     /// effectively sent.
-    async fn peek_next_to_send(
-        &self,
-    ) -> Result<Option<DeserializedQueuedEvent>, RoomSendQueueStorageError> {
+    async fn peek_next_to_send(&self) -> Result<Option<QueuedEvent>, RoomSendQueueStorageError> {
         let queued_events = self
             .client
             .get()
@@ -551,14 +568,9 @@ impl QueueStorage {
             .await?;
 
         if let Some(event) = queued_events.iter().find(|queued| !queued.is_wedged) {
-            let deserialized = event.event.as_content()?;
-
             self.being_sent.write().await.insert(event.transaction_id.clone());
 
-            Ok(Some(DeserializedQueuedEvent {
-                event: deserialized,
-                transaction_id: event.transaction_id.clone(),
-            }))
+            Ok(Some(event.clone()))
         } else {
             Ok(None)
         }
@@ -634,7 +646,7 @@ impl QueueStorage {
     /// about to send but that haven't been sent yet (or are being sent).
     async fn local_echoes(
         &self,
-    ) -> Result<Vec<(OwnedTransactionId, AnyMessageLikeEventContent)>, RoomSendQueueStorageError>
+    ) -> Result<Vec<(OwnedTransactionId, SerializableEventContent)>, RoomSendQueueStorageError>
     {
         Ok(self
             .client
@@ -643,9 +655,9 @@ impl QueueStorage {
             .store()
             .load_send_queue_events(&self.room_id)
             .await?
-            .iter()
-            .map(|queued| Ok((queued.transaction_id.clone(), queued.event.as_content()?)))
-            .collect::<Result<Vec<_>, StoreError>>()?)
+            .into_iter()
+            .map(|queued| (queued.transaction_id, queued.event))
+            .collect::<Vec<_>>())
     }
 }
 
@@ -654,8 +666,9 @@ impl QueueStorage {
 pub struct LocalEcho {
     /// Transaction id used to identify this event.
     pub transaction_id: OwnedTransactionId,
-    /// Content of the event itself, that we are about to send.
-    pub content: AnyMessageLikeEventContent,
+    /// Content of the event itself (along with its type) that we are about to
+    /// send.
+    pub serialized_event: SerializableEventContent,
     /// A handle to abort sending the associated event.
     pub abort_handle: AbortSendHandle,
 }

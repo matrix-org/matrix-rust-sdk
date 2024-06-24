@@ -14,8 +14,12 @@ use matrix_sdk::{
 use matrix_sdk_test::{async_test, InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder};
 use ruma::{
     event_id,
-    events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
-    room_id, EventId, OwnedEventId,
+    events::{
+        room::message::RoomMessageEventContent, AnyMessageLikeEventContent, EventContent as _,
+    },
+    room_id,
+    serde::Raw,
+    EventId, OwnedEventId,
 };
 use serde_json::json;
 use tokio::{sync::Mutex, time::timeout};
@@ -51,12 +55,14 @@ macro_rules! assert_update {
     ($watch:ident => local echo { body = $body:expr }) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
-                content: AnyMessageLikeEventContent::RoomMessage(_msg),
+                serialized_event,
                 transaction_id: txn,
                 abort_handle,
             }))) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
 
+        let content = serialized_event.deserialize().unwrap();
+        assert_let!(AnyMessageLikeEventContent::RoomMessage(_msg) = content);
         assert_eq!(_msg.body(), $body);
 
         (txn, abort_handle)
@@ -259,6 +265,60 @@ async fn test_smoke() {
     assert!(watch.is_empty());
 
     drop(lock_guard);
+
+    assert_update!(watch => sent { txn = txn1, event_id = event_id });
+
+    assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_smoke_raw() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    // When the queue is enabled and I send message in some order, it does send it.
+    let event_id = event_id!("$1");
+
+    mock_encryption_state(&server, false).await;
+    mock_send_event(event_id!("$1")).mount(&server).await;
+
+    let json_content = r#"{"baguette": 42}"#.to_owned();
+    let event = Raw::from_json_string(json_content.clone()).unwrap();
+    room.send_queue().send_raw(event, "m.room.frenchie".to_owned()).await.unwrap();
+
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+            serialized_event,
+            transaction_id: txn1,
+            ..
+        }))) = timeout(Duration::from_secs(1), watch.recv()).await
+    );
+
+    let content = serialized_event.deserialize().unwrap();
+    assert_matches!(&content, AnyMessageLikeEventContent::_Custom { .. });
+    assert_eq!(content.event_type().to_string(), "m.room.frenchie");
+
+    let (raw, event_type) = serialized_event.raw();
+    assert_eq!(event_type, "m.room.frenchie");
+    assert_eq!(raw.json().to_string(), json_content);
 
     assert_update!(watch => sent { txn = txn1, event_id = event_id });
 

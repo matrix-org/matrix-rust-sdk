@@ -29,7 +29,7 @@ use ruma::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         AnyGlobalAccountDataEvent, AnyMessageLikeEventContent, AnyRoomAccountDataEvent,
         EmptyStateKey, EventContent as _, GlobalAccountDataEvent, GlobalAccountDataEventContent,
-        GlobalAccountDataEventType, RawExt, RedactContent, RedactedStateEventContent,
+        GlobalAccountDataEventType, RawExt as _, RedactContent, RedactedStateEventContent,
         RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType,
         StateEventType, StaticEventContent, StaticStateEventContent,
     },
@@ -1026,16 +1026,29 @@ impl fmt::Debug for SerializableEventContent {
 }
 
 impl SerializableEventContent {
+    /// Create a [`SerializableEventContent`] from a raw
+    /// [`AnyMessageLikeEventContent`] along with its type.
+    pub fn from_raw(event: Raw<AnyMessageLikeEventContent>, event_type: String) -> Self {
+        Self { event_type, event }
+    }
+
     /// Create a [`SerializableEventContent`] from an
     /// [`AnyMessageLikeEventContent`].
     pub fn new(event: AnyMessageLikeEventContent) -> Result<Self, serde_json::Error> {
-        Ok(Self { event_type: event.event_type().to_string(), event: Raw::new(&event)? })
+        Ok(Self::from_raw(Raw::new(&event)?, event.event_type().to_string()))
     }
 
     /// Convert a [`SerializableEventContent`] back into a
     /// [`AnyMessageLikeEventContent`].
-    pub fn as_content(&self) -> Result<AnyMessageLikeEventContent, serde_json::Error> {
+    pub fn deserialize(&self) -> Result<AnyMessageLikeEventContent, serde_json::Error> {
         self.event.deserialize_with_type(self.event_type.clone().into())
+    }
+
+    /// Returns the raw event content along with its type.
+    ///
+    /// Useful for callers manipulating custom events.
+    pub fn raw(self) -> (Raw<AnyMessageLikeEventContent>, String) {
+        (self.event, self.event_type)
     }
 }
 
