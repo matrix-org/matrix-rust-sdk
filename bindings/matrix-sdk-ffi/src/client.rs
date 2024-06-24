@@ -180,12 +180,18 @@ pub struct SsoHandler {
     client: Arc<Client>,
 
     /// The underlying URL for authentication.
-    #[allow(dead_code)]
-    pub url: String,
+    url: String,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl SsoHandler {
+    /// Returns the URL for starting SSO authentication. The URL should be
+    /// opened in a web view. Once the web view succeeds, call `finish` with
+    /// the callback URL.
+    pub fn url(&self) -> String {
+        self.url.clone()
+    }
+
     /// Completes the SSO login process.
     pub async fn finish(&self, callback_url: String) -> Result<(), SsoError> {
         let auth = self.client.inner.matrix_auth();
@@ -334,9 +340,7 @@ impl Client {
         Ok(())
     }
 
-    /// Returns a handler to start the SSO login process. The URL available via
-    /// the handler's `url` field should be opened in a web view. Once the web
-    /// view succeeds, call `finish` on the handler with the callback URL.
+    /// Returns a handler to start the SSO login process.
     pub(crate) async fn start_sso_login(
         self: &Arc<Self>,
         redirect_url: String,
