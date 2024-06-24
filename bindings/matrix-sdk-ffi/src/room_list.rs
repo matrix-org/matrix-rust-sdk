@@ -566,6 +566,10 @@ impl RoomListItem {
         self.inner.init_timeline_with_builder(timeline_builder).map_err(RoomListError::from).await
     }
 
+    async fn is_encrypted(&self) -> bool {
+        self.inner.is_encrypted().await.unwrap_or(false)
+    }
+
     fn subscribe(&self, settings: Option<RoomSubscription>) {
         self.inner.subscribe(settings.map(Into::into));
     }
