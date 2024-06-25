@@ -224,3 +224,283 @@ fn split_recipients_withhelds_for_user(
 
     RecipientDevices { allowed_devices: recipients, denied_devices_with_code: withheld_recipients }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::sync::Arc;
+
+    use matrix_sdk_test::{async_test, test_json::keys_query_sets::KeyDistributionTestData};
+    use ruma::{events::room::history_visibility::HistoryVisibility, room_id, TransactionId};
+
+    use crate::{
+        olm::OutboundGroupSession,
+        session_manager::{
+            group_sessions::share_strategy::collect_session_recipients, CollectStrategy,
+        },
+        types::events::room_key_withheld::WithheldCode,
+        CrossSigningKeyExport, EncryptionSettings, OlmMachine,
+    };
+
+    async fn set_up_test_machine() -> OlmMachine {
+        let machine = OlmMachine::new(
+            KeyDistributionTestData::me_id(),
+            KeyDistributionTestData::me_device_id(),
+        )
+        .await;
+
+        let keys_query = KeyDistributionTestData::me_keys_query_response();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        machine
+            .import_cross_signing_keys(CrossSigningKeyExport {
+                master_key: KeyDistributionTestData::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+                self_signing_key: KeyDistributionTestData::SELF_SIGNING_KEY_PRIVATE_EXPORT
+                    .to_owned()
+                    .into(),
+                user_signing_key: KeyDistributionTestData::USER_SIGNING_KEY_PRIVATE_EXPORT
+                    .to_owned()
+                    .into(),
+            })
+            .await
+            .unwrap();
+
+        let keys_query = KeyDistributionTestData::dan_keys_query_response();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let txn_id_dave = TransactionId::new();
+        let keys_query_dave = KeyDistributionTestData::dave_keys_query_response();
+        machine.mark_request_as_sent(&txn_id_dave, &keys_query_dave).await.unwrap();
+
+        let txn_id_good = TransactionId::new();
+        let keys_query_good = KeyDistributionTestData::good_keys_query_response();
+        machine.mark_request_as_sent(&txn_id_good, &keys_query_good).await.unwrap();
+
+        machine
+    }
+
+    #[async_test]
+    async fn test_share_with_per_device_strategy_to_all() {
+        let machine = set_up_test_machine().await;
+
+        let legacy_strategy = CollectStrategy::new_device_based(false);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![
+                KeyDistributionTestData::dan_id(),
+                KeyDistributionTestData::dave_id(),
+                KeyDistributionTestData::good_id(),
+            ]
+            .into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await
+        .unwrap();
+
+        assert!(!share_result.should_rotate);
+
+        let dan_devices_shared =
+            share_result.devices.get(KeyDistributionTestData::dan_id()).unwrap();
+        let dave_devices_shared =
+            share_result.devices.get(KeyDistributionTestData::dave_id()).unwrap();
+        let good_devices_shared =
+            share_result.devices.get(KeyDistributionTestData::good_id()).unwrap();
+
+        // With this strategy the room key would be distributed to all devices
+        assert_eq!(dan_devices_shared.len(), 2);
+        assert_eq!(dave_devices_shared.len(), 1);
+        assert_eq!(good_devices_shared.len(), 2);
+    }
+
+    #[async_test]
+    async fn test_share_with_per_device_strategy_only_trusted() {
+        let machine = set_up_test_machine().await;
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let legacy_strategy = CollectStrategy::new_device_based(true);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![
+                KeyDistributionTestData::dan_id(),
+                KeyDistributionTestData::dave_id(),
+                KeyDistributionTestData::good_id(),
+            ]
+            .into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await
+        .unwrap();
+
+        assert!(!share_result.should_rotate);
+
+        let dave_devices_shared = share_result.devices.get(KeyDistributionTestData::dave_id());
+        let good_devices_shared = share_result.devices.get(KeyDistributionTestData::good_id());
+        // dave and good wouldn't receive any key
+        assert!(dave_devices_shared.unwrap().is_empty());
+        assert!(good_devices_shared.unwrap().is_empty());
+
+        // dan is verified by me and has one of his devices self signed, so should get
+        // the key
+        let dan_devices_shared =
+            share_result.devices.get(KeyDistributionTestData::dan_id()).unwrap();
+
+        assert_eq!(dan_devices_shared.len(), 1);
+        let dan_device_that_will_get_the_key = &dan_devices_shared[0];
+        assert_eq!(
+            dan_device_that_will_get_the_key.device_id().as_str(),
+            KeyDistributionTestData::dan_signed_device_id()
+        );
+
+        // Check withhelds for others
+        let (_, code) = share_result
+            .withheld_devices
+            .iter()
+            .find(|(d, _)| d.device_id() == KeyDistributionTestData::dan_unsigned_device_id())
+            .expect("This dan's device should receive a withheld code");
+
+        assert_eq!(code.as_str(), WithheldCode::Unverified.as_str());
+
+        let (_, code) = share_result
+            .withheld_devices
+            .iter()
+            .find(|(d, _)| d.device_id() == KeyDistributionTestData::dave_device_id())
+            .expect("This daves's device should receive a withheld code");
+
+        assert_eq!(code.as_str(), WithheldCode::Unverified.as_str());
+    }
+
+    #[async_test]
+    async fn test_should_rotate_based_on_visibility() {
+        let machine = set_up_test_machine().await;
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_device_based(false);
+
+        let encryption_settings = EncryptionSettings {
+            sharing_strategy: strategy.clone(),
+            history_visibility: HistoryVisibility::Invited,
+            ..Default::default()
+        };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let _ = collect_session_recipients(
+            machine.store(),
+            vec![KeyDistributionTestData::dan_id()].into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await
+        .unwrap();
+
+        // Try to share again with updated history visibility
+        let encryption_settings = EncryptionSettings {
+            sharing_strategy: strategy.clone(),
+            history_visibility: HistoryVisibility::Shared,
+            ..Default::default()
+        };
+
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![KeyDistributionTestData::dan_id()].into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await
+        .unwrap();
+
+        assert!(share_result.should_rotate);
+    }
+
+    /// Test that the session is rotated when a device is removed from the
+    /// recipients. In that case we simulate that dan has logged out one of
+    /// his devices.
+    #[async_test]
+    async fn test_should_rotate_based_on_device_excluded() {
+        let machine = set_up_test_machine().await;
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_device_based(false);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let requests = machine
+            .share_room_key(
+                fake_room_id,
+                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                encryption_settings.clone(),
+            )
+            .await
+            .unwrap();
+
+        for r in requests {
+            machine
+                .inner
+                .group_session_manager
+                .mark_request_as_sent(r.as_ref().txn_id.as_ref())
+                .await
+                .unwrap();
+        }
+        // Try to share again after dan has removed one of his devices
+        let keys_query = KeyDistributionTestData::dan_keys_query_response_device_loggedout();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let group_session =
+            machine.store().get_outbound_group_session(fake_room_id).await.unwrap().unwrap();
+        // share again
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![KeyDistributionTestData::dan_id()].into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await
+        .unwrap();
+
+        assert!(share_result.should_rotate);
+    }
+}
