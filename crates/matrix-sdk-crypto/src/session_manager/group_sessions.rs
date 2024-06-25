@@ -800,6 +800,12 @@ impl GroupSessionManager {
                 d.into_iter().filter(|d| match outbound.is_shared_with(d) {
                     ShareState::NotShared => true,
                     ShareState::Shared(_msg_index, olm_wedging_index) => {
+                        // If the recipient device's Olm wedging index is
+                        // higher than the value that we stored with the
+                        // session, that means that they tried to unwedge the
+                        // session since we last shared the room key.  So we
+                        // re-share it with them in case they weren't able to
+                        // decrypt the room key the last time we shared it.
                         olm_wedging_index < d.olm_wedging_index
                     }
                     _ => false,

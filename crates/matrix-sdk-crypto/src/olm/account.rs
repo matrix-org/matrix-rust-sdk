@@ -1310,7 +1310,7 @@ impl Account {
                 // Any new Olm session will bump the Olm wedging index for the
                 // sender's device, if we have their device, which will cause
                 // us to re-send existing Megolm sessions to them the next time
-                // we use the session.  If we don't have there device, this
+                // we use the session.  If we don't have their device, this
                 // means that we haven't tried to send them any Megolm sessions
                 // yet, so we don't need to worry about it.
                 if let Some(device) = store.get_device_from_curve_key(sender, sender_key).await? {
