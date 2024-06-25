@@ -388,8 +388,8 @@ impl Client {
     ///
     /// This can be controlled for individual rooms, using
     /// [`Room::enable_send_queue`].
-    pub fn enable_all_send_queues(&self, enable: bool) {
-        self.inner.send_queue().set_enabled(enable);
+    pub async fn enable_all_send_queues(&self, enable: bool) {
+        self.inner.send_queue().set_enabled(enable).await;
     }
 
     /// Subscribe to the global enablement status of the send queue, at the
@@ -401,9 +401,14 @@ impl Client {
         &self,
         listener: Box<dyn SendQueueRoomErrorListener>,
     ) -> Arc<TaskHandle> {
-        let mut subscriber = self.inner.send_queue().subscribe_errors();
+        let q = self.inner.send_queue();
+        let mut subscriber = q.subscribe_errors();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            // Respawn tasks for rooms that had unsent events. At this point we've just
+            // created the subscriber, so it'll be notified about errors.
+            q.respawn_tasks_for_rooms_with_unsent_events().await;
+
             loop {
                 match subscriber.recv().await {
                     Ok(report) => listener
