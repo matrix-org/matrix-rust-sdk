@@ -438,7 +438,7 @@ impl App {
                             Char('Q') => {
                                 let q = self.client.send_queue();
                                 let enabled = q.is_enabled();
-                                q.set_enabled(!enabled);
+                                q.set_enabled(!enabled).await;
                             }
 
                             Char('M') => {

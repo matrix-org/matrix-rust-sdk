@@ -474,8 +474,10 @@ impl ClientBuilder {
             oidc: OidcCtx::new(allow_insecure_oidc),
         });
 
-        let event_cache = OnceCell::new();
+        // Enable the send queue by default.
         let send_queue = Arc::new(SendQueueData::new(true));
+
+        let event_cache = OnceCell::new();
         let inner = ClientInner::new(
             auth_ctx,
             homeserver,

@@ -139,7 +139,7 @@ async fn test_retry_failed() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
 
-    client.send_queue().set_enabled(true);
+    client.send_queue().set_enabled(true).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());

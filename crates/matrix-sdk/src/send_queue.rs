@@ -56,6 +56,27 @@ impl SendQueue {
         Self { client }
     }
 
+    /// Reload all the rooms which had unsent events, and respawn tasks for
+    /// those rooms.
+    pub async fn respawn_tasks_for_rooms_with_unsent_events(&self) {
+        if !self.is_enabled() {
+            return;
+        }
+
+        let room_ids =
+            self.client.store().load_rooms_with_unsent_events().await.unwrap_or_else(|err| {
+                warn!("error when loading rooms with unsent events: {err}");
+                Vec::new()
+            });
+
+        // Getting the [`RoomSendQueue`] is sufficient to spawn the task if needs be.
+        for room_id in room_ids {
+            if let Some(room) = self.client.get_room(&room_id) {
+                let _ = self.for_room(room);
+            }
+        }
+    }
+
     #[inline(always)]
     fn data(&self) -> &SendQueueData {
         &self.client.inner.send_queue_data
@@ -73,7 +94,7 @@ impl SendQueue {
 
         let owned_room_id = room_id.to_owned();
         let room_q = RoomSendQueue::new(
-            data.globally_enabled.load(Ordering::SeqCst),
+            self.is_enabled(),
             data.error_reporter.clone(),
             data.is_dropping.clone(),
             &self.client,
@@ -92,15 +113,19 @@ impl SendQueue {
     ///
     /// This may wake up background tasks and resume sending of events in the
     /// background.
-    pub fn set_enabled(&self, enabled: bool) {
+    pub async fn set_enabled(&self, enabled: bool) {
         debug!(?enabled, "setting global send queue enablement");
 
         self.data().globally_enabled.store(enabled, Ordering::SeqCst);
 
-        let rooms = self.data().rooms.read().unwrap();
-        for room in rooms.values() {
+        // Wake up individual rooms we already know about.
+        for room in self.data().rooms.read().unwrap().values() {
             room.set_enabled(enabled);
         }
+
+        // Reload some extra rooms that might not have been awaken yet, but could have
+        // events from previous sessions.
+        self.respawn_tasks_for_rooms_with_unsent_events().await;
     }
 
     /// Returns whether the send queue is enabled, at a client-wide
@@ -814,7 +839,7 @@ mod tests {
 
                 let _watcher = q.subscribe().await;
 
-                client.send_queue().set_enabled(enabled);
+                client.send_queue().set_enabled(enabled).await;
             }
 
             drop(client);

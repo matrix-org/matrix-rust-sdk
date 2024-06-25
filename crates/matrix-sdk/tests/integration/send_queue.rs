@@ -1,18 +1,21 @@
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex as StdMutex,
     },
     time::Duration,
 };
 
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
+    config::{RequestConfig, StoreConfig},
     send_queue::{LocalEcho, RoomSendQueueError, RoomSendQueueUpdate},
-    test_utils::{logged_in_client, logged_in_client_with_server},
+    test_utils::{logged_in_client, logged_in_client_with_server, set_client_session},
+    Client, MemoryStore,
 };
 use matrix_sdk_test::{async_test, InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder};
 use ruma::{
+    api::MatrixVersion,
     event_id,
     events::{
         room::message::RoomMessageEventContent, AnyMessageLikeEventContent, EventContent as _,
@@ -179,7 +182,7 @@ async fn test_nothing_sent_when_disabled() {
     let event_id = event_id!("$1");
     mock_send_event(event_id).expect(0).mount(&server).await;
 
-    client.send_queue().set_enabled(false);
+    client.send_queue().set_enabled(false).await;
 
     // A message is queued, but never sent.
     room.send_queue()
@@ -500,7 +503,7 @@ async fn test_error_then_globally_reenabling() {
     mock_send_event(event_id!("$42")).expect(1).mount(&server).await;
 
     // Re-enabling the global queue will cause the event to be sent.
-    client.send_queue().set_enabled(true);
+    client.send_queue().set_enabled(true).await;
 
     assert!(client.send_queue().is_enabled());
     assert!(room.send_queue().is_enabled());
@@ -533,7 +536,7 @@ async fn test_reenabling_queue() {
     assert!(errors.is_empty());
 
     // When I start with a disabled send queue,
-    client.send_queue().set_enabled(false);
+    client.send_queue().set_enabled(false).await;
 
     assert!(!client.send_queue().is_enabled());
     assert!(!room.send_queue().is_enabled());
@@ -588,7 +591,7 @@ async fn test_reenabling_queue() {
         .await;
 
     // But when reenabling the queue globally,
-    client.send_queue().set_enabled(true);
+    client.send_queue().set_enabled(true).await;
 
     assert!(client.send_queue().is_enabled());
     assert!(room.send_queue().is_enabled());
@@ -625,7 +628,7 @@ async fn test_disjoint_enabled_status() {
     let room2 = client.get_room(room_id2).unwrap();
 
     // When I start with a disabled send queue,
-    client.send_queue().set_enabled(false);
+    client.send_queue().set_enabled(false).await;
 
     // All queues are marked as disabled.
     assert!(!client.send_queue().is_enabled());
@@ -633,7 +636,7 @@ async fn test_disjoint_enabled_status() {
     assert!(!room2.send_queue().is_enabled());
 
     // When I enable globally,
-    client.send_queue().set_enabled(true);
+    client.send_queue().set_enabled(true).await;
 
     // This enables globally and locally.
     assert!(client.send_queue().is_enabled());
@@ -788,7 +791,7 @@ async fn test_abort_after_disable() {
     assert!(errors.is_empty());
 
     // Start with an enabled sending queue.
-    client.send_queue().set_enabled(true);
+    client.send_queue().set_enabled(true).await;
 
     assert!(client.send_queue().is_enabled());
 
@@ -855,7 +858,7 @@ async fn test_unrecoverable_errors() {
     assert!(errors.is_empty());
 
     // Start with an enabled sending queue.
-    client.send_queue().set_enabled(true);
+    client.send_queue().set_enabled(true).await;
 
     assert!(client.send_queue().is_enabled());
 
@@ -953,7 +956,7 @@ async fn test_no_network_access_error_is_recoverable() {
     assert!(errors.is_empty());
 
     // Start with an enabled sending queue.
-    client.send_queue().set_enabled(true);
+    client.send_queue().set_enabled(true).await;
     assert!(client.send_queue().is_enabled());
 
     let q = room.send_queue();
@@ -983,4 +986,108 @@ async fn test_no_network_access_error_is_recoverable() {
     // The room queue is disabled, because the error was recoverable.
     assert!(!room.send_queue().is_enabled());
     assert!(client.send_queue().is_enabled());
+}
+
+#[async_test]
+async fn test_reloading_rooms_with_unsent_events() {
+    let store = Arc::new(MemoryStore::new());
+
+    let room_id = room_id!("!a:b.c");
+    let room_id2 = room_id!("!d:e.f");
+
+    let server = wiremock::MockServer::start().await;
+    let client = Client::builder()
+        .homeserver_url(server.uri())
+        .server_versions([MatrixVersion::V1_0])
+        .store_config(StoreConfig::new().state_store(store.clone()))
+        .request_config(RequestConfig::new().disable_retry())
+        .build()
+        .await
+        .unwrap();
+    set_client_session(&client).await;
+
+    // Mark two rooms as joined.
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder
+                .add_joined_room(JoinedRoomBuilder::new(room_id))
+                .add_joined_room(JoinedRoomBuilder::new(room_id2));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let room2 = client.get_room(room_id2).unwrap();
+
+    // Globally disable the send queue.
+    let q = client.send_queue();
+    q.set_enabled(false).await;
+    let watch = q.subscribe_errors();
+
+    // Send one message in each room.
+    room.send_queue()
+        .send(RoomMessageEventContent::text_plain("Hello, World!").into())
+        .await
+        .unwrap();
+
+    room2
+        .send_queue()
+        .send(RoomMessageEventContent::text_plain("Hello there too, World!").into())
+        .await
+        .unwrap();
+
+    // No errors, because the queue has been disabled.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(watch.is_empty());
+
+    server.reset().await;
+
+    {
+        // Kill the client, let it close background tasks.
+        drop(watch);
+        drop(q);
+        drop(client);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+
+    // Create a new client with the same memory backend. As the send queues are
+    // enabled by default, it will respawn tasks for sending events to those two
+    // rooms in the background.
+    mock_encryption_state(&server, false).await;
+
+    let event_id = StdMutex::new(0);
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(move |_req: &Request| {
+            let mut event_id_guard = event_id.lock().unwrap();
+            let event_id = *event_id_guard;
+            *event_id_guard += 1;
+            ResponseTemplate::new(200).set_body_json(json!({
+                "event_id": event_id
+            }))
+        })
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    let client = Client::builder()
+        .homeserver_url(server.uri())
+        .server_versions([MatrixVersion::V1_0])
+        .store_config(StoreConfig::new().state_store(store))
+        .request_config(RequestConfig::new().disable_retry())
+        .build()
+        .await
+        .unwrap();
+    set_client_session(&client).await;
+
+    client.send_queue().respawn_tasks_for_rooms_with_unsent_events().await;
+
+    // Let the sending queues process events.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // The real assertion is on the expect(2) on the above Mock.
+    server.verify().await;
 }

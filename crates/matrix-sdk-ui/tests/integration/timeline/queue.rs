@@ -165,7 +165,7 @@ async fn test_retry_order() {
     assert_let!(Some(VectorDiff::Set { index: 0, value: first }) = timeline_stream.next().await);
     assert_matches!(first.send_state().unwrap(), EventSendState::SendingFailed { .. });
 
-    // Response for first message takes 100ms to respond
+    // Response for first message takes 100ms to respond.
     drop(scoped_faulty_send);
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
@@ -179,7 +179,7 @@ async fn test_retry_order() {
         .await;
 
     // Response for second message takes 200ms to respond, so should come back
-    // after first if we don't serialize retries
+    // after first if we don't serialize retries.
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
         .and(body_string_contains("Second."))
@@ -191,10 +191,10 @@ async fn test_retry_order() {
         .mount(&server)
         .await;
 
-    // Retry the second message first
-    client.send_queue().set_enabled(true);
+    // Retry the second message first.
+    client.send_queue().set_enabled(true).await;
 
-    // Wait 200ms for the first msg, 100ms for the second, 300ms for overhead
+    // Wait 200ms for the first msg, 100ms for the second, 300ms for overhead.
     sleep(Duration::from_millis(600)).await;
 
     // With the send queue, sending is retried in the same order as the events
