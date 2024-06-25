@@ -175,12 +175,15 @@ impl HttpError {
                     }
                     _ => Some(e.status_code),
                 },
-                RumaApiError::Uiaa(_) => None,
                 RumaApiError::Other(e) => Some(e.status_code),
+                RumaApiError::Uiaa(_) => None,
             };
 
             if let Some(status_code) = status_code {
-                if status_code.is_server_error() {
+                // If the status code is 429, this is requesting a retry in HTTP, without the
+                // custom `errcode`. Treat that as a retriable request with no
+                // specified retry_after delay.
+                if status_code.as_u16() == 429 || status_code.is_server_error() {
                     return RetryKind::Transient { retry_after: None };
                 }
             }
