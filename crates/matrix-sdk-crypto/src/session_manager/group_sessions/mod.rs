@@ -766,7 +766,7 @@ mod tests {
 
     /// Returns a /keys/query response for user "@example:localhost"
     fn keys_query_response() -> get_keys::v3::Response {
-        let data = include_bytes!("../../../../benchmarks/benches/crypto_bench/keys_query.json");
+        let data = include_bytes!("../../../../../benchmarks/benches/crypto_bench/keys_query.json");
         let data: Value = serde_json::from_slice(data).unwrap();
         let data = response_from_file(&data);
         get_keys::v3::Response::try_from_http_response(data)
@@ -833,7 +833,7 @@ mod tests {
     /// Returns a key claim response for device `NMMBNBUSNR` of user
     /// `@example2:localhost`
     fn keys_claim_response() -> claim_keys::v3::Response {
-        let data = include_bytes!("../../../../benchmarks/benches/crypto_bench/keys_claim.json");
+        let data = include_bytes!("../../../../../benchmarks/benches/crypto_bench/keys_claim.json");
         let data: Value = serde_json::from_slice(data).unwrap();
         let data = response_from_file(&data);
         claim_keys::v3::Response::try_from_http_response(data)
