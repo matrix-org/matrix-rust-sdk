@@ -13,6 +13,35 @@
 // limitations under the License.
 
 //! A send queue facility to serializing queuing and sending of messages.
+//!
+//! # [`Room`] send queue
+//!
+//! Each room gets its own [`RoomSendQueue`], that's available by calling
+//! [`Room::send_queue()`]. The first time this method is called, it will spawn
+//! a background task that's used to actually send events, in the order they
+//! were passed from calls to [`RoomSendQueue::send()`].
+//!
+//! This queue tries to simplify error management around sending events, using
+//! [`RoomSendQueue::send`] or [`RoomSendQueue::send_raw`]: by default, it will retry to send the
+//! same event a few times, before automatically disabling itself, and emitting
+//! a notification that can be listened to with the global send queue (see
+//! paragraph below) or using [`RoomSendQueue::subscribe()`].
+//!
+//! It is possible to control whether a single room is enabled using
+//! [`RoomSendQueue::set_enabled()`].
+//!
+//! # Global [`SendQueue`] object
+//!
+//! The [`Client::send_queue()`] method returns an API object allowing to
+//! control all the room send queues:
+//!
+//! - enable/disable them all at once with [`SendQueue::set_enabled()`].
+//! - get notifications about send errors with [`SendQueue::subscribe_errors`].
+//! - reload all unsent events that had been persisted in storage using
+//!   [`SendQueue::respawn_tasks_for_rooms_with_unsent_events()`]. It is
+//!   recommended to call this method during initialization of a client,
+//!   otherwise persisted unsent events will only be re-sent after the send
+//!   queue for the given room has been reopened for the first time.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
