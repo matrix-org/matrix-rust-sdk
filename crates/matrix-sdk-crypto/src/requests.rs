@@ -71,10 +71,10 @@ impl ToDeviceRequest {
     /// # Arguments
     ///
     /// * `recipient` - The ID of the user that should receive this to-device
-    /// event.
+    ///   event.
     ///
     /// * `recipient_device` - The device that should receive this to-device
-    /// event, or all devices.
+    ///   event, or all devices.
     ///
     /// * `event_type` - The type of the event content that is getting sent out.
     ///

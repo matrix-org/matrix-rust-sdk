@@ -193,7 +193,7 @@ impl PrivateCrossSigningIdentity {
     /// # Arguments
     ///
     /// * `secret_name` - The type of the cross signing key that should be
-    /// exported.
+    ///   exported.
     pub async fn export_secret(&self, secret_name: &SecretName) -> Option<String> {
         match secret_name {
             SecretName::CrossSigningMasterKey => {
@@ -508,8 +508,8 @@ impl PrivateCrossSigningIdentity {
     /// # Arguments
     ///
     /// * `account` - The Olm account that is creating the new identity. The
-    /// account will sign the master key and the self signing key will sign the
-    /// account.
+    ///   account will sign the master key and the self signing key will sign the
+    ///   account.
     pub(crate) async fn with_account(
         account: &Account,
     ) -> (Self, UploadSigningKeysRequest, SignatureUploadRequest) {
@@ -578,7 +578,7 @@ impl PrivateCrossSigningIdentity {
     /// # Arguments
     ///
     /// * `pickle_key` - The key that should be used to encrypt the signing
-    /// object, must be 32 bytes long.
+    ///   object, must be 32 bytes long.
     ///
     /// # Panics
     ///

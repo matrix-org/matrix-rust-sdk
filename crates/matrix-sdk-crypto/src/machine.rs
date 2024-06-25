@@ -508,10 +508,10 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `request_id` - The unique id of the request that was sent out. This is
-    /// needed to couple the response with the now sent out request.
+    ///   needed to couple the response with the now sent out request.
     ///
     /// * `response` - The response that was received from the server after the
-    /// outgoing request was sent out.
+    ///   outgoing request was sent out.
     pub async fn mark_request_as_sent<'a>(
         &self,
         request_id: &TransactionId,
@@ -921,10 +921,10 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `room_id` - The id of the room for which the message should be
-    /// encrypted.
+    ///   encrypted.
     ///
     /// * `content` - The plaintext content of the message that should be
-    /// encrypted.
+    ///   encrypted.
     ///
     /// # Panics
     ///
@@ -948,10 +948,10 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `room_id` - The id of the room for which the message should be
-    /// encrypted.
+    ///   encrypted.
     ///
     /// * `content` - The plaintext content of the message that should be
-    /// encrypted as a raw JSON value.
+    ///   encrypted as a raw JSON value.
     ///
     /// * `event_type` - The plaintext type of the event.
     ///
@@ -2111,7 +2111,7 @@ impl OlmMachine {
     /// ## Requirements
     ///
     /// - This assumes that `initialize_crypto_store_generation` has been called
-    /// beforehand.
+    ///   beforehand.
     /// - This requires that the crypto store lock has been acquired.
     ///
     /// # Arguments

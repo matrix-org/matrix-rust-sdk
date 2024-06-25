@@ -207,7 +207,7 @@ impl Session {
     /// # Arguments
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
-    /// an unencrypted mode or an encrypted using passphrase.
+    ///   an unencrypted mode or an encrypted using passphrase.
     pub async fn pickle(&self) -> PickledSession {
         let pickle = self.inner.lock().await.pickle();
 
@@ -236,7 +236,7 @@ impl Session {
     /// * `pickle` - The pickled version of the `Session`.
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
-    /// an unencrypted mode or an encrypted using passphrase.
+    ///   an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(
         user_id: OwnedUserId,
         device_id: OwnedDeviceId,

@@ -307,7 +307,7 @@ impl Room {
     /// * `event_id` - The ID of the event to redact
     ///
     /// * `reason` - The reason for the event being redacted (optional).
-    /// its transaction ID (optional). If not given one is created.
+    ///   its transaction ID (optional). If not given one is created.
     pub async fn redact(
         &self,
         event_id: String,
@@ -625,6 +625,7 @@ impl Room {
     /// This function is supposed to be called whenever the user creates a room
     /// call. It will send a `m.call.notify` event if:
     ///  - there is not yet a running call.
+    ///
     /// It will configure the notify type: ring or notify based on:
     ///  - is this a DM room -> ring
     ///  - is this a group with more than one other member -> notify

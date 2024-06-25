@@ -1717,8 +1717,8 @@ impl Store {
     /// # Arguments
     ///
     /// * `exported_keys` - A list of previously exported keys that should be
-    /// imported into our store. If we already have a better version of a key
-    /// the key will *not* be imported.
+    ///   imported into our store. If we already have a better version of a key
+    ///   the key will *not* be imported.
     ///
     /// Returns a tuple of numbers that represent the number of sessions that
     /// were imported and the total number of sessions that were found in the
@@ -1755,9 +1755,9 @@ impl Store {
     /// # Arguments
     ///
     /// * `predicate` - A closure that will be called for every known
-    /// `InboundGroupSession`, which represents a room key. If the closure
-    /// returns `true` the `InboundGroupSession` will be included in the export,
-    /// if the closure returns `false` it will not be included.
+    ///   `InboundGroupSession`, which represents a room key. If the closure
+    ///   returns `true` the `InboundGroupSession` will be included in the export,
+    ///   if the closure returns `false` it will not be included.
     ///
     /// # Examples
     ///
@@ -1795,9 +1795,9 @@ impl Store {
     /// # Arguments
     ///
     /// * `predicate` - A closure that will be called for every known
-    /// `InboundGroupSession`, which represents a room key. If the closure
-    /// returns `true` the `InboundGroupSession` will be included in the export,
-    /// if the closure returns `false` it will not be included.
+    ///   `InboundGroupSession`, which represents a room key. If the closure
+    ///   returns `true` the `InboundGroupSession` will be included in the export,
+    ///   if the closure returns `false` it will not be included.
     ///
     /// # Examples
     ///

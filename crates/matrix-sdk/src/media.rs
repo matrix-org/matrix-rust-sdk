@@ -129,10 +129,10 @@ impl Media {
     /// # Arguments
     ///
     /// * `content_type` - The type of the media, this will be used as the
-    /// content-type header.
+    ///   content-type header.
     ///
     /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
-    /// media.
+    ///   media.
     ///
     /// # Examples
     ///

@@ -236,8 +236,10 @@ impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElemen
 /// This function returns a `WidgetSettings` object which can be used
 /// to setup a widget using `run_client_widget_api`
 /// and to generate the correct url for the widget.
-///  # Arguments
-/// * - `props` A struct containing the configuration parameters for a element
+/// 
+/// # Arguments
+/// 
+/// * `props` - A struct containing the configuration parameters for a element
 ///   call widget.
 #[uniffi::export]
 pub fn new_virtual_element_call_widget(
