@@ -23,7 +23,10 @@ use std::{
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use matrix_sdk::crypto::{decrypt_room_key_export, types::events::UtdCause, OlmMachine};
+use matrix_sdk::{
+    crypto::{decrypt_room_key_export, types::events::UtdCause, OlmMachine},
+    test_utils::test_client_builder,
+};
 use matrix_sdk_test::{async_test, BOB};
 use ruma::{
     assign,
@@ -76,7 +79,8 @@ async fn test_retry_message_decryption() {
     }
 
     let hook = Arc::new(DummyUtdHook::default());
-    let utd_hook = Arc::new(UtdHookManager::new(hook.clone()));
+    let client = test_client_builder(None).build().await.unwrap();
+    let utd_hook = Arc::new(UtdHookManager::new(hook.clone(), client));
 
     let timeline = TestTimeline::with_unable_to_decrypt_hook(utd_hook.clone());
     let mut stream = timeline.subscribe().await;

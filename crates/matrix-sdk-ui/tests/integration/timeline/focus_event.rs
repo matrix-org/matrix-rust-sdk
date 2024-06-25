@@ -328,7 +328,7 @@ async fn test_focused_timeline_doesnt_show_local_echoes() {
     // Send a message in the room, expect no local echo.
     timeline.send(RoomMessageEventContent::text_plain("h4xx0r").into()).await.unwrap();
 
-    // Let a bit of time for the sending queue to process the event.
+    // Let a bit of time for the send queue to process the event.
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     // And nothing more.

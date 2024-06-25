@@ -16,6 +16,7 @@ use std::{collections::HashMap, fmt::Write as _, fs, sync::Arc};
 
 use anyhow::{Context, Result};
 use as_variant::as_variant;
+use content::{InReplyToDetails, RepliedToEventDetails};
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::attachment::{
@@ -23,7 +24,7 @@ use matrix_sdk::attachment::{
     BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
 };
 use matrix_sdk_ui::timeline::{
-    EventItemOrigin, LiveBackPaginationStatus, Profile, TimelineDetails,
+    EventItemOrigin, LiveBackPaginationStatus, Profile, RepliedToEvent, TimelineDetails,
 };
 use mime::Mime;
 use ruma::{
@@ -132,24 +133,28 @@ impl Timeline {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl Timeline {
-    pub async fn add_listener(
-        &self,
-        listener: Box<dyn TimelineListener>,
-    ) -> RoomTimelineListenerResult {
+    pub async fn add_listener(&self, listener: Box<dyn TimelineListener>) -> Arc<TaskHandle> {
         let (timeline_items, timeline_stream) = self.inner.subscribe_batched().await;
-        let timeline_stream = TaskHandle::new(RUNTIME.spawn(async move {
+
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             pin_mut!(timeline_stream);
 
+            // It's important that the initial items are passed *before* we forward the
+            // stream updates, with a guaranteed ordering. Otherwise, it could
+            // be that the listener be called before the initial items have been
+            // handled by the caller. See #3535 for details.
+
+            // First, pass all the items as a reset update.
+            listener.on_update(vec![Arc::new(TimelineDiff::new(VectorDiff::Reset {
+                values: timeline_items,
+            }))]);
+
+            // Then forward new items.
             while let Some(diffs) = timeline_stream.next().await {
                 listener
                     .on_update(diffs.into_iter().map(|d| Arc::new(TimelineDiff::new(d))).collect());
             }
-        }));
-
-        RoomTimelineListenerResult {
-            items: timeline_items.into_iter().map(TimelineItem::from_arc).collect(),
-            items_stream: Arc::new(timeline_stream),
-        }
+        })))
     }
 
     pub fn retry_decryption(self: Arc<Self>, session_ids: Vec<String>) {
@@ -219,7 +224,7 @@ impl Timeline {
         Ok(())
     }
 
-    /// Queues an event in the room's sending queue so it's processed for
+    /// Queues an event in the room's send queue so it's processed for
     /// sending later.
     ///
     /// Returns an abort handle that allows to abort sending, if it hasn't
@@ -449,10 +454,17 @@ impl Timeline {
     pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
-        reply_item: Arc<EventTimelineItem>,
+        event_id: String,
     ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let replied_to_info = self
+            .inner
+            .replied_to_info_from_event_id(&event_id)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
+
         self.inner
-            .send_reply((*msg).clone(), &reply_item.0, ForwardThread::Yes)
+            .send_reply((*msg).clone(), replied_to_info, ForwardThread::Yes)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
@@ -461,10 +473,17 @@ impl Timeline {
     pub async fn edit(
         &self,
         new_content: Arc<RoomMessageEventContentWithoutRelation>,
-        edit_item: Arc<EventTimelineItem>,
+        event_id: String,
     ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let edit_info = self
+            .inner
+            .edit_info_from_event_id(&event_id)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
+
         self.inner
-            .edit((*new_content).clone(), &edit_item.0)
+            .edit((*new_content).clone(), edit_info)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
@@ -567,12 +586,6 @@ impl Timeline {
         Ok(Arc::new(EventTimelineItem(item)))
     }
 
-    pub async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
-        let latest_event = self.inner.latest_event().await;
-
-        latest_event.map(|item| Arc::new(EventTimelineItem(item)))
-    }
-
     /// Redacts an event from the timeline.
     ///
     /// Only works for events that exist as timeline items.
@@ -596,6 +609,41 @@ impl Timeline {
 
         Ok(removed)
     }
+
+    /// Load the reply details for the given event id.
+    ///
+    /// This will return an `InReplyToDetails` object that contains the details
+    /// which will either be ready or an error.
+    pub async fn load_reply_details(
+        &self,
+        event_id_str: String,
+    ) -> Result<InReplyToDetails, ClientError> {
+        let event_id = EventId::parse(&event_id_str)?;
+
+        match self.inner.room().event(&event_id).await {
+            Ok(timeline_event) => {
+                let replied_to = RepliedToEvent::try_from_timeline_event_for_room(
+                    timeline_event,
+                    self.inner.room(),
+                )
+                .await?;
+
+                Ok(InReplyToDetails::new(
+                    event_id_str,
+                    RepliedToEventDetails::Ready {
+                        content: Arc::new(TimelineItemContent(replied_to.content().clone())),
+                        sender: replied_to.sender().to_string(),
+                        sender_profile: replied_to.sender_profile().into(),
+                    },
+                ))
+            }
+
+            Err(e) => Ok(InReplyToDetails::new(
+                event_id_str,
+                RepliedToEventDetails::Error { message: e.to_string() },
+            )),
+        }
+    }
 }
 
 #[derive(uniffi::Object)]
@@ -613,12 +661,15 @@ impl AbortSendHandle {
     ///
     /// This has an effect only on the first call; subsequent calls will always
     /// return `false`.
-    async fn abort(self: Arc<Self>) -> bool {
+    async fn abort(self: Arc<Self>) -> Result<bool, ClientError> {
         if let Some(inner) = self.inner.lock().await.take() {
-            inner.abort().await
+            Ok(inner
+                .abort()
+                .await
+                .map_err(|err| anyhow::anyhow!("error when saving in store: {err}"))?)
         } else {
             warn!("trying to abort an send handle that's already been actioned");
-            false
+            Ok(false)
         }
     }
 }
@@ -633,12 +684,6 @@ pub enum FocusEventError {
 
     #[error("error when trying to focus on an event: {msg}")]
     Other { msg: String },
-}
-
-#[derive(uniffi::Record)]
-pub struct RoomTimelineListenerResult {
-    pub items: Vec<Arc<TimelineItem>>,
-    pub items_stream: Arc<TaskHandle>,
 }
 
 #[uniffi::export(callback_interface)]
@@ -824,7 +869,16 @@ pub enum EventSendState {
     NotSentYet,
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
-    SendingFailed { error: String },
+    SendingFailed {
+        /// Stringified error message.
+        error: String,
+        /// Whether the error is considered recoverable or not.
+        ///
+        /// An error that's recoverable will disable the room's send queue,
+        /// while an unrecoverable error will be parked, until the user
+        /// decides to cancel sending it.
+        is_recoverable: bool,
+    },
     /// The local event has been sent successfully to the server.
     Sent { event_id: String },
 }
@@ -835,7 +889,9 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
 
         match value {
             NotSentYet => Self::NotSentYet,
-            SendingFailed { error } => Self::SendingFailed { error: error.to_string() },
+            SendingFailed { error, is_recoverable } => {
+                Self::SendingFailed { error: error.to_string(), is_recoverable: *is_recoverable }
+            }
             Sent { event_id } => Self::Sent { event_id: event_id.to_string() },
         }
     }

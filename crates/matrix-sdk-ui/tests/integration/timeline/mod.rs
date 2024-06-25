@@ -28,7 +28,8 @@ use matrix_sdk_test::{
 };
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt, TimelineItemContent, VirtualTimelineItem};
 use ruma::{
-    events::room::message::RoomMessageEventContent, room_id, user_id, MilliSecondsSinceUnixEpoch,
+    event_id, events::room::message::RoomMessageEventContent, room_id, user_id,
+    MilliSecondsSinceUnixEpoch,
 };
 use serde_json::json;
 use wiremock::{
@@ -441,4 +442,68 @@ async fn test_sync_highlighted() {
     let remote_event = second.as_event().unwrap();
     // `m.room.tombstone` should be highlighted by default.
     assert!(remote_event.is_highlighted());
+}
+
+#[async_test]
+async fn test_duplicate_maintains_correct_order() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await.unwrap();
+
+    // At the beginning, the timeline is empty.
+    assert!(timeline.items().await.is_empty());
+
+    let f = EventFactory::new().sender(user_id!("@a:b.c"));
+
+    // We receive an event F, from a sliding sync with timeline limit=1.
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(f.text_msg("C").event_id(event_id!("$c")).into_raw_sync()),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // The timeline item represents the message we just received.
+    let items = timeline.items().await;
+    assert_eq!(items.len(), 2);
+
+    assert!(items[0].is_day_divider());
+    let content = items[1].as_event().unwrap().content().as_message().unwrap().body();
+    assert_eq!(content, "C");
+
+    // We receive multiple events, and C is now the last one (because we supposedly
+    // increased the timeline limit).
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(f.text_msg("A").event_id(event_id!("$a")).into_raw_sync())
+            .add_timeline_event(f.text_msg("B").event_id(event_id!("$b")).into_raw_sync())
+            .add_timeline_event(f.text_msg("C").event_id(event_id!("$c")).into_raw_sync()),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let items = timeline.items().await;
+    assert_eq!(items.len(), 4, "{items:?}");
+
+    assert!(items[0].is_day_divider());
+    let content = items[1].as_event().unwrap().content().as_message().unwrap().body();
+    assert_eq!(content, "A");
+    let content = items[2].as_event().unwrap().content().as_message().unwrap().body();
+    assert_eq!(content, "B");
+    let content = items[3].as_event().unwrap().content().as_message().unwrap().body();
+    assert_eq!(content, "C");
 }

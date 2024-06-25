@@ -46,6 +46,7 @@ use super::SessionCreationError;
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::MegolmV2AesSha2Content;
 use crate::{
+    session_manager::CollectStrategy,
     types::{
         events::{
             room::encrypted::{
@@ -85,10 +86,10 @@ pub struct EncryptionSettings {
     pub rotation_period_msgs: u64,
     /// The history visibility of the room when the session was created.
     pub history_visibility: HistoryVisibility,
-    /// Should untrusted devices receive the room key, or should they be
-    /// excluded from the conversation.
+    /// The strategy used to distribute the room keys to participant.
+    /// Default will send to all devices.
     #[serde(default)]
-    pub only_allow_trusted_devices: bool,
+    pub sharing_strategy: CollectStrategy,
 }
 
 impl Default for EncryptionSettings {
@@ -98,7 +99,7 @@ impl Default for EncryptionSettings {
             rotation_period: ROTATION_PERIOD,
             rotation_period_msgs: ROTATION_MESSAGES,
             history_visibility: HistoryVisibility::Shared,
-            only_allow_trusted_devices: false,
+            sharing_strategy: CollectStrategy::default(),
         }
     }
 }
@@ -122,7 +123,7 @@ impl EncryptionSettings {
             rotation_period,
             rotation_period_msgs,
             history_visibility,
-            only_allow_trusted_devices,
+            sharing_strategy: CollectStrategy::new_device_based(only_allow_trusted_devices),
         }
     }
 }

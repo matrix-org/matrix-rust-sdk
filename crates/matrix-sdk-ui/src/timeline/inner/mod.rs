@@ -425,8 +425,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let user_id = self.room_data_provider.own_user_id();
 
         let related_event = {
-            let items = state.items.clone();
-            let Some((_, item)) = rfind_event_by_id(&items, &annotation.event_id) else {
+            let Some((_, item)) = rfind_event_by_id(&state.items, &annotation.event_id) else {
                 warn!("Timeline item not found, can't update reaction ID");
                 return Err(Error::FailedToToggleReaction);
             };
@@ -467,16 +466,18 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 let event_content = AnyMessageLikeEventContent::Reaction(
                     ReactionEventContent::from(annotation.clone()),
                 );
-                state.handle_local_event(
-                    sender,
-                    sender_profile,
-                    txn_id.clone(),
-                    None,
-                    TimelineEventKind::Message {
-                        content: event_content.clone(),
-                        relations: Default::default(),
-                    },
-                );
+                state
+                    .handle_local_event(
+                        sender,
+                        sender_profile,
+                        txn_id.clone(),
+                        None,
+                        TimelineEventKind::Message {
+                            content: event_content.clone(),
+                            relations: Default::default(),
+                        },
+                    )
+                    .await;
 
                 ReactionState::Sending(txn_id)
             }
@@ -491,13 +492,9 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     unreachable!("the None/None case has been handled above")
                 };
 
-                state.handle_local_event(
-                    sender,
-                    sender_profile,
-                    TransactionId::new(),
-                    None,
-                    content,
-                );
+                state
+                    .handle_local_event(sender, sender_profile, TransactionId::new(), None, content)
+                    .await;
 
                 // Remember the remote echo to redact on the homeserver.
                 ReactionState::Redacting(remote_echo_event_id.cloned())
@@ -655,7 +652,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let profile = self.room_data_provider.profile_from_user_id(&sender).await;
 
         let mut state = self.state.write().await;
-        state.handle_local_event(sender, profile, txn_id, abort_handle, content);
+        state.handle_local_event(sender, profile, txn_id, abort_handle, content).await;
     }
 
     /// Update the send state of a local event represented by a transaction ID.
@@ -923,7 +920,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
                             // Notify observers that we managed to eventually decrypt an event.
                             if let Some(hook) = unable_to_decrypt_hook {
-                                hook.on_late_decrypt(&remote_event.event_id, cause);
+                                hook.on_late_decrypt(&remote_event.event_id, cause).await;
                             }
 
                             Some(event)

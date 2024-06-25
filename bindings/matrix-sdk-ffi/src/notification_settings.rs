@@ -308,14 +308,12 @@ impl NotificationSettings {
             .await
         {
             enabled
-        // Check unstable identifier
-        } else if let Ok(enabled) = notification_settings
-            .is_push_rule_enabled(RuleKind::Override, ".org.matrix.msc4028.encrypted_event")
-            .await
-        {
-            enabled
         } else {
-            false
+            // Check unstable identifier
+            notification_settings
+                .is_push_rule_enabled(RuleKind::Override, ".org.matrix.msc4028.encrypted_event")
+                .await
+                .unwrap_or(false)
         }
     }
 

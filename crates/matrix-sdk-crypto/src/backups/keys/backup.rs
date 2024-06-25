@@ -98,7 +98,9 @@ impl MegolmV1BackupKey {
         *self.inner.version.lock().unwrap() = Some(version);
     }
 
-    pub(crate) async fn encrypt(&self, session: InboundGroupSession) -> KeyBackupData {
+    /// Export the given inbound group session, and encrypt the data, ready for
+    /// writing to the backup.
+    pub async fn encrypt(&self, session: InboundGroupSession) -> KeyBackupData {
         let pk = PkEncryption::from_key(self.inner.key);
 
         // The forwarding chains don't mean much, we only care whether we received the

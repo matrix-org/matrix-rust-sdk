@@ -58,7 +58,7 @@ async fn test_calculate_room_names_from_summary() {
 
     assert_eq!(
         DisplayName::Calculated("example2".to_owned()),
-        room.computed_display_name().await.unwrap()
+        room.compute_display_name().await.unwrap()
     );
 }
 
@@ -77,7 +77,7 @@ async fn test_room_names() {
 
     assert_eq!(
         DisplayName::Aliased("tutorial".to_owned()),
-        room.computed_display_name().await.unwrap()
+        room.compute_display_name().await.unwrap()
     );
 
     mock_sync(&server, &*test_json::INVITE_SYNC, Some(sync_token.clone())).await;
@@ -89,7 +89,7 @@ async fn test_room_names() {
 
     assert_eq!(
         DisplayName::Named("My Room Name".to_owned()),
-        invited_room.computed_display_name().await.unwrap()
+        invited_room.compute_display_name().await.unwrap()
     );
 }
 

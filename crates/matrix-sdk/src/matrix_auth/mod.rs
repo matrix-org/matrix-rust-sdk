@@ -132,7 +132,7 @@ impl MatrixAuth {
 
         match request {
             Ok(req) => Ok(req.uri().to_string()),
-            Err(err) => Err(Error::from(HttpError::from(err))),
+            Err(err) => Err(Error::from(HttpError::IntoHttp(err))),
         }
     }
 

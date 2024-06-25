@@ -227,7 +227,7 @@ impl App {
                     all_rooms.into_iter().filter(|room_id| !previous_ui_rooms.contains_key(room_id))
                 {
                     // Retrieve the room list service's Room.
-                    let Ok(ui_room) = sync_service.room_list_service().room(&room_id).await else {
+                    let Ok(ui_room) = sync_service.room_list_service().room(&room_id) else {
                         error!("error when retrieving room after an update");
                         continue;
                     };
@@ -272,7 +272,7 @@ impl App {
 
                 for (room_id, room) in &new_ui_rooms {
                     let raw_name = room.name();
-                    let display_name = room.computed_display_name().await;
+                    let display_name = room.cached_display_name();
                     room_infos
                         .lock()
                         .unwrap()
@@ -436,13 +436,9 @@ impl App {
                             Char('S') => self.sync_service.stop().await?,
 
                             Char('Q') => {
-                                let q = self.client.sending_queue();
+                                let q = self.client.send_queue();
                                 let enabled = q.is_enabled();
-                                if enabled {
-                                    q.disable();
-                                } else {
-                                    q.enable();
-                                }
+                                q.set_enabled(!enabled);
                             }
 
                             Char('M') => {
@@ -818,7 +814,7 @@ impl App {
                     "\nUse j/k to move, s/S to start/stop the sync service, m to mark as read, t to show the timeline.".to_owned()
                 }
                 DetailsMode::TimelineItems => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, Q to enable/disable the sending queue, M to send a message.".to_owned()
+                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, Q to enable/disable the send queue, M to send a message.".to_owned()
                 }
             }
         };

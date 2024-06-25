@@ -20,11 +20,14 @@ use std::{
 use anyhow::anyhow;
 use async_trait::async_trait;
 use gloo_utils::format::JsValueSerdeExt;
+use growable_bloom_filter::GrowableBloom;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey},
-    store::{StateChanges, StateStore, StoreError},
+    store::{
+        ComposerDraft, QueuedEvent, SerializableEventContent, StateChanges, StateStore, StoreError,
+    },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateStoreDataKey,
     StateStoreDataValue,
 };
@@ -41,7 +44,8 @@ use ruma::{
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
+    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
+    RoomVersionId, TransactionId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::{debug, warn};
@@ -103,6 +107,7 @@ mod keys {
     pub const ROOM_INFOS: &str = "room_infos";
     pub const PRESENCE: &str = "presence";
     pub const ROOM_ACCOUNT_DATA: &str = "room_account_data";
+    pub const ROOM_SEND_QUEUE: &str = "room_send_queue";
 
     pub const STRIPPED_ROOM_STATE: &str = "stripped_room_state";
     pub const STRIPPED_USER_IDS: &str = "stripped_user_ids";
@@ -129,6 +134,7 @@ mod keys {
         STRIPPED_USER_IDS,
         ROOM_USER_RECEIPTS,
         ROOM_EVENT_RECEIPTS,
+        ROOM_SEND_QUEUE,
         MEDIA,
         CUSTOM,
         KV,
@@ -388,6 +394,12 @@ impl IndexeddbStateStore {
             StateStoreDataKey::RecentlyVisitedRooms(user_id) => {
                 self.encode_key(keys::KV, (StateStoreDataKey::RECENTLY_VISITED_ROOMS, user_id))
             }
+            StateStoreDataKey::UtdHookManagerData => {
+                self.encode_key(keys::KV, StateStoreDataKey::UTD_HOOK_MANAGER_DATA)
+            }
+            StateStoreDataKey::ComposerDraft(room_id) => {
+                self.encode_key(keys::KV, (StateStoreDataKey::COMPOSER_DRAFT, room_id))
+            }
         }
     }
 }
@@ -449,6 +461,14 @@ impl_state_store!({
                 .map(|f| self.deserialize_event::<Vec<String>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::RecentlyVisitedRooms),
+            StateStoreDataKey::UtdHookManagerData => value
+                .map(|f| self.deserialize_event::<GrowableBloom>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::UtdHookManagerData),
+            StateStoreDataKey::ComposerDraft(_) => value
+                .map(|f| self.deserialize_event::<ComposerDraft>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::ComposerDraft),
         };
 
         Ok(value)
@@ -474,6 +494,12 @@ impl_state_store!({
                 &value
                     .into_recently_visited_rooms()
                     .expect("Session data not a recently visited room list"),
+            ),
+            StateStoreDataKey::UtdHookManagerData => self.serialize_event(
+                &value.into_utd_hook_manager_data().expect("Session data not UtdHookManagerData"),
+            ),
+            StateStoreDataKey::ComposerDraft(_) => self.serialize_event(
+                &value.into_composer_draft().expect("Session data not a composer draft"),
             ),
         };
 
@@ -633,7 +659,7 @@ impl_state_store!({
                                 .delete(&self.encode_key(keys::STRIPPED_USER_IDS, key))?;
 
                             user_ids.put_key_val_owned(
-                                &self.encode_key(keys::USER_IDS, key),
+                                self.encode_key(keys::USER_IDS, key),
                                 &self.serialize_event(&RoomMember::from(&event))?,
                             )?;
 
@@ -641,7 +667,7 @@ impl_state_store!({
                                 profile_changes.and_then(|p| p.get(event.state_key()))
                             {
                                 profiles.put_key_val_owned(
-                                    &self.encode_key(keys::PROFILES, key),
+                                    self.encode_key(keys::PROFILES, key),
                                     &self.serialize_event(&profile)?,
                                 )?;
                             }
@@ -700,7 +726,7 @@ impl_state_store!({
                             let key = (room, state_key);
 
                             user_ids.put_key_val_owned(
-                                &self.encode_key(keys::STRIPPED_USER_IDS, key),
+                                self.encode_key(keys::STRIPPED_USER_IDS, key),
                                 &self.serialize_event(&RoomMember::from(&event))?,
                             )?;
                         }
@@ -1249,8 +1275,11 @@ impl_state_store!({
     }
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
-        let direct_stores = [keys::ROOM_INFOS];
+        // All the stores which use a RoomId as their key (and nothing additional).
+        let direct_stores = [keys::ROOM_INFOS, keys::ROOM_SEND_QUEUE];
 
+        // All the stores which use a RoomId as the first part of their key, but may
+        // have some additional data in the key.
         let prefixed_stores = [
             keys::PROFILES,
             keys::DISPLAY_NAMES,
@@ -1285,6 +1314,7 @@ impl_state_store!({
                 store.delete(&key)?;
             }
         }
+
         tx.await.into_result().map_err(|e| e.into())
     }
 
@@ -1306,6 +1336,123 @@ impl_state_store!({
 
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         self.get_user_ids(room_id, RoomMemberships::JOIN).await
+    }
+
+    async fn save_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: OwnedTransactionId,
+        content: SerializableEventContent,
+    ) -> Result<()> {
+        let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
+
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(keys::ROOM_SEND_QUEUE, IdbTransactionMode::Readwrite)?;
+
+        let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
+
+        // We store an encoded vector of the queued events, with their transaction ids.
+
+        // Reload the previous vector for this room, or create an empty one.
+        let prev = obj.get(&encoded_key)?.await?;
+
+        let mut prev = prev.map_or_else(
+            || Ok(Vec::new()),
+            |val| self.deserialize_event::<Vec<QueuedEvent>>(&val),
+        )?;
+
+        // Push the new event.
+        prev.push(QueuedEvent { event: content, transaction_id, is_wedged: false });
+
+        // Save the new vector into db.
+        obj.put_key_val(&encoded_key, &self.serialize_event(&prev)?)?;
+
+        tx.await.into_result()?;
+
+        Ok(())
+    }
+
+    async fn remove_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+    ) -> Result<()> {
+        let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
+
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(keys::ROOM_SEND_QUEUE, IdbTransactionMode::Readwrite)?;
+
+        let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
+
+        // We store an encoded vector of the queued events, with their transaction ids.
+
+        // Reload the previous vector for this room.
+        if let Some(val) = obj.get(&encoded_key)?.await? {
+            let mut prev = self.deserialize_event::<Vec<QueuedEvent>>(&val)?;
+            if let Some(pos) = prev.iter().position(|item| item.transaction_id == transaction_id) {
+                prev.remove(pos);
+
+                if prev.is_empty() {
+                    obj.delete(&encoded_key)?;
+                } else {
+                    obj.put_key_val(&encoded_key, &self.serialize_event(&prev)?)?;
+                }
+            }
+        }
+
+        tx.await.into_result()?;
+
+        Ok(())
+    }
+
+    async fn load_send_queue_events(&self, room_id: &RoomId) -> Result<Vec<QueuedEvent>> {
+        let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
+
+        // We store an encoded vector of the queued events, with their transaction ids.
+        let prev = self
+            .inner
+            .transaction_on_one_with_mode(keys::ROOM_SEND_QUEUE, IdbTransactionMode::Readwrite)?
+            .object_store(keys::ROOM_SEND_QUEUE)?
+            .get(&encoded_key)?
+            .await?;
+
+        let prev = prev.map_or_else(
+            || Ok(Vec::new()),
+            |val| self.deserialize_event::<Vec<QueuedEvent>>(&val),
+        )?;
+
+        Ok(prev)
+    }
+
+    async fn update_send_queue_event_status(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+        wedged: bool,
+    ) -> Result<()> {
+        let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
+
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(keys::ROOM_SEND_QUEUE, IdbTransactionMode::Readwrite)?;
+
+        let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
+
+        if let Some(val) = obj.get(&encoded_key)?.await? {
+            let mut prev = self.deserialize_event::<Vec<QueuedEvent>>(&val)?;
+            if let Some(queued_event) =
+                prev.iter_mut().find(|item| item.transaction_id == transaction_id)
+            {
+                queued_event.is_wedged = wedged;
+                obj.put_key_val(&encoded_key, &self.serialize_event(&prev)?)?;
+            }
+        }
+
+        tx.await.into_result()?;
+
+        Ok(())
     }
 });
 

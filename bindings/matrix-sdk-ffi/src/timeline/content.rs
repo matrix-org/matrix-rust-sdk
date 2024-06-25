@@ -193,6 +193,12 @@ pub struct InReplyToDetails {
     event: RepliedToEventDetails,
 }
 
+impl InReplyToDetails {
+    pub(crate) fn new(event_id: String, event: RepliedToEventDetails) -> Self {
+        Self { event_id, event }
+    }
+}
+
 impl From<&matrix_sdk_ui::timeline::InReplyToDetails> for InReplyToDetails {
     fn from(inner: &matrix_sdk_ui::timeline::InReplyToDetails) -> Self {
         let event_id = inner.event_id.to_string();

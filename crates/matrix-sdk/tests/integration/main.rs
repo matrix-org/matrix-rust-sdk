@@ -15,6 +15,7 @@ mod client;
 mod encryption;
 mod event_cache;
 mod matrix_auth;
+mod media;
 mod notification;
 mod refresh_token;
 mod room;

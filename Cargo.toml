@@ -36,6 +36,7 @@ futures-executor = "0.3.21"
 futures-util = { version = "0.3.26", default-features = false, features = [
     "alloc",
 ] }
+growable-bloom-filter = "2.1.0"
 http = "1.1.0"
 imbl = "2.0.0"
 itertools = "0.12.0"
@@ -43,7 +44,7 @@ once_cell = "1.16.0"
 pin-project-lite = "0.2.9"
 rand = "0.8.5"
 reqwest = { version = "0.12.4", default-features = false }
-ruma = { git = "https://github.com/ruma/ruma", rev = "75e8829bec0b7bc5332860e1fb2df658d5c71d66", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "e5a370f7e5fcebb0da6e4945e51c5fafba9aa5f0", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -54,7 +55,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "75e8829bec0b7bc5332860e1fb
     "unstable-msc3266",
     "unstable-msc4075"
 ] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "75e8829bec0b7bc5332860e1fb2df658d5c71d66" }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "e5a370f7e5fcebb0da6e4945e51c5fafba9aa5f0" }
 serde = "1.0.151"
 serde_html_form = "0.2.0"
 serde_json = "1.0.91"

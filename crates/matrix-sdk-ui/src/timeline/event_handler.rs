@@ -286,7 +286,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// `raw_event` is only needed to determine the cause of any UTDs,
     /// so if we know this is not a UTD it can be None.
     #[instrument(skip_all, fields(txn_id, event_id, position))]
-    pub(super) fn handle_event(
+    pub(super) async fn handle_event(
         mut self,
         day_divider_adjuster: &mut DayDividerAdjuster,
         event_kind: TimelineEventKind,
@@ -354,23 +354,27 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     self.handle_room_message_edit(re);
                 }
                 AnyMessageLikeEventContent::RoomMessage(c) => {
-                    self.add(should_add, TimelineItemContent::message(c, relations, self.items));
+                    if should_add {
+                        self.add_item(TimelineItemContent::message(c, relations, self.items));
+                    }
                 }
                 AnyMessageLikeEventContent::RoomEncrypted(c) => {
                     // TODO: Handle replacements if the replaced event is also UTD
                     let cause = UtdCause::determine(raw_event);
-                    self.add(true, TimelineItemContent::unable_to_decrypt(c, cause));
+                    self.add_item(TimelineItemContent::unable_to_decrypt(c, cause));
 
                     // Let the hook know that we ran into an unable-to-decrypt that is added to the
                     // timeline.
                     if let Some(hook) = self.meta.unable_to_decrypt_hook.as_ref() {
                         if let Flow::Remote { event_id, .. } = &self.ctx.flow {
-                            hook.on_utd(event_id, cause);
+                            hook.on_utd(event_id, cause).await;
                         }
                     }
                 }
                 AnyMessageLikeEventContent::Sticker(content) => {
-                    self.add(should_add, TimelineItemContent::Sticker(Sticker { content }));
+                    if should_add {
+                        self.add_item(TimelineItemContent::Sticker(Sticker { content }));
+                    }
                 }
                 AnyMessageLikeEventContent::UnstablePollStart(
                     UnstablePollStartEventContent::Replacement(c),
@@ -381,10 +385,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 AnyMessageLikeEventContent::UnstablePollResponse(c) => self.handle_poll_response(c),
                 AnyMessageLikeEventContent::UnstablePollEnd(c) => self.handle_poll_end(c),
                 AnyMessageLikeEventContent::CallInvite(_) => {
-                    self.add(should_add, TimelineItemContent::CallInvite);
+                    if should_add {
+                        self.add_item(TimelineItemContent::CallInvite);
+                    }
                 }
                 AnyMessageLikeEventContent::CallNotify(_) => {
-                    self.add(should_add, TimelineItemContent::CallNotify)
+                    if should_add {
+                        self.add_item(TimelineItemContent::CallNotify)
+                    }
                 }
 
                 // TODO
@@ -397,8 +405,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             },
 
             TimelineEventKind::RedactedMessage { event_type } => {
-                if event_type != MessageLikeEventType::Reaction {
-                    self.add(should_add, TimelineItemContent::RedactedMessage);
+                if event_type != MessageLikeEventType::Reaction && should_add {
+                    self.add_item(TimelineItemContent::RedactedMessage);
                 }
             }
 
@@ -410,28 +418,37 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
 
             TimelineEventKind::RoomMember { user_id, content, sender } => {
-                self.add(should_add, TimelineItemContent::room_member(user_id, content, sender));
+                if should_add {
+                    self.add_item(TimelineItemContent::room_member(user_id, content, sender));
+                }
             }
 
             TimelineEventKind::OtherState { state_key, content } => {
-                self.add(
-                    should_add,
-                    TimelineItemContent::OtherState(OtherState { state_key, content }),
-                );
+                if should_add {
+                    self.add_item(TimelineItemContent::OtherState(OtherState {
+                        state_key,
+                        content,
+                    }));
+                }
             }
 
             TimelineEventKind::FailedToParseMessageLike { event_type, error } => {
-                self.add(
-                    should_add,
-                    TimelineItemContent::FailedToParseMessageLike { event_type, error },
-                );
+                if should_add {
+                    self.add_item(TimelineItemContent::FailedToParseMessageLike {
+                        event_type,
+                        error,
+                    });
+                }
             }
 
             TimelineEventKind::FailedToParseState { event_type, state_key, error } => {
-                self.add(
-                    should_add,
-                    TimelineItemContent::FailedToParseState { event_type, state_key, error },
-                );
+                if should_add {
+                    self.add_item(TimelineItemContent::FailedToParseState {
+                        event_type,
+                        state_key,
+                        error,
+                    });
+                }
             }
         }
 
@@ -636,7 +653,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             // don't have an event ID that could be referenced by responses yet.
             self.meta.poll_pending_events.apply(&event_id, &mut poll_state);
         }
-        self.add(should_add, TimelineItemContent::Poll(poll_state));
+
+        if should_add {
+            self.add_item(TimelineItemContent::Poll(poll_state));
+        }
     }
 
     fn handle_poll_response(&mut self, c: UnstablePollResponseEventContent) {
@@ -846,11 +866,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     }
 
     /// Add a new event item in the timeline.
-    fn add(&mut self, should_add: bool, content: TimelineItemContent) {
-        if !should_add {
-            return;
-        }
-
+    fn add_item(&mut self, content: TimelineItemContent) {
         self.result.item_added = true;
 
         let sender = self.ctx.sender.to_owned();
@@ -859,12 +875,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let mut reactions = self.pending_reactions().unwrap_or_default();
 
         let kind: EventTimelineItemKind = match &self.ctx.flow {
-            Flow::Local { txn_id, abort_handle } => {
-                LocalEventTimelineItem {
-                    send_state: EventSendState::NotSentYet,
-                    transaction_id: txn_id.to_owned(),
-                    abort_handle: abort_handle.clone(),
-                }
+            Flow::Local { txn_id, abort_handle } => LocalEventTimelineItem {
+                send_state: EventSendState::NotSentYet,
+                transaction_id: txn_id.to_owned(),
+                abort_handle: abort_handle.clone(),
             }
             .into(),
 
@@ -1005,16 +1019,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // pending local echo, or at the start if there is no such item.
                 let insert_idx = latest_event_idx.map_or(0, |idx| idx + 1);
 
-                let id = match removed_event_item_id {
+                trace!("Adding new remote timeline item after all non-pending events");
+                let new_item = match removed_event_item_id {
                     // If a previous version of the same item (usually a local
                     // echo) was removed and we now need to add it again, reuse
                     // the previous item's ID.
-                    Some(id) => id,
-                    None => self.meta.next_internal_id(),
+                    Some(id) => TimelineItem::new(item, id),
+                    None => self.meta.new_timeline_item(item),
                 };
-
-                trace!("Adding new remote timeline item after all non-pending events");
-                let new_item = TimelineItem::new(item, id);
 
                 // Keep push semantics, if we're inserting at the front or the back.
                 if insert_idx == self.items.len() {

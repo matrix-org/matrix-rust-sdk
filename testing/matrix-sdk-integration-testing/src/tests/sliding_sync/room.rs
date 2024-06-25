@@ -4,7 +4,6 @@ use std::{
 };
 
 use anyhow::Result;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt as _};
 use matrix_sdk::{
@@ -355,9 +354,12 @@ impl UpdateObserver {
     ///
     /// Returns `None` when the diff was empty, aka it was a spurious update.
     async fn next(&mut self) -> Option<RoomInfo> {
-        assert_let!(
-            Ok(Some(update)) = timeout(Duration::from_secs(3), self.subscriber.next()).await
-        );
+        // Wait for the room info updates to stabilize.
+        let mut update = None;
+        while let Ok(Some(up)) = timeout(Duration::from_secs(2), self.subscriber.next()).await {
+            update = Some(up);
+        }
+        let update = update.expect("there should have been an update");
 
         let update_json = serde_json::to_value(&update).unwrap();
         let update_diff = json_structural_diff::JsonDiff::diff_string(
@@ -570,12 +572,7 @@ async fn test_room_notification_count() -> Result<()> {
 
     {
         debug!("Remote echo of marking the room as read");
-        let update = update_observer.next().await;
-
-        if update.is_none() {
-            debug!("Previous update was spurious, actual update now");
-            update_observer.next().await.expect("there should be a non-empty update at some point");
-        }
+        update_observer.next().await;
 
         assert!(!alice_room.are_members_synced());
 
@@ -600,21 +597,10 @@ async fn test_room_notification_count() -> Result<()> {
     alice_room.send(RoomMessageEventContent::text_plain("hello bob")).await?;
 
     {
-        debug!("Room members got synced.");
+        debug!("Room members got synced + remote echo for hello bob.");
         update_observer.next().await.expect("syncing room members should update room info");
 
         assert!(alice_room.are_members_synced());
-
-        assert_eq!(alice_room.num_unread_messages(), 0);
-        assert_eq!(alice_room.num_unread_notifications(), 0);
-        assert_eq!(alice_room.num_unread_mentions(), 0);
-
-        update_observer.assert_is_pending();
-    }
-
-    {
-        debug!("Remote echo for hello bob");
-        update_observer.next().await.expect("we should receive a remote echo for our own message");
 
         assert_eq!(alice_room.num_unread_messages(), 0);
         assert_eq!(alice_room.num_unread_notifications(), 0);

@@ -2072,18 +2072,18 @@ async fn test_room() -> Result<(), Error> {
         },
     };
 
-    let room0 = room_list.room(room_id_0).await?;
+    let room0 = room_list.room(room_id_0)?;
 
     // Room has received a name from sliding sync.
-    assert_eq!(room0.computed_display_name().await, Some("Room #0".to_owned()));
+    assert_eq!(room0.cached_display_name(), Some("Room #0".to_owned()));
 
     // Room has received an avatar from sliding sync.
     assert_eq!(room0.avatar_url(), Some(mxc_uri!("mxc://homeserver/media").to_owned()));
 
-    let room1 = room_list.room(room_id_1).await?;
+    let room1 = room_list.room(room_id_1)?;
 
     // Room has not received a name from sliding sync, then it's calculated.
-    assert_eq!(room1.computed_display_name().await, Some("Empty Room".to_owned()));
+    assert_eq!(room1.cached_display_name(), Some("Empty Room".to_owned()));
 
     // Room has not received an avatar from sliding sync, then it's calculated, but
     // there is nothing to calculate from, so there is no URL.
@@ -2129,7 +2129,7 @@ async fn test_room() -> Result<(), Error> {
     };
 
     // Room has _now_ received a name from sliding sync!
-    assert_eq!(room1.computed_display_name().await, Some("Room #1".to_owned()));
+    assert_eq!(room1.cached_display_name(), Some("Room #1".to_owned()));
 
     // Room has _now_ received an avatar URL from sliding sync!
     assert_eq!(room1.avatar_url(), Some(mxc_uri!("mxc://homeserver/other-media").to_owned()));
@@ -2144,7 +2144,7 @@ async fn test_room_not_found() -> Result<(), Error> {
     let room_id = room_id!("!foo:bar.org");
 
     assert_matches!(
-        room_list.room(room_id).await,
+        room_list.room(room_id),
         Err(Error::RoomNotFound(error_room_id)) => {
             assert_eq!(error_room_id, room_id.to_owned());
         }
@@ -2208,7 +2208,7 @@ async fn test_room_subscription() -> Result<(), Error> {
         },
     };
 
-    let room1 = room_list.room(room_id_1).await.unwrap();
+    let room1 = room_list.room(room_id_1).unwrap();
 
     // Subscribe.
 
@@ -2253,7 +2253,7 @@ async fn test_room_subscription() -> Result<(), Error> {
     // Unsubscribe.
 
     room1.unsubscribe();
-    room_list.room(room_id_2).await?.unsubscribe(); // unsubscribe from a room that has no subscription.
+    room_list.room(room_id_2)?.unsubscribe(); // unsubscribe from a room that has no subscription.
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2316,7 +2316,7 @@ async fn test_room_unread_notifications() -> Result<(), Error> {
         },
     };
 
-    let room = room_list.room(room_id).await.unwrap();
+    let room = room_list.room(room_id).unwrap();
 
     assert_matches!(
         room.unread_notification_counts(),
@@ -2391,7 +2391,7 @@ async fn test_room_timeline() -> Result<(), Error> {
         },
     };
 
-    let room = room_list.room(room_id).await?;
+    let room = room_list.room(room_id)?;
     room.init_timeline_with_builder(room.default_room_timeline_builder().await.unwrap()).await?;
     let timeline = room.timeline().unwrap();
 
@@ -2473,7 +2473,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
         },
     };
 
-    let room = room_list.room(room_id).await?;
+    let room = room_list.room(room_id)?;
     room.init_timeline_with_builder(room.default_room_timeline_builder().await.unwrap()).await?;
 
     // The latest event does not exist.
@@ -2539,7 +2539,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     // Insert a local event in the `Timeline`.
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await.unwrap();
 
-    // Let the sending queue send the message, and the timeline process it.
+    // Let the send queue send the message, and the timeline process it.
     yield_now().await;
 
     // The latest event of the `Timeline` is a local event.
