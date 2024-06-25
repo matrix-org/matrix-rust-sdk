@@ -26,7 +26,10 @@ use futures_util::future::try_join;
 pub use matrix_sdk_base::media::*;
 use mime::Mime;
 use ruma::{
-    api::client::media::{create_content, get_content, get_content_thumbnail},
+    api::{
+        client::{authenticated_media, media},
+        MatrixVersion,
+    },
     assign,
     events::room::{
         message::{
@@ -114,7 +117,7 @@ impl fmt::Display for PersistError {
 }
 
 /// `IntoFuture` returned by [`Media::upload`].
-pub type SendUploadRequest = SendRequest<create_content::v3::Request>;
+pub type SendUploadRequest = SendRequest<media::create_content::v3::Request>;
 
 impl Media {
     pub(crate) fn new(client: Client) -> Self {
@@ -154,7 +157,7 @@ impl Media {
             MIN_UPLOAD_REQUEST_TIMEOUT,
         );
 
-        let request = assign!(create_content::v3::Request::new(data), {
+        let request = assign!(media::create_content::v3::Request::new(data), {
             content_type: Some(content_type.essence_str().to_owned()),
         });
 
@@ -269,11 +272,22 @@ impl Media {
             }
         };
 
+        // Use the authenticated endpoints when the server supports Matrix 1.11.
+        // TODO: Add an option in ClientBuilder to force the use of the authenticated
+        // endpoints.
+        let use_auth = self.client.server_versions().await?.contains(&MatrixVersion::V1_11);
+
         let content: Vec<u8> = match &request.source {
             MediaSource::Encrypted(file) => {
-                #[allow(deprecated)]
-                let request = get_content::v3::Request::from_url(&file.url)?;
-                let content: Vec<u8> = self.client.send(request, None).await?.file;
+                let content = if use_auth {
+                    let request =
+                        authenticated_media::get_content::v1::Request::from_uri(&file.url)?;
+                    self.client.send(request, None).await?.file
+                } else {
+                    #[allow(deprecated)]
+                    let request = media::get_content::v3::Request::from_url(&file.url)?;
+                    self.client.send(request, None).await?.file
+                };
 
                 #[cfg(feature = "e2e-encryption")]
                 let content = {
@@ -297,13 +311,29 @@ impl Media {
             }
             MediaSource::Plain(uri) => {
                 if let MediaFormat::Thumbnail(size) = &request.format {
-                    #[allow(deprecated)]
-                    let request =
-                        get_content_thumbnail::v3::Request::from_url(uri, size.width, size.height)?;
+                    if use_auth {
+                        let request =
+                            authenticated_media::get_content_thumbnail::v1::Request::from_uri(
+                                uri,
+                                size.width,
+                                size.height,
+                            )?;
+                        self.client.send(request, None).await?.file
+                    } else {
+                        #[allow(deprecated)]
+                        let request = media::get_content_thumbnail::v3::Request::from_url(
+                            uri,
+                            size.width,
+                            size.height,
+                        )?;
+                        self.client.send(request, None).await?.file
+                    }
+                } else if use_auth {
+                    let request = authenticated_media::get_content::v1::Request::from_uri(uri)?;
                     self.client.send(request, None).await?.file
                 } else {
                     #[allow(deprecated)]
-                    let request = get_content::v3::Request::from_url(uri)?;
+                    let request = media::get_content::v3::Request::from_url(uri)?;
                     self.client.send(request, None).await?.file
                 }
             }
