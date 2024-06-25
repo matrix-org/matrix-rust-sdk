@@ -147,14 +147,16 @@ mod keys {
 
 pub use keys::ALL_STORES;
 
-fn serialize_event(store_cipher: Option<&StoreCipher>, event: &impl Serialize) -> Result<JsValue> {
+/// Encrypt (if needs be) then JSON-serialize a value.
+fn serialize_value(store_cipher: Option<&StoreCipher>, event: &impl Serialize) -> Result<JsValue> {
     Ok(match store_cipher {
         Some(cipher) => JsValue::from_serde(&cipher.encrypt_value_typed(event)?)?,
         None => JsValue::from_serde(event)?,
     })
 }
 
-fn deserialize_event<T: DeserializeOwned>(
+/// Deserialize a JSON value and then decrypt it (if needs be).
+fn deserialize_value<T: DeserializeOwned>(
     store_cipher: Option<&StoreCipher>,
     event: &JsValue,
 ) -> Result<T> {
@@ -297,12 +299,14 @@ impl IndexeddbStateStore {
             .and_then(|c| c.value().as_string()))
     }
 
-    fn serialize_event(&self, event: &impl Serialize) -> Result<JsValue> {
-        serialize_event(self.store_cipher.as_deref(), event)
+    /// Encrypt (if needs be) then JSON-serialize a value.
+    fn serialize_value(&self, event: &impl Serialize) -> Result<JsValue> {
+        serialize_value(self.store_cipher.as_deref(), event)
     }
 
-    fn deserialize_event<T: DeserializeOwned>(&self, event: &JsValue) -> Result<T> {
-        deserialize_event(self.store_cipher.as_deref(), event)
+    /// Deserialize a JSON value and then decrypt it (if needs be).
+    fn deserialize_value<T: DeserializeOwned>(&self, event: &JsValue) -> Result<T> {
+        deserialize_value(self.store_cipher.as_deref(), event)
     }
 
     fn encode_key<T>(&self, table_name: &str, key: T) -> JsValue
@@ -340,7 +344,7 @@ impl IndexeddbStateStore {
                 .get_all_with_key(&range)?
                 .await?
                 .iter()
-                .filter_map(|f| self.deserialize_event::<RoomMember>(&f).ok().map(|m| m.user_id))
+                .filter_map(|f| self.deserialize_value::<RoomMember>(&f).ok().map(|m| m.user_id))
                 .collect::<Vec<_>>()
         } else {
             let mut user_ids = Vec::new();
@@ -349,7 +353,7 @@ impl IndexeddbStateStore {
             if let Some(cursor) = cursor {
                 loop {
                     let value = cursor.value();
-                    let member = self.deserialize_event::<RoomMember>(&value)?;
+                    let member = self.deserialize_value::<RoomMember>(&value)?;
 
                     if memberships.matches(&member.membership) {
                         user_ids.push(member.user_id);
@@ -373,7 +377,7 @@ impl IndexeddbStateStore {
             .object_store(keys::CUSTOM)?
             .get(jskey)?
             .await?
-            .map(|f| self.deserialize_event(&f))
+            .map(|f| self.deserialize_value(&f))
             .transpose()
     }
 
@@ -446,27 +450,27 @@ impl_state_store!({
 
         let value = match key {
             StateStoreDataKey::SyncToken => value
-                .map(|f| self.deserialize_event::<String>(&f))
+                .map(|f| self.deserialize_value::<String>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::SyncToken),
             StateStoreDataKey::Filter(_) => value
-                .map(|f| self.deserialize_event::<String>(&f))
+                .map(|f| self.deserialize_value::<String>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::Filter),
             StateStoreDataKey::UserAvatarUrl(_) => value
-                .map(|f| self.deserialize_event::<String>(&f))
+                .map(|f| self.deserialize_value::<String>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::UserAvatarUrl),
             StateStoreDataKey::RecentlyVisitedRooms(_) => value
-                .map(|f| self.deserialize_event::<Vec<String>>(&f))
+                .map(|f| self.deserialize_value::<Vec<String>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::RecentlyVisitedRooms),
             StateStoreDataKey::UtdHookManagerData => value
-                .map(|f| self.deserialize_event::<GrowableBloom>(&f))
+                .map(|f| self.deserialize_value::<GrowableBloom>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::UtdHookManagerData),
             StateStoreDataKey::ComposerDraft(_) => value
-                .map(|f| self.deserialize_event::<ComposerDraft>(&f))
+                .map(|f| self.deserialize_value::<ComposerDraft>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::ComposerDraft),
         };
@@ -483,22 +487,22 @@ impl_state_store!({
 
         let serialized_value = match key {
             StateStoreDataKey::SyncToken => self
-                .serialize_event(&value.into_sync_token().expect("Session data not a sync token")),
+                .serialize_value(&value.into_sync_token().expect("Session data not a sync token")),
             StateStoreDataKey::Filter(_) => {
-                self.serialize_event(&value.into_filter().expect("Session data not a filter"))
+                self.serialize_value(&value.into_filter().expect("Session data not a filter"))
             }
-            StateStoreDataKey::UserAvatarUrl(_) => self.serialize_event(
+            StateStoreDataKey::UserAvatarUrl(_) => self.serialize_value(
                 &value.into_user_avatar_url().expect("Session data not an user avatar url"),
             ),
-            StateStoreDataKey::RecentlyVisitedRooms(_) => self.serialize_event(
+            StateStoreDataKey::RecentlyVisitedRooms(_) => self.serialize_value(
                 &value
                     .into_recently_visited_rooms()
                     .expect("Session data not a recently visited room list"),
             ),
-            StateStoreDataKey::UtdHookManagerData => self.serialize_event(
+            StateStoreDataKey::UtdHookManagerData => self.serialize_value(
                 &value.into_utd_hook_manager_data().expect("Session data not UtdHookManagerData"),
             ),
-            StateStoreDataKey::ComposerDraft(_) => self.serialize_event(
+            StateStoreDataKey::ComposerDraft(_) => self.serialize_value(
                 &value.into_composer_draft().expect("Session data not a composer draft"),
             ),
         };
@@ -584,7 +588,7 @@ impl_state_store!({
         if let Some(s) = &changes.sync_token {
             tx.object_store(keys::KV)?.put_key_val(
                 &self.encode_kv_data_key(StateStoreDataKey::SyncToken),
-                &self.serialize_event(s)?,
+                &self.serialize_value(s)?,
             )?;
         }
 
@@ -594,7 +598,7 @@ impl_state_store!({
                 for (display_name, map) in ambiguity_maps {
                     let key = self.encode_key(keys::DISPLAY_NAMES, (room_id, display_name));
 
-                    store.put_key_val(&key, &self.serialize_event(&map)?)?;
+                    store.put_key_val(&key, &self.serialize_value(&map)?)?;
                 }
             }
         }
@@ -604,7 +608,7 @@ impl_state_store!({
             for (event_type, event) in &changes.account_data {
                 store.put_key_val(
                     &self.encode_key(keys::ACCOUNT_DATA, event_type),
-                    &self.serialize_event(&event)?,
+                    &self.serialize_value(&event)?,
                 )?;
             }
         }
@@ -614,7 +618,7 @@ impl_state_store!({
             for (room, events) in &changes.room_account_data {
                 for (event_type, event) in events {
                     let key = self.encode_key(keys::ROOM_ACCOUNT_DATA, (room, event_type));
-                    store.put_key_val(&key, &self.serialize_event(&event)?)?;
+                    store.put_key_val(&key, &self.serialize_value(&event)?)?;
                 }
             }
         }
@@ -639,7 +643,7 @@ impl_state_store!({
                 for (event_type, events) in event_types {
                     for (state_key, raw_event) in events {
                         let key = self.encode_key(keys::ROOM_STATE, (room, event_type, state_key));
-                        state.put_key_val(&key, &self.serialize_event(&raw_event)?)?;
+                        state.put_key_val(&key, &self.serialize_value(&raw_event)?)?;
                         stripped_state.delete(&key)?;
 
                         if *event_type == StateEventType::RoomMember {
@@ -660,7 +664,7 @@ impl_state_store!({
 
                             user_ids.put_key_val_owned(
                                 self.encode_key(keys::USER_IDS, key),
-                                &self.serialize_event(&RoomMember::from(&event))?,
+                                &self.serialize_value(&RoomMember::from(&event))?,
                             )?;
 
                             if let Some(profile) =
@@ -668,7 +672,7 @@ impl_state_store!({
                             {
                                 profiles.put_key_val_owned(
                                     self.encode_key(keys::PROFILES, key),
-                                    &self.serialize_event(&profile)?,
+                                    &self.serialize_value(&profile)?,
                                 )?;
                             }
                         }
@@ -682,7 +686,7 @@ impl_state_store!({
             for (room_id, room_info) in &changes.room_infos {
                 room_infos.put_key_val(
                     &self.encode_key(keys::ROOM_INFOS, room_id),
-                    &self.serialize_event(&room_info)?,
+                    &self.serialize_value(&room_info)?,
                 )?;
             }
         }
@@ -692,7 +696,7 @@ impl_state_store!({
             for (sender, event) in &changes.presence {
                 store.put_key_val(
                     &self.encode_key(keys::PRESENCE, sender),
-                    &self.serialize_event(&event)?,
+                    &self.serialize_value(&event)?,
                 )?;
             }
         }
@@ -706,7 +710,7 @@ impl_state_store!({
                     for (state_key, raw_event) in events {
                         let key = self
                             .encode_key(keys::STRIPPED_ROOM_STATE, (room, event_type, state_key));
-                        store.put_key_val(&key, &self.serialize_event(&raw_event)?)?;
+                        store.put_key_val(&key, &self.serialize_value(&raw_event)?)?;
 
                         if *event_type == StateEventType::RoomMember {
                             let event = match raw_event.deserialize_as::<StrippedRoomMemberEvent>()
@@ -727,7 +731,7 @@ impl_state_store!({
 
                             user_ids.put_key_val_owned(
                                 self.encode_key(keys::STRIPPED_USER_IDS, key),
-                                &self.serialize_event(&RoomMember::from(&event))?,
+                                &self.serialize_value(&RoomMember::from(&event))?,
                             )?;
                         }
                     }
@@ -756,7 +760,7 @@ impl_state_store!({
 
                             if let Some((old_event, _)) =
                                 room_user_receipts.get(&key)?.await?.and_then(|f| {
-                                    self.deserialize_event::<(OwnedEventId, Receipt)>(&f).ok()
+                                    self.deserialize_value::<(OwnedEventId, Receipt)>(&f).ok()
                                 })
                             {
                                 let key = match receipt.thread.as_str() {
@@ -773,7 +777,7 @@ impl_state_store!({
                             }
 
                             room_user_receipts
-                                .put_key_val(&key, &self.serialize_event(&(event_id, receipt))?)?;
+                                .put_key_val(&key, &self.serialize_value(&(event_id, receipt))?)?;
 
                             // Add the receipt to the room event receipts
                             let key = match receipt.thread.as_str() {
@@ -787,7 +791,7 @@ impl_state_store!({
                                 ),
                             };
                             room_event_receipts
-                                .put_key_val(&key, &self.serialize_event(&(user_id, receipt))?)?;
+                                .put_key_val(&key, &self.serialize_value(&(user_id, receipt))?)?;
                         }
                     }
                 }
@@ -806,7 +810,7 @@ impl_state_store!({
 
                 while let Some(key) = cursor.key() {
                     let raw_evt =
-                        self.deserialize_event::<Raw<AnySyncStateEvent>>(&cursor.value())?;
+                        self.deserialize_value::<Raw<AnySyncStateEvent>>(&cursor.value())?;
                     if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
                         if let Some(redaction) = redactions.get(&event_id) {
                             let version = {
@@ -814,7 +818,7 @@ impl_state_store!({
                                     room_version.replace(room_info
                                         .get(&self.encode_key(keys::ROOM_INFOS, room_id))?
                                         .await?
-                                        .and_then(|f| self.deserialize_event::<RoomInfo>(&f).ok())
+                                        .and_then(|f| self.deserialize_value::<RoomInfo>(&f).ok())
                                         .and_then(|info| info.room_version().cloned())
                                         .unwrap_or_else(|| {
                                             warn!(?room_id, "Unable to find the room version, assume version 9");
@@ -831,7 +835,7 @@ impl_state_store!({
                                 Some(RedactedBecause::from_raw_event(redaction)?),
                             )
                             .map_err(StoreError::Redaction)?;
-                            state.put_key_val(&key, &self.serialize_event(&redacted)?)?;
+                            state.put_key_val(&key, &self.serialize_value(&redacted)?)?;
                         }
                     }
 
@@ -850,7 +854,7 @@ impl_state_store!({
             .object_store(keys::PRESENCE)?
             .get(&self.encode_key(keys::PRESENCE, user_id))?
             .await?
-            .map(|f| self.deserialize_event(&f))
+            .map(|f| self.deserialize_value(&f))
             .transpose()
     }
 
@@ -873,7 +877,7 @@ impl_state_store!({
             if let Some(event) = store
                 .get(&self.encode_key(keys::PRESENCE, user_id))?
                 .await?
-                .map(|f| self.deserialize_event(&f))
+                .map(|f| self.deserialize_value(&f))
                 .transpose()?
             {
                 events.push(event)
@@ -911,7 +915,7 @@ impl_state_store!({
             .await?
             .iter()
             .filter_map(|f| {
-                self.deserialize_event(&f).ok().map(RawAnySyncOrStrippedState::Stripped)
+                self.deserialize_value(&f).ok().map(RawAnySyncOrStrippedState::Stripped)
             })
             .collect::<Vec<_>>();
 
@@ -927,7 +931,7 @@ impl_state_store!({
             .get_all_with_key(&range)?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event(&f).ok().map(RawAnySyncOrStrippedState::Sync))
+            .filter_map(|f| self.deserialize_value(&f).ok().map(RawAnySyncOrStrippedState::Sync))
             .collect::<Vec<_>>())
     }
 
@@ -958,7 +962,7 @@ impl_state_store!({
                             (room_id, &event_type, state_key),
                         ))?
                         .await?
-                        .map(|f| self.deserialize_event(&f))
+                        .map(|f| self.deserialize_value(&f))
                         .transpose()?
                 {
                     events.push(RawAnySyncOrStrippedState::Stripped(event));
@@ -979,7 +983,7 @@ impl_state_store!({
             if let Some(event) = store
                 .get(&self.encode_key(keys::ROOM_STATE, (room_id, &event_type, state_key)))?
                 .await?
-                .map(|f| self.deserialize_event(&f))
+                .map(|f| self.deserialize_value(&f))
                 .transpose()?
             {
                 events.push(RawAnySyncOrStrippedState::Sync(event));
@@ -999,7 +1003,7 @@ impl_state_store!({
             .object_store(keys::PROFILES)?
             .get(&self.encode_key(keys::PROFILES, (room_id, user_id)))?
             .await?
-            .map(|f| self.deserialize_event(&f))
+            .map(|f| self.deserialize_value(&f))
             .transpose()
     }
 
@@ -1022,7 +1026,7 @@ impl_state_store!({
             if let Some(profile) = store
                 .get(&self.encode_key(keys::PROFILES, (room_id, user_id)))?
                 .await?
-                .map(|f| self.deserialize_event(&f))
+                .map(|f| self.deserialize_value(&f))
                 .transpose()?
             {
                 profiles.insert(user_id.as_ref(), profile);
@@ -1040,7 +1044,7 @@ impl_state_store!({
             .get_all()?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event::<RoomInfo>(&f).ok())
+            .filter_map(|f| self.deserialize_value::<RoomInfo>(&f).ok())
             .collect();
 
         Ok(entries)
@@ -1058,7 +1062,7 @@ impl_state_store!({
         if let Some(cursor) = cursor {
             loop {
                 let value = cursor.value();
-                let info = self.deserialize_event::<RoomInfo>(&value)?;
+                let info = self.deserialize_value::<RoomInfo>(&value)?;
 
                 if info.state() == RoomState::Invited {
                     infos.push(info);
@@ -1083,7 +1087,7 @@ impl_state_store!({
             .object_store(keys::DISPLAY_NAMES)?
             .get(&self.encode_key(keys::DISPLAY_NAMES, (room_id, display_name)))?
             .await?
-            .map(|f| self.deserialize_event::<BTreeSet<OwnedUserId>>(&f))
+            .map(|f| self.deserialize_value::<BTreeSet<OwnedUserId>>(&f))
             .unwrap_or_else(|| Ok(Default::default()))
     }
 
@@ -1106,7 +1110,7 @@ impl_state_store!({
             if let Some(user_ids) = store
                 .get(&self.encode_key(keys::DISPLAY_NAMES, (room_id, display_name)))?
                 .await?
-                .map(|f| self.deserialize_event::<BTreeSet<OwnedUserId>>(&f))
+                .map(|f| self.deserialize_value::<BTreeSet<OwnedUserId>>(&f))
                 .transpose()?
             {
                 map.insert(display_name.as_ref(), user_ids);
@@ -1125,7 +1129,7 @@ impl_state_store!({
             .object_store(keys::ACCOUNT_DATA)?
             .get(&self.encode_key(keys::ACCOUNT_DATA, event_type))?
             .await?
-            .map(|f| self.deserialize_event(&f))
+            .map(|f| self.deserialize_value(&f))
             .transpose()
     }
 
@@ -1139,7 +1143,7 @@ impl_state_store!({
             .object_store(keys::ROOM_ACCOUNT_DATA)?
             .get(&self.encode_key(keys::ROOM_ACCOUNT_DATA, (room_id, event_type)))?
             .await?
-            .map(|f| self.deserialize_event(&f))
+            .map(|f| self.deserialize_value(&f))
             .transpose()
     }
 
@@ -1160,7 +1164,7 @@ impl_state_store!({
             .object_store(keys::ROOM_USER_RECEIPTS)?
             .get(&key)?
             .await?
-            .map(|f| self.deserialize_event(&f))
+            .map(|f| self.deserialize_value(&f))
             .transpose()
     }
 
@@ -1190,7 +1194,7 @@ impl_state_store!({
             .get_all_with_key(&range)?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event(&f).ok())
+            .filter_map(|f| self.deserialize_value(&f).ok())
             .collect::<Vec<_>>())
     }
 
@@ -1200,7 +1204,7 @@ impl_state_store!({
         let tx =
             self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
 
-        tx.object_store(keys::MEDIA)?.put_key_val(&key, &self.serialize_event(&data)?)?;
+        tx.object_store(keys::MEDIA)?.put_key_val(&key, &self.serialize_value(&data)?)?;
 
         tx.await.into_result().map_err(|e| e.into())
     }
@@ -1213,7 +1217,7 @@ impl_state_store!({
             .object_store(keys::MEDIA)?
             .get(&key)?
             .await?
-            .map(|f| self.deserialize_event(&f))
+            .map(|f| self.deserialize_value(&f))
             .transpose()
     }
 
@@ -1230,7 +1234,7 @@ impl_state_store!({
         let tx =
             self.inner.transaction_on_one_with_mode(keys::CUSTOM, IdbTransactionMode::Readwrite)?;
 
-        tx.object_store(keys::CUSTOM)?.put_key_val(&jskey, &self.serialize_event(&value)?)?;
+        tx.object_store(keys::CUSTOM)?.put_key_val(&jskey, &self.serialize_value(&value)?)?;
 
         tx.await.into_result().map_err(IndexeddbStateStoreError::from)?;
         Ok(prev)
@@ -1359,14 +1363,14 @@ impl_state_store!({
 
         let mut prev = prev.map_or_else(
             || Ok(Vec::new()),
-            |val| self.deserialize_event::<Vec<QueuedEvent>>(&val),
+            |val| self.deserialize_value::<Vec<QueuedEvent>>(&val),
         )?;
 
         // Push the new event.
         prev.push(QueuedEvent { event: content, transaction_id, is_wedged: false });
 
         // Save the new vector into db.
-        obj.put_key_val(&encoded_key, &self.serialize_event(&prev)?)?;
+        obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
 
         tx.await.into_result()?;
 
@@ -1390,14 +1394,14 @@ impl_state_store!({
 
         // Reload the previous vector for this room.
         if let Some(val) = obj.get(&encoded_key)?.await? {
-            let mut prev = self.deserialize_event::<Vec<QueuedEvent>>(&val)?;
+            let mut prev = self.deserialize_value::<Vec<QueuedEvent>>(&val)?;
             if let Some(pos) = prev.iter().position(|item| item.transaction_id == transaction_id) {
                 prev.remove(pos);
 
                 if prev.is_empty() {
                     obj.delete(&encoded_key)?;
                 } else {
-                    obj.put_key_val(&encoded_key, &self.serialize_event(&prev)?)?;
+                    obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
                 }
             }
         }
@@ -1420,7 +1424,7 @@ impl_state_store!({
 
         let prev = prev.map_or_else(
             || Ok(Vec::new()),
-            |val| self.deserialize_event::<Vec<QueuedEvent>>(&val),
+            |val| self.deserialize_value::<Vec<QueuedEvent>>(&val),
         )?;
 
         Ok(prev)
@@ -1441,12 +1445,12 @@ impl_state_store!({
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
 
         if let Some(val) = obj.get(&encoded_key)?.await? {
-            let mut prev = self.deserialize_event::<Vec<QueuedEvent>>(&val)?;
+            let mut prev = self.deserialize_value::<Vec<QueuedEvent>>(&val)?;
             if let Some(queued_event) =
                 prev.iter_mut().find(|item| item.transaction_id == transaction_id)
             {
                 queued_event.is_wedged = wedged;
-                obj.put_key_val(&encoded_key, &self.serialize_event(&prev)?)?;
+                obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
             }
         }
 
