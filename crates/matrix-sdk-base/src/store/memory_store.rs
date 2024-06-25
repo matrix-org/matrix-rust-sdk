@@ -31,12 +31,15 @@ use ruma::{
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId,
-    RoomId, RoomVersionId, UserId,
+    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId,
+    OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
 use tracing::{debug, warn};
 
-use super::{traits::ComposerDraft, Result, RoomInfo, StateChanges, StateStore, StoreError};
+use super::{
+    traits::{ComposerDraft, QueuedEvent, SerializableEventContent},
+    Result, RoomInfo, StateChanges, StateStore, StoreError,
+};
 use crate::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey as _},
@@ -85,6 +88,7 @@ pub struct MemoryStore {
     >,
     media: StdRwLock<RingBuffer<(OwnedMxcUri, String /* unique key */, Vec<u8>)>>,
     custom: StdRwLock<HashMap<Vec<u8>, Vec<u8>>>,
+    send_queue_events: StdRwLock<BTreeMap<OwnedRoomId, Vec<QueuedEvent>>>,
 }
 
 // SAFETY: `new_unchecked` is safe because 20 is not zero.
@@ -113,6 +117,7 @@ impl Default for MemoryStore {
             room_event_receipts: Default::default(),
             media: StdRwLock::new(RingBuffer::new(NUMBER_OF_MEDIAS)),
             custom: Default::default(),
+            send_queue_events: Default::default(),
         }
     }
 }
@@ -862,6 +867,62 @@ impl StateStore for MemoryStore {
         self.room_user_receipts.write().unwrap().remove(room_id);
         self.room_event_receipts.write().unwrap().remove(room_id);
 
+        Ok(())
+    }
+
+    async fn save_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: OwnedTransactionId,
+        event: SerializableEventContent,
+    ) -> Result<(), Self::Error> {
+        self.send_queue_events
+            .write()
+            .unwrap()
+            .entry(room_id.to_owned())
+            .or_default()
+            .push(QueuedEvent { event, transaction_id, is_wedged: false });
+        Ok(())
+    }
+
+    async fn remove_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+    ) -> Result<(), Self::Error> {
+        self.send_queue_events
+            .write()
+            .unwrap()
+            .entry(room_id.to_owned())
+            .or_default()
+            .retain(|item| item.transaction_id != transaction_id);
+        Ok(())
+    }
+
+    async fn load_send_queue_events(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<QueuedEvent>, Self::Error> {
+        Ok(self.send_queue_events.write().unwrap().entry(room_id.to_owned()).or_default().clone())
+    }
+
+    async fn update_send_queue_event_status(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+        wedged: bool,
+    ) -> Result<(), Self::Error> {
+        if let Some(entry) = self
+            .send_queue_events
+            .write()
+            .unwrap()
+            .entry(room_id.to_owned())
+            .or_default()
+            .iter_mut()
+            .find(|item| item.transaction_id == transaction_id)
+        {
+            entry.is_wedged = wedged;
+        }
         Ok(())
     }
 }

@@ -867,6 +867,8 @@ impl OlmMachine {
     }
 
     fn add_withheld_info(&self, changes: &mut Changes, event: &RoomKeyWithheldEvent) {
+        debug!(?event.content, "Processing `m.room_key.withheld` event");
+
         if let RoomKeyWithheldContent::MegolmV1AesSha2(
             MegolmV1AesSha2WithheldContent::BlackListed(c)
             | MegolmV1AesSha2WithheldContent::Unverified(c),

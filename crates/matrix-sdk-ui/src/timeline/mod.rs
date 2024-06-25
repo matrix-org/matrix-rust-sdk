@@ -707,7 +707,7 @@ impl Timeline {
         match &event.kind {
             EventTimelineItemKind::Local(local) => {
                 if let Some(handle) = local.abort_handle.clone() {
-                    Ok(handle.abort().await)
+                    Ok(handle.abort().await.map_err(RedactEventError::RoomQueueError)?)
                 } else {
                     // No abort handle; theoretically unreachable for regular usage of the
                     // timeline, but this may happen in testing contexts.

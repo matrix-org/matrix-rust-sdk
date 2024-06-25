@@ -150,6 +150,13 @@ impl<'a> SendRawMessageLikeEvent<'a> {
         self.transaction_id = Some(txn_id.to_owned());
         self
     }
+
+    /// Assign a given [`RequestConfig`] to configure how this request should
+    /// behave with respect to the network.
+    pub fn with_request_config(mut self, request_config: RequestConfig) -> Self {
+        self.request_config = Some(request_config);
+        self
+    }
 }
 
 impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
