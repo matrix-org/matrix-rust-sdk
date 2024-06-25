@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     ops::Deref,
 };
 
@@ -24,7 +24,7 @@ use tracing::{debug, instrument, trace};
 use super::OutboundGroupSession;
 use crate::{
     error::OlmResult, store::Store, types::events::room_key_withheld::WithheldCode,
-    EncryptionSettings, ReadOnlyDevice,
+    EncryptionSettings, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
 };
 
 /// Returned by `collect_session_recipients`.
@@ -51,7 +51,7 @@ pub(crate) struct CollectRecipientsResult {
 /// and the list of users/devices that should receive or not the session
 /// (with withheld reason).
 #[instrument(skip_all)]
-pub async fn collect_session_recipients(
+pub(crate) async fn collect_session_recipients(
     store: &Store,
     users: impl Iterator<Item = &UserId>,
     settings: &EncryptionSettings,
@@ -97,24 +97,15 @@ pub async fn collect_session_recipients(
             None
         };
 
-        // From all the devices a user has, we're splitting them into two
-        // buckets, a bucket of devices that should receive the
-        // room key and a bucket of devices that should receive
-        // a withheld code.
-        let (recipients, withheld_recipients): (
-            Vec<ReadOnlyDevice>,
-            Vec<(ReadOnlyDevice, WithheldCode)>,
-        ) = user_devices.into_values().partition_map(|d| {
-            if d.is_blacklisted() {
-                Either::Right((d, WithheldCode::Blacklisted))
-            } else if settings.only_allow_trusted_devices
-                && !d.is_verified(&own_identity, &device_owner_identity)
-            {
-                Either::Right((d, WithheldCode::Unverified))
-            } else {
-                Either::Left(d)
-            }
-        });
+        let recipient_devices = split_recipients_withhelds_for_user(
+            user_devices,
+            &own_identity,
+            &device_owner_identity,
+            settings.only_allow_trusted_devices,
+        );
+
+        let recipients = recipient_devices.allowed_devices;
+        let withheld_recipients = recipient_devices.denied_devices_with_code;
 
         // If we haven't already concluded that the session should be
         // rotated for other reasons, we also need to check whether any
@@ -166,4 +157,36 @@ pub async fn collect_session_recipients(
     trace!(should_rotate, "Done calculating group session recipients");
 
     Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
+}
+
+struct RecipientDevices {
+    allowed_devices: Vec<ReadOnlyDevice>,
+    denied_devices_with_code: Vec<(ReadOnlyDevice, WithheldCode)>,
+}
+
+fn split_recipients_withhelds_for_user(
+    user_devices: HashMap<OwnedDeviceId, ReadOnlyDevice>,
+    own_identity: &Option<ReadOnlyOwnUserIdentity>,
+    device_owner_identity: &Option<ReadOnlyUserIdentities>,
+    only_allow_trusted_devices: bool,
+) -> RecipientDevices {
+    // From all the devices a user has, we're splitting them into two
+    // buckets, a bucket of devices that should receive the
+    // room key and a bucket of devices that should receive
+    // a withheld code.
+    let (recipients, withheld_recipients): (
+        Vec<ReadOnlyDevice>,
+        Vec<(ReadOnlyDevice, WithheldCode)>,
+    ) = user_devices.into_values().partition_map(|d| {
+        if d.is_blacklisted() {
+            Either::Right((d, WithheldCode::Blacklisted))
+        } else if only_allow_trusted_devices && !d.is_verified(own_identity, device_owner_identity)
+        {
+            Either::Right((d, WithheldCode::Unverified))
+        } else {
+            Either::Left(d)
+        }
+    });
+
+    RecipientDevices { allowed_devices: recipients, denied_devices_with_code: withheld_recipients }
 }
