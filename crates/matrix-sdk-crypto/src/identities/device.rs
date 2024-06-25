@@ -89,7 +89,8 @@ pub struct ReadOnlyDevice {
     /// Default to epoch for migration purpose.
     #[serde(default = "default_timestamp")]
     first_time_seen_ts: MilliSecondsSinceUnixEpoch,
-    /// The number of times the device has tried to unwedge Olm sessions with us.
+    /// The number of times the device has tried to unwedge Olm sessions with
+    /// us.
     #[serde(default)]
     pub(crate) olm_wedging_index: u32,
 }

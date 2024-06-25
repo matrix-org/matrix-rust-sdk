@@ -1434,9 +1434,7 @@ mod tests {
     #[async_test]
     async fn test_resend_session_after_unwedging() {
         let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
-        assert_let!(
-            Ok(Some((txn_id, device_keys_request))) = dbg!(machine.upload_device_keys().await)
-        );
+        assert_let!(Ok(Some((txn_id, device_keys_request))) = machine.upload_device_keys().await);
         let device_keys_response = upload_keys::v3::Response::new(BTreeMap::from([(
             DeviceKeyAlgorithm::SignedCurve25519,
             UInt::new(device_keys_request.one_time_keys.len() as u64).unwrap(),
@@ -1446,7 +1444,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
 
         let bob_id = user_id!("@bob:localhost");
-        let bob_account = Account::new(&bob_id);
+        let bob_account = Account::new(bob_id);
         let keys_query_data = json!({
             "device_keys": {
                 "@bob:localhost": {
@@ -1458,7 +1456,7 @@ mod tests {
             get_keys::v3::Response::try_from_http_response(response_from_file(&keys_query_data))
                 .unwrap();
         let txn_id = TransactionId::new();
-        machine.mark_request_as_sent(&txn_id, &dbg!(keys_query)).await.unwrap();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
 
         let alice_device_keys =
             device_keys_request.device_keys.unwrap().deserialize_as::<DeviceKeys>().unwrap();
@@ -1495,7 +1493,7 @@ mod tests {
         // Alice shares the room key with Bob
         {
             let requests = machine
-                .share_room_key(&room_id, [bob_id].into_iter(), EncryptionSettings::default())
+                .share_room_key(room_id, [bob_id].into_iter(), EncryptionSettings::default())
                 .await
                 .unwrap();
 
@@ -1517,7 +1515,7 @@ mod tests {
         // to-device events, since we already shared with Bob
         {
             let requests = machine
-                .share_room_key(&room_id, [bob_id].into_iter(), EncryptionSettings::default())
+                .share_room_key(room_id, [bob_id].into_iter(), EncryptionSettings::default())
                 .await
                 .unwrap();
 
@@ -1559,7 +1557,7 @@ mod tests {
         // When Alice shares the room key again, it should be re-shared with Bob
         {
             let requests = machine
-                .share_room_key(&room_id, [bob_id].into_iter(), EncryptionSettings::default())
+                .share_room_key(room_id, [bob_id].into_iter(), EncryptionSettings::default())
                 .await
                 .unwrap();
 
@@ -1580,7 +1578,7 @@ mod tests {
         // to-device events
         {
             let requests = machine
-                .share_room_key(&room_id, [bob_id].into_iter(), EncryptionSettings::default())
+                .share_room_key(room_id, [bob_id].into_iter(), EncryptionSettings::default())
                 .await
                 .unwrap();
 
