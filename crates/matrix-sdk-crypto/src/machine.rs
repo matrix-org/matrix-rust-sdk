@@ -2412,6 +2412,7 @@ pub(crate) mod tests {
         olm::{
             BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, OutboundGroupSession, VerifyJson,
         },
+        session_manager::CollectStrategy,
         store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore, RoomSettings},
         types::{
             events::{
@@ -3230,8 +3231,10 @@ pub(crate) mod tests {
         let room_id = room_id!("!test:example.org");
 
         let encryption_settings = EncryptionSettings::default();
-        let encryption_settings =
-            EncryptionSettings { only_allow_trusted_devices: true, ..encryption_settings };
+        let encryption_settings = EncryptionSettings {
+            sharing_strategy: CollectStrategy::new_device_based(true),
+            ..encryption_settings
+        };
 
         let to_device_requests = alice
             .share_room_key(room_id, iter::once(bob.user_id()), encryption_settings)

@@ -34,7 +34,7 @@ use matrix_sdk_crypto::{
     olm::{IdentityKeys, InboundGroupSession, Session},
     store::{Changes, CryptoStore, PendingChanges, RoomSettings as RustRoomSettings},
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
-    EncryptionSettings as RustEncryptionSettings,
+    CollectStrategy, EncryptionSettings as RustEncryptionSettings,
 };
 use matrix_sdk_sqlite::SqliteCryptoStore;
 pub use responses::{
@@ -650,7 +650,7 @@ impl From<EncryptionSettings> for RustEncryptionSettings {
             rotation_period: Duration::from_secs(v.rotation_period),
             rotation_period_msgs: v.rotation_period_msgs,
             history_visibility: v.history_visibility.into(),
-            only_allow_trusted_devices: v.only_allow_trusted_devices,
+            sharing_strategy: CollectStrategy::new_device_based(v.only_allow_trusted_devices),
         }
     }
 }
