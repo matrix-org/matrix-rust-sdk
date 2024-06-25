@@ -566,6 +566,10 @@ impl RoomListItem {
         self.inner.init_timeline_with_builder(timeline_builder).map_err(RoomListError::from).await
     }
 
+    /// Checks whether the room is encrypted or not.
+    ///
+    /// **Note**: this info may not be reliable if you don't set up
+    /// `m.room.encryption` as required state.
     async fn is_encrypted(&self) -> bool {
         self.inner.is_encrypted().await.unwrap_or(false)
     }
