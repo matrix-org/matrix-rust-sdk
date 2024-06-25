@@ -1072,7 +1072,18 @@ impl RoomInfo {
     ///
     /// Returns true if the event modified the info, false otherwise.
     pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
-        self.base_info.handle_state_event(event)
+        let ret = self.base_info.handle_state_event(event);
+
+        // If we received an `m.room.encryption` event here, and encryption got enabled,
+        // then we can be certain that we have synced the encryption state event, so
+        // mark it here as synced.
+        if let AnySyncStateEvent::RoomEncryption(_) = event {
+            if self.is_encrypted() {
+                self.mark_encryption_state_synced();
+            }
+        }
+
+        ret
     }
 
     /// Handle the given stripped state event.
@@ -1524,17 +1535,19 @@ mod tests {
             },
             room::{
                 canonical_alias::RoomCanonicalAliasEventContent,
+                encryption::{OriginalSyncRoomEncryptionEvent, RoomEncryptionEventContent},
                 member::{
                     MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
                     SyncRoomMemberEvent,
                 },
                 name::RoomNameEventContent,
             },
-            AnySyncStateEvent, StateEventType, StateUnsigned, SyncStateEvent,
+            AnySyncStateEvent, EmptyStateKey, StateEventType, StateUnsigned, SyncStateEvent,
         },
         room_alias_id, room_id,
         serde::Raw,
-        user_id, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
+        user_id, EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
+        UserId,
     };
     use serde_json::json;
     use stream_assert::{assert_pending, assert_ready};
@@ -2531,5 +2544,32 @@ mod tests {
 
         actual = compute_display_name_from_heroes(1, 0, vec!["a", "b", "c"]);
         assert_eq!(DisplayName::EmptyWas("a, b, c".to_owned()), actual);
+    }
+
+    #[test]
+    fn test_encryption_is_set_when_encryption_event_is_received() {
+        let (_store, room) = make_room_test_helper(RoomState::Joined);
+
+        assert!(room.is_encryption_state_synced().not());
+        assert!(room.is_encrypted().not());
+
+        let encryption_content =
+            RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
+        let encryption_event = AnySyncStateEvent::RoomEncryption(SyncStateEvent::Original(
+            OriginalSyncRoomEncryptionEvent {
+                content: encryption_content,
+                event_id: OwnedEventId::from_str("$1234_1").unwrap(),
+                sender: ALICE.to_owned(),
+                // we can simply use now here since this will be dropped when using a
+                // MinimalStateEvent in the roomInfo
+                origin_server_ts: timestamp(0),
+                state_key: EmptyStateKey,
+                unsigned: StateUnsigned::new(),
+            },
+        ));
+        receive_state_events(&room, vec![&encryption_event]);
+
+        assert!(room.is_encryption_state_synced());
+        assert!(room.is_encrypted());
     }
 }
