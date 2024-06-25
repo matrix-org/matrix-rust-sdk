@@ -890,12 +890,20 @@ impl StateStore for MemoryStore {
         room_id: &RoomId,
         transaction_id: &TransactionId,
     ) -> Result<(), Self::Error> {
-        self.send_queue_events
-            .write()
-            .unwrap()
-            .entry(room_id.to_owned())
-            .or_default()
-            .retain(|item| item.transaction_id != transaction_id);
+        let mut q = self.send_queue_events.write().unwrap();
+
+        let entry = q.get_mut(room_id);
+        if let Some(entry) = entry {
+            // Find the event by id in its room queue, and remove it if present.
+            if let Some(pos) = entry.iter().position(|item| item.transaction_id == transaction_id) {
+                entry.remove(pos);
+                // And if this was the last event before removal, remove the entire room entry.
+                if entry.is_empty() {
+                    q.remove(room_id);
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -924,6 +932,10 @@ impl StateStore for MemoryStore {
             entry.is_wedged = wedged;
         }
         Ok(())
+    }
+
+    async fn load_rooms_with_unsent_events(&self) -> Result<Vec<OwnedRoomId>, Self::Error> {
+        Ok(self.send_queue_events.read().unwrap().keys().cloned().collect())
     }
 }
 

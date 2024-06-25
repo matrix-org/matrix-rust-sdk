@@ -29,8 +29,8 @@ use ruma::{
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
-    RoomVersionId, TransactionId, UserId,
+    CanonicalJsonObject, EventId, OwnedEventId, OwnedRoomId, OwnedTransactionId, OwnedUserId,
+    RoomId, RoomVersionId, TransactionId, UserId,
 };
 use rusqlite::{OptionalExtension, Transaction};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -59,7 +59,7 @@ mod keys {
     pub const SEND_QUEUE: &str = "send_queue_events";
 }
 
-const DATABASE_VERSION: u8 = 4;
+const DATABASE_VERSION: u8 = 5;
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -219,6 +219,17 @@ impl SqliteStateStore {
             conn.with_transaction(move |txn| {
                 // Create new table.
                 txn.execute_batch(include_str!("../migrations/state_store/003_send_queue.sql"))?;
+                Result::<_, Error>::Ok(())
+            })
+            .await?;
+        }
+
+        if from < 5 && to >= 5 {
+            conn.with_transaction(move |txn| {
+                // Create new table.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/004_send_queue_with_roomid_value.sql"
+                ))?;
                 Result::<_, Error>::Ok(())
             })
             .await?;
@@ -1674,7 +1685,8 @@ impl StateStore for SqliteStateStore {
         transaction_id: OwnedTransactionId,
         content: SerializableEventContent,
     ) -> Result<(), Self::Error> {
-        let room_id = self.encode_key(keys::SEND_QUEUE, room_id);
+        let room_id_key = self.encode_key(keys::SEND_QUEUE, room_id);
+        let room_id_value = self.serialize_value(&room_id.to_owned())?;
 
         let content = self.serialize_json(&content)?;
 
@@ -1686,7 +1698,7 @@ impl StateStore for SqliteStateStore {
         self.acquire()
             .await?
             .with_transaction(move |txn| {
-                txn.prepare_cached("INSERT INTO send_queue_events (room_id, transaction_id, content, wedged) VALUES (?, ?, ?, false)")?.execute((room_id, transaction_id.to_string(), content))?;
+                txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content, wedged) VALUES (?, ?, ?, ?, false)")?.execute((room_id_key, room_id_value, transaction_id.to_string(), content))?;
                 Ok(())
             })
             .await
@@ -1766,6 +1778,29 @@ impl StateStore for SqliteStateStore {
                 Ok(())
             })
             .await
+    }
+
+    async fn load_rooms_with_unsent_events(&self) -> Result<Vec<OwnedRoomId>, Self::Error> {
+        // If the values were not encrypted, we could use `SELECT DISTINCT` here, but we
+        // have to manually do the deduplication: indeed, for all X, encrypt(X)
+        // != encrypted(X), since we use a nonce in the encryption process.
+
+        let res: Vec<Vec<u8>> = self
+            .acquire()
+            .await?
+            .prepare("SELECT room_id_val FROM send_queue_events", |mut stmt| {
+                stmt.query(())?.mapped(|row| Ok(row.get(0)?)).collect()
+            })
+            .await?;
+
+        // So we collect the results into a `BTreeSet` to perform the deduplication, and
+        // then rejigger that into a vector.
+        Ok(res
+            .into_iter()
+            .map(|entry| self.deserialize_value(&entry))
+            .collect::<Result<BTreeSet<OwnedRoomId>, _>>()?
+            .into_iter()
+            .collect())
     }
 }
 
