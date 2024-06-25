@@ -774,6 +774,8 @@ impl Account {
         &self,
         cross_signing_key: &mut CrossSigningKey,
     ) -> Result<(), SignatureError> {
+        #[allow(clippy::needless_borrows_for_generic_args)]
+        // XXX: false positive, see https://github.com/rust-lang/rust-clippy/issues/12856
         let signature = self.sign_json(serde_json::to_value(&cross_signing_key)?)?;
 
         cross_signing_key.signatures.add_signature(
