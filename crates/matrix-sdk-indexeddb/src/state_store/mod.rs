@@ -44,8 +44,8 @@ use ruma::{
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
-    RoomVersionId, TransactionId, UserId,
+    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedTransactionId,
+    OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::{debug, warn};
@@ -406,6 +406,19 @@ impl IndexeddbStateStore {
             }
         }
     }
+}
+
+/// A superset of [`QueuedEvent`] that also contains the room id, since we want
+/// to return them.
+#[derive(Serialize, Deserialize)]
+struct PersistedQueuedEvent {
+    /// In which room is this event going to be sent.
+    pub room_id: OwnedRoomId,
+
+    // All these fields are the same as in [`QueuedEvent`].
+    event: SerializableEventContent,
+    transaction_id: OwnedTransactionId,
+    is_wedged: bool,
 }
 
 // Small hack to have the following macro invocation act as the appropriate
@@ -1363,11 +1376,16 @@ impl_state_store!({
 
         let mut prev = prev.map_or_else(
             || Ok(Vec::new()),
-            |val| self.deserialize_value::<Vec<QueuedEvent>>(&val),
+            |val| self.deserialize_value::<Vec<PersistedQueuedEvent>>(&val),
         )?;
 
         // Push the new event.
-        prev.push(QueuedEvent { event: content, transaction_id, is_wedged: false });
+        prev.push(PersistedQueuedEvent {
+            room_id: room_id.to_owned(),
+            event: content,
+            transaction_id,
+            is_wedged: false,
+        });
 
         // Save the new vector into db.
         obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
@@ -1394,7 +1412,7 @@ impl_state_store!({
 
         // Reload the previous vector for this room.
         if let Some(val) = obj.get(&encoded_key)?.await? {
-            let mut prev = self.deserialize_value::<Vec<QueuedEvent>>(&val)?;
+            let mut prev = self.deserialize_value::<Vec<PersistedQueuedEvent>>(&val)?;
             if let Some(pos) = prev.iter().position(|item| item.transaction_id == transaction_id) {
                 prev.remove(pos);
 
@@ -1424,10 +1442,17 @@ impl_state_store!({
 
         let prev = prev.map_or_else(
             || Ok(Vec::new()),
-            |val| self.deserialize_value::<Vec<QueuedEvent>>(&val),
+            |val| self.deserialize_value::<Vec<PersistedQueuedEvent>>(&val),
         )?;
 
-        Ok(prev)
+        Ok(prev
+            .into_iter()
+            .map(|item| QueuedEvent {
+                event: item.event,
+                transaction_id: item.transaction_id,
+                is_wedged: item.is_wedged,
+            })
+            .collect())
     }
 
     async fn update_send_queue_event_status(
@@ -1445,7 +1470,7 @@ impl_state_store!({
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
 
         if let Some(val) = obj.get(&encoded_key)?.await? {
-            let mut prev = self.deserialize_value::<Vec<QueuedEvent>>(&val)?;
+            let mut prev = self.deserialize_value::<Vec<PersistedQueuedEvent>>(&val)?;
             if let Some(queued_event) =
                 prev.iter_mut().find(|item| item.transaction_id == transaction_id)
             {
@@ -1457,6 +1482,25 @@ impl_state_store!({
         tx.await.into_result()?;
 
         Ok(())
+    }
+
+    async fn load_rooms_with_unsent_events(&self) -> Result<Vec<OwnedRoomId>> {
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(keys::ROOM_SEND_QUEUE, IdbTransactionMode::Readwrite)?;
+
+        let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
+
+        let all_entries = obj
+            .get_all()?
+            .await?
+            .into_iter()
+            .map(|item| {
+                self.deserialize_value(&item).map(|event: PersistedQueuedEvent| event.room_id)
+            })
+            .collect::<Result<HashSet<OwnedRoomId>, _>>()?;
+
+        Ok(all_entries.into_iter().collect())
     }
 });
 

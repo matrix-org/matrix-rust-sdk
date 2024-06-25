@@ -34,7 +34,8 @@ use ruma::{
         StateEventType, StaticEventContent, StaticStateEventContent,
     },
     serde::Raw,
-    EventId, MxcUri, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId,
+    TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -429,6 +430,9 @@ pub trait StateStore: AsyncTraitDeps {
         transaction_id: &TransactionId,
         wedged: bool,
     ) -> Result<(), Self::Error>;
+
+    /// Loads all the rooms which have any pending events in their send queue.
+    async fn load_rooms_with_unsent_events(&self) -> Result<Vec<OwnedRoomId>, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -687,6 +691,10 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
             .update_send_queue_event_status(room_id, transaction_id, wedged)
             .await
             .map_err(Into::into)
+    }
+
+    async fn load_rooms_with_unsent_events(&self) -> Result<Vec<OwnedRoomId>, Self::Error> {
+        self.0.load_rooms_with_unsent_events().await.map_err(Into::into)
     }
 }
 
@@ -1053,7 +1061,7 @@ impl SerializableEventContent {
 }
 
 /// An event to be sent with a send queue.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct QueuedEvent {
     /// The content of the message-like event we'd like to send.
     pub event: SerializableEventContent,

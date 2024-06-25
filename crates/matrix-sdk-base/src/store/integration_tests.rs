@@ -1385,6 +1385,38 @@ impl StateStoreIntegrationTests for DynStateStore {
         for i in 0..3 {
             assert_ne!(pending[i].transaction_id, txn0);
         }
+
+        // Now add one event for two other rooms, remove one of the events, and then
+        // query all the rooms which have outstanding unsent events.
+
+        // Add one event for room2.
+        let room_id2 = room_id!("!test_send_queue_two:localhost");
+        {
+            let txn = TransactionId::new();
+            let event =
+                SerializableEventContent::new(RoomMessageEventContent::text_plain("room2").into())
+                    .unwrap();
+            self.save_send_queue_event(room_id2, txn.clone(), event).await.unwrap();
+        }
+
+        // Add and remove one event for room3.
+        {
+            let room_id3 = room_id!("!test_send_queue_three:localhost");
+            let txn = TransactionId::new();
+            let event =
+                SerializableEventContent::new(RoomMessageEventContent::text_plain("room3").into())
+                    .unwrap();
+            self.save_send_queue_event(room_id3, txn.clone(), event).await.unwrap();
+
+            self.remove_send_queue_event(room_id3, &txn).await.unwrap();
+        }
+
+        // Query all the rooms which have unsent events. Per the previous steps,
+        // it should be room1 and room2, not room3.
+        let outstanding_rooms = self.load_rooms_with_unsent_events().await.unwrap();
+        assert_eq!(outstanding_rooms.len(), 2);
+        assert!(outstanding_rooms.iter().any(|room| room == room_id));
+        assert!(outstanding_rooms.iter().any(|room| room == room_id2));
     }
 }
 
