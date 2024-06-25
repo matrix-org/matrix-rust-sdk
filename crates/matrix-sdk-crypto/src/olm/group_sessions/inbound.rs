@@ -154,15 +154,15 @@ impl InboundGroupSession {
     /// # Arguments
     ///
     /// * `sender_key` - The public Curve25519 key of the account that
-    /// sent us the session.
+    ///   sent us the session.
     ///
     /// * `signing_key` - The public Ed25519 key of the account that
-    /// sent us the session.
+    ///   sent us the session.
     ///
     /// * `room_id` - The id of the room that the session is used in.
     ///
     /// * `session_key` - The private session key that is used to decrypt
-    /// messages.
+    ///   messages.
     pub fn new(
         sender_key: Curve25519PublicKey,
         signing_key: Ed25519PublicKey,
@@ -233,7 +233,7 @@ impl InboundGroupSession {
     /// # Arguments
     ///
     /// * `pickle_mode` - The mode that was used to pickle the group session,
-    /// either an unencrypted mode or an encrypted using passphrase.
+    ///   either an unencrypted mode or an encrypted using passphrase.
     pub async fn pickle(&self) -> PickledInboundGroupSession {
         let pickle = self.inner.lock().await.pickle();
 
@@ -311,7 +311,7 @@ impl InboundGroupSession {
     /// * `pickle` - The pickled version of the `InboundGroupSession`.
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
-    /// an unencrypted mode or an encrypted using passphrase.
+    ///   an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(pickle: PickledInboundGroupSession) -> Result<Self, PickleError> {
         let session: InnerSession = pickle.pickle.into();
         let first_known_index = session.first_known_index();

@@ -128,7 +128,7 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `config` - An optional session if the user already has one from a
-    /// previous login call.
+    ///   previous login call.
     pub fn with_store_config(config: StoreConfig) -> Self {
         let (roominfo_update_sender, _roominfo_update_receiver) = broadcast::channel(100);
 
@@ -1236,11 +1236,10 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `filter_name` - The name that should be used to persist the filter id
-    ///   in
-    /// the store.
+    ///   in the store.
     ///
     /// * `response` - The successful filter upload response containing the
-    /// filter id.
+    ///   filter id.
     ///
     /// [`get_filter`]: #method.get_filter
     pub async fn receive_filter_upload(
@@ -1265,7 +1264,7 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `filter_name` - The name of the filter that was previously used to
-    /// persist the filter.
+    ///   persist the filter.
     ///
     /// [`receive_filter_upload`]: #method.receive_filter_upload
     pub async fn get_filter(&self, filter_name: &str) -> StoreResult<Option<String>> {

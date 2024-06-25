@@ -52,10 +52,10 @@ pub struct SasIds {
 /// # Arguments
 ///
 /// * `public_key` - Our own ephemeral public key that is used for the
-/// interactive verification.
+///   interactive verification.
 ///
 /// * `content` - The `m.key.verification.start` event content that started the
-/// interactive verification process.
+///   interactive verification process.
 pub fn calculate_commitment(public_key: Curve25519PublicKey, content: &StartContent<'_>) -> Base64 {
     let content = content.canonical_json();
     let content_string = content.to_string();
@@ -191,7 +191,7 @@ fn extra_mac_info_receive(ids: &SasIds, flow_id: &str) -> String {
 /// * `flow_id` - The unique id that identifies this SAS verification process.
 ///
 /// * `event` - The m.key.verification.mac event that was sent to us by
-/// the other side.
+///   the other side.
 pub fn receive_mac_event(
     sas: &EstablishedSas,
     ids: &SasIds,
@@ -379,7 +379,7 @@ fn extra_info_sas(
 /// # Arguments
 ///
 /// * `sas` - The Olm SAS object that can be used to generate bytes using the
-/// shared secret.
+///   shared secret.
 ///
 /// * `ids` - The ids that are used for this SAS authentication flow.
 ///
@@ -426,7 +426,7 @@ pub fn get_emoji(
 /// # Arguments
 ///
 /// * `sas` - The Olm SAS object that can be used to generate bytes using the
-/// shared secret.
+///   shared secret.
 ///
 /// * `ids` - The ids that are used for this SAS authentication flow.
 ///
@@ -462,7 +462,7 @@ pub fn get_emoji_index(
 /// # Arguments
 ///
 /// * `sas` - The Olm SAS object that can be used to generate bytes using the
-/// shared secret.
+///   shared secret.
 ///
 /// * `ids` - The ids that are used for this SAS authentication flow.
 ///

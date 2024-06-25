@@ -1165,8 +1165,8 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `alias` - The `RoomId` or `RoomAliasId` of the room to be joined.
-    /// An alias looks like `#name:example.com`.
+    /// * `alias` - The `RoomId` or `RoomAliasId` of the room to be joined. An
+    ///   alias looks like `#name:example.com`.
     pub async fn join_room_by_id_or_alias(
         &self,
         alias: &RoomOrAliasId,
@@ -1311,7 +1311,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `room_search` - The easiest way to create this request is using the
-    /// `get_public_rooms_filtered::Request` itself.
+    ///   `get_public_rooms_filtered::Request` itself.
     ///
     /// # Examples
     ///
@@ -1357,7 +1357,7 @@ impl Client {
     /// * `request` - A filled out and valid request for the endpoint to be hit
     ///
     /// * `timeout` - An optional request timeout setting, this overrides the
-    /// default request setting if one was set.
+    ///   default request setting if one was set.
     ///
     /// # Examples
     ///
@@ -1565,13 +1565,13 @@ impl Client {
     /// # Arguments
     ///
     /// * `devices` - The list of devices that should be deleted from the
-    /// server.
+    ///   server.
     ///
     /// * `auth_data` - This request requires user interactive auth, the first
-    /// request needs to set this to `None` and will always fail with an
-    /// `UiaaResponse`. The response will contain information for the
-    /// interactive auth and the same request needs to be made but this time
-    /// with some `auth_data` provided.
+    ///   request needs to set this to `None` and will always fail with an
+    ///   `UiaaResponse`. The response will contain information for the
+    ///   interactive auth and the same request needs to be made but this time
+    ///   with some `auth_data` provided.
     ///
     /// ```no_run
     /// # use matrix_sdk::{

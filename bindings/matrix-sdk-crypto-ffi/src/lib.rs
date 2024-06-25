@@ -185,11 +185,11 @@ impl From<anyhow::Error> for MigrationError {
 /// * `path` - The path where the SQLite store should be created.
 ///
 /// * `passphrase` - The passphrase that should be used to encrypt the data at
-/// rest in the SQLite store. **Warning**, if no passphrase is given, the store
-/// and all its data will remain unencrypted.
+///   rest in the SQLite store. **Warning**, if no passphrase is given, the store
+///   and all its data will remain unencrypted.
 ///
 /// * `progress_listener` - A callback that can be used to introspect the
-/// progress of the migration.
+///   progress of the migration.
 #[uniffi::export]
 pub fn migrate(
     data: MigrationData,
@@ -348,11 +348,11 @@ async fn save_changes(
 /// * `path` - The path where the SQLite store should be created.
 ///
 /// * `passphrase` - The passphrase that should be used to encrypt the data at
-/// rest in the SQLite store. **Warning**, if no passphrase is given, the store
-/// and all its data will remain unencrypted.
+///   rest in the SQLite store. **Warning**, if no passphrase is given, the store
+///   and all its data will remain unencrypted.
 ///
 /// * `progress_listener` - A callback that can be used to introspect the
-/// progress of the migration.
+///   progress of the migration.
 #[uniffi::export]
 pub fn migrate_sessions(
     data: SessionMigrationData,
@@ -503,8 +503,8 @@ fn collect_sessions(
 /// * `path` - The path where the Sqlite store should be created.
 ///
 /// * `passphrase` - The passphrase that should be used to encrypt the data at
-/// rest in the Sqlite store. **Warning**, if no passphrase is given, the store
-/// and all its data will remain unencrypted.
+///   rest in the Sqlite store. **Warning**, if no passphrase is given, the store
+///   and all its data will remain unencrypted.
 #[uniffi::export]
 pub fn migrate_room_settings(
     room_settings: HashMap<String, RoomSettings>,

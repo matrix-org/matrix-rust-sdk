@@ -154,7 +154,7 @@ impl Device {
     /// # Arguments
     ///
     /// * `methods` - The verification methods that we want to support. Must be
-    /// non-empty.
+    ///   non-empty.
     ///
     /// # Panics
     ///
@@ -359,7 +359,7 @@ impl Device {
     ///
     /// * The device has been signed by the user's self-signing key
     /// * The user's master-signing key has been signed by our own user-signing
-    /// key, i.e. our own identity trusts the other users identity.
+    ///   key, i.e. our own identity trusts the other users identity.
     /// * Our own user identity is considered to be [verified]
     ///
     /// ```text
@@ -474,7 +474,7 @@ impl Device {
     ///
     /// * The device has been signed by the user's self-signing key
     /// * The user's master-signing key has been signed by our own user-signing
-    /// key, i.e. our own identity trusts the other users identity.
+    ///   key, i.e. our own identity trusts the other users identity.
     /// * Our own user identity is considered to be [verified]
     ///
     /// ```text

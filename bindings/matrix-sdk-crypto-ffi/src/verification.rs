@@ -169,8 +169,8 @@ impl Sas {
     /// # Arguments
     ///
     /// * `cancel_code` - The error code for why the verification was cancelled,
-    /// manual cancellatio usually happens with `m.user` cancel code. The full
-    /// list of cancel codes can be found in the [spec]
+    ///   manual cancellatio usually happens with `m.user` cancel code. The full
+    ///   list of cancel codes can be found in the [spec]
     ///
     /// [spec]: https://spec.matrix.org/unstable/client-server-api/#mkeyverificationcancel
     pub fn cancel(&self, cancel_code: String) -> Option<OutgoingVerificationRequest> {
@@ -391,8 +391,8 @@ impl QrCode {
     /// # Arguments
     ///
     /// * `cancel_code` - The error code for why the verification was cancelled,
-    /// manual cancellatio usually happens with `m.user` cancel code. The full
-    /// list of cancel codes can be found in the [spec]
+    ///   manual cancellatio usually happens with `m.user` cancel code. The full
+    ///   list of cancel codes can be found in the [spec]
     ///
     /// [spec]: https://spec.matrix.org/unstable/client-server-api/#mkeyverificationcancel
     pub fn cancel(&self, cancel_code: String) -> Option<OutgoingVerificationRequest> {
@@ -640,12 +640,12 @@ impl VerificationRequest {
     /// # Arguments
     ///
     /// * `user_id` - The ID of the user for which we would like to accept the
-    /// verification requests.
+    ///   verification requests.
     ///
     /// * `flow_id` - The ID that uniquely identifies the verification flow.
     ///
     /// * `methods` - A list of verification methods that we want to advertise
-    /// as supported.
+    ///   as supported.
     pub fn accept(&self, methods: Vec<String>) -> Option<OutgoingVerificationRequest> {
         let methods = methods.into_iter().map(VerificationMethod::from).collect();
         self.inner.accept_with_methods(methods).map(|r| r.into())
@@ -663,10 +663,10 @@ impl VerificationRequest {
     /// # Arguments
     ///
     /// * `user_id` - The ID of the user for which we would like to start the
-    /// SAS verification.
+    ///   SAS verification.
     ///
     /// * `flow_id` - The ID of the verification request that initiated the
-    /// verification flow.
+    ///   verification flow.
     pub fn start_sas_verification(&self) -> Result<Option<StartSasResult>, CryptoStoreError> {
         Ok(self.runtime.block_on(self.inner.start_sas())?.map(|(sas, r)| StartSasResult {
             sas: Arc::new(Sas { inner: sas, runtime: self.runtime.clone() }),
@@ -682,10 +682,10 @@ impl VerificationRequest {
     /// # Arguments
     ///
     /// * `user_id` - The ID of the user for which we would like to start the
-    /// QR code verification.
+    ///   QR code verification.
     ///
     /// * `flow_id` - The ID of the verification request that initiated the
-    /// verification flow.
+    ///   verification flow.
     pub fn start_qr_verification(&self) -> Result<Option<Arc<QrCode>>, CryptoStoreError> {
         Ok(self
             .runtime
@@ -702,13 +702,13 @@ impl VerificationRequest {
     /// # Arguments
     ///
     /// * `user_id` - The ID of the user for which we would like to start the
-    /// QR code verification.
+    ///   QR code verification.
     ///
     /// * `flow_id` - The ID of the verification request that initiated the
-    /// verification flow.
+    ///   verification flow.
     ///
     /// * `data` - The data that was extracted from the scanned QR code as an
-    /// base64 encoded string, without padding.
+    ///   base64 encoded string, without padding.
     pub fn scan_qr_code(&self, data: String) -> Option<ScanResult> {
         let data = base64_decode(data).ok()?;
         let data = QrVerificationData::from_bytes(data).ok()?;

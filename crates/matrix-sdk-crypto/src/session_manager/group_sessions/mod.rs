@@ -99,7 +99,7 @@ impl GroupSessionCache {
     /// # Arguments
     ///
     /// * `room_id` - The id of the room for which we should get the outbound
-    /// group session.
+    ///   group session.
     fn get(&self, room_id: &RoomId) -> Option<OutboundGroupSession> {
         self.sessions.read().unwrap().get(room_id).cloned()
     }

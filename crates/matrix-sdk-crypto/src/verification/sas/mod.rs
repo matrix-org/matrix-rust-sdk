@@ -399,7 +399,7 @@ impl Sas {
     /// * `other_device` - The other device which we are going to verify.
     ///
     /// * `event` - The m.key.verification.start event that was sent to us by
-    /// the other side.
+    ///   the other side.
     pub(crate) fn from_start_event(
         flow_id: FlowId,
         content: &StartContent<'_>,

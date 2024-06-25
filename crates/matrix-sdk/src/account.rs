@@ -301,10 +301,10 @@ impl Account {
     /// * `new_password` - The new password to set.
     ///
     /// * `auth_data` - This request uses the [User-Interactive Authentication
-    /// API][uiaa]. The first request needs to set this to `None` and will
-    /// always fail with an [`UiaaResponse`]. The response will contain
-    /// information for the interactive auth and the same request needs to be
-    /// made but this time with some `auth_data` provided.
+    ///   API][uiaa]. The first request needs to set this to `None` and will
+    ///   always fail with an [`UiaaResponse`]. The response will contain
+    ///   information for the interactive auth and the same request needs to be
+    ///   made but this time with some `auth_data` provided.
     ///
     /// # Returns
     ///
@@ -352,13 +352,13 @@ impl Account {
     /// # Arguments
     ///
     /// * `id_server` - The identity server from which to unbind the user’s
-    /// [Third Party Identifiers][3pid].
+    ///   [Third Party Identifiers][3pid].
     ///
     /// * `auth_data` - This request uses the [User-Interactive Authentication
-    /// API][uiaa]. The first request needs to set this to `None` and will
-    /// always fail with an [`UiaaResponse`]. The response will contain
-    /// information for the interactive auth and the same request needs to be
-    /// made but this time with some `auth_data` provided.
+    ///   API][uiaa]. The first request needs to set this to `None` and will
+    ///   always fail with an [`UiaaResponse`]. The response will contain
+    ///   information for the interactive auth and the same request needs to be
+    ///   made but this time with some `auth_data` provided.
     ///
     /// # Examples
     ///
@@ -436,22 +436,22 @@ impl Account {
     /// # Arguments
     ///
     /// * `client_secret` - A client-generated secret string used to protect
-    /// this session.
+    ///   this session.
     ///
     /// * `email` - The email address to validate.
     ///
     /// * `send_attempt` - The attempt number. This number needs to be
-    /// incremented if you want to request another token for the same
-    /// validation.
+    ///   incremented if you want to request another token for the same
+    ///   validation.
     ///
     /// # Returns
     ///
     /// * `sid` - The session ID to be used in following requests for
-    /// this 3PID.
+    ///   this 3PID.
     ///
     /// * `submit_url` - If present, the user will submit the token to
-    /// the client, that must send it to this URL. If not, the client will not
-    /// be involved in the token submission.
+    ///   the client, that must send it to this URL. If not, the client will not
+    ///   be involved in the token submission.
     ///
     /// This method might return an [`ErrorKind::ThreepidInUse`] error if the
     /// email address is already registered for this account or another, or an
@@ -508,25 +508,25 @@ impl Account {
     /// # Arguments
     ///
     /// * `client_secret` - A client-generated secret string used to protect
-    /// this session.
+    ///   this session.
     ///
     /// * `country` - The two-letter uppercase ISO-3166-1 alpha-2 country code
-    /// that the number in phone_number should be parsed as if it were dialled
-    /// from.
+    ///   that the number in phone_number should be parsed as if it were dialled
+    ///   from.
     ///
     /// * `phone_number` - The phone number to validate.
     ///
     /// * `send_attempt` - The attempt number. This number needs to be
-    /// incremented if you want to request another token for the same
-    /// validation.
+    ///   incremented if you want to request another token for the same
+    ///   validation.
     ///
     /// # Returns
     ///
     /// * `sid` - The session ID to be used in following requests for this 3PID.
     ///
     /// * `submit_url` - If present, the user will submit the token to the
-    /// client, that must send it to this URL. If not, the client will not be
-    /// involved in the token submission.
+    ///   client, that must send it to this URL. If not, the client will not be
+    ///   involved in the token submission.
     ///
     /// This method might return an [`ErrorKind::ThreepidInUse`] error if the
     /// phone number is already registered for this account or another, or an
@@ -588,18 +588,18 @@ impl Account {
     /// # Arguments
     ///
     /// * `client_secret` - The same client secret used in
-    /// [`Account::request_3pid_email_token()`] or
-    /// [`Account::request_3pid_msisdn_token()`].
+    ///   [`Account::request_3pid_email_token()`] or
+    ///   [`Account::request_3pid_msisdn_token()`].
     ///
     /// * `sid` - The session ID returned in
-    /// [`Account::request_3pid_email_token()`] or
-    /// [`Account::request_3pid_msisdn_token()`].
+    ///   [`Account::request_3pid_email_token()`] or
+    ///   [`Account::request_3pid_msisdn_token()`].
     ///
     /// * `auth_data` - This request uses the [User-Interactive Authentication
-    /// API][uiaa]. The first request needs to set this to `None` and will
-    /// always fail with an [`UiaaResponse`]. The response will contain
-    /// information for the interactive auth and the same request needs to be
-    /// made but this time with some `auth_data` provided.
+    ///   API][uiaa]. The first request needs to set this to `None` and will
+    ///   always fail with an [`UiaaResponse`]. The response will contain
+    ///   information for the interactive auth and the same request needs to be
+    ///   made but this time with some `auth_data` provided.
     ///
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
@@ -628,17 +628,17 @@ impl Account {
     /// * `medium` - The type of the 3PID.
     ///
     /// * `id_server` - The identity server to unbind from. If not provided, the
-    /// homeserver should unbind the 3PID from the identity server it was bound
-    /// to previously.
+    ///   homeserver should unbind the 3PID from the identity server it was bound
+    ///   to previously.
     ///
     /// # Returns
     ///
     /// * [`ThirdPartyIdRemovalStatus::Success`] if the 3PID was also unbound
-    /// from the identity server.
+    ///   from the identity server.
     ///
     /// * [`ThirdPartyIdRemovalStatus::NoSupport`] if the 3PID was not unbound
-    /// from the identity server. This can also mean that the 3PID was not bound
-    /// to an identity server in the first place.
+    ///   from the identity server. This can also mean that the 3PID was not bound
+    ///   to an identity server in the first place.
     ///
     /// # Examples
     ///
@@ -822,7 +822,7 @@ impl Account {
     ///
     /// * `room_id` - The room ID of the direct message room.
     /// * `user_ids` - The user IDs to be associated with this direct message
-    /// room.
+    ///   room.
     pub async fn mark_as_dm(&self, room_id: &RoomId, user_ids: &[OwnedUserId]) -> Result<()> {
         use ruma::events::direct::DirectEventContent;
 

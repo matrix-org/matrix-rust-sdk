@@ -26,8 +26,7 @@
 //! transition into one of the supported verification flows:
 //!
 //! * [`SasVerification`] - Interactive verification using a short
-//!   authentication
-//! string.
+//!   authentication string.
 //! * [`QrVerification`] - Interactive verification using QR codes.
 
 #[cfg(feature = "qrcode")]

@@ -228,7 +228,7 @@ impl AttachmentConfig {
     /// # Arguments
     ///
     /// * `size` - The size of the thumbnail in pixels as a `(width, height)`
-    /// tuple. If set to `None`, defaults to `(800, 600)`.
+    ///   tuple. If set to `None`, defaults to `(800, 600)`.
     ///
     /// * `format` - The image format to use to encode the thumbnail.
     #[cfg(feature = "image-proc")]
@@ -245,7 +245,7 @@ impl AttachmentConfig {
     /// # Arguments
     ///
     /// * `thumbnail` - The thumbnail of the media. If the `content_type` does
-    /// not support it (eg audio clips), it is ignored.
+    ///   not support it (eg audio clips), it is ignored.
     ///
     /// To generate automatically a thumbnail from an image, use
     /// [`AttachmentConfig::new()`] and
@@ -259,8 +259,8 @@ impl AttachmentConfig {
     /// # Arguments
     ///
     /// * `txn_id` - A unique ID that can be attached to a `MessageEvent` held
-    /// in its unsigned field as `transaction_id`. If not given, one is created
-    /// for the message.
+    ///   in its unsigned field as `transaction_id`. If not given, one is created
+    ///   for the message.
     #[must_use]
     pub fn txn_id(mut self, txn_id: &TransactionId) -> Self {
         self.txn_id = Some(txn_id.to_owned());
@@ -272,7 +272,7 @@ impl AttachmentConfig {
     /// # Arguments
     ///
     /// * `info` - The metadata of the media. If the `AttachmentInfo` type
-    /// doesn't match the `content_type`, it is ignored.
+    ///   doesn't match the `content_type`, it is ignored.
     #[must_use]
     pub fn info(mut self, info: AttachmentInfo) -> Self {
         self.info = Some(info);

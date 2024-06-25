@@ -152,8 +152,8 @@ impl WidgetSettings {
     ///
     /// # Arguments
     ///
-    /// * - `props` A struct containing the configuration parameters for a
-    /// element call widget.
+    /// * `props` - A struct containing the configuration parameters for a
+    ///   element call widget.
     pub fn new_virtual_element_call_widget(
         props: VirtualElementCallWidgetOptions,
     ) -> Result<Self, url::ParseError> {
