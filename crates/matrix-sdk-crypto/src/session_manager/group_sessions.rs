@@ -30,6 +30,7 @@ use ruma::{
     OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 pub(crate) use share_strategy::CollectRecipientsResult;
+pub use share_strategy::CollectStrategy;
 use tracing::{debug, error, info, instrument, trace};
 
 use crate::{
@@ -744,10 +745,11 @@ mod tests {
     use serde_json::{json, Value};
 
     use crate::{
-        session_manager::group_sessions::CollectRecipientsResult,
+        session_manager::{group_sessions::CollectRecipientsResult, CollectStrategy},
         types::{
             events::room_key_withheld::{
-                RoomKeyWithheldContent, RoomKeyWithheldContent::MegolmV1AesSha2, WithheldCode,
+                RoomKeyWithheldContent::{self, MegolmV1AesSha2},
+                WithheldCode,
             },
             EventEncryptionAlgorithm,
         },
@@ -1110,8 +1112,10 @@ mod tests {
             .iter()
             .any(|d| d.user_id() == user_id && d.device_id() == device_id));
 
-        let settings =
-            EncryptionSettings { only_allow_trusted_devices: true, ..Default::default() };
+        let settings = EncryptionSettings {
+            sharing_strategy: CollectStrategy::new_device_based(true),
+            ..Default::default()
+        };
         let users = [user_id].into_iter();
 
         let CollectRecipientsResult { devices: recipients, .. } = machine
@@ -1168,8 +1172,10 @@ mod tests {
         let keys_claim = keys_claim_response();
 
         let users = keys_claim.one_time_keys.keys().map(Deref::deref);
-        let settings =
-            EncryptionSettings { only_allow_trusted_devices: true, ..Default::default() };
+        let settings = EncryptionSettings {
+            sharing_strategy: CollectStrategy::new_device_based(true),
+            ..Default::default()
+        };
 
         // Trust only one
         let user_id = user_id!("@example:localhost");

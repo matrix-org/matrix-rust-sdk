@@ -19,6 +19,7 @@ use std::{
 
 use itertools::{Either, Itertools};
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
+use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
 
 use super::OutboundGroupSession;
@@ -26,6 +27,36 @@ use crate::{
     error::OlmResult, store::Store, types::events::room_key_withheld::WithheldCode,
     EncryptionSettings, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
 };
+
+/// Strategy to collect the devices that should receive room keys for the
+/// current discussion.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum CollectStrategy {
+    /// Device based sharing strategy.
+    DeviceBasedStrategy {
+        /// If `true`, devices that are not trusted will be excluded from the
+        /// conversation. A device is trusted if any of the following is true:
+        ///     - It was manually marked as trusted.
+        ///     - It was marked as verified via interactive verification.
+        ///     - It is signed by its owner identity, and this identity has been
+        ///       trusted via interactive verification.
+        ///     - It is the current own device of the user.
+        only_allow_trusted_devices: bool,
+    }, // XXX some new strategy to be defined later
+}
+
+impl CollectStrategy {
+    /// Creates a new legacy strategy, based on per device trust.
+    pub const fn new_device_based(only_allow_trusted_devices: bool) -> Self {
+        CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices }
+    }
+}
+
+impl Default for CollectStrategy {
+    fn default() -> Self {
+        CollectStrategy::new_device_based(false)
+    }
+}
 
 /// Returned by `collect_session_recipients`.
 ///
@@ -90,19 +121,22 @@ pub(crate) async fn collect_session_recipients(
     for user_id in users {
         let user_devices = store.get_readonly_devices_filtered(user_id).await?;
 
-        // We only need the user identity if settings.only_allow_trusted_devices is set.
-        let device_owner_identity = if settings.only_allow_trusted_devices {
-            store.get_user_identity(user_id).await?
-        } else {
-            None
+        let recipient_devices = match settings.sharing_strategy {
+            CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices } => {
+                // We only need the user identity if only_allow_trusted_devices is set.
+                let device_owner_identity = if only_allow_trusted_devices {
+                    store.get_user_identity(user_id).await?
+                } else {
+                    None
+                };
+                split_recipients_withhelds_for_user(
+                    user_devices,
+                    &own_identity,
+                    &device_owner_identity,
+                    only_allow_trusted_devices,
+                )
+            }
         };
-
-        let recipient_devices = split_recipients_withhelds_for_user(
-            user_devices,
-            &own_identity,
-            &device_owner_identity,
-            settings.only_allow_trusted_devices,
-        );
 
         let recipients = recipient_devices.allowed_devices;
         let withheld_recipients = recipient_devices.denied_devices_with_code;
