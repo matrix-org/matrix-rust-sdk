@@ -272,11 +272,14 @@ impl Media {
             }
         };
 
-        let server_versions = self.client.server_versions().await?;
+        // Use the authenticated endpoints when the server supports Matrix 1.11.
+        // TODO: Add an option in ClientBuilder to force the use of the authenticated
+        // endpoints.
+        let use_auth = self.client.server_versions().await?.contains(&MatrixVersion::V1_11);
 
         let content: Vec<u8> = match &request.source {
             MediaSource::Encrypted(file) => {
-                let content = if server_versions.contains(&MatrixVersion::V1_11) {
+                let content = if use_auth {
                     let request =
                         authenticated_media::get_content::v1::Request::from_uri(&file.url)?;
                     self.client.send(request, None).await?.file
@@ -308,7 +311,7 @@ impl Media {
             }
             MediaSource::Plain(uri) => {
                 if let MediaFormat::Thumbnail(size) = &request.format {
-                    if server_versions.contains(&MatrixVersion::V1_11) {
+                    if use_auth {
                         let request =
                             authenticated_media::get_content_thumbnail::v1::Request::from_uri(
                                 uri,
@@ -325,7 +328,7 @@ impl Media {
                         )?;
                         self.client.send(request, None).await?.file
                     }
-                } else if server_versions.contains(&MatrixVersion::V1_11) {
+                } else if use_auth {
                     let request = authenticated_media::get_content::v1::Request::from_uri(uri)?;
                     self.client.send(request, None).await?.file
                 } else {
