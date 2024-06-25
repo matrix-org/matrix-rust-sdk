@@ -44,7 +44,7 @@ once_cell = "1.16.0"
 pin-project-lite = "0.2.9"
 rand = "0.8.5"
 reqwest = { version = "0.12.4", default-features = false }
-ruma = { git = "https://github.com/ruma/ruma", rev = "fec2152d879a6c6c2bccce984d4b8f424f460cb2", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "e5a370f7e5fcebb0da6e4945e51c5fafba9aa5f0", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -55,7 +55,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "fec2152d879a6c6c2bccce984d
     "unstable-msc3266",
     "unstable-msc4075"
 ] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "fec2152d879a6c6c2bccce984d4b8f424f460cb2" }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "e5a370f7e5fcebb0da6e4945e51c5fafba9aa5f0" }
 serde = "1.0.151"
 serde_html_form = "0.2.0"
 serde_json = "1.0.91"
