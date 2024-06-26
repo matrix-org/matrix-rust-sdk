@@ -232,9 +232,9 @@ impl Timeline {
     pub async fn send(
         self: Arc<Self>,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
-    ) -> Result<Arc<AbortSendHandle>, ClientError> {
+    ) -> Result<Arc<SendHandle>, ClientError> {
         match self.inner.send((*msg).to_owned().with_relation(None).into()).await {
-            Ok(handle) => Ok(Arc::new(AbortSendHandle { inner: Mutex::new(Some(handle)) })),
+            Ok(handle) => Ok(Arc::new(SendHandle { inner: Mutex::new(Some(handle)) })),
             Err(err) => {
                 error!("error when sending a message: {err}");
                 Err(anyhow::anyhow!(err).into())
@@ -647,12 +647,12 @@ impl Timeline {
 }
 
 #[derive(uniffi::Object)]
-pub struct AbortSendHandle {
-    inner: Mutex<Option<matrix_sdk::send_queue::AbortSendHandle>>,
+pub struct SendHandle {
+    inner: Mutex<Option<matrix_sdk::send_queue::SendHandle>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
-impl AbortSendHandle {
+impl SendHandle {
     /// Try to abort the sending of the current event.
     ///
     /// If this returns `true`, then the sending could be aborted, because the

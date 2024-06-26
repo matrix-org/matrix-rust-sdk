@@ -426,7 +426,7 @@ async fn handle_local_echo(echo: LocalEcho, timeline: &TimelineInner) {
         .handle_local_event(
             echo.transaction_id.clone(),
             TimelineEventKind::Message { content, relations: Default::default() },
-            Some(echo.abort_handle),
+            Some(echo.send_handle),
         )
         .await;
 

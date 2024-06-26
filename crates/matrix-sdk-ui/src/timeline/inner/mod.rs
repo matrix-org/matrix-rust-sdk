@@ -27,7 +27,7 @@ use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent,
     event_cache::{paginator::Paginator, RoomEventCache},
-    send_queue::AbortSendHandle,
+    send_queue::SendHandle,
     Result, Room,
 };
 #[cfg(test)]
@@ -646,13 +646,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         &self,
         txn_id: OwnedTransactionId,
         content: TimelineEventKind,
-        abort_handle: Option<AbortSendHandle>,
+        send_handle: Option<SendHandle>,
     ) {
         let sender = self.room_data_provider.own_user_id().to_owned();
         let profile = self.room_data_provider.profile_from_user_id(&sender).await;
 
         let mut state = self.state.write().await;
-        state.handle_local_event(sender, profile, txn_id, abort_handle, content).await;
+        state.handle_local_event(sender, profile, txn_id, send_handle, content).await;
     }
 
     /// Update the send state of a local event represented by a transaction ID.

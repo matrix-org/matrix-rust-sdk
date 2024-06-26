@@ -27,7 +27,7 @@ use matrix_sdk::{
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
     room::{Receipts, Room},
-    send_queue::{AbortSendHandle, RoomSendQueueError},
+    send_queue::{RoomSendQueueError, SendHandle},
     Client, Result,
 };
 use matrix_sdk_base::RoomState;
@@ -326,7 +326,7 @@ impl Timeline {
     pub async fn send(
         &self,
         content: AnyMessageLikeEventContent,
-    ) -> Result<AbortSendHandle, RoomSendQueueError> {
+    ) -> Result<SendHandle, RoomSendQueueError> {
         self.room().send_queue().send(content).await
     }
 
@@ -701,7 +701,7 @@ impl Timeline {
     ) -> Result<bool, RedactEventError> {
         match &event.kind {
             EventTimelineItemKind::Local(local) => {
-                if let Some(handle) = local.abort_handle.clone() {
+                if let Some(handle) = local.send_handle.clone() {
                     Ok(handle.abort().await.map_err(RedactEventError::RoomQueueError)?)
                 } else {
                     // No abort handle; theoretically unreachable for regular usage of the
