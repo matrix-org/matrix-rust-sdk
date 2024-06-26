@@ -1495,10 +1495,11 @@ impl_state_store!({
             .get_all()?
             .await?
             .into_iter()
-            .map(|item| {
-                self.deserialize_value(&item).map(|event: PersistedQueuedEvent| event.room_id)
-            })
-            .collect::<Result<HashSet<OwnedRoomId>, _>>()?;
+            .map(|item| self.deserialize_value::<Vec<PersistedQueuedEvent>>(&item))
+            .collect::<Result<Vec<Vec<PersistedQueuedEvent>>, _>>()?
+            .into_iter()
+            .flat_map(|vec| vec.into_iter().map(|item| item.room_id))
+            .collect::<BTreeSet<_>>();
 
         Ok(all_entries.into_iter().collect())
     }
