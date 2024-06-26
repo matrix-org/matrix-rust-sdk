@@ -60,12 +60,7 @@ use ruma::{
 use thiserror::Error;
 use tracing::{error, instrument, trace, warn};
 
-use self::{
-    error::{RedactEventError, SendEventError},
-    event_item::EventTimelineItemKind,
-    futures::SendAttachment,
-    util::rfind_event_item,
-};
+use self::{event_item::EventTimelineItemKind, futures::SendAttachment, util::rfind_event_item};
 
 mod builder;
 mod day_dividers;
@@ -90,7 +85,7 @@ mod virtual_item;
 
 pub use self::{
     builder::TimelineBuilder,
-    error::{Error, PaginationError, UnsupportedEditItem, UnsupportedReplyItem},
+    error::*,
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventItemOrigin,
         EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
