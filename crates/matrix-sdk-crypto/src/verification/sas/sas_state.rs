@@ -624,7 +624,7 @@ impl SasState<Created> {
     /// # Arguments
     ///
     /// * `event` - The m.key.verification.accept event that was sent to us by
-    /// the other side.
+    ///   the other side.
     pub fn into_accepted(
         self,
         sender: &UserId,
@@ -672,7 +672,7 @@ impl SasState<Started> {
     /// * `other_device` - The other device which we are going to verify.
     ///
     /// * `event` - The m.key.verification.start event that was sent to us by
-    /// the other side.
+    ///   the other side.
     pub fn from_start_event(
         account: StaticAccountData,
         other_device: ReadOnlyDevice,
@@ -825,7 +825,7 @@ impl SasState<Started> {
     /// # Arguments
     ///
     /// * `event` - The m.key.verification.accept event that was sent to us by
-    /// the other side.
+    ///   the other side.
     pub fn into_accepted(
         self,
         sender: &UserId,
@@ -905,9 +905,9 @@ impl SasState<WeAccepted> {
     ///
     /// # Arguments
     ///
-    /// * `event` - The m.key.verification.key event that was sent to us by
-    /// the other side. The event will be modified so it doesn't contain any key
-    /// anymore.
+    /// * `event` - The m.key.verification.key event that was sent to us by the
+    ///   other side. The event will be modified so it doesn't contain any key
+    ///   anymore.
     pub fn into_key_received(
         self,
         sender: &UserId,
@@ -940,9 +940,9 @@ impl SasState<Accepted> {
     ///
     /// # Arguments
     ///
-    /// * `event` - The m.key.verification.key event that was sent to us by
-    /// the other side. The event will be modified so it doesn't contain any key
-    /// anymore.
+    /// * `event` - The m.key.verification.key event that was sent to us by the
+    ///   other side. The event will be modified so it doesn't contain any key
+    ///   anymore.
     pub fn into_key_received(
         self,
         sender: &UserId,
@@ -1165,8 +1165,8 @@ impl SasState<KeysExchanged> {
     ///
     /// # Arguments
     ///
-    /// * `event` - The m.key.verification.mac event that was sent to us by
-    /// the other side.
+    /// * `event` - The m.key.verification.mac event that was sent to us by the
+    ///   other side.
     pub fn into_mac_received(
         self,
         sender: &UserId,
@@ -1229,8 +1229,8 @@ impl SasState<Confirmed> {
     ///
     /// # Arguments
     ///
-    /// * `event` - The m.key.verification.mac event that was sent to us by
-    /// the other side.
+    /// * `event` - The m.key.verification.mac event that was sent to us by the
+    ///   other side.
     pub fn into_done(
         self,
         sender: &UserId,
@@ -1273,8 +1273,8 @@ impl SasState<Confirmed> {
     ///
     /// # Arguments
     ///
-    /// * `event` - The m.key.verification.mac event that was sent to us by
-    /// the other side.
+    /// * `event` - The m.key.verification.mac event that was sent to us by the
+    ///   other side.
     pub fn into_waiting_for_done(
         self,
         sender: &UserId,
@@ -1445,8 +1445,8 @@ impl SasState<WaitingForDone> {
     ///
     /// # Arguments
     ///
-    /// * `event` - The m.key.verification.mac event that was sent to us by
-    /// the other side.
+    /// * `event` - The m.key.verification.mac event that was sent to us by the
+    ///   other side.
     pub fn into_done(
         self,
         sender: &UserId,

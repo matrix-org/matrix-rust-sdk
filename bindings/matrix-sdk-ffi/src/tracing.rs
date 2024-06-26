@@ -107,10 +107,10 @@ impl Span {
     /// target passed for second and following creation of a span with the same
     /// callsite will be ignored.
     ///
-    /// This function leaks a little bit of memory for each unique (file + line
-    /// + level + target + name) it is called with. Please make sure that the
-    /// number of different combinations of those parameters this can be called
-    /// with is constant in the final executable.
+    /// This function leaks a little bit of memory for each unique (file +
+    /// line + level + target + name) it is called with. Please make sure that
+    /// the number of different combinations of those parameters this can be
+    /// called with is constant in the final executable.
     ///
     /// For a span to have an effect, you must `.enter()` it at the start of a
     /// logical unit of work and `.exit()` it at the end of the same (including

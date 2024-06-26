@@ -208,12 +208,12 @@ impl OutboundGroupSession {
     /// * `device_id` - The id of the device that created this session.
     ///
     /// * `identity_keys` - The identity keys of the account that created this
-    /// session.
+    ///   session.
     ///
     /// * `room_id` - The id of the room that the session is used in.
     ///
     /// * `settings` - Settings determining the algorithm and rotation period of
-    /// the outbound group session.
+    ///   the outbound group session.
     pub fn new(
         device_id: OwnedDeviceId,
         identity_keys: Arc<IdentityKeys>,
@@ -363,10 +363,10 @@ impl OutboundGroupSession {
     /// # Arguments
     ///
     /// * `event_type` - The plaintext type of the event, the outer type of the
-    /// event will become `m.room.encrypted`.
+    ///   event will become `m.room.encrypted`.
     ///
     /// * `content` - The plaintext content of the message that should be
-    /// encrypted in raw JSON form.
+    ///   encrypted in raw JSON form.
     ///
     /// # Panics
     ///
@@ -651,7 +651,7 @@ impl OutboundGroupSession {
     /// * `pickle` - The pickled version of the `OutboundGroupSession`.
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
-    /// an unencrypted mode or an encrypted using passphrase.
+    ///   an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(
         device_id: OwnedDeviceId,
         identity_keys: Arc<IdentityKeys>,
@@ -682,8 +682,7 @@ impl OutboundGroupSession {
     /// # Arguments
     ///
     /// * `pickle_mode` - The mode that should be used to pickle the group
-    ///   session,
-    /// either an unencrypted mode or an encrypted using passphrase.
+    ///   session, either an unencrypted mode or an encrypted using passphrase.
     pub async fn pickle(&self) -> PickledOutboundGroupSession {
         let pickle = self.inner.read().await.pickle();
 

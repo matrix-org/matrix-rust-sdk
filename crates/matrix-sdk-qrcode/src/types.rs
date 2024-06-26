@@ -209,8 +209,7 @@ impl QrVerificationData {
     /// * the ASCII string MATRIX
     /// * one byte indicating the QR code version (must be 0x02)
     /// * one byte indicating the QR code verification mode. one of the
-    ///   following
-    /// values:
+    ///   following values:
     ///     * 0x00 verifying another user with cross-signing
     ///     * 0x01 self-verifying in which the current device does trust the
     ///       master key
@@ -351,15 +350,15 @@ impl VerificationData {
     ///
     /// # Arguments
     /// * `flow_id` - The event ID or transaction ID of the
-    /// `m.key.verification.request` event that initiated the
-    /// verification flow this QR code should be part of.
+    ///   `m.key.verification.request` event that initiated the verification
+    ///   flow this QR code should be part of.
     ///
     /// * `first_master_key` - Our own cross signing master key.
     ///
     /// * `second_master_key` - The cross signing master key of the other user.
     ///
     /// * `shared_secret` - A random bytestring encoded as unpadded base64,
-    /// needs to be at least 8 bytes long.
+    ///   needs to be at least 8 bytes long.
     pub fn new(
         flow_id: String,
         first_master_key: Ed25519PublicKey,
@@ -451,15 +450,15 @@ impl SelfVerificationData {
     ///
     /// # Arguments
     /// * `transaction_id` - The transaction id of this verification flow, the
-    /// transaction id was sent by the `m.key.verification.request` event
-    /// that initiated the verification flow this QR code should be part of.
+    ///   transaction id was sent by the `m.key.verification.request` event that
+    ///   initiated the verification flow this QR code should be part of.
     ///
     /// * `master_key` - Our own cross signing master key.
     ///
     /// * `device_key` - The ed25519 key of the other device.
     ///
     /// * `shared_secret` - A random bytestring encoded as unpadded base64,
-    /// needs to be at least 8 bytes long.
+    ///   needs to be at least 8 bytes long.
     pub fn new(
         transaction_id: String,
         master_key: Ed25519PublicKey,
@@ -551,15 +550,15 @@ impl SelfVerificationNoMasterKey {
     ///
     /// # Arguments
     /// * `transaction_id` - The transaction id of this verification flow, the
-    /// transaction id was sent by the `m.key.verification.request` event
-    /// that initiated the verification flow this QR code should be part of.
+    ///   transaction id was sent by the `m.key.verification.request` event that
+    ///   initiated the verification flow this QR code should be part of.
     ///
     /// * `device_key` - The ed25519 key of our own device.
     ///
     /// * `master_key` - Our own cross signing master key.
     ///
     /// * `shared_secret` - A random bytestring encoded as unpadded base64,
-    /// needs to be at least 8 bytes long.
+    ///   needs to be at least 8 bytes long.
     pub fn new(
         transaction_id: String,
         device_key: Ed25519PublicKey,

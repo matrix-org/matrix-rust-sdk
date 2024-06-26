@@ -86,9 +86,9 @@ impl IdentityUpdates {
 ///
 /// Each key has a separate role:
 /// * Master key, signs only the sub-keys, can be used as a fingerprint of the
-/// identity.
+///   identity.
 /// * Self-signing key, signs devices belonging to the user that owns this
-/// identity.
+///   identity.
 /// * User-signing key, signs Master keys belonging to other users.
 ///
 /// The User-signing key and its signatures of other user's Master keys are
@@ -144,10 +144,10 @@ impl UserIdentity {
     /// someone else's:
     ///
     /// * Our own identity - All our E2EE capable devices will receive the event
-    /// over to-device messaging.
+    ///   over to-device messaging.
     /// * Someone else's identity - The event will be sent to a DM room we share
-    /// with the user, if we don't share a DM with the user, one will be
-    /// created.
+    ///   with the user, if we don't share a DM with the user, one will be
+    ///   created.
     ///
     /// The default methods that are supported are:
     ///
@@ -203,7 +203,7 @@ impl UserIdentity {
     /// # Arguments
     ///
     /// * `methods` - The verification methods that we want to support. Must be
-    /// non-empty.
+    ///   non-empty.
     ///
     /// # Panics
     ///
@@ -315,10 +315,10 @@ impl UserIdentity {
     ///
     /// A user identity is considered to be verified if:
     ///
-    /// * It has been signed by our User-signing key, if the identity belongs
-    /// to another user
+    /// * It has been signed by our User-signing key, if the identity belongs to
+    ///   another user
     /// * If it has been locally marked as verified, if the user identity
-    /// belongs to us.
+    ///   belongs to us.
     ///
     /// If the identity belongs to another user, our own user identity needs to
     /// be verified as well for the identity to be considered to be verified.

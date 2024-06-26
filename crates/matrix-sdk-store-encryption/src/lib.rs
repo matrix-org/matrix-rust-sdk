@@ -126,8 +126,8 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `passphrase` - The passphrase that should be used to encrypt the
-    /// store cipher.
+    /// * `passphrase` - The passphrase that should be used to encrypt the store
+    ///   cipher.
     ///
     /// # Examples
     ///
@@ -159,7 +159,7 @@ impl StoreCipher {
     /// # Arguments
     ///
     /// * `key` - The 32-byte key to be used to encrypt the store cipher. It's
-    /// recommended to use a freshly and securely generated random key.
+    ///   recommended to use a freshly and securely generated random key.
     ///
     /// # Examples
     ///
@@ -260,7 +260,7 @@ impl StoreCipher {
     /// # Arguments
     ///
     /// * `passphrase` - The passphrase that was used to encrypt the store
-    /// cipher.
+    ///   cipher.
     ///
     /// * `encrypted` - The exported and encrypted version of the store cipher.
     ///
@@ -310,8 +310,8 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `key` - The 32-byte decryption key that was previously used to
-    /// encrypt the store cipher.
+    /// * `key` - The 32-byte decryption key that was previously used to encrypt
+    ///   the store cipher.
     ///
     /// * `encrypted` - The exported and encrypted version of the store cipher.
     ///
@@ -353,10 +353,10 @@ impl StoreCipher {
     /// # Arguments
     ///
     /// * `table_name` - The name of the key/value table this key will be
-    /// inserted into. This can also contain additional unique data. It will be
-    /// used to derive a table-specific cryptographic key which will be used
-    /// in a keyed hash function. This ensures data independence between the
-    /// different tables of the key/value store.
+    ///   inserted into. This can also contain additional unique data. It will
+    ///   be used to derive a table-specific cryptographic key which will be
+    ///   used in a keyed hash function. This ensures data independence between
+    ///   the different tables of the key/value store.
     ///
     /// * `key` - The key to be hashed, prior to insertion into the key/value
     ///   store.
@@ -395,8 +395,8 @@ impl StoreCipher {
     /// # Arguments
     ///
     /// * `value` - A value that should be encrypted, any value that implements
-    /// `Serialize` can be given to this method. The value will be serialized as
-    /// json before it is encrypted.
+    ///   `Serialize` can be given to this method. The value will be serialized
+    ///   as json before it is encrypted.
     ///
     /// # Examples
     ///
@@ -431,8 +431,8 @@ impl StoreCipher {
     /// # Arguments
     ///
     /// * `value` - A value that should be encrypted, any value that implements
-    /// `Serialize` can be given to this method. The value will be serialized as
-    /// json before it is encrypted.
+    ///   `Serialize` can be given to this method. The value will be serialized
+    ///   as json before it is encrypted.
     ///
     ///
     /// # Examples
@@ -507,8 +507,8 @@ impl StoreCipher {
     /// # Arguments
     ///
     /// * `value` - A value that should be encrypted, any value that implements
-    /// `Serialize` can be given to this method. The value will be serialized as
-    /// json before it is encrypted.
+    ///   `Serialize` can be given to this method. The value will be serialized
+    ///   as json before it is encrypted.
     ///
     ///
     /// # Examples

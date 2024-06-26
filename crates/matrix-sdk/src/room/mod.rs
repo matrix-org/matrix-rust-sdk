@@ -608,7 +608,7 @@ impl Room {
     /// # Arguments
     ///
     /// * `user_id` - The ID of the user that should be fetched out of the
-    /// store.
+    ///   store.
     pub async fn get_member(&self, user_id: &UserId) -> Result<Option<RoomMember>> {
         self.sync_members().await?;
         self.get_member_no_sync(user_id).await
@@ -626,7 +626,7 @@ impl Room {
     /// # Arguments
     ///
     /// * `user_id` - The ID of the user that should be fetched out of the
-    /// store.
+    ///   store.
     pub async fn get_member_no_sync(&self, user_id: &UserId) -> Result<Option<RoomMember>> {
         Ok(self
             .inner
@@ -1770,10 +1770,10 @@ impl Room {
     /// * `filename` - The file name.
     ///
     /// * `content_type` - The type of the media, this will be used as the
-    /// content-type header.
+    ///   content-type header.
     ///
     /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
-    /// media.
+    ///   media.
     ///
     /// * `config` - Metadata and configuration for the attachment.
     pub(super) async fn prepare_and_send_attachment<'a>(
@@ -1953,8 +1953,8 @@ impl Room {
     /// # Arguments
     /// * `mime` - The mime type describing the data
     /// * `data` - The data representation of the avatar
-    /// * `info` - The optional image info provided for the avatar,
-    /// the blurhash and the mimetype will always be updated
+    /// * `info` - The optional image info provided for the avatar, the blurhash
+    ///   and the mimetype will always be updated
     pub async fn upload_avatar(
         &self,
         mime: &Mime,
@@ -2632,6 +2632,7 @@ impl Room {
     /// This function is supposed to be called whenever the user creates a room
     /// call. It will send a `m.call.notify` event if:
     ///  - there is not yet a running call.
+    ///
     /// It will configure the notify type: ring or notify based on:
     ///  - is this a DM room -> ring
     ///  - is this a group with more than one other member -> notify
