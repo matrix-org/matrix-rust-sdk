@@ -168,7 +168,7 @@ pub enum EventError {
 /// Error type describing different errors that can happen when we create an
 /// Olm session from a pickle.
 #[derive(Error, Debug)]
-pub enum SessionPickleError {
+pub enum SessionUnpickleError {
     /// The device keys are missing the signing key
     #[error("the device keys are missing the signing key")]
     MissingSigningKey,

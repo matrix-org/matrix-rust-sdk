@@ -1724,7 +1724,12 @@ mod wasm_unit_tests {
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
-    use matrix_sdk_crypto::cryptostore_integration_tests;
+    use matrix_sdk_crypto::{
+        cryptostore_integration_tests,
+        store::{Changes, CryptoStore as _, DeviceChanges, PendingChanges},
+        ReadOnlyDevice,
+    };
+    use matrix_sdk_test::async_test;
 
     use super::IndexeddbCryptoStore;
 
@@ -1740,6 +1745,43 @@ mod tests {
                 .expect("Can't create store without passphrase"),
         }
     }
+
+    #[async_test]
+    async fn cache_cleared_after_device_update() {
+        let store = get_store("cache_cleared_after_device_update", None).await;
+        // Given we created a session and saved it in the store
+        let (account, session) = cryptostore_integration_tests::get_account_and_session().await;
+        let sender_key = session.sender_key.to_base64();
+
+        store
+            .save_pending_changes(PendingChanges { account: Some(account.deep_clone()) })
+            .await
+            .expect("Can't save account");
+
+        let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
+        store.save_changes(changes).await.unwrap();
+
+        store.session_cache.get(&sender_key).expect("We should have a session");
+
+        // When we save a new version of our device keys
+        store
+            .save_changes(Changes {
+                devices: DeviceChanges {
+                    new: vec![ReadOnlyDevice::from_account(&account)],
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Then the session is no longer in the cache
+        assert!(
+            store.session_cache.get(&sender_key).is_none(),
+            "Session should not be in the cache!"
+        );
+    }
+
     cryptostore_integration_tests!();
 }
 

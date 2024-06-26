@@ -27,7 +27,7 @@ use vodozemac::{
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
-    error::{EventError, OlmResult, SessionPickleError},
+    error::{EventError, OlmResult, SessionUnpickleError},
     types::{
         events::room::encrypted::{OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent},
         DeviceKeys, EventEncryptionAlgorithm,
@@ -235,12 +235,12 @@ impl Session {
     pub fn from_pickle(
         our_device_keys: DeviceKeys,
         pickle: PickledSession,
-    ) -> Result<Self, SessionPickleError> {
+    ) -> Result<Self, SessionUnpickleError> {
         if our_device_keys.curve25519_key().is_none() {
-            return Err(SessionPickleError::MissingIdentityKey);
+            return Err(SessionUnpickleError::MissingIdentityKey);
         }
         if our_device_keys.ed25519_key().is_none() {
-            return Err(SessionPickleError::MissingSigningKey);
+            return Err(SessionUnpickleError::MissingSigningKey);
         }
 
         let session: vodozemac::olm::Session = pickle.pickle.into();
