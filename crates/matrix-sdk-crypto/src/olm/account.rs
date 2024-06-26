@@ -1321,6 +1321,7 @@ impl Account {
                 if let Some(device) = store.get_device_from_curve_key(sender, sender_key).await? {
                     let mut read_only_device = device.inner;
                     read_only_device.olm_wedging_index.increment();
+
                     changes.devices =
                         DeviceChanges { changed: vec![read_only_device], ..Default::default() };
                 }
