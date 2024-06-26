@@ -190,8 +190,8 @@ fn extra_mac_info_receive(ids: &SasIds, flow_id: &str) -> String {
 ///
 /// * `flow_id` - The unique id that identifies this SAS verification process.
 ///
-/// * `event` - The m.key.verification.mac event that was sent to us by
-///   the other side.
+/// * `event` - The m.key.verification.mac event that was sent to us by the
+///   other side.
 pub fn receive_mac_event(
     sas: &EstablishedSas,
     ids: &SasIds,

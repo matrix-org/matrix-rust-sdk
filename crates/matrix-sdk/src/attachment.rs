@@ -259,8 +259,8 @@ impl AttachmentConfig {
     /// # Arguments
     ///
     /// * `txn_id` - A unique ID that can be attached to a `MessageEvent` held
-    ///   in its unsigned field as `transaction_id`. If not given, one is created
-    ///   for the message.
+    ///   in its unsigned field as `transaction_id`. If not given, one is
+    ///   created for the message.
     #[must_use]
     pub fn txn_id(mut self, txn_id: &TransactionId) -> Self {
         self.txn_id = Some(txn_id.to_owned());

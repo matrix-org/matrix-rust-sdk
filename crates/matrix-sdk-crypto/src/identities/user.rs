@@ -608,8 +608,8 @@ impl ReadOnlyOwnUserIdentity {
     ///
     /// # Arguments
     ///
-    /// * `identity` - The identity of another user that we want to check if
-    ///   it has been signed.
+    /// * `identity` - The identity of another user that we want to check if it
+    ///   has been signed.
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.

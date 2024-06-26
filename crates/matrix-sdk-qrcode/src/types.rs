@@ -450,8 +450,8 @@ impl SelfVerificationData {
     ///
     /// # Arguments
     /// * `transaction_id` - The transaction id of this verification flow, the
-    ///   transaction id was sent by the `m.key.verification.request` event
-    ///   that initiated the verification flow this QR code should be part of.
+    ///   transaction id was sent by the `m.key.verification.request` event that
+    ///   initiated the verification flow this QR code should be part of.
     ///
     /// * `master_key` - Our own cross signing master key.
     ///
@@ -550,8 +550,8 @@ impl SelfVerificationNoMasterKey {
     ///
     /// # Arguments
     /// * `transaction_id` - The transaction id of this verification flow, the
-    ///   transaction id was sent by the `m.key.verification.request` event
-    ///   that initiated the verification flow this QR code should be part of.
+    ///   transaction id was sent by the `m.key.verification.request` event that
+    ///   initiated the verification flow this QR code should be part of.
     ///
     /// * `device_key` - The ed25519 key of our own device.
     ///

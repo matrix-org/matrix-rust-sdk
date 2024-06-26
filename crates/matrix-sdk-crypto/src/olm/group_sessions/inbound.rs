@@ -153,11 +153,11 @@ impl InboundGroupSession {
     ///
     /// # Arguments
     ///
-    /// * `sender_key` - The public Curve25519 key of the account that
-    ///   sent us the session.
+    /// * `sender_key` - The public Curve25519 key of the account that sent us
+    ///   the session.
     ///
-    /// * `signing_key` - The public Ed25519 key of the account that
-    ///   sent us the session.
+    /// * `signing_key` - The public Ed25519 key of the account that sent us the
+    ///   session.
     ///
     /// * `room_id` - The id of the room that the session is used in.
     ///

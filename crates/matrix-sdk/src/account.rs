@@ -446,12 +446,11 @@ impl Account {
     ///
     /// # Returns
     ///
-    /// * `sid` - The session ID to be used in following requests for
-    ///   this 3PID.
+    /// * `sid` - The session ID to be used in following requests for this 3PID.
     ///
-    /// * `submit_url` - If present, the user will submit the token to
-    ///   the client, that must send it to this URL. If not, the client will not
-    ///   be involved in the token submission.
+    /// * `submit_url` - If present, the user will submit the token to the
+    ///   client, that must send it to this URL. If not, the client will not be
+    ///   involved in the token submission.
     ///
     /// This method might return an [`ErrorKind::ThreepidInUse`] error if the
     /// email address is already registered for this account or another, or an
@@ -628,8 +627,8 @@ impl Account {
     /// * `medium` - The type of the 3PID.
     ///
     /// * `id_server` - The identity server to unbind from. If not provided, the
-    ///   homeserver should unbind the 3PID from the identity server it was bound
-    ///   to previously.
+    ///   homeserver should unbind the 3PID from the identity server it was
+    ///   bound to previously.
     ///
     /// # Returns
     ///
@@ -637,8 +636,8 @@ impl Account {
     ///   from the identity server.
     ///
     /// * [`ThirdPartyIdRemovalStatus::NoSupport`] if the 3PID was not unbound
-    ///   from the identity server. This can also mean that the 3PID was not bound
-    ///   to an identity server in the first place.
+    ///   from the identity server. This can also mean that the 3PID was not
+    ///   bound to an identity server in the first place.
     ///
     /// # Examples
     ///

@@ -1130,8 +1130,8 @@ impl Encryption {
     ///
     /// * `predicate` - A closure that will be called for every known
     ///   `InboundGroupSession`, which represents a room key. If the closure
-    ///   returns `true` the `InboundGroupSessoin` will be included in the export,
-    ///   if the closure returns `false` it will not be included.
+    ///   returns `true` the `InboundGroupSessoin` will be included in the
+    ///   export, if the closure returns `false` it will not be included.
     ///
     /// # Panics
     ///
@@ -1415,12 +1415,12 @@ impl Encryption {
     /// # Arguments
     ///
     /// * `auth_data` - Some requests may require re-authentication. To prevent
-    ///   the user from having to re-enter their password (or use other methods),
-    ///   we can provide the authentication data here. This is necessary for
-    ///   uploading cross-signing keys. However, please note that there is a
-    ///   proposal (MSC3967) to remove this requirement, which would allow for
-    ///   the initial upload of cross-signing keys without authentication,
-    ///   rendering this parameter obsolete.
+    ///   the user from having to re-enter their password (or use other
+    ///   methods), we can provide the authentication data here. This is
+    ///   necessary for uploading cross-signing keys. However, please note that
+    ///   there is a proposal (MSC3967) to remove this requirement, which would
+    ///   allow for the initial upload of cross-signing keys without
+    ///   authentication, rendering this parameter obsolete.
     pub(crate) fn spawn_initialization_task(&self, auth_data: Option<AuthData>) {
         let mut tasks = self.client.inner.e2ee.tasks.lock().unwrap();
 
