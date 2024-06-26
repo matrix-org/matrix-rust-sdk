@@ -28,7 +28,11 @@ use matrix_sdk::{
 use matrix_sdk_base::RoomInfoUpdate;
 use tokio::{select, sync::broadcast};
 
-use super::{filters::BoxedFilterFn, Error, Room, State};
+use super::{
+    filters::BoxedFilterFn,
+    sorters::{new_sorter_name, new_sorter_or, new_sorter_recency},
+    Error, Room, State,
+};
 
 /// A `RoomList` represents a list of rooms, from a
 /// [`RoomListService`](super::RoomListService).
@@ -161,6 +165,10 @@ impl RoomList {
 
                 let (values, stream) = (raw_values, merged_stream)
                     .filter(filter_fn)
+                    .sort_by(new_sorter_or(vec![
+                        Box::new(new_sorter_recency()),
+                        Box::new(new_sorter_name())
+                    ]))
                     .dynamic_limit_with_initial_value(page_size, limit_stream.clone());
 
                 // Clearing the stream before chaining with the real stream.
@@ -196,7 +204,7 @@ fn merge_stream_and_receiver(
 
                     // Search list for the updated room
                     for (index, room) in raw_current_values.iter().enumerate() {
-                        if room.room_id() == &update.room_id {
+                        if room.room_id() == update.room_id {
                             let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
                             yield vec![update];
                             break;

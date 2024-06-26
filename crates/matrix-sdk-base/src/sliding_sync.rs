@@ -292,7 +292,7 @@ impl BaseClient {
 
         trace!("ready to submit changes to store");
         store.save_changes(&changes).await?;
-        self.apply_changes(&changes, false);
+        self.apply_changes(&changes, true);
         trace!("applied changes");
 
         // Now that all the rooms information have been saved, update the display name
