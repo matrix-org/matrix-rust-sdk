@@ -470,10 +470,36 @@ impl Timeline {
         Ok(())
     }
 
+    /// Edits an event from the timeline.
+    ///
+    /// Only works for events that exist as timeline items.
+    ///
+    /// If it was a local event, this will *try* to edit it, if it was not
+    /// being sent already. If the event was a remote event, then it will be
+    /// redacted by sending an edit request to the server.
+    ///
+    /// Returns whether the edit did happen. It can only return false for
+    /// local events that are being processed.
     pub async fn edit(
         &self,
+        item: Arc<EventTimelineItem>,
         new_content: Arc<RoomMessageEventContentWithoutRelation>,
+    ) -> Result<bool, ClientError> {
+        let edit_info = item.0.edit_info().map_err(|err| anyhow::anyhow!(err))?;
+
+        Ok(self
+            .inner
+            .edit((*new_content).clone(), edit_info)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?)
+    }
+
+    /// Edit an event given its event id. Useful when we're not sure a remote
+    /// timeline event has been fetched by the timeline.
+    pub async fn edit_by_event_id(
+        &self,
         event_id: String,
+        new_content: Arc<RoomMessageEventContentWithoutRelation>,
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
         let edit_info = self
@@ -486,6 +512,7 @@ impl Timeline {
             .edit((*new_content).clone(), edit_info)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
+
         Ok(())
     }
 
