@@ -1042,8 +1042,8 @@ impl SerializableEventContent {
 
     /// Create a [`SerializableEventContent`] from an
     /// [`AnyMessageLikeEventContent`].
-    pub fn new(event: AnyMessageLikeEventContent) -> Result<Self, serde_json::Error> {
-        Ok(Self::from_raw(Raw::new(&event)?, event.event_type().to_string()))
+    pub fn new(event: &AnyMessageLikeEventContent) -> Result<Self, serde_json::Error> {
+        Ok(Self::from_raw(Raw::new(event)?, event.event_type().to_string()))
     }
 
     /// Convert a [`SerializableEventContent`] back into a
