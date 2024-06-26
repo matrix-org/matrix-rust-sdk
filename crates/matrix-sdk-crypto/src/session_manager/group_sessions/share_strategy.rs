@@ -443,7 +443,7 @@ mod tests {
             .find(|(d, _)| d.device_id() == KeyDistributionTestData::dan_unsigned_device_id())
             .expect("This dan's device should receive a withheld code");
 
-        assert_eq!(code.as_str(), WithheldCode::Unverified.as_str());
+        assert_eq!(code, &WithheldCode::Unverified);
 
         let (_, code) = share_result
             .withheld_devices
@@ -451,7 +451,7 @@ mod tests {
             .find(|(d, _)| d.device_id() == KeyDistributionTestData::dave_device_id())
             .expect("This daves's device should receive a withheld code");
 
-        assert_eq!(code.as_str(), WithheldCode::Unverified.as_str());
+        assert_eq!(code, &WithheldCode::Unverified);
     }
 
     #[async_test]
@@ -517,7 +517,7 @@ mod tests {
             .find(|(d, _)| d.device_id() == KeyDistributionTestData::dan_unsigned_device_id())
             .expect("This dan's device should receive a withheld code");
 
-        assert_eq!(code.as_str(), WithheldCode::Unauthorised.as_str());
+        assert_eq!(code, &WithheldCode::Unauthorised);
 
         // Check withhelds for others
         let (_, code) = share_result
@@ -526,7 +526,7 @@ mod tests {
             .find(|(d, _)| d.device_id() == KeyDistributionTestData::dave_device_id())
             .expect("This dave device should receive a withheld code");
 
-        assert_eq!(code.as_str(), WithheldCode::Unauthorised.as_str());
+        assert_eq!(code, &WithheldCode::Unauthorised);
     }
 
     #[async_test]
