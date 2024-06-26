@@ -1789,7 +1789,7 @@ impl StateStore for SqliteStateStore {
             .acquire()
             .await?
             .prepare("SELECT room_id_val FROM send_queue_events", |mut stmt| {
-                stmt.query(())?.mapped(|row| Ok(row.get(0)?)).collect()
+                stmt.query(())?.mapped(|row| row.get(0)).collect()
             })
             .await?;
 
