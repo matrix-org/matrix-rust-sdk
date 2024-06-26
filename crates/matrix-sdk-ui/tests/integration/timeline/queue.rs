@@ -87,11 +87,11 @@ async fn test_message_order() {
 
     // Local echoes are available after the send queue has processed these.
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert!(!value.is_editable(), "local echo for first can't be edited");
+        assert!(value.is_editable(), "local echo of first can be edited");
         assert_eq!(value.content().as_message().unwrap().body(), "First!");
     });
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert!(!value.is_editable(), "local echo for second can't be edited");
+        assert!(value.is_editable(), "local echo of second can be edited");
         assert_eq!(value.content().as_message().unwrap().body(), "Second.");
     });
 

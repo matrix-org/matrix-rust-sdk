@@ -45,7 +45,10 @@ pub(super) use self::{
     local::LocalEventTimelineItem,
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},
 };
-use super::{EditInfo, RepliedToInfo, ReplyContent, UnsupportedEditItem, UnsupportedReplyItem};
+use super::{
+    EditInfo, RepliedToInfo, ReplyContent, TimelineEventItemId, UnsupportedEditItem,
+    UnsupportedReplyItem,
+};
 
 /// An item in the timeline that represents at least one event.
 ///
@@ -282,14 +285,11 @@ impl EventTimelineItem {
 
     /// Flag indicating this timeline item can be edited by the current user.
     pub fn is_editable(&self) -> bool {
-        // This must be in sync with the early returns of `Timeline::edit`
+        // Steps here should be in sync with [`EventTimelineItem::edit_info`] and
+        // [`Timeline::edit_poll`].
+
         if !self.is_own() {
             // In theory could work, but it's hard to compute locally.
-            return false;
-        }
-
-        if self.event_id().is_none() {
-            // Local echoes without an event id (not sent yet) can't be edited.
             return false;
         }
 
@@ -450,18 +450,32 @@ impl EventTimelineItem {
 
     /// Gives the information needed to edit the event of the item.
     pub fn edit_info(&self) -> Result<EditInfo, UnsupportedEditItem> {
+        // Steps here should be in sync with [`EventTimelineItem::is_editable`].
         if !self.is_own() {
             return Err(UnsupportedEditItem::NotOwnEvent);
         }
-        // Early returns here must be in sync with
-        // `EventTimelineItem::can_be_edited`
-        let Some(event_id) = self.event_id() else {
-            return Err(UnsupportedEditItem::MissingEventId);
-        };
+
         let TimelineItemContent::Message(original_content) = self.content() else {
             return Err(UnsupportedEditItem::NotRoomMessage);
         };
-        Ok(EditInfo { event_id: event_id.to_owned(), original_message: original_content.clone() })
+
+        let id = match &self.kind {
+            EventTimelineItemKind::Local(local_event) => {
+                // Prefer the remote event id if it's already available, as it indicates the
+                // event has been sent to the server.
+                if let Some(event_id) = local_event.event_id() {
+                    TimelineEventItemId::Remote(event_id.to_owned())
+                } else {
+                    TimelineEventItemId::Local(local_event.transaction_id.clone())
+                }
+            }
+
+            EventTimelineItemKind::Remote(remote_event) => {
+                TimelineEventItemId::Remote(remote_event.event_id.clone())
+            }
+        };
+
+        Ok(EditInfo { id, original_message: original_content.clone() })
     }
 }
 
