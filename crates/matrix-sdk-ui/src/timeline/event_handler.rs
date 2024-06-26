@@ -346,17 +346,20 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 AnyMessageLikeEventContent::Reaction(c) => {
                     self.handle_reaction(c);
                 }
+
                 AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent {
                     relates_to: Some(message::Relation::Replacement(re)),
                     ..
                 }) => {
                     self.handle_room_message_edit(re);
                 }
+
                 AnyMessageLikeEventContent::RoomMessage(c) => {
                     if should_add {
                         self.add_item(TimelineItemContent::message(c, relations, self.items));
                     }
                 }
+
                 AnyMessageLikeEventContent::RoomEncrypted(c) => {
                     // TODO: Handle replacements if the replaced event is also UTD
                     let cause = UtdCause::determine(raw_event);
@@ -370,24 +373,31 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         }
                     }
                 }
+
                 AnyMessageLikeEventContent::Sticker(content) => {
                     if should_add {
                         self.add_item(TimelineItemContent::Sticker(Sticker { content }));
                     }
                 }
+
                 AnyMessageLikeEventContent::UnstablePollStart(
                     UnstablePollStartEventContent::Replacement(c),
                 ) => self.handle_poll_start_edit(c.relates_to),
+
                 AnyMessageLikeEventContent::UnstablePollStart(
                     UnstablePollStartEventContent::New(c),
                 ) => self.handle_poll_start(c, should_add),
+
                 AnyMessageLikeEventContent::UnstablePollResponse(c) => self.handle_poll_response(c),
+
                 AnyMessageLikeEventContent::UnstablePollEnd(c) => self.handle_poll_end(c),
+
                 AnyMessageLikeEventContent::CallInvite(_) => {
                     if should_add {
                         self.add_item(TimelineItemContent::CallInvite);
                     }
                 }
+
                 AnyMessageLikeEventContent::CallNotify(_) => {
                     if should_add {
                         self.add_item(TimelineItemContent::CallNotify)
@@ -487,7 +497,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             let TimelineItemContent::Message(msg) = event_item.content() else {
                 info!(
-                    "Edit of message event applies to {}, discarding",
+                    "Edit of message event applies to {:?}, discarding",
                     event_item.content().debug_string(),
                 );
                 return None;
