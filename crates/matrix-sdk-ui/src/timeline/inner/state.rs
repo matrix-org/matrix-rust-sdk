@@ -16,7 +16,7 @@ use std::{collections::VecDeque, future::Future, sync::Arc};
 
 use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::IndexMap;
-use matrix_sdk::{deserialized_responses::SyncTimelineEvent, send_queue::AbortSendHandle};
+use matrix_sdk::{deserialized_responses::SyncTimelineEvent, send_queue::SendHandle};
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
@@ -163,7 +163,7 @@ impl TimelineInnerState {
         own_user_id: OwnedUserId,
         own_profile: Option<Profile>,
         txn_id: OwnedTransactionId,
-        abort_handle: Option<AbortSendHandle>,
+        send_handle: Option<SendHandle>,
         content: TimelineEventKind,
     ) {
         let ctx = TimelineEventContext {
@@ -176,7 +176,7 @@ impl TimelineInnerState {
             read_receipts: Default::default(),
             // An event sent by ourself is never matched against push rules.
             is_highlighted: false,
-            flow: Flow::Local { txn_id, abort_handle },
+            flow: Flow::Local { txn_id, send_handle },
         };
 
         let mut txn = self.transaction();

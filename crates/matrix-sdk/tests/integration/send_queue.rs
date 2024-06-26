@@ -54,13 +54,13 @@ fn mock_send_transient_failure() -> Mock {
 // A macro to assert on a stream of `RoomSendQueueUpdate`s.
 macro_rules! assert_update {
     // Check the next stream event is a local echo for a message with the content $body.
-    // Returns a tuple of (transaction_id, abort_handle).
+    // Returns a tuple of (transaction_id, send_handle).
     ($watch:ident => local echo { body = $body:expr }) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
                 serialized_event,
                 transaction_id: txn,
-                abort_handle,
+                send_handle,
                 // New local echoes should always start as not wedged.
                 is_wedged: false,
             }))) = timeout(Duration::from_secs(1), $watch.recv()).await
@@ -70,7 +70,7 @@ macro_rules! assert_update {
         assert_let!(AnyMessageLikeEventContent::RoomMessage(_msg) = content);
         assert_eq!(_msg.body(), $body);
 
-        (txn, abort_handle)
+        (txn, send_handle)
     }};
 
     // Check the next stream event is a sent event, with optional checks on txn=$txn and
@@ -754,7 +754,7 @@ async fn test_cancellation() {
     let local_echo4 = local_echoes.remove(1);
     assert_eq!(local_echo4.transaction_id, txn4, "local echoes: {local_echoes:?}");
 
-    let handle4 = local_echo4.abort_handle;
+    let handle4 = local_echo4.send_handle;
 
     assert!(handle4.abort().await.unwrap());
     assert_update!(watch => cancelled { txn = txn4 });
@@ -810,8 +810,7 @@ async fn test_abort_after_disable() {
     mock_send_transient_failure().expect(3).mount(&server).await;
 
     // One message is queued.
-    let abort_send_handle =
-        q.send(RoomMessageEventContent::text_plain("hey there").into()).await.unwrap();
+    let handle = q.send(RoomMessageEventContent::text_plain("hey there").into()).await.unwrap();
 
     // It is first seen as a local echo,
     let (txn, _) = assert_update!(watch => local echo { body = "hey there" });
@@ -828,7 +827,7 @@ async fn test_abort_after_disable() {
     assert!(client.send_queue().is_enabled());
 
     // Aborting the sending should work.
-    assert!(abort_send_handle.abort().await.unwrap());
+    assert!(handle.abort().await.unwrap());
 
     assert_update!(watch => cancelled { txn = txn });
 

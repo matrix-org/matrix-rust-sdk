@@ -316,7 +316,7 @@ impl RoomSendQueue {
         &self,
         content: Raw<AnyMessageLikeEventContent>,
         event_type: String,
-    ) -> Result<AbortSendHandle, RoomSendQueueError> {
+    ) -> Result<SendHandle, RoomSendQueueError> {
         let Some(room) = self.inner.room.get() else {
             return Err(RoomSendQueueError::RoomDisappeared);
         };
@@ -334,14 +334,11 @@ impl RoomSendQueue {
         let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id: transaction_id.clone(),
             serialized_event: content,
-            abort_handle: AbortSendHandle {
-                room: self.clone(),
-                transaction_id: transaction_id.clone(),
-            },
+            send_handle: SendHandle { room: self.clone(), transaction_id: transaction_id.clone() },
             is_wedged: false,
         }));
 
-        Ok(AbortSendHandle { transaction_id, room: self.clone() })
+        Ok(SendHandle { transaction_id, room: self.clone() })
     }
 
     /// Queues an event for sending it to this room.
@@ -360,7 +357,7 @@ impl RoomSendQueue {
     pub async fn send(
         &self,
         content: AnyMessageLikeEventContent,
-    ) -> Result<AbortSendHandle, RoomSendQueueError> {
+    ) -> Result<SendHandle, RoomSendQueueError> {
         self.send_raw(
             Raw::new(&content).map_err(RoomSendQueueStorageError::JsonSerialization)?,
             content.event_type().to_string(),
@@ -383,7 +380,7 @@ impl RoomSendQueue {
             .map(|queued| LocalEcho {
                 transaction_id: queued.transaction_id.clone(),
                 serialized_event: queued.event,
-                abort_handle: AbortSendHandle {
+                send_handle: SendHandle {
                     room: self.clone(),
                     transaction_id: queued.transaction_id,
                 },
@@ -722,8 +719,8 @@ pub struct LocalEcho {
     /// Content of the event itself (along with its type) that we are about to
     /// send.
     pub serialized_event: SerializableEventContent,
-    /// A handle to abort sending the associated event.
-    pub abort_handle: AbortSendHandle,
+    /// A handle to manipulate the sending of the associated event.
+    pub send_handle: SendHandle,
     /// Whether trying to send this local echo failed in the past with an
     /// unrecoverable error (see [`SendQueueRoomError::is_recoverable`]).
     pub is_wedged: bool,
@@ -806,15 +803,14 @@ pub enum RoomSendQueueStorageError {
     ClientShuttingDown,
 }
 
-/// A way to tentatively abort sending an event that was scheduled to be sent to
-/// a room.
+/// A handle to manipulate an event that was scheduled to be sent to a room.
 #[derive(Clone, Debug)]
-pub struct AbortSendHandle {
+pub struct SendHandle {
     room: RoomSendQueue,
     transaction_id: OwnedTransactionId,
 }
 
-impl AbortSendHandle {
+impl SendHandle {
     /// Aborts the sending of the event, if it wasn't sent yet.
     ///
     /// Returns true if the sending could be aborted, false if not (i.e. the
