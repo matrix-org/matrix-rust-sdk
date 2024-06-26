@@ -400,6 +400,7 @@ mod tests {
             signing_key,
             &room_id,
             session_key,
+            SenderData::unknown(),
             encryption_algorithm,
             history_visibility,
         )
@@ -510,6 +511,7 @@ mod tests {
                  33ii9J8RGPYOp7QWl0kTEc8mAlqZL7mKppo9AwgtmYweAg",
             )
             .unwrap(),
+            SenderData::legacy(),
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
         )
@@ -528,6 +530,7 @@ mod tests {
                  1NWjZD9f1vvXnSKKDdHj1927WFMFZ/yYc24607zEVUaODQ",
             )
             .unwrap(),
+            SenderData::legacy(),
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
         )
