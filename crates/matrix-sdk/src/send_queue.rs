@@ -684,6 +684,8 @@ impl QueueStorage {
         &self,
         transaction_id: &TransactionId,
     ) -> Result<bool, RoomSendQueueStorageError> {
+        // Note: since there's a single caller (the room sending task, which processes
+        // events to send linearly), there's no risk for race conditions here.
         if self.being_sent.read().await.contains(transaction_id) {
             return Ok(false);
         }
@@ -693,6 +695,34 @@ impl QueueStorage {
             .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
             .store()
             .remove_send_queue_event(&self.room_id, transaction_id)
+            .await?;
+
+        Ok(true)
+    }
+
+    /// Replace an event that has been sent with
+    /// [`Self::push`] with the given transaction id, before it's been actually
+    /// sent.
+    ///
+    /// Returns whether the given transaction has been effectively edited. If
+    /// false, this either means that the transaction id was unrelated to
+    /// this queue, or that the event was sent before we edited it.
+    async fn replace(
+        &self,
+        transaction_id: &TransactionId,
+        serializable: SerializableEventContent,
+    ) -> Result<bool, RoomSendQueueStorageError> {
+        // Note: since there's a single caller (the room sending task, which processes
+        // events to send linearly), there's no risk for race conditions here.
+        if self.being_sent.read().await.contains(transaction_id) {
+            return Ok(false);
+        }
+
+        self.client
+            .get()
+            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
+            .store()
+            .update_send_queue_event(&self.room_id, transaction_id, serializable)
             .await?;
 
         Ok(true)
@@ -741,6 +771,15 @@ pub enum RoomSendQueueUpdate {
     CancelledLocalEvent {
         /// Transaction id used to identify this event.
         transaction_id: OwnedTransactionId,
+    },
+
+    /// A local event's content has been replaced with something else.
+    ReplacedLocalEvent {
+        /// Transaction id used to identify this event.
+        transaction_id: OwnedTransactionId,
+
+        /// The new content replacing the previous one.
+        new_content: SerializableEventContent,
     },
 
     /// An error happened when an event was being sent.
@@ -825,6 +864,44 @@ impl SendHandle {
         } else {
             Ok(false)
         }
+    }
+
+    /// Edits the content of a local echo with a raw event content.
+    ///
+    /// Returns true if the event to be sent was replaced, false if not (i.e.
+    /// the event had already been sent).
+    pub async fn edit_raw(
+        &self,
+        new_content: Raw<AnyMessageLikeEventContent>,
+        event_type: String,
+    ) -> Result<bool, RoomSendQueueStorageError> {
+        let serializable = SerializableEventContent::from_raw(new_content, event_type);
+
+        if self.room.inner.queue.replace(&self.transaction_id, serializable.clone()).await? {
+            // Propagate a replaced update too.
+            let _ = self.room.inner.updates.send(RoomSendQueueUpdate::ReplacedLocalEvent {
+                transaction_id: self.transaction_id.clone(),
+                new_content: serializable,
+            });
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Edits the content of a local echo with an event content.
+    ///
+    /// Returns true if the event to be sent was replaced, false if not (i.e.
+    /// the event had already been sent).
+    pub async fn edit(
+        &self,
+        new_content: AnyMessageLikeEventContent,
+    ) -> Result<bool, RoomSendQueueStorageError> {
+        self.edit_raw(
+            Raw::new(&new_content).map_err(RoomSendQueueStorageError::JsonSerialization)?,
+            new_content.event_type().to_string(),
+        )
+        .await
     }
 }
 
