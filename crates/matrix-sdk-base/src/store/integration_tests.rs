@@ -1374,6 +1374,37 @@ impl StateStoreIntegrationTests for DynStateStore {
             }
         }
 
+        // Updating an event will work, and reset its wedged state to false.
+        let event0 = SerializableEventContent::new(
+            &RoomMessageEventContent::text_plain("wow that's a cool test").into(),
+        )
+        .unwrap();
+        self.update_send_queue_event(room_id, txn2, event0).await.unwrap();
+
+        // And it is reflected.
+        let pending = self.load_send_queue_events(room_id).await.unwrap();
+
+        assert_eq!(pending.len(), 4);
+        {
+            assert_eq!(pending[2].transaction_id, *txn2);
+
+            let deserialized = pending[2].event.deserialize().unwrap();
+            assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
+            assert_eq!(content.body(), "wow that's a cool test");
+
+            assert!(!pending[2].is_wedged);
+
+            for i in 0..4 {
+                if i != 2 {
+                    let deserialized = pending[i].event.deserialize().unwrap();
+                    assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
+                    assert_eq!(content.body(), format!("msg{i}"));
+
+                    assert!(!pending[i].is_wedged);
+                }
+            }
+        }
+
         // Removing an event works.
         self.remove_send_queue_event(room_id, &txn0).await.unwrap();
 
