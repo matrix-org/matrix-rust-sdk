@@ -56,6 +56,7 @@
 pub mod filters;
 mod room;
 mod room_list;
+pub mod sorters;
 mod state;
 
 use std::{
