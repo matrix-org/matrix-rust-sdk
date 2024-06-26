@@ -231,7 +231,8 @@ pub(super) mod tests {
                                 tino//CDQENtcKuEt0I9s0+Kk4YSH310Szse2RQ+vjple31\
                                 QrCexmqfFJzkR/BJ5ogJHrPBQL0LgsPyglIbMTLg7qygIaY\
                                 U5Fe2QdKMH7nTZPNIRHh1RaMfHVETAUJBax88EWZBoifk80\
-                                gdHUwHSgMk77vCc2a5KHKLDA"
+                                gdHUwHSgMk77vCc2a5KHKLDA",
+                "device_keys": null
             },
             "type": "m.room_key",
             "m.custom.top": "something custom in the top",
