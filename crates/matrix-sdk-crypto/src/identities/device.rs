@@ -273,16 +273,9 @@ impl Device {
 
     /// Is this device cross signed by its owner?
     pub fn is_cross_signed_by_owner(&self) -> bool {
-        self.device_owner_identity.as_ref().is_some_and(|device_identity| match device_identity {
-            // If it's one of our own devices, just check that
-            // we signed the device.
-            ReadOnlyUserIdentities::Own(identity) => identity.is_device_signed(&self.inner).is_ok(),
-            // If it's a device from someone else, check
-            // if the other user has signed this device.
-            ReadOnlyUserIdentities::Other(device_identity) => {
-                device_identity.is_device_signed(&self.inner).is_ok()
-            }
-        })
+        self.device_owner_identity
+            .as_ref()
+            .is_some_and(|owner_identity| self.inner.is_cross_signed_by_owner(owner_identity))
     }
 
     /// Is the device owner verified by us?

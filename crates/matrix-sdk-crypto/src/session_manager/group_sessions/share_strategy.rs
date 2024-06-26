@@ -245,15 +245,17 @@ fn split_recipients_withhelds_for_user_based_on_identity(
     user_devices: HashMap<OwnedDeviceId, ReadOnlyDevice>,
     device_owner_identity: &Option<ReadOnlyUserIdentities>,
 ) -> RecipientDevices {
-    let mut allowed_devices: Vec<ReadOnlyDevice> = Default::default();
-    let mut denied_devices_with_code: Vec<(ReadOnlyDevice, WithheldCode)> = Default::default();
-
     match device_owner_identity {
         None => {
             // withheld all the users devices, we need to have an identity for this
             // distribution mode
-            denied_devices_with_code
-                .extend(user_devices.into_values().map(|d| (d, WithheldCode::Unauthorised)));
+            RecipientDevices {
+                allowed_devices: Vec::default(),
+                denied_devices_with_code: user_devices
+                    .into_values()
+                    .map(|d| (d, WithheldCode::Unauthorised))
+                    .collect(),
+            }
         }
         Some(device_owner_identity) => {
             // Only accept devices signed by the current identity
@@ -267,13 +269,12 @@ fn split_recipients_withhelds_for_user_based_on_identity(
                     Either::Right((d, WithheldCode::Unauthorised))
                 }
             });
-
-            allowed_devices.extend(recipients);
-            denied_devices_with_code.extend(withheld_recipients);
+            RecipientDevices {
+                allowed_devices: recipients,
+                denied_devices_with_code: withheld_recipients,
+            }
         }
     }
-
-    RecipientDevices { allowed_devices, denied_devices_with_code }
 }
 
 #[cfg(test)]
