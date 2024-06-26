@@ -1312,7 +1312,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         // Saving one thing should work.
         let txn0 = TransactionId::new();
         let event0 =
-            SerializableEventContent::new(RoomMessageEventContent::text_plain("msg0").into())
+            SerializableEventContent::new(&RoomMessageEventContent::text_plain("msg0").into())
                 .unwrap();
         self.save_send_queue_event(room_id, txn0.clone(), event0).await.unwrap();
 
@@ -1334,7 +1334,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         for i in 1..=3 {
             let txn = TransactionId::new();
             let event = SerializableEventContent::new(
-                RoomMessageEventContent::text_plain(format!("msg{i}")).into(),
+                &RoomMessageEventContent::text_plain(format!("msg{i}")).into(),
             )
             .unwrap();
 
@@ -1394,7 +1394,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         {
             let txn = TransactionId::new();
             let event =
-                SerializableEventContent::new(RoomMessageEventContent::text_plain("room2").into())
+                SerializableEventContent::new(&RoomMessageEventContent::text_plain("room2").into())
                     .unwrap();
             self.save_send_queue_event(room_id2, txn.clone(), event).await.unwrap();
         }
@@ -1404,7 +1404,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             let room_id3 = room_id!("!test_send_queue_three:localhost");
             let txn = TransactionId::new();
             let event =
-                SerializableEventContent::new(RoomMessageEventContent::text_plain("room3").into())
+                SerializableEventContent::new(&RoomMessageEventContent::text_plain("room3").into())
                     .unwrap();
             self.save_send_queue_event(room_id3, txn.clone(), event).await.unwrap();
 
