@@ -116,6 +116,26 @@ macro_rules! assert_entries_batch {
                                 $room_id,
                             );
                         )*
+
+                        assert!(values.next().is_none(), "`append` has more values to be asserted");
+                    }
+                );
+            ]
+        )
+    };
+
+    // `push front [$room_id]`
+    ( @_ [ $entries:ident ] [ push front [ $room_id:literal ] ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_entries_batch!(
+            @_
+            [ $entries ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                assert_matches!(
+                    $entries.next(),
+                    Some(&VectorDiff::PushFront { ref value }) => {
+                        assert_eq!(value.room_id().to_string(), $room_id);
                     }
                 );
             ]
@@ -135,6 +155,22 @@ macro_rules! assert_entries_batch {
                     Some(&VectorDiff::PushBack { ref value }) => {
                         assert_eq!(value.room_id().to_string(), $room_id);
                     }
+                );
+            ]
+        )
+    };
+
+    // `pop back [$room_id]`
+    ( @_ [ $entries:ident ] [ pop back ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_entries_batch!(
+            @_
+            [ $entries ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                assert_matches!(
+                    $entries.next(),
+                    Some(&VectorDiff::PopBack)
                 );
             ]
         )
@@ -1256,14 +1292,25 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             "rooms": {
                 "!r0:bar.org": {
                     "initial": true,
-                    "timeline": [],
+                    "timeline": [
+                        {
+                            "content": {
+                                "body": "foo",
+                                "msgtype": "m.text",
+                            },
+                            "sender": "@a:b.c",
+                            "event_id": "$t0",
+                            "origin_server_ts": 1,
+                            "type": "m.room.message",
+                        },
+                    ],
                     "required_state": [
                         {
                             "content": {
                                 "name": "Matrix Foobar"
                             },
-                            "event_id": "$1",
-                            "origin_server_ts": 42,
+                            "event_id": "$s0",
+                            "origin_server_ts": 1,
                             "sender": "@example:bar.org",
                             "state_key": "",
                             "type": "m.room.name"
@@ -1310,7 +1357,18 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             "rooms": {
                 "!r1:bar.org": {
                     "initial": true,
-                    "timeline": [],
+                    "timeline": [
+                        {
+                            "content": {
+                                "body": "foo",
+                                "msgtype": "m.text",
+                            },
+                            "sender": "@a:b.c",
+                            "event_id": "$t1",
+                            "origin_server_ts": 2,
+                            "type": "m.room.message",
+                        },
+                    ],
                     "required_state": [
                         {
                             "content": {
@@ -1319,14 +1377,25 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                             "sender": "@example:bar.org",
                             "state_key": "",
                             "type": "m.room.name",
-                            "event_id": "$2",
-                            "origin_server_ts": 42,
+                            "event_id": "$s1",
+                            "origin_server_ts": 2,
                         },
                     ],
                 },
                 "!r2:bar.org": {
                     "initial": true,
-                    "timeline": [],
+                    "timeline": [
+                        {
+                            "content": {
+                                "body": "foo",
+                                "msgtype": "m.text",
+                            },
+                            "sender": "@a:b.c",
+                            "event_id": "$t2",
+                            "origin_server_ts": 3,
+                            "type": "m.room.message",
+                        },
+                    ],
                     "required_state": [
                         {
                             "content": {
@@ -1335,14 +1404,25 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                             "sender": "@example:bar.org",
                             "state_key": "",
                             "type": "m.room.name",
-                            "event_id": "$3",
-                            "origin_server_ts": 42,
+                            "event_id": "$s2",
+                            "origin_server_ts": 3,
                         },
                     ],
                 },
                 "!r3:bar.org": {
                     "initial": true,
-                    "timeline": [],
+                    "timeline": [
+                        {
+                            "content": {
+                                "body": "foo",
+                                "msgtype": "m.text",
+                            },
+                            "sender": "@a:b.c",
+                            "event_id": "$t3",
+                            "origin_server_ts": 4,
+                            "type": "m.room.message",
+                        },
+                    ],
                     "required_state": [
                         {
                             "content": {
@@ -1351,14 +1431,25 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                             "sender": "@example:bar.org",
                             "state_key": "",
                             "type": "m.room.name",
-                            "event_id": "$4",
-                            "origin_server_ts": 42,
+                            "event_id": "$s3",
+                            "origin_server_ts": 4,
                         },
                     ],
                 },
                 "!r4:bar.org": {
                     "initial": true,
-                    "timeline": [],
+                    "timeline": [
+                        {
+                            "content": {
+                                "body": "foo",
+                                "msgtype": "m.text",
+                            },
+                            "sender": "@a:b.c",
+                            "event_id": "$t4",
+                            "origin_server_ts": 5,
+                            "type": "m.room.message",
+                        },
+                    ],
                     "required_state": [
                         {
                             "content": {
@@ -1367,8 +1458,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                             "sender": "@example:bar.org",
                             "state_key": "",
                             "type": "m.room.name",
-                            "event_id": "$5",
-                            "origin_server_ts": 42,
+                            "event_id": "$s4",
+                            "origin_server_ts": 5,
                         },
                     ],
                 },
@@ -1377,10 +1468,12 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     };
 
     // Assert the dynamic entries.
+    // It's pushed on the front because rooms are sorted by recency (based on their
+    // `origin_server_ts` of their latest event candidate).
     assert_entries_batch! {
         [dynamic_entries_stream]
-        push back [ "!r1:bar.org" ];
-        push back [ "!r4:bar.org" ];
+        push front [ "!r1:bar.org" ];
+        push front [ "!r4:bar.org" ];
         end;
     };
     assert_pending!(dynamic_entries_stream);
@@ -1405,7 +1498,18 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             "rooms": {
                 "!r5:bar.org": {
                     "initial": true,
-                    "timeline": [],
+                    "timeline": [
+                        {
+                            "content": {
+                                "body": "foo",
+                                "msgtype": "m.text",
+                            },
+                            "sender": "@a:b.c",
+                            "event_id": "$t5",
+                            "origin_server_ts": 6,
+                            "type": "m.room.message",
+                        },
+                    ],
                     "required_state": [
                         {
                             "content": {
@@ -1414,14 +1518,25 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                             "sender": "@example:bar.org",
                             "state_key": "",
                             "type": "m.room.name",
-                            "event_id": "$6",
-                            "origin_server_ts": 42,
+                            "event_id": "$s5",
+                            "origin_server_ts": 6,
                         },
                     ],
                 },
                 "!r6:bar.org": {
                     "initial": true,
-                    "timeline": [],
+                    "timeline": [
+                        {
+                            "content": {
+                                "body": "foo",
+                                "msgtype": "m.text",
+                            },
+                            "sender": "@a:b.c",
+                            "event_id": "$t6",
+                            "origin_server_ts": 7,
+                            "type": "m.room.message",
+                        },
+                    ],
                     "required_state": [
                         {
                             "content": {
@@ -1430,14 +1545,25 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                             "sender": "@example:bar.org",
                             "state_key": "",
                             "type": "m.room.name",
-                            "event_id": "$7",
-                            "origin_server_ts": 42,
+                            "event_id": "$s6",
+                            "origin_server_ts": 7,
                         },
                     ],
                 },
                 "!r7:bar.org": {
                     "initial": true,
-                    "timeline": [],
+                    "timeline": [
+                        {
+                            "content": {
+                                "body": "foo",
+                                "msgtype": "m.text",
+                            },
+                            "sender": "@a:b.c",
+                            "event_id": "$t7",
+                            "origin_server_ts": 8,
+                            "type": "m.room.message",
+                        },
+                    ],
                     "required_state": [
                         {
                             "content": {
@@ -1446,8 +1572,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                             "sender": "@example:bar.org",
                             "state_key": "",
                             "type": "m.room.name",
-                            "event_id": "$8",
-                            "origin_server_ts": 42,
+                            "event_id": "$s7",
+                            "origin_server_ts": 8,
                         },
                     ],
                 },
@@ -1458,8 +1584,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
-        push back [ "!r5:bar.org" ];
-        push back [ "!r7:bar.org" ];
+        push front [ "!r5:bar.org" ];
+        push front [ "!r7:bar.org" ];
         end;
     };
     assert_pending!(dynamic_entries_stream);
@@ -1471,7 +1597,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     assert_entries_batch! {
         [dynamic_entries_stream]
         // Receive a `reset` again because the filter has been reset.
-        reset [ "!r2:bar.org", "!r3:bar.org", "!r6:bar.org" ];
+        reset [ "!r6:bar.org", "!r3:bar.org", "!r2:bar.org" ];
         end;
     }
     assert_pending!(dynamic_entries_stream);
@@ -1495,11 +1621,11 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         [dynamic_entries_stream]
         // Receive a `reset` again because the filter has been reset.
         reset [
-            "!r0:bar.org",
-            "!r1:bar.org",
-            "!r2:bar.org",
-            "!r3:bar.org",
+            "!r7:bar.org",
+            "!r6:bar.org",
+            "!r5:bar.org",
             "!r4:bar.org",
+            "!r3:bar.org",
             // Stop! The page is full :-).
         ];
         end;
@@ -1514,9 +1640,9 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         [dynamic_entries_stream]
         // Receive the next values.
         append [
-            "!r5:bar.org",
-            "!r6:bar.org",
-            "!r7:bar.org",
+            "!r2:bar.org",
+            "!r1:bar.org",
+            "!r0:bar.org",
         ];
         end;
     };
@@ -1538,102 +1664,9 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     dynamic_entries.reset_to_one_page();
     assert_pending!(dynamic_entries_stream);
 
-    // Let's ask one more page again, because it's fun.
-    dynamic_entries.add_one_page();
-
-    // Assert the dynamic entries.
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        // Receive the next values.
-        append [
-            "!r5:bar.org",
-            "!r6:bar.org",
-            "!r7:bar.org",
-        ];
-        end;
-    };
-    assert_pending!(dynamic_entries_stream);
-
-    Ok(())
-}
-
-#[async_test]
-async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
-    let (client, server, room_list) = new_room_list_service().await?;
-
-    let sync = room_list.sync();
-    pin_mut!(sync);
-
-    let all_rooms = room_list.all_rooms().await?;
-
-    let (dynamic_entries_stream, dynamic_entries) =
-        all_rooms.entries_with_dynamic_adapters(5, client.roominfo_update_receiver());
-    pin_mut!(dynamic_entries_stream);
-
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        states = Init => SettingUp,
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    "required_state": [
-                        ["m.room.encryption", ""],
-                        ["m.room.member", "$LAZY"],
-                        ["m.room.member", "$ME"],
-                        ["m.room.name", ""],
-                        ["m.room.power_levels", ""],
-                    ],
-                    "ranges": [[0, 19]],
-                },
-            },
-        },
-        respond with = {
-            "pos": "0",
-            "lists": {
-                ALL_ROOMS: {
-                    "count": 10,
-                },
-            },
-            "rooms": {
-                "!r0:bar.org": {
-                    "initial": true,
-                    "timeline": [],
-                    "required_state": [
-                        {
-                            "content": {
-                                "name": "Matrix Foobar"
-                            },
-                            "event_id": "$1",
-                            "origin_server_ts": 42,
-                            "sender": "@example:bar.org",
-                            "state_key": "",
-                            "type": "m.room.name"
-                        },
-                    ],
-                },
-            },
-        },
-    };
-
-    // Ensure the dynamic entries' stream is pending because there is no filter set
-    // yet.
-    assert_pending!(dynamic_entries_stream);
-
-    // Now, let's define a filter.
-    dynamic_entries.set_filter(Box::new(new_filter_fuzzy_match_room_name("mat ba")));
-
-    // Assert the dynamic entries.
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        // Receive a `reset` because the filter has been reset/set for the first time.
-        reset [ "!r0:bar.org" ];
-        end;
-    };
-    assert_pending!(dynamic_entries_stream);
-
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        states = SettingUp => Running,
+        states = Running => Running,
         assert request >= {
             "lists": {
                 ALL_ROOMS: {
@@ -1642,50 +1675,58 @@ async fn test_dynamic_entries_stream_manual_update() -> Result<(), Error> {
             },
         },
         respond with = {
-            "pos": "1",
+            "pos": "3",
             "lists": {
                 ALL_ROOMS: {
                     "count": 10,
                 },
             },
             "rooms": {
-                "!r1:bar.org": {
+                "!r0:bar.org": {
                     "initial": true,
-                    "timeline": [],
-                    "required_state": [
+                    "timeline": [
                         {
                             "content": {
-                                "name": "Matrix Bar"
+                                "body": "foo",
+                                "msgtype": "m.text",
                             },
-                            "event_id": "$2",
-                            "origin_server_ts": 42,
-                            "sender": "@example:bar.org",
-                            "state_key": "",
-                            "type": "m.room.name"
+                            "sender": "@a:b.c",
+                            "event_id": "$t8",
+                            "origin_server_ts": 9,
+                            "type": "m.room.message",
                         },
                     ],
+                    "required_state": [],
                 },
             },
         },
     };
 
     // Assert the dynamic entries.
+    // `!r0:bar.org` has a more recent message.
+    // The room must move in the room list.
     assert_entries_batch! {
         [dynamic_entries_stream]
-        push back [ "!r1:bar.org" ];
+        pop back;
+        insert [ 0 ] [ "!r0:bar.org" ];
         end;
     };
+    assert_pending!(dynamic_entries_stream);
 
-    // Send manual update after reading stream.
-    let room = client.get_room(room_id!("!r0:bar.org")).unwrap();
-    room.set_room_info(room.clone_info(), true);
+    // Let's ask one more page again, because it's fun.
+    dynamic_entries.add_one_page();
 
+    // Assert the dynamic entries.
     assert_entries_batch! {
         [dynamic_entries_stream]
-        set[0] [ "!r0:bar.org" ];
+        // Receive the next values.
+        append [
+            "!r3:bar.org",
+            "!r2:bar.org",
+            "!r1:bar.org",
+        ];
         end;
     };
-
     assert_pending!(dynamic_entries_stream);
 
     Ok(())
