@@ -104,7 +104,7 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
     /// * `reader` - The `Reader` that should be wrapped and decrypted.
     ///
     /// * `info` - The encryption info that is necessary to decrypt data from
-    /// the reader.
+    ///   the reader.
     ///
     /// # Examples
     /// ```

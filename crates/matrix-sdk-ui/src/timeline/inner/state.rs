@@ -158,7 +158,7 @@ impl TimelineInnerState {
 
     /// Adds a local echo (for an event) to the timeline.
     #[instrument(skip_all)]
-    pub(super) fn handle_local_event(
+    pub(super) async fn handle_local_event(
         &mut self,
         own_user_id: OwnedUserId,
         own_profile: Option<Profile>,
@@ -183,13 +183,15 @@ impl TimelineInnerState {
 
         let mut day_divider_adjuster = DayDividerAdjuster::default();
 
-        TimelineEventHandler::new(&mut txn, ctx).handle_event(
-            &mut day_divider_adjuster,
-            content,
-            // Local events are never UTD, so no need to pass in a raw_event - this is only used to
-            // determine the type of UTD if there is one.
-            None,
-        );
+        TimelineEventHandler::new(&mut txn, ctx)
+            .handle_event(
+                &mut day_divider_adjuster,
+                content,
+                // Local events are never UTD, so no need to pass in a raw_event - this is only
+                // used to determine the type of UTD if there is one.
+                None,
+            )
+            .await;
 
         txn.adjust_day_dividers(day_divider_adjuster);
 
@@ -499,7 +501,9 @@ impl TimelineInnerStateTransaction<'_> {
                         timestamp: Some(event.origin_server_ts()),
                         visible: false,
                     };
-                    self.add_event(event_meta, position, room_data_provider, settings).await;
+                    let _event_added_or_updated = self
+                        .add_or_update_event(event_meta, position, room_data_provider, settings)
+                        .await;
 
                     return HandleEventResult::default();
                 }
@@ -524,7 +528,9 @@ impl TimelineInnerStateTransaction<'_> {
                             timestamp,
                             visible: false,
                         };
-                        self.add_event(event_meta, position, room_data_provider, settings).await;
+                        let _event_added_or_updated = self
+                            .add_or_update_event(event_meta, position, room_data_provider, settings)
+                            .await;
                     }
 
                     return HandleEventResult::default();
@@ -541,7 +547,15 @@ impl TimelineInnerStateTransaction<'_> {
             timestamp: Some(timestamp),
             visible: should_add,
         };
-        self.add_event(event_meta, position, room_data_provider, settings).await;
+
+        let event_added_or_updated =
+            self.add_or_update_event(event_meta, position, room_data_provider, settings).await;
+
+        // If the event has not been added or updated, it's because it's a duplicated
+        // event. Let's return early.
+        if !event_added_or_updated {
+            return HandleEventResult::default();
+        }
 
         let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
         let ctx = TimelineEventContext {
@@ -569,11 +583,9 @@ impl TimelineInnerStateTransaction<'_> {
             },
         };
 
-        TimelineEventHandler::new(self, ctx).handle_event(
-            day_divider_adjuster,
-            event_kind,
-            Some(&raw),
-        )
+        TimelineEventHandler::new(self, ctx)
+            .handle_event(day_divider_adjuster, event_kind, Some(&raw))
+            .await
     }
 
     fn clear(&mut self) {
@@ -637,27 +649,50 @@ impl TimelineInnerStateTransaction<'_> {
         items.commit();
     }
 
-    async fn add_event<P: RoomDataProvider>(
+    /// Add or update an event in the [`TimelineInnerMeta::all_events`]
+    /// collection.
+    ///
+    /// This method also adjusts read receipt if needed.
+    ///
+    /// It returns `true` if the event has been added or updated, `false`
+    /// otherwise. The latter happens if the event already exists, i.e. if
+    /// an existing event is requested to be added.
+    async fn add_or_update_event<P: RoomDataProvider>(
         &mut self,
         event_meta: FullEventMeta<'_>,
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
-    ) {
+    ) -> bool {
+        // Detect if an event already exists in [`TimelineInnerMeta::all_events`].
+        //
+        // Returns its position, in this case.
+        fn event_already_exists(
+            new_event_id: &EventId,
+            all_events: &VecDeque<EventMeta>,
+        ) -> Option<usize> {
+            all_events.iter().position(|EventMeta { event_id, .. }| event_id == new_event_id)
+        }
+
         match position {
             TimelineItemPosition::Start { .. } => {
+                if let Some(pos) = event_already_exists(event_meta.event_id, &self.meta.all_events)
+                {
+                    self.meta.all_events.remove(pos);
+                }
+
                 self.meta.all_events.push_front(event_meta.base_meta())
             }
+
             TimelineItemPosition::End { .. } => {
-                // Handle duplicated event.
-                if let Some(pos) =
-                    self.meta.all_events.iter().position(|ev| ev.event_id == event_meta.event_id)
+                if let Some(pos) = event_already_exists(event_meta.event_id, &self.meta.all_events)
                 {
                     self.meta.all_events.remove(pos);
                 }
 
                 self.meta.all_events.push_back(event_meta.base_meta());
             }
+
             #[cfg(feature = "e2e-encryption")]
             TimelineItemPosition::Update(_) => {
                 if let Some(event) =
@@ -686,6 +721,8 @@ impl TimelineInnerStateTransaction<'_> {
 
             self.maybe_add_implicit_read_receipt(event_meta);
         }
+
+        true
     }
 
     fn adjust_day_dividers(&mut self, mut adjuster: DayDividerAdjuster) {
@@ -788,7 +825,7 @@ impl TimelineInnerMetadata {
 
     /// Returns the next internal id for a timeline item (and increment our
     /// internal counter).
-    pub fn next_internal_id(&mut self) -> String {
+    fn next_internal_id(&mut self) -> String {
         let val = self.next_internal_id;
         self.next_internal_id += 1;
         let prefix = self.internal_id_prefix.as_deref().unwrap_or("");

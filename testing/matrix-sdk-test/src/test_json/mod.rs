@@ -10,6 +10,7 @@ use serde_json::{json, Value as JsonValue};
 use crate::DEFAULT_TEST_ROOM_ID;
 
 pub mod api_responses;
+pub mod keys_query_sets;
 pub mod members;
 pub mod search_users;
 pub mod sync;

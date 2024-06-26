@@ -125,11 +125,11 @@ impl RoomListService {
         })))
     }
 
-    async fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
+    fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
         let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
 
         Ok(Arc::new(RoomListItem {
-            inner: Arc::new(self.inner.room(room_id).await?),
+            inner: Arc::new(self.inner.room(room_id)?),
             utd_hook: self.utd_hook.clone(),
         }))
     }
@@ -172,7 +172,7 @@ pub struct RoomList {
     inner: Arc<matrix_sdk_ui::room_list_service::RoomList>,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[uniffi::export]
 impl RoomList {
     fn loading_state(
         &self,
@@ -233,8 +233,8 @@ impl RoomList {
         }
     }
 
-    async fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
-        self.room_list_service.room(room_id).await
+    fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
+        self.room_list_service.room(room_id)
     }
 }
 
@@ -489,7 +489,7 @@ impl RoomListItem {
     /// compute a room name based on the room's nature (DM or not) and number of
     /// members.
     fn display_name(&self) -> Option<String> {
-        RUNTIME.block_on(self.inner.computed_display_name())
+        self.inner.cached_display_name()
     }
 
     fn avatar_url(&self) -> Option<String> {
@@ -505,9 +505,7 @@ impl RoomListItem {
     }
 
     pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
-        let latest_event = self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new);
-
-        Ok(RoomInfo::new(self.inner.inner_room(), latest_event).await?)
+        Ok(RoomInfo::new(self.inner.inner_room()).await?)
     }
 
     /// Build a full `Room` FFI object, filling its associated timeline.
@@ -566,6 +564,14 @@ impl RoomListItem {
         }
 
         self.inner.init_timeline_with_builder(timeline_builder).map_err(RoomListError::from).await
+    }
+
+    /// Checks whether the room is encrypted or not.
+    ///
+    /// **Note**: this info may not be reliable if you don't set up
+    /// `m.room.encryption` as required state.
+    async fn is_encrypted(&self) -> bool {
+        self.inner.is_encrypted().await.unwrap_or(false)
     }
 
     fn subscribe(&self, settings: Option<RoomSubscription>) {

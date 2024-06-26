@@ -186,8 +186,7 @@ impl RoomPreview {
     /// of these two conditions is true:
     ///
     /// - the user has joined the room at some point (i.e. they're still joined
-    ///   or they've joined
-    /// it and left it later).
+    ///   or they've joined it and left it later).
     /// - the room has an history visibility set to world-readable.
     ///
     /// This method is exposed for testing purposes; clients should prefer

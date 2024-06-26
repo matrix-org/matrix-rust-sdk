@@ -43,6 +43,7 @@ bitflags = { version = "2.4.0", features = ["serde"] }
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 futures-util = { workspace = true }
+growable-bloom-filter = { workspace = true }
 http = { workspace = true, optional = true }
 matrix-sdk-common = { workspace = true }
 matrix-sdk-crypto = { workspace = true, optional = true }

@@ -17,12 +17,12 @@
 use std::{ops::Deref, sync::Arc};
 
 use async_once_cell::OnceCell as AsyncOnceCell;
-use matrix_sdk::{event_cache, SlidingSync, SlidingSyncRoom};
+use matrix_sdk::SlidingSync;
 use ruma::{api::client::sync::sync_events::v4::RoomSubscription, events::StateEventType, RoomId};
 
 use super::Error;
 use crate::{
-    timeline::{EventTimelineItem, SlidingSyncRoomExt, TimelineBuilder},
+    timeline::{EventTimelineItem, TimelineBuilder},
     Timeline,
 };
 
@@ -38,9 +38,6 @@ pub struct Room {
 struct RoomInner {
     /// The Sliding Sync where everything comes from.
     sliding_sync: Arc<SlidingSync>,
-
-    /// The Sliding Sync room.
-    sliding_sync_room: SlidingSyncRoom,
 
     /// The underlying client room.
     room: matrix_sdk::Room,
@@ -59,23 +56,14 @@ impl Deref for Room {
 
 impl Room {
     /// Create a new `Room`.
-    pub(super) fn new(
-        sliding_sync: Arc<SlidingSync>,
-        sliding_sync_room: SlidingSyncRoom,
-    ) -> Result<Self, Error> {
-        let room = sliding_sync_room
-            .client()
-            .get_room(sliding_sync_room.room_id())
-            .ok_or_else(|| Error::RoomNotFound(sliding_sync_room.room_id().to_owned()))?;
-
-        Ok(Self {
+    pub(super) fn new(room: matrix_sdk::Room, sliding_sync: &Arc<SlidingSync>) -> Self {
+        Self {
             inner: Arc::new(RoomInner {
-                sliding_sync,
-                sliding_sync_room,
+                sliding_sync: sliding_sync.clone(),
                 room,
                 timeline: AsyncOnceCell::new(),
             }),
-        })
+        }
     }
 
     /// Get the room ID.
@@ -84,8 +72,8 @@ impl Room {
     }
 
     /// Get a computed room name for the room.
-    pub async fn computed_display_name(&self) -> Option<String> {
-        Some(self.inner.room.computed_display_name().await.ok()?.to_string())
+    pub fn cached_display_name(&self) -> Option<String> {
+        Some(self.inner.room.cached_display_name()?.to_string())
     }
 
     /// Get the underlying [`matrix_sdk::Room`].
@@ -150,10 +138,15 @@ impl Room {
 
     /// Get the latest event in the timeline.
     ///
-    /// The latest event comes first from the `Timeline` if it exists and if it
-    /// contains a local event. Otherwise, it comes from the cache. This method
-    /// does not fetch any events or calculate anything — if it's not
-    /// already available, we return `None`.
+    /// The latest event comes first from the `Timeline`, it can be a local or a
+    /// remote event. Note that the `Timeline` can have more information esp. if
+    /// it has run a backpagination for example. Otherwise if the `Timeline`
+    /// doesn't have any latest event, it comes from the cache. This method
+    /// does not fetch any events or calculate anything — if it's not already
+    /// available, we return `None`.
+    ///
+    /// Reminder: this method also returns `None` is the latest event is not
+    /// suitable for use in a message preview.
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
         // Look for a local event in the `Timeline`.
         //
@@ -161,30 +154,46 @@ impl Room {
         if let Some(timeline) = self.inner.timeline.get() {
             // If it contains a `latest_event`…
             if let Some(timeline_last_event) = timeline.latest_event().await {
-                // If it's a local echo…
-                if timeline_last_event.is_local_echo() {
-                    return Some(timeline_last_event);
-                }
+                // If it's a local event or a remote event, we return it.
+                return Some(timeline_last_event);
             }
         }
 
         // Otherwise, fallback to the classical path.
-        self.inner.sliding_sync_room.latest_timeline_item().await
+        if let Some(latest_event) = self.inner.room.latest_event() {
+            EventTimelineItem::from_latest_event(
+                self.inner.room.client(),
+                self.inner.room.room_id(),
+                latest_event,
+            )
+            .await
+        } else {
+            None
+        }
     }
 
     /// Create a new [`TimelineBuilder`] with the default configuration.
-    pub async fn default_room_timeline_builder(&self) -> event_cache::Result<TimelineBuilder> {
+    pub async fn default_room_timeline_builder(&self) -> Result<TimelineBuilder, Error> {
         // TODO we can remove this once the event cache handles his own cache.
+
+        let sliding_sync_room =
+            self.inner
+                .sliding_sync
+                .get_room(self.inner.room.room_id())
+                .await
+                .ok_or_else(|| Error::RoomNotFound(self.inner.room.room_id().to_owned()))?;
+
         self.inner
             .room
             .client()
             .event_cache()
             .add_initial_events(
                 self.inner.room.room_id(),
-                self.inner.sliding_sync_room.timeline_queue().iter().cloned().collect(),
-                self.inner.sliding_sync_room.prev_batch(),
+                sliding_sync_room.timeline_queue().iter().cloned().collect(),
+                sliding_sync_room.prev_batch(),
             )
-            .await?;
+            .await
+            .map_err(Error::EventCache)?;
 
         Ok(Timeline::builder(&self.inner.room).track_read_marker_and_receipts())
     }

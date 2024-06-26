@@ -236,8 +236,10 @@ impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElemen
 /// This function returns a `WidgetSettings` object which can be used
 /// to setup a widget using `run_client_widget_api`
 /// and to generate the correct url for the widget.
-///  # Arguments
-/// * - `props` A struct containing the configuration parameters for a element
+///
+/// # Arguments
+///
+/// * `props` - A struct containing the configuration parameters for a element
 ///   call widget.
 #[uniffi::export]
 pub fn new_virtual_element_call_widget(
@@ -265,9 +267,16 @@ pub fn get_element_call_required_permissions(own_user_id: String) -> WidgetCapab
 
     WidgetCapabilities {
         read: vec![
+            // TODO: we really should not have this permission in here, since it is not used
+            // anymore. The only reason `org.matrix.msc3401.call` is still here is to
+            // not break current EC deployments. (EC still expects to get this
+            // permission even though its not using it.) https://github.com/element-hq/element-call/pull/2399 needs to be merged and deployed
             WidgetEventFilter::StateWithType { event_type: "org.matrix.msc3401.call".to_owned() },
             WidgetEventFilter::StateWithType { event_type: StateEventType::CallMember.to_string() },
             WidgetEventFilter::StateWithType { event_type: StateEventType::RoomMember.to_string() },
+            WidgetEventFilter::StateWithType {
+                event_type: StateEventType::RoomEncryption.to_string(),
+            },
             WidgetEventFilter::MessageLikeWithType {
                 event_type: "org.matrix.rageshake_request".to_owned(),
             },

@@ -84,7 +84,7 @@ pub enum QrCodeModeData {
     Reciprocate {
         /// The homeserver the existing device is using. This will let the new
         /// device know which homeserver it should use as well.
-        homeserver_url: Url,
+        server_name: String,
     },
 }
 
@@ -203,14 +203,14 @@ impl QrCodeData {
                 QrCodeMode::Reciprocate => {
                     // 7. If the mode is 0x04, we attempt to read the two bytes for the length of
                     //    the homeserver URL.
-                    let homeserver_url_len = reader.read_u16::<BigEndian>()?;
+                    let server_name_len = reader.read_u16::<BigEndian>()?;
 
                     // 8. We read and parse the homeserver URL.
-                    let mut homeserver_url = vec![0u8; homeserver_url_len.into()];
-                    reader.read_exact(&mut homeserver_url)?;
-                    let homeserver_url = Url::parse(str::from_utf8(&homeserver_url)?)?;
+                    let mut server_name = vec![0u8; server_name_len.into()];
+                    reader.read_exact(&mut server_name)?;
+                    let server_name = String::from_utf8(server_name).map_err(|e| e.utf8_error())?;
 
-                    QrCodeModeData::Reciprocate { homeserver_url }
+                    QrCodeModeData::Reciprocate { server_name }
                 }
             };
 
@@ -237,10 +237,10 @@ impl QrCodeData {
         ]
         .concat();
 
-        if let QrCodeModeData::Reciprocate { homeserver_url } = &self.mode_data {
-            let homeserver_url_len = (homeserver_url.as_str().len() as u16).to_be_bytes();
+        if let QrCodeModeData::Reciprocate { server_name } = &self.mode_data {
+            let server_name_len = (server_name.as_str().len() as u16).to_be_bytes();
 
-            [encoded.as_slice(), &homeserver_url_len, homeserver_url.as_str().as_bytes()].concat()
+            [encoded.as_slice(), &server_name_len, server_name.as_str().as_bytes()].concat()
         } else {
             encoded
         }
@@ -284,6 +284,20 @@ mod test {
         0x64, 0x39, 0x38, 0x33, 0x30, 0x36, 0x36, 0x38,
     ];
 
+    // Test vector for the QR code data, copied from the MSC, with the mode set to
+    // reciprocate.
+    const QR_CODE_DATA_RECIPROCATE: &[u8] = &[
+        0x4D, 0x41, 0x54, 0x52, 0x49, 0x58, 0x02, 0x04, 0xd8, 0x86, 0x68, 0x6a, 0xb2, 0x19, 0x7b,
+        0x78, 0x0e, 0x30, 0x0a, 0x9d, 0x4a, 0x21, 0x47, 0x48, 0x07, 0x00, 0xd7, 0x92, 0x9f, 0x39,
+        0xab, 0x31, 0xb9, 0xe5, 0x14, 0x37, 0x02, 0x48, 0xed, 0x6b, 0x00, 0x47, 0x68, 0x74, 0x74,
+        0x70, 0x73, 0x3a, 0x2f, 0x2f, 0x72, 0x65, 0x6e, 0x64, 0x65, 0x7a, 0x76, 0x6f, 0x75, 0x73,
+        0x2e, 0x6c, 0x61, 0x62, 0x2e, 0x65, 0x6c, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x64, 0x65,
+        0x76, 0x2f, 0x65, 0x38, 0x64, 0x61, 0x36, 0x33, 0x35, 0x35, 0x2d, 0x35, 0x35, 0x30, 0x62,
+        0x2d, 0x34, 0x61, 0x33, 0x32, 0x2d, 0x61, 0x31, 0x39, 0x33, 0x2d, 0x31, 0x36, 0x31, 0x39,
+        0x64, 0x39, 0x38, 0x33, 0x30, 0x36, 0x36, 0x38, 0x00, 0x0A, 0x6d, 0x61, 0x74, 0x72, 0x69,
+        0x78, 0x2e, 0x6f, 0x72, 0x67,
+    ];
+
     // Test vector for the QR code data in base64 format, self-generated.
     const QR_CODE_DATA_BASE64: &str =
         "TUFUUklYAgS0yzZ1QVpQ1jlnoxWX3d5jrWRFfELxjS2gN7pz9y+3PABaaHR0\
@@ -311,7 +325,7 @@ mod test {
 
         assert_eq!(
             expected_rendezvous, data.rendezvous_url,
-            "The parsed rendezvous URL should match to the expected one",
+            "The parsed rendezvous URL should match expected one",
         );
 
         assert_eq!(
@@ -323,7 +337,47 @@ mod test {
         assert_eq!(
             QrCodeModeData::Login,
             data.mode_data,
-            "The parsed QR code mode should match to the expected one",
+            "The parsed QR code mode should match expected one",
+        );
+    }
+
+    #[test]
+    fn parse_qr_data_reciprocate() {
+        let expected_curve_key =
+            Curve25519PublicKey::from_base64("2IZoarIZe3gOMAqdSiFHSAcA15KfOasxueUUNwJI7Ws")
+                .unwrap();
+
+        let expected_rendezvous =
+            Url::parse("https://rendezvous.lab.element.dev/e8da6355-550b-4a32-a193-1619d9830668")
+                .unwrap();
+
+        let data = QrCodeData::from_bytes(QR_CODE_DATA_RECIPROCATE)
+            .expect("We should be able to parse the QR code data");
+
+        assert_eq!(
+            expected_curve_key, data.public_key,
+            "The parsed public key should match the expected one"
+        );
+
+        assert_eq!(
+            expected_rendezvous, data.rendezvous_url,
+            "The parsed rendezvous URL should match expected one",
+        );
+
+        assert_eq!(
+            data.mode(),
+            QrCodeMode::Reciprocate,
+            "The mode in the test bytes vector should be Reciprocate"
+        );
+
+        assert_let!(
+            QrCodeModeData::Reciprocate { server_name } = data.mode_data,
+            "The parsed QR code mode should match the expected one",
+        );
+
+        assert_eq!(
+            server_name, "matrix.org",
+            "We should have correctly found the matrix.org homeserver in the QR code data"
         );
     }
 
@@ -337,7 +391,7 @@ mod test {
             Url::parse("https://synapse-oidc.lab.element.dev/_synapse/client/rendezvous/01HX9K00Q1H6KPD47EG4G1T3XG")
                 .unwrap();
 
-        let expected_homeserver_url = Url::parse("https://synapse-oidc.lab.element.dev").unwrap();
+        let expected_server_name = "https://synapse-oidc.lab.element.dev/";
 
         let data = QrCodeData::from_base64(QR_CODE_DATA_BASE64)
             .expect("We should be able to parse the QR code data");
@@ -350,19 +404,19 @@ mod test {
         assert_eq!(
             data.mode(),
             QrCodeMode::Reciprocate,
-            "The mode in the test bytes vector should be Login"
+            "The mode in the test bytes vector should be Reciprocate"
         );
 
         assert_eq!(
             expected_rendezvous, data.rendezvous_url,
-            "The parsed rendezvous URL should match to the expected one",
+            "The parsed rendezvous URL should match the expected one",
         );
 
-        assert_let!(QrCodeModeData::Reciprocate { homeserver_url } = data.mode_data);
+        assert_let!(QrCodeModeData::Reciprocate { server_name } = data.mode_data);
 
         assert_eq!(
-            homeserver_url, expected_homeserver_url,
-            "The parsed homeserver URL should match to the expected one"
+            server_name, expected_server_name,
+            "The parsed server name should match the expected one"
         );
     }
 

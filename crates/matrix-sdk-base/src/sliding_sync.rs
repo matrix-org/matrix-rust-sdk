@@ -38,7 +38,7 @@ use crate::RoomMemberships;
 use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
-    rooms::RoomState,
+    rooms::{normal::RoomHero, RoomState},
     store::{ambiguity_map::AmbiguityCache, StateChanges, Store},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse},
     Room, RoomInfo,
@@ -223,7 +223,7 @@ impl BaseClient {
         for (room_id, raw) in &rooms_account_data {
             self.handle_room_account_data(room_id, raw, &mut changes).await;
 
-            if let Some(room) = self.store.get_room(room_id) {
+            if let Some(room) = self.store.room(room_id) {
                 match room.state() {
                     RoomState::Joined => new_rooms
                         .join
@@ -294,6 +294,13 @@ impl BaseClient {
         store.save_changes(&changes).await?;
         self.apply_changes(&changes, false);
         trace!("applied changes");
+
+        // Now that all the rooms information have been saved, update the display name
+        // cache (which relies on information stored in the database). This will
+        // live in memory, until the next sync which will saves the room info to
+        // disk; we do this to avoid saving that would be redundant with the
+        // above. Oh well.
+        new_rooms.update_in_memory_caches(&self.store).await;
 
         Ok(SyncResponse {
             rooms: new_rooms,
@@ -704,10 +711,15 @@ fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut Room
     }
 
     if let Some(heroes) = &room_data.heroes {
-        // Filter out all the heroes which don't have a user id or name.
         room_info.update_heroes(
-            heroes.iter().filter_map(|hero| hero.user_id.as_ref()).cloned().collect(),
-            heroes.iter().filter_map(|hero| hero.name.as_ref()).cloned().collect(),
+            heroes
+                .iter()
+                .map(|hero| RoomHero {
+                    user_id: hero.user_id.clone(),
+                    display_name: hero.name.clone(),
+                    avatar_url: hero.avatar.clone(),
+                })
+                .collect(),
         );
     }
 
@@ -738,11 +750,12 @@ mod tests {
                 canonical_alias::RoomCanonicalAliasEventContent,
                 member::{MembershipState, RoomMemberEventContent},
                 message::SyncRoomMessageEvent,
+                name::RoomNameEventContent,
             },
             AnySyncMessageLikeEvent, AnySyncTimelineEvent, GlobalAccountDataEventContent,
             StateEventContent,
         },
-        mxc_uri, room_alias_id, room_id,
+        mxc_uri, owned_mxc_uri, owned_user_id, room_alias_id, room_id,
         serde::Raw,
         uint, user_id, JsOption, MxcUri, OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, UserId,
     };
@@ -750,7 +763,8 @@ mod tests {
 
     use super::cache_latest_events;
     use crate::{
-        store::MemoryStore, test_utils::logged_in_base_client, BaseClient, Room, RoomState,
+        rooms::normal::RoomHero, store::MemoryStore, test_utils::logged_in_base_client, BaseClient,
+        Room, RoomState,
     };
 
     #[async_test]
@@ -817,22 +831,23 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_room_name_is_found_when_processing_sliding_sync_response() {
+    async fn test_missing_room_name_event() {
         // Given a logged-in client
         let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
 
-        // When I send sliding sync response containing a room with a name
+        // When I send sliding sync response containing a room with a name set in the
+        // sliding sync response,
         let mut room = v4::SlidingSyncRoom::new();
         room.name = Some("little room".to_owned());
         let response = response_with_room(room_id, room);
         let sync_resp =
             client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
-        // Then the room doesn't have the name in the client.
+        // No m.room.name event, no heroes, no members => considered an empty room!
         let client_room = client.get_room(room_id).expect("No room found");
         assert!(client_room.name().is_none());
-        assert_eq!(client_room.computed_display_name().await.unwrap().to_string(), "Empty Room");
+        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "Empty Room");
         assert_eq!(client_room.state(), RoomState::Joined);
 
         // And it is added to the list of joined rooms only.
@@ -842,14 +857,37 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_invited_room_name_is_found_when_processing_sliding_sync_response() {
+    async fn test_room_name_event() {
+        // Given a logged-in client
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+
+        // When I send sliding sync response containing a room with a name set in the
+        // sliding sync response, and a m.room.name event,
+        let mut room = v4::SlidingSyncRoom::new();
+
+        room.name = Some("little room".to_owned());
+        set_room_name(&mut room, user_id!("@a:b.c"), "The Name".to_owned());
+
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // The name is known.
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(client_room.name().as_deref(), Some("The Name"));
+        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "The Name");
+    }
+
+    #[async_test]
+    async fn test_missing_invited_room_name_event() {
         // Given a logged-in client,
         let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
         let user_id = user_id!("@w:e.uk");
         let inviter = user_id!("@john:mastodon.org");
 
-        // When I send sliding sync response containing a room with a name,
+        // When I send sliding sync response containing a room with a name set in the
+        // sliding sync response,
         let mut room = v4::SlidingSyncRoom::new();
         set_room_invited(&mut room, inviter, user_id);
         room.name = Some("name from sliding sync response".to_owned());
@@ -861,9 +899,8 @@ mod tests {
         let client_room = client.get_room(room_id).expect("No room found");
         assert!(client_room.name().is_none());
 
-        // The computed display name will show heroes name, but for an invited room…
-        // it's only self, the invitee, who will appear.
-        assert_eq!(client_room.computed_display_name().await.unwrap().to_string(), "w");
+        // No m.room.name event, no heroes, no members => considered an empty room!
+        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "Empty Room");
 
         assert_eq!(client_room.state(), RoomState::Invited);
 
@@ -871,6 +908,32 @@ mod tests {
         assert!(!sync_resp.rooms.join.contains_key(room_id));
         assert!(!sync_resp.rooms.leave.contains_key(room_id));
         assert!(sync_resp.rooms.invite.contains_key(room_id));
+    }
+
+    #[async_test]
+    async fn test_invited_room_name_event() {
+        // Given a logged-in client,
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@w:e.uk");
+        let inviter = user_id!("@john:mastodon.org");
+
+        // When I send sliding sync response containing a room with a name set in the
+        // sliding sync response, and a m.room.name event,
+        let mut room = v4::SlidingSyncRoom::new();
+
+        set_room_invited(&mut room, inviter, user_id);
+
+        room.name = Some("name from sliding sync response".to_owned());
+        set_room_name(&mut room, user_id!("@a:b.c"), "The Name".to_owned());
+
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // The name is known.
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(client_room.name().as_deref(), Some("The Name"));
+        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "The Name");
     }
 
     #[async_test]
@@ -1278,7 +1341,7 @@ mod tests {
 
         // Then the room's name is NOT overridden by the server-computed display name.
         let client_room = client.get_room(room_id).expect("No room found");
-        assert_eq!(client_room.computed_display_name().await.unwrap().to_string(), "myroom");
+        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "myroom");
         assert!(client_room.name().is_none());
     }
 
@@ -1294,13 +1357,12 @@ mod tests {
         // in `heroes`)
         let mut room = v4::SlidingSyncRoom::new();
         room.heroes = Some(vec![
-            assign!(v4::SlidingSyncRoomHero::default(), {
-                user_id: Some(gordon),
+            assign!(v4::SlidingSyncRoomHero::new(gordon), {
                 name: Some("Gordon".to_owned()),
             }),
-            assign!(v4::SlidingSyncRoomHero::default(), {
-                user_id: Some(alice),
+            assign!(v4::SlidingSyncRoomHero::new(alice), {
                 name: Some("Alice".to_owned()),
+                avatar: Some(owned_mxc_uri!("mxc://e.uk/med1"))
             }),
         ]);
         let response = response_with_room(room_id, room);
@@ -1315,7 +1377,18 @@ mod tests {
         // And heroes are part of the summary.
         assert_eq!(
             client_room.clone_info().summary.heroes(),
-            &["@gordon:e.uk".to_owned(), "@alice:e.uk".to_owned()]
+            &[
+                RoomHero {
+                    user_id: owned_user_id!("@gordon:e.uk"),
+                    display_name: Some("Gordon".to_owned()),
+                    avatar_url: None
+                },
+                RoomHero {
+                    user_id: owned_user_id!("@alice:e.uk"),
+                    display_name: Some("Alice".to_owned()),
+                    avatar_url: Some(owned_mxc_uri!("mxc://e.uk/med1"))
+                },
+            ]
         );
     }
 
@@ -1855,6 +1928,15 @@ mod tests {
                 .collect::<Vec<_>>(),
         );
         room
+    }
+
+    fn set_room_name(room: &mut v4::SlidingSyncRoom, sender: &UserId, name: String) {
+        room.required_state.push(make_state_event(
+            sender,
+            "",
+            RoomNameEventContent::new(name),
+            None,
+        ));
     }
 
     fn set_room_invited(room: &mut v4::SlidingSyncRoom, inviter: &UserId, invitee: &UserId) {

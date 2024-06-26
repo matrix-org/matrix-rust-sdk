@@ -115,7 +115,7 @@ impl IdentityManager {
     /// * `request_id` - The request_id returned by `users_for_key_query` or
     ///   `build_key_query_for_users`
     /// * `response` - The response of the `/keys/query` request that the client
-    /// performed.
+    ///   performed.
     pub async fn receive_keys_query_response(
         &self,
         request_id: &TransactionId,
@@ -369,7 +369,7 @@ impl IdentityManager {
     /// # Arguments
     ///
     /// * `device_keys_map` - A map holding the device keys of the users for
-    /// which the key query was done.
+    ///   which the key query was done.
     ///
     /// Returns a list of devices that changed. Changed here means either
     /// they are new, one of their properties has changed or they got deleted.

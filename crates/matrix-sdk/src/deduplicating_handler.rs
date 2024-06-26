@@ -24,7 +24,20 @@ use tokio::sync::Mutex;
 
 use crate::{Error, Result};
 
-type DeduplicatedRequestMap<Key> = Mutex<BTreeMap<Key, Arc<Mutex<Result<(), ()>>>>>;
+/// State machine for the state of a query deduplicated by the
+/// [`DeduplicatingHandler`].
+enum QueryState {
+    /// The query hasn't completed. This doesn't mean it hasn't *started* yet,
+    /// but rather that it couldn't get to completion: some intermediate
+    /// steps might have run.
+    Cancelled,
+    /// The query has completed with an `Ok` result.
+    Success,
+    /// The query has completed with an `Err` result.
+    Failure,
+}
+
+type DeduplicatedRequestMap<Key> = Mutex<BTreeMap<Key, Arc<Mutex<QueryState>>>>;
 
 /// Handler that properly deduplicates function calls given a key uniquely
 /// identifying the call kind, and will properly report error upwards in case
@@ -47,6 +60,11 @@ impl<Key: Clone + Ord + std::hash::Hash> DeduplicatingHandler<Key> {
     /// Runs the given code if and only if there wasn't a similar query running
     /// for the same key.
     ///
+    /// Note: the `code` may be run multiple times, if the first query to run it
+    /// has been aborted by the caller (i.e. the future has been dropped).
+    /// As a consequence, it's important that the `code` future be
+    /// idempotent.
+    ///
     /// See also [`DeduplicatingHandler`] for more details.
     pub async fn run<'a, F: Future<Output = Result<()>> + SendOutsideWasm + 'a>(
         &self,
@@ -55,31 +73,68 @@ impl<Key: Clone + Ord + std::hash::Hash> DeduplicatingHandler<Key> {
     ) -> Result<()> {
         let mut map = self.inflight.lock().await;
 
-        if let Some(mutex) = map.get(&key).cloned() {
+        if let Some(request_mutex) = map.get(&key).cloned() {
             // If a request is already going on, await the release of the lock.
             drop(map);
 
-            return mutex.lock().await.map_err(|()| Error::ConcurrentRequestFailed);
+            let mut request_guard = request_mutex.lock().await;
+
+            return match *request_guard {
+                QueryState::Success => {
+                    // The query completed with a success: forward this success.
+                    Ok(())
+                }
+
+                QueryState::Failure => {
+                    // The query completed with an error, but we don't know what it is; report
+                    // there was an error.
+                    Err(Error::ConcurrentRequestFailed)
+                }
+
+                QueryState::Cancelled => {
+                    // If we could take a hold onto the mutex without it being in the success or
+                    // failure state, then the query hasn't completed (e.g. it could have been
+                    // cancelled). Repeat it.
+                    //
+                    // Note: there might be other waiters for the deduplicated result; they will
+                    // still be waiting for the mutex above, since the mutex is obtained for at
+                    // most one holder at the same time.
+                    self.run_code(key, code, &mut request_guard).await
+                }
+            };
         }
 
-        // Assume a successful request; we'll modify the result in case of failures
-        // later.
-        let request_mutex = Arc::new(Mutex::new(Ok(())));
+        // Let's assume the cancelled state, if we succeed or fail we'll modify the
+        // result.
+        let request_mutex = Arc::new(Mutex::new(QueryState::Cancelled));
 
         map.insert(key.clone(), request_mutex.clone());
 
         let mut request_guard = request_mutex.lock().await;
         drop(map);
 
+        self.run_code(key, code, &mut request_guard).await
+    }
+
+    async fn run_code<'a, F: Future<Output = Result<()>> + SendOutsideWasm + 'a>(
+        &self,
+        key: Key,
+        code: F,
+        result: &mut QueryState,
+    ) -> Result<()> {
         match code.await {
             Ok(()) => {
+                // Mark the request as completed.
+                *result = QueryState::Success;
+
                 self.inflight.lock().await.remove(&key);
+
                 Ok(())
             }
 
             Err(err) => {
                 // Propagate the error state to other callers.
-                *request_guard = Err(());
+                *result = QueryState::Failure;
 
                 // Remove the request from the in-flights set.
                 self.inflight.lock().await.remove(&key);
@@ -97,7 +152,7 @@ mod tests {
     use std::sync::Arc;
 
     use matrix_sdk_test::async_test;
-    use tokio::{join, sync::Mutex, task::yield_now};
+    use tokio::{join, spawn, sync::Mutex, task::yield_now};
 
     use crate::deduplicating_handler::DeduplicatingHandler;
 
@@ -186,6 +241,76 @@ mod tests {
         *num_calls.lock().await = 0;
         handler.run(0, inner()).await?;
         assert_eq!(*num_calls.lock().await, 1);
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_cancelling_deduplicated_query() -> anyhow::Result<()> {
+        // A mutex used to prevent progress in the `inner` function.
+        let allow_progress = Arc::new(Mutex::new(()));
+
+        // Number of calls up to the `allow_progress` lock taking.
+        let num_before = Arc::new(Mutex::new(0));
+        // Number of calls after the `allow_progress` lock taking.
+        let num_after = Arc::new(Mutex::new(0));
+
+        let inner = || {
+            let num_before = num_before.clone();
+            let num_after = num_after.clone();
+            let allow_progress = allow_progress.clone();
+
+            async move {
+                *num_before.lock().await += 1;
+                let _ = allow_progress.lock().await;
+                *num_after.lock().await += 1;
+                Ok(())
+            }
+        };
+
+        let handler = Arc::new(DeduplicatingHandler::default());
+
+        // First, take the lock so that the `inner` can't complete.
+        let progress_guard = allow_progress.lock().await;
+
+        // Then, spawn deduplicated tasks.
+        let first = spawn({
+            let handler = handler.clone();
+            let query = inner();
+            async move { handler.run(0, query).await }
+        });
+
+        let second = spawn({
+            let handler = handler.clone();
+            let query = inner();
+            async move { handler.run(0, query).await }
+        });
+
+        // At this point, only the "before" count has been incremented, and only once
+        // (per the deduplication contract).
+        yield_now().await;
+
+        assert_eq!(*num_before.lock().await, 1);
+        assert_eq!(*num_after.lock().await, 0);
+
+        // Cancel the first task.
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+
+        // The second task restarts the whole query from the beginning.
+        yield_now().await;
+
+        assert_eq!(*num_before.lock().await, 2);
+        assert_eq!(*num_after.lock().await, 0);
+
+        // Release the progress lock; the second query can now finish.
+        drop(progress_guard);
+
+        assert!(second.await.unwrap().is_ok());
+
+        // We should've reached completion once.
+        assert_eq!(*num_before.lock().await, 2);
+        assert_eq!(*num_after.lock().await, 1);
 
         Ok(())
     }

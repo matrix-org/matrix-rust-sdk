@@ -22,12 +22,10 @@ use std::{
 };
 
 use ruma::{
-    events::{room::history_visibility::HistoryVisibility, AnyTimelineEvent},
-    serde::Raw,
-    DeviceKeyAlgorithm, OwnedRoomId, RoomId,
+    events::room::history_visibility::HistoryVisibility, serde::JsonObject, DeviceKeyAlgorithm,
+    OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio::sync::Mutex;
 use vodozemac::{
     megolm::{
@@ -155,16 +153,16 @@ impl InboundGroupSession {
     ///
     /// # Arguments
     ///
-    /// * `sender_key` - The public Curve25519 key of the account that
-    /// sent us the session.
+    /// * `sender_key` - The public Curve25519 key of the account that sent us
+    ///   the session.
     ///
-    /// * `signing_key` - The public Ed25519 key of the account that
-    /// sent us the session.
+    /// * `signing_key` - The public Ed25519 key of the account that sent us the
+    ///   session.
     ///
     /// * `room_id` - The id of the room that the session is used in.
     ///
     /// * `session_key` - The private session key that is used to decrypt
-    /// messages.
+    ///   messages.
     pub fn new(
         sender_key: Curve25519PublicKey,
         signing_key: Ed25519PublicKey,
@@ -235,7 +233,7 @@ impl InboundGroupSession {
     /// # Arguments
     ///
     /// * `pickle_mode` - The mode that was used to pickle the group session,
-    /// either an unencrypted mode or an encrypted using passphrase.
+    ///   either an unencrypted mode or an encrypted using passphrase.
     pub async fn pickle(&self) -> PickledInboundGroupSession {
         let pickle = self.inner.lock().await.pickle();
 
@@ -313,7 +311,7 @@ impl InboundGroupSession {
     /// * `pickle` - The pickled version of the `InboundGroupSession`.
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
-    /// an unencrypted mode or an encrypted using passphrase.
+    ///   an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(pickle: PickledInboundGroupSession) -> Result<Self, PickleError> {
         let session: InnerSession = pickle.pickle.into();
         let first_known_index = session.first_known_index();
@@ -407,10 +405,7 @@ impl InboundGroupSession {
     /// # Arguments
     ///
     /// * `event` - The event that should be decrypted.
-    pub async fn decrypt(
-        &self,
-        event: &EncryptedEvent,
-    ) -> MegolmResult<(Raw<AnyTimelineEvent>, u32)> {
+    pub async fn decrypt(&self, event: &EncryptedEvent) -> MegolmResult<(JsonObject, u32)> {
         let decrypted = match &event.content.scheme {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => {
                 self.decrypt_helper(&c.ciphertext).await?
@@ -426,8 +421,7 @@ impl InboundGroupSession {
 
         let plaintext = String::from_utf8_lossy(&decrypted.plaintext);
 
-        let mut decrypted_value = serde_json::from_str::<Value>(&plaintext)?;
-        let decrypted_object = decrypted_value.as_object_mut().ok_or(EventError::NotAnObject)?;
+        let mut decrypted_object = serde_json::from_str::<JsonObject>(&plaintext)?;
 
         let server_ts: i64 = event.origin_server_ts.0.into();
 
@@ -460,10 +454,7 @@ impl InboundGroupSession {
             }
         }
 
-        Ok((
-            serde_json::from_value::<Raw<AnyTimelineEvent>>(decrypted_value)?,
-            decrypted.message_index,
-        ))
+        Ok((decrypted_object, decrypted.message_index))
     }
 }
 

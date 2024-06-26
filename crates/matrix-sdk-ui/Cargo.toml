@@ -34,6 +34,7 @@ eyeball-im-util = { workspace = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
 fuzzy-matcher = "0.3.7"
+growable-bloom-filter = { workspace = true }
 imbl = { workspace = true, features = ["serde"] }
 indexmap = "2.0.0"
 itertools = { workspace = true }

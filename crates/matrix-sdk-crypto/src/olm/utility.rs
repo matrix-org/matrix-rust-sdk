@@ -67,7 +67,7 @@ pub trait VerifyJson {
     ///   signature.
     ///
     /// * `signed_object` - The signed object that we should check for a valid
-    /// signature.
+    ///   signature.
     ///
     /// Returns Ok if the signature was successfully verified, otherwise an
     /// SignatureError.
@@ -92,7 +92,7 @@ pub trait VerifyJson {
     ///   signature.
     ///
     /// * `canonicalized_json` - The canonicalized version of a signed JSON
-    /// object.
+    ///   object.
     ///
     /// This method should only be used if an object's signature needs to be
     /// checked multiple times, and you'd like to avoid performing the

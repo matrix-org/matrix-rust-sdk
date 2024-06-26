@@ -34,7 +34,7 @@ impl UserSigningPubkey {
     /// # Arguments
     ///
     /// * `master_key` - The master key that should be checked for a valid
-    /// signature.
+    ///   signature.
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.

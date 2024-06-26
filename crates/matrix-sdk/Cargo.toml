@@ -53,6 +53,7 @@ experimental-oidc = [
     "dep:rand",
     "dep:sha2",
     "dep:tower",
+    "dep:openidconnect",
 ]
 experimental-sliding-sync = [
     "matrix-sdk-base/experimental-sliding-sync",
@@ -126,7 +127,7 @@ tokio = { workspace = true, features = ["macros"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }
-openidconnect = { git = "https://github.com/poljar/openidconnect-rs", rev = "c7e1dc31b83dd7559125984bfd36b9c0f191585e" }
+openidconnect = { git = "https://github.com/poljar/openidconnect-rs", rev = "c7e1dc31b83dd7559125984bfd36b9c0f191585e", optional = true }
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
 reqwest = { workspace = true, features = ["stream"] }
@@ -145,7 +146,7 @@ matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
 serde_urlencoded = "0.7.1"
-similar-asserts = "1.5.0"
+similar-asserts = { workspace = true }
 stream_assert = { workspace = true }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 

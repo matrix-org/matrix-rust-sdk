@@ -30,7 +30,7 @@ final class ClientTests: XCTestCase {
                 .build()
             
             XCTFail("The client should not build when given an invalid username.")
-        } catch ClientBuildError.Sdk(let message) {
+        } catch ClientBuildError.ServerUnreachable(let message) {
             XCTAssertTrue(message.contains(".well-known"), "The client should fail to do the well-known lookup.")
         } catch {
             XCTFail("Not expecting any other kind of exception")

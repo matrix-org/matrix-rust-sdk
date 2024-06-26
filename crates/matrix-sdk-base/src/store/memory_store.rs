@@ -19,6 +19,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use growable_bloom_filter::GrowableBloom;
 use matrix_sdk_common::{instant::Instant, ring_buffer::RingBuffer};
 use ruma::{
     canonical_json::{redact, RedactedBecause},
@@ -30,12 +31,15 @@ use ruma::{
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId,
-    RoomId, RoomVersionId, UserId,
+    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId,
+    OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
 use tracing::{debug, warn};
 
-use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
+use super::{
+    traits::{ComposerDraft, QueuedEvent, SerializableEventContent},
+    Result, RoomInfo, StateChanges, StateStore, StoreError,
+};
 use crate::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey as _},
@@ -49,9 +53,11 @@ use crate::{
 #[derive(Debug)]
 pub struct MemoryStore {
     recently_visited_rooms: StdRwLock<HashMap<String, Vec<String>>>,
+    composer_drafts: StdRwLock<HashMap<OwnedRoomId, ComposerDraft>>,
     user_avatar_url: StdRwLock<HashMap<String, String>>,
     sync_token: StdRwLock<Option<String>>,
     filters: StdRwLock<HashMap<String, String>>,
+    utd_hook_manager_data: StdRwLock<Option<GrowableBloom>>,
     account_data: StdRwLock<HashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
     profiles: StdRwLock<HashMap<OwnedRoomId, HashMap<OwnedUserId, MinimalRoomMemberEvent>>>,
     display_names: StdRwLock<HashMap<OwnedRoomId, HashMap<String, BTreeSet<OwnedUserId>>>>,
@@ -82,6 +88,7 @@ pub struct MemoryStore {
     >,
     media: StdRwLock<RingBuffer<(OwnedMxcUri, String /* unique key */, Vec<u8>)>>,
     custom: StdRwLock<HashMap<Vec<u8>, Vec<u8>>>,
+    send_queue_events: StdRwLock<BTreeMap<OwnedRoomId, Vec<QueuedEvent>>>,
 }
 
 // SAFETY: `new_unchecked` is safe because 20 is not zero.
@@ -91,9 +98,11 @@ impl Default for MemoryStore {
     fn default() -> Self {
         Self {
             recently_visited_rooms: Default::default(),
+            composer_drafts: Default::default(),
             user_avatar_url: Default::default(),
             sync_token: Default::default(),
             filters: Default::default(),
+            utd_hook_manager_data: Default::default(),
             account_data: Default::default(),
             profiles: Default::default(),
             display_names: Default::default(),
@@ -108,6 +117,7 @@ impl Default for MemoryStore {
             room_event_receipts: Default::default(),
             media: StdRwLock::new(RingBuffer::new(NUMBER_OF_MEDIAS)),
             custom: Default::default(),
+            send_queue_events: Default::default(),
         }
     }
 }
@@ -186,6 +196,19 @@ impl StateStore for MemoryStore {
                 .get(user_id.as_str())
                 .cloned()
                 .map(StateStoreDataValue::RecentlyVisitedRooms),
+            StateStoreDataKey::UtdHookManagerData => self
+                .utd_hook_manager_data
+                .read()
+                .unwrap()
+                .clone()
+                .map(StateStoreDataValue::UtdHookManagerData),
+            StateStoreDataKey::ComposerDraft(room_id) => self
+                .composer_drafts
+                .read()
+                .unwrap()
+                .get(room_id)
+                .cloned()
+                .map(StateStoreDataValue::ComposerDraft),
         })
     }
 
@@ -219,6 +242,19 @@ impl StateStore for MemoryStore {
                         .expect("Session data not a list of recently visited rooms"),
                 );
             }
+            StateStoreDataKey::UtdHookManagerData => {
+                *self.utd_hook_manager_data.write().unwrap() = Some(
+                    value
+                        .into_utd_hook_manager_data()
+                        .expect("Session data not the hook manager data"),
+                );
+            }
+            StateStoreDataKey::ComposerDraft(room_id) => {
+                self.composer_drafts.write().unwrap().insert(
+                    room_id.to_owned(),
+                    value.into_composer_draft().expect("Session data not a composer draft"),
+                );
+            }
         }
 
         Ok(())
@@ -235,6 +271,12 @@ impl StateStore for MemoryStore {
             }
             StateStoreDataKey::RecentlyVisitedRooms(user_id) => {
                 self.recently_visited_rooms.write().unwrap().remove(user_id.as_str());
+            }
+            StateStoreDataKey::UtdHookManagerData => {
+                *self.utd_hook_manager_data.write().unwrap() = None
+            }
+            StateStoreDataKey::ComposerDraft(room_id) => {
+                self.composer_drafts.write().unwrap().remove(room_id);
             }
         }
         Ok(())
@@ -825,6 +867,62 @@ impl StateStore for MemoryStore {
         self.room_user_receipts.write().unwrap().remove(room_id);
         self.room_event_receipts.write().unwrap().remove(room_id);
 
+        Ok(())
+    }
+
+    async fn save_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: OwnedTransactionId,
+        event: SerializableEventContent,
+    ) -> Result<(), Self::Error> {
+        self.send_queue_events
+            .write()
+            .unwrap()
+            .entry(room_id.to_owned())
+            .or_default()
+            .push(QueuedEvent { event, transaction_id, is_wedged: false });
+        Ok(())
+    }
+
+    async fn remove_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+    ) -> Result<(), Self::Error> {
+        self.send_queue_events
+            .write()
+            .unwrap()
+            .entry(room_id.to_owned())
+            .or_default()
+            .retain(|item| item.transaction_id != transaction_id);
+        Ok(())
+    }
+
+    async fn load_send_queue_events(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<QueuedEvent>, Self::Error> {
+        Ok(self.send_queue_events.write().unwrap().entry(room_id.to_owned()).or_default().clone())
+    }
+
+    async fn update_send_queue_event_status(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+        wedged: bool,
+    ) -> Result<(), Self::Error> {
+        if let Some(entry) = self
+            .send_queue_events
+            .write()
+            .unwrap()
+            .entry(room_id.to_owned())
+            .or_default()
+            .iter_mut()
+            .find(|item| item.transaction_id == transaction_id)
+        {
+            entry.is_wedged = wedged;
+        }
         Ok(())
     }
 }

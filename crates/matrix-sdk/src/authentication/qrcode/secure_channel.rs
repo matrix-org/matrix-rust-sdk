@@ -50,7 +50,9 @@ impl SecureChannel {
     pub(super) async fn new(http_client: HttpClient, homeserver_url: &Url) -> Result<Self, Error> {
         let channel = RendezvousChannel::create_outbound(http_client, homeserver_url).await?;
         let rendezvous_url = channel.rendezvous_url().to_owned();
-        let mode_data = QrCodeModeData::Reciprocate { homeserver_url: homeserver_url.clone() };
+        // We're a bit abusing the QR code data here, since we're passing the homeserver
+        // URL, but for our tests this is fine.
+        let mode_data = QrCodeModeData::Reciprocate { server_name: homeserver_url.to_string() };
 
         let ecies = Ecies::new();
         let public_key = ecies.public_key();

@@ -35,6 +35,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     debug::{DebugInvitedRoom, DebugListOfRawEvents, DebugListOfRawEventsNoId},
     deserialized_responses::{AmbiguityChange, RawAnySyncOrStrippedTimelineEvent},
+    store::Store,
 };
 
 /// Generalized representation of a `/sync` response.
@@ -76,6 +77,23 @@ pub struct RoomUpdates {
     pub join: BTreeMap<OwnedRoomId, JoinedRoomUpdate>,
     /// The rooms that the user has been invited to.
     pub invite: BTreeMap<OwnedRoomId, InvitedRoomUpdate>,
+}
+
+impl RoomUpdates {
+    /// Update the caches for the rooms that received updates.
+    ///
+    /// This will only fill the in-memory caches, not save the info on disk.
+    pub(crate) async fn update_in_memory_caches(&self, store: &Store) {
+        for room in self
+            .leave
+            .keys()
+            .chain(self.join.keys())
+            .chain(self.invite.keys())
+            .filter_map(|room_id| store.room(room_id))
+        {
+            let _ = room.compute_display_name().await;
+        }
+    }
 }
 
 #[cfg(not(tarpaulin_include))]

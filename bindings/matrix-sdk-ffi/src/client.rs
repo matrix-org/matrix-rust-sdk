@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     mem::ManuallyDrop,
+    path::Path,
     sync::{Arc, RwLock},
 };
 
@@ -8,6 +9,7 @@ use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
     media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
     oidc::{
+        registrations::{ClientId, OidcRegistrations},
         requests::account_management::AccountManagementActionFull,
         types::{
             client_credentials::ClientCredentials,
@@ -15,11 +17,10 @@ use matrix_sdk::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
         },
-        OidcSession,
+        OidcAuthorizationData, OidcSession,
     },
     ruma::{
         api::client::{
-            account::whoami,
             media::get_content_thumbnail::v3::Method,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{create_room, Visibility},
@@ -59,6 +60,7 @@ use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
+    authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError},
     client,
     encryption::Encryption,
     notification::NotificationClient,
@@ -147,14 +149,12 @@ pub trait ProgressWatcher: Send + Sync {
     fn transmission_progress(&self, progress: TransmissionProgress);
 }
 
-/// A listener to the global (client-wide) status of the sending queue.
+/// A listener to the global (client-wide) error reporter of the send queue.
 #[uniffi::export(callback_interface)]
-pub trait SendingQueueStatusListener: Sync + Send {
-    /// Called every time the sending queue has received a new status.
-    ///
-    /// This can be set automatically (in case of sending failure), or manually
-    /// via an API call.
-    fn on_update(&self, new_value: bool);
+pub trait SendQueueRoomErrorListener: Sync + Send {
+    /// Called every time the send queue has ran into an error for a given room,
+    /// which will disable the send queue for that particular room.
+    fn on_error(&self, room_id: String, error: ClientError);
 }
 
 #[derive(Clone, Copy, uniffi::Record)]
@@ -254,6 +254,20 @@ impl Client {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl Client {
+    /// Information about login options for the client's homeserver.
+    pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
+        let supports_oidc_login = self.inner.oidc().fetch_authentication_issuer().await.is_ok();
+        let supports_password_login = self.supports_password_login().await.ok().unwrap_or(false);
+        let sliding_sync_proxy = self.sliding_sync_proxy().map(|proxy_url| proxy_url.to_string());
+
+        Arc::new(HomeserverLoginDetails {
+            url: self.homeserver(),
+            sliding_sync_proxy,
+            supports_oidc_login,
+            supports_password_login,
+        })
+    }
+
     /// Login using a username and password.
     pub async fn login(
         &self,
@@ -270,6 +284,57 @@ impl Client {
             builder = builder.device_id(device_id);
         }
         builder.send().await?;
+        Ok(())
+    }
+
+    /// Requests the URL needed for login in a web view using OIDC. Once the web
+    /// view has succeeded, call `login_with_oidc_callback` with the callback it
+    /// returns. If a failure occurs and a callback isn't available, make sure
+    /// to call `abort_oidc_login` to inform the client of this.
+    pub async fn url_for_oidc_login(
+        &self,
+        oidc_configuration: &OidcConfiguration,
+    ) -> Result<Arc<OidcAuthorizationData>, OidcError> {
+        let oidc_metadata: VerifiedClientMetadata = oidc_configuration.try_into()?;
+        let registrations_file = Path::new(&oidc_configuration.dynamic_registrations_file);
+        let static_registrations = oidc_configuration
+            .static_registrations
+            .iter()
+            .filter_map(|(issuer, client_id)| {
+                let Ok(issuer) = Url::parse(issuer) else {
+                    tracing::error!("Failed to parse {:?}", issuer);
+                    return None;
+                };
+                Some((issuer, ClientId(client_id.clone())))
+            })
+            .collect::<HashMap<_, _>>();
+        let registrations = OidcRegistrations::new(
+            registrations_file,
+            oidc_metadata.clone(),
+            static_registrations,
+        )?;
+
+        let data = self.inner.oidc().url_for_oidc_login(oidc_metadata, registrations).await?;
+
+        Ok(Arc::new(data))
+    }
+
+    /// Aborts an existing OIDC login operation that might have been cancelled,
+    /// failed etc.
+    pub async fn abort_oidc_login(&self, authorization_data: Arc<OidcAuthorizationData>) {
+        self.inner.oidc().abort_authorization(&authorization_data.state).await;
+    }
+
+    /// Completes the OIDC login process.
+    pub async fn login_with_oidc_callback(
+        &self,
+        authorization_data: Arc<OidcAuthorizationData>,
+        callback_url: String,
+    ) -> Result<(), OidcError> {
+        let url = Url::parse(&callback_url).or(Err(OidcError::CallbackUrlInvalid))?;
+
+        self.inner.oidc().login_with_oidc_callback(&authorization_data, url).await?;
+
         Ok(())
     }
 
@@ -316,38 +381,37 @@ impl Client {
         Ok(())
     }
 
-    /// Enables or disables the sending queue, according to the given parameter.
+    /// Enables or disables all the room send queues at once.
     ///
-    /// The sending queue automatically disables itself whenever sending an
-    /// event with it failed (e.g., sending an event via the high-level Timeline
-    /// object), so it's required to manually re-enable it as soon as
-    /// connectivity is back on the device.
-    pub fn enable_sending_queue(&self, enable: bool) {
-        if enable {
-            self.inner.sending_queue().enable();
-        } else {
-            self.inner.sending_queue().disable();
-        }
+    /// When connectivity is lost on a device, it is recommended to disable the
+    /// room sending queues.
+    ///
+    /// This can be controlled for individual rooms, using
+    /// [`Room::enable_send_queue`].
+    pub fn enable_all_send_queues(&self, enable: bool) {
+        self.inner.send_queue().set_enabled(enable);
     }
 
-    /// Subscribe to the global enablement status of the sending queue, at the
+    /// Subscribe to the global enablement status of the send queue, at the
     /// client-wide level.
     ///
     /// The given listener will be immediately called with the initial value of
     /// the enablement status.
-    pub fn subscribe_to_sending_queue_status(
+    pub fn subscribe_to_send_queue_status(
         &self,
-        listener: Box<dyn SendingQueueStatusListener>,
+        listener: Box<dyn SendQueueRoomErrorListener>,
     ) -> Arc<TaskHandle> {
-        let mut subscriber = self.inner.sending_queue().subscribe_status();
+        let mut subscriber = self.inner.send_queue().subscribe_errors();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            // Call with the initial value.
-            listener.on_update(subscriber.next_now());
-
-            // Call every time the value changes.
-            while let Some(next_val) = subscriber.next().await {
-                listener.on_update(next_val);
+            loop {
+                match subscriber.recv().await {
+                    Ok(report) => listener
+                        .on_error(report.room_id.to_string(), ClientError::new(report.error)),
+                    Err(err) => {
+                        error!("error when listening to the send queue error reporter: {err}");
+                    }
+                }
             }
         })))
     }
@@ -378,11 +442,6 @@ impl Client {
             .iter()
             .any(|login_type| matches!(login_type, get_login_types::v3::LoginType::Password(_)));
         Ok(supports_password)
-    }
-
-    /// Gets information about the owner of a given access token.
-    pub(crate) async fn whoami(&self) -> anyhow::Result<whoami::v3::Response> {
-        Ok(self.inner.whoami().await?)
     }
 }
 

@@ -124,6 +124,7 @@ impl RoomInfoV1 {
             read_receipts: Default::default(),
             base_info: base_info.migrate(create),
             warned_about_unknown_room_version: Arc::new(false.into()),
+            cached_display_name: None,
         }
     }
 }
