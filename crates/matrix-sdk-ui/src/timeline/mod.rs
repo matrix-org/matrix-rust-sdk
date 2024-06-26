@@ -46,7 +46,7 @@ use ruma::{
         room::{
             message::{
                 AddMentions, ForwardThread, OriginalRoomMessageEvent, ReplacementMetadata,
-                RoomMessageEventContentWithoutRelation,
+                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             },
             redaction::RoomRedactionEventContent,
         },
@@ -107,11 +107,20 @@ use self::{
     util::rfind_event_by_id,
 };
 
+/// An identifier for a given timeline item.
+#[derive(Debug)]
+enum TimelineEventItemId {
+    /// Local echoes are identified by their transaction id.
+    Local(OwnedTransactionId),
+    /// Remote echoes are identified by their server-sent event id.
+    Remote(OwnedEventId),
+}
+
 /// Information needed to edit an event.
 #[derive(Debug)]
 pub struct EditInfo {
     /// The event ID of the event that needs editing.
-    event_id: OwnedEventId,
+    id: TimelineEventItemId,
     /// The original content of the event that needs editing.
     original_message: Message,
 }
@@ -464,10 +473,28 @@ impl Timeline {
         &self,
         new_content: RoomMessageEventContentWithoutRelation,
         edit_info: EditInfo,
-    ) -> Result<(), RoomSendQueueError> {
-        let original_content = edit_info.original_message;
-        let event_id = edit_info.event_id;
+    ) -> Result<bool, RoomSendQueueError> {
+        let event_id = match edit_info.id {
+            TimelineEventItemId::Local(txn_id) => {
+                let Some(item) = self.item_by_transaction_id(&txn_id).await else {
+                    warn!("Couldn't find the local echo anymore");
+                    return Ok(false);
+                };
 
+                if let Some(handle) = item.as_local().and_then(|item| item.send_handle.clone()) {
+                    // Assume no relations, since it's not been sent yet.
+                    let new_content: RoomMessageEventContent = new_content.into();
+                    return Ok(handle.edit(new_content.into()).await?);
+                }
+
+                warn!("No handle for a local echo; should only happen in testing situations");
+                return Ok(false);
+            }
+
+            TimelineEventItemId::Remote(event_id) => event_id,
+        };
+
+        let original_content = edit_info.original_message;
         let replied_to_message =
             original_content.in_reply_to().and_then(|details| match &details.event {
                 TimelineDetails::Ready(event) => match event.content() {
@@ -495,7 +522,7 @@ impl Timeline {
 
         self.send(content.into()).await?;
 
-        Ok(())
+        Ok(true)
     }
 
     /// Give the information needed to edit an event from an event id.
@@ -536,7 +563,10 @@ impl Timeline {
                     message_like_event.relations(),
                     &self.items().await,
                 );
-                return Ok(EditInfo { event_id: event_id.to_owned(), original_message: message });
+                return Ok(EditInfo {
+                    id: TimelineEventItemId::Remote(event_id.to_owned()),
+                    original_message: message,
+                });
             }
         }
 
