@@ -90,6 +90,7 @@ pub use requests::{
     IncomingResponse, KeysBackupRequest, KeysQueryRequest, OutgoingRequest, OutgoingRequests,
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,
 };
+pub use session_manager::CollectStrategy;
 pub use store::{
     CrossSigningKeyExport, CryptoStoreError, SecretImportError, SecretInfo, TrackedUser,
 };

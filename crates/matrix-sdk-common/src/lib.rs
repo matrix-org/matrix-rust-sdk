@@ -15,6 +15,9 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_debug_implementations)]
 
+use std::pin::Pin;
+
+use futures_core::Future;
 #[doc(no_inline)]
 pub use instant;
 #[doc(no_inline)]
@@ -88,3 +91,9 @@ macro_rules! boxed_into_future {
         >>;
     };
 }
+
+/// A `Box::pin` future that is `Send` on non-wasm, and without `Send` on wasm.
+#[cfg(target_arch = "wasm32")]
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+#[cfg(not(target_arch = "wasm32"))]
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

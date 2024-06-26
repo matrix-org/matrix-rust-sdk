@@ -34,7 +34,7 @@ use matrix_sdk_crypto::{
     olm::{IdentityKeys, InboundGroupSession, Session},
     store::{Changes, CryptoStore, PendingChanges, RoomSettings as RustRoomSettings},
     types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
-    EncryptionSettings as RustEncryptionSettings,
+    CollectStrategy, EncryptionSettings as RustEncryptionSettings,
 };
 use matrix_sdk_sqlite::SqliteCryptoStore;
 pub use responses::{
@@ -185,11 +185,11 @@ impl From<anyhow::Error> for MigrationError {
 /// * `path` - The path where the SQLite store should be created.
 ///
 /// * `passphrase` - The passphrase that should be used to encrypt the data at
-/// rest in the SQLite store. **Warning**, if no passphrase is given, the store
-/// and all its data will remain unencrypted.
+///   rest in the SQLite store. **Warning**, if no passphrase is given, the
+///   store and all its data will remain unencrypted.
 ///
 /// * `progress_listener` - A callback that can be used to introspect the
-/// progress of the migration.
+///   progress of the migration.
 #[uniffi::export]
 pub fn migrate(
     data: MigrationData,
@@ -348,11 +348,11 @@ async fn save_changes(
 /// * `path` - The path where the SQLite store should be created.
 ///
 /// * `passphrase` - The passphrase that should be used to encrypt the data at
-/// rest in the SQLite store. **Warning**, if no passphrase is given, the store
-/// and all its data will remain unencrypted.
+///   rest in the SQLite store. **Warning**, if no passphrase is given, the
+///   store and all its data will remain unencrypted.
 ///
 /// * `progress_listener` - A callback that can be used to introspect the
-/// progress of the migration.
+///   progress of the migration.
 #[uniffi::export]
 pub fn migrate_sessions(
     data: SessionMigrationData,
@@ -503,8 +503,8 @@ fn collect_sessions(
 /// * `path` - The path where the Sqlite store should be created.
 ///
 /// * `passphrase` - The passphrase that should be used to encrypt the data at
-/// rest in the Sqlite store. **Warning**, if no passphrase is given, the store
-/// and all its data will remain unencrypted.
+///   rest in the Sqlite store. **Warning**, if no passphrase is given, the
+///   store and all its data will remain unencrypted.
 #[uniffi::export]
 pub fn migrate_room_settings(
     room_settings: HashMap<String, RoomSettings>,
@@ -650,7 +650,7 @@ impl From<EncryptionSettings> for RustEncryptionSettings {
             rotation_period: Duration::from_secs(v.rotation_period),
             rotation_period_msgs: v.rotation_period_msgs,
             history_visibility: v.history_visibility.into(),
-            only_allow_trusted_devices: v.only_allow_trusted_devices,
+            sharing_strategy: CollectStrategy::new_device_based(v.only_allow_trusted_devices),
         }
     }
 }

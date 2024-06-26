@@ -46,6 +46,7 @@ use super::SessionCreationError;
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::MegolmV2AesSha2Content;
 use crate::{
+    session_manager::CollectStrategy,
     store::caches::SequenceNumber,
     types::{
         events::{
@@ -86,10 +87,10 @@ pub struct EncryptionSettings {
     pub rotation_period_msgs: u64,
     /// The history visibility of the room when the session was created.
     pub history_visibility: HistoryVisibility,
-    /// Should untrusted devices receive the room key, or should they be
-    /// excluded from the conversation.
+    /// The strategy used to distribute the room keys to participant.
+    /// Default will send to all devices.
     #[serde(default)]
-    pub only_allow_trusted_devices: bool,
+    pub sharing_strategy: CollectStrategy,
 }
 
 impl Default for EncryptionSettings {
@@ -99,7 +100,7 @@ impl Default for EncryptionSettings {
             rotation_period: ROTATION_PERIOD,
             rotation_period_msgs: ROTATION_MESSAGES,
             history_visibility: HistoryVisibility::Shared,
-            only_allow_trusted_devices: false,
+            sharing_strategy: CollectStrategy::default(),
         }
     }
 }
@@ -123,7 +124,7 @@ impl EncryptionSettings {
             rotation_period,
             rotation_period_msgs,
             history_visibility,
-            only_allow_trusted_devices,
+            sharing_strategy: CollectStrategy::new_device_based(only_allow_trusted_devices),
         }
     }
 }
@@ -215,12 +216,12 @@ impl OutboundGroupSession {
     /// * `device_id` - The id of the device that created this session.
     ///
     /// * `identity_keys` - The identity keys of the account that created this
-    /// session.
+    ///   session.
     ///
     /// * `room_id` - The id of the room that the session is used in.
     ///
     /// * `settings` - Settings determining the algorithm and rotation period of
-    /// the outbound group session.
+    ///   the outbound group session.
     pub fn new(
         device_id: OwnedDeviceId,
         identity_keys: Arc<IdentityKeys>,
@@ -370,10 +371,10 @@ impl OutboundGroupSession {
     /// # Arguments
     ///
     /// * `event_type` - The plaintext type of the event, the outer type of the
-    /// event will become `m.room.encrypted`.
+    ///   event will become `m.room.encrypted`.
     ///
     /// * `content` - The plaintext content of the message that should be
-    /// encrypted in raw JSON form.
+    ///   encrypted in raw JSON form.
     ///
     /// # Panics
     ///
@@ -663,7 +664,7 @@ impl OutboundGroupSession {
     /// * `pickle` - The pickled version of the `OutboundGroupSession`.
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
-    /// an unencrypted mode or an encrypted using passphrase.
+    ///   an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(
         device_id: OwnedDeviceId,
         identity_keys: Arc<IdentityKeys>,
@@ -694,8 +695,7 @@ impl OutboundGroupSession {
     /// # Arguments
     ///
     /// * `pickle_mode` - The mode that should be used to pickle the group
-    ///   session,
-    /// either an unencrypted mode or an encrypted using passphrase.
+    ///   session, either an unencrypted mode or an encrypted using passphrase.
     pub async fn pickle(&self) -> PickledOutboundGroupSession {
         let pickle = self.inner.read().await.pickle();
 

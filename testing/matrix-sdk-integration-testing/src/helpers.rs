@@ -12,7 +12,10 @@ use assign::assign;
 use matrix_sdk::{
     config::{RequestConfig, SyncSettings},
     encryption::EncryptionSettings,
-    ruma::api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
+    ruma::{
+        api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
+        OwnedDeviceId, OwnedUserId,
+    },
     Client,
 };
 use once_cell::sync::Lazy;
@@ -20,7 +23,9 @@ use rand::Rng as _;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::Mutex;
 
-static USERS: Lazy<Mutex<HashMap<String, (Client, TempDir)>>> = Lazy::new(Mutex::default);
+#[allow(clippy::type_complexity)]
+static USERS: Lazy<Mutex<HashMap<(OwnedUserId, OwnedDeviceId), (Client, TempDir)>>> =
+    Lazy::new(Mutex::default);
 
 enum SqlitePath {
     Random,
@@ -114,9 +119,6 @@ impl TestClientBuilder {
 
     pub async fn build(self) -> Result<Client> {
         let mut users = USERS.lock().await;
-        if let Some((client, _)) = users.get(&self.username) {
-            return Ok(client.clone());
-        }
 
         let homeserver_url =
             option_env!("HOMESERVER_URL").unwrap_or("http://localhost:8228").to_owned();
@@ -166,7 +168,16 @@ impl TestClientBuilder {
         if try_login {
             auth.login_username(&self.username, &self.username).await?;
         }
-        users.insert(self.username, (client.clone(), tmp_dir)); // keeping temp dir around so it doesn't get destroyed yet
+
+        let user_id = client
+            .user_id()
+            .expect("We should have access to our user ID now that we logged in.")
+            .to_owned();
+        let device_id = client
+            .device_id()
+            .expect("We should have access to our device ID now that we logged in.")
+            .to_owned();
+        users.insert((user_id, device_id), (client.clone(), tmp_dir)); // keeping temp dir around so it doesn't get destroyed yet
 
         Ok(client)
     }

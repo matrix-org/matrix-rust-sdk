@@ -17,14 +17,14 @@
 //! There are two types of cryptographic identities in Matrix.
 //!
 //! 1. Devices, which are backed by [device keys], they represent each
-//! individual log in by an E2EE capable Matrix client. We represent devices
-//! using the [`Device`] struct.
+//!    individual log in by an E2EE capable Matrix client. We represent devices
+//!    using the [`Device`] struct.
 //!
 //! 2. User identities, which are backed by [cross signing keys]. The user
-//! identity represent a unique E2EE capable identity of any given user. This
-//! identity is generally created and uploaded to the server by the first E2EE
-//! capable client the user logs in with. We represent user identities using the
-//! [`UserIdentity`] struct.
+//!    identity represent a unique E2EE capable identity of any given user. This
+//!    identity is generally created and uploaded to the server by the first
+//!    E2EE capable client the user logs in with. We represent user identities
+//!    using the [`UserIdentity`] struct.
 //!
 //! A [`Device`] or an [`UserIdentity`] can be used to inspect the public keys
 //! of the device/identity, or it can be used to initiate a interactive

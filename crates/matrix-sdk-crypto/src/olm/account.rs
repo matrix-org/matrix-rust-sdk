@@ -192,7 +192,7 @@ impl StaticAccountData {
     /// * `room_id` - The ID of the room where the group session will be used.
     ///
     /// * `settings` - Settings determining the algorithm and rotation period of
-    /// the outbound group session.
+    ///   the outbound group session.
     pub async fn create_group_session_pair(
         &self,
         room_id: &RoomId,
@@ -720,8 +720,7 @@ impl Account {
     /// * `pickle` - The pickled version of the Account.
     ///
     /// * `pickle_mode` - The mode that was used to pickle the account, either
-    ///   an
-    /// unencrypted mode or an encrypted using passphrase.
+    ///   an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(pickle: PickledAccount) -> Result<Self, PickleError> {
         let account: vodozemac::olm::Account = pickle.pickle.into();
         let identity_keys = account.identity_keys();
@@ -775,6 +774,8 @@ impl Account {
         &self,
         cross_signing_key: &mut CrossSigningKey,
     ) -> Result<(), SignatureError> {
+        #[allow(clippy::needless_borrows_for_generic_args)]
+        // XXX: false positive, see https://github.com/rust-lang/rust-clippy/issues/12856
         let signature = self.sign_json(serde_json::to_value(&cross_signing_key)?)?;
 
         cross_signing_key.signatures.add_signature(
@@ -811,7 +812,7 @@ impl Account {
     /// # Arguments
     ///
     /// * `json` - The value that should be converted into a canonical JSON
-    /// string.
+    ///   string.
     pub fn sign_json(&self, json: Value) -> Result<Ed25519Signature, SignatureError> {
         self.inner.sign_json(json)
     }
@@ -894,12 +895,14 @@ impl Account {
     /// session failed.
     ///
     /// # Arguments
+    ///
     /// * `config` - The session config that should be used when creating the
-    /// Session.
+    ///   Session.
+    ///
     /// * `identity_key` - The other account's identity/curve25519 key.
     ///
-    /// * `one_time_key` - A signed one-time key that the other account
-    /// created and shared with us.
+    /// * `one_time_key` - A signed one-time key that the other account created
+    ///   and shared with us.
     ///
     /// * `fallback_used` - Was the one-time key a fallback key.
     pub fn create_outbound_session_helper(
@@ -1020,10 +1023,11 @@ impl Account {
     /// session failed.
     ///
     /// # Arguments
+    ///
     /// * `their_identity_key` - The other account's identity/curve25519 key.
     ///
     /// * `message` - A pre-key Olm message that was sent to us by the other
-    /// account.
+    ///   account.
     pub fn create_inbound_session(
         &mut self,
         their_identity_key: Curve25519PublicKey,

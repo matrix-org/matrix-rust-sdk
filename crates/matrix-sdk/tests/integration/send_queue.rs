@@ -1,21 +1,28 @@
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex as StdMutex,
     },
     time::Duration,
 };
 
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
+    config::{RequestConfig, StoreConfig},
     send_queue::{LocalEcho, RoomSendQueueError, RoomSendQueueUpdate},
-    test_utils::{logged_in_client, logged_in_client_with_server},
+    test_utils::{logged_in_client, logged_in_client_with_server, set_client_session},
+    Client, MemoryStore,
 };
 use matrix_sdk_test::{async_test, InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder};
 use ruma::{
+    api::MatrixVersion,
     event_id,
-    events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
-    room_id, EventId, OwnedEventId,
+    events::{
+        room::message::RoomMessageEventContent, AnyMessageLikeEventContent, EventContent as _,
+    },
+    room_id,
+    serde::Raw,
+    EventId, OwnedEventId,
 };
 use serde_json::json;
 use tokio::{sync::Mutex, time::timeout};
@@ -51,12 +58,16 @@ macro_rules! assert_update {
     ($watch:ident => local echo { body = $body:expr }) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
-                content: AnyMessageLikeEventContent::RoomMessage(_msg),
+                serialized_event,
                 transaction_id: txn,
                 abort_handle,
+                // New local echoes should always start as not wedged.
+                is_wedged: false,
             }))) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
 
+        let content = serialized_event.deserialize().unwrap();
+        assert_let!(AnyMessageLikeEventContent::RoomMessage(_msg) = content);
         assert_eq!(_msg.body(), $body);
 
         (txn, abort_handle)
@@ -171,7 +182,7 @@ async fn test_nothing_sent_when_disabled() {
     let event_id = event_id!("$1");
     mock_send_event(event_id).expect(0).mount(&server).await;
 
-    client.send_queue().set_enabled(false);
+    client.send_queue().set_enabled(false).await;
 
     // A message is queued, but never sent.
     room.send_queue()
@@ -209,7 +220,7 @@ async fn test_smoke() {
 
     let q = room.send_queue();
 
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
@@ -250,7 +261,7 @@ async fn test_smoke() {
     let (txn1, _) = assert_update!(watch => local echo { body = "1" });
 
     {
-        let (local_echoes, _) = q.subscribe().await;
+        let (local_echoes, _) = q.subscribe().await.unwrap();
 
         assert_eq!(local_echoes.len(), 1);
         assert_eq!(local_echoes[0].transaction_id, txn1);
@@ -259,6 +270,60 @@ async fn test_smoke() {
     assert!(watch.is_empty());
 
     drop(lock_guard);
+
+    assert_update!(watch => sent { txn = txn1, event_id = event_id });
+
+    assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_smoke_raw() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    // When the queue is enabled and I send message in some order, it does send it.
+    let event_id = event_id!("$1");
+
+    mock_encryption_state(&server, false).await;
+    mock_send_event(event_id!("$1")).mount(&server).await;
+
+    let json_content = r#"{"baguette": 42}"#.to_owned();
+    let event = Raw::from_json_string(json_content.clone()).unwrap();
+    room.send_queue().send_raw(event, "m.room.frenchie".to_owned()).await.unwrap();
+
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+            serialized_event,
+            transaction_id: txn1,
+            ..
+        }))) = timeout(Duration::from_secs(1), watch.recv()).await
+    );
+
+    let content = serialized_event.deserialize().unwrap();
+    assert_matches!(&content, AnyMessageLikeEventContent::_Custom { .. });
+    assert_eq!(content.event_type().to_string(), "m.room.frenchie");
+
+    let (raw, event_type) = serialized_event.raw();
+    assert_eq!(event_type, "m.room.frenchie");
+    assert_eq!(raw.json().to_string(), json_content);
 
     assert_update!(watch => sent { txn = txn1, event_id = event_id });
 
@@ -290,7 +355,7 @@ async fn test_error_then_locally_reenabling() {
 
     let q = room.send_queue();
 
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
@@ -326,7 +391,7 @@ async fn test_error_then_locally_reenabling() {
     let (txn1, _) = assert_update!(watch => local echo { body = "1" });
 
     {
-        let (local_echoes, _) = q.subscribe().await;
+        let (local_echoes, _) = q.subscribe().await.unwrap();
         assert_eq!(local_echoes.len(), 1);
         assert_eq!(local_echoes[0].transaction_id, txn1);
     }
@@ -401,7 +466,7 @@ async fn test_error_then_globally_reenabling() {
 
     let q = room.send_queue();
 
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
@@ -438,7 +503,7 @@ async fn test_error_then_globally_reenabling() {
     mock_send_event(event_id!("$42")).expect(1).mount(&server).await;
 
     // Re-enabling the global queue will cause the event to be sent.
-    client.send_queue().set_enabled(true);
+    client.send_queue().set_enabled(true).await;
 
     assert!(client.send_queue().is_enabled());
     assert!(room.send_queue().is_enabled());
@@ -471,7 +536,7 @@ async fn test_reenabling_queue() {
     assert!(errors.is_empty());
 
     // When I start with a disabled send queue,
-    client.send_queue().set_enabled(false);
+    client.send_queue().set_enabled(false).await;
 
     assert!(!client.send_queue().is_enabled());
     assert!(!room.send_queue().is_enabled());
@@ -479,7 +544,7 @@ async fn test_reenabling_queue() {
 
     let q = room.send_queue();
 
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
@@ -494,7 +559,7 @@ async fn test_reenabling_queue() {
     }
 
     {
-        let (local_echoes, _) = q.subscribe().await;
+        let (local_echoes, _) = q.subscribe().await.unwrap();
         assert_eq!(local_echoes.len(), 3);
     }
 
@@ -526,7 +591,7 @@ async fn test_reenabling_queue() {
         .await;
 
     // But when reenabling the queue globally,
-    client.send_queue().set_enabled(true);
+    client.send_queue().set_enabled(true).await;
 
     assert!(client.send_queue().is_enabled());
     assert!(room.send_queue().is_enabled());
@@ -563,7 +628,7 @@ async fn test_disjoint_enabled_status() {
     let room2 = client.get_room(room_id2).unwrap();
 
     // When I start with a disabled send queue,
-    client.send_queue().set_enabled(false);
+    client.send_queue().set_enabled(false).await;
 
     // All queues are marked as disabled.
     assert!(!client.send_queue().is_enabled());
@@ -571,7 +636,7 @@ async fn test_disjoint_enabled_status() {
     assert!(!room2.send_queue().is_enabled());
 
     // When I enable globally,
-    client.send_queue().set_enabled(true);
+    client.send_queue().set_enabled(true).await;
 
     // This enables globally and locally.
     assert!(client.send_queue().is_enabled());
@@ -606,7 +671,7 @@ async fn test_cancellation() {
 
     let q = room.send_queue();
 
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
@@ -664,34 +729,34 @@ async fn test_cancellation() {
     tokio::task::yield_now().await;
 
     // The first item is already being sent, so we can't abort it.
-    assert!(!handle1.abort().await);
+    assert!(!handle1.abort().await.unwrap());
     assert!(watch.is_empty());
 
     // The second item is pending, so we can abort it, using the handle returned by
     // `send()`.
-    assert!(handle2.abort().await);
+    assert!(handle2.abort().await.unwrap());
     assert_update!(watch => cancelled { txn = txn2 });
     assert!(watch.is_empty());
 
     // The third item is pending, so we can abort it, using the handle received from
     // the update.
-    assert!(handle3.abort().await);
+    assert!(handle3.abort().await.unwrap());
     assert_update!(watch => cancelled { txn = txn3 });
     assert!(watch.is_empty());
 
     // The fourth item is pending, so we can abort it, using an handle provided by
     // the initial array of values.
-    let (mut local_echoes, _) = q.subscribe().await;
+    let (mut local_echoes, _) = q.subscribe().await.unwrap();
 
     // At this point, local echoes = txn1, txn4, txn5.
     assert_eq!(local_echoes.len(), 3);
 
     let local_echo4 = local_echoes.remove(1);
-    assert_eq!(local_echo4.transaction_id, txn4);
+    assert_eq!(local_echo4.transaction_id, txn4, "local echoes: {local_echoes:?}");
 
     let handle4 = local_echo4.abort_handle;
 
-    assert!(handle4.abort().await);
+    assert!(handle4.abort().await.unwrap());
     assert_update!(watch => cancelled { txn = txn4 });
     assert!(watch.is_empty());
 
@@ -726,13 +791,13 @@ async fn test_abort_after_disable() {
     assert!(errors.is_empty());
 
     // Start with an enabled sending queue.
-    client.send_queue().set_enabled(true);
+    client.send_queue().set_enabled(true).await;
 
     assert!(client.send_queue().is_enabled());
 
     let q = room.send_queue();
 
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
@@ -763,7 +828,7 @@ async fn test_abort_after_disable() {
     assert!(client.send_queue().is_enabled());
 
     // Aborting the sending should work.
-    assert!(abort_send_handle.abort().await);
+    assert!(abort_send_handle.abort().await.unwrap());
 
     assert_update!(watch => cancelled { txn = txn });
 
@@ -793,13 +858,13 @@ async fn test_unrecoverable_errors() {
     assert!(errors.is_empty());
 
     // Start with an enabled sending queue.
-    client.send_queue().set_enabled(true);
+    client.send_queue().set_enabled(true).await;
 
     assert!(client.send_queue().is_enabled());
 
     let q = room.send_queue();
 
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
@@ -891,11 +956,11 @@ async fn test_no_network_access_error_is_recoverable() {
     assert!(errors.is_empty());
 
     // Start with an enabled sending queue.
-    client.send_queue().set_enabled(true);
+    client.send_queue().set_enabled(true).await;
     assert!(client.send_queue().is_enabled());
 
     let q = room.send_queue();
-    let (local_echoes, mut watch) = q.subscribe().await;
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
@@ -921,4 +986,108 @@ async fn test_no_network_access_error_is_recoverable() {
     // The room queue is disabled, because the error was recoverable.
     assert!(!room.send_queue().is_enabled());
     assert!(client.send_queue().is_enabled());
+}
+
+#[async_test]
+async fn test_reloading_rooms_with_unsent_events() {
+    let store = Arc::new(MemoryStore::new());
+
+    let room_id = room_id!("!a:b.c");
+    let room_id2 = room_id!("!d:e.f");
+
+    let server = wiremock::MockServer::start().await;
+    let client = Client::builder()
+        .homeserver_url(server.uri())
+        .server_versions([MatrixVersion::V1_0])
+        .store_config(StoreConfig::new().state_store(store.clone()))
+        .request_config(RequestConfig::new().disable_retry())
+        .build()
+        .await
+        .unwrap();
+    set_client_session(&client).await;
+
+    // Mark two rooms as joined.
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder
+                .add_joined_room(JoinedRoomBuilder::new(room_id))
+                .add_joined_room(JoinedRoomBuilder::new(room_id2));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let room2 = client.get_room(room_id2).unwrap();
+
+    // Globally disable the send queue.
+    let q = client.send_queue();
+    q.set_enabled(false).await;
+    let watch = q.subscribe_errors();
+
+    // Send one message in each room.
+    room.send_queue()
+        .send(RoomMessageEventContent::text_plain("Hello, World!").into())
+        .await
+        .unwrap();
+
+    room2
+        .send_queue()
+        .send(RoomMessageEventContent::text_plain("Hello there too, World!").into())
+        .await
+        .unwrap();
+
+    // No errors, because the queue has been disabled.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(watch.is_empty());
+
+    server.reset().await;
+
+    {
+        // Kill the client, let it close background tasks.
+        drop(watch);
+        drop(q);
+        drop(client);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+
+    // Create a new client with the same memory backend. As the send queues are
+    // enabled by default, it will respawn tasks for sending events to those two
+    // rooms in the background.
+    mock_encryption_state(&server, false).await;
+
+    let event_id = StdMutex::new(0);
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(move |_req: &Request| {
+            let mut event_id_guard = event_id.lock().unwrap();
+            let event_id = *event_id_guard;
+            *event_id_guard += 1;
+            ResponseTemplate::new(200).set_body_json(json!({
+                "event_id": event_id
+            }))
+        })
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    let client = Client::builder()
+        .homeserver_url(server.uri())
+        .server_versions([MatrixVersion::V1_0])
+        .store_config(StoreConfig::new().state_store(store))
+        .request_config(RequestConfig::new().disable_retry())
+        .build()
+        .await
+        .unwrap();
+    set_client_session(&client).await;
+
+    client.send_queue().respawn_tasks_for_rooms_with_unsent_events().await;
+
+    // Let the sending queues process events.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // The real assertion is on the expect(2) on the above Mock.
+    server.verify().await;
 }

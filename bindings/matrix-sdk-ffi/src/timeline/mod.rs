@@ -454,10 +454,17 @@ impl Timeline {
     pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
-        reply_item: Arc<EventTimelineItem>,
+        event_id: String,
     ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let replied_to_info = self
+            .inner
+            .replied_to_info_from_event_id(&event_id)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
+
         self.inner
-            .send_reply((*msg).clone(), &reply_item.0, ForwardThread::Yes)
+            .send_reply((*msg).clone(), replied_to_info, ForwardThread::Yes)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
@@ -466,10 +473,17 @@ impl Timeline {
     pub async fn edit(
         &self,
         new_content: Arc<RoomMessageEventContentWithoutRelation>,
-        edit_item: Arc<EventTimelineItem>,
+        event_id: String,
     ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let edit_info = self
+            .inner
+            .edit_info_from_event_id(&event_id)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))?;
+
         self.inner
-            .edit((*new_content).clone(), &edit_item.0)
+            .edit((*new_content).clone(), edit_info)
             .await
             .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
@@ -647,12 +661,15 @@ impl AbortSendHandle {
     ///
     /// This has an effect only on the first call; subsequent calls will always
     /// return `false`.
-    async fn abort(self: Arc<Self>) -> bool {
+    async fn abort(self: Arc<Self>) -> Result<bool, ClientError> {
         if let Some(inner) = self.inner.lock().await.take() {
-            inner.abort().await
+            Ok(inner
+                .abort()
+                .await
+                .map_err(|err| anyhow::anyhow!("error when saving in store: {err}"))?)
         } else {
             warn!("trying to abort an send handle that's already been actioned");
-            false
+            Ok(false)
         }
     }
 }
