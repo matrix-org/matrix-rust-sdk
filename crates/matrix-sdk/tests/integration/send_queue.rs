@@ -73,6 +73,23 @@ macro_rules! assert_update {
         (txn, send_handle)
     }};
 
+    // Check the next stream event is an edit for a local echo with the content $body, and that the
+    // transaction id is the one we expect.
+    ($watch:ident => edit { body = $body:expr, txn = $transaction_id:expr }) => {{
+        assert_let!(
+            Ok(Ok(RoomSendQueueUpdate::ReplacedLocalEvent {
+                transaction_id: txn,
+                new_content: serialized_event,
+            })) = timeout(Duration::from_secs(1), $watch.recv()).await
+        );
+
+        let content = serialized_event.deserialize().unwrap();
+        assert_let!(AnyMessageLikeEventContent::RoomMessage(_msg) = content);
+        assert_eq!(_msg.body(), $body);
+
+        assert_eq!(txn, $transaction_id);
+    }};
+
     // Check the next stream event is a sent event, with optional checks on txn=$txn and
     // event_id=$event_id.
     ($watch:ident => sent { $(txn=$txn:expr,)? $(event_id=$event_id:expr)? }) => {
@@ -766,6 +783,105 @@ async fn test_cancellation() {
     // Now the server will process msg1 and msg5.
     assert_update!(watch => sent { txn = txn1, });
     assert_update!(watch => sent { txn = txn5, });
+    assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_edit() {
+    // Simplified version of test_cancellation: we don't test for *every single way*
+    // to edit a local echo, since if the cancellation test passes, all ways
+    // would work here too similarly.
+
+    let (client, server) = logged_in_client_with_server().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    let lock = Arc::new(Mutex::new(()));
+    let lock_guard = lock.lock().await;
+
+    let mock_lock = lock.clone();
+
+    mock_encryption_state(&server, false).await;
+
+    let num_request = std::sync::Mutex::new(1);
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(move |_req: &Request| {
+            // Wait for the signal from the main thread that we can process this query.
+            let mock_lock = mock_lock.clone();
+            std::thread::spawn(move || {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    drop(mock_lock.lock().await);
+                });
+            })
+            .join()
+            .unwrap();
+
+            let mut num_request = num_request.lock().unwrap();
+
+            let event_id = format!("${}", *num_request);
+            *num_request += 1;
+
+            ResponseTemplate::new(200).set_body_json(json!({
+                "event_id": event_id,
+            }))
+        })
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    let handle1 = q.send(RoomMessageEventContent::text_plain("msg1").into()).await.unwrap();
+    let handle2 = q.send(RoomMessageEventContent::text_plain("msg2").into()).await.unwrap();
+
+    // Receiving updates for local echoes.
+    let (txn1, _) = assert_update!(watch => local echo { body = "msg1" });
+    let (txn2, _) = assert_update!(watch => local echo { body = "msg2" });
+    assert!(watch.is_empty());
+
+    // Let the background task start now.
+    tokio::task::yield_now().await;
+
+    // The first item is already being sent, so we can't edit it.
+    assert!(!handle1
+        .edit(RoomMessageEventContent::text_plain("it's too late!").into())
+        .await
+        .unwrap());
+    assert!(watch.is_empty());
+
+    // The second item is pending, so we can edit it, using the handle returned by
+    // `send()`.
+    assert!(handle2
+        .edit(RoomMessageEventContent::text_plain("new content, who diz").into())
+        .await
+        .unwrap());
+    assert_update!(watch => edit { body = "new content, who diz", txn = txn2 });
+    assert!(watch.is_empty());
+
+    // Let the server process the responses.
+    drop(lock_guard);
+
+    // Now the server will process the messages in order.
+    assert_update!(watch => sent { txn = txn1, });
+    assert_update!(watch => sent { txn = txn2, });
     assert!(watch.is_empty());
 }
 

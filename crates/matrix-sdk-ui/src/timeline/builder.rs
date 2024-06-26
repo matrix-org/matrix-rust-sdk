@@ -296,6 +296,14 @@ impl TimelineBuilder {
                                     }
                                 }
 
+                                RoomSendQueueUpdate::ReplacedLocalEvent {
+                                    transaction_id,
+                                    new_content,
+                                } => {
+                                    // TODO: handled in a patch later in that
+                                    // queue.
+                                }
+
                                 RoomSendQueueUpdate::SendError {
                                     transaction_id,
                                     error,
