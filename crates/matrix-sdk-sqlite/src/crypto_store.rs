@@ -447,27 +447,10 @@ impl SqliteConnectionExt for rusqlite::Connection {
 
 #[async_trait]
 trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
-    async fn get_sessions_for_sender_key(
-        &self,
-        sender_key: Key,
-        user_id: Key,
-        device_id: Key,
-    ) -> Result<(Vec<u8>, Vec<Vec<u8>>)> {
+    async fn get_sessions_for_sender_key(&self, sender_key: Key) -> Result<Vec<Vec<u8>>> {
         Ok(self
-            .prepare("SELECT 1, data FROM session WHERE sender_key = ? UNION SELECT 0, data FROM device WHERE user_id = ? AND device_id = ?", |mut stmt| {
-                let result = stmt.query((sender_key, user_id, device_id))?
-                    .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
-                    .collect::<rusqlite::Result<Vec<(u8, Vec<u8>)>>>()?;
-                let mut sessions: Vec<Vec<u8>> = Vec::new();
-                let mut device: Option<Vec<u8>> = None;
-                for (rowtype, data) in result {
-                    if rowtype == 1 {
-                        sessions.push(data);
-                    } else {
-                        device = Some(data);
-                    }
-                }
-                Ok((device.expect("Our own device key is not stored"), sessions))
+            .prepare("SELECT data FROM session WHERE sender_key = ?", |mut stmt| {
+                stmt.query((sender_key,))?.mapped(|row| row.get(0)).collect()
             })
             .await?)
     }
@@ -938,22 +921,13 @@ impl CryptoStore for SqliteCryptoStore {
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
         if self.session_cache.get(sender_key).is_none() {
-            let account_info = self.get_static_account().ok_or(Error::AccountUnset)?;
+            let device_keys = self.get_own_device().await?.as_device_keys().clone();
 
-            let (device_keys_data, sessions_data) = self
+            let sessions = self
                 .acquire()
                 .await?
-                .get_sessions_for_sender_key(
-                    self.encode_key("session", sender_key.as_bytes()),
-                    self.encode_key("device", account_info.user_id.as_bytes()),
-                    self.encode_key("device", account_info.device_id.as_bytes()),
-                )
-                .await?;
-
-            let read_only_device = self.deserialize_value::<ReadOnlyDevice>(&device_keys_data)?;
-            let device_keys = read_only_device.as_device_keys();
-
-            let sessions = sessions_data
+                .get_sessions_for_sender_key(self.encode_key("session", sender_key.as_bytes()))
+                .await?
                 .into_iter()
                 .map(|bytes| {
                     let pickle = self.deserialize_value(&bytes)?;
