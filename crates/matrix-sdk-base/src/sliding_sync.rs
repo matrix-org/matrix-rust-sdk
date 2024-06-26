@@ -292,7 +292,12 @@ impl BaseClient {
 
         trace!("ready to submit changes to store");
         store.save_changes(&changes).await?;
-        self.apply_changes(&changes, false);
+        self.apply_changes(
+            &changes,
+            // The changes may result in a latest event update, which should trigger a room list
+            // re-ordering. This the room list should be notified by these changes.
+            true,
+        );
         trace!("applied changes");
 
         // Now that all the rooms information have been saved, update the display name
