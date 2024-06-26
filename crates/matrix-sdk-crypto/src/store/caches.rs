@@ -200,7 +200,7 @@ impl DeviceStore {
 /// i64::MAX comes before i64::MIN in the sequence.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(transparent)]
-pub(crate) struct SequenceNumber(i64);
+pub struct SequenceNumber(i64);
 
 impl Display for SequenceNumber {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
