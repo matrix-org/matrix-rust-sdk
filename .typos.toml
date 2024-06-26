@@ -36,4 +36,5 @@ extend-exclude = [
     "crates/matrix-sdk-ui/tests/integration/room_list_service.rs",
     # Hand-crafted base64 session keys that are understood as typos.
     "crates/matrix-sdk-indexeddb/src/crypto_store/migrations/mod.rs",
+    "crates/matrix-sdk-crypto/src/olm/group_sessions/inbound.rs",
 ]
