@@ -110,11 +110,11 @@ pub fn decrypt_room_key_export(
 /// * `passphrase` - The passphrase that will be used to encrypt the exported
 ///   room keys.
 ///
-/// * `rounds` - The number of rounds that should be used for the key
-///   derivation when the passphrase gets turned into an AES key. More rounds are
-///   increasingly computationally intensive and as such help against brute-force
-///   attacks. Should be at least `10_000`, while values in the `100_000` ranges
-///   should be preferred.
+/// * `rounds` - The number of rounds that should be used for the key derivation
+///   when the passphrase gets turned into an AES key. More rounds are
+///   increasingly computationally intensive and as such help against
+///   brute-force attacks. Should be at least `10_000`, while values in the
+///   `100_000` ranges should be preferred.
 ///
 /// # Panics
 ///

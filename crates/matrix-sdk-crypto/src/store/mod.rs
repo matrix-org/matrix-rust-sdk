@@ -1756,8 +1756,8 @@ impl Store {
     ///
     /// * `predicate` - A closure that will be called for every known
     ///   `InboundGroupSession`, which represents a room key. If the closure
-    ///   returns `true` the `InboundGroupSession` will be included in the export,
-    ///   if the closure returns `false` it will not be included.
+    ///   returns `true` the `InboundGroupSession` will be included in the
+    ///   export, if the closure returns `false` it will not be included.
     ///
     /// # Examples
     ///
@@ -1796,8 +1796,8 @@ impl Store {
     ///
     /// * `predicate` - A closure that will be called for every known
     ///   `InboundGroupSession`, which represents a room key. If the closure
-    ///   returns `true` the `InboundGroupSession` will be included in the export,
-    ///   if the closure returns `false` it will not be included.
+    ///   returns `true` the `InboundGroupSession` will be included in the
+    ///   export, if the closure returns `false` it will not be included.
     ///
     /// # Examples
     ///

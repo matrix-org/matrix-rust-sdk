@@ -306,8 +306,8 @@ impl Room {
     ///
     /// * `event_id` - The ID of the event to redact
     ///
-    /// * `reason` - The reason for the event being redacted (optional).
-    ///   its transaction ID (optional). If not given one is created.
+    /// * `reason` - The reason for the event being redacted (optional). its
+    ///   transaction ID (optional). If not given one is created.
     pub async fn redact(
         &self,
         event_id: String,

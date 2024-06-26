@@ -681,8 +681,8 @@ impl VerificationRequest {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user for which we would like to start the
-    ///   QR code verification.
+    /// * `user_id` - The ID of the user for which we would like to start the QR
+    ///   code verification.
     ///
     /// * `flow_id` - The ID of the verification request that initiated the
     ///   verification flow.
@@ -701,8 +701,8 @@ impl VerificationRequest {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user for which we would like to start the
-    ///   QR code verification.
+    /// * `user_id` - The ID of the user for which we would like to start the QR
+    ///   code verification.
     ///
     /// * `flow_id` - The ID of the verification request that initiated the
     ///   verification flow.

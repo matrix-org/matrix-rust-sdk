@@ -508,8 +508,8 @@ impl PrivateCrossSigningIdentity {
     /// # Arguments
     ///
     /// * `account` - The Olm account that is creating the new identity. The
-    ///   account will sign the master key and the self signing key will sign the
-    ///   account.
+    ///   account will sign the master key and the self signing key will sign
+    ///   the account.
     pub(crate) async fn with_account(
         account: &Account,
     ) -> (Self, UploadSigningKeysRequest, SignatureUploadRequest) {

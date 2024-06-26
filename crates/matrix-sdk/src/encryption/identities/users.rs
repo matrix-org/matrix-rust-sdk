@@ -315,8 +315,8 @@ impl UserIdentity {
     ///
     /// A user identity is considered to be verified if:
     ///
-    /// * It has been signed by our User-signing key, if the identity belongs
-    ///   to another user
+    /// * It has been signed by our User-signing key, if the identity belongs to
+    ///   another user
     /// * If it has been locally marked as verified, if the user identity
     ///   belongs to us.
     ///
