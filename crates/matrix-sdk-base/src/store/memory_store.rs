@@ -885,6 +885,27 @@ impl StateStore for MemoryStore {
         Ok(())
     }
 
+    async fn update_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+        content: SerializableEventContent,
+    ) -> Result<(), Self::Error> {
+        if let Some(entry) = self
+            .send_queue_events
+            .write()
+            .unwrap()
+            .entry(room_id.to_owned())
+            .or_default()
+            .iter_mut()
+            .find(|item| item.transaction_id == transaction_id)
+        {
+            entry.event = content;
+            entry.is_wedged = false;
+        }
+        Ok(())
+    }
+
     async fn remove_send_queue_event(
         &self,
         room_id: &RoomId,

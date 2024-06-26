@@ -409,6 +409,22 @@ pub trait StateStore: AsyncTraitDeps {
         content: SerializableEventContent,
     ) -> Result<(), Self::Error>;
 
+    /// Updates a send queue event with the given content, and resets its wedged
+    /// status to false.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The `RoomId` of the send queue's room.
+    /// * `transaction_id` - The unique key identifying the event to be sent
+    ///   (and its transaction).
+    /// * `content` - Serializable event content to replace the original one.
+    async fn update_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+        content: SerializableEventContent,
+    ) -> Result<(), Self::Error>;
+
     /// Remove an event previously inserted with [`Self::save_send_queue_event`]
     /// from the database, based on its transaction id.
     async fn remove_send_queue_event(
@@ -664,6 +680,15 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         content: SerializableEventContent,
     ) -> Result<(), Self::Error> {
         self.0.save_send_queue_event(room_id, transaction_id, content).await.map_err(Into::into)
+    }
+
+    async fn update_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+        content: SerializableEventContent,
+    ) -> Result<(), Self::Error> {
+        self.0.update_send_queue_event(room_id, transaction_id, content).await.map_err(Into::into)
     }
 
     async fn remove_send_queue_event(
