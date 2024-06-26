@@ -169,7 +169,7 @@ mod tests {
     use indexed_db_futures::prelude::*;
     use matrix_sdk_common::js_tracing::make_tracing_subscriber;
     use matrix_sdk_crypto::{
-        olm::{InboundGroupSession, SessionKey},
+        olm::{InboundGroupSession, SenderData, SessionKey},
         store::CryptoStore,
         types::EventEncryptionAlgorithm,
         vodozemac::{Curve25519PublicKey, Curve25519SecretKey, Ed25519PublicKey, Ed25519SecretKey},
