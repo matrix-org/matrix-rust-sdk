@@ -43,7 +43,9 @@ use crate::{
     olm::{
         InboundGroupSession, OutboundGroupSession, Session, ShareInfo, SignedJsonObject, VerifyJson,
     },
-    store::{Changes, CryptoStoreWrapper, DeviceChanges, Result as StoreResult},
+    store::{
+        caches::SequenceNumber, Changes, CryptoStoreWrapper, DeviceChanges, Result as StoreResult,
+    },
     types::{
         events::{
             forwarded_room_key::ForwardedRoomKeyContent,
@@ -92,7 +94,7 @@ pub struct ReadOnlyDevice {
     /// The number of times the device has tried to unwedge Olm sessions with
     /// us.
     #[serde(default)]
-    pub(crate) olm_wedging_index: u32,
+    pub(crate) olm_wedging_index: SequenceNumber,
 }
 
 fn default_timestamp() -> MilliSecondsSinceUnixEpoch {
@@ -584,7 +586,7 @@ impl ReadOnlyDevice {
             deleted: Arc::new(AtomicBool::new(false)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
             first_time_seen_ts: MilliSecondsSinceUnixEpoch::now(),
-            olm_wedging_index: 0,
+            olm_wedging_index: Default::default(),
         }
     }
 
@@ -979,7 +981,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
             trust_state: Arc::new(RwLock::new(LocalTrust::Unset)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
             first_time_seen_ts: MilliSecondsSinceUnixEpoch::now(),
-            olm_wedging_index: 0,
+            olm_wedging_index: Default::default(),
         };
 
         device.verify_device_keys(device_keys)?;
