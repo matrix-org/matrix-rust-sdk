@@ -173,7 +173,7 @@ impl InboundGroupSession {
     ///   messages.
     ///
     /// * `sender_data` - Information about the sender of the to-device
-    /// message that established this session.
+    ///   message that established this session.
     pub fn new(
         sender_key: Curve25519PublicKey,
         signing_key: Ed25519PublicKey,
