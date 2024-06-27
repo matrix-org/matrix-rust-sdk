@@ -320,8 +320,9 @@ pub enum Error {
     #[error("a concurrent request failed; see logs for details")]
     ConcurrentRequestFailed,
 
-    /// An other error was raised
-    /// this might happen because encryption was enabled on the base-crate
+    /// An other error was raised.
+    ///
+    /// This might happen because encryption was enabled on the base-crate
     /// but not here and that raised.
     #[error("unknown error: {0}")]
     UnknownError(Box<dyn std::error::Error + Send + Sync>),
