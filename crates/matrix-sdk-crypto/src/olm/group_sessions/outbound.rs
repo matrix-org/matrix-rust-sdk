@@ -68,9 +68,18 @@ const ROTATION_PERIOD: Duration = ONE_WEEK;
 const ROTATION_MESSAGES: u64 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Information about whether a session was shared with a device.
 pub(crate) enum ShareState {
+    /// The session was not shared with the device.
     NotShared,
+    /// The session was shared with the device with the given device ID, but
+    /// with a different curve25519 key.
     SharedButChangedSenderKey,
+    /// The session was shared with the device, at the given message index. The
+    /// `olm_wedging_index` is the value of the `olm_wedging_index` from the
+    /// `ReadOnlyDevice` at the time that we last shared the session with the
+    /// device, and indicates whether we need to re-share the session with the
+    /// device.
     Shared { message_index: u32, olm_wedging_index: SequenceNumber },
 }
 
