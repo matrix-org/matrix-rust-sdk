@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use matrix_sdk::{send_queue::AbortSendHandle, Error};
+use matrix_sdk::{send_queue::SendHandle, Error};
 use ruma::{EventId, OwnedEventId, OwnedTransactionId};
 
 /// An item for an event that was created locally and not yet echoed back by
@@ -26,8 +26,8 @@ pub(in crate::timeline) struct LocalEventTimelineItem {
     pub send_state: EventSendState,
     /// The transaction ID.
     pub transaction_id: OwnedTransactionId,
-    /// A handle to abort sending this event, if possible.
-    pub abort_handle: Option<AbortSendHandle>,
+    /// A handle to manipulate this event before it is sent, if possible.
+    pub send_handle: Option<SendHandle>,
 }
 
 impl LocalEventTimelineItem {

@@ -1312,7 +1312,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         // Saving one thing should work.
         let txn0 = TransactionId::new();
         let event0 =
-            SerializableEventContent::new(RoomMessageEventContent::text_plain("msg0").into())
+            SerializableEventContent::new(&RoomMessageEventContent::text_plain("msg0").into())
                 .unwrap();
         self.save_send_queue_event(room_id, txn0.clone(), event0).await.unwrap();
 
@@ -1334,7 +1334,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         for i in 1..=3 {
             let txn = TransactionId::new();
             let event = SerializableEventContent::new(
-                RoomMessageEventContent::text_plain(format!("msg{i}")).into(),
+                &RoomMessageEventContent::text_plain(format!("msg{i}")).into(),
             )
             .unwrap();
 
@@ -1374,6 +1374,37 @@ impl StateStoreIntegrationTests for DynStateStore {
             }
         }
 
+        // Updating an event will work, and reset its wedged state to false.
+        let event0 = SerializableEventContent::new(
+            &RoomMessageEventContent::text_plain("wow that's a cool test").into(),
+        )
+        .unwrap();
+        self.update_send_queue_event(room_id, txn2, event0).await.unwrap();
+
+        // And it is reflected.
+        let pending = self.load_send_queue_events(room_id).await.unwrap();
+
+        assert_eq!(pending.len(), 4);
+        {
+            assert_eq!(pending[2].transaction_id, *txn2);
+
+            let deserialized = pending[2].event.deserialize().unwrap();
+            assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
+            assert_eq!(content.body(), "wow that's a cool test");
+
+            assert!(!pending[2].is_wedged);
+
+            for i in 0..4 {
+                if i != 2 {
+                    let deserialized = pending[i].event.deserialize().unwrap();
+                    assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
+                    assert_eq!(content.body(), format!("msg{i}"));
+
+                    assert!(!pending[i].is_wedged);
+                }
+            }
+        }
+
         // Removing an event works.
         self.remove_send_queue_event(room_id, &txn0).await.unwrap();
 
@@ -1394,7 +1425,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         {
             let txn = TransactionId::new();
             let event =
-                SerializableEventContent::new(RoomMessageEventContent::text_plain("room2").into())
+                SerializableEventContent::new(&RoomMessageEventContent::text_plain("room2").into())
                     .unwrap();
             self.save_send_queue_event(room_id2, txn.clone(), event).await.unwrap();
         }
@@ -1404,7 +1435,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             let room_id3 = room_id!("!test_send_queue_three:localhost");
             let txn = TransactionId::new();
             let event =
-                SerializableEventContent::new(RoomMessageEventContent::text_plain("room3").into())
+                SerializableEventContent::new(&RoomMessageEventContent::text_plain("room3").into())
                     .unwrap();
             self.save_send_queue_event(room_id3, txn.clone(), event).await.unwrap();
 

@@ -27,7 +27,7 @@ use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent,
     event_cache::{paginator::Paginator, RoomEventCache},
-    send_queue::AbortSendHandle,
+    send_queue::SendHandle,
     Result, Room,
 };
 #[cfg(test)]
@@ -646,13 +646,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         &self,
         txn_id: OwnedTransactionId,
         content: TimelineEventKind,
-        abort_handle: Option<AbortSendHandle>,
+        send_handle: Option<SendHandle>,
     ) {
         let sender = self.room_data_provider.own_user_id().to_owned();
         let profile = self.room_data_provider.profile_from_user_id(&sender).await;
 
         let mut state = self.state.write().await;
-        state.handle_local_event(sender, profile, txn_id, abort_handle, content).await;
+        state.handle_local_event(sender, profile, txn_id, send_handle, content).await;
     }
 
     /// Update the send state of a local event represented by a transaction ID.
@@ -803,6 +803,53 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             debug!("Can't find local echo to discard");
             false
         }
+    }
+
+    pub(super) async fn replace_local_echo(
+        &self,
+        txn_id: &TransactionId,
+        content: AnyMessageLikeEventContent,
+    ) -> bool {
+        let AnyMessageLikeEventContent::RoomMessage(content) = content else {
+            // Ideally, we'd support replacing local echoes for a reaction, etc., but
+            // handling RoomMessage should be sufficient in most cases. Worst
+            // case, the local echo will be sent Soon™ and we'll get another chance at
+            // editing the event then.
+            warn!("Replacing a local echo for a non-RoomMessage-like event NYI");
+            return false;
+        };
+
+        let mut state = self.state.write().await;
+
+        let Some((idx, prev_item)) =
+            rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))
+        else {
+            debug!("Can't find local echo to replace");
+            return false;
+        };
+
+        // Reuse the previous local echo's state, but reset the send state to not sent
+        // (per API contract).
+        let ti_kind = {
+            let Some(prev_local_item) = prev_item.as_local() else {
+                warn!("We looked for a local item, but it transitioned as remote??");
+                return false;
+            };
+            prev_local_item.with_send_state(EventSendState::NotSentYet)
+        };
+
+        // Replace the local-related state (kind) and the content state.
+        let new_item = TimelineItem::new(
+            prev_item.with_kind(ti_kind).with_content(
+                TimelineItemContent::message(content, Default::default(), &state.items),
+                None,
+            ),
+            prev_item.internal_id.to_owned(),
+        );
+
+        state.items.set(idx, new_item);
+        debug!("Replaced local echo");
+        true
     }
 
     #[cfg(test)]

@@ -1704,6 +1704,28 @@ impl StateStore for SqliteStateStore {
             .await
     }
 
+    async fn update_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+        content: SerializableEventContent,
+    ) -> Result<(), Self::Error> {
+        let room_id = self.encode_key(keys::SEND_QUEUE, room_id);
+
+        let content = self.serialize_json(&content)?;
+        // See comment in [`Self::save_send_queue_event`] to understand why the
+        // transaction id is neither encrypted or hashed.
+        let transaction_id = transaction_id.to_string();
+
+        self.acquire()
+            .await?
+            .with_transaction(move |txn| {
+                txn.prepare_cached("UPDATE send_queue_events SET wedged = false, content = ? WHERE room_id = ? AND transaction_id = ?")?.execute((content, room_id, transaction_id))?;
+                Ok(())
+            })
+            .await
+    }
+
     async fn remove_send_queue_event(
         &self,
         room_id: &RoomId,

@@ -1395,6 +1395,44 @@ impl_state_store!({
         Ok(())
     }
 
+    async fn update_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+        content: SerializableEventContent,
+    ) -> Result<()> {
+        let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
+
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(keys::ROOM_SEND_QUEUE, IdbTransactionMode::Readwrite)?;
+
+        let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
+
+        // We store an encoded vector of the queued events, with their transaction ids.
+
+        // Reload the previous vector for this room, or create an empty one.
+        let prev = obj.get(&encoded_key)?.await?;
+
+        let mut prev = prev.map_or_else(
+            || Ok(Vec::new()),
+            |val| self.deserialize_value::<Vec<PersistedQueuedEvent>>(&val),
+        )?;
+
+        // Modify the one event.
+        if let Some(entry) = prev.iter_mut().find(|entry| entry.transaction_id == transaction_id) {
+            entry.event = content;
+            entry.is_wedged = false;
+        }
+
+        // Save the new vector into db.
+        obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
+
+        tx.await.into_result()?;
+
+        Ok(())
+    }
+
     async fn remove_send_queue_event(
         &self,
         room_id: &RoomId,

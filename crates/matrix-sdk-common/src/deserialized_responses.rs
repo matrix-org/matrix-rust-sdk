@@ -251,6 +251,18 @@ impl SyncTimelineEvent {
         Self { event, encryption_info: None, push_actions: vec![], unsigned_encryption_info: None }
     }
 
+    /// Create a new `SyncTimelineEvent` from the given raw event and push
+    /// actions.
+    ///
+    /// This is a convenience constructor for when you don't need to set
+    /// `encryption_info`, for example inside a test.
+    pub fn new_with_push_actions(
+        event: Raw<AnySyncTimelineEvent>,
+        push_actions: Vec<Action>,
+    ) -> Self {
+        Self { event, encryption_info: None, push_actions, unsigned_encryption_info: None }
+    }
+
     /// Get the event id of this `SyncTimelineEvent` if the event has any valid
     /// id.
     pub fn event_id(&self) -> Option<OwnedEventId> {

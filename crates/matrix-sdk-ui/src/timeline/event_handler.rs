@@ -18,8 +18,7 @@ use as_variant::as_variant;
 use eyeball_im::{ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::{map::Entry, IndexMap};
 use matrix_sdk::{
-    crypto::types::events::UtdCause, deserialized_responses::EncryptionInfo,
-    send_queue::AbortSendHandle,
+    crypto::types::events::UtdCause, deserialized_responses::EncryptionInfo, send_queue::SendHandle,
 };
 use ruma::{
     events::{
@@ -72,8 +71,8 @@ pub(super) enum Flow {
         /// The transaction id we've used in requests associated to this event.
         txn_id: OwnedTransactionId,
 
-        /// A handle to abort sending this event.
-        abort_handle: Option<AbortSendHandle>,
+        /// A handle to manipulate this event.
+        send_handle: Option<SendHandle>,
     },
 
     /// The event has been received from a remote source (sync, pagination,
@@ -347,17 +346,20 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 AnyMessageLikeEventContent::Reaction(c) => {
                     self.handle_reaction(c);
                 }
+
                 AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent {
                     relates_to: Some(message::Relation::Replacement(re)),
                     ..
                 }) => {
                     self.handle_room_message_edit(re);
                 }
+
                 AnyMessageLikeEventContent::RoomMessage(c) => {
                     if should_add {
                         self.add_item(TimelineItemContent::message(c, relations, self.items));
                     }
                 }
+
                 AnyMessageLikeEventContent::RoomEncrypted(c) => {
                     // TODO: Handle replacements if the replaced event is also UTD
                     let cause = UtdCause::determine(raw_event);
@@ -371,24 +373,31 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         }
                     }
                 }
+
                 AnyMessageLikeEventContent::Sticker(content) => {
                     if should_add {
                         self.add_item(TimelineItemContent::Sticker(Sticker { content }));
                     }
                 }
+
                 AnyMessageLikeEventContent::UnstablePollStart(
                     UnstablePollStartEventContent::Replacement(c),
                 ) => self.handle_poll_start_edit(c.relates_to),
+
                 AnyMessageLikeEventContent::UnstablePollStart(
                     UnstablePollStartEventContent::New(c),
                 ) => self.handle_poll_start(c, should_add),
+
                 AnyMessageLikeEventContent::UnstablePollResponse(c) => self.handle_poll_response(c),
+
                 AnyMessageLikeEventContent::UnstablePollEnd(c) => self.handle_poll_end(c),
+
                 AnyMessageLikeEventContent::CallInvite(_) => {
                     if should_add {
                         self.add_item(TimelineItemContent::CallInvite);
                     }
                 }
+
                 AnyMessageLikeEventContent::CallNotify(_) => {
                     if should_add {
                         self.add_item(TimelineItemContent::CallNotify)
@@ -488,7 +497,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             let TimelineItemContent::Message(msg) = event_item.content() else {
                 info!(
-                    "Edit of message event applies to {}, discarding",
+                    "Edit of message event applies to {:?}, discarding",
                     event_item.content().debug_string(),
                 );
                 return None;
@@ -875,10 +884,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let mut reactions = self.pending_reactions().unwrap_or_default();
 
         let kind: EventTimelineItemKind = match &self.ctx.flow {
-            Flow::Local { txn_id, abort_handle } => LocalEventTimelineItem {
+            Flow::Local { txn_id, send_handle } => LocalEventTimelineItem {
                 send_state: EventSendState::NotSentYet,
                 transaction_id: txn_id.to_owned(),
-                abort_handle: abort_handle.clone(),
+                send_handle: send_handle.clone(),
             }
             .into(),
 

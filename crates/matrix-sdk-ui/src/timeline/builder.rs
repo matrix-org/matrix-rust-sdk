@@ -296,6 +296,26 @@ impl TimelineBuilder {
                                     }
                                 }
 
+                                RoomSendQueueUpdate::ReplacedLocalEvent {
+                                    transaction_id,
+                                    new_content,
+                                } => {
+                                    let content = match new_content.deserialize() {
+                                        Ok(d) => d,
+                                        Err(err) => {
+                                            warn!(
+                                                "error deserializing local echo (upon edit): {err}"
+                                            );
+                                            return;
+                                        }
+                                    };
+
+                                    if !timeline.replace_local_echo(&transaction_id, content).await
+                                    {
+                                        warn!("couldn't find the local echo to replace");
+                                    }
+                                }
+
                                 RoomSendQueueUpdate::SendError {
                                     transaction_id,
                                     error,
@@ -417,7 +437,7 @@ async fn handle_local_echo(echo: LocalEcho, timeline: &TimelineInner) {
     let content = match echo.serialized_event.deserialize() {
         Ok(d) => d,
         Err(err) => {
-            warn!("error deserializing local echo (at start): {err}");
+            warn!("error deserializing local echo: {err}");
             return;
         }
     };
@@ -426,7 +446,7 @@ async fn handle_local_echo(echo: LocalEcho, timeline: &TimelineInner) {
         .handle_local_event(
             echo.transaction_id.clone(),
             TimelineEventKind::Message { content, relations: Default::default() },
-            Some(echo.abort_handle),
+            Some(echo.send_handle),
         )
         .await;
 

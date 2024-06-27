@@ -905,12 +905,16 @@ impl Account {
     ///   and shared with us.
     ///
     /// * `fallback_used` - Was the one-time key a fallback key.
+    ///
+    /// * `our_device_keys` - Our own `DeviceKeys`, including cross-signing
+    ///   signatures if applicable, for embedding in encrypted messages.
     pub fn create_outbound_session_helper(
         &self,
         config: SessionConfig,
         identity_key: Curve25519PublicKey,
         one_time_key: Curve25519PublicKey,
         fallback_used: bool,
+        our_device_keys: DeviceKeys,
     ) -> Session {
         let session = self.inner.create_outbound_session(config, identity_key, one_time_key);
 
@@ -918,12 +922,10 @@ impl Account {
         let session_id = session.session_id();
 
         Session {
-            user_id: self.static_data.user_id.clone(),
-            device_id: self.static_data.device_id.clone(),
-            our_identity_keys: self.static_data.identity_keys.clone(),
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             sender_key: identity_key,
+            our_device_keys,
             created_using_fallback_key: fallback_used,
             creation_time: now,
             last_use_time: now,
@@ -978,11 +980,15 @@ impl Account {
     ///
     /// * `key_map` - A map from the algorithm and device ID to the one-time key
     ///   that the other account created and shared with us.
+    ///
+    /// * `our_device_keys` - Our own `DeviceKeys`, including cross-signing
+    ///   signatures if applicable, for embedding in encrypted messages.
     #[allow(clippy::result_large_err)]
     pub fn create_outbound_session(
         &self,
         device: &ReadOnlyDevice,
         key_map: &BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>,
+        our_device_keys: DeviceKeys,
     ) -> Result<Session, SessionCreationError> {
         let pre_key_bundle = Self::find_pre_key_bundle(device, key_map)?;
 
@@ -1012,6 +1018,7 @@ impl Account {
                     identity_key,
                     one_time_key,
                     is_fallback,
+                    our_device_keys,
                 ))
             }
         }
@@ -1026,11 +1033,15 @@ impl Account {
     ///
     /// * `their_identity_key` - The other account's identity/curve25519 key.
     ///
+    /// * `our_device_keys` - Our own `DeviceKeys`, including cross-signing
+    ///   signatures if applicable, for embedding in encrypted messages.
+    ///
     /// * `message` - A pre-key Olm message that was sent to us by the other
     ///   account.
     pub fn create_inbound_session(
         &mut self,
         their_identity_key: Curve25519PublicKey,
+        our_device_keys: DeviceKeys,
         message: &PreKeyMessage,
     ) -> Result<InboundCreationResult, SessionCreationError> {
         Span::current().record("session_id", debug(message.session_id()));
@@ -1043,12 +1054,10 @@ impl Account {
         debug!(session=?result.session, "Decrypted an Olm message from a new Olm session");
 
         let session = Session {
-            user_id: self.static_data.user_id.clone(),
-            device_id: self.static_data.device_id.clone(),
-            our_identity_keys: self.static_data.identity_keys.clone(),
             inner: Arc::new(Mutex::new(result.session)),
             session_id: session_id.into(),
             sender_key: their_identity_key,
+            our_device_keys,
             created_using_fallback_key: false,
             creation_time: now,
             last_use_time: now,
@@ -1072,7 +1081,8 @@ impl Account {
         let one_time_map = other.signed_one_time_keys();
         let device = ReadOnlyDevice::from_account(other);
 
-        let mut our_session = self.create_outbound_session(&device, &one_time_map).unwrap();
+        let mut our_session =
+            self.create_outbound_session(&device, &one_time_map, self.device_keys()).unwrap();
 
         other.mark_keys_as_published();
 
@@ -1104,8 +1114,13 @@ impl Account {
         };
 
         let our_device = ReadOnlyDevice::from_account(self);
-        let other_session =
-            other.create_inbound_session(our_device.curve25519_key().unwrap(), &prekey).unwrap();
+        let other_session = other
+            .create_inbound_session(
+                our_device.curve25519_key().unwrap(),
+                other.device_keys(),
+                &prekey,
+            )
+            .unwrap();
 
         (our_session, other_session.session)
     }
@@ -1290,20 +1305,23 @@ impl Account {
                         );
 
                         return Err(OlmError::SessionWedged(
-                            session.user_id.to_owned(),
+                            session.our_device_keys.user_id.to_owned(),
                             session.sender_key(),
                         ));
                     }
                 }
 
-                // We didn't find a matching session; try to create a new session.
-                let result = match self.create_inbound_session(sender_key, prekey_message) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        warn!("Failed to create a new Olm session from a pre-key message: {e:?}");
-                        return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
-                    }
-                };
+                let device_keys = store.get_own_device().await?.as_device_keys().clone();
+                let result =
+                    match self.create_inbound_session(sender_key, device_keys, prekey_message) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            warn!(
+                                "Failed to create a new Olm session from a pre-key message: {e:?}"
+                            );
+                            return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
+                        }
+                    };
 
                 // We need to add the new session to the session cache, otherwise
                 // we might try to create the same session again.

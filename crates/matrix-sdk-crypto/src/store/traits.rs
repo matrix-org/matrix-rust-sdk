@@ -203,6 +203,12 @@ pub trait CryptoStore: AsyncTraitDeps {
         user_id: &UserId,
     ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>, Self::Error>;
 
+    /// Get the device for the current client.
+    ///
+    /// Since our own device is set when the store is created, this will always
+    /// return a device (unless there is an error).
+    async fn get_own_device(&self) -> Result<ReadOnlyDevice, Self::Error>;
+
     /// Get the user identity that is attached to the given user id.
     ///
     /// # Arguments
@@ -448,6 +454,10 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         user_id: &UserId,
     ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         self.0.get_user_devices(user_id).await.map_err(Into::into)
+    }
+
+    async fn get_own_device(&self) -> Result<ReadOnlyDevice> {
+        self.0.get_own_device().await.map_err(Into::into)
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
