@@ -156,7 +156,7 @@ impl Session {
                 "keys": {
                     "ed25519": self.our_device_keys.ed25519_key().expect("Device doesn't have ed25519 key").to_base64(),
                 },
-                "device_keys": self.our_device_keys,
+                "org.matrix.msc4147.device_keys": self.our_device_keys,
                 "recipient": recipient_device.user_id(),
                 "recipient_keys": {
                     "ed25519": recipient_signing_key.to_base64(),
