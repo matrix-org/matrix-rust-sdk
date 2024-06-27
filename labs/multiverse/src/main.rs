@@ -25,7 +25,7 @@ use matrix_sdk::{
         events::room::message::{MessageType, RoomMessageEventContent},
         MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
     },
-    AuthSession, Client, RoomListEntry, ServerName, SqliteCryptoStore, SqliteStateStore,
+    AuthSession, Client, ServerName, SqliteCryptoStore, SqliteStateStore,
 };
 use matrix_sdk_ui::{
     room_list_service,
@@ -144,8 +144,8 @@ struct App {
     /// Timelines data structures for each room.
     timelines: Arc<Mutex<HashMap<OwnedRoomId, Timeline>>>,
 
-    /// Ratatui's list of room list entries.
-    room_list_entries: StatefulList<RoomListEntry>,
+    /// Ratatui's list of room list rooms.
+    room_list_rooms: StatefulList<room_list_service::Room>,
 
     /// Extra information about rooms.
     room_info: Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>>,
@@ -172,12 +172,7 @@ impl App {
     async fn new(client: Client) -> anyhow::Result<Self> {
         let sync_service = Arc::new(SyncService::builder(client.clone()).build().await?);
 
-        let room_list_service = sync_service.room_list_service();
-
-        let all_rooms = room_list_service.all_rooms().await?;
-        let (rooms, stream) = all_rooms.entries();
-
-        let rooms = Arc::new(Mutex::new(rooms));
+        let rooms = Arc::new(Mutex::new(Vector::<room_list_service::Room>::new()));
         let room_infos: Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>> =
             Arc::new(Mutex::new(Default::default()));
         let ui_rooms: Arc<Mutex<HashMap<OwnedRoomId, room_list_service::Room>>> =
@@ -190,13 +185,22 @@ impl App {
         let s = sync_service.clone();
         let t = timelines.clone();
 
+        let room_list_service = sync_service.room_list_service();
+        let all_rooms = room_list_service.all_rooms().await?;
+
         let listen_task = spawn(async move {
-            pin_mut!(stream);
             let rooms = r;
             let room_infos = ri;
             let ui_rooms = ur;
             let sync_service = s;
             let timelines = t;
+
+            let (initial_rooms, stream) = all_rooms.entries();
+
+            // Save initial rooms.
+            rooms.lock().unwrap().append(initial_rooms);
+
+            pin_mut!(stream);
 
             while let Some(diffs) = stream.next().await {
                 let all_rooms = {
@@ -207,10 +211,7 @@ impl App {
                     }
 
                     // Collect rooms early to release the room entries list lock.
-                    rooms
-                        .iter()
-                        .filter_map(|entry| entry.as_room_id().map(ToOwned::to_owned))
-                        .collect::<Vec<_>>()
+                    rooms.iter().map(|room| room.room_id().to_owned()).collect::<Vec<_>>()
                 };
 
                 // Clone the previous set of ui rooms to avoid keeping the ui_rooms lock (which
@@ -290,7 +291,7 @@ impl App {
 
         Ok(Self {
             sync_service,
-            room_list_entries: StatefulList { state: Default::default(), items: rooms },
+            room_list_rooms: StatefulList { state: Default::default(), items: rooms },
             room_info: room_infos,
             client,
             listen_task,
@@ -382,15 +383,15 @@ impl App {
 
     /// Returns the currently selected room id, if any.
     fn get_selected_room_id(&self, selected: Option<usize>) -> Option<OwnedRoomId> {
-        let selected = selected.or_else(|| self.room_list_entries.state.selected())?;
+        let selected = selected.or_else(|| self.room_list_rooms.state.selected())?;
 
-        self.room_list_entries
+        self.room_list_rooms
             .items
             .lock()
             .unwrap()
             .get(selected)
             .cloned()
-            .and_then(|entry| entry.as_room_id().map(ToOwned::to_owned))
+            .map(|room| room.room_id().to_owned())
     }
 
     fn subscribe_to_selected_room(&mut self, selected: usize) {
@@ -421,13 +422,13 @@ impl App {
                             Char('q') | Esc => return Ok(()),
 
                             Char('j') | Down => {
-                                if let Some(i) = self.room_list_entries.next() {
+                                if let Some(i) = self.room_list_rooms.next() {
                                     self.subscribe_to_selected_room(i);
                                 }
                             }
 
                             Char('k') | Up => {
-                                if let Some(i) = self.room_list_entries.previous() {
+                                if let Some(i) = self.room_list_rooms.previous() {
                                     self.subscribe_to_selected_room(i);
                                 }
                             }
@@ -577,21 +578,19 @@ impl App {
 
         // Iterate through all elements in the `items` and stylize them.
         let items: Vec<ListItem<'_>> = self
-            .room_list_entries
+            .room_list_rooms
             .items
             .lock()
             .unwrap()
             .iter()
             .enumerate()
-            .map(|(i, item)| {
+            .map(|(i, room)| {
                 let bg_color = match i % 2 {
                     0 => NORMAL_ROW_COLOR,
                     _ => ALT_ROW_COLOR,
                 };
 
-                let line = if let Some(room) =
-                    item.as_room_id().and_then(|room_id| self.client.get_room(room_id))
-                {
+                let line = {
                     let room_id = room.room_id();
                     let room_info = room_info.remove(room_id);
 
@@ -610,8 +609,6 @@ impl App {
                     };
 
                     format!("#{i} {}", room_name)
-                } else {
-                    "non-filled room".to_owned()
                 };
 
                 let line = Line::styled(line, TEXT_COLOR);
@@ -631,7 +628,7 @@ impl App {
             .highlight_symbol(">")
             .highlight_spacing(HighlightSpacing::Always);
 
-        StatefulWidget::render(items, inner_area, buf, &mut self.room_list_entries.state);
+        StatefulWidget::render(items, inner_area, buf, &mut self.room_list_rooms.state);
     }
 
     /// Render the right part of the screen, showing the details of the current
