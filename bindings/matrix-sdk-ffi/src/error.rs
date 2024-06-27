@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use matrix_sdk::{
-    encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError,
+    encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, reqwest,
     send_queue::RoomSendQueueError, HttpError, IdParseError,
     NotificationSettingsError as SdkNotificationSettingsError, StoreError,
 };
@@ -23,6 +23,12 @@ impl ClientError {
 impl From<anyhow::Error> for ClientError {
     fn from(e: anyhow::Error) -> ClientError {
         ClientError::Generic { msg: format!("{e:#}") }
+    }
+}
+
+impl From<reqwest::Error> for ClientError {
+    fn from(e: reqwest::Error) -> Self {
+        Self::new(e)
     }
 }
 

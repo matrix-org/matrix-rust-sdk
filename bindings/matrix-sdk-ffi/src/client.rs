@@ -420,6 +420,11 @@ impl Client {
             }
         })))
     }
+
+    pub async fn get_url(&self, url: String) -> Result<String, ClientError> {
+        let http_client = self.inner.http_client();
+        Ok(http_client.get(url).send().await?.text().await?)
+    }
 }
 
 impl Client {
