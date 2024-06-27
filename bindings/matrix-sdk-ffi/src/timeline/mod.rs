@@ -485,13 +485,9 @@ impl Timeline {
         item: Arc<EventTimelineItem>,
         new_content: Arc<RoomMessageEventContentWithoutRelation>,
     ) -> Result<bool, ClientError> {
-        let edit_info = item.0.edit_info().map_err(|err| anyhow::anyhow!(err))?;
+        let edit_info = item.0.edit_info().map_err(ClientError::from)?;
 
-        Ok(self
-            .inner
-            .edit((*new_content).clone(), edit_info)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))?)
+        self.inner.edit((*new_content).clone(), edit_info).await.map_err(ClientError::from)
     }
 
     /// Edit an event given its event id. Useful when we're not sure a remote
@@ -502,17 +498,10 @@ impl Timeline {
         new_content: Arc<RoomMessageEventContentWithoutRelation>,
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
-        let edit_info = self
-            .inner
-            .edit_info_from_event_id(&event_id)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))?;
+        let edit_info =
+            self.inner.edit_info_from_event_id(&event_id).await.map_err(ClientError::from)?;
 
-        self.inner
-            .edit((*new_content).clone(), edit_info)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))?;
-
+        self.inner.edit((*new_content).clone(), edit_info).await.map_err(ClientError::from)?;
         Ok(())
     }
 
