@@ -421,7 +421,8 @@ impl Client {
         })))
     }
 
-    /// Allows generic GET requests to be made through the SDKs internal HTTP client
+    /// Allows generic GET requests to be made through the SDKs internal HTTP
+    /// client
     pub async fn get_url(&self, url: String) -> Result<String, ClientError> {
         let http_client = self.inner.http_client();
         Ok(http_client.get(url).send().await?.text().await?)
