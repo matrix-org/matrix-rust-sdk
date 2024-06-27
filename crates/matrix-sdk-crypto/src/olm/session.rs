@@ -350,6 +350,9 @@ mod tests {
 
         // Also ensure that the encrypted payload has the device keys.
         let plaintext: Value = serde_json::from_str(&bob_session_result.plaintext).unwrap();
-        assert_eq!(plaintext["device_keys"]["user_id"].as_str(), Some("@alice:localhost"));
+        assert_eq!(
+            plaintext["org.matrix.msc4147.device_keys"]["user_id"].as_str(),
+            Some("@alice:localhost")
+        );
     }
 }
