@@ -394,6 +394,11 @@ impl Client {
         &self.inner.base_client
     }
 
+    /// The underlying HTTP client.
+    pub fn http_client(&self) -> &reqwest::Client {
+        &self.inner.http_client.inner
+    }
+
     pub(crate) fn locks(&self) -> &ClientLocks {
         &self.inner.locks
     }
