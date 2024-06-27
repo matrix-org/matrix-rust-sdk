@@ -537,7 +537,7 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
                 curve25519_key: key.sender_key,
                 signing_keys: key.sender_claimed_keys.to_owned().into(),
             },
-            // In future, exported keys should contain sender data that we can use here.
+            // TODO: In future, exported keys should contain sender data that we can use here.
             // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
             sender_data: SenderData::default(),
             history_visibility: None.into(),
