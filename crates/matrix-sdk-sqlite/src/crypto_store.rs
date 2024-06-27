@@ -780,9 +780,11 @@ impl CryptoStore for SqliteCryptoStore {
         }
 
         let this = self.clone();
-        self.acquire()
+        let clear_caches = self
+            .acquire()
             .await?
             .with_transaction(move |txn| {
+                let mut clear_caches = false;
                 if let Some(pickled_private_identity) = &pickled_private_identity {
                     let serialized_private_identity =
                         this.serialize_value(pickled_private_identity)?;
@@ -804,7 +806,16 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.set_kv("backup_version_v1", &serialized_backup_version)?;
                 }
 
+                let account_info = this.get_static_account();
                 for device in changes.devices.new.iter().chain(&changes.devices.changed) {
+                    // If our own device key changes, we need to clear the
+                    // session cache because the sessions contain a copy of our
+                    // device key.
+                    if account_info.clone().is_some_and(|info| {
+                        info.user_id == device.user_id() && info.device_id == device.device_id()
+                    }) {
+                        clear_caches = true;
+                    }
                     let user_id = this.encode_key("device", device.user_id().as_bytes());
                     let device_id = this.encode_key("device", device.device_id().as_bytes());
                     let data = this.serialize_value(&device)?;
@@ -875,9 +886,13 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.set_secret(&secret_name, &value)?;
                 }
 
-                Ok::<_, Error>(())
+                Ok::<_, Error>(clear_caches)
             })
             .await?;
+
+        if clear_caches {
+            self.clear_caches().await;
+        }
 
         Ok(())
     }
@@ -905,9 +920,9 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        let account_info = self.get_static_account().ok_or(Error::AccountUnset)?;
-
         if self.session_cache.get(sender_key).is_none() {
+            let device_keys = self.get_own_device().await?.as_device_keys().clone();
+
             let sessions = self
                 .acquire()
                 .await?
@@ -916,12 +931,8 @@ impl CryptoStore for SqliteCryptoStore {
                 .into_iter()
                 .map(|bytes| {
                     let pickle = self.deserialize_value(&bytes)?;
-                    Ok(Session::from_pickle(
-                        account_info.user_id.clone(),
-                        account_info.device_id.clone(),
-                        account_info.identity_keys.clone(),
-                        pickle,
-                    ))
+                    Session::from_pickle(device_keys.clone(), pickle)
+                        .map_err(|_| Error::AccountUnset)
                 })
                 .collect::<Result<_>>()?;
 
@@ -1108,6 +1119,11 @@ impl CryptoStore for SqliteCryptoStore {
                 Ok((device.device_id().to_owned(), device))
             })
             .collect()
+    }
+
+    async fn get_own_device(&self) -> Result<ReadOnlyDevice> {
+        let account_info = self.get_static_account().ok_or(Error::AccountUnset)?;
+        Ok(self.get_device(&account_info.user_id, &account_info.device_id).await?.unwrap())
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
@@ -1331,7 +1347,8 @@ mod tests {
 mod encrypted_tests {
     use matrix_sdk_crypto::{
         cryptostore_integration_tests, cryptostore_integration_tests_time,
-        store::{Changes, CryptoStore as _, PendingChanges},
+        store::{Changes, CryptoStore as _, DeviceChanges, PendingChanges},
+        ReadOnlyDevice,
     };
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
@@ -1369,6 +1386,42 @@ mod encrypted_tests {
 
         // When we clear the caches
         store.clear_caches().await;
+
+        // Then the session is no longer in the cache
+        assert!(
+            store.session_cache.get(&sender_key).is_none(),
+            "Session should not be in the cache!"
+        );
+    }
+
+    #[async_test]
+    async fn cache_cleared_after_device_update() {
+        let store = get_store("cache_cleared_after_device_update", None).await;
+        // Given we created a session and saved it in the store
+        let (account, session) = cryptostore_integration_tests::get_account_and_session().await;
+        let sender_key = session.sender_key.to_base64();
+
+        store
+            .save_pending_changes(PendingChanges { account: Some(account.deep_clone()) })
+            .await
+            .expect("Can't save account");
+
+        let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
+        store.save_changes(changes).await.unwrap();
+
+        store.session_cache.get(&sender_key).expect("We should have a session");
+
+        // When we save a new version of our device keys
+        store
+            .save_changes(Changes {
+                devices: DeviceChanges {
+                    new: vec![ReadOnlyDevice::from_account(&account)],
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
 
         // Then the session is no longer in the cache
         assert!(

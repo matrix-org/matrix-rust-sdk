@@ -173,7 +173,14 @@ impl OlmMachine {
         let static_account = account.static_data().clone();
 
         let store = Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()));
+        let device = ReadOnlyDevice::from_account(&account);
         store.save_pending_changes(PendingChanges { account: Some(account) }).await?;
+        store
+            .save_changes(Changes {
+                devices: DeviceChanges { new: vec![device], ..Default::default() },
+                ..Default::default()
+            })
+            .await?;
 
         Ok(Self::new_helper(
             device_id,

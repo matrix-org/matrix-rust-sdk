@@ -474,6 +474,12 @@ impl CryptoStore for MemoryStore {
         Ok(self.devices.user_devices(user_id))
     }
 
+    async fn get_own_device(&self) -> Result<ReadOnlyDevice> {
+        let account = self.load_account().await?.unwrap();
+
+        Ok(self.devices.get(&account.user_id, &account.device_id).unwrap())
+    }
+
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
         Ok(self.identities.read().unwrap().get(user_id).cloned())
     }
@@ -1263,6 +1269,10 @@ mod integration_tests {
             user_id: &UserId,
         ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>, Self::Error> {
             self.0.get_user_devices(user_id).await
+        }
+
+        async fn get_own_device(&self) -> Result<ReadOnlyDevice, Self::Error> {
+            self.0.get_own_device().await
         }
 
         async fn get_user_identity(

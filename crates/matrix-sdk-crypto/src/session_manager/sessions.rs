@@ -537,7 +537,8 @@ impl SessionManager {
                 };
 
                 let account = store_transaction.account().await?;
-                let session = match account.create_outbound_session(&device, key_map) {
+                let device_keys = self.store.get_own_device().await?.as_device_keys().clone();
+                let session = match account.create_outbound_session(&device, key_map, device_keys) {
                     Ok(s) => s,
                     Err(e) => {
                         warn!(
@@ -631,7 +632,7 @@ mod tests {
         identities::{IdentityManager, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
-        store::{CryptoStoreWrapper, MemoryStore, PendingChanges, Store},
+        store::{Changes, CryptoStoreWrapper, DeviceChanges, MemoryStore, PendingChanges, Store},
         verification::VerificationMachine,
     };
 
@@ -688,7 +689,15 @@ mod tests {
         );
 
         let store = Store::new(account.static_data().clone(), identity, store, verification);
+        let device = ReadOnlyDevice::from_account(&account);
         store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
+        store
+            .save_changes(Changes {
+                devices: DeviceChanges { new: vec![device], ..Default::default() },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
 
         let session_cache = GroupSessionCache::new(store.clone());
         let identity_manager = IdentityManager::new(store.clone());

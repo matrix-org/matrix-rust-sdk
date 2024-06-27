@@ -93,6 +93,7 @@ pub(crate) mod tests {
             sender_key,
             one_time_key,
             false,
+            alice.device_keys(),
         );
 
         (alice, session)
@@ -144,6 +145,7 @@ pub(crate) mod tests {
             alice_keys.curve25519,
             one_time_key,
             false,
+            bob.device_keys(),
         );
 
         let plaintext = "Hello world";
@@ -156,7 +158,9 @@ pub(crate) mod tests {
         };
 
         let bob_keys = bob.identity_keys();
-        let result = alice.create_inbound_session(bob_keys.curve25519, &prekey_message).unwrap();
+        let result = alice
+            .create_inbound_session(bob_keys.curve25519, alice.device_keys(), &prekey_message)
+            .unwrap();
 
         assert_eq!(bob_session.session_id(), result.session.session_id());
 

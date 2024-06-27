@@ -16,7 +16,11 @@ mod responses;
 mod users;
 mod verification;
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::Context as _;
 pub use backup_recovery_key::{
@@ -33,7 +37,9 @@ use matrix_sdk_common::deserialized_responses::ShieldState as RustShieldState;
 use matrix_sdk_crypto::{
     olm::{IdentityKeys, InboundGroupSession, Session},
     store::{Changes, CryptoStore, PendingChanges, RoomSettings as RustRoomSettings},
-    types::{EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey},
+    types::{
+        DeviceKey, DeviceKeys, EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey,
+    },
     CollectStrategy, EncryptionSettings as RustEncryptionSettings,
 };
 use matrix_sdk_sqlite::SqliteCryptoStore;
@@ -43,8 +49,8 @@ pub use responses::{
 };
 use ruma::{
     events::room::history_visibility::HistoryVisibility as RustHistoryVisibility,
-    DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
-    SecondsSinceUnixEpoch, UserId,
+    DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId,
+    RoomId, SecondsSinceUnixEpoch, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
@@ -332,6 +338,10 @@ async fn save_changes(
     processed_steps += 1;
     listener(processed_steps, total_steps);
 
+    // The Sessions were created with incorrect device keys, so clear the cache
+    // so that they'll get recreated with correct ones.
+    store.clear_caches().await;
+
     Ok(())
 }
 
@@ -419,6 +429,27 @@ fn collect_sessions(
 ) -> anyhow::Result<(Vec<Session>, Vec<InboundGroupSession>)> {
     let mut sessions = Vec::new();
 
+    // Create a DeviceKeys struct with enough information to get a working
+    // Session, but we will won't actually use the Sessions (and we'll clear
+    // the session cache after migration) so we don't need to worry about
+    // signatures.
+    let device_keys = DeviceKeys::new(
+        user_id.clone(),
+        device_id.clone(),
+        Default::default(),
+        BTreeMap::from([
+            (
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &device_id),
+                DeviceKey::Ed25519(identity_keys.ed25519),
+            ),
+            (
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Curve25519, &device_id),
+                DeviceKey::Curve25519(identity_keys.curve25519),
+            ),
+        ]),
+        Default::default(),
+    );
+
     for session_pickle in session_pickles {
         let pickle =
             vodozemac::olm::Session::from_libolm_pickle(&session_pickle.pickle, pickle_key)?
@@ -439,8 +470,7 @@ fn collect_sessions(
             last_use_time,
         };
 
-        let session =
-            Session::from_pickle(user_id.clone(), device_id.clone(), identity_keys.clone(), pickle);
+        let session = Session::from_pickle(device_keys.clone(), pickle)?;
 
         sessions.push(session);
         processed_steps += 1;
