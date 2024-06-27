@@ -1349,6 +1349,7 @@ mod tests {
                 .create_outbound_session(
                     &alice_device,
                     &BTreeMap::from([(alice_otk_id.clone(), alice_otk.clone())]),
+                    bob_account.device_keys(),
                 )
                 .unwrap();
             let content = session.encrypt(&alice_device, "m.dummy", json!({}), None).await.unwrap();
@@ -1413,6 +1414,7 @@ mod tests {
                 .create_outbound_session(
                     &alice_device,
                     &BTreeMap::from([(alice_otk_id.clone(), alice_otk.clone())]),
+                    bob_account.device_keys(),
                 )
                 .unwrap();
             let content = session.encrypt(&alice_device, "m.dummy", json!({}), None).await.unwrap();
