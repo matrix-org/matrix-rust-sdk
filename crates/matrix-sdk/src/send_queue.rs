@@ -468,11 +468,20 @@ impl RoomSendQueue {
                 }
 
                 Err(err) => {
-                    let is_recoverable = if let crate::Error::Http(ref http_err) = err {
-                        // All transient errors are recoverable.
-                        matches!(http_err.retry_kind(), RetryKind::Transient { .. })
-                    } else {
-                        false
+                    let is_recoverable = match err {
+                        crate::Error::Http(ref http_err) => {
+                            // All transient errors are recoverable.
+                            matches!(http_err.retry_kind(), RetryKind::Transient { .. })
+                        }
+
+                        // `ConcurrentRequestFailed` typically happens because of an HTTP failure;
+                        // since we don't get the underlying error, be lax and consider it
+                        // recoverable, and let observers decide to retry it or not. At some point
+                        // we'll get the actual underlying error.
+                        crate::Error::ConcurrentRequestFailed => true,
+
+                        // As of 2024-06-27, all other error types are considered unrecoverable.
+                        _ => false,
                     };
 
                     if is_recoverable {
