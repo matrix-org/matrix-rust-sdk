@@ -375,6 +375,24 @@ pub struct ReadOnlyUserIdentity {
     user_id: OwnedUserId,
     pub(crate) master_key: Arc<MasterPubkey>,
     self_signing_key: Arc<SelfSigningPubkey>,
+    /// The first time an identity is seen for a given user it will be marked as
+    /// tofu trusted. If a new identity is detected for that user, we must
+    /// ensure that this change has been shown and validated by the user. If
+    /// this boolean is set to `false`, sharing room keys to this user might
+    /// fail depending on the room key sharing strategy.
+    #[serde(
+        default = "tofu_trusted_default",
+        serialize_with = "atomic_bool_serializer",
+        deserialize_with = "atomic_bool_deserializer"
+    )]
+    tofu_trusted: Arc<AtomicBool>,
+}
+
+// The tofu_trusted field introduced a new field in the database
+// schema, for backwards compatibility we assume that if the identity is
+// already in the database we considered it as tofu trusted.
+fn tofu_trusted_default() -> Arc<AtomicBool> {
+    Arc::new(true.into())
 }
 
 impl PartialEq for ReadOnlyUserIdentity {
@@ -395,6 +413,7 @@ impl PartialEq for ReadOnlyUserIdentity {
             && self.master_key == other.master_key
             && self.self_signing_key == other.self_signing_key
             && self.master_key.signatures() == other.master_key.signatures()
+            && self.is_tofu_trusted() == other.is_tofu_trusted()
     }
 }
 
@@ -406,12 +425,14 @@ impl ReadOnlyUserIdentity {
     /// * `master_key` - The master key of the user identity.
     ///
     /// * `self signing key` - The self signing key of user identity.
+    /// * `tofu_trusted` - Is this identity tofu trusted.
     ///
     /// Returns a `SignatureError` if the self signing key fails to be correctly
     /// verified by the given master key.
     pub(crate) fn new(
         master_key: MasterPubkey,
         self_signing_key: SelfSigningPubkey,
+        tofu_trusted: bool,
     ) -> Result<Self, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
@@ -419,6 +440,7 @@ impl ReadOnlyUserIdentity {
             user_id: master_key.user_id().into(),
             master_key: master_key.into(),
             self_signing_key: self_signing_key.into(),
+            tofu_trusted: AtomicBool::new(tofu_trusted).into(),
         })
     }
 
@@ -429,7 +451,12 @@ impl ReadOnlyUserIdentity {
         let self_signing_key =
             identity.self_signing_key.lock().await.as_ref().unwrap().public_key().clone().into();
 
-        Self { user_id: identity.user_id().into(), master_key, self_signing_key }
+        Self {
+            user_id: identity.user_id().into(),
+            master_key,
+            self_signing_key,
+            tofu_trusted: AtomicBool::new(true).into(),
+        }
     }
 
     /// Get the user id of this identity.
@@ -445,6 +472,21 @@ impl ReadOnlyUserIdentity {
     /// Get the public self-signing key of the identity.
     pub fn self_signing_key(&self) -> &SelfSigningPubkey {
         &self.self_signing_key
+    }
+
+    /// Check if our identity is verified.
+    pub fn is_tofu_trusted(&self) -> bool {
+        self.tofu_trusted.load(Ordering::SeqCst)
+    }
+
+    /// Mark this identity as tofu trusted by the user
+    pub fn mark_as_tofu_trusted(&self) {
+        self.tofu_trusted.store(true, Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub fn mark_as_not_tofu_trusted(&self) {
+        self.tofu_trusted.store(false, Ordering::SeqCst)
     }
 
     /// Update the identity with a new master key and self signing key.
@@ -465,7 +507,7 @@ impl ReadOnlyUserIdentity {
     ) -> Result<bool, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
-        let new = Self::new(master_key, self_signing_key)?;
+        let new = Self::new(master_key, self_signing_key, false)?;
         let changed = new != *self;
 
         *self = new;
@@ -776,8 +818,12 @@ pub(crate) mod testing {
         let self_signing: CrossSigningKey =
             response.self_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
 
-        ReadOnlyUserIdentity::new(master_key.try_into().unwrap(), self_signing.try_into().unwrap())
-            .unwrap()
+        ReadOnlyUserIdentity::new(
+            master_key.try_into().unwrap(),
+            self_signing.try_into().unwrap(),
+            true,
+        )
+        .unwrap()
     }
 }
 
