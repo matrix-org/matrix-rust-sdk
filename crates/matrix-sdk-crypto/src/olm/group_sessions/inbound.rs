@@ -623,6 +623,7 @@ impl TryFrom<&DecryptedForwardedRoomKeyEvent> for InboundGroupSession {
 
 #[cfg(test)]
 mod tests {
+    use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id, events::room::history_visibility::HistoryVisibility, room_id, user_id, DeviceId,
@@ -697,10 +698,9 @@ mod tests {
 
         // And we populated the InboundGroupSession's sender_data with a default value,
         // with legacy_session set to true.
-        let SenderData::UnknownDevice { retry_details, legacy_session } = unpickled.sender_data
-        else {
-            panic!("Expected sender_data to be UnknownDevice!");
-        };
+        assert_let!(
+            SenderData::UnknownDevice { retry_details, legacy_session } = unpickled.sender_data
+        );
         assert_eq!(retry_details.retry_count, 0);
         assert!(legacy_session);
     }
