@@ -23,7 +23,7 @@ use crate::types::DeviceKeys;
 /// Sessions start off in `UnknownDevice` state, and progress into `DeviceInfo`
 /// state when we get the device info. Finally, if we can look up the sender
 /// using the device info, the session can be moved into `SenderKnown` state.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum SenderData {
     /// We have not yet found the (signed) device info for the sending device
     UnknownDevice {
