@@ -396,6 +396,7 @@ impl RoomListService {
     ///
     /// After some updates, these is no more `Input` but this API is kept in
     /// case of a future necessity.
+    #[allow(clippy::unused_async)]
     pub async fn apply_input(&self, _input: Input) -> Result<InputResult, Error> {
         Ok(InputResult::Ignored)
     }
