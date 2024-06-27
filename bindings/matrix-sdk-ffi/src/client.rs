@@ -421,6 +421,7 @@ impl Client {
         })))
     }
 
+    /// Allows generic GET requests to be made through the SDKs internal HTTP client
     pub async fn get_url(&self, url: String) -> Result<String, ClientError> {
         let http_client = self.inner.http_client();
         Ok(http_client.get(url).send().await?.text().await?)
@@ -502,6 +503,12 @@ impl Client {
     pub fn user_id(&self) -> Result<String, ClientError> {
         let user_id = self.inner.user_id().context("No User ID found")?;
         Ok(user_id.to_string())
+    }
+
+    /// The server name part of the current user ID
+    pub fn user_id_server_name(&self) -> Result<String, ClientError> {
+        let user_id = self.inner.user_id().context("No User ID found")?;
+        Ok(user_id.server_name().to_string())
     }
 
     pub async fn display_name(&self) -> Result<String, ClientError> {
