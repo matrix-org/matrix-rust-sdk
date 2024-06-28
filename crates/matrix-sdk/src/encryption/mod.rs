@@ -135,6 +135,20 @@ impl EncryptionData {
             tasks.download_room_keys = Some(BackupDownloadTask::new(weak_client));
         }
     }
+
+    /// Initialize the background task which listens for changes in the
+    /// [`backups::BackupState`] and updataes the [`recovery::RecoveryState`].
+    ///
+    /// This should happen after the usual tasks have been set up and after the
+    /// E2EE initialization tasks have been set up.
+    pub fn initialize_recovery_state_update_task(&self, client: &Client) {
+        let mut guard = self.tasks.lock().unwrap();
+
+        let future = Recovery::update_state_after_backup_state_change(client);
+        let join_handle = spawn(future);
+
+        guard.update_recovery_state_after_backup = Some(join_handle);
+    }
 }
 
 /// Settings for end-to-end encryption features.

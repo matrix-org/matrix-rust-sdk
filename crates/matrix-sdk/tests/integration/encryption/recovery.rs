@@ -66,7 +66,7 @@ async fn test_client(user_id: &UserId) -> (Client, wiremock::MockServer) {
             "errcode": "M_NOT_FOUND",
             "error": "Account data not found"
         })))
-        .expect(1)
+        .expect(2)
         .named("m.secret_storage.default_key account data GET")
         .mount_as_scoped(&server)
         .await;
@@ -319,10 +319,13 @@ async fn enable(
         )))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(move |_: &wiremock::Request| {
-            let content = default_key_content.lock().unwrap().take().unwrap();
-            ResponseTemplate::new(200).set_body_json(content)
+            if let Some(content) = default_key_content.lock().unwrap().as_ref() {
+                ResponseTemplate::new(200).set_body_json(content)
+            } else {
+                ResponseTemplate::new(404)
+            }
         })
-        .expect(1)
+        .expect(2)
         .mount_as_scoped(server)
         .await;
 
@@ -633,10 +636,13 @@ async fn recovery_disabling() {
         )))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(move |_: &wiremock::Request| {
-            let content = default_key_content.lock().unwrap().take().unwrap();
-            ResponseTemplate::new(200).set_body_json(content)
+            if let Some(content) = default_key_content.lock().unwrap().as_ref() {
+                ResponseTemplate::new(200).set_body_json(content)
+            } else {
+                ResponseTemplate::new(404)
+            }
         })
-        .expect(1)
+        .expect(2)
         .named("m.secret_storage.default_key account data GET")
         .mount(&server)
         .await;
