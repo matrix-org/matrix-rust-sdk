@@ -61,6 +61,7 @@ use crate::{
     dehydrated_devices::DehydrationError,
     error::{EventError, OlmResult, SessionCreationError},
     identities::ReadOnlyDevice,
+    olm::SenderData,
     requests::UploadSigningKeysRequest,
     store::{Changes, DeviceChanges, Store},
     types::{
@@ -220,6 +221,7 @@ impl StaticAccountData {
             signing_key,
             room_id,
             &outbound.session_key().await,
+            SenderData::unknown(),
             algorithm,
             Some(visibility),
         )?;

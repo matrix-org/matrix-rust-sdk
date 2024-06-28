@@ -36,7 +36,8 @@ use vodozemac::{
 };
 
 use super::{
-    BackedUpRoomKey, ExportedRoomKey, OutboundGroupSession, SessionCreationError, SessionKey,
+    BackedUpRoomKey, ExportedRoomKey, OutboundGroupSession, SenderData, SessionCreationError,
+    SessionKey,
 };
 use crate::{
     error::{EventError, MegolmResult},
@@ -121,6 +122,13 @@ pub struct InboundGroupSession {
     /// on how the session was received.
     pub(crate) creator_info: SessionCreatorInfo,
 
+    /// Information about the sender of this session and how much we trust that
+    /// information. Holds the information we have about the device that created
+    /// the session, or, if we can use that device information to find the
+    /// sender's cross-signing identity, holds the user ID and cross-signing
+    /// key.
+    pub(crate) sender_data: SenderData,
+
     /// The Room this GroupSession belongs to
     pub room_id: OwnedRoomId,
 
@@ -163,11 +171,15 @@ impl InboundGroupSession {
     ///
     /// * `session_key` - The private session key that is used to decrypt
     ///   messages.
+    ///
+    /// * `sender_data` - Information about the sender of the to-device message
+    ///   that established this session.
     pub fn new(
         sender_key: Curve25519PublicKey,
         signing_key: Ed25519PublicKey,
         room_id: &RoomId,
         session_key: &SessionKey,
+        sender_data: SenderData,
         encryption_algorithm: EventEncryptionAlgorithm,
         history_visibility: Option<HistoryVisibility>,
     ) -> Result<Self, SessionCreationError> {
@@ -189,6 +201,7 @@ impl InboundGroupSession {
                 curve25519_key: sender_key,
                 signing_keys: keys.into(),
             },
+            sender_data,
             room_id: room_id.into(),
             imported: false,
             algorithm: encryption_algorithm.into(),
@@ -241,6 +254,7 @@ impl InboundGroupSession {
             pickle,
             sender_key: self.creator_info.curve25519_key,
             signing_key: (*self.creator_info.signing_keys).clone(),
+            sender_data: self.sender_data.clone(),
             room_id: self.room_id().to_owned(),
             imported: self.imported,
             backed_up: self.backed_up(),
@@ -324,6 +338,7 @@ impl InboundGroupSession {
                 curve25519_key: pickle.sender_key,
                 signing_keys: pickle.signing_key.into(),
             },
+            sender_data: pickle.sender_data,
             history_visibility: pickle.history_visibility.into(),
             first_known_index,
             room_id: (*pickle.room_id).into(),
@@ -485,6 +500,9 @@ pub struct PickledInboundGroupSession {
     pub sender_key: Curve25519PublicKey,
     /// The public ed25519 key of the account that sent us the session.
     pub signing_key: SigningKeys<DeviceKeyAlgorithm>,
+    /// Information on the device/sender who sent us this session
+    #[serde(default)]
+    pub sender_data: SenderData,
     /// The id of the room that the session is used in.
     pub room_id: OwnedRoomId,
     /// Flag remembering if the session was directly sent to us by the sender
@@ -519,6 +537,9 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
                 curve25519_key: key.sender_key,
                 signing_keys: key.sender_claimed_keys.to_owned().into(),
             },
+            // TODO: In future, exported keys should contain sender data that we can use here.
+            // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
+            sender_data: SenderData::default(),
             history_visibility: None.into(),
             first_known_index,
             room_id: key.room_id.to_owned(),
@@ -546,6 +567,9 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
                 )])
                 .into(),
             },
+            // In future, exported keys should contain sender data that we can use here.
+            // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
+            sender_data: SenderData::default(),
             history_visibility: None.into(),
             first_known_index,
             room_id: value.room_id.to_owned(),
@@ -569,6 +593,9 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
                 curve25519_key: value.claimed_sender_key,
                 signing_keys: value.claimed_signing_keys.to_owned().into(),
             },
+            // In future, exported keys should contain sender data that we can use here.
+            // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
+            sender_data: SenderData::default(),
             history_visibility: None.into(),
             first_known_index,
             room_id: value.room_id.to_owned(),
@@ -596,11 +623,22 @@ impl TryFrom<&DecryptedForwardedRoomKeyEvent> for InboundGroupSession {
 
 #[cfg(test)]
 mod tests {
+    use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, room_id, user_id, DeviceId, UserId};
-    use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
+    use ruma::{
+        device_id, events::room::history_visibility::HistoryVisibility, room_id, user_id, DeviceId,
+        UInt, UserId,
+    };
+    use vodozemac::{
+        megolm::{SessionKey, SessionOrdering},
+        Curve25519PublicKey, Ed25519PublicKey,
+    };
 
-    use crate::{olm::InboundGroupSession, Account};
+    use crate::{
+        olm::{InboundGroupSession, SenderData, SenderDataRetryDetails},
+        types::EventEncryptionAlgorithm,
+        Account,
+    };
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -611,7 +649,8 @@ mod tests {
     }
 
     #[async_test]
-    async fn inbound_group_session_serialization() {
+    async fn test_can_deserialise_pickled_session_without_sender_data() {
+        // Given the raw JSON for a picked inbound group session without any sender_data
         let pickle = r#"
         {
             "pickle": {
@@ -648,11 +687,158 @@ mod tests {
         }
         "#;
 
+        // When we deserialise it to from JSON
         let deserialized = serde_json::from_str(pickle).unwrap();
 
+        // And unpickle it
         let unpickled = InboundGroupSession::from_pickle(deserialized).unwrap();
 
+        // Then it was parsed correctly
         assert_eq!(unpickled.session_id(), "XbmrPa1kMwmdtNYng1B2gsfoo8UtF+NklzsTZiaVKyY");
+
+        // And we populated the InboundGroupSession's sender_data with a default value,
+        // with legacy_session set to true.
+        assert_let!(
+            SenderData::UnknownDevice { retry_details, legacy_session } = unpickled.sender_data
+        );
+        assert_eq!(retry_details.retry_count, 0);
+        assert!(legacy_session);
+    }
+
+    #[async_test]
+    async fn test_can_serialise_pickled_session_with_sender_data() {
+        // Given an InboundGroupSession
+        let igs = InboundGroupSession::new(
+            Curve25519PublicKey::from_base64("AmM1DvVJarsNNXVuX7OarzfT481N37GtDwvDVF0RcR8")
+                .unwrap(),
+            Ed25519PublicKey::from_base64("wTRTdz4rn4EY+68cKPzpMdQ6RAlg7T8cbTmEjaXuUww").unwrap(),
+            room_id!("!test:localhost"),
+            &create_session_key(),
+            SenderData::unknown_retry_at(SenderDataRetryDetails::new(5, 1234)),
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            Some(HistoryVisibility::Shared),
+        )
+        .unwrap();
+
+        // When we pickle it
+        let pickled = igs.pickle().await;
+
+        // And serialise it
+        let serialised = serde_json::to_string(&pickled).unwrap();
+
+        // Then it looks as we expect
+
+        // (Break out this list of numbers as otherwise it bothers the json macro below)
+        let expected_inner = vec![
+            193, 203, 223, 152, 33, 132, 200, 168, 24, 197, 79, 174, 231, 202, 45, 245, 128, 131,
+            178, 165, 148, 37, 241, 214, 178, 218, 25, 33, 68, 48, 153, 104, 122, 6, 249, 198, 97,
+            226, 214, 75, 64, 128, 25, 138, 98, 90, 138, 93, 52, 206, 174, 3, 84, 149, 101, 140,
+            238, 156, 103, 107, 124, 144, 139, 104, 253, 5, 100, 251, 186, 118, 208, 87, 31, 218,
+            123, 234, 103, 34, 246, 100, 39, 90, 216, 72, 187, 86, 202, 150, 100, 116, 204, 254,
+            10, 154, 216, 133, 61, 250, 75, 100, 195, 63, 138, 22, 17, 13, 156, 123, 195, 132, 111,
+            95, 250, 24, 236, 0, 246, 93, 230, 100, 211, 165, 211, 190, 181, 87, 42, 181,
+        ];
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&serialised).unwrap(),
+            serde_json::json!({
+                "pickle":{
+                    "initial_ratchet":{
+                        "inner": expected_inner,
+                        "counter":0
+                    },
+                    "signing_key":[
+                        213,161,95,135,114,153,162,127,217,74,64,2,59,143,93,5,190,157,120,
+                        80,89,8,87,129,115,148,104,144,152,186,178,109
+                    ],
+                    "signing_key_verified":true,
+                    "config":{"version":"V1"}
+                },
+                "sender_key":"AmM1DvVJarsNNXVuX7OarzfT481N37GtDwvDVF0RcR8",
+                "signing_key":{"ed25519":"wTRTdz4rn4EY+68cKPzpMdQ6RAlg7T8cbTmEjaXuUww"},
+                "sender_data":{
+                    "UnknownDevice":{
+                        "retry_details":{
+                            "retry_count":5,
+                            "next_retry_time_ms":1234
+                        },
+                        "legacy_session":false
+                    }
+                },
+                "room_id":"!test:localhost",
+                "imported":false,
+                "backed_up":false,
+                "history_visibility":"shared",
+                "algorithm":"m.megolm.v1.aes-sha2"
+            })
+        );
+    }
+
+    #[async_test]
+    async fn test_can_deserialise_pickled_session_with_sender_data() {
+        // Given the raw JSON for a picked inbound group session (including sender_data)
+        let pickle = r#"
+        {
+            "pickle": {
+                "initial_ratchet": {
+                    "inner": [ 124, 251, 213, 204, 108, 247, 54, 7, 179, 162, 15, 107, 154, 215,
+                               220, 46, 123, 113, 120, 162, 225, 246, 237, 203, 125, 102, 190, 212,
+                               229, 195, 136, 185, 26, 31, 77, 140, 144, 181, 152, 177, 46, 105,
+                               202, 6, 53, 158, 157, 170, 31, 155, 130, 87, 214, 110, 143, 55, 68,
+                               138, 41, 35, 242, 230, 194, 15, 16, 145, 116, 94, 89, 35, 79, 145,
+                               245, 117, 204, 173, 166, 178, 49, 131, 143, 61, 61, 15, 211, 167, 17,
+                               2, 79, 110, 149, 200, 223, 23, 185, 200, 29, 64, 55, 39, 147, 167,
+                               205, 224, 159, 101, 218, 249, 203, 30, 175, 174, 48, 252, 40, 131,
+                               52, 135, 91, 57, 211, 96, 105, 58, 55, 68, 250, 24 ],
+                    "counter": 0
+                },
+                "signing_key": [ 93, 185, 171, 61, 173, 100, 51, 9, 157, 180, 214, 39, 131, 80, 118,
+                                 130, 199, 232, 163, 197, 45, 23, 227, 100, 151, 59, 19, 102, 38,
+                                 149, 43, 38 ],
+                "signing_key_verified": true,
+                "config": {
+                  "version": "V1"
+                }
+            },
+            "sender_key": "AmM1DvVJarsNNXVuX7OarzfT481N37GtDwvDVF0RcR8",
+            "signing_key": {
+                "ed25519": "wTRTdz4rn4EY+68cKPzpMdQ6RAlg7T8cbTmEjaXuUww"
+            },
+            "sender_data":{
+                "UnknownDevice":{
+                    "retry_details":{
+                        "retry_count":0,
+                        "next_retry_time_ms":98765
+                    },
+                    "legacy_session":false
+                }
+            },
+            "room_id": "!test:localhost",
+            "forwarding_chains": ["tb6kQKjk+SJl2KnfQ0lKVOZl6gDFMcsb9HcUP9k/4hc"],
+            "imported": false,
+            "backed_up": false,
+            "history_visibility": "shared",
+            "algorithm": "m.megolm.v1.aes-sha2"
+        }
+        "#;
+
+        // When we deserialise it to from JSON
+        let deserialized = serde_json::from_str(pickle).unwrap();
+
+        // And unpickle it
+        let unpickled = InboundGroupSession::from_pickle(deserialized).unwrap();
+
+        // Then it was parsed correctly
+        assert_eq!(unpickled.session_id(), "XbmrPa1kMwmdtNYng1B2gsfoo8UtF+NklzsTZiaVKyY");
+
+        // And we populated the InboundGroupSession's sender_data with the provided
+        // values
+        let SenderData::UnknownDevice { retry_details, legacy_session } = unpickled.sender_data
+        else {
+            panic!("Expected sender_data to be UnknownDevice!");
+        };
+        assert_eq!(retry_details.retry_count, 0);
+        assert_eq!(retry_details.next_retry_time_ms.0, UInt::new(98765).unwrap());
+        assert!(!legacy_session);
     }
 
     #[async_test]
@@ -675,5 +861,18 @@ mod tests {
                 .unwrap();
 
         assert_eq!(inbound.compare(&copy).await, SessionOrdering::Unconnected);
+    }
+
+    fn create_session_key() -> SessionKey {
+        SessionKey::from_base64(
+            "\
+            AgAAAADBy9+YIYTIqBjFT67nyi31gIOypZQl8day2hkhRDCZaHoG+cZh4tZLQIAZimJail0\
+            0zq4DVJVljO6cZ2t8kIto/QVk+7p20Fcf2nvqZyL2ZCda2Ei7VsqWZHTM/gqa2IU9+ktkwz\
+            +KFhENnHvDhG9f+hjsAPZd5mTTpdO+tVcqtdWhX4dymaJ/2UpAAjuPXQW+nXhQWQhXgXOUa\
+            JCYurJtvbCbqZGeDMmVIoqukBs2KugNJ6j5WlTPoeFnMl6Guy9uH2iWWxGg8ZgT2xspqVl5\
+            CwujjC+m7Dh1toVkvu+bAw\
+            ",
+        )
+        .unwrap()
     }
 }

@@ -394,7 +394,7 @@ mod tests {
     use super::{DeviceStore, GroupSessionStore, SequenceNumber, SessionStore};
     use crate::{
         identities::device::testing::get_device,
-        olm::{tests::get_account_and_session_test_helper, InboundGroupSession},
+        olm::{tests::get_account_and_session_test_helper, InboundGroupSession, SenderData},
     };
 
     #[async_test]
@@ -447,6 +447,7 @@ mod tests {
             Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE").unwrap(),
             room_id,
             &outbound.session_key().await,
+            SenderData::unknown(),
             outbound.settings().algorithm.to_owned(),
             None,
         )

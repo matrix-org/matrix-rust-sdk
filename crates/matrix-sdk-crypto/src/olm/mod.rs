@@ -28,8 +28,8 @@ pub(crate) use account::{OlmDecryptionInfo, SessionType};
 pub(crate) use group_sessions::ShareState;
 pub use group_sessions::{
     BackedUpRoomKey, EncryptionSettings, ExportedRoomKey, InboundGroupSession,
-    OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession,
-    SessionCreationError, SessionExportError, SessionKey, ShareInfo,
+    OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession, SenderData,
+    SenderDataRetryDetails, SessionCreationError, SessionExportError, SessionKey, ShareInfo,
 };
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
@@ -58,7 +58,7 @@ pub(crate) mod tests {
     };
 
     use crate::{
-        olm::{Account, ExportedRoomKey, InboundGroupSession, Session},
+        olm::{Account, ExportedRoomKey, InboundGroupSession, SenderData, Session},
         types::events::{
             forwarded_room_key::ForwardedRoomKeyContent, room::encrypted::EncryptedEvent,
         },
@@ -185,6 +185,7 @@ pub(crate) mod tests {
             Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE").unwrap(),
             room_id,
             &outbound.session_key().await,
+            SenderData::unknown(),
             outbound.settings().algorithm.to_owned(),
             None,
         )
@@ -228,6 +229,7 @@ pub(crate) mod tests {
             Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE").unwrap(),
             room_id,
             &outbound.session_key().await,
+            SenderData::unknown(),
             outbound.settings().algorithm.to_owned(),
             None,
         )

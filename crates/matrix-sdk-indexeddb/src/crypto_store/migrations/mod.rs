@@ -169,7 +169,7 @@ mod tests {
     use indexed_db_futures::prelude::*;
     use matrix_sdk_common::js_tracing::make_tracing_subscriber;
     use matrix_sdk_crypto::{
-        olm::{InboundGroupSession, SessionKey},
+        olm::{InboundGroupSession, SenderData, SessionKey},
         store::CryptoStore,
         types::EventEncryptionAlgorithm,
         vodozemac::{Curve25519PublicKey, Curve25519SecretKey, Ed25519PublicKey, Ed25519SecretKey},
@@ -400,6 +400,7 @@ mod tests {
             signing_key,
             &room_id,
             session_key,
+            SenderData::unknown(),
             encryption_algorithm,
             history_visibility,
         )
@@ -510,6 +511,7 @@ mod tests {
                  33ii9J8RGPYOp7QWl0kTEc8mAlqZL7mKppo9AwgtmYweAg",
             )
             .unwrap(),
+            SenderData::legacy(),
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
         )
@@ -528,6 +530,7 @@ mod tests {
                  1NWjZD9f1vvXnSKKDdHj1927WFMFZ/yYc24607zEVUaODQ",
             )
             .unwrap(),
+            SenderData::legacy(),
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
         )

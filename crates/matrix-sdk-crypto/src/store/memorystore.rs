@@ -625,7 +625,7 @@ mod tests {
         identities::device::testing::get_device,
         olm::{
             tests::get_account_and_session_test_helper, Account, InboundGroupSession,
-            OlmMessageHash, PrivateCrossSigningIdentity,
+            OlmMessageHash, PrivateCrossSigningIdentity, SenderData,
         },
         store::{memorystore::MemoryStore, Changes, CryptoStore, PendingChanges},
     };
@@ -660,6 +660,7 @@ mod tests {
             Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE").unwrap(),
             room_id,
             &outbound.session_key().await,
+            SenderData::unknown(),
             outbound.settings().algorithm.to_owned(),
             None,
         )
@@ -1056,6 +1057,7 @@ mod tests {
             Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE").unwrap(),
             room_id,
             &outbound.session_key().await,
+            SenderData::unknown(),
             outbound.settings().algorithm.to_owned(),
             None,
         )
