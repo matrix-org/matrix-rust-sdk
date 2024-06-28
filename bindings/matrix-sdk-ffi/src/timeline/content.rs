@@ -23,7 +23,7 @@ use ruma::events::{
 use tracing::warn;
 
 use super::ProfileDetails;
-use crate::ruma::{ImageInfo, MessageType, PollKind};
+use crate::ruma::{ImageInfo, LocationContent, MessageType, PollKind};
 
 #[derive(Clone, uniffi::Object)]
 pub struct TimelineItemContent(pub(crate) matrix_sdk_ui::timeline::TimelineItemContent);
@@ -42,6 +42,29 @@ impl TimelineItemContent {
                     body: content.body.clone(),
                     info: (&content.info).into(),
                     source: Arc::new(MediaSource::from(content.source.clone())),
+                }
+            }
+            Content::BeaconInfoState(beacon_state) => {
+                let Some(location) = beacon_state.last_location() else {
+                    return TimelineItemContentKind::FailedToParseMessageLike {
+                        event_type: "org.matrix.msc3672.beacon".to_string(),
+                        error: "Could not find beacon last location content".to_string(),
+                    };
+                };
+
+                let body = location.description.unwrap_or_else(|| "Location".to_string());
+
+                let location = LocationContent {
+                    body,
+                    geo_uri: location.uri,
+                    description: None,
+                    zoom_level: None,
+                    asset: None,
+                };
+
+                TimelineItemContentKind::BeaconInfoState {
+                    location,
+                    user_id: String::from(beacon_state.user_id()),
                 }
             }
             Content::Poll(poll_state) => TimelineItemContentKind::from(poll_state.results()),
@@ -110,6 +133,10 @@ impl TimelineItemContent {
 
 #[derive(uniffi::Enum)]
 pub enum TimelineItemContentKind {
+    BeaconInfoState {
+        location: LocationContent,
+        user_id: String,
+    },
     Message,
     RedactedMessage,
     Sticker {

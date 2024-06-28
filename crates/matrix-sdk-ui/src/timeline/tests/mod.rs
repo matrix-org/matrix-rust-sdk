@@ -61,6 +61,7 @@ use super::{
 use crate::unable_to_decrypt_hook::UtdHookManager;
 
 mod basic;
+mod beacons;
 mod echo;
 mod edit;
 #[cfg(feature = "e2e-encryption")]
@@ -131,6 +132,10 @@ impl TestTimeline {
             self.inner.subscribe_filter_map(|item| item.as_event().cloned()).await;
         assert_eq!(items.len(), 0, "Please subscribe to TestTimeline before adding items to it");
         stream
+    }
+
+    async fn event_items(&self) -> Vec<EventTimelineItem> {
+        self.inner.items().await.iter().filter_map(|item| item.as_event().cloned()).collect()
     }
 
     async fn len(&self) -> usize {

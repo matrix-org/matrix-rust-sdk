@@ -53,7 +53,9 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "e5a370f7e5fcebb0da6e4945e5
     "compat-encrypted-stickers",
     "unstable-msc3401",
     "unstable-msc3266",
-    "unstable-msc4075"
+    "unstable-msc3488",
+    "unstable-msc3489",
+    "unstable-msc4075",
 ] }
 ruma-common = { git = "https://github.com/ruma/ruma", rev = "e5a370f7e5fcebb0da6e4945e51c5fafba9aa5f0" }
 serde = "1.0.151"
