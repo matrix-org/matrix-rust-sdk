@@ -43,6 +43,8 @@ pub(crate) struct ClientTasks {
     pub(crate) upload_room_keys: Option<BackupUploadingTask>,
     #[cfg(feature = "e2e-encryption")]
     pub(crate) download_room_keys: Option<BackupDownloadTask>,
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) update_recovery_state_after_backup: Option<JoinHandle<()>>,
     pub(crate) setup_e2ee: Option<JoinHandle<()>>,
 }
 
