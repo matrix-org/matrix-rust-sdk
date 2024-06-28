@@ -155,6 +155,31 @@ impl EventBuilder {
         })
     }
 
+    pub fn make_sync_state_event_with_id<C: StateEventContent>(
+        &self,
+        sender: &UserId,
+        state_key: &str,
+        event_id: &EventId,
+        content: C,
+        prev_content: Option<C>,
+    ) -> Raw<AnySyncTimelineEvent> {
+        let unsigned = if let Some(prev_content) = prev_content {
+            json!({ "prev_content": prev_content })
+        } else {
+            json!({})
+        };
+
+        sync_timeline_event!({
+            "type": content.event_type(),
+            "state_key": state_key,
+            "content": content,
+            "event_id": event_id,
+            "sender": sender,
+            "origin_server_ts": self.next_server_ts(),
+            "unsigned": unsigned,
+        })
+    }
+
     pub fn make_sync_state_event<C: StateEventContent>(
         &self,
         sender: &UserId,
