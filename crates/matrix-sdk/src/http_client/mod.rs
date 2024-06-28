@@ -61,7 +61,7 @@ impl MaybeSemaphore {
         MaybeSemaphore(Arc::new(inner))
     }
 
-    async fn acquire(&self) -> MaybeSemaphorePermit {
+    async fn acquire(&self) -> MaybeSemaphorePermit<'_> {
         match self.0.as_ref() {
             Some(inner) => {
                 // ignoring errors as we never close this
