@@ -30,6 +30,7 @@ use ruma::api::{
     error::{FromHttpResponseError, IntoHttpError},
     AuthScheme, MatrixVersion, OutgoingRequest, SendAccessToken,
 };
+use tokio::sync::{Semaphore, SemaphorePermit};
 use tracing::{debug, field::debug, instrument, trace};
 
 use crate::{config::RequestConfig, error::HttpError};
@@ -49,15 +50,44 @@ pub(crate) use native::HttpSettings;
 pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug)]
+struct MaybeSemaphore(Arc<Option<Semaphore>>);
+
+#[allow(dead_code)] // holding this until drop is all we are doing
+struct MaybeSemaphorePermit<'a>(Option<SemaphorePermit<'a>>);
+
+impl MaybeSemaphore {
+    fn new(max: usize) -> Self {
+        let inner = if max > 0 { Some(Semaphore::new(max)) } else { None };
+        MaybeSemaphore(Arc::new(inner))
+    }
+
+    async fn acquire(&self) -> MaybeSemaphorePermit {
+        match self.0.as_ref() {
+            Some(inner) => {
+                // ignoring errors as we never close this
+                MaybeSemaphorePermit(inner.acquire().await.ok())
+            }
+            None => MaybeSemaphorePermit(None),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct HttpClient {
     pub(crate) inner: reqwest::Client,
     pub(crate) request_config: RequestConfig,
+    queue: MaybeSemaphore,
     next_request_id: Arc<AtomicU64>,
 }
 
 impl HttpClient {
     pub(crate) fn new(inner: reqwest::Client, request_config: RequestConfig) -> Self {
-        HttpClient { inner, request_config, next_request_id: AtomicU64::new(0).into() }
+        HttpClient {
+            inner,
+            request_config,
+            queue: MaybeSemaphore::new(request_config.max_concurrent_requests),
+            next_request_id: AtomicU64::new(0).into(),
+        }
     }
 
     fn get_request_id(&self) -> String {
@@ -183,6 +213,9 @@ impl HttpClient {
 
             request
         };
+
+        // will be automatically dropped at the end of this function
+        let _handle = self.queue.acquire().await;
 
         debug!("Sending request");
 
