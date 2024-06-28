@@ -62,7 +62,7 @@ use crate::{
     error::{EventError, OlmResult, SessionCreationError},
     identities::ReadOnlyDevice,
     requests::UploadSigningKeysRequest,
-    store::{Changes, Store},
+    store::{Changes, DeviceChanges, Store},
     types::{
         events::{
             olm_v1::AnyDecryptedOlmEvent,
@@ -1327,12 +1327,24 @@ impl Account {
                 // we might try to create the same session again.
                 // TODO: separate the session cache from the storage so we only add
                 // it to the cache but don't store it.
-                store
-                    .save_changes(Changes {
-                        sessions: vec![result.session.clone()],
-                        ..Default::default()
-                    })
-                    .await?;
+                let mut changes =
+                    Changes { sessions: vec![result.session.clone()], ..Default::default() };
+
+                // Any new Olm session will bump the Olm wedging index for the
+                // sender's device, if we have their device, which will cause us
+                // to re-send existing Megolm sessions to them the next time we
+                // use the session.  If we don't have their device, this means
+                // that we haven't tried to send them any Megolm sessions yet,
+                // so we don't need to worry about it.
+                if let Some(device) = store.get_device_from_curve_key(sender, sender_key).await? {
+                    let mut read_only_device = device.inner;
+                    read_only_device.olm_wedging_index.increment();
+
+                    changes.devices =
+                        DeviceChanges { changed: vec![read_only_device], ..Default::default() };
+                }
+
+                store.save_changes(changes).await?;
 
                 Ok((SessionType::New(result.session), result.plaintext))
             }

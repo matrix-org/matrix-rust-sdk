@@ -27,6 +27,7 @@ use std::{
 };
 
 use ruma::{DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId, UserId};
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tracing::{field::display, instrument, trace, Span};
 
@@ -197,8 +198,9 @@ impl DeviceStore {
 /// subtraction. For example, suppose we've just overflowed from i64::MAX to
 /// i64::MIN. (i64::MAX.wrapping_sub(i64::MIN)) is -1, which tells us that
 /// i64::MAX comes before i64::MIN in the sequence.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct SequenceNumber(i64);
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct SequenceNumber(i64);
 
 impl Display for SequenceNumber {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -219,7 +221,7 @@ impl Ord for SequenceNumber {
 }
 
 impl SequenceNumber {
-    fn increment(&mut self) {
+    pub(crate) fn increment(&mut self) {
         self.0 = self.0.wrapping_add(1)
     }
 

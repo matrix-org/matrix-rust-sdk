@@ -47,6 +47,7 @@ use super::SessionCreationError;
 use crate::types::events::room::encrypted::MegolmV2AesSha2Content;
 use crate::{
     session_manager::CollectStrategy,
+    store::caches::SequenceNumber,
     types::{
         events::{
             room::encrypted::{
@@ -67,10 +68,19 @@ const ROTATION_PERIOD: Duration = ONE_WEEK;
 const ROTATION_MESSAGES: u64 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Information about whether a session was shared with a device.
 pub(crate) enum ShareState {
+    /// The session was not shared with the device.
     NotShared,
+    /// The session was shared with the device with the given device ID, but
+    /// with a different curve25519 key.
     SharedButChangedSenderKey,
-    Shared(u32),
+    /// The session was shared with the device, at the given message index. The
+    /// `olm_wedging_index` is the value of the `olm_wedging_index` from the
+    /// `ReadOnlyDevice` at the time that we last shared the session with the
+    /// device, and indicates whether we need to re-share the session with the
+    /// device.
+    Shared { message_index: u32, olm_wedging_index: SequenceNumber },
 }
 
 /// Settings for an encrypted room.
@@ -169,8 +179,12 @@ pub enum ShareInfo {
 
 impl ShareInfo {
     /// Helper to create a SharedWith info
-    pub fn new_shared(sender_key: Curve25519PublicKey, message_index: u32) -> Self {
-        ShareInfo::Shared(SharedWith { sender_key, message_index })
+    pub fn new_shared(
+        sender_key: Curve25519PublicKey,
+        message_index: u32,
+        olm_wedging_index: SequenceNumber,
+    ) -> Self {
+        ShareInfo::Shared(SharedWith { sender_key, message_index, olm_wedging_index })
     }
 
     /// Helper to create a Withheld info
@@ -185,6 +199,9 @@ pub struct SharedWith {
     pub sender_key: Curve25519PublicKey,
     /// The message index that the device received.
     pub message_index: u32,
+    /// The Olm wedging index of the device at the time the session was shared.
+    #[serde(default)]
+    pub olm_wedging_index: SequenceNumber,
 }
 
 impl OutboundGroupSession {
@@ -527,7 +544,10 @@ impl OutboundGroupSession {
                 d.get(device.device_id()).map(|s| match s {
                     ShareInfo::Shared(s) => {
                         if device.curve25519_key() == Some(s.sender_key) {
-                            ShareState::Shared(s.message_index)
+                            ShareState::Shared {
+                                message_index: s.message_index,
+                                olm_wedging_index: s.olm_wedging_index,
+                            }
                         } else {
                             ShareState::SharedButChangedSenderKey
                         }
@@ -551,7 +571,10 @@ impl OutboundGroupSession {
                     Some(match info {
                         ShareInfo::Shared(info) => {
                             if device.curve25519_key() == Some(info.sender_key) {
-                                ShareState::Shared(info.message_index)
+                                ShareState::Shared {
+                                    message_index: info.message_index,
+                                    olm_wedging_index: info.olm_wedging_index,
+                                }
                             } else {
                                 ShareState::SharedButChangedSenderKey
                             }
@@ -598,12 +621,10 @@ impl OutboundGroupSession {
         sender_key: Curve25519PublicKey,
         index: u32,
     ) {
-        self.shared_with_set
-            .write()
-            .unwrap()
-            .entry(user_id.to_owned())
-            .or_default()
-            .insert(device_id.to_owned(), ShareInfo::new_shared(sender_key, index));
+        self.shared_with_set.write().unwrap().entry(user_id.to_owned()).or_default().insert(
+            device_id.to_owned(),
+            ShareInfo::new_shared(sender_key, index, Default::default()),
+        );
     }
 
     /// Mark the session as shared with the given user/device pair, starting
@@ -615,7 +636,8 @@ impl OutboundGroupSession {
         device_id: &DeviceId,
         sender_key: Curve25519PublicKey,
     ) {
-        let share_info = ShareInfo::new_shared(sender_key, self.message_index().await);
+        let share_info =
+            ShareInfo::new_shared(sender_key, self.message_index().await, Default::default());
         self.shared_with_set
             .write()
             .unwrap()
