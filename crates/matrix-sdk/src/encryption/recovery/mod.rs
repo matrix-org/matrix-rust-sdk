@@ -488,7 +488,11 @@ impl Recovery {
 
     async fn update_recovery_state(&self) -> Result<()> {
         let new_state = self.check_recovery_state().await?;
-        self.client.inner.e2ee.recovery_state.set(new_state);
+        let old_state = self.client.inner.e2ee.recovery_state.set(new_state);
+
+        if new_state != old_state {
+            info!("Recovery state changed from {old_state:?} to {new_state:?}");
+        }
 
         Ok(())
     }
