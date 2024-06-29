@@ -30,7 +30,6 @@ testing = ["dep:http"]
 [dependencies]
 aes = "0.8.1"
 as_variant = { workspace = true }
-assert_matches2 = { workspace = true }
 async-trait = { workspace = true }
 bs58 = { version = "0.5.0" }
 byteorder = { workspace = true }
