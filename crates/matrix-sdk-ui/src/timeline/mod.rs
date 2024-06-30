@@ -18,6 +18,7 @@
 
 use std::{path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
+use event_item::EventItemIdentifier;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::Vector;
@@ -107,20 +108,11 @@ use self::{
     util::rfind_event_by_id,
 };
 
-/// An identifier for a given timeline item.
-#[derive(Debug)]
-enum TimelineEventItemId {
-    /// Local echoes are identified by their transaction id.
-    Local(OwnedTransactionId),
-    /// Remote echoes are identified by their server-sent event id.
-    Remote(OwnedEventId),
-}
-
 /// Information needed to edit an event.
 #[derive(Debug)]
 pub struct EditInfo {
     /// The event ID of the event that needs editing.
-    id: TimelineEventItemId,
+    id: EventItemIdentifier,
     /// The original content of the event that needs editing.
     original_message: Message,
 }
@@ -475,7 +467,7 @@ impl Timeline {
         edit_info: EditInfo,
     ) -> Result<bool, RoomSendQueueError> {
         let event_id = match edit_info.id {
-            TimelineEventItemId::Local(txn_id) => {
+            EventItemIdentifier::TransactionId(txn_id) => {
                 let Some(item) = self.item_by_transaction_id(&txn_id).await else {
                     warn!("Couldn't find the local echo anymore");
                     return Ok(false);
@@ -491,7 +483,7 @@ impl Timeline {
                 return Ok(false);
             }
 
-            TimelineEventItemId::Remote(event_id) => event_id,
+            EventItemIdentifier::EventId(event_id) => event_id,
         };
 
         let original_content = edit_info.original_message;
@@ -564,7 +556,7 @@ impl Timeline {
                     &self.items().await,
                 );
                 return Ok(EditInfo {
-                    id: TimelineEventItemId::Remote(event_id.to_owned()),
+                    id: EventItemIdentifier::EventId(event_id.to_owned()),
                     original_message: message,
                 });
             }

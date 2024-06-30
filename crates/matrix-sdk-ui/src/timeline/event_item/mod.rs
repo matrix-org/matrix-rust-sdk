@@ -45,10 +45,7 @@ pub(super) use self::{
     local::LocalEventTimelineItem,
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},
 };
-use super::{
-    EditInfo, RepliedToInfo, ReplyContent, TimelineEventItemId, UnsupportedEditItem,
-    UnsupportedReplyItem,
-};
+use super::{EditInfo, RepliedToInfo, ReplyContent, UnsupportedEditItem, UnsupportedReplyItem};
 
 /// An item in the timeline that represents at least one event.
 ///
@@ -202,6 +199,20 @@ impl EventTimelineItem {
     /// Get the event's send state of a local echo.
     pub fn send_state(&self) -> Option<&EventSendState> {
         as_variant!(&self.kind, EventTimelineItemKind::Local(local) => &local.send_state)
+    }
+
+    /// Get the unique identifier of this item.
+    ///
+    /// Returns the transaction ID for a local echo item that has not been sent
+    /// and the event ID for a local echo item that has been sent or a
+    /// remote item.
+    pub(crate) fn identifier(&self) -> EventItemIdentifier {
+        match &self.kind {
+            EventTimelineItemKind::Local(local) => local.identifier(),
+            EventTimelineItemKind::Remote(remote) => {
+                EventItemIdentifier::EventId(remote.event_id.clone())
+            }
+        }
     }
 
     /// Get the transaction ID of a local echo item.
@@ -459,23 +470,7 @@ impl EventTimelineItem {
             return Err(UnsupportedEditItem::NotRoomMessage);
         };
 
-        let id = match &self.kind {
-            EventTimelineItemKind::Local(local_event) => {
-                // Prefer the remote event id if it's already available, as it indicates the
-                // event has been sent to the server.
-                if let Some(event_id) = local_event.event_id() {
-                    TimelineEventItemId::Remote(event_id.to_owned())
-                } else {
-                    TimelineEventItemId::Local(local_event.transaction_id.clone())
-                }
-            }
-
-            EventTimelineItemKind::Remote(remote_event) => {
-                TimelineEventItemId::Remote(remote_event.event_id.clone())
-            }
-        };
-
-        Ok(EditInfo { id, original_message: original_content.clone() })
+        Ok(EditInfo { id: self.identifier(), original_message: original_content.clone() })
     }
 }
 
