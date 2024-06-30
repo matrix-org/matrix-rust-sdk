@@ -418,7 +418,7 @@ impl Timeline {
         Ok(())
     }
 
-    /// Gives the information needed to reply to an event from an event id.
+    /// Get the information needed to reply to the event with the given ID.
     pub async fn replied_to_info_from_event_id(
         &self,
         event_id: &EventId,
@@ -468,17 +468,24 @@ impl Timeline {
         })
     }
 
-    /// Send an edit to the given event.
+    /// Edit an event.
     ///
-    /// Currently only supports `m.room.message` events whose event ID is known.
-    /// Please check [`EventTimelineItem::is_editable`] before calling this.
+    /// Only supports events for which [`EventTimelineItem::is_editable()`]
+    /// returns `true`.
     ///
     /// # Arguments
     ///
-    /// * `new_content` - The content of the reply
+    /// * `new_content` - The new content of the event.
     ///
     /// * `edit_info` - A wrapper that contains the event ID and the content of
-    ///  the event to edit
+    ///  the event to edit.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(true)` if the edit was added to the send queue. Returns
+    /// `Ok(false)` if the edit targets a local item but the edit could not be
+    /// applied, which could mean that the event was already sent. Returns an
+    /// error if there was an issue adding the edit to the send queue.
     #[instrument(skip(self, new_content))]
     pub async fn edit(
         &self,
@@ -536,7 +543,7 @@ impl Timeline {
         Ok(true)
     }
 
-    /// Give the information needed to edit an event from an event id.
+    /// Get the information needed to edit the event with the given ID.
     pub async fn edit_info_from_event_id(
         &self,
         event_id: &EventId,
