@@ -28,7 +28,7 @@ use ruma::{
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
         SyncStateEvent,
     },
-    mxc_uri, room_id,
+    mxc_uri, owned_mxc_uri, room_id,
     serde::Raw,
     uint, user_id, EventId, OwnedEventId, OwnedUserId, RoomId, TransactionId, UserId,
 };
@@ -548,11 +548,11 @@ impl StateStoreIntegrationTests for DynStateStore {
 
     async fn test_user_avatar_url_saving(&self) {
         let user_id = user_id!("@alice:example.org");
-        let url = "https://example.org";
+        let url = owned_mxc_uri!("mxc://example.org/poiuyt098");
 
         self.set_kv_data(
             StateStoreDataKey::UserAvatarUrl(user_id),
-            StateStoreDataValue::UserAvatarUrl(url.to_owned()),
+            StateStoreDataValue::UserAvatarUrl(url.clone()),
         )
         .await
         .unwrap();

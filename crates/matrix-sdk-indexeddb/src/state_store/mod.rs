@@ -44,8 +44,8 @@ use ruma::{
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedTransactionId,
-    OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
+    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId,
+    OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::{debug, warn};
@@ -471,11 +471,11 @@ impl_state_store!({
                 .transpose()?
                 .map(StateStoreDataValue::Filter),
             StateStoreDataKey::UserAvatarUrl(_) => value
-                .map(|f| self.deserialize_value::<String>(&f))
+                .map(|f| self.deserialize_value::<OwnedMxcUri>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::UserAvatarUrl),
             StateStoreDataKey::RecentlyVisitedRooms(_) => value
-                .map(|f| self.deserialize_value::<Vec<String>>(&f))
+                .map(|f| self.deserialize_value::<Vec<OwnedRoomId>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::RecentlyVisitedRooms),
             StateStoreDataKey::UtdHookManagerData => value

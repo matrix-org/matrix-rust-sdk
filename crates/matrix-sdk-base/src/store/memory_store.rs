@@ -52,9 +52,9 @@ use crate::{
 #[allow(clippy::type_complexity)]
 #[derive(Debug)]
 pub struct MemoryStore {
-    recently_visited_rooms: StdRwLock<HashMap<String, Vec<String>>>,
+    recently_visited_rooms: StdRwLock<HashMap<OwnedUserId, Vec<OwnedRoomId>>>,
     composer_drafts: StdRwLock<HashMap<OwnedRoomId, ComposerDraft>>,
-    user_avatar_url: StdRwLock<HashMap<String, String>>,
+    user_avatar_url: StdRwLock<HashMap<OwnedUserId, OwnedMxcUri>>,
     sync_token: StdRwLock<Option<String>>,
     filters: StdRwLock<HashMap<String, String>>,
     utd_hook_manager_data: StdRwLock<Option<GrowableBloom>>,
@@ -186,14 +186,14 @@ impl StateStore for MemoryStore {
                 .user_avatar_url
                 .read()
                 .unwrap()
-                .get(user_id.as_str())
+                .get(user_id)
                 .cloned()
                 .map(StateStoreDataValue::UserAvatarUrl),
             StateStoreDataKey::RecentlyVisitedRooms(user_id) => self
                 .recently_visited_rooms
                 .read()
                 .unwrap()
-                .get(user_id.as_str())
+                .get(user_id)
                 .cloned()
                 .map(StateStoreDataValue::RecentlyVisitedRooms),
             StateStoreDataKey::UtdHookManagerData => self
@@ -230,13 +230,13 @@ impl StateStore for MemoryStore {
             }
             StateStoreDataKey::UserAvatarUrl(user_id) => {
                 self.user_avatar_url.write().unwrap().insert(
-                    user_id.to_string(),
+                    user_id.to_owned(),
                     value.into_user_avatar_url().expect("Session data not a user avatar url"),
                 );
             }
             StateStoreDataKey::RecentlyVisitedRooms(user_id) => {
                 self.recently_visited_rooms.write().unwrap().insert(
-                    user_id.to_string(),
+                    user_id.to_owned(),
                     value
                         .into_recently_visited_rooms()
                         .expect("Session data not a list of recently visited rooms"),
@@ -267,10 +267,10 @@ impl StateStore for MemoryStore {
                 self.filters.write().unwrap().remove(filter_name);
             }
             StateStoreDataKey::UserAvatarUrl(user_id) => {
-                self.user_avatar_url.write().unwrap().remove(user_id.as_str());
+                self.user_avatar_url.write().unwrap().remove(user_id);
             }
             StateStoreDataKey::RecentlyVisitedRooms(user_id) => {
-                self.recently_visited_rooms.write().unwrap().remove(user_id.as_str());
+                self.recently_visited_rooms.write().unwrap().remove(user_id);
             }
             StateStoreDataKey::UtdHookManagerData => {
                 *self.utd_hook_manager_data.write().unwrap() = None

@@ -44,7 +44,7 @@ use ruma::{
     push::Ruleset,
     serde::Raw,
     thirdparty::Medium,
-    ClientSecret, MxcUri, OwnedMxcUri, OwnedUserId, RoomId, SessionId, UInt, UserId,
+    ClientSecret, MxcUri, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, SessionId, UInt, UserId,
 };
 use serde::Deserialize;
 use tracing::error;
@@ -155,7 +155,7 @@ impl Account {
                 .store()
                 .set_kv_data(
                     StateStoreDataKey::UserAvatarUrl(user_id),
-                    StateStoreDataValue::UserAvatarUrl(url.to_string()),
+                    StateStoreDataValue::UserAvatarUrl(url),
                 )
                 .await;
         } else {
@@ -167,7 +167,7 @@ impl Account {
     }
 
     /// Get the URL of the account's avatar, if is stored in cache.
-    pub async fn get_cached_avatar_url(&self) -> Result<Option<String>> {
+    pub async fn get_cached_avatar_url(&self) -> Result<Option<OwnedMxcUri>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let data =
             self.client.store().get_kv_data(StateStoreDataKey::UserAvatarUrl(user_id)).await?;
@@ -927,7 +927,7 @@ impl Account {
     }
 
     /// Retrieves the user's recently visited room list
-    pub async fn get_recently_visited_rooms(&self) -> Result<Vec<String>> {
+    pub async fn get_recently_visited_rooms(&self) -> Result<Vec<OwnedRoomId>> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let data = self
             .client
@@ -944,13 +944,8 @@ impl Account {
     }
 
     /// Moves/inserts the given room to the front of the recently visited list
-    pub async fn track_recently_visited_room(&self, room_id: String) -> Result<(), Error> {
+    pub async fn track_recently_visited_room(&self, room_id: OwnedRoomId) -> Result<(), Error> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-
-        if let Err(error) = RoomId::parse(&room_id) {
-            error!("Invalid room id: {}", error);
-            return Err(Error::Identifier(error));
-        }
 
         // Get the previously stored recently visited rooms
         let mut recently_visited_rooms = self.get_recently_visited_rooms().await?;
