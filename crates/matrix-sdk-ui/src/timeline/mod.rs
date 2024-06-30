@@ -109,12 +109,19 @@ use self::{
 };
 
 /// Information needed to edit an event.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EditInfo {
     /// The event ID of the event that needs editing.
     id: EventItemIdentifier,
     /// The original content of the event that needs editing.
     original_message: Message,
+}
+
+impl EditInfo {
+    /// The original content of the event that needs editing.
+    pub fn original_message(&self) -> &Message {
+        &self.original_message
+    }
 }
 
 /// Information needed to reply to an event.
@@ -130,12 +137,24 @@ pub struct RepliedToInfo {
     content: ReplyContent,
 }
 
+impl RepliedToInfo {
+    /// The sender of the event to reply to.
+    pub fn sender(&self) -> &UserId {
+        &self.sender
+    }
+
+    /// The content of the event to reply to.
+    pub fn content(&self) -> &ReplyContent {
+        &self.content
+    }
+}
+
 /// The content of a reply.
-#[derive(Debug)]
-enum ReplyContent {
+#[derive(Debug, Clone)]
+pub enum ReplyContent {
     /// Content of a message event.
     Message(Message),
-    /// Content of any other kind of event stored as raw.
+    /// Content of any other kind of event stored as raw JSON.
     Raw(Raw<AnySyncTimelineEvent>),
 }
 
