@@ -548,7 +548,7 @@ impl Client {
 
     /// Retrieves an avatar cached from a previous call to [`Self::avatar_url`].
     pub fn cached_avatar_url(&self) -> Result<Option<String>, ClientError> {
-        Ok(RUNTIME.block_on(self.inner.account().get_cached_avatar_url())?)
+        Ok(RUNTIME.block_on(self.inner.account().get_cached_avatar_url())?.map(Into::into))
     }
 
     pub fn device_id(&self) -> Result<String, ClientError> {
@@ -873,11 +873,19 @@ impl Client {
     }
 
     pub async fn get_recently_visited_rooms(&self) -> Result<Vec<String>, ClientError> {
-        Ok(self.inner.account().get_recently_visited_rooms().await?)
+        Ok(self
+            .inner
+            .account()
+            .get_recently_visited_rooms()
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     pub async fn track_recently_visited_room(&self, room: String) -> Result<(), ClientError> {
-        self.inner.account().track_recently_visited_room(room).await?;
+        let room_id = RoomId::parse(room)?;
+        self.inner.account().track_recently_visited_room(room_id).await?;
         Ok(())
     }
 

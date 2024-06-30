@@ -56,7 +56,8 @@ pub use rooms::{
     RoomMember, RoomMemberships, RoomState, RoomStateFilter,
 };
 pub use store::{
-    ComposerDraft, StateChanges, StateStore, StateStoreDataKey, StateStoreDataValue, StoreError,
+    ComposerDraft, ComposerDraftType, StateChanges, StateStore, StateStoreDataKey,
+    StateStoreDataValue, StoreError,
 };
 pub use utils::{
     MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent, RedactedMinimalStateEvent,

@@ -34,8 +34,8 @@ use ruma::{
         StateEventType, StaticEventContent, StaticStateEventContent,
     },
     serde::Raw,
-    EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId,
-    TransactionId, UserId,
+    EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedTransactionId, OwnedUserId,
+    RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -914,10 +914,10 @@ pub enum StateStoreDataValue {
     Filter(String),
 
     /// The user avatar url
-    UserAvatarUrl(String),
+    UserAvatarUrl(OwnedMxcUri),
 
     /// A list of recently visited room identifiers for the current user
-    RecentlyVisitedRooms(Vec<String>),
+    RecentlyVisitedRooms(Vec<OwnedRoomId>),
 
     /// Persistent data for
     /// `matrix_sdk_ui::unable_to_decrypt_hook::UtdHookManager`.
@@ -932,7 +932,6 @@ pub enum StateStoreDataValue {
 
 /// Current draft of the composer for the room.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ComposerDraft {
     /// The draft content in plain text.
     pub plain_text: String,
@@ -945,19 +944,18 @@ pub struct ComposerDraft {
 
 /// The type of draft of the composer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum ComposerDraftType {
     /// The draft is a new message.
     NewMessage,
     /// The draft is a reply to an event.
     Reply {
         /// The ID of the event being replied to.
-        event_id: String,
+        event_id: OwnedEventId,
     },
     /// The draft is an edit of an event.
     Edit {
         /// The ID of the event being edited.
-        event_id: String,
+        event_id: OwnedEventId,
     },
 }
 
@@ -973,12 +971,12 @@ impl StateStoreDataValue {
     }
 
     /// Get this value if it is a user avatar url.
-    pub fn into_user_avatar_url(self) -> Option<String> {
+    pub fn into_user_avatar_url(self) -> Option<OwnedMxcUri> {
         as_variant!(self, Self::UserAvatarUrl)
     }
 
     /// Get this value if it is a list of recently visited rooms.
-    pub fn into_recently_visited_rooms(self) -> Option<Vec<String>> {
+    pub fn into_recently_visited_rooms(self) -> Option<Vec<OwnedRoomId>> {
         as_variant!(self, Self::RecentlyVisitedRooms)
     }
 
