@@ -839,22 +839,21 @@ impl Account {
         // existing `m.direct` event and append the room to the list of DMs we
         // have with this user.
 
-        // TODO: Uncomment this once we can rely on `/sync`. Because of the
-        // `unwrap_or_default()` we're using, this may lead to us resetting the
-        // `m.direct` account data event and unmarking the user's DMs.
-        // let mut content = self
-        //     .account_data::<DirectEventContent>()
-        //     .await?
-        //     .map(|c| c.deserialize())
-        //     .transpose()?
-        //     .unwrap_or_default();
-
         // We are fetching the content from the server because we currently can't rely
         // on `/sync` giving us the correct data in a timely manner.
         let raw_content = self.fetch_account_data(GlobalAccountDataEventType::Direct).await?;
-        let mut content = raw_content
-            .and_then(|content| content.deserialize_as::<DirectEventContent>().ok())
-            .unwrap_or_default();
+
+        let mut content = if let Some(raw_content) = raw_content {
+            // Log the error and pass it upwards if we fail to deserialize the m.direct
+            // event.
+            raw_content.deserialize_as::<DirectEventContent>().map_err(|err| {
+                error!("unable to deserialize m.direct event content; aborting request to mark {room_id} as dm: {err}");
+                err
+            })?
+        } else {
+            // If there was no m.direct event server-side, create a default one.
+            Default::default()
+        };
 
         for user_id in user_ids {
             content.entry(user_id.to_owned()).or_default().push(room_id.to_owned());
