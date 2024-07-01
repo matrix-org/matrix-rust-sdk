@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    fmt::{self, Debug},
+    fmt::Debug,
     mem::ManuallyDrop,
     path::Path,
     sync::{Arc, RwLock},
@@ -61,7 +61,7 @@ use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
-    authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError},
+    authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError, SsoHandler},
     client,
     encryption::Encryption,
     notification::NotificationClient,
@@ -170,54 +170,6 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
             current: value.current.try_into().unwrap_or(u64::MAX),
             total: value.total.try_into().unwrap_or(u64::MAX),
         }
-    }
-}
-
-/// An object encapsulating the SSO login flow
-#[derive(uniffi::Object)]
-pub struct SsoHandler {
-    /// The wrapped Client.
-    client: Arc<Client>,
-
-    /// The underlying URL for authentication.
-    url: String,
-}
-
-#[uniffi::export(async_runtime = "tokio")]
-impl SsoHandler {
-    /// Returns the URL for starting SSO authentication. The URL should be
-    /// opened in a web view. Once the web view succeeds, call `finish` with
-    /// the callback URL.
-    pub fn url(&self) -> String {
-        self.url.clone()
-    }
-
-    /// Completes the SSO login process.
-    pub async fn finish(&self, callback_url: String) -> Result<(), SsoError> {
-        let auth = self.client.inner.matrix_auth();
-
-        let url = Url::parse(&callback_url).map_err(|_| SsoError::CallbackUrlInvalid)?;
-
-        #[derive(Deserialize)]
-        struct QueryParameters {
-            #[serde(rename = "loginToken")]
-            login_token: Option<String>,
-        }
-
-        let query_string = url.query().unwrap_or("");
-        let query: QueryParameters =
-            serde_html_form::from_str(query_string).map_err(|_| SsoError::CallbackUrlInvalid)?;
-        let token = query.login_token.ok_or(SsoError::CallbackUrlInvalid)?;
-
-        auth.login_token(token.as_str()).await.map_err(|_| SsoError::LoginWithTokenFailed)?;
-
-        Ok(())
-    }
-}
-
-impl Debug for SsoHandler {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(fmt, "SsoHandler")
     }
 }
 
@@ -1588,102 +1540,5 @@ impl MediaFileHandle {
                 }
             },
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use assert_matches::assert_matches;
-    use matrix_sdk_test::{async_test, test_json};
-    use serde::Deserialize;
-    use url::Url;
-    use wiremock::{
-        matchers::{method, path},
-        Mock, MockServer, ResponseTemplate,
-    };
-
-    use crate::{authentication::SsoError, client_builder::ClientBuilder};
-
-    #[async_test]
-    async fn test_start_sso_login_adds_redirect_url_to_login_url() {
-        let homeserver = make_mock_homeserver().await;
-        let builder = ClientBuilder::new().server_name_or_homeserver_url(homeserver.uri());
-        let client = Arc::new(builder.build_inner().await.expect("Should build client"));
-
-        let handler = client
-            .start_sso_login("app://redirect".to_owned(), None)
-            .await
-            .expect("Should create SSO handler");
-
-        let url = Url::parse(&handler.url).expect("Should generate a valid SSO login URL");
-
-        #[derive(Deserialize)]
-        struct QueryParameters {
-            #[serde(rename = "redirectUrl")]
-            redirect_url: Option<String>,
-        }
-
-        let query_string = url.query().unwrap_or("");
-        let query: QueryParameters = serde_html_form::from_str(query_string)
-            .expect("Should deserialize query parameters from SSO login URL");
-
-        assert_eq!(query.redirect_url, Some("app://redirect".to_owned()));
-    }
-
-    #[async_test]
-    async fn test_finish_sso_login_with_login_token_succeeds() {
-        let homeserver = make_mock_homeserver().await;
-        let builder = ClientBuilder::new().server_name_or_homeserver_url(homeserver.uri());
-        let client = Arc::new(builder.build_inner().await.expect("Should build client"));
-
-        let handler = client
-            .start_sso_login("app://redirect".to_owned(), None)
-            .await
-            .expect("Should create SSO handler");
-
-        handler
-            .finish("app://redirect?loginToken=foo".to_owned())
-            .await
-            .expect("Should log in with token");
-    }
-
-    #[tokio::test]
-    async fn test_finish_sso_login_without_login_token_fails() {
-        let homeserver = make_mock_homeserver().await;
-        let builder = ClientBuilder::new().server_name_or_homeserver_url(homeserver.uri());
-        let client = Arc::new(builder.build_inner().await.expect("Should build client"));
-
-        let handler = client
-            .start_sso_login("app://redirect".to_owned(), None)
-            .await
-            .expect("Should create SSO handler");
-
-        let result = handler.finish("app://redirect?foo=bar".to_owned()).await;
-
-        assert_matches!(result, Err(SsoError::CallbackUrlInvalid));
-    }
-
-    /* Helper functions */
-
-    async fn make_mock_homeserver() -> MockServer {
-        let homeserver = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/versions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
-            .mount(&homeserver)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/r0/login"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_TYPES))
-            .mount(&homeserver)
-            .await;
-        Mock::given(method("POST"))
-            .and(path("/_matrix/client/r0/login"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN))
-            .mount(&homeserver)
-            .await;
-        homeserver
     }
 }
