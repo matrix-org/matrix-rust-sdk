@@ -1010,8 +1010,6 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
     assert_eq!(alice_room.latest_event().unwrap().event_id(), Some(event.event_id));
 
     // Stream has the room again, but no second event
-    // TODO: Synapse sometimes sends the same event two times. This is the
-    // workaround:
     while let Some(Some(updated_rooms)) = stream.next().now_or_never() {
         assert!(!updated_rooms.is_empty());
         assert_matches!(
