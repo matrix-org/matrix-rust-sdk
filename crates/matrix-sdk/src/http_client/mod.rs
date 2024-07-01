@@ -15,6 +15,7 @@
 use std::{
     any::type_name,
     fmt::Debug,
+    num::NonZeroUsize,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -56,8 +57,8 @@ struct MaybeSemaphore(Arc<Option<Semaphore>>);
 struct MaybeSemaphorePermit<'a>(Option<SemaphorePermit<'a>>);
 
 impl MaybeSemaphore {
-    fn new(max: usize) -> Self {
-        let inner = if max > 0 { Some(Semaphore::new(max)) } else { None };
+    fn new(max: Option<NonZeroUsize>) -> Self {
+        let inner = max.map(|i| Semaphore::new(i.into()));
         MaybeSemaphore(Arc::new(inner))
     }
 
@@ -76,7 +77,7 @@ impl MaybeSemaphore {
 pub(crate) struct HttpClient {
     pub(crate) inner: reqwest::Client,
     pub(crate) request_config: RequestConfig,
-    queue: MaybeSemaphore,
+    concurrent_request_semaphore: MaybeSemaphore,
     next_request_id: Arc<AtomicU64>,
 }
 
@@ -85,7 +86,9 @@ impl HttpClient {
         HttpClient {
             inner,
             request_config,
-            queue: MaybeSemaphore::new(request_config.max_concurrent_requests),
+            concurrent_request_semaphore: MaybeSemaphore::new(
+                request_config.max_concurrent_requests,
+            ),
             next_request_id: AtomicU64::new(0).into(),
         }
     }
@@ -215,7 +218,7 @@ impl HttpClient {
         };
 
         // will be automatically dropped at the end of this function
-        let _handle = self.queue.acquire().await;
+        let _handle = self.concurrent_request_semaphore.acquire().await;
 
         debug!("Sending request");
 

@@ -14,6 +14,7 @@
 
 use std::{
     fmt::{self, Debug},
+    num::NonZeroUsize,
     time::Duration,
 };
 
@@ -44,7 +45,7 @@ pub struct RequestConfig {
     pub(crate) timeout: Duration,
     pub(crate) retry_limit: Option<u64>,
     pub(crate) retry_timeout: Option<Duration>,
-    pub(crate) max_concurrent_requests: usize,
+    pub(crate) max_concurrent_requests: Option<NonZeroUsize>,
     pub(crate) force_auth: bool,
 }
 
@@ -58,7 +59,7 @@ impl Debug for RequestConfig {
         res.field("timeout", timeout)
             .maybe_field("retry_limit", retry_limit)
             .maybe_field("retry_timeout", retry_timeout)
-            .field("max_concurrent_requests", max_concurrent_requests);
+            .maybe_field("max_concurrent_requests", max_concurrent_requests);
 
         if *force_auth {
             res.field("force_auth", &true);
@@ -74,7 +75,7 @@ impl Default for RequestConfig {
             timeout: DEFAULT_REQUEST_TIMEOUT,
             retry_limit: Default::default(),
             retry_timeout: Default::default(),
-            max_concurrent_requests: 0,
+            max_concurrent_requests: Default::default(),
             force_auth: false,
         }
     }
@@ -114,18 +115,11 @@ impl RequestConfig {
     /// Any additional request beyond that number will be waiting until another
     /// concurrent requests finished. Requests are queued fairly.
     #[must_use]
-    pub fn max_concurrent_requests(mut self, limit: usize) -> Self {
+    pub fn max_concurrent_requests(mut self, limit: Option<NonZeroUsize>) -> Self {
         self.max_concurrent_requests = limit;
         self
     }
 
-    /// Disable the limit of concurrent requests. Setting the limit to 0
-    /// has the same effect.
-    #[must_use]
-    pub fn disable_max_concurrent_requests(mut self) -> Self {
-        self.max_concurrent_requests = 0;
-        self
-    }
     /// Set the timeout duration for all HTTP requests.
     #[must_use]
     pub fn timeout(mut self, timeout: Duration) -> Self {
