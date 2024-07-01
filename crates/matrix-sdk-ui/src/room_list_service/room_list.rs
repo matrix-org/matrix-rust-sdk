@@ -161,9 +161,9 @@ impl RoomList {
                 let (raw_values, raw_stream) = self.entries();
 
                 // Combine normal stream events with other updates from rooms
-                let merged_stream = merge_stream_and_receiver(raw_values.clone(), raw_stream, roominfo_update_recv.resubscribe());
+                let merged_streams = merge_stream_and_receiver(raw_values.clone(), raw_stream, roominfo_update_recv.resubscribe());
 
-                let (values, stream) = (raw_values, merged_stream)
+                let (values, stream) = (raw_values, merged_streams)
                     .filter(filter_fn)
                     .sort_by(new_sorter_lexicographic(vec![
                         Box::new(new_sorter_recency()),
@@ -195,7 +195,21 @@ fn merge_stream_and_receiver(
 
         loop {
             select! {
-                biased; // Prefer manual updates for easier test code
+                // We want to give priority on updates from `raw_stream` as it will necessarily trigger a “refresh” of the rooms.
+                biased;
+
+                diffs = raw_stream.next() => {
+                    if let Some(diffs) = diffs {
+                        for diff in &diffs {
+                            diff.clone().apply(&mut raw_current_values);
+                        }
+
+                        yield diffs;
+                    } else {
+                        // Restart immediately, don't keep on waiting for the receiver
+                        break;
+                    }
+                }
 
                 Ok(update) = roominfo_update_recv.recv() => {
                     if !update.trigger_room_list_update {
@@ -203,24 +217,9 @@ fn merge_stream_and_receiver(
                     }
 
                     // Search list for the updated room
-                    for (index, room) in raw_current_values.iter().enumerate() {
-                        if room.room_id() == update.room_id {
-                            let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
-                            yield vec![update];
-                            break;
-                        }
-                    }
-                }
-
-                v = raw_stream.next() => {
-                    if let Some(v) = v {
-                        for change in &v {
-                            change.clone().apply(&mut raw_current_values);
-                        }
-                        yield v;
-                    } else {
-                        // Restart immediately, don't keep on waiting for the receiver
-                        break;
+                    if let Some(index) = raw_current_values.iter().position(|room| room.room_id() == update.room_id) {
+                        let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
+                        yield vec![update];
                     }
                 }
             }
