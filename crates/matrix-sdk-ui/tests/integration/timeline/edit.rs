@@ -215,6 +215,17 @@ async fn test_edit_local_echo() {
 
     assert!(timeline_stream.next().now_or_never().is_none());
 
+    // Set up the success response before editing, since edit causes an immediate
+    // retry (the room's send queue is not blocked, since the one event it couldn't
+    // send failed in an unrecoverable way).
+    drop(mounted_send);
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$1" })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
     // Let's edit the local echo.
     let edit_info = item.edit_info().expect("getting the edit info for the local echo");
 
@@ -239,18 +250,6 @@ async fn test_edit_local_echo() {
 
     let edit_message = item.content().as_message().unwrap();
     assert_eq!(edit_message.body(), "hello, world");
-
-    // Now, reenable the send queue for that room, and observe the new event being
-    // sent.
-    drop(mounted_send);
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$1" })))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    room.send_queue().set_enabled(true);
 
     // Observe the event being sent, and replacing the local echo.
     assert_let!(Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next().await);
