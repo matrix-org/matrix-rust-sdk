@@ -30,7 +30,7 @@ use tokio::{select, sync::broadcast};
 
 use super::{
     filters::BoxedFilterFn,
-    sorters::{new_sorter_name, new_sorter_or, new_sorter_recency},
+    sorters::{new_sorter_lexicographic, new_sorter_name, new_sorter_recency},
     Error, Room, State,
 };
 
@@ -165,7 +165,7 @@ impl RoomList {
 
                 let (values, stream) = (raw_values, merged_stream)
                     .filter(filter_fn)
-                    .sort_by(new_sorter_or(vec![
+                    .sort_by(new_sorter_lexicographic(vec![
                         Box::new(new_sorter_recency()),
                         Box::new(new_sorter_name())
                     ]))
