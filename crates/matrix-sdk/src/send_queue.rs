@@ -863,14 +863,21 @@ impl SendHandle {
     ///
     /// Returns true if the sending could be aborted, false if not (i.e. the
     /// event had already been sent).
+    #[instrument(skip(self), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id))]
     pub async fn abort(self) -> Result<bool, RoomSendQueueStorageError> {
+        trace!("received an abort request");
+
         if self.room.inner.queue.cancel(&self.transaction_id).await? {
+            trace!("successful abort");
+
             // Propagate a cancelled update too.
             let _ = self.room.inner.updates.send(RoomSendQueueUpdate::CancelledLocalEvent {
                 transaction_id: self.transaction_id.clone(),
             });
+
             Ok(true)
         } else {
+            debug!("event was being sent, can't abort");
             Ok(false)
         }
     }
@@ -879,21 +886,28 @@ impl SendHandle {
     ///
     /// Returns true if the event to be sent was replaced, false if not (i.e.
     /// the event had already been sent).
+    #[instrument(skip(self, new_content), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id))]
     pub async fn edit_raw(
         &self,
         new_content: Raw<AnyMessageLikeEventContent>,
         event_type: String,
     ) -> Result<bool, RoomSendQueueStorageError> {
+        trace!("received an edit request");
+
         let serializable = SerializableEventContent::from_raw(new_content, event_type);
 
         if self.room.inner.queue.replace(&self.transaction_id, serializable.clone()).await? {
+            trace!("successful edit");
+
             // Propagate a replaced update too.
             let _ = self.room.inner.updates.send(RoomSendQueueUpdate::ReplacedLocalEvent {
                 transaction_id: self.transaction_id.clone(),
                 new_content: serializable,
             });
+
             Ok(true)
         } else {
+            debug!("event was being sent, can't edit");
             Ok(false)
         }
     }
