@@ -591,6 +591,8 @@ struct QueueStorage {
     room_id: OwnedRoomId,
 
     /// All the queued events that are being sent at the moment.
+    ///
+    /// It also serves as an internal lock on the storage backend.
     being_sent: Arc<RwLock<BTreeSet<OwnedTransactionId>>>,
 }
 
@@ -624,6 +626,9 @@ impl QueueStorage {
     /// It is required to call [`Self::mark_as_sent`] after it's been
     /// effectively sent.
     async fn peek_next_to_send(&self) -> Result<Option<QueuedEvent>, RoomSendQueueStorageError> {
+        // Keep the lock until we're done touching the storage.
+        let mut being_sent = self.being_sent.write().await;
+
         let queued_events = self
             .client
             .get()
@@ -633,7 +638,7 @@ impl QueueStorage {
             .await?;
 
         if let Some(event) = queued_events.iter().find(|queued| !queued.is_wedged) {
-            self.being_sent.write().await.insert(event.transaction_id.clone());
+            being_sent.insert(event.transaction_id.clone());
 
             Ok(Some(event.clone()))
         } else {
@@ -655,7 +660,9 @@ impl QueueStorage {
         &self,
         transaction_id: &TransactionId,
     ) -> Result<(), RoomSendQueueStorageError> {
-        self.mark_as_not_being_sent(transaction_id).await;
+        // Keep the lock until we're done touching the storage.
+        let mut being_sent = self.being_sent.write().await;
+        being_sent.remove(transaction_id);
 
         Ok(self
             .client
@@ -672,7 +679,9 @@ impl QueueStorage {
         &self,
         transaction_id: &TransactionId,
     ) -> Result<(), RoomSendQueueStorageError> {
-        self.mark_as_not_being_sent(transaction_id).await;
+        // Keep the lock until we're done touching the storage.
+        let mut being_sent = self.being_sent.write().await;
+        being_sent.remove(transaction_id);
 
         let removed = self
             .client
@@ -699,9 +708,10 @@ impl QueueStorage {
         &self,
         transaction_id: &TransactionId,
     ) -> Result<bool, RoomSendQueueStorageError> {
-        // Note: since there's a single caller (the room sending task, which processes
-        // events to send linearly), there's no risk for race conditions here.
-        if self.being_sent.read().await.contains(transaction_id) {
+        // Keep the lock until we're done touching the storage.
+        let being_sent = self.being_sent.read().await;
+
+        if being_sent.contains(transaction_id) {
             return Ok(false);
         }
 
@@ -728,9 +738,10 @@ impl QueueStorage {
         transaction_id: &TransactionId,
         serializable: SerializableEventContent,
     ) -> Result<bool, RoomSendQueueStorageError> {
-        // Note: since there's a single caller (the room sending task, which processes
-        // events to send linearly), there's no risk for race conditions here.
-        if self.being_sent.read().await.contains(transaction_id) {
+        // Keep the lock until we're done touching the storage.
+        let being_sent = self.being_sent.read().await;
+
+        if being_sent.contains(transaction_id) {
             return Ok(false);
         }
 
