@@ -1476,6 +1476,16 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         push front [ "!r4:bar.org" ];
         end;
     };
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set [ 1 ] [ "!r1:bar.org" ];
+        end;
+    };
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set [ 0 ] [ "!r4:bar.org" ];
+        end;
+    };
     assert_pending!(dynamic_entries_stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1586,6 +1596,16 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         [dynamic_entries_stream]
         push front [ "!r5:bar.org" ];
         push front [ "!r7:bar.org" ];
+        end;
+    };
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set [ 1 ] [ "!r5:bar.org" ];
+        end;
+    };
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set [ 0 ] [ "!r7:bar.org" ];
         end;
     };
     assert_pending!(dynamic_entries_stream);
