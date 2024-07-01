@@ -1400,7 +1400,7 @@ impl_state_store!({
         room_id: &RoomId,
         transaction_id: &TransactionId,
         content: SerializableEventContent,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
         let tx = self
@@ -1423,21 +1423,22 @@ impl_state_store!({
         if let Some(entry) = prev.iter_mut().find(|entry| entry.transaction_id == transaction_id) {
             entry.event = content;
             entry.is_wedged = false;
+
+            // Save the new vector into db.
+            obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
+            tx.await.into_result()?;
+
+            Ok(true)
+        } else {
+            Ok(false)
         }
-
-        // Save the new vector into db.
-        obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
-
-        tx.await.into_result()?;
-
-        Ok(())
     }
 
     async fn remove_send_queue_event(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
         let tx = self
@@ -1459,12 +1460,13 @@ impl_state_store!({
                 } else {
                     obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
                 }
+
+                tx.await.into_result()?;
+                return Ok(true);
             }
         }
 
-        tx.await.into_result()?;
-
-        Ok(())
+        Ok(false)
     }
 
     async fn load_send_queue_events(&self, room_id: &RoomId) -> Result<Vec<QueuedEvent>> {
