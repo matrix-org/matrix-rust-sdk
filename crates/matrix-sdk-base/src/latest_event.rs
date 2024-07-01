@@ -133,6 +133,9 @@ pub struct LatestEvent {
     ///
     /// This information can potentially be requested multiple times. Keeping a
     /// copy here avoid to parse `Self::event::event` which is a `Raw<_>`.
+    ///
+    /// We `skip_serializing` instead of `skip` because deserializing is handled
+    /// by the custom `Deserialize` for `LatestEvent`.
     #[serde(skip_serializing)]
     cached_event_origin_server_ts: MilliSecondsSinceUnixEpoch,
 
