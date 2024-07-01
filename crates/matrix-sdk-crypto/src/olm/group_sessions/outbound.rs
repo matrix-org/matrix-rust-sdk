@@ -531,7 +531,6 @@ impl OutboundGroupSession {
                 self.room_id().to_owned(),
                 self.session_id().to_owned(),
                 session_key,
-                None,
             )
             .into(),
         )

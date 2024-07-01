@@ -1478,6 +1478,7 @@ mod tests {
             alice_id(),
             alice_id(),
             alice_device.ed25519_key().unwrap(),
+            None,
             content,
         );
 
@@ -1525,6 +1526,7 @@ mod tests {
             alice_id(),
             alice_id(),
             alice_device.ed25519_key().unwrap(),
+            None,
             content,
         );
 
@@ -1543,6 +1545,7 @@ mod tests {
             alice_id(),
             alice_id(),
             alice_device.ed25519_key().unwrap(),
+            None,
             content,
         );
 
