@@ -23,9 +23,7 @@
 //!
 //! As such, the `RoomListService` works as an opinionated state machine. The
 //! states are defined by [`State`]. Actions are attached to the each state
-//! transition. Apart from that, one can apply [`Input`]s on the state machine,
-//! like notifying that the client app viewport of the room list has changed (if
-//! the user of the client app has scrolled in the room list for example) etc.
+//! transition.
 //!
 //! The API is purposely small. Sliding Sync is versatile. `RoomListService` is
 //! _one_ specific usage of Sliding Sync.
@@ -371,15 +369,6 @@ impl RoomListService {
         self.list_for(ALL_ROOMS_LIST_NAME).await
     }
 
-    /// Pass an [`Input`] onto the state machine.
-    ///
-    /// After some updates, these is no more `Input` but this API is kept in
-    /// case of a future necessity.
-    #[allow(clippy::unused_async)]
-    pub async fn apply_input(&self, _input: Input) -> Result<InputResult, Error> {
-        Ok(InputResult::Ignored)
-    }
-
     /// Get a [`Room`] if it exists.
     pub fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
         Ok(Room::new(
@@ -405,10 +394,6 @@ pub enum Error {
     #[error("Unknown list `{0}`")]
     UnknownList(String),
 
-    /// An input was asked to be applied but it wasn't possible to apply it.
-    #[error("The input cannot be applied: {0:?}")]
-    InputCannotBeApplied(Input),
-
     /// The requested room doesn't exist.
     #[error("Room `{0}` not found")]
     RoomNotFound(OwnedRoomId),
@@ -421,25 +406,6 @@ pub enum Error {
 
     #[error("The attached event cache ran into an error")]
     EventCache(#[from] EventCacheError),
-}
-
-/// An input for the [`RoomList`]' state machine.
-///
-/// An input is something that has happened or is happening or is requested by
-/// the client app using this [`RoomList`].
-#[derive(Debug)]
-pub enum Input {}
-
-/// An [`Input`] Ok result: whether it's been applied, or ignored.
-#[derive(Debug, Eq, PartialEq)]
-pub enum InputResult {
-    /// The input has been applied.
-    Applied,
-
-    /// The input has been ignored.
-    ///
-    /// Note that this is not an error. The input was valid, but simply ignored.
-    Ignored,
 }
 
 /// An hint whether a _sync spinner/loader/toaster_ should be prompted to the
