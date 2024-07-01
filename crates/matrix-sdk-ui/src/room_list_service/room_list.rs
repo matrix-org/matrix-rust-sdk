@@ -199,8 +199,6 @@ fn merge_stream_and_receiver(
                 biased;
 
                 diffs = raw_stream.next() => {
-                    tracing::error!("merge streams: receive diff");
-
                     if let Some(diffs) = diffs {
                         for diff in &diffs {
                             diff.clone().apply(&mut raw_current_values);
@@ -214,8 +212,6 @@ fn merge_stream_and_receiver(
                 }
 
                 Ok(update) = roominfo_update_recv.recv() => {
-                    tracing::error!(trigger_update = ?update.trigger_room_list_update, "merge streams: receive roominfo update");
-
                     if !update.trigger_room_list_update {
                         continue;
                     }

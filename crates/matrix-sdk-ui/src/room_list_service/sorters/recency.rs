@@ -31,7 +31,6 @@ where
 {
     fn matches(&self, left: &Room, right: &Room) -> Ordering {
         if left.id() == right.id() {
-            tracing::error!("recency, with the same room");
             // `left` and `right` are the same room. We are comparing the same
             // `LatestEvent`!
             //
