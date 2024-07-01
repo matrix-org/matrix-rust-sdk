@@ -740,7 +740,7 @@ mod tests {
         account: &Account,
         private_identity: &PrivateCrossSigningIdentity,
     ) -> Device {
-        let mut read_only_device = ReadOnlyDevice::from_account(&account);
+        let mut read_only_device = ReadOnlyDevice::from_account(account);
 
         let self_signing = private_identity.self_signing_key.lock().await;
         let self_signing = self_signing.as_ref().unwrap();
