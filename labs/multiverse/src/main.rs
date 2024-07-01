@@ -28,7 +28,7 @@ use matrix_sdk::{
     AuthSession, Client, ServerName, SqliteCryptoStore, SqliteStateStore,
 };
 use matrix_sdk_ui::{
-    room_list_service,
+    room_list_service::{self, filters::new_filter_non_left},
     sync_service::{self, SyncService},
     timeline::{TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem},
     Timeline as SdkTimeline,
@@ -179,26 +179,25 @@ impl App {
             Default::default();
         let timelines = Arc::new(Mutex::new(HashMap::new()));
 
+        let c = client.clone();
         let r = rooms.clone();
         let ri = room_infos.clone();
         let ur = ui_rooms.clone();
-        let s = sync_service.clone();
         let t = timelines.clone();
 
         let room_list_service = sync_service.room_list_service();
         let all_rooms = room_list_service.all_rooms().await?;
 
         let listen_task = spawn(async move {
+            let client = c;
             let rooms = r;
             let room_infos = ri;
             let ui_rooms = ur;
-            let sync_service = s;
             let timelines = t;
 
-            let (initial_rooms, stream) = all_rooms.entries();
-
-            // Save initial rooms.
-            rooms.lock().unwrap().append(initial_rooms);
+            let (stream, entries_controller) =
+                all_rooms.entries_with_dynamic_adapters(50_000, client.roominfo_update_receiver());
+            entries_controller.set_filter(Box::new(new_filter_non_left()));
 
             pin_mut!(stream);
 
@@ -206,12 +205,13 @@ impl App {
                 let all_rooms = {
                     // Apply the diffs to the list of room entries.
                     let mut rooms = rooms.lock().unwrap();
+
                     for diff in diffs {
                         diff.apply(&mut rooms);
                     }
 
                     // Collect rooms early to release the room entries list lock.
-                    rooms.iter().map(|room| room.room_id().to_owned()).collect::<Vec<_>>()
+                    (*rooms).clone()
                 };
 
                 // Clone the previous set of ui rooms to avoid keeping the ui_rooms lock (which
@@ -224,15 +224,10 @@ impl App {
                 let mut new_timelines = Vec::new();
 
                 // Initialize all the new rooms.
-                for room_id in
-                    all_rooms.into_iter().filter(|room_id| !previous_ui_rooms.contains_key(room_id))
+                for ui_room in all_rooms
+                    .into_iter()
+                    .filter(|room| !previous_ui_rooms.contains_key(room.room_id()))
                 {
-                    // Retrieve the room list service's Room.
-                    let Ok(ui_room) = sync_service.room_list_service().room(&room_id) else {
-                        error!("error when retrieving room after an update");
-                        continue;
-                    };
-
                     // Initialize the timeline.
                     let builder = match ui_room.default_room_timeline_builder().await {
                         Ok(builder) => builder,
@@ -263,12 +258,12 @@ impl App {
                     });
 
                     new_timelines.push((
-                        room_id.clone(),
+                        ui_room.room_id().to_owned(),
                         Timeline { timeline: sdk_timeline, items, task: timeline_task },
                     ));
 
                     // Save the room list service room in the cache.
-                    new_ui_rooms.insert(room_id, ui_room);
+                    new_ui_rooms.insert(ui_room.room_id().to_owned(), ui_room);
                 }
 
                 for (room_id, room) in &new_ui_rooms {
@@ -277,7 +272,7 @@ impl App {
                     room_infos
                         .lock()
                         .unwrap()
-                        .insert(room_id.clone(), ExtraRoomInfo { raw_name, display_name });
+                        .insert(room_id.to_owned(), ExtraRoomInfo { raw_name, display_name });
                 }
 
                 ui_rooms.lock().unwrap().extend(new_ui_rooms);
@@ -443,15 +438,15 @@ impl App {
                             }
 
                             Char('M') => {
-                                if let Some(sdk_timeline) =
-                                    self.get_selected_room_id(None).and_then(|room_id| {
-                                        self.timelines
-                                            .lock()
-                                            .unwrap()
-                                            .get(&room_id)
-                                            .map(|timeline| timeline.timeline.clone())
-                                    })
-                                {
+                                let selected = self.get_selected_room_id(None);
+
+                                if let Some(sdk_timeline) = selected.and_then(|room_id| {
+                                    self.timelines
+                                        .lock()
+                                        .unwrap()
+                                        .get(&room_id)
+                                        .map(|timeline| timeline.timeline.clone())
+                                }) {
                                     match sdk_timeline
                                         .send(
                                             RoomMessageEventContent::text_plain(format!(
