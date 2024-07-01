@@ -18,7 +18,7 @@ use as_variant::as_variant;
 use matrix_sdk::{send_queue::SendHandle, Error};
 use ruma::{EventId, OwnedEventId, OwnedTransactionId};
 
-use super::EventItemIdentifier;
+use super::TimelineEventItemId;
 
 /// An item for an event that was created locally and not yet echoed back by
 /// the homeserver.
@@ -37,13 +37,13 @@ impl LocalEventTimelineItem {
     ///
     /// Returns the transaction ID for a local echo item that has not been sent
     /// and the event ID for a local echo item that has been sent.
-    pub(crate) fn identifier(&self) -> EventItemIdentifier {
+    pub(crate) fn identifier(&self) -> TimelineEventItemId {
         if let Some(event_id) =
             as_variant!(&self.send_state, EventSendState::Sent { event_id } => event_id)
         {
-            EventItemIdentifier::EventId(event_id.clone())
+            TimelineEventItemId::EventId(event_id.clone())
         } else {
-            EventItemIdentifier::TransactionId(self.transaction_id.clone())
+            TimelineEventItemId::TransactionId(self.transaction_id.clone())
         }
     }
 

@@ -38,7 +38,7 @@ use crate::{
             Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
             TimelineItemPosition,
         },
-        event_item::{EventItemIdentifier, RemoteEventOrigin},
+        event_item::{RemoteEventOrigin, TimelineEventItemId},
         polls::PollPendingEvents,
         reactions::{ReactionToggleResult, Reactions},
         read_receipts::ReadReceipts,
@@ -294,7 +294,7 @@ impl TimelineInnerState {
 
             // Remove the local echo from the related event.
             if let Some(txn_id) = local_echo_to_remove {
-                let id = EventItemIdentifier::TransactionId(txn_id.clone());
+                let id = TimelineEventItemId::TransactionId(txn_id.clone());
                 if reaction_group.0.swap_remove(&id).is_none() {
                     warn!(
                         "Tried to remove reaction by transaction ID, but didn't \
@@ -306,7 +306,7 @@ impl TimelineInnerState {
             // Add the remote echo to the related event
             if let Some(event_id) = remote_echo_to_add {
                 reaction_group.0.insert(
-                    EventItemIdentifier::EventId(event_id.clone()),
+                    TimelineEventItemId::EventId(event_id.clone()),
                     reaction_sender_data.clone(),
                 );
             };
@@ -324,7 +324,7 @@ impl TimelineInnerState {
             // Remove the local echo from reaction_map
             // (should the local echo already be up-to-date after event handling?)
             if let Some(txn_id) = local_echo_to_remove {
-                let id = EventItemIdentifier::TransactionId(txn_id.clone());
+                let id = TimelineEventItemId::TransactionId(txn_id.clone());
                 if self.meta.reactions.map.remove(&id).is_none() {
                     warn!(
                         "Tried to remove reaction by transaction ID, but didn't \
@@ -335,7 +335,7 @@ impl TimelineInnerState {
             // Add the remote echo to the reaction_map
             if let Some(event_id) = remote_echo_to_add {
                 self.meta.reactions.map.insert(
-                    EventItemIdentifier::EventId(event_id.clone()),
+                    TimelineEventItemId::EventId(event_id.clone()),
                     (reaction_sender_data, annotation.clone()),
                 );
             }

@@ -76,7 +76,7 @@ pub(super) enum EventTimelineItemKind {
 
 /// A wrapper that can contain either a transaction id, or an event id.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum EventItemIdentifier {
+pub enum TimelineEventItemId {
     /// The item is local, identified by its transaction id (to be used in
     /// subsequent requests).
     TransactionId(OwnedTransactionId),
@@ -206,11 +206,11 @@ impl EventTimelineItem {
     /// Returns the transaction ID for a local echo item that has not been sent
     /// and the event ID for a local echo item that has been sent or a
     /// remote item.
-    pub(crate) fn identifier(&self) -> EventItemIdentifier {
+    pub(crate) fn identifier(&self) -> TimelineEventItemId {
         match &self.kind {
             EventTimelineItemKind::Local(local) => local.identifier(),
             EventTimelineItemKind::Remote(remote) => {
-                EventItemIdentifier::EventId(remote.event_id.clone())
+                TimelineEventItemId::EventId(remote.event_id.clone())
             }
         }
     }
