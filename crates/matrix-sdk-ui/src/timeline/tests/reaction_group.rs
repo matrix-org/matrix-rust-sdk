@@ -17,7 +17,7 @@ use itertools::Itertools;
 use matrix_sdk_test::{ALICE, BOB};
 use ruma::{server_name, uint, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId};
 
-use crate::timeline::{event_item::EventItemIdentifier, ReactionGroup, ReactionSenderData};
+use crate::timeline::{event_item::TimelineEventItemId, ReactionGroup, ReactionSenderData};
 
 #[test]
 fn test_by_sender() {
@@ -35,7 +35,7 @@ fn test_by_sender() {
 
     let reaction = alice_reactions[0];
 
-    assert_let!(EventItemIdentifier::EventId(event_id) = reaction_1);
+    assert_let!(TimelineEventItemId::EventId(event_id) = reaction_1);
     assert_eq!(reaction.1.unwrap(), &event_id);
 }
 
@@ -121,9 +121,9 @@ fn insert(group: &mut ReactionGroup, sender: &UserId, count: u64) {
     }
 }
 
-fn new_reaction() -> EventItemIdentifier {
+fn new_reaction() -> TimelineEventItemId {
     let event_id = EventId::new(server_name!("example.org"));
-    EventItemIdentifier::EventId(event_id)
+    TimelineEventItemId::EventId(event_id)
 }
 
 fn new_sender_data(sender: OwnedUserId) -> ReactionSenderData {

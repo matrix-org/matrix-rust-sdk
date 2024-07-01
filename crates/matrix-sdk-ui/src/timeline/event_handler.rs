@@ -51,9 +51,9 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 use super::{
     day_dividers::DayDividerAdjuster,
     event_item::{
-        AnyOtherFullStateEventContent, BundledReactions, EventItemIdentifier, EventSendState,
-        EventTimelineItemKind, LocalEventTimelineItem, Profile, RemoteEventOrigin,
-        RemoteEventTimelineItem,
+        AnyOtherFullStateEventContent, BundledReactions, EventSendState, EventTimelineItemKind,
+        LocalEventTimelineItem, Profile, RemoteEventOrigin, RemoteEventTimelineItem,
+        TimelineEventItemId,
     },
     inner::{TimelineInnerMetadata, TimelineInnerStateTransaction},
     polls::PollState,
@@ -535,10 +535,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let event_id: &EventId = &c.relates_to.event_id;
         let (reaction_id, old_txn_id) = match &self.ctx.flow {
             Flow::Local { txn_id, .. } => {
-                (EventItemIdentifier::TransactionId(txn_id.clone()), None)
+                (TimelineEventItemId::TransactionId(txn_id.clone()), None)
             }
             Flow::Remote { event_id, txn_id, .. } => {
-                (EventItemIdentifier::EventId(event_id.clone()), txn_id.as_ref())
+                (TimelineEventItemId::EventId(event_id.clone()), txn_id.as_ref())
             }
         };
 
@@ -558,7 +558,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let reaction_group = reactions.entry(c.relates_to.key.clone()).or_default();
 
                 if let Some(txn_id) = old_txn_id {
-                    let id = EventItemIdentifier::TransactionId(txn_id.clone());
+                    let id = TimelineEventItemId::TransactionId(txn_id.clone());
                     // Remove the local echo from the related event.
                     if reaction_group.0.swap_remove(&id).is_none() {
                         warn!(
@@ -584,7 +584,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         } else {
             trace!("Timeline item not found, adding reaction to the pending list");
-            let EventItemIdentifier::EventId(reaction_event_id) = reaction_id.clone() else {
+            let TimelineEventItemId::EventId(reaction_event_id) = reaction_id.clone() else {
                 error!("Adding local reaction echo to event absent from the timeline");
                 return;
             };
@@ -595,7 +595,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
 
         if let Flow::Remote { txn_id: Some(txn_id), .. } = &self.ctx.flow {
-            let id = EventItemIdentifier::TransactionId(txn_id.clone());
+            let id = TimelineEventItemId::TransactionId(txn_id.clone());
             // Remove the local echo from the reaction map.
             if self.meta.reactions.map.remove(&id).is_none() {
                 warn!(
@@ -723,7 +723,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         // TODO: Apply local redaction of PollResponse and PollEnd events.
         // https://github.com/matrix-org/matrix-rust-sdk/pull/2381#issuecomment-1689647825
 
-        let id = EventItemIdentifier::EventId(redacts.clone());
+        let id = TimelineEventItemId::EventId(redacts.clone());
 
         // If it's a reaction that's being redacted, handle it here.
         if let Some((_, rel)) = self.meta.reactions.map.remove(&id) {
@@ -831,7 +831,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     // Redacted redactions are no-ops (unfortunately)
     #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
     fn handle_local_redaction(&mut self, redacts: OwnedTransactionId) {
-        let id = EventItemIdentifier::TransactionId(redacts);
+        let id = TimelineEventItemId::TransactionId(redacts);
 
         // Redact the reaction, if any.
         if let Some((_, rel)) = self.meta.reactions.map.remove(&id) {
@@ -1069,7 +1069,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let mut bundled = IndexMap::new();
 
                 for reaction_event_id in reactions {
-                    let reaction_id = EventItemIdentifier::EventId(reaction_event_id);
+                    let reaction_id = TimelineEventItemId::EventId(reaction_event_id);
                     let Some((reaction_sender_data, annotation)) =
                         self.meta.reactions.map.get(&reaction_id)
                     else {
