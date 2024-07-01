@@ -57,11 +57,7 @@ mod room_list;
 pub mod sorters;
 mod state;
 
-use std::{
-    num::NonZeroUsize,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
@@ -70,7 +66,6 @@ use matrix_sdk::{
     event_cache::EventCacheError, Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList,
     SlidingSyncMode,
 };
-use matrix_sdk_base::ring_buffer::RingBuffer;
 pub use room::*;
 pub use room_list::*;
 use ruma::{
@@ -101,20 +96,9 @@ pub struct RoomListService {
     ///
     /// `RoomListService` is a simple state-machine.
     state: SharedObservable<State>,
-
-    /// Room cache, to avoid recreating `Room`s every time users fetch them.
-    rooms: Arc<Mutex<RingBuffer<Room>>>,
 }
 
 impl RoomListService {
-    /// Size of the room's ring buffer.
-    ///
-    /// This number should be high enough so that navigating to a room
-    /// previously visited is almost instant, but also not too high so as to
-    /// avoid exhausting memory.
-    // SAFETY: `new_unchecked` is safe because 128 is not zero.
-    const ROOM_OBJECT_CACHE_SIZE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(128) };
-
     /// Create a new `RoomList`.
     ///
     /// A [`matrix_sdk::SlidingSync`] client will be created, with a cached list
@@ -198,12 +182,7 @@ impl RoomListService {
         // Eagerly subscribe the event cache to sync responses.
         client.event_cache().subscribe()?;
 
-        Ok(Self {
-            client,
-            sliding_sync,
-            state: SharedObservable::new(State::Init),
-            rooms: Arc::new(Mutex::new(RingBuffer::new(Self::ROOM_OBJECT_CACHE_SIZE))),
-        })
+        Ok(Self { client, sliding_sync, state: SharedObservable::new(State::Init) })
     }
 
     /// Start to sync the room list.
@@ -392,21 +371,10 @@ impl RoomListService {
 
     /// Get a [`Room`] if it exists.
     pub fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
-        let mut rooms = self.rooms.lock().unwrap();
-
-        if let Some(room) = rooms.iter().rfind(|room| room.id() == room_id) {
-            return Ok(room.clone());
-        }
-
-        let room = Room::new(
+        Ok(Room::new(
             self.client.get_room(room_id).ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))?,
             &self.sliding_sync,
-        );
-
-        // Save for later.
-        rooms.push(room.clone());
-
-        Ok(room)
+        ))
     }
 
     #[cfg(test)]
