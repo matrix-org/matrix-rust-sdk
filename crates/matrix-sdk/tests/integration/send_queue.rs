@@ -886,6 +886,73 @@ async fn test_edit() {
 }
 
 #[async_test]
+async fn test_edit_wakes_the_sending_task() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    mock_encryption_state(&server, false).await;
+
+    let send_mock_scope = Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(413).set_body_json(json!({
+            // From https://spec.matrix.org/v1.10/client-server-api/#standard-error-response
+            "errcode": "M_TOO_LARGE",
+        })))
+        .expect(1)
+        .mount_as_scoped(&server)
+        .await;
+
+    let handle =
+        q.send(RoomMessageEventContent::text_plain("welcome to my ted talk").into()).await.unwrap();
+
+    // Receiving an update for the local echo.
+    let (txn, _) = assert_update!(watch => local echo { body = "welcome to my ted talk" });
+    assert!(watch.is_empty());
+
+    // Let the background task start now.
+    tokio::task::yield_now().await;
+
+    assert_update!(watch => error { recoverable = false, txn = txn });
+    assert!(watch.is_empty());
+
+    // Now edit the event's content (imagine we make it "shorter").
+    drop(send_mock_scope);
+    mock_send_event(event_id!("$1")).mount(&server).await;
+
+    let edited = handle
+        .edit(RoomMessageEventContent::text_plain("here's the summary of my ted talk").into())
+        .await
+        .unwrap();
+    assert!(edited);
+
+    // Let the server process the message.
+    assert_update!(watch => edit { body = "here's the summary of my ted talk", txn = txn });
+    assert_update!(watch => sent { txn = txn, });
+
+    assert!(watch.is_empty());
+}
+
+#[async_test]
 async fn test_abort_after_disable() {
     let (client, server) = logged_in_client_with_server().await;
 

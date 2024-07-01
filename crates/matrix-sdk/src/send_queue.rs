@@ -899,6 +899,9 @@ impl SendHandle {
         if self.room.inner.queue.replace(&self.transaction_id, serializable.clone()).await? {
             trace!("successful edit");
 
+            // Wake up the queue, in case the room was asleep before the edit.
+            self.room.inner.notifier.notify_one();
+
             // Propagate a replaced update too.
             let _ = self.room.inner.updates.send(RoomSendQueueUpdate::ReplacedLocalEvent {
                 transaction_id: self.transaction_id.clone(),
