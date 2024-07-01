@@ -30,6 +30,29 @@ where
     F: Fn(&Room, &Room) -> (Option<LatestEvent>, Option<LatestEvent>),
 {
     fn matches(&self, left: &Room, right: &Room) -> Ordering {
+        if left.id() == right.id() {
+            tracing::error!("recency, with the same room");
+            // `left` and `right` are the same room. We are comparing the same
+            // `LatestEvent`!
+            //
+            // The way our `Room` types are implemented makes it so they are sharing the
+            // same data, because they are all built from the same store. They can be seen
+            // as shallow clones of each others. In practise it's really great: a `Room` can
+            // never be outdated. However, for the case of sorting rooms, it breaks the
+            // search algorithm. `left` and `right` will have the exact same `LatestEvent`,
+            // so `left` and `right` will always be `Ordering::Equal`. This is wrong: if
+            // `left` is compared with `right` and if they are both the same room, it means
+            // that one of them (either `left`, or `right`, it's not important) has received
+            // an update. The room position is very likely to change. But if they compare to
+            // `Equal`, the position may not change. It actually depends of the search
+            // algorithm used by [`eyeball_im_util::SortBy`].
+            //
+            // Since this sorter is sorting rooms from the most recent latest event to the
+            // oldest, we should return `Ordering::Greatest`: the room is greatest to its
+            // previous version.
+            return Ordering::Greater;
+        }
+
         match (self.latest_events)(left, right) {
             (Some(left_latest_event), Some(right_latest_event)) => left_latest_event
                 .event_origin_server_ts()
