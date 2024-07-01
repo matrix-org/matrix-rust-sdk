@@ -56,7 +56,7 @@ mod tests {
     };
 
     #[async_test]
-    async fn test_with_two_latest_events() {
+    async fn test_with_two_names() {
         let (client, server, sliding_sync) = client_and_server_prelude().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server, &sliding_sync)
@@ -91,7 +91,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_with_one_latest_event() {
+    async fn test_with_one_name() {
         let (client, server, sliding_sync) = client_and_server_prelude().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server, &sliding_sync)
@@ -113,7 +113,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_with_zero_latest_event() {
+    async fn test_with_zero_name() {
         let (client, server, sliding_sync) = client_and_server_prelude().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server, &sliding_sync)
