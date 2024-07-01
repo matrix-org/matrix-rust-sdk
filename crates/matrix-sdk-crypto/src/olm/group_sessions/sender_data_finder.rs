@@ -497,7 +497,7 @@ mod tests {
         let user_identities = ReadOnlyUserIdentities::Own(user_identity.clone());
 
         // And a device (not signed)
-        let device = create_unsigned_device(&account).await;
+        let device = create_unsigned_device(&account);
 
         // And an event (not containing device info)
         let room_key_content = room_key_content();
@@ -542,7 +542,7 @@ mod tests {
         assert_let!(SenderData::SenderKnown { user_id, msk, msk_verified } = sender_data);
         assert_eq!(user_id, account.user_id());
         assert_eq!(msk, user_identity.master_key().get_first_key().unwrap());
-        assert_eq!(msk_verified, false);
+        assert!(!msk_verified);
     }
 
     #[async_test]
@@ -574,7 +574,7 @@ mod tests {
         assert_let!(SenderData::SenderKnown { user_id, msk, msk_verified } = sender_data);
         assert_eq!(user_id, account.user_id());
         assert_eq!(msk, user_identity.master_key().get_first_key().unwrap());
-        assert_eq!(msk_verified, false);
+        assert!(!msk_verified);
     }
 
     #[async_test]
@@ -601,7 +601,7 @@ mod tests {
         assert_let!(SenderData::SenderKnown { user_id, msk, msk_verified } = sender_data);
         assert_eq!(user_id, account.user_id());
         assert_eq!(msk, user_identity.master_key().get_first_key().unwrap());
-        assert_eq!(msk_verified, false);
+        assert!(!msk_verified);
     }
 
     #[async_test]
@@ -633,7 +633,7 @@ mod tests {
         assert_let!(SenderData::SenderKnown { user_id, msk, msk_verified } = sender_data);
         assert_eq!(user_id, account.user_id());
         assert_eq!(msk, user_identity.master_key().get_first_key().unwrap());
-        assert_eq!(msk_verified, false);
+        assert!(!msk_verified);
     }
 
     #[async_test]
@@ -662,7 +662,7 @@ mod tests {
         assert_eq!(user_id, account.user_id());
         assert_eq!(msk, user_identity.master_key().get_first_key().unwrap());
         // Including the fact that it was verified
-        assert_eq!(msk_verified, true);
+        assert!(msk_verified);
     }
 
     #[async_test]
@@ -705,7 +705,7 @@ mod tests {
         assert_eq!(user_id, account.user_id());
         assert_eq!(msk, user_identity.master_key().get_first_key().unwrap());
         // Including the fact that it was verified
-        assert_eq!(msk_verified, true);
+        assert!(msk_verified);
     }
 
     #[async_test]
@@ -729,11 +729,11 @@ mod tests {
         assert_let!(SenderData::SenderKnown { user_id, msk, msk_verified } = sender_data);
         assert_eq!(user_id, account.user_id());
         assert_eq!(msk, user_identity.master_key().get_first_key().unwrap());
-        assert_eq!(msk_verified, false);
+        assert!(!msk_verified);
     }
 
     async fn create_private_identity(account: &Account) -> PrivateCrossSigningIdentity {
-        PrivateCrossSigningIdentity::with_account(&account).await.0
+        PrivateCrossSigningIdentity::with_account(account).await.0
     }
 
     async fn create_signed_device(
@@ -752,7 +752,7 @@ mod tests {
         wrap_device(account, read_only_device)
     }
 
-    async fn create_unsigned_device(account: &Account) -> Device {
+    fn create_unsigned_device(account: &Account) -> Device {
         wrap_device(account, ReadOnlyDevice::from_account(account))
     }
 
