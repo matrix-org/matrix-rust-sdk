@@ -1709,7 +1709,7 @@ impl StateStore for SqliteStateStore {
         room_id: &RoomId,
         transaction_id: &TransactionId,
         content: SerializableEventContent,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<bool, Self::Error> {
         let room_id = self.encode_key(keys::SEND_QUEUE, room_id);
 
         let content = self.serialize_json(&content)?;
@@ -1717,35 +1717,38 @@ impl StateStore for SqliteStateStore {
         // transaction id is neither encrypted or hashed.
         let transaction_id = transaction_id.to_string();
 
-        self.acquire()
+        let num_updated = self.acquire()
             .await?
             .with_transaction(move |txn| {
-                txn.prepare_cached("UPDATE send_queue_events SET wedged = false, content = ? WHERE room_id = ? AND transaction_id = ?")?.execute((content, room_id, transaction_id))?;
-                Ok(())
+                txn.prepare_cached("UPDATE send_queue_events SET wedged = false, content = ? WHERE room_id = ? AND transaction_id = ?")?.execute((content, room_id, transaction_id))
             })
-            .await
+            .await?;
+
+        Ok(num_updated > 0)
     }
 
     async fn remove_send_queue_event(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<bool, Self::Error> {
         let room_id = self.encode_key(keys::SEND_QUEUE, room_id);
 
         // See comment in `save_send_queue_event`.
         let transaction_id = transaction_id.to_string();
 
-        self.acquire()
+        let num_deleted = self
+            .acquire()
             .await?
             .with_transaction(move |txn| {
                 txn.prepare_cached(
                     "DELETE FROM send_queue_events WHERE room_id = ? AND transaction_id = ?",
                 )?
-                .execute((room_id, transaction_id))?;
-                Ok(())
+                .execute((room_id, transaction_id))
             })
-            .await
+            .await?;
+
+        Ok(num_deleted > 0)
     }
 
     async fn load_send_queue_events(

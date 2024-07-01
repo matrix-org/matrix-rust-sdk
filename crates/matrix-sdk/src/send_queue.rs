@@ -674,13 +674,19 @@ impl QueueStorage {
     ) -> Result<(), RoomSendQueueStorageError> {
         self.mark_as_not_being_sent(transaction_id).await;
 
-        Ok(self
+        let removed = self
             .client
             .get()
             .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
             .store()
             .remove_send_queue_event(&self.room_id, transaction_id)
-            .await?)
+            .await?;
+
+        if !removed {
+            warn!(txn_id = %transaction_id, "event marked as sent was missing from storage");
+        }
+
+        Ok(())
     }
 
     /// Cancel a sending command for an event that has been sent with
@@ -699,14 +705,15 @@ impl QueueStorage {
             return Ok(false);
         }
 
-        self.client
+        let removed = self
+            .client
             .get()
             .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
             .store()
             .remove_send_queue_event(&self.room_id, transaction_id)
             .await?;
 
-        Ok(true)
+        Ok(removed)
     }
 
     /// Replace an event that has been sent with
@@ -727,14 +734,15 @@ impl QueueStorage {
             return Ok(false);
         }
 
-        self.client
+        let edited = self
+            .client
             .get()
             .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
             .store()
             .update_send_queue_event(&self.room_id, transaction_id, serializable)
             .await?;
 
-        Ok(true)
+        Ok(edited)
     }
 
     /// Returns a list of the local echoes, that is, all the events that we're

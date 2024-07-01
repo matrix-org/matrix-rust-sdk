@@ -890,7 +890,7 @@ impl StateStore for MemoryStore {
         room_id: &RoomId,
         transaction_id: &TransactionId,
         content: SerializableEventContent,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<bool, Self::Error> {
         if let Some(entry) = self
             .send_queue_events
             .write()
@@ -902,15 +902,17 @@ impl StateStore for MemoryStore {
         {
             entry.event = content;
             entry.is_wedged = false;
+            Ok(true)
+        } else {
+            Ok(false)
         }
-        Ok(())
     }
 
     async fn remove_send_queue_event(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<bool, Self::Error> {
         let mut q = self.send_queue_events.write().unwrap();
 
         let entry = q.get_mut(room_id);
@@ -922,10 +924,11 @@ impl StateStore for MemoryStore {
                 if entry.is_empty() {
                     q.remove(room_id);
                 }
+                return Ok(true);
             }
         }
 
-        Ok(())
+        Ok(false)
     }
 
     async fn load_send_queue_events(

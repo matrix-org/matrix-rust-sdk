@@ -1,4 +1,5 @@
 use std::{
+    ops::Not as _,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex as StdMutex,
@@ -1016,6 +1017,55 @@ async fn test_abort_after_disable() {
 
     assert!(watch.is_empty());
     assert!(errors.is_empty());
+}
+
+#[async_test]
+async fn test_abort_or_edit_after_send() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    // Start with an enabled sending queue.
+    client.send_queue().set_enabled(true).await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    server.reset().await;
+    mock_encryption_state(&server, false).await;
+    mock_send_event(event_id!("$1")).mount(&server).await;
+
+    let handle = q.send(RoomMessageEventContent::text_plain("hey there").into()).await.unwrap();
+
+    // It is first seen as a local echo,
+    let (txn, _) = assert_update!(watch => local echo { body = "hey there" });
+    // Then sent.
+    assert_update!(watch => sent { txn = txn, });
+
+    // Editing shouldn't work anymore.
+    assert!(handle
+        .edit(RoomMessageEventContent::text_plain("i meant something completely different").into())
+        .await
+        .unwrap()
+        .not());
+    // Neither will aborting.
+    assert!(handle.abort().await.unwrap().not());
+
+    assert!(watch.is_empty());
 }
 
 #[async_test]
