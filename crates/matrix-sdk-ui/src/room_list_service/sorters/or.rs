@@ -19,6 +19,9 @@ use super::{BoxedSorterFn, Sorter};
 /// Create a new sorter that will run multiple sorters. When the nth sorter
 /// returns [`Ordering::Equal`], the next sorter is called. It stops at soon as
 /// a sorter return [`Ordering::Greater`] or [`Ordering::Less`].
+///
+/// This is an implementation of a lexicographic order as defined for cartesian
+/// products ([learn more](https://en.wikipedia.org/wiki/Lexicographic_order#Cartesian_products)).
 pub fn new_sorter(sorters: Vec<BoxedSorterFn>) -> impl Sorter {
     move |left, right| -> Ordering {
         for sorter in &sorters {
