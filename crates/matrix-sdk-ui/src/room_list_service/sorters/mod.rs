@@ -14,14 +14,14 @@
 
 //! A collection of room sorters.
 
+mod lexicographic;
 mod name;
-mod or;
 mod recency;
 
 use std::cmp::Ordering;
 
+pub use lexicographic::new_sorter as new_sorter_lexicographic;
 pub use name::new_sorter as new_sorter_name;
-pub use or::new_sorter as new_sorter_or;
 pub use recency::new_sorter as new_sorter_recency;
 
 use super::Room;
