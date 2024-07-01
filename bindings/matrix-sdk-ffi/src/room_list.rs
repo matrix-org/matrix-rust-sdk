@@ -162,6 +162,7 @@ impl RoomList {
 
     fn entries(&self, listener: Box<dyn RoomListEntriesListener>) -> Arc<TaskHandle> {
         let this = self.inner.clone();
+        let utd_hook = self.room_list_service.utd_hook.clone();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             let (entries, entries_stream) = this.entries();
@@ -169,11 +170,19 @@ impl RoomList {
             pin_mut!(entries_stream);
 
             listener.on_update(vec![RoomListEntriesUpdate::Append {
-                values: entries.into_iter().map(|v| Arc::new(v.into())).collect(),
+                values: entries
+                    .into_iter()
+                    .map(|room| Arc::new(RoomListItem::from(room, utd_hook.clone())))
+                    .collect(),
             }]);
 
-            while let Some(diff) = entries_stream.next().await {
-                listener.on_update(diff.into_iter().map(Into::into).collect());
+            while let Some(diffs) = entries_stream.next().await {
+                listener.on_update(
+                    diffs
+                        .into_iter()
+                        .map(|diff| RoomListEntriesUpdate::from(diff, utd_hook.clone()))
+                        .collect(),
+                );
             }
         })))
     }
@@ -185,6 +194,7 @@ impl RoomList {
     ) -> Arc<RoomListEntriesWithDynamicAdaptersResult> {
         let this = self.clone();
         let client = self.room_list_service.inner.client();
+        let utd_hook = self.room_list_service.utd_hook.clone();
 
         // The following code deserves a bit of explanation.
         // `matrix_sdk_ui::room_list_service::RoomList::entries_with_dynamic_adapters`
@@ -244,8 +254,13 @@ impl RoomList {
         let entries_stream = Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             pin_mut!(entries_stream);
 
-            while let Some(diff) = entries_stream.next().await {
-                listener.on_update(diff.into_iter().map(Into::into).collect());
+            while let Some(diffs) = entries_stream.next().await {
+                listener.on_update(
+                    diffs
+                        .into_iter()
+                        .map(|diff| RoomListEntriesUpdate::from(diff, utd_hook.clone()))
+                        .collect(),
+                );
             }
         })));
 
@@ -390,30 +405,45 @@ pub enum RoomListEntriesUpdate {
     Reset { values: Vec<Arc<RoomListItem>> },
 }
 
-impl From<VectorDiff<matrix_sdk_ui::room_list_service::Room>> for RoomListEntriesUpdate {
-    fn from(other: VectorDiff<matrix_sdk_ui::room_list_service::Room>) -> Self {
-        match other {
-            VectorDiff::Append { values } => {
-                Self::Append { values: values.into_iter().map(|v| Arc::new(v.into())).collect() }
-            }
+impl RoomListEntriesUpdate {
+    fn from(
+        vector_diff: VectorDiff<matrix_sdk_ui::room_list_service::Room>,
+        utd_hook: Option<Arc<UtdHookManager>>,
+    ) -> Self {
+        match vector_diff {
+            VectorDiff::Append { values } => Self::Append {
+                values: values
+                    .into_iter()
+                    .map(|value| Arc::new(RoomListItem::from(value, utd_hook.clone())))
+                    .collect(),
+            },
             VectorDiff::Clear => Self::Clear,
-            VectorDiff::PushFront { value } => Self::PushFront { value: Arc::new(value.into()) },
-            VectorDiff::PushBack { value } => Self::PushBack { value: Arc::new(value.into()) },
+            VectorDiff::PushFront { value } => {
+                Self::PushFront { value: Arc::new(RoomListItem::from(value, utd_hook)) }
+            }
+            VectorDiff::PushBack { value } => {
+                Self::PushBack { value: Arc::new(RoomListItem::from(value, utd_hook)) }
+            }
             VectorDiff::PopFront => Self::PopFront,
             VectorDiff::PopBack => Self::PopBack,
-            VectorDiff::Insert { index, value } => {
-                Self::Insert { index: u32::try_from(index).unwrap(), value: Arc::new(value.into()) }
-            }
-            VectorDiff::Set { index, value } => {
-                Self::Set { index: u32::try_from(index).unwrap(), value: Arc::new(value.into()) }
-            }
+            VectorDiff::Insert { index, value } => Self::Insert {
+                index: u32::try_from(index).unwrap(),
+                value: Arc::new(RoomListItem::from(value, utd_hook)),
+            },
+            VectorDiff::Set { index, value } => Self::Set {
+                index: u32::try_from(index).unwrap(),
+                value: Arc::new(RoomListItem::from(value, utd_hook)),
+            },
             VectorDiff::Remove { index } => Self::Remove { index: u32::try_from(index).unwrap() },
             VectorDiff::Truncate { length } => {
                 Self::Truncate { length: u32::try_from(length).unwrap() }
             }
-            VectorDiff::Reset { values } => {
-                Self::Reset { values: values.into_iter().map(|v| Arc::new(v.into())).collect() }
-            }
+            VectorDiff::Reset { values } => Self::Reset {
+                values: values
+                    .into_iter()
+                    .map(|value| Arc::new(RoomListItem::from(value, utd_hook.clone())))
+                    .collect(),
+            },
         }
     }
 }
@@ -515,9 +545,12 @@ pub struct RoomListItem {
     utd_hook: Option<Arc<UtdHookManager>>,
 }
 
-impl From<matrix_sdk_ui::room_list_service::Room> for RoomListItem {
-    fn from(value: matrix_sdk_ui::room_list_service::Room) -> Self {
-        Self { inner: Arc::new(value), utd_hook: None }
+impl RoomListItem {
+    fn from(
+        value: matrix_sdk_ui::room_list_service::Room,
+        utd_hook: Option<Arc<UtdHookManager>>,
+    ) -> Self {
+        Self { inner: Arc::new(value), utd_hook }
     }
 }
 
