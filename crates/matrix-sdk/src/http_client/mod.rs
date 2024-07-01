@@ -295,3 +295,107 @@ impl tower::Service<http_old::Request<Bytes>> for HttpClient {
         Box::pin(fut)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        http_client::RequestConfig,
+        test_utils::{set_client_session, test_client_builder_with_server},
+    };
+    use matrix_sdk_test::async_test;
+    use std::{
+        num::NonZeroUsize,
+        sync::{
+            atomic::{AtomicU8, Ordering},
+            Arc,
+        },
+        time::Duration,
+    };
+    use wiremock::{matchers::method, Mock, Request, ResponseTemplate};
+
+    #[async_test]
+    async fn ensure_concurrent_request_limit_is_observed() {
+        let (client_builder, server) = test_client_builder_with_server().await;
+        let mut client = client_builder
+            .request_config(RequestConfig::default().max_concurrent_requests(NonZeroUsize::new(5)))
+            .build()
+            .await
+            .unwrap();
+
+        set_client_session(&mut client).await;
+
+        let counter = Arc::new(AtomicU8::new(0));
+        let inner_counter = counter.clone();
+
+        Mock::given(method("GET"))
+            .respond_with(move |_req: &Request| {
+                inner_counter.fetch_add(1, Ordering::SeqCst);
+                // we stall the requests
+                ResponseTemplate::new(200).set_delay(Duration::from_secs(60))
+            })
+            .mount(&server)
+            .await;
+
+        let _bg_task = tokio::spawn(async move {
+            let mut pollers = Vec::new();
+
+            for _n in 0..10 {
+                pollers.push(client.whoami());
+            }
+            // issue parallel execution
+            futures_util::future::join_all(pollers).await
+        });
+
+        // give it a moment to issue the requests
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            5,
+            "More requests passed than the limit we configured"
+        );
+    }
+
+    #[async_test]
+    async fn ensure_no_max_concurrent_request_does_not_limit() {
+        let (client_builder, server) = test_client_builder_with_server().await;
+        let mut client = client_builder
+            .request_config(RequestConfig::default().max_concurrent_requests(None))
+            .build()
+            .await
+            .unwrap();
+
+        set_client_session(&mut client).await;
+
+        let counter = Arc::new(AtomicU8::new(0));
+        let inner_counter = counter.clone();
+
+        Mock::given(method("GET"))
+            .respond_with(move |_req: &Request| {
+                inner_counter.fetch_add(1, Ordering::SeqCst);
+                // we stall the requests
+                ResponseTemplate::new(200).set_delay(Duration::from_secs(60))
+            })
+            .mount(&server)
+            .await;
+
+        let _bg_task = tokio::spawn(async move {
+            let mut pollers = Vec::new();
+
+            for _n in 1..254 {
+                pollers.push(client.whoami());
+            }
+            // issue parallel execution
+            futures_util::future::join_all(pollers).await
+        });
+
+        // give it a moment to issue the requests
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            254,
+            "More requests passed than the limit we configured"
+        );
+    }
+}
