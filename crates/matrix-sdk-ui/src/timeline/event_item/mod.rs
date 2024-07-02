@@ -140,6 +140,7 @@ impl EventTimelineItem {
 
         let event_kind = RemoteEventTimelineItem {
             event_id,
+            transaction_id: None,
             reactions,
             read_receipts,
             is_own,

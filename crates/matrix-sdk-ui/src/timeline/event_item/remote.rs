@@ -19,7 +19,7 @@ use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{receipt::Receipt, AnySyncTimelineEvent},
     serde::Raw,
-    OwnedEventId, OwnedUserId,
+    OwnedEventId, OwnedTransactionId, OwnedUserId,
 };
 
 use super::BundledReactions;
@@ -29,6 +29,9 @@ use super::BundledReactions;
 pub(in crate::timeline) struct RemoteEventTimelineItem {
     /// The event ID.
     pub event_id: OwnedEventId,
+
+    /// If available, the transaction id we've used to send this event.
+    pub transaction_id: Option<OwnedTransactionId>,
 
     /// All bundled reactions about the event.
     pub reactions: BundledReactions,
@@ -107,6 +110,7 @@ impl fmt::Debug for RemoteEventTimelineItem {
         // skip raw JSON, too noisy
         let Self {
             event_id,
+            transaction_id,
             reactions,
             read_receipts,
             is_own,
@@ -119,6 +123,7 @@ impl fmt::Debug for RemoteEventTimelineItem {
 
         f.debug_struct("RemoteEventTimelineItem")
             .field("event_id", event_id)
+            .field("transaction_id", transaction_id)
             .field("reactions", reactions)
             .field("read_receipts", read_receipts)
             .field("is_own", is_own)
