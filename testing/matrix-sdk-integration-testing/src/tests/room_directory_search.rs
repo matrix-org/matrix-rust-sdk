@@ -32,7 +32,7 @@ use crate::helpers::TestClientBuilder;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_room_directory_search_filter() -> Result<()> {
-    let alice = TestClientBuilder::new("alice".to_owned()).use_sqlite().build().await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
     let search_string = random_string(32);
     for index in 0..25 {
         let mut request: CreateRoomRequest = CreateRoomRequest::new();

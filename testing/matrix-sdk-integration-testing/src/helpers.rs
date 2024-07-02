@@ -40,19 +40,19 @@ pub struct TestClientBuilder {
 }
 
 impl TestClientBuilder {
-    pub fn new(username: impl Into<String>) -> Self {
+    pub fn new(username: impl AsRef<str>) -> Self {
+        let suffix: u128 = rand::thread_rng().gen();
+        let randomized_username = format!("{}{}", username.as_ref(), suffix);
+        Self::with_exact_username(randomized_username)
+    }
+
+    pub fn with_exact_username(username: String) -> Self {
         Self {
-            username: username.into(),
+            username,
             use_sqlite_dir: None,
             encryption_settings: Default::default(),
             http_proxy: None,
         }
-    }
-
-    pub fn randomize_username(mut self) -> Self {
-        let suffix: u128 = rand::thread_rng().gen();
-        self.username = format!("{}{}", self.username, suffix);
-        self
     }
 
     pub fn use_sqlite(mut self) -> Self {
