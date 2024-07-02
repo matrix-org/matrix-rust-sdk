@@ -150,7 +150,10 @@ pub use keys::ALL_STORES;
 /// Encrypt (if needs be) then JSON-serialize a value.
 fn serialize_value(store_cipher: Option<&StoreCipher>, event: &impl Serialize) -> Result<JsValue> {
     Ok(match store_cipher {
-        Some(cipher) => JsValue::from_serde(&cipher.encrypt_value_typed(event)?)?,
+        Some(cipher) => {
+            let data = serde_json::to_vec(event)?;
+            JsValue::from_serde(&cipher.encrypt_value_data(data)?)?
+        }
         None => JsValue::from_serde(event)?,
     })
 }
@@ -161,7 +164,13 @@ fn deserialize_value<T: DeserializeOwned>(
     event: &JsValue,
 ) -> Result<T> {
     match store_cipher {
-        Some(cipher) => Ok(cipher.decrypt_value_typed(event.into_serde()?)?),
+        Some(cipher) => {
+            use zeroize::Zeroize;
+            let mut plaintext = cipher.decrypt_value_data(event.into_serde()?)?;
+            let ret = serde_json::from_slice(&plaintext);
+            plaintext.zeroize();
+            Ok(ret?)
+        }
         None => Ok(event.into_serde()?),
     }
 }

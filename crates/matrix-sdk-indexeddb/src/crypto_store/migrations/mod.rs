@@ -235,8 +235,8 @@ mod tests {
     /// Make lots of sessions and see how long it takes to count them in v10
     #[async_test]
     async fn count_lots_of_sessions_v10() {
-        let cipher = Arc::new(StoreCipher::new().unwrap());
-        let serializer = IndexeddbSerializer::new(Some(cipher.clone()));
+        let serializer = IndexeddbSerializer::new(Some(Arc::new(StoreCipher::new().unwrap())));
+
         // Session keys are slow to create, so make one upfront and use it for every
         // session
         let session_key = create_session_key();
@@ -244,9 +244,7 @@ mod tests {
         // Create lots of InboundGroupSessionIndexedDbObject objects
         let mut objects = Vec::with_capacity(NUM_RECORDS_FOR_PERF);
         for i in 0..NUM_RECORDS_FOR_PERF {
-            objects.push(
-                create_inbound_group_sessions3_record(i, &session_key, &cipher, &serializer).await,
-            );
+            objects.push(create_inbound_group_sessions3_record(i, &session_key, &serializer).await);
         }
 
         // Create a DB with an inbound_group_sessions3 store
@@ -334,15 +332,13 @@ mod tests {
     async fn create_inbound_group_sessions3_record(
         i: usize,
         session_key: &SessionKey,
-        cipher: &Arc<StoreCipher>,
         serializer: &IndexeddbSerializer,
     ) -> (JsValue, JsValue) {
         let session = create_inbound_group_session(i, session_key);
         let pickled_session = session.pickle().await;
+
         let session_dbo = InboundGroupSessionIndexedDbObject {
-            pickled_session: MaybeEncrypted::Encrypted(
-                cipher.encrypt_value_base64_typed(&pickled_session).unwrap(),
-            ),
+            pickled_session: serializer.maybe_encrypt_value(pickled_session).unwrap(),
             needs_backup: false,
             backed_up_to: -1,
         };
