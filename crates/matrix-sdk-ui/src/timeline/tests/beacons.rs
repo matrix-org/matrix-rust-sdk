@@ -41,7 +41,7 @@ async fn beacon_updates_location() {
     let beacon_state = timeline.beacon_state().await;
 
     assert!(beacon_state.last_location.is_some());
-    assert_eq!(beacon_state.beacon_info_event_content.is_live(), true);
+    assert!(beacon_state.beacon_info_event_content.is_live());
 }
 
 #[async_test]
@@ -63,7 +63,7 @@ async fn beacon_updates_location_with_multiple_beacons() {
         &beacon_state.beacon_info_event_content,
         &create_beacon_info("Alice's Live location", 2300),
     );
-    assert_eq!(beacon_state.beacon_info_event_content.is_live(), true);
+    assert!(beacon_state.beacon_info_event_content.is_live());
 
     timeline.send_beacon(&ALICE, &beacon_info_id, geo_uri2.to_string()).await;
     let beacon_state = timeline.beacon_state().await;
@@ -74,7 +74,7 @@ async fn beacon_updates_location_with_multiple_beacons() {
         &beacon_state.beacon_info_event_content,
         &create_beacon_info("Alice's Live location", 2300),
     );
-    assert_eq!(beacon_state.beacon_info_event_content.is_live(), true);
+    assert!(beacon_state.beacon_info_event_content.is_live());
 }
 
 #[async_test]
@@ -105,10 +105,10 @@ async fn multiple_people_sharing_location() {
         &create_beacon_info("Alice's Live location", 2300),
     );
     assert_beacon(
-        &alice_beacon_state.last_location.as_ref().unwrap(),
+        alice_beacon_state.last_location.as_ref().unwrap(),
         &LocationContent::new(geo_uri.to_string()),
     );
-    assert_eq!(alice_beacon_state.beacon_info_event_content.is_live(), true);
+    assert!(alice_beacon_state.beacon_info_event_content.is_live());
 
     //Bobs sends his location beacon
     timeline.send_beacon(&BOB, &bob_beacon_info_event_id, geo_uri2.to_string()).await;
@@ -119,10 +119,10 @@ async fn multiple_people_sharing_location() {
         &create_beacon_info("Bob's Live location", 2300),
     );
     assert_beacon(
-        &bobs_beacon_state.last_location.as_ref().unwrap(),
+        bobs_beacon_state.last_location.as_ref().unwrap(),
         &LocationContent::new(geo_uri2.to_string()),
     );
-    assert_eq!(bobs_beacon_state.beacon_info_event_content.is_live(), true);
+    assert!(bobs_beacon_state.beacon_info_event_content.is_live());
 }
 
 #[async_test]
@@ -139,7 +139,7 @@ async fn beacon_info_is_stopped_by_user() {
     // Alice stops sharing her location
     beacon_state.beacon_info_event_content.stop();
 
-    assert_eq!(&beacon_state.beacon_info_event_content.is_live(), &false);
+    assert!(!beacon_state.beacon_info_event_content.is_live());
 }
 
 #[async_test]
@@ -153,7 +153,7 @@ async fn beacon_info_is_stopped_by_timeout() {
     timeline.send_beacon(&ALICE, &beacon_info_id, "geo:51.5008,0.1247;u=35".to_string()).await;
     let beacon_state = timeline.beacon_state().await;
 
-    assert_eq!(beacon_state.beacon_info_event_content.is_live(), false);
+    assert!(!beacon_state.beacon_info_event_content.is_live());
 }
 
 #[async_test]
@@ -201,7 +201,7 @@ async fn events_received_before_start_are_not_lost() {
         &create_beacon_info("Alice's Live location", 2300),
     );
     assert_beacon(
-        &alice_beacon_state.last_location.as_ref().unwrap(),
+        &alice_beacon_state.last_location.unwrap(),
         &LocationContent::new("geo:51.5008,0.1249;u=12".to_string()),
     );
 
@@ -210,7 +210,7 @@ async fn events_received_before_start_are_not_lost() {
         &create_beacon_info("Bob's Live location", 2300),
     );
     assert_beacon(
-        &bob_beacon_state.last_location.as_ref().unwrap(),
+        &bob_beacon_state.last_location.unwrap(),
         &LocationContent::new("geo:51.5008,0.1248;u=35".to_string()),
     );
 }

@@ -72,8 +72,8 @@ impl From<BeaconState> for BeaconInfoEventContent {
     fn from(value: BeaconState) -> Self {
         BeaconInfoEventContent::new(
             value.beacon_info_event_content.description.clone(),
-            value.beacon_info_event_content.timeout.clone(),
-            value.beacon_info_event_content.live.clone(),
+            value.beacon_info_event_content.timeout,
+            value.beacon_info_event_content.live,
             None,
         )
     }
