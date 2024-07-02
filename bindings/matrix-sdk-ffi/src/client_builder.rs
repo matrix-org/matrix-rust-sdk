@@ -10,8 +10,8 @@ use matrix_sdk::{
         api::{error::UnknownVersionError, MatrixVersion},
         ServerName, UserId,
     },
-    Client as MatrixClient, ClientBuildError as MatrixClientBuildError,
-    HttpError, IdParseError, RumaApiError,
+    Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
+    RumaApiError,
 };
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::{debug, error};
@@ -297,7 +297,10 @@ impl ClientBuilder {
         process_id: String,
         session_delegate: Box<dyn ClientSessionDelegate>,
     ) -> Arc<Self> {
-        self.enable_cross_process_refresh_lock_inner(process_id, session_delegate.into())
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.cross_process_refresh_lock_id = Some(process_id);
+        builder.session_delegate = Some(session_delegate.into());
+        Arc::new(builder)
     }
 
     pub fn set_session_delegate(
@@ -493,17 +496,6 @@ impl ClientBuilder {
 }
 
 impl ClientBuilder {
-    pub(crate) fn enable_cross_process_refresh_lock_inner(
-        self: Arc<Self>,
-        process_id: String,
-        session_delegate: Arc<dyn ClientSessionDelegate>,
-    ) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.cross_process_refresh_lock_id = Some(process_id);
-        builder.session_delegate = Some(session_delegate);
-        Arc::new(builder)
-    }
-
     pub(crate) async fn build_inner(self: Arc<Self>) -> Result<Client, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = MatrixClient::builder();
