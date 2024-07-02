@@ -762,7 +762,11 @@ impl ReadOnlyDevice {
         device_owner_identity: &ReadOnlyUserIdentities,
     ) -> bool {
         match device_owner_identity {
+            // If it's one of our own devices, just check that
+            // we signed the device.
             ReadOnlyUserIdentities::Own(identity) => identity.is_device_signed(self).is_ok(),
+            // If it's a device from someone else, check
+            // if the other user has signed this device.
             ReadOnlyUserIdentities::Other(device_identity) => {
                 device_identity.is_device_signed(self).is_ok()
             }
