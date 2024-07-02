@@ -321,13 +321,13 @@ mod tests {
     #[async_test]
     async fn ensure_concurrent_request_limit_is_observed() {
         let (client_builder, server) = test_client_builder_with_server().await;
-        let mut client = client_builder
+        let client = client_builder
             .request_config(RequestConfig::default().max_concurrent_requests(NonZeroUsize::new(5)))
             .build()
             .await
             .unwrap();
 
-        set_client_session(&mut client).await;
+        set_client_session(&client).await;
 
         let counter = Arc::new(AtomicU8::new(0));
         let inner_counter = counter.clone();
@@ -366,13 +366,13 @@ mod tests {
     #[async_test]
     async fn ensure_no_max_concurrent_request_does_not_limit() {
         let (client_builder, server) = test_client_builder_with_server().await;
-        let mut client = client_builder
+        let client = client_builder
             .request_config(RequestConfig::default().max_concurrent_requests(None))
             .build()
             .await
             .unwrap();
 
-        set_client_session(&mut client).await;
+        set_client_session(&client).await;
 
         let counter = Arc::new(AtomicU8::new(0));
         let inner_counter = counter.clone();
