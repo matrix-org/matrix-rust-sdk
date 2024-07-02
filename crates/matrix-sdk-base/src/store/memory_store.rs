@@ -34,7 +34,7 @@ use ruma::{
     CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId,
     OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
-use tracing::{debug, warn};
+use tracing::{debug, instrument, trace, warn};
 
 use super::{
     traits::{ComposerDraft, QueuedEvent, SerializableEventContent},
@@ -282,13 +282,18 @@ impl StateStore for MemoryStore {
         Ok(())
     }
 
+    #[instrument(skip(self, changes))]
     async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         let now = Instant::now();
+        // these trace calls are to debug https://github.com/matrix-org/complement-crypto/issues/77
+        trace!("starting");
 
         if let Some(s) = &changes.sync_token {
             *self.sync_token.write().unwrap() = Some(s.to_owned());
+            trace!("assigned sync token");
         }
 
+        trace!("profiles");
         {
             let mut profiles = self.profiles.write().unwrap();
 
@@ -311,6 +316,7 @@ impl StateStore for MemoryStore {
             }
         }
 
+        trace!("ambiguity maps");
         for (room, map) in &changes.ambiguity_maps {
             for (display_name, display_names) in map {
                 self.display_names
@@ -322,6 +328,7 @@ impl StateStore for MemoryStore {
             }
         }
 
+        trace!("account data");
         {
             let mut account_data = self.account_data.write().unwrap();
             for (event_type, event) in &changes.account_data {
@@ -329,6 +336,7 @@ impl StateStore for MemoryStore {
             }
         }
 
+        trace!("room account data");
         {
             let mut room_account_data = self.room_account_data.write().unwrap();
             for (room, events) in &changes.room_account_data {
@@ -341,6 +349,7 @@ impl StateStore for MemoryStore {
             }
         }
 
+        trace!("room state");
         {
             let mut room_state = self.room_state.write().unwrap();
             let mut stripped_room_state = self.stripped_room_state.write().unwrap();
@@ -381,6 +390,7 @@ impl StateStore for MemoryStore {
             }
         }
 
+        trace!("room info");
         {
             let mut room_info = self.room_info.write().unwrap();
             for (room_id, info) in &changes.room_infos {
@@ -388,6 +398,7 @@ impl StateStore for MemoryStore {
             }
         }
 
+        trace!("presence");
         {
             let mut presence = self.presence.write().unwrap();
             for (sender, event) in &changes.presence {
@@ -395,6 +406,7 @@ impl StateStore for MemoryStore {
             }
         }
 
+        trace!("stripped state");
         {
             let mut stripped_room_state = self.stripped_room_state.write().unwrap();
             let mut stripped_members = self.stripped_members.write().unwrap();
@@ -434,6 +446,7 @@ impl StateStore for MemoryStore {
             }
         }
 
+        trace!("receipts");
         {
             let mut room_user_receipts = self.room_user_receipts.write().unwrap();
             let mut room_event_receipts = self.room_event_receipts.write().unwrap();
@@ -478,6 +491,7 @@ impl StateStore for MemoryStore {
             }
         }
 
+        trace!("room info/state");
         {
             let room_info = self.room_info.read().unwrap();
             let mut room_state = self.room_state.write().unwrap();
