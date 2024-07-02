@@ -17,7 +17,7 @@ use std::{
     ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, RwLock,
     },
 };
 
@@ -30,6 +30,7 @@ use ruma::{
     DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tracing::error;
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
@@ -291,6 +292,36 @@ impl UserIdentity {
             methods,
         )
     }
+
+    /// Pin the current identity (Master public key).
+    pub async fn pin_current_master_key(&self) -> Result<(), CryptoStoreError> {
+        self.inner.pin();
+        let to_save = ReadOnlyUserIdentities::Other(self.inner.clone());
+        let changes = Changes {
+            identities: IdentityChanges { changed: vec![to_save], ..Default::default() },
+            ..Default::default()
+        };
+        self.verification_machine.store.inner().save_changes(changes).await?;
+        Ok(())
+    }
+
+    /// An identity mismatch is detected when there is a trust problem with the
+    /// user identity. There is an identity mismatch if the current identity
+    /// is not verified and there is a pinning violation. An identity
+    /// mismatch must be reported to the user, and can be resolved by:
+    /// - Verifying the new identity (see
+    ///   [`UserIdentity::request_verification`])
+    /// - Or by updating the pinned key
+    ///   ([`UserIdentity::pin_current_master_key`]).
+    pub fn has_identity_mismatch(&self) -> bool {
+        // First check if the current identity is verified.
+        if self.is_verified() {
+            return false;
+        }
+        // If not we can check the pinned identity. Verification always have
+        // higher priority than pinning.
+        self.inner.has_pin_violation()
+    }
 }
 
 /// Enum over the different user identity types we can have.
@@ -371,10 +402,87 @@ impl ReadOnlyUserIdentities {
 /// only contain a master key and a self signing key, meaning that only device
 /// signatures can be checked with this identity.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(from = "ReadOnlyUserIdentitySerializer", into = "ReadOnlyUserIdentitySerializer")]
 pub struct ReadOnlyUserIdentity {
     user_id: OwnedUserId,
     pub(crate) master_key: Arc<MasterPubkey>,
     self_signing_key: Arc<SelfSigningPubkey>,
+    /// The first time a cryptographic identity is seen for a given user, it
+    /// will be associated to that user (i.e pinned). Future interaction
+    /// will expect this user crypto identity to stay the same,
+    /// this will help prevent some MITM attacks.
+    /// In case of identity change, it will be possible to pin the new identity
+    /// is the user wants.
+    pinned_msk: Arc<RwLock<MasterPubkey>>,
+}
+
+/// Intermediate struct to help serialize ReadOnlyUserIdentity and support
+/// versioning and migration.
+/// Version v1 is adding support for identity pinning (`pinned_msk`), as part
+/// of migration we just pin the currently known msk.
+#[derive(Deserialize, Serialize)]
+struct ReadOnlyUserIdentitySerializer {
+    version: Option<String>,
+    #[serde(flatten)]
+    other: Value,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ReadOnlyUserIdentityV0 {
+    user_id: OwnedUserId,
+    master_key: MasterPubkey,
+    self_signing_key: SelfSigningPubkey,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ReadOnlyUserIdentityV1 {
+    user_id: OwnedUserId,
+    master_key: MasterPubkey,
+    self_signing_key: SelfSigningPubkey,
+    pinned_msk: MasterPubkey,
+}
+
+impl From<ReadOnlyUserIdentitySerializer> for ReadOnlyUserIdentity {
+    fn from(value: ReadOnlyUserIdentitySerializer) -> Self {
+        match value.version {
+            None => {
+                // Old format, migrate the pinned identity
+                let v0: ReadOnlyUserIdentityV0 = serde_json::from_value(value.other).unwrap();
+                ReadOnlyUserIdentity {
+                    user_id: v0.user_id,
+                    master_key: Arc::new(v0.master_key.clone()),
+                    self_signing_key: Arc::new(v0.self_signing_key),
+                    // We migrate by pinning the current msk
+                    pinned_msk: Arc::new(RwLock::new(v0.master_key.clone())),
+                }
+            }
+            _ => {
+                // v1 format
+                let v1: ReadOnlyUserIdentityV1 = serde_json::from_value(value.other).unwrap();
+                ReadOnlyUserIdentity {
+                    user_id: v1.user_id,
+                    master_key: Arc::new(v1.master_key.clone()),
+                    self_signing_key: Arc::new(v1.self_signing_key),
+                    pinned_msk: Arc::new(RwLock::new(v1.pinned_msk)),
+                }
+            }
+        }
+    }
+}
+
+impl From<ReadOnlyUserIdentity> for ReadOnlyUserIdentitySerializer {
+    fn from(value: ReadOnlyUserIdentity) -> Self {
+        let v1 = ReadOnlyUserIdentityV1 {
+            user_id: value.user_id.clone(),
+            master_key: value.master_key().to_owned(),
+            self_signing_key: value.self_signing_key().to_owned(),
+            pinned_msk: value.pinned_msk.read().unwrap().clone(),
+        };
+        ReadOnlyUserIdentitySerializer {
+            version: Some("1".to_owned()),
+            other: serde_json::to_value(v1).unwrap(),
+        }
+    }
 }
 
 impl PartialEq for ReadOnlyUserIdentity {
@@ -417,19 +525,24 @@ impl ReadOnlyUserIdentity {
 
         Ok(Self {
             user_id: master_key.user_id().into(),
-            master_key: master_key.into(),
+            master_key: master_key.clone().into(),
             self_signing_key: self_signing_key.into(),
+            pinned_msk: RwLock::new(master_key).into(),
         })
     }
 
     #[cfg(test)]
     pub(crate) async fn from_private(identity: &crate::olm::PrivateCrossSigningIdentity) -> Self {
-        let master_key =
-            identity.master_key.lock().await.as_ref().unwrap().public_key().clone().into();
+        let master_key = identity.master_key.lock().await.as_ref().unwrap().public_key().clone();
         let self_signing_key =
             identity.self_signing_key.lock().await.as_ref().unwrap().public_key().clone().into();
 
-        Self { user_id: identity.user_id().into(), master_key, self_signing_key }
+        Self {
+            user_id: identity.user_id().into(),
+            master_key: Arc::new(master_key.clone()),
+            self_signing_key,
+            pinned_msk: Arc::new(RwLock::new(master_key.clone())),
+        }
     }
 
     /// Get the user id of this identity.
@@ -445,6 +558,24 @@ impl ReadOnlyUserIdentity {
     /// Get the public self-signing key of the identity.
     pub fn self_signing_key(&self) -> &SelfSigningPubkey {
         &self.self_signing_key
+    }
+
+    /// Pin the current identity
+    pub(crate) fn pin(&self) {
+        let mut m = self.pinned_msk.write().unwrap();
+        *m = self.master_key.as_ref().clone()
+    }
+
+    /// Key pinning acts as a trust on first use mechanism, the first time an
+    /// identity is known for a user it will be pinned.
+    /// For future interaction with a user, the identity is expected to be the
+    /// one that was pinned. In case of identity change the UI client should
+    /// receive reports of pinning violation and decide to act accordingly;
+    /// that is accept and pin the new identity, perform a verification or
+    /// stop communications.
+    pub(crate) fn has_pin_violation(&self) -> bool {
+        let pinned_msk = self.pinned_msk.read().unwrap();
+        pinned_msk.get_first_key() != self.master_key().get_first_key()
     }
 
     /// Update the identity with a new master key and self signing key.
@@ -465,7 +596,15 @@ impl ReadOnlyUserIdentity {
     ) -> Result<bool, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
-        let new = Self::new(master_key, self_signing_key)?;
+        // The pin is maintained.
+        let pinned_msk = self.pinned_msk.read().unwrap().clone();
+
+        let new = Self {
+            user_id: master_key.user_id().into(),
+            master_key: master_key.clone().into(),
+            self_signing_key: self_signing_key.into(),
+            pinned_msk: RwLock::new(pinned_msk).into(),
+        };
         let changed = new != *self;
 
         *self = new;
@@ -786,8 +925,11 @@ pub(crate) mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use assert_matches::assert_matches;
-    use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id};
+    use matrix_sdk_test::{async_test, response_from_file, test_json};
+    use ruma::{
+        api::{client::keys::get_keys::v3::Response as KeyQueryResponse, IncomingResponse},
+        device_id, user_id, TransactionId,
+    };
     use serde_json::{json, Value};
     use tokio::sync::Mutex;
 
@@ -796,11 +938,16 @@ pub(crate) mod tests {
         ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
     };
     use crate::{
-        identities::{manager::testing::own_key_query, Device},
+        identities::{
+            manager::testing::own_key_query,
+            user::{ReadOnlyUserIdentitySerializer, ReadOnlyUserIdentityV1},
+            Device,
+        },
         olm::{Account, PrivateCrossSigningIdentity},
         store::{CryptoStoreWrapper, MemoryStore},
         types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, Signatures, UserSigningPubkey},
         verification::VerificationMachine,
+        OlmMachine, ReadOnlyUserIdentity,
     };
 
     #[test]
@@ -859,6 +1006,56 @@ pub(crate) mod tests {
     #[test]
     fn other_identity_create() {
         get_other_identity();
+    }
+
+    #[test]
+    fn deserialization_migration_test() {
+        let serialized_value = json!({
+                "user_id":"@example2:localhost",
+                "master_key":{
+                   "user_id":"@example2:localhost",
+                   "usage":[
+                      "master"
+                   ],
+                   "keys":{
+                      "ed25519:kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do":"kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do"
+                   },
+                   "signatures":{
+                      "@example2:localhost":{
+                         "ed25519:SKISMLNIMH":"KdUZqzt8VScGNtufuQ8lOf25byYLWIhmUYpPENdmM8nsldexD7vj+Sxoo7PknnTX/BL9h2N7uBq0JuykjunCAw"
+                      }
+                   }
+                },
+                "self_signing_key":{
+                   "user_id":"@example2:localhost",
+                   "usage":[
+                      "self_signing"
+                   ],
+                   "keys":{
+                      "ed25519:ZtFrSkJ1qB8Jph/ql9Eo/lKpIYCzwvKAKXfkaS4XZNc":"ZtFrSkJ1qB8Jph/ql9Eo/lKpIYCzwvKAKXfkaS4XZNc"
+                   },
+                   "signatures":{
+                      "@example2:localhost":{
+                         "ed25519:kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do":"W/O8BnmiUETPpH02mwYaBgvvgF/atXnusmpSTJZeUSH/vHg66xiZOhveQDG4cwaW8iMa+t9N4h1DWnRoHB4mCQ"
+                      }
+                   }
+                }
+        });
+        let migrated: ReadOnlyUserIdentity = serde_json::from_value(serialized_value).unwrap();
+
+        let pinned_msk = migrated.pinned_msk.read().unwrap();
+        assert_eq!(*pinned_msk, migrated.master_key().clone());
+
+        // Serialize back
+        let value = serde_json::to_value(migrated.clone()).unwrap();
+
+        // Should be serialized with latest version
+        let _: ReadOnlyUserIdentityV1 =
+            serde_json::from_value(value.clone()).expect("Should deserialize as version 1");
+
+        let with_serializer: ReadOnlyUserIdentitySerializer =
+            serde_json::from_value(value).unwrap();
+        assert_eq!("1", with_serializer.version.unwrap());
     }
 
     #[test]
@@ -1014,5 +1211,75 @@ pub(crate) mod tests {
             identity.filter_devices_to_request(devices, unknown_device_id),
             [second_device_id]
         );
+    }
+
+    #[async_test]
+    async fn resolve_identity_mismacth_with_verification() {
+        use test_json::keys_query_sets::IdentityChangeDataSet as DataSet;
+
+        let my_user_id = user_id!("@me:localhost");
+        let machine = OlmMachine::new(my_user_id, device_id!("ABCDEFGH")).await;
+        machine.bootstrap_cross_signing(false).await.unwrap();
+
+        let my_id = machine.get_identity(my_user_id, None).await.unwrap().unwrap().own().unwrap();
+        let usk_key_id = my_id.inner.user_signing_key().keys().iter().next().unwrap().0;
+
+        println!("USK ID: {}", usk_key_id);
+        let keys_query = DataSet::key_query_with_identity_a();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        // Simulate an identity hange
+        let keys_query = DataSet::key_query_with_identity_b();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let other_user_id = DataSet::user_id();
+
+        let other_identity =
+            machine.get_identity(other_user_id, None).await.unwrap().unwrap().other().unwrap();
+
+        // There should be an identity mismatch
+        assert!(other_identity.has_identity_mismatch());
+
+        // Manually verify for the purpose of this test
+        let sig_upload = other_identity.verify().await.unwrap();
+
+        let raw_extracted =
+            sig_upload.signed_keys.get(other_user_id).unwrap().iter().next().unwrap().1.get();
+
+        let new_signature: CrossSigningKey = serde_json::from_str(raw_extracted).unwrap();
+
+        let mut msk_to_update: CrossSigningKey =
+            serde_json::from_value(DataSet::msk_b().get("@bob:localhost").unwrap().clone())
+                .unwrap();
+
+        msk_to_update.signatures.add_signature(
+            my_user_id.to_owned(),
+            usk_key_id.to_owned(),
+            new_signature.signatures.get_signature(my_user_id, usk_key_id).unwrap(),
+        );
+
+        // we want to update bob device keys with the new signature
+        let data = json!({
+                "device_keys": {}, // For the purpose of this test we don't need devices here
+                "failures": {},
+                "master_keys": {
+                    DataSet::user_id(): msk_to_update
+        ,
+                },
+                "self_signing_keys": DataSet::ssk_b(),
+            });
+
+        let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&data))
+            .expect("Can't parse the `/keys/upload` response");
+        machine.mark_request_as_sent(&TransactionId::new(), &kq_response).await.unwrap();
+
+        // There should not be an identity mismatch anymore
+        let other_identity =
+            machine.get_identity(other_user_id, None).await.unwrap().unwrap().other().unwrap();
+        assert!(!other_identity.has_identity_mismatch());
+        // But there is still a pin violation
+        assert!(other_identity.inner.has_pin_violation());
     }
 }
