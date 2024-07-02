@@ -34,7 +34,7 @@ use ruma::{
     CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId,
     OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 use super::{
     traits::{ComposerDraft, QueuedEvent, SerializableEventContent},
