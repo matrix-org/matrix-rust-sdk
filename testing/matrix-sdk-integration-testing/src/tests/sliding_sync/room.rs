@@ -53,16 +53,8 @@ use crate::helpers::TestClientBuilder;
 
 #[tokio::test]
 async fn test_left_room() -> Result<()> {
-    let peter = TestClientBuilder::new("peter".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
-    let steven = TestClientBuilder::new("steven".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
+    let peter = TestClientBuilder::new("peter").use_sqlite().build().await?;
+    let steven = TestClientBuilder::new("steven").use_sqlite().build().await?;
 
     // Set up sliding sync for Peter.
     let sliding_peter = peter
@@ -139,18 +131,9 @@ async fn test_left_room() -> Result<()> {
 
 #[tokio::test]
 async fn test_room_avatar_group_conversation() -> Result<()> {
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
-    let bob =
-        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
-    let celine = TestClientBuilder::new("celine".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+    let celine = TestClientBuilder::new("celine").use_sqlite().build().await?;
 
     // Bob and Celine set their avatars.
     bob.account().set_avatar_url(Some(mxc_uri!("mxc://localhost/bob"))).await?;
@@ -248,14 +231,9 @@ async fn test_joined_user_can_create_push_context_with_room_list_service() -> Re
     // send a message, and fake a new "device" by creating another client for
     // the same user.
 
-    let bob =
-        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
 
     // Set up regular sync for Alice to start with.
     let a = alice.clone();
@@ -387,8 +365,7 @@ impl UpdateObserver {
 async fn test_room_notification_count() -> Result<()> {
     use tokio::time::timeout;
 
-    let bob =
-        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
     // Spawn sync for bob.
     let b = bob.clone();
@@ -402,11 +379,7 @@ async fn test_room_notification_count() -> Result<()> {
     });
 
     // Set up sliding sync for alice.
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
 
     spawn({
         let sync = alice
@@ -755,14 +728,9 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
 
     server.register(Mock::given(AnyMatcher).respond_with(&**CUSTOM_RESPONDER)).await;
 
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .http_proxy(server.uri())
-        .build()
-        .await?;
-    let bob =
-        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+    let alice =
+        TestClientBuilder::new("alice").use_sqlite().http_proxy(server.uri()).build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
     let alice_sync_service = SyncService::builder(alice.clone()).build().await.unwrap();
     alice_sync_service.start().await;
@@ -883,13 +851,8 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
 
 #[tokio::test]
 async fn test_roominfo_update_deduplication() -> Result<()> {
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
-    let bob =
-        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
     let alice_sync_service = SyncService::builder(alice.clone()).build().await.unwrap();
     alice_sync_service.start().await;
@@ -1027,13 +990,8 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
 
 #[tokio::test]
 async fn test_room_preview() -> Result<()> {
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
-    let bob =
-        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
     let alice_sync_service = SyncService::builder(alice.clone()).build().await.unwrap();
     alice_sync_service.start().await;

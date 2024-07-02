@@ -38,7 +38,6 @@ async fn test_mutual_sas_verification() -> Result<()> {
         EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
     let alice = SyncTokenAwareClient::new(
         TestClientBuilder::new("alice")
-            .randomize_username()
             .use_sqlite()
             .encryption_settings(encryption_settings)
             .build()
@@ -46,7 +45,6 @@ async fn test_mutual_sas_verification() -> Result<()> {
     );
     let bob = SyncTokenAwareClient::new(
         TestClientBuilder::new("bob")
-            .randomize_username()
             .use_sqlite()
             .encryption_settings(encryption_settings)
             .build()
@@ -301,7 +299,6 @@ async fn test_mutual_qrcode_verification() -> Result<()> {
         EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
     let alice = SyncTokenAwareClient::new(
         TestClientBuilder::new("alice")
-            .randomize_username()
             .use_sqlite()
             .encryption_settings(encryption_settings)
             .build()
@@ -309,7 +306,6 @@ async fn test_mutual_qrcode_verification() -> Result<()> {
     );
     let bob = SyncTokenAwareClient::new(
         TestClientBuilder::new("bob")
-            .randomize_username()
             .use_sqlite()
             .encryption_settings(encryption_settings)
             .build()
@@ -538,12 +534,9 @@ async fn test_mutual_qrcode_verification() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_encryption_missing_member_keys() -> Result<()> {
-    let alice = SyncTokenAwareClient::new(
-        TestClientBuilder::new("alice").randomize_username().use_sqlite().build().await?,
-    );
-    let bob = SyncTokenAwareClient::new(
-        TestClientBuilder::new("bob").randomize_username().use_sqlite().build().await?,
-    );
+    let alice =
+        SyncTokenAwareClient::new(TestClientBuilder::new("alice").use_sqlite().build().await?);
+    let bob = SyncTokenAwareClient::new(TestClientBuilder::new("bob").use_sqlite().build().await?);
 
     let invite = vec![bob.user_id().unwrap().to_owned()];
     let request = assign!(CreateRoomRequest::new(), {
@@ -563,9 +556,8 @@ async fn test_encryption_missing_member_keys() -> Result<()> {
     warn!("bob has joined");
 
     // New person joins the room.
-    let carl = SyncTokenAwareClient::new(
-        TestClientBuilder::new("carl").randomize_username().use_sqlite().build().await?,
-    );
+    let carl =
+        SyncTokenAwareClient::new(TestClientBuilder::new("carl").use_sqlite().build().await?);
     alice_room.invite_user_by_id(carl.user_id().unwrap()).await?;
 
     carl.sync_once().await?;
@@ -660,12 +652,9 @@ async fn test_encryption_missing_member_keys() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_failed_members_response() -> Result<()> {
-    let alice = SyncTokenAwareClient::new(
-        TestClientBuilder::new("alice").randomize_username().use_sqlite().build().await?,
-    );
-    let bob = SyncTokenAwareClient::new(
-        TestClientBuilder::new("bob").randomize_username().use_sqlite().build().await?,
-    );
+    let alice =
+        SyncTokenAwareClient::new(TestClientBuilder::new("alice").use_sqlite().build().await?);
+    let bob = SyncTokenAwareClient::new(TestClientBuilder::new("bob").use_sqlite().build().await?);
 
     let invite = vec![bob.user_id().unwrap().to_owned()];
     let request = assign!(CreateRoomRequest::new(), {
@@ -730,7 +719,6 @@ async fn test_backup_enable_new_user() -> Result<()> {
 
     let alice = SyncTokenAwareClient::new(
         TestClientBuilder::new("alice")
-            .randomize_username()
             .use_sqlite()
             .encryption_settings(encryption_settings)
             .build()
@@ -760,7 +748,6 @@ async fn test_cross_signing_bootstrap() -> Result<()> {
 
     let alice = SyncTokenAwareClient::new(
         TestClientBuilder::new("alice")
-            .randomize_username()
             .use_sqlite()
             .encryption_settings(encryption_settings)
             .build()
@@ -801,7 +788,6 @@ async fn test_secret_gossip_after_interactive_verification() -> Result<()> {
 
     let first_client = SyncTokenAwareClient::new(
         TestClientBuilder::new("alice_gossip_test")
-            .randomize_username()
             .encryption_settings(encryption_settings)
             .build()
             .await?,
@@ -827,7 +813,7 @@ async fn test_secret_gossip_after_interactive_verification() -> Result<()> {
     warn!("The first device has created and enabled encryption in the room and sent an event");
 
     let second_client = SyncTokenAwareClient::new(
-        TestClientBuilder::new(user_id.localpart())
+        TestClientBuilder::with_exact_username(user_id.localpart().to_owned())
             .encryption_settings(encryption_settings)
             .build()
             .await?,

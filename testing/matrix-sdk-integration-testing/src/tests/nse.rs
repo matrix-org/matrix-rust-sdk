@@ -133,7 +133,7 @@ impl ClientWrapper {
         sqlite_dir: Option<&Path>,
         app_identifier: Option<String>,
     ) -> Self {
-        let builder = TestClientBuilder::new(username).randomize_username();
+        let builder = TestClientBuilder::new(username);
 
         let builder = if let Some(sqlite_dir) = sqlite_dir {
             builder.use_sqlite_dir(sqlite_dir)
