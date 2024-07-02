@@ -18,7 +18,6 @@
 
 use std::{path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
-use event_item::TimelineEventItemId;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::Vector;
@@ -61,8 +60,6 @@ use ruma::{
 use thiserror::Error;
 use tracing::{error, instrument, trace, warn};
 
-use self::{event_item::EventTimelineItemKind, futures::SendAttachment, util::rfind_event_item};
-
 mod builder;
 mod day_dividers;
 mod error;
@@ -91,7 +88,7 @@ pub use self::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventItemOrigin,
         EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
         Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
-        TimelineDetails, TimelineItemContent,
+        TimelineDetails, TimelineEventItemId, TimelineItemContent,
     },
     event_type_filter::TimelineEventTypeFilter,
     inner::default_event_filter,
@@ -103,21 +100,28 @@ pub use self::{
     virtual_item::VirtualTimelineItem,
 };
 use self::{
+    event_item::EventTimelineItemKind,
+    futures::SendAttachment,
     inner::{ReactionAction, TimelineInner},
     reactions::ReactionToggleResult,
-    util::rfind_event_by_id,
+    util::{rfind_event_by_id, rfind_event_item},
 };
 
 /// Information needed to edit an event.
 #[derive(Debug, Clone)]
 pub struct EditInfo {
-    /// The event ID of the event that needs editing.
+    /// The ID of the event that needs editing.
     id: TimelineEventItemId,
     /// The original content of the event that needs editing.
     original_message: Message,
 }
 
 impl EditInfo {
+    /// The ID of the event that needs editing.
+    pub fn id(&self) -> &TimelineEventItemId {
+        &self.id
+    }
+
     /// The original content of the event that needs editing.
     pub fn original_message(&self) -> &Message {
         &self.original_message
@@ -138,6 +142,11 @@ pub struct RepliedToInfo {
 }
 
 impl RepliedToInfo {
+    /// The event ID of the event to reply to.
+    pub fn event_id(&self) -> &EventId {
+        &self.event_id
+    }
+
     /// The sender of the event to reply to.
     pub fn sender(&self) -> &UserId {
         &self.sender
