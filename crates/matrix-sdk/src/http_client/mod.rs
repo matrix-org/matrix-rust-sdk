@@ -298,11 +298,6 @@ impl tower::Service<http_old::Request<Bytes>> for HttpClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        http_client::RequestConfig,
-        test_utils::{set_client_session, test_client_builder_with_server},
-    };
-    use matrix_sdk_test::async_test;
     use std::{
         num::NonZeroUsize,
         sync::{
@@ -311,7 +306,17 @@ mod tests {
         },
         time::Duration,
     };
-    use wiremock::{matchers::method, Mock, Request, ResponseTemplate};
+
+    use matrix_sdk_test::{async_test, test_json};
+    use wiremock::{
+        matchers::{method, path},
+        Mock, Request, ResponseTemplate,
+    };
+
+    use crate::{
+        http_client::RequestConfig,
+        test_utils::{set_client_session, test_client_builder_with_server},
+    };
 
     #[async_test]
     async fn ensure_concurrent_request_limit_is_observed() {
@@ -328,6 +333,13 @@ mod tests {
         let inner_counter = counter.clone();
 
         Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("_matrix/client/r0/account/whoami"))
             .respond_with(move |_req: &Request| {
                 inner_counter.fetch_add(1, Ordering::SeqCst);
                 // we stall the requests
@@ -336,24 +348,19 @@ mod tests {
             .mount(&server)
             .await;
 
-        let _bg_task = tokio::spawn(async move {
-            let mut pollers = Vec::new();
-
-            for _n in 0..10 {
-                pollers.push(client.whoami());
-            }
-            // issue parallel execution
-            futures_util::future::join_all(pollers).await
+        let bg_task = tokio::spawn(async move {
+            futures_util::future::join_all((0..10).map(|_| client.whoami())).await
         });
 
-        // give it a moment to issue the requests
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        // give it some time to issue the requests
+        tokio::time::sleep(Duration::from_millis(300)).await;
 
         assert_eq!(
             counter.load(Ordering::SeqCst),
             5,
             "More requests passed than the limit we configured"
         );
+        bg_task.abort();
     }
 
     #[async_test]
@@ -371,31 +378,28 @@ mod tests {
         let inner_counter = counter.clone();
 
         Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("_matrix/client/r0/account/whoami"))
             .respond_with(move |_req: &Request| {
                 inner_counter.fetch_add(1, Ordering::SeqCst);
-                // we stall the requests
                 ResponseTemplate::new(200).set_delay(Duration::from_secs(60))
             })
             .mount(&server)
             .await;
 
-        let _bg_task = tokio::spawn(async move {
-            let mut pollers = Vec::new();
-
-            for _n in 1..254 {
-                pollers.push(client.whoami());
-            }
-            // issue parallel execution
-            futures_util::future::join_all(pollers).await
+        let bg_task = tokio::spawn(async move {
+            futures_util::future::join_all((0..254).map(|_| client.whoami())).await
         });
 
-        // give it a moment to issue the requests
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        // give it some time to issue the requests
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
-        assert_eq!(
-            counter.load(Ordering::SeqCst),
-            254,
-            "More requests passed than the limit we configured"
-        );
+        assert_eq!(counter.load(Ordering::SeqCst), 254, "Not all requests passed through");
+        bg_task.abort();
     }
 }
