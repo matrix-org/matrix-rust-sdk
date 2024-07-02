@@ -30,7 +30,7 @@ use super::{
     secret_send::SecretSendContent,
     EventType,
 };
-use crate::types::{deserialize_ed25519_key, events::from_str, serialize_ed25519_key};
+use crate::types::{deserialize_ed25519_key, events::from_str, serialize_ed25519_key, DeviceKeys};
 
 /// An `m.dummy` event that was decrypted using the
 /// `m.olm.v1.curve25519-aes-sha2` algorithm
@@ -164,18 +164,28 @@ where
     pub keys: OlmV1Keys,
     /// The recipient's signing keys of the encrypted event.
     pub recipient_keys: OlmV1Keys,
+    /// The device keys if supplied as per MSC4147
+    #[serde(rename = "org.matrix.msc4147.device_keys")]
+    pub device_keys: Option<DeviceKeys>,
     /// The type of the event.
     pub content: C,
 }
 
 impl<C: EventType + Debug + Sized + Serialize> DecryptedOlmV1Event<C> {
     #[cfg(test)]
-    pub fn new(sender: &UserId, recipient: &UserId, key: Ed25519PublicKey, content: C) -> Self {
+    pub fn new(
+        sender: &UserId,
+        recipient: &UserId,
+        key: Ed25519PublicKey,
+        device_keys: Option<DeviceKeys>,
+        content: C,
+    ) -> Self {
         Self {
             sender: sender.to_owned(),
             recipient: recipient.to_owned(),
             keys: OlmV1Keys { ed25519: key },
             recipient_keys: OlmV1Keys { ed25519: key },
+            device_keys,
             content,
         }
     }

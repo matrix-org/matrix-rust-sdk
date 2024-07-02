@@ -198,6 +198,7 @@ impl StaticAccountData {
         &self,
         room_id: &RoomId,
         settings: EncryptionSettings,
+        own_sender_data: SenderData,
     ) -> Result<(OutboundGroupSession, InboundGroupSession), MegolmSessionCreationError> {
         trace!(?room_id, algorithm = settings.algorithm.as_str(), "Creating a new room key");
 
@@ -221,7 +222,7 @@ impl StaticAccountData {
             signing_key,
             room_id,
             &outbound.session_key().await,
-            SenderData::unknown(),
+            own_sender_data,
             algorithm,
             Some(visibility),
         )?;
@@ -237,9 +238,13 @@ impl StaticAccountData {
         &self,
         room_id: &RoomId,
     ) -> (OutboundGroupSession, InboundGroupSession) {
-        self.create_group_session_pair(room_id, EncryptionSettings::default())
-            .await
-            .expect("Can't create default group session pair")
+        self.create_group_session_pair(
+            room_id,
+            EncryptionSettings::default(),
+            SenderData::unknown(),
+        )
+        .await
+        .expect("Can't create default group session pair")
     }
 
     /// Get the key ID of our Ed25519 signing key.
