@@ -891,7 +891,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
             .into(),
 
-            Flow::Remote { event_id, raw_event, position, .. } => {
+            Flow::Remote { event_id, raw_event, position, txn_id, .. } => {
                 // Drop pending reactions if the message is redacted.
                 if let TimelineItemContent::RedactedMessage = content {
                     if !reactions.is_empty() {
@@ -916,6 +916,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 RemoteEventTimelineItem {
                     event_id: event_id.clone(),
+                    transaction_id: txn_id.clone(),
                     reactions,
                     read_receipts: self.ctx.read_receipts.clone(),
                     is_own: self.ctx.is_own_event,

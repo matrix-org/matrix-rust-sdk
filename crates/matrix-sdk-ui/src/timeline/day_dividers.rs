@@ -622,6 +622,7 @@ mod tests {
     fn event_with_ts(timestamp: MilliSecondsSinceUnixEpoch) -> EventTimelineItem {
         let event_kind = EventTimelineItemKind::Remote(RemoteEventTimelineItem {
             event_id: owned_event_id!("$1"),
+            transaction_id: None,
             reactions: Default::default(),
             read_receipts: Default::default(),
             is_own: false,
