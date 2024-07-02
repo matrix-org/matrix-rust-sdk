@@ -25,10 +25,7 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 pub use futures_util::future::Aborted as JoinError;
 #[cfg(target_arch = "wasm32")]
-use futures_util::{
-    future::{AbortHandle, Abortable, RemoteHandle},
-    FutureExt,
-};
+use futures_util::{future::RemoteHandle, FutureExt};
 #[cfg(not(target_arch = "wasm32"))]
 pub use tokio::task::{spawn, JoinError, JoinHandle};
 
@@ -37,30 +34,32 @@ pub fn spawn<F, T>(future: F) -> JoinHandle<T>
 where
     F: Future<Output = T> + 'static,
 {
-    let (future, remote_handle) = future.remote_handle();
-    let (abort_handle, abort_registration) = AbortHandle::new_pair();
-    let future = Abortable::new(future, abort_registration);
+    let (fut, handle) = future.remote_handle();
+    wasm_bindgen_futures::spawn_local(fut);
 
-    wasm_bindgen_futures::spawn_local(async {
-        // Poll the future, and ignore the result (either it's `Ok(())`, or it's
-        // `Err(Aborted)`).
-        let _ = future.await;
-    });
-
-    JoinHandle { remote_handle, abort_handle }
+    JoinHandle { handle: Some(handle) }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[derive(Debug)]
 pub struct JoinHandle<T> {
-    remote_handle: RemoteHandle<T>,
-    abort_handle: AbortHandle,
+    handle: Option<RemoteHandle<T>>,
 }
 
 #[cfg(target_arch = "wasm32")]
 impl<T> JoinHandle<T> {
-    pub fn abort(&self) {
-        self.abort_handle.abort();
+    pub fn abort(&mut self) {
+        drop(self.handle.take());
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<T> Drop for JoinHandle<T> {
+    fn drop(&mut self) {
+        // don't abort the spawned future
+        if let Some(h) = self.handle.take() {
+            h.forget();
+        }
     }
 }
 
@@ -69,11 +68,10 @@ impl<T: 'static> Future for JoinHandle<T> {
     type Output = Result<T, JoinError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.abort_handle.is_aborted() {
-            // The future has been aborted. It is not possible to poll it again.
-            Poll::Ready(Err(JoinError))
+        if let Some(handle) = self.handle.as_mut() {
+            Pin::new(handle).poll(cx).map(Ok)
         } else {
-            Pin::new(&mut self.remote_handle).poll(cx).map(Ok)
+            Poll::Ready(Err(JoinError))
         }
     }
 }
@@ -96,7 +94,8 @@ mod tests {
     #[async_test]
     async fn test_abort() {
         let future = async { 42 };
-        let join_handle = spawn(future);
+        #[allow(unused_mut)]
+        let mut join_handle = spawn(future);
 
         join_handle.abort();
 

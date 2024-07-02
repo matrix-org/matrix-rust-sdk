@@ -91,7 +91,8 @@ impl State {
 }
 
 /// A trait to define what an `Action` is.
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 trait Action {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error>;
 }
@@ -104,7 +105,8 @@ pub const VISIBLE_ROOMS_DEFAULT_TIMELINE_LIMIT: Bound = 20;
 /// Default range for the `VISIBLE_ROOMS_LIST_NAME` list.
 pub const VISIBLE_ROOMS_DEFAULT_RANGE: Range = 0..=19;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl Action for AddVisibleRooms {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
@@ -128,7 +130,8 @@ impl Action for AddVisibleRooms {
 
 struct SetVisibleRoomsToZeroTimelineLimit;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl Action for SetVisibleRoomsToZeroTimelineLimit {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
@@ -146,7 +149,8 @@ impl Action for SetVisibleRoomsToZeroTimelineLimit {
 
 struct SetVisibleRoomsToDefaultTimelineLimit;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl Action for SetVisibleRoomsToDefaultTimelineLimit {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
@@ -168,7 +172,8 @@ struct SetAllRoomsToSelectiveSyncMode;
 /// `ALL_ROOMS_LIST_NAME` list.
 pub const ALL_ROOMS_DEFAULT_SELECTIVE_RANGE: Range = 0..=19;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl Action for SetAllRoomsToSelectiveSyncMode {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
@@ -192,7 +197,8 @@ struct SetAllRoomsToGrowingSyncMode;
 /// list.
 pub const ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE: u32 = 100;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl Action for SetAllRoomsToGrowingSyncMode {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
         sliding_sync
