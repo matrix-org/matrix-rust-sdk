@@ -1,7 +1,7 @@
 use std::{
     path::Path,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use anyhow::Result;
@@ -32,12 +32,12 @@ use matrix_sdk_ui::{
 };
 use serde_json::json;
 use tempfile::tempdir;
+use tokio::time::timeout;
 use tracing::{info, instrument, span, Level};
 
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "Flakes by timing out sometimes"]
 async fn test_multiple_clients_share_crypto_state() -> Result<()> {
     // This failed before https://github.com/matrix-org/matrix-rust-sdk/pull/3338
     // because, even though the cross-process lock was working, the SessionStore
@@ -63,15 +63,18 @@ async fn test_multiple_clients_share_crypto_state() -> Result<()> {
     info!("bob's device: {}", bob.client.device_id().unwrap());
 
     // And given they are both in an encrypted room together
-    let room_id = create_encrypted_room(&alice_main, &bob).await;
+    let room_id =
+        run_or_timeout("create_encrypted_room", create_encrypted_room(&alice_main, &bob)).await;
 
     // And given both alices have an Olm session with bob (because they received a
     // message from him)
     {
         let _span = span!(Level::INFO, "msg1_from_bob").entered();
 
-        let msg1 = bob.send(&room_id, "msg1_from_bob").await;
+        let msg1 = run_or_timeout("bob.send(msg1)", bob.send(&room_id, "msg1_from_bob")).await;
+
         alice_nse.nse_wait_until_received(&room_id, &msg1).await;
+
         alice_main.wait_until_received(&msg1).await;
 
         info!("alice_nse received msg1 from bob");
@@ -81,7 +84,9 @@ async fn test_multiple_clients_share_crypto_state() -> Result<()> {
     {
         let _span = span!(Level::INFO, "msg2_from_alice").entered();
 
-        let msg2 = alice_main.send(&room_id, "msg2_from_alice").await;
+        let msg2 =
+            run_or_timeout("alice.send(msg2)", alice_main.send(&room_id, "msg2_from_alice")).await;
+
         bob.wait_until_received(&msg2).await;
 
         info!("bob received msg2 from alice_main");
@@ -93,7 +98,8 @@ async fn test_multiple_clients_share_crypto_state() -> Result<()> {
     {
         let _span = span!(Level::INFO, "msg3_from_bob").entered();
 
-        let msg3 = bob.send(&room_id, "msg3_from_bob").await;
+        let msg3 = run_or_timeout("bob.send(msg3)", bob.send(&room_id, "msg3_from_bob")).await;
+
         alice_nse.nse_wait_until_received(&room_id, &msg3).await;
 
         info!("alice_nse received msg3 from bob");
@@ -166,7 +172,6 @@ impl ClientWrapper {
                 MessageType::Text(text) => text.body,
                 _ => panic!("Unexpected message type"),
             };
-
             events_clone.lock().unwrap().push((ev.event_id.clone(), content))
         });
 
@@ -179,12 +184,12 @@ impl ClientWrapper {
         );
 
         // Notice incoming keys and attempt to decrypt stored encrypted events
-        let encrypted_events_clone2 = encrypted_events.clone();
         let events_clone2 = events.clone();
         client.add_event_handler(|_ev: ToDeviceRoomKeyEvent, client: Client| async move {
             // Whenever we received any room key, attempt to decrypt all existing encrypted
             // events. This could be more efficient, but it does the job.
-            let evts = encrypted_events_clone2.lock().unwrap().clone();
+            info!("Received a new to-device room key!");
+            let evts = encrypted_events.lock().unwrap().clone();
             for (event, room_id) in evts.iter() {
                 if let Some((event_id, content)) = decrypt_event(&client, room_id, event).await {
                     // If we did decrypt an event, remember it in our list of events we've seen
@@ -307,22 +312,27 @@ impl ClientWrapper {
         F: Fn() -> R,
         R: Future<Output = Option<S>>,
     {
+        info!("sync_until start");
         self.sync_service.start().await;
 
-        // Repeatedly call f until it returns Some
-        let end_time = Instant::now() + timeout();
-        while Instant::now() < end_time {
-            if let Some(ans) = f().await {
-                // We found what we were looking for
-                self.sync_service.stop().await.expect("Failed to stop sync service");
-                return Some(ans);
+        // Repeatedly call f until it returns Some.
+        let ret = timeout(Duration::from_secs(10), async {
+            loop {
+                if let Some(result) = f().await {
+                    // We found what we were looking for
+                    break result;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
+        })
+        .await
+        .ok();
 
-        // We timed out
+        // In either case (timeout or not), stop the sync service.
         self.sync_service.stop().await.expect("Failed to stop sync service");
-        None
+        info!("sync_until end");
+
+        ret
     }
 }
 
@@ -368,6 +378,8 @@ impl NotificationClientWrapper {
 
     /// Wait (using [`NotificationClient::get_notification`]) until the event
     /// with this ID appears, or time out.
+    ///
+    /// This function may time out.
     #[instrument(skip(self))]
     async fn nse_wait_until_received(&self, room_id: &RoomId, event_info: &(OwnedEventId, String)) {
         if self.events.lock().unwrap().contains(event_info) {
@@ -375,38 +387,38 @@ impl NotificationClientWrapper {
             return;
         }
 
-        // Wait until this event can be got via get_notification
-        let end_time = Instant::now() + timeout();
-        while Instant::now() < end_time {
-            let item = self
-                .notif_client
-                .get_notification(room_id, &event_info.0)
-                .await
-                .expect("Failed to get_notification");
+        // Wait until this event can be got via get_notification.
+        timeout(Duration::from_secs(10), async {
+            loop {
+                let item = self
+                    .notif_client
+                    .get_notification(room_id, &event_info.0)
+                    .await
+                    .expect("Failed to get_notification");
 
-            if let Some(item) = item {
-                if let NotificationEvent::Timeline(AnySyncTimelineEvent::MessageLike(e)) =
-                    item.event
-                {
-                    if let AnyMessageLikeEventContent::RoomMessage(c) =
-                        e.original_content().expect("Empty original content")
+                if let Some(item) = item {
+                    if let NotificationEvent::Timeline(AnySyncTimelineEvent::MessageLike(e)) =
+                        item.event
                     {
-                        self.events
-                            .lock()
-                            .unwrap()
-                            .push((event_info.0.clone(), c.body().to_owned()));
-                        return;
+                        if let AnyMessageLikeEventContent::RoomMessage(c) =
+                            e.original_content().expect("Empty original content")
+                        {
+                            self.events
+                                .lock()
+                                .unwrap()
+                                .push((event_info.0.clone(), c.body().to_owned()));
+                            return;
+                        }
                     }
-                }
-            };
-        }
-
-        panic!(
-            "Timed out waiting for event ({}, {}) to be received via NotificationClient. Events: {:?}",
-            event_info.0,
-            event_info.1,
-            self.events.lock().unwrap()
-        );
+                };
+            }
+        }).await.unwrap_or_else(|_| {
+            panic!(
+                "Timed out waiting for event ({}, {}) to be received via NotificationClient. Events: {:?}",
+                event_info.0,
+                event_info.1,
+                self.events.lock().unwrap());
+        });
     }
 }
 
@@ -445,9 +457,11 @@ fn encryption_settings() -> EncryptionSettings {
     EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() }
 }
 
-/// How long to wait before giving up on an operation.
-fn timeout() -> Duration {
-    Duration::from_secs(10)
+async fn run_or_timeout<T, Fut: Future<Output = T>>(ctx: &str, f: Fut) -> T {
+    match timeout(Duration::from_secs(10), f).await {
+        Ok(val) => val,
+        Err(_) => panic!("timeout in {ctx}"),
+    }
 }
 
 /// Create an encrypted room as `alice_main` and join `bob` to it.
@@ -458,10 +472,17 @@ async fn create_encrypted_room(alice_main: &ClientWrapper, bob: &ClientWrapper) 
 
     bob.join(&room_id).await;
 
+    info!("bob sent the join request");
+
     alice_main.wait_until_user_in_room(&room_id, bob).await;
+
+    info!("alice can see bob in the room");
 
     // Sanity: the room is encrypted
     assert!(bob.room_is_encrypted(&room_id).await);
+
+    info!("bob thinks the room is encrypted");
+
     assert!(alice_main.room_is_encrypted(&room_id).await);
 
     info!("alice_main and bob are both aware of each other in the e2ee room");
