@@ -129,7 +129,7 @@ impl EditInfo {
 }
 
 /// Information needed to reply to an event.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RepliedToInfo {
     /// The event ID of the event to reply to.
     event_id: OwnedEventId,
