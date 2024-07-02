@@ -16,9 +16,9 @@ use crate::helpers::TestClientBuilder;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_repeated_join_leave() -> Result<()> {
-    let peter = TestClientBuilder::new("peter".to_owned()).use_sqlite().build().await?;
+    let peter = TestClientBuilder::new("peter").use_sqlite().build().await?;
     // FIXME: Run once with memory, once with SQLite
-    let karl = TestClientBuilder::new("karl".to_owned()).build().await?;
+    let karl = TestClientBuilder::new("karl").build().await?;
     let karl_id = karl.user_id().expect("karl has a userid!").to_owned();
 
     // Create a room and invite karl.

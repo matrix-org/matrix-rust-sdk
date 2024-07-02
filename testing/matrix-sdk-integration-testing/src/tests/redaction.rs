@@ -27,7 +27,7 @@ async fn sync_once(client: &Client, sync_token: Option<String>) -> Result<String
 #[ignore = "Broken since synapse update, see #1069"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_redacting_name() -> Result<()> {
-    let tamatoa = TestClientBuilder::new("tamatoa".to_owned()).use_sqlite().build().await?;
+    let tamatoa = TestClientBuilder::new("tamatoa").use_sqlite().build().await?;
     // create a room
     let request = assign!(CreateRoomRequest::new(), {
         is_direct: true,
@@ -99,7 +99,7 @@ async fn test_redacting_name() -> Result<()> {
 #[ignore = "Broken since synapse update, see #1069"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_redacting_name_static() -> Result<()> {
-    let tamatoa = TestClientBuilder::new("tamatoa".to_owned()).use_sqlite().build().await?;
+    let tamatoa = TestClientBuilder::new("tamatoa").use_sqlite().build().await?;
     // create a room
     let request = assign!(CreateRoomRequest::new(), {
         is_direct: true,

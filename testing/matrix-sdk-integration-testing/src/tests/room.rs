@@ -20,8 +20,7 @@ use crate::helpers::TestClientBuilder;
 
 #[tokio::test]
 async fn test_event_with_context() -> Result<()> {
-    let bob =
-        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
     // Spawn sync for bob.
     let b = bob.clone();
@@ -34,11 +33,7 @@ async fn test_event_with_context() -> Result<()> {
         }
     });
 
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
 
     // Spawn sync for alice too.
     let a = alice.clone();

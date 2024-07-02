@@ -39,11 +39,7 @@ use crate::helpers::TestClientBuilder;
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_toggling_reaction() -> Result<()> {
     // Set up sync for user Alice, and create a room.
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
 
     let alice_clone = alice.clone();
     let alice_sync = spawn(async move {
