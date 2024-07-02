@@ -14,6 +14,7 @@
 
 use std::{
     fmt::{self, Debug},
+    num::NonZeroUsize,
     time::Duration,
 };
 
@@ -44,18 +45,21 @@ pub struct RequestConfig {
     pub(crate) timeout: Duration,
     pub(crate) retry_limit: Option<u64>,
     pub(crate) retry_timeout: Option<Duration>,
+    pub(crate) max_concurrent_requests: Option<NonZeroUsize>,
     pub(crate) force_auth: bool,
 }
 
 #[cfg(not(tarpaulin_include))]
 impl Debug for RequestConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { timeout, retry_limit, retry_timeout, force_auth } = self;
+        let Self { timeout, retry_limit, retry_timeout, force_auth, max_concurrent_requests } =
+            self;
 
         let mut res = fmt.debug_struct("RequestConfig");
         res.field("timeout", timeout)
             .maybe_field("retry_limit", retry_limit)
-            .maybe_field("retry_timeout", retry_timeout);
+            .maybe_field("retry_timeout", retry_timeout)
+            .maybe_field("max_concurrent_requests", max_concurrent_requests);
 
         if *force_auth {
             res.field("force_auth", &true);
@@ -71,6 +75,7 @@ impl Default for RequestConfig {
             timeout: DEFAULT_REQUEST_TIMEOUT,
             retry_limit: Default::default(),
             retry_timeout: Default::default(),
+            max_concurrent_requests: Default::default(),
             force_auth: false,
         }
     }
@@ -103,6 +108,15 @@ impl RequestConfig {
     #[must_use]
     pub fn retry_limit(mut self, retry_limit: u64) -> Self {
         self.retry_limit = Some(retry_limit);
+        self
+    }
+
+    /// The total limit of request that are pending or run concurrently.
+    /// Any additional request beyond that number will be waiting until another
+    /// concurrent requests finished. Requests are queued fairly.
+    #[must_use]
+    pub fn max_concurrent_requests(mut self, limit: Option<NonZeroUsize>) -> Self {
+        self.max_concurrent_requests = limit;
         self
     }
 
