@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     ops::Deref,
     option_env,
     path::{Path, PathBuf},
@@ -12,10 +11,7 @@ use assign::assign;
 use matrix_sdk::{
     config::{RequestConfig, SyncSettings},
     encryption::EncryptionSettings,
-    ruma::{
-        api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
-        OwnedDeviceId, OwnedUserId,
-    },
+    ruma::api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
     Client, ClientBuilder,
 };
 use once_cell::sync::Lazy;
@@ -23,9 +19,9 @@ use rand::Rng as _;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::Mutex;
 
-#[allow(clippy::type_complexity)]
-static USERS: Lazy<Mutex<HashMap<(OwnedUserId, OwnedDeviceId), (Client, TempDir)>>> =
-    Lazy::new(Mutex::default);
+/// This global maintains temp directories alive for the whole lifetime of the
+/// process.
+static TMP_DIRS: Lazy<Mutex<Vec<TempDir>>> = Lazy::new(Mutex::default);
 
 enum SqlitePath {
     Random,
@@ -124,15 +120,14 @@ impl TestClientBuilder {
     }
 
     pub async fn build(self) -> Result<Client> {
-        let mut users = USERS.lock().await;
-
-        let tmp_dir = tempdir()?;
-
         let client_builder = self.common_client_builder();
         let client = match self.use_sqlite_dir {
             None => client_builder.build().await?,
             Some(SqlitePath::Random) => {
-                client_builder.sqlite_store(tmp_dir.path(), None).build().await?
+                let tmp_dir = tempdir()?;
+                let client = client_builder.sqlite_store(tmp_dir.path(), None).build().await?;
+                TMP_DIRS.lock().await.push(tmp_dir);
+                client
             }
             Some(SqlitePath::Path(path_buf)) => {
                 client_builder.sqlite_store(&path_buf, None).build().await?
@@ -159,16 +154,6 @@ impl TestClientBuilder {
         if try_login {
             auth.login_username(&self.username, &self.username).await?;
         }
-
-        let user_id = client
-            .user_id()
-            .expect("We should have access to our user ID now that we logged in.")
-            .to_owned();
-        let device_id = client
-            .device_id()
-            .expect("We should have access to our device ID now that we logged in.")
-            .to_owned();
-        users.insert((user_id, device_id), (client.clone(), tmp_dir)); // keeping temp dir around so it doesn't get destroyed yet
 
         Ok(client)
     }
