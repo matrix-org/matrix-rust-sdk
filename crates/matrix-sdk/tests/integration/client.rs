@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, time::Duration};
 
-use assert_matches2::assert_let;
+use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::FutureExt;
 use matrix_sdk::{
@@ -442,7 +442,7 @@ async fn test_marking_room_as_dm() {
     client
         .sync_once(SyncSettings::default())
         .await
-        .expect("We should be able to performa an initial sync");
+        .expect("We should be able to perform an initial sync");
 
     let account_data = client
         .account()
@@ -500,6 +500,48 @@ async fn test_marking_room_as_dm() {
         .mark_as_dm(&DEFAULT_TEST_ROOM_ID, &users)
         .await
         .expect("We should be able to mark the room as a DM");
+
+    server.verify().await;
+}
+
+// Check that we're fetching account data from the server when marking a room as
+// a DM, and that we don't clobber the previous entry if it was impossible to
+// deserialize.
+#[async_test]
+async fn test_marking_room_as_dm_fails_if_undeserializable() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    mock_sync(&server, &*test_json::SYNC, None).await;
+    client
+        .sync_once(SyncSettings::default())
+        .await
+        .expect("We should be able to perform an initial sync");
+
+    let account_data = client
+        .account()
+        .account_data::<DirectEventContent>()
+        .await
+        .expect("We should be able to fetch the account data event from the store");
+
+    assert!(account_data.is_none(), "We should not have any account data initially");
+
+    let bob = user_id!("@bob:example.com");
+    let users = vec![bob.to_owned()];
+
+    // The response must be valid JSON, but not a valid `DirectEventContent`
+    // representation.
+    Mock::given(method("GET"))
+        .and(path("_matrix/client/r0/user/@example:localhost/account_data/m.direct"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!(["hey", null, true, 42])))
+        .expect(1)
+        .named("m.direct account data GET")
+        .mount(&server)
+        .await;
+
+    let result = client.account().mark_as_dm(&DEFAULT_TEST_ROOM_ID, &users).await;
+
+    assert_matches!(result, Err(matrix_sdk::Error::SerdeJson(_)));
 
     server.verify().await;
 }
