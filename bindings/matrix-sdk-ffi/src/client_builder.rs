@@ -11,7 +11,7 @@ use matrix_sdk::{
         ServerName, UserId,
     },
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError,
-    ClientBuilder as MatrixClientBuilder, HttpError, IdParseError, RumaApiError,
+    HttpError, IdParseError, RumaApiError,
 };
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::{debug, error};
@@ -258,7 +258,6 @@ pub struct ClientBuilder {
     proxy: Option<String>,
     disable_ssl_verification: bool,
     disable_automatic_token_refresh: bool,
-    inner: MatrixClientBuilder,
     cross_process_refresh_lock_id: Option<String>,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     additional_root_certificates: Vec<Vec<u8>>,
@@ -281,7 +280,6 @@ impl ClientBuilder {
             proxy: None,
             disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
-            inner: MatrixClient::builder(),
             cross_process_refresh_lock_id: None,
             session_delegate: None,
             additional_root_certificates: Default::default(),
@@ -508,7 +506,7 @@ impl ClientBuilder {
 
     pub(crate) async fn build_inner(self: Arc<Self>) -> Result<Client, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
-        let mut inner_builder = builder.inner;
+        let mut inner_builder = MatrixClient::builder();
 
         if let Some(session_path) = &builder.session_path {
             let data_path = PathBuf::from(session_path);
