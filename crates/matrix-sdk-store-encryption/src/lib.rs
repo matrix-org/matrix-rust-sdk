@@ -500,9 +500,9 @@ impl StoreCipher {
     /// Encrypt a value before it is inserted into the key/value store.
     ///
     /// A value can be decrypted using the
-    /// [`StoreCipher::decrypt_value_typed()`] method. This is the lower
-    /// level function to `encrypt_value`, but returns the
-    /// full `EncryptdValue`-type
+    /// [`StoreCipher::decrypt_value_base64_typed()`] method. This is a lower
+    /// level function to [`StoreCipher::encrypt_value()`], but returns the
+    /// full [`EncryptedValueBase64`] type.
     ///
     /// # Arguments
     ///
@@ -524,8 +524,8 @@ impl StoreCipher {
     ///     "some": "data",
     /// });
     ///
-    /// let encrypted = store_cipher.encrypt_value_typed(&value)?;
-    /// let decrypted: Value = store_cipher.decrypt_value_typed(encrypted)?;
+    /// let encrypted = store_cipher.encrypt_value_base64_typed(&value)?;
+    /// let decrypted: Value = store_cipher.decrypt_value_base64_typed(encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
     /// # anyhow::Ok(()) };
