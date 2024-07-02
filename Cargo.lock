@@ -1757,9 +1757,9 @@ dependencies = [
 
 [[package]]
 name = "eyeball"
-version = "0.8.7"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42482893d982111055ce4b24234d6250396d3785767c6b04cedd84612a0b80fb"
+checksum = "d93bd0ebf93d61d6332d3c09a96e97975968a44e19a64c947bde06e6baff383f"
 dependencies = [
  "futures-core",
  "readlock",
@@ -1768,9 +1768,9 @@ dependencies = [
 
 [[package]]
 name = "eyeball-im"
-version = "0.4.2"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "021fab29d9670be5867b16d56a95c29a12c3c1bb654e7d589010a028716d625d"
+checksum = "2ae8c5165c9770f3ec7cccce12f4c5d70f01fa8bf84cf30cfbfd5a1c6f8901d5"
 dependencies = [
  "futures-core",
  "imbl",
@@ -1781,9 +1781,9 @@ dependencies = [
 
 [[package]]
 name = "eyeball-im-util"
-version = "0.5.3"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0fea22ab33f31f2fac1a3a81b9024b461e28518f3262fecb6156943221e9960"
+checksum = "32b6b037e2cdce928a432ecc2880c944e5436d8a38c827974b882ad373f60037"
 dependencies = [
  "arrayvec",
  "eyeball-im",
@@ -2552,9 +2552,9 @@ dependencies = [
 
 [[package]]
 name = "imbl"
-version = "2.0.3"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "978d142c8028edf52095703af2fad11d6f611af1246685725d6b850634647085"
+checksum = "bc3be8d8cd36f33a46b1849f31f837c44d9fa87223baee3b4bd96b8f11df81eb"
 dependencies = [
  "bitmaps",
  "imbl-sized-chunks",
@@ -3890,7 +3890,7 @@ name = "oauth2"
 version = "5.0.0-alpha.4"
 source = "git+https://github.com/poljar/oauth2-rs?rev=f8e28ce5a7f3278ac85b8593ecdd86f2cf51fa2e#f8e28ce5a7f3278ac85b8593ecdd86f2cf51fa2e"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "getrandom",
  "http 1.1.0",

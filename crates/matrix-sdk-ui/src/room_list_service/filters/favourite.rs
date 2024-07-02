@@ -12,85 +12,61 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk::{Client, RoomListEntry};
-
-use super::Filter;
+use super::{super::Room, Filter};
 
 struct FavouriteRoomMatcher<F>
 where
-    F: Fn(&RoomListEntry) -> Option<bool>,
+    F: Fn(&Room) -> bool,
 {
     is_favourite: F,
 }
 
 impl<F> FavouriteRoomMatcher<F>
 where
-    F: Fn(&RoomListEntry) -> Option<bool>,
+    F: Fn(&Room) -> bool,
 {
-    fn matches(&self, room_list_entry: &RoomListEntry) -> bool {
-        if !matches!(room_list_entry, RoomListEntry::Filled(_) | RoomListEntry::Invalidated(_)) {
-            return false;
-        }
-
-        (self.is_favourite)(room_list_entry).unwrap_or(false)
+    fn matches(&self, room: &Room) -> bool {
+        (self.is_favourite)(room)
     }
 }
 
-/// Create a new filter that will accept all filled or invalidated entries, but
-/// filters out rooms that are not marked as favourite (see
-/// [`matrix_sdk_base::Room::is_favourite`]).
-pub fn new_filter(client: &Client) -> impl Filter {
-    let client = client.clone();
+/// Create a new filter that will filter out rooms that are not marked as
+/// favourite (see [`matrix_sdk_base::Room::is_favourite`]).
+pub fn new_filter() -> impl Filter {
+    let matcher = FavouriteRoomMatcher { is_favourite: move |room| room.is_favourite() };
 
-    let matcher = FavouriteRoomMatcher {
-        is_favourite: move |room| {
-            let room_id = room.as_room_id()?;
-            let room = client.get_room(room_id)?;
-
-            Some(room.is_favourite())
-        },
-    };
-
-    move |room_list_entry| -> bool { matcher.matches(room_list_entry) }
+    move |room| -> bool { matcher.matches(room) }
 }
 
 #[cfg(test)]
 mod tests {
     use std::ops::Not;
 
-    use matrix_sdk::RoomListEntry;
+    use matrix_sdk_test::async_test;
     use ruma::room_id;
 
-    use super::FavouriteRoomMatcher;
+    use super::{
+        super::{client_and_server_prelude, new_rooms},
+        *,
+    };
 
-    #[test]
-    fn test_is_favourite() {
-        let matcher = FavouriteRoomMatcher { is_favourite: |_| Some(true) };
+    #[async_test]
+    async fn test_is_favourite() {
+        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
 
-        assert!(matcher.matches(&RoomListEntry::Empty).not());
-        assert!(matcher.matches(&RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned())));
-        assert!(matcher.matches(&RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned())));
+        let matcher = FavouriteRoomMatcher { is_favourite: |_| true };
+
+        assert!(matcher.matches(&room));
     }
 
-    #[test]
-    fn test_is_not_favourite() {
-        let matcher = FavouriteRoomMatcher { is_favourite: |_| Some(false) };
+    #[async_test]
+    async fn test_is_not_favourite() {
+        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
 
-        assert!(matcher.matches(&RoomListEntry::Empty).not());
-        assert!(matcher.matches(&RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned())).not());
-        assert!(matcher
-            .matches(&RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned()))
-            .not());
-    }
+        let matcher = FavouriteRoomMatcher { is_favourite: |_| false };
 
-    #[test]
-    fn test_favourite_state_cannot_be_found() {
-        let matcher = FavouriteRoomMatcher { is_favourite: |_| None };
-
-        assert!(matcher.matches(&RoomListEntry::Empty).not());
-        assert!(matcher.matches(&RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned())).not());
-        assert!(matcher
-            .matches(&RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned()))
-            .not());
+        assert!(matcher.matches(&room).not());
     }
 }

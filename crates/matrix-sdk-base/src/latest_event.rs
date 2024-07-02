@@ -14,7 +14,7 @@ use ruma::{
         call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
         relation::RelationType,
     },
-    MxcUri, OwnedEventId,
+    MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -129,6 +129,16 @@ pub struct LatestEvent {
     /// The actual event.
     event: SyncTimelineEvent,
 
+    /// A copy of `Self::event::event::origin_server_ts`.
+    ///
+    /// This information can potentially be requested multiple times. Keeping a
+    /// copy here avoid to parse `Self::event::event` which is a `Raw<_>`.
+    ///
+    /// We `skip_serializing` instead of `skip` because deserializing is handled
+    /// by the custom `Deserialize` for `LatestEvent`.
+    #[serde(skip_serializing)]
+    cached_event_origin_server_ts: MilliSecondsSinceUnixEpoch,
+
     /// The member profile of the event' sender.
     #[serde(skip_serializing_if = "Option::is_none")]
     sender_profile: Option<MinimalRoomMemberEvent>,
@@ -165,8 +175,11 @@ impl<'de> Deserialize<'de> for LatestEvent {
 
         match serde_json::from_str::<SerializedLatestEvent>(raw.get()) {
             Ok(value) => {
+                let cached_event_origin_server_ts = extract_origin_server_ts(&value.event);
+
                 return Ok(LatestEvent {
                     event: value.event,
+                    cached_event_origin_server_ts,
                     sender_profile: value.sender_profile,
                     sender_name_is_ambiguous: value.sender_name_is_ambiguous,
                 });
@@ -176,11 +189,14 @@ impl<'de> Deserialize<'de> for LatestEvent {
 
         match serde_json::from_str::<SyncTimelineEvent>(raw.get()) {
             Ok(value) => {
+                let cached_event_origin_server_ts = extract_origin_server_ts(&value);
+
                 return Ok(LatestEvent {
                     event: value,
+                    cached_event_origin_server_ts,
                     sender_profile: None,
                     sender_name_is_ambiguous: None,
-                })
+                });
             }
             Err(err) => variant_errors.push(err),
         }
@@ -194,7 +210,14 @@ impl<'de> Deserialize<'de> for LatestEvent {
 impl LatestEvent {
     /// Create a new [`LatestEvent`] without the sender's profile.
     pub fn new(event: SyncTimelineEvent) -> Self {
-        Self { event, sender_profile: None, sender_name_is_ambiguous: None }
+        let cached_event_origin_server_ts = extract_origin_server_ts(&event);
+
+        Self {
+            event,
+            cached_event_origin_server_ts,
+            sender_profile: None,
+            sender_name_is_ambiguous: None,
+        }
     }
 
     /// Create a new [`LatestEvent`] with maybe the sender's profile.
@@ -203,7 +226,9 @@ impl LatestEvent {
         sender_profile: Option<MinimalRoomMemberEvent>,
         sender_name_is_ambiguous: Option<bool>,
     ) -> Self {
-        Self { event, sender_profile, sender_name_is_ambiguous }
+        let cached_event_origin_server_ts = extract_origin_server_ts(&event);
+
+        Self { event, cached_event_origin_server_ts, sender_profile, sender_name_is_ambiguous }
     }
 
     /// Transform [`Self`] into an event.
@@ -224,6 +249,11 @@ impl LatestEvent {
     /// Get the event ID.
     pub fn event_id(&self) -> Option<OwnedEventId> {
         self.event.event_id()
+    }
+
+    /// Get the `origin_server_ts` of this latest event.
+    pub fn event_origin_server_ts(&self) -> MilliSecondsSinceUnixEpoch {
+        self.cached_event_origin_server_ts
     }
 
     /// Check whether [`Self`] has a sender profile.
@@ -253,6 +283,15 @@ impl LatestEvent {
             profile.as_original().and_then(|event| event.content.avatar_url.as_deref())
         })
     }
+}
+
+fn extract_origin_server_ts(event: &SyncTimelineEvent) -> MilliSecondsSinceUnixEpoch {
+    event
+        .event
+        .get_field::<MilliSecondsSinceUnixEpoch>("origin_server_ts")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| MilliSecondsSinceUnixEpoch(0u8.into()))
 }
 
 #[cfg(test)]
@@ -520,6 +559,7 @@ mod tests {
         let initial = TestStruct {
             latest_event: LatestEvent {
                 event: event.clone(),
+                cached_event_origin_server_ts: MilliSecondsSinceUnixEpoch(0u8.into()),
                 sender_profile: None,
                 sender_name_is_ambiguous: None,
             },

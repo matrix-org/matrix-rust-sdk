@@ -16,24 +16,28 @@ use super::Filter;
 
 /// Create a new filter that will reject all entries.
 pub fn new_filter() -> impl Filter {
-    |_room_list_entry| -> bool { false }
+    |_room| -> bool { false }
 }
 
 #[cfg(test)]
 mod tests {
     use std::ops::Not;
 
-    use matrix_sdk::RoomListEntry;
+    use matrix_sdk_test::async_test;
     use ruma::room_id;
 
-    use super::new_filter;
+    use super::{
+        super::{client_and_server_prelude, new_rooms},
+        *,
+    };
 
-    #[test]
-    fn test_all_kind_of_room_list_entry() {
+    #[async_test]
+    async fn test_all_kind_of_room_list_entry() {
+        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
+
         let none = new_filter();
 
-        assert!(none(&RoomListEntry::Empty).not());
-        assert!(none(&RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned())).not());
-        assert!(none(&RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned())).not());
+        assert!(none(&room).not());
     }
 }
