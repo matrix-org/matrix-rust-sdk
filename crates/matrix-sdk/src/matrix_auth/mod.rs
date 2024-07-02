@@ -38,7 +38,9 @@ use ruma::{
     serde::JsonObject,
 };
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use tracing::{debug, error, info, instrument};
+use url::Url;
 
 use crate::{
     authentication::AuthData,
@@ -71,6 +73,14 @@ impl fmt::Debug for MatrixAuthData {
 #[derive(Debug, Clone)]
 pub struct MatrixAuth {
     client: Client,
+}
+
+/// Errors that can occur when using the SSO API.
+#[derive(Debug, Error)]
+pub enum SsoError {
+    /// The supplied callback URL used to complete SSO is invalid.
+    #[error("callback URL invalid")]
+    CallbackUrlInvalid,
 }
 
 impl MatrixAuth {
@@ -290,6 +300,24 @@ impl MatrixAuth {
     /// [`restore_session`]: #method.restore_session
     pub fn login_token(&self, token: &str) -> LoginBuilder {
         LoginBuilder::new_token(self.clone(), token.to_owned())
+    }
+
+    /// A higher level wrapper around the methods to complete an SSO login after
+    /// the user has logged in through a webview. This method should be used
+    /// in tandem with [`MatrixAuth::get_sso_login_url`].
+    pub fn login_with_sso_callback(&self, callback_url: Url) -> Result<LoginBuilder, SsoError> {
+        #[derive(Deserialize)]
+        struct QueryParameters {
+            #[serde(rename = "loginToken")]
+            login_token: Option<String>,
+        }
+
+        let query_string = callback_url.query().unwrap_or("");
+        let query: QueryParameters =
+            serde_html_form::from_str(query_string).map_err(|_| SsoError::CallbackUrlInvalid)?;
+        let token = query.login_token.ok_or(SsoError::CallbackUrlInvalid)?;
+
+        Ok(self.login_token(token.as_str()))
     }
 
     /// Log into the server via Single Sign-On.
