@@ -100,7 +100,6 @@ pub use self::{
     virtual_item::VirtualTimelineItem,
 };
 use self::{
-    event_item::EventTimelineItemKind,
     futures::SendAttachment,
     inner::{ReactionAction, TimelineInner},
     reactions::ReactionToggleResult,
@@ -791,25 +790,39 @@ impl Timeline {
         event: &EventTimelineItem,
         reason: Option<&str>,
     ) -> Result<bool, RedactEventError> {
-        match &event.kind {
-            EventTimelineItemKind::Local(local) => {
+        let event_id = match event.identifier() {
+            TimelineEventItemId::TransactionId(txn_id) => {
+                let local = event.as_local().unwrap();
+
                 if let Some(handle) = local.send_handle.clone() {
-                    Ok(handle.abort().await.map_err(RedactEventError::RoomQueueError)?)
+                    if handle.abort().await.map_err(RedactEventError::RoomQueueError)? {
+                        return Ok(true);
+                    }
+
+                    if let Some(event_id) = self.find_remote_by_transaction_id(&txn_id).await {
+                        event_id
+                    } else {
+                        warn!("Couldn't find the local echo anymore, nor a matching remote echo");
+                        return Ok(false);
+                    }
                 } else {
                     // No abort handle; theoretically unreachable for regular usage of the
                     // timeline, but this may happen in testing contexts.
-                    Err(RedactEventError::UnsupportedRedactLocal(local.transaction_id.clone()))
+                    return Err(RedactEventError::UnsupportedRedactLocal(
+                        local.transaction_id.clone(),
+                    ));
                 }
             }
 
-            EventTimelineItemKind::Remote(remote) => {
-                self.room()
-                    .redact(&remote.event_id, reason, None)
-                    .await
-                    .map_err(|err| RedactEventError::SdkError(err.into()))?;
-                Ok(true)
-            }
-        }
+            TimelineEventItemId::EventId(event_id) => event_id,
+        };
+
+        self.room()
+            .redact(&event_id, reason, None)
+            .await
+            .map_err(|err| RedactEventError::SdkError(err.into()))?;
+
+        Ok(true)
     }
 
     /// Fetch unavailable details about the event with the given ID.
