@@ -435,68 +435,6 @@ impl ClientBuilder {
     }
 
     pub async fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
-        Ok(Arc::new(self.build_inner().await?))
-    }
-
-    /// Finish the building of the client and attempt to log in using the
-    /// provided [`QrCodeData`].
-    ///
-    /// This method will build the client and immediately attempt to log the
-    /// client in using the provided [`QrCodeData`] using the login
-    /// mechanism described in [MSC4108]. As such this methods requires OIDC
-    /// support as well as sliding sync support.
-    ///
-    /// The usage of the progress_listener is required to transfer the
-    /// [`CheckCode`] to the existing client.
-    ///
-    /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
-    pub async fn build_with_qr_code(
-        self: Arc<Self>,
-        qr_code_data: &QrCodeData,
-        oidc_configuration: &OidcConfiguration,
-        progress_listener: Box<dyn QrLoginProgressListener>,
-    ) -> Result<Arc<Client>, HumanQrLoginError> {
-        if let QrCodeModeData::Reciprocate { server_name } = &qr_code_data.inner.mode_data {
-            let builder = self.server_name_or_homeserver_url(server_name.to_owned());
-
-            let client = builder.build().await.map_err(|e| match e {
-                ClientBuildError::SlidingSyncNotAvailable => {
-                    HumanQrLoginError::SlidingSyncNotAvailable
-                }
-                _ => {
-                    error!("Couldn't build the client {e:?}");
-                    HumanQrLoginError::Unknown
-                }
-            })?;
-
-            let client_metadata = oidc_configuration
-                .try_into()
-                .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
-
-            let oidc = client.inner.oidc();
-            let login = oidc.login_with_qr_code(&qr_code_data.inner, client_metadata);
-
-            let mut progress = login.subscribe_to_progress();
-
-            // We create this task, which will get cancelled once it's dropped, just in case
-            // the progress stream doesn't end.
-            let _progress_task = TaskHandle::new(RUNTIME.spawn(async move {
-                while let Some(state) = progress.next().await {
-                    progress_listener.on_update(state.into());
-                }
-            }));
-
-            login.await?;
-
-            Ok(client)
-        } else {
-            Err(HumanQrLoginError::OtherDeviceNotSignedIn)
-        }
-    }
-}
-
-impl ClientBuilder {
-    pub(crate) async fn build_inner(self: Arc<Self>) -> Result<Client, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = MatrixClient::builder();
 
@@ -605,7 +543,69 @@ impl ClientBuilder {
             sdk_client.set_sliding_sync_proxy(Some(Url::parse(&sliding_sync_proxy)?));
         }
 
-        Ok(Client::new(sdk_client, builder.cross_process_refresh_lock_id, builder.session_delegate)
-            .await?)
+        Ok(Arc::new(
+            Client::new(
+                sdk_client,
+                builder.cross_process_refresh_lock_id,
+                builder.session_delegate,
+            )
+            .await?,
+        ))
+    }
+
+    /// Finish the building of the client and attempt to log in using the
+    /// provided [`QrCodeData`].
+    ///
+    /// This method will build the client and immediately attempt to log the
+    /// client in using the provided [`QrCodeData`] using the login
+    /// mechanism described in [MSC4108]. As such this methods requires OIDC
+    /// support as well as sliding sync support.
+    ///
+    /// The usage of the progress_listener is required to transfer the
+    /// [`CheckCode`] to the existing client.
+    ///
+    /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
+    pub async fn build_with_qr_code(
+        self: Arc<Self>,
+        qr_code_data: &QrCodeData,
+        oidc_configuration: &OidcConfiguration,
+        progress_listener: Box<dyn QrLoginProgressListener>,
+    ) -> Result<Arc<Client>, HumanQrLoginError> {
+        if let QrCodeModeData::Reciprocate { server_name } = &qr_code_data.inner.mode_data {
+            let builder = self.server_name_or_homeserver_url(server_name.to_owned());
+
+            let client = builder.build().await.map_err(|e| match e {
+                ClientBuildError::SlidingSyncNotAvailable => {
+                    HumanQrLoginError::SlidingSyncNotAvailable
+                }
+                _ => {
+                    error!("Couldn't build the client {e:?}");
+                    HumanQrLoginError::Unknown
+                }
+            })?;
+
+            let client_metadata = oidc_configuration
+                .try_into()
+                .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
+
+            let oidc = client.inner.oidc();
+            let login = oidc.login_with_qr_code(&qr_code_data.inner, client_metadata);
+
+            let mut progress = login.subscribe_to_progress();
+
+            // We create this task, which will get cancelled once it's dropped, just in case
+            // the progress stream doesn't end.
+            let _progress_task = TaskHandle::new(RUNTIME.spawn(async move {
+                while let Some(state) = progress.next().await {
+                    progress_listener.on_update(state.into());
+                }
+            }));
+
+            login.await?;
+
+            Ok(client)
+        } else {
+            Err(HumanQrLoginError::OtherDeviceNotSignedIn)
+        }
     }
 }
