@@ -119,6 +119,7 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
 
 #[derive(uniffi::Enum)]
 pub enum MessageLikeEventContent {
+    Beacon,
     CallAnswer,
     CallInvite,
     CallNotify { notify_type: NotifyType },
@@ -144,6 +145,7 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
 
     fn try_from(value: AnySyncMessageLikeEvent) -> anyhow::Result<Self> {
         let content = match value {
+            AnySyncMessageLikeEvent::Beacon(_) => MessageLikeEventContent::Beacon,
             AnySyncMessageLikeEvent::CallAnswer(_) => MessageLikeEventContent::CallAnswer,
             AnySyncMessageLikeEvent::CallInvite(_) => MessageLikeEventContent::CallInvite,
             AnySyncMessageLikeEvent::CallNotify(content) => {
@@ -230,6 +232,7 @@ where
 
 #[derive(Clone, uniffi::Enum)]
 pub enum StateEventType {
+    BeaconInfo,
     CallMember,
     PolicyRuleRoom,
     PolicyRuleServer,
@@ -257,6 +260,7 @@ pub enum StateEventType {
 impl From<StateEventType> for ruma::events::StateEventType {
     fn from(val: StateEventType) -> Self {
         match val {
+            StateEventType::BeaconInfo => Self::BeaconInfo,
             StateEventType::CallMember => Self::CallMember,
             StateEventType::PolicyRuleRoom => Self::PolicyRuleRoom,
             StateEventType::PolicyRuleServer => Self::PolicyRuleServer,
@@ -285,6 +289,7 @@ impl From<StateEventType> for ruma::events::StateEventType {
 
 #[derive(Clone, uniffi::Enum)]
 pub enum MessageLikeEventType {
+    Beacon,
     CallAnswer,
     CallCandidates,
     CallHangup,
@@ -313,6 +318,7 @@ pub enum MessageLikeEventType {
 impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
     fn from(val: MessageLikeEventType) -> Self {
         match val {
+            MessageLikeEventType::Beacon => Self::Beacon,
             MessageLikeEventType::CallAnswer => Self::CallAnswer,
             MessageLikeEventType::CallInvite => Self::CallInvite,
             MessageLikeEventType::CallNotify => Self::CallNotify,

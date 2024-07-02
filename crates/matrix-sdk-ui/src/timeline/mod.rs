@@ -63,6 +63,7 @@ use tracing::{error, instrument, trace, warn};
 
 use self::{event_item::EventTimelineItemKind, futures::SendAttachment, util::rfind_event_item};
 
+mod beacons;
 mod builder;
 mod day_dividers;
 mod error;

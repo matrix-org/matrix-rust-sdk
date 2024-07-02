@@ -755,6 +755,7 @@ impl App {
                         | TimelineItemContent::FailedToParseMessageLike { .. }
                         | TimelineItemContent::FailedToParseState { .. }
                         | TimelineItemContent::Poll(_)
+                        | TimelineItemContent::BeaconInfoState(_)
                         | TimelineItemContent::CallInvite
                         | TimelineItemContent::CallNotify => {
                             continue;

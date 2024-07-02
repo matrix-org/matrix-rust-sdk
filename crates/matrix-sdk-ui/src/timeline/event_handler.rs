@@ -22,6 +22,8 @@ use matrix_sdk::{
 };
 use ruma::{
     events::{
+        beacon::BeaconEventContent,
+        beacon_info::BeaconInfoEventContent,
         poll::{
             unstable_end::UnstablePollEndEventContent,
             unstable_response::UnstablePollResponseEventContent,
@@ -61,7 +63,9 @@ use super::{
     EventTimelineItem, InReplyToDetails, Message, OtherState, ReactionGroup, ReactionSenderData,
     Sticker, TimelineDetails, TimelineItem, TimelineItemContent,
 };
-use crate::{events::SyncTimelineEventWithoutContent, DEFAULT_SANITIZER_MODE};
+use crate::{
+    events::SyncTimelineEventWithoutContent, timeline::beacons::BeaconState, DEFAULT_SANITIZER_MODE,
+};
 
 /// When adding an event, useful information related to the source of the event.
 #[derive(Clone)]
@@ -146,6 +150,9 @@ pub(super) enum TimelineEventKind {
         state_key: String,
         error: Arc<serde_json::Error>,
     },
+
+    /// A timeline event for a beacon info update.
+    BeaconInfo { user_id: OwnedUserId, content: FullStateEventContent<BeaconInfoEventContent> },
 }
 
 impl TimelineEventKind {
@@ -177,6 +184,19 @@ impl TimelineEventKind {
                         user_id: ev.state_key,
                         content: FullStateEventContent::Redacted(ev.content),
                         sender: ev.sender,
+                    },
+                },
+                AnySyncStateEvent::BeaconInfo(ev) => match ev {
+                    SyncStateEvent::Original(ev) => Self::BeaconInfo {
+                        user_id: ev.state_key,
+                        content: FullStateEventContent::Original {
+                            content: ev.content,
+                            prev_content: ev.unsigned.prev_content,
+                        },
+                    },
+                    SyncStateEvent::Redacted(ev) => Self::BeaconInfo {
+                        user_id: ev.state_key,
+                        content: FullStateEventContent::Redacted(ev.content),
                     },
                 },
                 ev => Self::OtherState {
@@ -403,6 +423,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         self.add_item(TimelineItemContent::CallNotify)
                     }
                 }
+                AnyMessageLikeEventContent::Beacon(c) => {
+                    self.handle_beacon(c);
+                }
 
                 // TODO
                 _ => {
@@ -458,6 +481,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         error,
                     });
                 }
+            }
+
+            TimelineEventKind::BeaconInfo { user_id, content } => {
+                self.handle_beacon_info(content, should_add, user_id);
             }
         }
 
@@ -652,6 +679,53 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         if !found {
             debug!("Timeline item not found, discarding poll edit");
+        }
+    }
+
+    /// Handle a beacon_info event and update the `BeaconInfoState`.
+    ///
+    /// TODO: Handle case of `m.beacon_info` event that is identical to the
+    /// first, except with live: false. This stops the live location share.
+    ///
+    /// TODO: How do you search for an existing beacon_info event in the
+    /// timeline by state key?
+    fn handle_beacon_info(
+        &mut self,
+        c: FullStateEventContent<BeaconInfoEventContent>,
+        should_add: bool,
+        user_id: OwnedUserId,
+    ) {
+        let mut beacon_state = BeaconState::new(c, user_id.clone());
+        if let Flow::Remote { event_id, .. } = self.ctx.flow.clone() {
+            // Applying the cache to remote events only because local echoes
+            // don't have an event ID that could be referenced by responses yet.
+            self.meta.beacon_pending_events.apply(&event_id, &mut beacon_state);
+        }
+
+        if should_add {
+            self.add_item(TimelineItemContent::BeaconInfoState(beacon_state));
+        }
+    }
+
+    /// Attach the last known beacon location to the `BeaconInfoState` for a
+    /// specific beacon_info.
+    ///
+    /// A beacon may arrive before its beacon_info event, so we store the beacon
+    /// in a pending list until the beacon_info event arrives.
+    fn handle_beacon(&mut self, c: BeaconEventContent) {
+        // Find the beacon_info event in the timeline and update the beacon state.
+        let found = self.update_timeline_item(&c.relates_to.event_id, |_, event_item| {
+            let beacon_state =
+                as_variant!(event_item.content(), TimelineItemContent::BeaconInfoState)?;
+            Some(event_item.with_content(
+                TimelineItemContent::BeaconInfoState(beacon_state.update_beacon(&c)),
+                None,
+            ))
+        });
+
+        if !found {
+            warn!("Did not find beacon_info event in timeline items. Adding to pending list");
+            self.meta.beacon_pending_events.add_beacon(&c.relates_to.event_id, &c);
         }
     }
 
