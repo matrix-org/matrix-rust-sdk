@@ -418,45 +418,8 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, Error> {
-        Ok(serde_json::to_vec(&self.encrypt_value_typed(value)?)?)
-    }
-
-    /// Encrypt a value before it is inserted into the key/value store.
-    ///
-    /// A value can be decrypted using the
-    /// [`StoreCipher::decrypt_value_typed()`] method. This is the lower
-    /// level function to `encrypt_value`, but returns the
-    /// full `EncryptdValue`-type
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - A value that should be encrypted, any value that implements
-    ///   `Serialize` can be given to this method. The value will be serialized
-    ///   as json before it is encrypted.
-    ///
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # let example = || {
-    /// use matrix_sdk_store_encryption::StoreCipher;
-    /// use serde_json::{json, value::Value};
-    ///
-    /// let store_cipher = StoreCipher::new()?;
-    ///
-    /// let value = json!({
-    ///     "some": "data",
-    /// });
-    ///
-    /// let encrypted = store_cipher.encrypt_value_typed(&value)?;
-    /// let decrypted: Value = store_cipher.decrypt_value_typed(encrypted)?;
-    ///
-    /// assert_eq!(value, decrypted);
-    /// # anyhow::Ok(()) };
-    /// ```
-    pub fn encrypt_value_typed(&self, value: &impl Serialize) -> Result<EncryptedValue, Error> {
         let data = serde_json::to_vec(value)?;
-        self.encrypt_value_data(data)
+        Ok(serde_json::to_vec(&self.encrypt_value_data(data)?)?)
     }
 
     /// Encrypt some data before it is inserted into the key/value store.
@@ -603,44 +566,6 @@ impl StoreCipher {
     /// ```
     pub fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, Error> {
         let value: EncryptedValue = serde_json::from_slice(value)?;
-        self.decrypt_value_typed(value)
-    }
-
-    /// Decrypt a value after it was fetched from the key/value store.
-    ///
-    /// A value can be encrypted using the
-    /// [`StoreCipher::encrypt_value_typed()`] method. Lower level method to
-    /// [`StoreCipher::decrypt_value_typed()`]
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - The EncryptedValue of a value that should be decrypted.
-    ///
-    /// The method will deserialize the decrypted value into the expected type.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let example = || {
-    /// use matrix_sdk_store_encryption::StoreCipher;
-    /// use serde_json::{json, value::Value};
-    ///
-    /// let store_cipher = StoreCipher::new()?;
-    ///
-    /// let value = json!({
-    ///     "some": "data",
-    /// });
-    ///
-    /// let encrypted = store_cipher.encrypt_value_typed(&value)?;
-    /// let decrypted: Value = store_cipher.decrypt_value_typed(encrypted)?;
-    ///
-    /// assert_eq!(value, decrypted);
-    /// # anyhow::Ok(()) };
-    /// ```
-    pub fn decrypt_value_typed<T: DeserializeOwned>(
-        &self,
-        value: EncryptedValue,
-    ) -> Result<T, Error> {
         let mut plaintext = self.decrypt_value_data(value)?;
         let ret = serde_json::from_slice(&plaintext);
         plaintext.zeroize();
