@@ -571,41 +571,38 @@ impl ClientBuilder {
         oidc_configuration: &OidcConfiguration,
         progress_listener: Box<dyn QrLoginProgressListener>,
     ) -> Result<Arc<Client>, HumanQrLoginError> {
-        if let QrCodeModeData::Reciprocate { server_name } = &qr_code_data.inner.mode_data {
-            let builder = self.server_name_or_homeserver_url(server_name.to_owned());
+        let QrCodeModeData::Reciprocate { server_name } = &qr_code_data.inner.mode_data else {
+            return Err(HumanQrLoginError::OtherDeviceNotSignedIn);
+        };
 
-            let client = builder.build().await.map_err(|e| match e {
-                ClientBuildError::SlidingSyncNotAvailable => {
-                    HumanQrLoginError::SlidingSyncNotAvailable
-                }
-                _ => {
-                    error!("Couldn't build the client {e:?}");
-                    HumanQrLoginError::Unknown
-                }
-            })?;
+        let builder = self.server_name_or_homeserver_url(server_name.to_owned());
 
-            let client_metadata = oidc_configuration
-                .try_into()
-                .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
+        let client = builder.build().await.map_err(|e| match e {
+            ClientBuildError::SlidingSyncNotAvailable => HumanQrLoginError::SlidingSyncNotAvailable,
+            _ => {
+                error!("Couldn't build the client {e:?}");
+                HumanQrLoginError::Unknown
+            }
+        })?;
 
-            let oidc = client.inner.oidc();
-            let login = oidc.login_with_qr_code(&qr_code_data.inner, client_metadata);
+        let client_metadata =
+            oidc_configuration.try_into().map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
 
-            let mut progress = login.subscribe_to_progress();
+        let oidc = client.inner.oidc();
+        let login = oidc.login_with_qr_code(&qr_code_data.inner, client_metadata);
 
-            // We create this task, which will get cancelled once it's dropped, just in case
-            // the progress stream doesn't end.
-            let _progress_task = TaskHandle::new(RUNTIME.spawn(async move {
-                while let Some(state) = progress.next().await {
-                    progress_listener.on_update(state.into());
-                }
-            }));
+        let mut progress = login.subscribe_to_progress();
 
-            login.await?;
+        // We create this task, which will get cancelled once it's dropped, just in case
+        // the progress stream doesn't end.
+        let _progress_task = TaskHandle::new(RUNTIME.spawn(async move {
+            while let Some(state) = progress.next().await {
+                progress_listener.on_update(state.into());
+            }
+        }));
 
-            Ok(client)
-        } else {
-            Err(HumanQrLoginError::OtherDeviceNotSignedIn)
-        }
+        login.await?;
+
+        Ok(client)
     }
 }
