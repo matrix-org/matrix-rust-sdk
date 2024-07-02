@@ -347,7 +347,8 @@ impl<'a, S: FinderCryptoStore> SenderDataFinder<'a, S> {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub(crate) trait FinderCryptoStore {
     async fn get_device_from_curve_key(
         &self,
@@ -361,7 +362,8 @@ pub(crate) trait FinderCryptoStore {
     ) -> OlmResult<Option<ReadOnlyUserIdentities>>;
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl FinderCryptoStore for Store {
     async fn get_device_from_curve_key(
         &self,
@@ -862,7 +864,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
     impl FinderCryptoStore for FakeCryptoStore {
         async fn get_device_from_curve_key(
             &self,
