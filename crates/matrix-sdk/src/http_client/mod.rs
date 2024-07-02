@@ -296,7 +296,7 @@ impl tower::Service<http_old::Request<Bytes>> for HttpClient {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use std::{
         num::NonZeroUsize,
