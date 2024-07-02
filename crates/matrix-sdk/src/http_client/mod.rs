@@ -397,7 +397,7 @@ mod tests {
         });
 
         // give it some time to issue the requests
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
 
         assert_eq!(counter.load(Ordering::SeqCst), 254, "Not all requests passed through");
         bg_task.abort();
