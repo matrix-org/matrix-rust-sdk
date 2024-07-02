@@ -16,7 +16,7 @@ use matrix_sdk::{
         api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
         OwnedDeviceId, OwnedUserId,
     },
-    Client,
+    Client, ClientBuilder,
 };
 use once_cell::sync::Lazy;
 use rand::Rng as _;
@@ -79,9 +79,7 @@ impl TestClientBuilder {
         self
     }
 
-    /// Create a new Client that is a copy of the supplied one, created using
-    /// [`Client::restore_session`].
-    pub async fn duplicate(self, other: &Client) -> Result<Client> {
+    fn common_client_builder(&self) -> ClientBuilder {
         let homeserver_url =
             option_env!("HOMESERVER_URL").unwrap_or("http://localhost:8228").to_owned();
         let sliding_sync_proxy_url =
@@ -94,9 +92,17 @@ impl TestClientBuilder {
             .with_encryption_settings(self.encryption_settings)
             .request_config(RequestConfig::short_retry());
 
-        if let Some(proxy) = self.http_proxy {
+        if let Some(proxy) = &self.http_proxy {
             client_builder = client_builder.proxy(proxy);
         }
+
+        client_builder
+    }
+
+    /// Create a new Client that is a copy of the supplied one, created using
+    /// [`Client::restore_session`].
+    pub async fn duplicate(self, other: &Client) -> Result<Client> {
+        let client_builder = self.common_client_builder();
 
         let client = match self.use_sqlite_dir {
             Some(SqlitePath::Path(path_buf)) => {
@@ -120,24 +126,9 @@ impl TestClientBuilder {
     pub async fn build(self) -> Result<Client> {
         let mut users = USERS.lock().await;
 
-        let homeserver_url =
-            option_env!("HOMESERVER_URL").unwrap_or("http://localhost:8228").to_owned();
-        let sliding_sync_proxy_url =
-            option_env!("SLIDING_SYNC_PROXY_URL").unwrap_or("http://localhost:8338").to_owned();
-
         let tmp_dir = tempdir()?;
 
-        let mut client_builder = Client::builder()
-            .user_agent("matrix-sdk-integration-tests")
-            .homeserver_url(homeserver_url)
-            .sliding_sync_proxy(sliding_sync_proxy_url)
-            .with_encryption_settings(self.encryption_settings)
-            .request_config(RequestConfig::short_retry());
-
-        if let Some(proxy) = self.http_proxy {
-            client_builder = client_builder.proxy(proxy);
-        }
-
+        let client_builder = self.common_client_builder();
         let client = match self.use_sqlite_dir {
             None => client_builder.build().await?,
             Some(SqlitePath::Random) => {
