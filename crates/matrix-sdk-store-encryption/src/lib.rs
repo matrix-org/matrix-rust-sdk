@@ -683,7 +683,10 @@ impl StoreCipher {
         &self,
         value: EncryptedValueBase64,
     ) -> Result<T, Error> {
-        self.decrypt_value_typed(value.try_into()?)
+        let mut plaintext = self.decrypt_value_base64_data(value)?;
+        let ret = serde_json::from_slice(&plaintext);
+        plaintext.zeroize();
+        Ok(ret?)
     }
 
     /// Decrypt a base64-encoded value after it was fetched from the key/value
