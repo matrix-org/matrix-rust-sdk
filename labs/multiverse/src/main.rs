@@ -34,7 +34,7 @@ use matrix_sdk_ui::{
     Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
-use tokio::{spawn, task::JoinHandle};
+use tokio::{runtime::Handle, spawn, task::JoinHandle};
 use tracing::error;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter};
 
@@ -112,7 +112,7 @@ enum DetailsMode {
     ReadReceipts,
     #[default]
     TimelineItems,
-    // Events // TODO: Soon™
+    Events,
 }
 
 struct Timeline {
@@ -477,6 +477,7 @@ impl App {
 
                             Char('r') => self.details_mode = DetailsMode::ReadReceipts,
                             Char('t') => self.details_mode = DetailsMode::TimelineItems,
+                            Char('e') => self.details_mode = DetailsMode::Events,
 
                             Char('b') if self.details_mode == DetailsMode::TimelineItems => {
                                 self.back_paginate();
@@ -707,6 +708,32 @@ impl App {
                         render_paragraph(buf, "(room's timeline disappeared)".to_owned())
                     }
                 }
+
+                DetailsMode::Events => match self.ui_rooms.lock().unwrap().get(&room_id).cloned() {
+                    Some(room) => {
+                        let events = tokio::task::block_in_place(|| {
+                            Handle::current().block_on(async {
+                                let (room_event_cache, _drop_handles) =
+                                    room.event_cache().await.unwrap();
+                                let (events, _) = room_event_cache.subscribe().await.unwrap();
+                                events
+                            })
+                        });
+
+                        let rendered_events = events
+                            .into_iter()
+                            .map(|sync_timeline_item| sync_timeline_item.event.json().to_string())
+                            .collect::<Vec<_>>()
+                            .join("\n\n");
+
+                        render_paragraph(buf, format!("Events:\n\n{rendered_events}"))
+                    }
+
+                    None => render_paragraph(
+                        buf,
+                        "(room disappeared in the room list service)".to_owned(),
+                    ),
+                },
             }
         } else {
             render_paragraph(buf, "Nothing to see here...".to_owned())
@@ -811,10 +838,13 @@ impl App {
         } else {
             match self.details_mode {
                 DetailsMode::ReadReceipts => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, m to mark as read, t to show the timeline.".to_owned()
+                    "\nUse j/k to move, s/S to start/stop the sync service, m to mark as read, t to show the timeline, e to show events.".to_owned()
                 }
                 DetailsMode::TimelineItems => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, Q to enable/disable the send queue, M to send a message.".to_owned()
+                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, e to show events, Q to enable/disable the send queue, M to send a message.".to_owned()
+                }
+                DetailsMode::Events => {
+                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, t to show the timeline".to_owned()
                 }
             }
         };
