@@ -140,6 +140,7 @@ impl EventTimelineItem {
 
         let event_kind = RemoteEventTimelineItem {
             event_id,
+            transaction_id: None,
             reactions,
             read_receipts,
             is_own,
@@ -534,7 +535,7 @@ impl<T> TimelineDetails<T> {
         matches!(self, Self::Unavailable)
     }
 
-    pub(crate) fn is_ready(&self) -> bool {
+    pub fn is_ready(&self) -> bool {
         matches!(self, Self::Ready(_))
     }
 }
