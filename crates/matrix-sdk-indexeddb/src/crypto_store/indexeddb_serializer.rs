@@ -211,3 +211,81 @@ impl IndexeddbSerializer {
         }
     }
 }
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod tests {
+    use std::sync::Arc;
+
+    use matrix_sdk_store_encryption::StoreCipher;
+    use matrix_sdk_test::async_test;
+    use serde::{Deserialize, Serialize};
+
+    use super::IndexeddbSerializer;
+
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    /// Test that `serialize_value`/`deserialize_value` will round-trip, when a
+    /// cipher is in use.
+    #[async_test]
+    async fn test_serialize_deserialize_with_cipher() {
+        let serializer = IndexeddbSerializer::new(Some(Arc::new(StoreCipher::new().unwrap())));
+
+        let obj = make_test_object();
+        let serialized = serializer.serialize_value(&obj).expect("could not serialize");
+        let deserialized: TestStruct =
+            serializer.deserialize_value(serialized).expect("could not deserialize");
+
+        assert_eq!(obj, deserialized);
+    }
+
+    /// Test that `serialize_value`/`deserialize_value` will round-trip, when no
+    /// cipher is in use.
+    #[async_test]
+    async fn test_serialize_deserialize_no_cipher() {
+        let serializer = IndexeddbSerializer::new(None);
+        let obj = make_test_object();
+        let serialized = serializer.serialize_value(&obj).expect("could not serialize");
+        let deserialized: TestStruct =
+            serializer.deserialize_value(serialized).expect("could not deserialize");
+
+        assert_eq!(obj, deserialized);
+    }
+
+    /// Test that `maybe_encrypt_value`/`maybe_decrypt_value` will round-trip,
+    /// when a cipher is in use.
+    #[async_test]
+    async fn test_maybe_encrypt_decrypt_with_cipher() {
+        let serializer = IndexeddbSerializer::new(Some(Arc::new(StoreCipher::new().unwrap())));
+
+        let obj = make_test_object();
+        let serialized = serializer.maybe_encrypt_value(&obj).expect("could not serialize");
+        let deserialized: TestStruct =
+            serializer.maybe_decrypt_value(serialized).expect("could not deserialize");
+
+        assert_eq!(obj, deserialized);
+    }
+
+    /// Test that `maybe_encrypt_value`/`maybe_decrypt_value` will round-trip,
+    /// when no cipher is in use.
+    #[async_test]
+    async fn test_maybe_encrypt_decrypt_no_cipher() {
+        let serializer = IndexeddbSerializer::new(None);
+
+        let obj = make_test_object();
+        let serialized = serializer.maybe_encrypt_value(&obj).expect("could not serialize");
+        let deserialized: TestStruct =
+            serializer.maybe_decrypt_value(serialized).expect("could not deserialize");
+
+        assert_eq!(obj, deserialized);
+    }
+
+    #[derive(Serialize, Deserialize, PartialEq, Debug)]
+    struct TestStruct {
+        id: u32,
+        name: String,
+    }
+
+    fn make_test_object() -> TestStruct {
+        TestStruct { id: 0, name: "test".to_owned() }
+    }
+}
