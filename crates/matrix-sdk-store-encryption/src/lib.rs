@@ -33,7 +33,7 @@ use pbkdf2::pbkdf2;
 use rand::{thread_rng, Error as RandomError, Fill};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::Sha256;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 const VERSION: u8 = 1;
 const KDF_SALT_SIZE: usize = 32;
@@ -774,8 +774,7 @@ impl StoreCipher {
     }
 }
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
+#[derive(ZeroizeOnDrop)]
 struct MacKey(Box<[u8; 32]>);
 
 impl MacKey {
@@ -878,8 +877,7 @@ impl From<EncryptedValue> for EncryptedValueBase64 {
     }
 }
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
+#[derive(ZeroizeOnDrop)]
 struct Keys {
     encryption_key: Box<[u8; 32]>,
     mac_key_seed: Box<MacKeySeed>,
