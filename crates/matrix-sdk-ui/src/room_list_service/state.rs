@@ -17,17 +17,12 @@
 use std::future::ready;
 
 use async_trait::async_trait;
-use matrix_sdk::{
-    sliding_sync::{Bound, Range},
-    SlidingSync, SlidingSyncList, SlidingSyncMode,
-};
+use matrix_sdk::{sliding_sync::Range, SlidingSync, SlidingSyncMode};
 use once_cell::sync::Lazy;
-use ruma::events::StateEventType;
 
 use super::Error;
 
 pub const ALL_ROOMS_LIST_NAME: &str = "all_rooms";
-pub const VISIBLE_ROOMS_LIST_NAME: &str = "visible_rooms";
 
 /// The state of the [`super::RoomList`]' state machine.
 #[derive(Clone, Debug, PartialEq)]
@@ -43,7 +38,7 @@ pub enum State {
     /// are then slightly different.
     Recovering,
 
-    /// At this state, all rooms are syncing, and the visible rooms list exist.
+    /// At this state, all rooms are syncing.
     Running,
 
     /// At this state, the sync has been stopped because an error happened.
@@ -94,72 +89,6 @@ impl State {
 #[async_trait]
 trait Action {
     async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error>;
-}
-
-struct AddVisibleRooms;
-
-/// Default timeline for the `VISIBLE_ROOMS_LIST_NAME` list.
-pub const VISIBLE_ROOMS_DEFAULT_TIMELINE_LIMIT: Bound = 20;
-
-/// Default range for the `VISIBLE_ROOMS_LIST_NAME` list.
-pub const VISIBLE_ROOMS_DEFAULT_RANGE: Range = 0..=19;
-
-#[async_trait]
-impl Action for AddVisibleRooms {
-    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
-        sliding_sync
-            .add_list(super::configure_all_or_visible_rooms_list(
-                SlidingSyncList::builder(VISIBLE_ROOMS_LIST_NAME)
-                    .sync_mode(
-                        SlidingSyncMode::new_selective().add_range(VISIBLE_ROOMS_DEFAULT_RANGE),
-                    )
-                    .timeline_limit(VISIBLE_ROOMS_DEFAULT_TIMELINE_LIMIT)
-                    .required_state(vec![
-                        (StateEventType::RoomEncryption, "".to_owned()),
-                        (StateEventType::RoomMember, "$LAZY".to_owned()),
-                    ]),
-            ))
-            .await
-            .map_err(Error::SlidingSync)?;
-
-        Ok(())
-    }
-}
-
-struct SetVisibleRoomsToZeroTimelineLimit;
-
-#[async_trait]
-impl Action for SetVisibleRoomsToZeroTimelineLimit {
-    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
-        sliding_sync
-            .on_list(VISIBLE_ROOMS_LIST_NAME, |list| {
-                list.set_timeline_limit(Some(0));
-
-                ready(())
-            })
-            .await
-            .ok_or_else(|| Error::UnknownList(VISIBLE_ROOMS_LIST_NAME.to_owned()))?;
-
-        Ok(())
-    }
-}
-
-struct SetVisibleRoomsToDefaultTimelineLimit;
-
-#[async_trait]
-impl Action for SetVisibleRoomsToDefaultTimelineLimit {
-    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
-        sliding_sync
-            .on_list(VISIBLE_ROOMS_LIST_NAME, |list| {
-                list.set_timeline_limit(Some(VISIBLE_ROOMS_DEFAULT_TIMELINE_LIMIT));
-
-                ready(())
-            })
-            .await
-            .ok_or_else(|| Error::UnknownList(VISIBLE_ROOMS_LIST_NAME.to_owned()))?;
-
-        Ok(())
-    }
 }
 
 struct SetAllRoomsToSelectiveSyncMode;
@@ -251,15 +180,12 @@ impl Actions {
         none => [],
         prepare_for_next_syncs_once_first_rooms_are_loaded => [
             SetAllRoomsToGrowingSyncMode,
-            AddVisibleRooms
         ],
         prepare_for_next_syncs_once_recovered => [
             SetAllRoomsToGrowingSyncMode,
-            SetVisibleRoomsToDefaultTimelineLimit
         ],
         prepare_to_recover => [
             SetAllRoomsToSelectiveSyncMode,
-            SetVisibleRoomsToZeroTimelineLimit
         ],
     }
 
@@ -368,80 +294,6 @@ mod tests {
             // Back to the previous state.
             assert_eq!(state, State::Recovering);
         }
-
-        Ok(())
-    }
-
-    #[async_test]
-    async fn test_action_add_visible_rooms_list() -> Result<(), Error> {
-        let room_list = new_room_list().await?;
-        let sliding_sync = room_list.sliding_sync();
-
-        // List is absent.
-        assert_eq!(sliding_sync.on_list(VISIBLE_ROOMS_LIST_NAME, |_list| ready(())).await, None);
-
-        // Run the action!
-        AddVisibleRooms.run(sliding_sync).await?;
-
-        // List is present.
-        assert_eq!(
-            sliding_sync
-                .on_list(VISIBLE_ROOMS_LIST_NAME, |list| ready(matches!(
-                    list.sync_mode(),
-                    SlidingSyncMode::Selective { ranges } if ranges == vec![VISIBLE_ROOMS_DEFAULT_RANGE]
-                )))
-                .await,
-            Some(true)
-        );
-
-        Ok(())
-    }
-
-    #[async_test]
-    async fn test_action_set_visible_rooms_list_to_zero_or_default_timeline_limit(
-    ) -> Result<(), Error> {
-        let room_list = new_room_list().await?;
-        let sliding_sync = room_list.sliding_sync();
-
-        // List is absent.
-        assert_eq!(sliding_sync.on_list(VISIBLE_ROOMS_LIST_NAME, |_list| ready(())).await, None);
-
-        // Run the action!
-        AddVisibleRooms.run(sliding_sync).await?;
-
-        // List is present, and has the default `timeline_limit`.
-        assert_eq!(
-            sliding_sync
-                .on_list(VISIBLE_ROOMS_LIST_NAME, |list| ready(
-                    list.timeline_limit() == Some(VISIBLE_ROOMS_DEFAULT_TIMELINE_LIMIT)
-                ))
-                .await,
-            Some(true)
-        );
-
-        // Run the action!
-        SetVisibleRoomsToZeroTimelineLimit.run(sliding_sync).await?;
-
-        // List is present, and has a zero `timeline_limit`.
-        assert_eq!(
-            sliding_sync
-                .on_list(VISIBLE_ROOMS_LIST_NAME, |list| ready(list.timeline_limit() == Some(0)))
-                .await,
-            Some(true)
-        );
-
-        // Run the action!
-        SetVisibleRoomsToDefaultTimelineLimit.run(sliding_sync).await?;
-
-        // List is present, and has the default `timeline_limit`.
-        assert_eq!(
-            sliding_sync
-                .on_list(VISIBLE_ROOMS_LIST_NAME, |list| ready(
-                    list.timeline_limit() == Some(VISIBLE_ROOMS_DEFAULT_TIMELINE_LIMIT)
-                ))
-                .await,
-            Some(true)
-        );
 
         Ok(())
     }

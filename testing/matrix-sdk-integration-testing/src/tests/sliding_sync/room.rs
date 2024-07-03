@@ -4,6 +4,8 @@ use std::{
 };
 
 use anyhow::Result;
+use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt as _};
 use matrix_sdk::{
@@ -40,7 +42,7 @@ use matrix_sdk_ui::{
 use once_cell::sync::Lazy;
 use rand::Rng as _;
 use serde_json::Value;
-use stream_assert::{assert_next_eq, assert_pending};
+use stream_assert::assert_pending;
 use tokio::{
     spawn,
     sync::Mutex,
@@ -798,12 +800,9 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     assert!(alice_room.is_encrypted().await.unwrap());
     assert_eq!(bob_room.state(), RoomState::Joined);
 
-    let (stream, entries) = alice_sync_service
-        .room_list_service()
-        .all_rooms()
-        .await
-        .unwrap()
-        .entries_with_dynamic_adapters(10, alice.roominfo_update_receiver());
+    let alice_all_rooms = alice_sync_service.room_list_service().all_rooms().await.unwrap();
+    let (stream, entries) =
+        alice_all_rooms.entries_with_dynamic_adapters(10, alice.roominfo_update_receiver());
     entries.set_filter(Box::new(new_filter_all(vec![])));
     pin_mut!(stream);
 
@@ -816,11 +815,14 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     sleep(Duration::from_secs(1)).await;
 
     // Stream only has the initial Reset entry.
-    assert_next_eq!(
-        stream,
-        vec![VectorDiff::Reset {
-            values: vec![RoomListEntry::Filled(alice_room.room_id().to_owned())].into()
-        }]
+    assert_let!(Some(diffs) = stream.next().await);
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(
+        &diffs[0],
+        VectorDiff::Reset { values: rooms } => {
+            assert_eq!(rooms.len(), 1);
+            assert_eq!(rooms[0].room_id(), alice_room.room_id());
+        }
     );
     assert_pending!(stream);
 
@@ -837,12 +839,13 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     assert_eq!(alice_room.latest_event().unwrap().event_id(), Some(event.event_id));
 
     // The stream has a single update
-    assert_next_eq!(
-        stream,
-        vec![VectorDiff::Set {
-            index: 0,
-            value: RoomListEntry::Filled(alice_room.room_id().to_owned())
-        }]
+    assert_let!(Some(diffs) = stream.next().await);
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(
+        &diffs[0],
+        VectorDiff::Set { index: 0, value: room } => {
+            assert_eq!(room.room_id(), alice_room.room_id());
+        }
     );
     assert_pending!(stream);
 
@@ -910,12 +913,9 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
         .await?;
     alice_room.enable_encryption().await.unwrap();
 
-    let (stream, entries) = alice_sync_service
-        .room_list_service()
-        .all_rooms()
-        .await
-        .unwrap()
-        .entries_with_dynamic_adapters(10, alice.roominfo_update_receiver());
+    let alice_all_rooms = alice_sync_service.room_list_service().all_rooms().await.unwrap();
+    let (stream, entries) =
+        alice_all_rooms.entries_with_dynamic_adapters(10, alice.roominfo_update_receiver());
     entries.set_filter(Box::new(new_filter_all(vec![])));
 
     pin_mut!(stream);
@@ -925,11 +925,14 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
     sleep(Duration::from_secs(1)).await;
 
     // Stream only has the initial Reset entry.
-    assert_next_eq!(
-        stream,
-        vec![VectorDiff::Reset {
-            values: vec![RoomListEntry::Filled(alice_room.room_id().to_owned())].into()
-        }]
+    assert_let!(Some(diffs) = stream.next().await);
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(
+        &diffs[0],
+        VectorDiff::Reset {  values: rooms } => {
+            assert_eq!(rooms.len(), 1);
+            assert_eq!(rooms[0].room_id(), alice_room.room_id());
+        }
     );
     assert_pending!(stream);
 
@@ -943,12 +946,21 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
     assert!(alice_room.is_encrypted().await.unwrap());
     assert_eq!(bob_room.state(), RoomState::Joined);
     // Room update for join
-    assert_next_eq!(
-        stream,
-        vec![VectorDiff::Set {
-            index: 0,
-            value: RoomListEntry::Filled(alice_room.room_id().to_owned())
-        }]
+    assert_let!(Some(diffs) = stream.next().await);
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(
+        &diffs[0],
+        VectorDiff::Set { index: 0, value: room } => {
+            assert_eq!(room.room_id(), alice_room.room_id());
+        }
+    );
+    assert_let!(Some(diffs) = stream.next().await);
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(
+        &diffs[0],
+        VectorDiff::Set { index: 0, value: room } => {
+            assert_eq!(room.room_id(), alice_room.room_id());
+        }
     );
     assert_pending!(stream);
 
@@ -961,28 +973,15 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
     assert_eq!(alice_room.latest_event().unwrap().event_id(), Some(event.event_id));
 
     // Stream has the room again, but no second event
-    // TODO: Synapse sometimes sends the same event two times. This is the
-    // workaround:
-    let updated_rooms = stream.next().now_or_never().unwrap().unwrap();
-    assert!(
-        updated_rooms
-            == vec![VectorDiff::Set {
-                index: 0,
-                value: RoomListEntry::Filled(alice_room.room_id().to_owned())
-            }]
-            || updated_rooms
-                == vec![
-                    VectorDiff::Set {
-                        index: 0,
-                        value: RoomListEntry::Filled(alice_room.room_id().to_owned())
-                    },
-                    VectorDiff::Set {
-                        index: 0,
-                        value: RoomListEntry::Filled(alice_room.room_id().to_owned())
-                    }
-                ]
-    );
-
+    while let Some(Some(updated_rooms)) = stream.next().now_or_never() {
+        assert!(!updated_rooms.is_empty());
+        assert_matches!(
+            &updated_rooms[0],
+            VectorDiff::Set { index: 0, value: room } => {
+                assert_eq!(room.room_id(), alice_room.room_id());
+            }
+        );
+    }
     assert_pending!(stream);
 
     Ok(())

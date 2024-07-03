@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk::Client;
-
 use super::{normalize_string, Filter};
 
 struct NormalizedMatcher {
@@ -45,14 +43,10 @@ impl NormalizedMatcher {
 ///
 /// Rooms are fetched from the `Client`. The pattern and the room names are
 /// normalized with `normalize_string`.
-pub fn new_filter(client: &Client, pattern: &str) -> impl Filter {
+pub fn new_filter(pattern: &str) -> impl Filter {
     let searcher = NormalizedMatcher::new().with_pattern(pattern);
 
-    let client = client.clone();
-
-    move |room_list_entry| -> bool {
-        let Some(room_id) = room_list_entry.as_room_id() else { return false };
-        let Some(room) = client.get_room(room_id) else { return false };
+    move |room| -> bool {
         let Some(room_name) = room.cached_display_name() else { return false };
 
         searcher.matches(&room_name.to_string())
@@ -63,7 +57,7 @@ pub fn new_filter(client: &Client, pattern: &str) -> impl Filter {
 mod tests {
     use std::ops::Not;
 
-    use super::NormalizedMatcher;
+    use super::*;
 
     #[test]
     fn test_no_pattern() {

@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk::{Client, RoomListEntry};
-
-use super::Filter;
+use super::{super::Room, Filter};
 
 /// An enum to represent whether a room is about “people” (strictly 2 users) or
 /// “group” (1 or more than 2 users).
@@ -36,7 +34,7 @@ type DirectTargetsLength = usize;
 
 struct CategoryRoomMatcher<F>
 where
-    F: Fn(&RoomListEntry) -> Option<DirectTargetsLength>,
+    F: Fn(&Room) -> Option<DirectTargetsLength>,
 {
     /// _Direct targets_ mean the number of users in a direct room, except us.
     /// So if it returns 1, it means there are 2 users in the direct room.
@@ -45,14 +43,10 @@ where
 
 impl<F> CategoryRoomMatcher<F>
 where
-    F: Fn(&RoomListEntry) -> Option<DirectTargetsLength>,
+    F: Fn(&Room) -> Option<DirectTargetsLength>,
 {
-    fn matches(&self, room_list_entry: &RoomListEntry, expected_kind: RoomCategory) -> bool {
-        if !matches!(room_list_entry, RoomListEntry::Filled(_) | RoomListEntry::Invalidated(_)) {
-            return false;
-        }
-
-        let kind = match (self.number_of_direct_targets)(room_list_entry) {
+    fn matches(&self, room: &Room, expected_kind: RoomCategory) -> bool {
+        let kind = match (self.number_of_direct_targets)(room) {
             // If 1, we are sure it's a direct room between two users. It's the strict
             // definition of the `People` category, all good.
             Some(1) => RoomCategory::People,
@@ -70,131 +64,80 @@ where
     }
 }
 
-/// Create a new filter that will accept all filled or invalidated entries, and
-/// if the associated rooms fit in the `expected_category`. The category is
-/// defined by [`RoomCategory`], see this type to learn more.
-pub fn new_filter(client: &Client, expected_category: RoomCategory) -> impl Filter {
-    let client = client.clone();
-
+/// Create a new filter that will accept all rooms that fit in the
+/// `expected_category`. The category is defined by [`RoomCategory`], see this
+/// type to learn more.
+pub fn new_filter(expected_category: RoomCategory) -> impl Filter {
     let matcher = CategoryRoomMatcher {
-        number_of_direct_targets: move |room| {
-            let room_id = room.as_room_id()?;
-            let room = client.get_room(room_id)?;
-
-            Some(room.direct_targets_length())
-        },
+        number_of_direct_targets: move |room| Some(room.direct_targets_length()),
     };
 
-    move |room_list_entry| -> bool { matcher.matches(room_list_entry, expected_category) }
+    move |room| -> bool { matcher.matches(room, expected_category) }
 }
 
 #[cfg(test)]
 mod tests {
     use std::ops::Not;
 
-    use matrix_sdk::RoomListEntry;
+    use matrix_sdk_test::async_test;
     use ruma::room_id;
 
-    use super::{CategoryRoomMatcher, RoomCategory};
+    use super::{
+        super::{client_and_server_prelude, new_rooms},
+        *,
+    };
 
-    #[test]
-    fn test_kind_is_group() {
+    #[async_test]
+    async fn test_kind_is_group() {
+        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
+
         let matcher = CategoryRoomMatcher { number_of_direct_targets: |_| Some(42) };
 
         // Expect `People`.
         {
             let expected_kind = RoomCategory::People;
 
-            assert!(matcher.matches(&RoomListEntry::Empty, expected_kind).not());
-            assert!(
-                matcher
-                    .matches(
-                        &RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned(),),
-                        expected_kind,
-                    )
-                    .not()
-            );
-            assert!(matcher
-                .matches(
-                    &RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned()),
-                    expected_kind
-                )
-                .not());
+            assert!(matcher.matches(&room, expected_kind).not());
         }
 
         // Expect `Group`.
         {
             let expected_kind = RoomCategory::Group;
 
-            assert!(matcher.matches(&RoomListEntry::Empty, expected_kind).not());
-            assert!(matcher.matches(
-                &RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned(),),
-                expected_kind,
-            ));
-            assert!(matcher.matches(
-                &RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned()),
-                expected_kind,
-            ));
+            assert!(matcher.matches(&room, expected_kind));
         }
     }
 
-    #[test]
-    fn test_kind_is_people() {
+    #[async_test]
+    async fn test_kind_is_people() {
+        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
+
         let matcher = CategoryRoomMatcher { number_of_direct_targets: |_| Some(1) };
 
         // Expect `People`.
         {
             let expected_kind = RoomCategory::People;
 
-            assert!(matcher.matches(&RoomListEntry::Empty, expected_kind).not());
-            assert!(matcher.matches(
-                &RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned()),
-                expected_kind,
-            ));
-            assert!(matcher.matches(
-                &RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned()),
-                expected_kind
-            ));
+            assert!(matcher.matches(&room, expected_kind));
         }
 
         // Expect `Group`.
         {
             let expected_kind = RoomCategory::Group;
 
-            assert!(matcher.matches(&RoomListEntry::Empty, expected_kind).not());
-            assert!(
-                matcher
-                    .matches(
-                        &RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned(),),
-                        expected_kind,
-                    )
-                    .not()
-            );
-            assert!(matcher
-                .matches(
-                    &RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned()),
-                    expected_kind,
-                )
-                .not());
+            assert!(matcher.matches(&room, expected_kind).not());
         }
     }
 
-    #[test]
-    fn test_room_kind_cannot_be_found() {
+    #[async_test]
+    async fn test_room_kind_cannot_be_found() {
+        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
+
         let matcher = CategoryRoomMatcher { number_of_direct_targets: |_| None };
 
-        assert!(matcher.matches(&RoomListEntry::Empty, RoomCategory::Group).not());
-        assert!(matcher
-            .matches(
-                &RoomListEntry::Filled(room_id!("!r0:bar.org").to_owned()),
-                RoomCategory::Group
-            )
-            .not());
-        assert!(matcher
-            .matches(
-                &RoomListEntry::Invalidated(room_id!("!r0:bar.org").to_owned()),
-                RoomCategory::Group
-            )
-            .not());
+        assert!(matcher.matches(&room, RoomCategory::Group).not());
     }
 }

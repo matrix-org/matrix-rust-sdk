@@ -180,7 +180,7 @@ impl<'de> Deserialize<'de> for LatestEvent {
                     event: value,
                     sender_profile: None,
                     sender_name_is_ambiguous: None,
-                })
+                });
             }
             Err(err) => variant_errors.push(err),
         }
