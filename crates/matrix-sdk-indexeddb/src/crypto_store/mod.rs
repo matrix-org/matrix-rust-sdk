@@ -1724,6 +1724,7 @@ mod wasm_unit_tests {
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
+    use indexed_db_futures::IdbDatabase;
     use matrix_sdk_crypto::{
         cryptostore_integration_tests,
         store::{Changes, CryptoStore as _, DeviceChanges, PendingChanges},
@@ -1735,7 +1736,15 @@ mod tests {
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    async fn get_store(name: &str, passphrase: Option<&str>) -> IndexeddbCryptoStore {
+    async fn get_store(
+        name: &str,
+        passphrase: Option<&str>,
+        clear_data: bool,
+    ) -> IndexeddbCryptoStore {
+        if clear_data {
+            IdbDatabase::delete_by_name(&format!("{name:0}::matrix-sdk-crypto-meta")).unwrap();
+            IdbDatabase::delete_by_name(&format!("{name:0}::matrix-sdk-crypto")).unwrap();
+        }
         match passphrase {
             Some(pass) => IndexeddbCryptoStore::open_with_passphrase(name, pass)
                 .await
@@ -1748,7 +1757,7 @@ mod tests {
 
     #[async_test]
     async fn cache_cleared_after_device_update() {
-        let store = get_store("cache_cleared_after_device_update", None).await;
+        let store = get_store("cache_cleared_after_device_update", None, true).await;
         // Given we created a session and saved it in the store
         let (account, session) = cryptostore_integration_tests::get_account_and_session().await;
         let sender_key = session.sender_key.to_base64();
@@ -1787,6 +1796,7 @@ mod tests {
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod encrypted_tests {
+    use indexed_db_futures::IdbDatabase;
     use matrix_sdk_crypto::{
         cryptostore_integration_tests,
         olm::Account,
@@ -1800,11 +1810,18 @@ mod encrypted_tests {
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    async fn get_store(name: &str, passphrase: Option<&str>) -> IndexeddbCryptoStore {
+    async fn get_store(
+        name: &str,
+        passphrase: Option<&str>,
+        clear_data: bool,
+    ) -> IndexeddbCryptoStore {
+        if clear_data {
+            IdbDatabase::delete_by_name(&format!("{name:0}::matrix-sdk-crypto-meta")).unwrap();
+            IdbDatabase::delete_by_name(&format!("{name:0}::matrix-sdk-crypto")).unwrap();
+        }
+
         let pass = passphrase.unwrap_or(name);
-        // make sure to use a different store name than the equivalent unencrypted test
-        let store_name = name.to_owned() + "_enc";
-        IndexeddbCryptoStore::open_with_passphrase(&store_name, pass)
+        IndexeddbCryptoStore::open_with_passphrase(&name, pass)
             .await
             .expect("Can't create a passphrase protected store")
     }

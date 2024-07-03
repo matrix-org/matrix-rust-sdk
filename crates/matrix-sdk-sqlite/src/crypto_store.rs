@@ -1326,13 +1326,22 @@ mod tests {
     use matrix_sdk_crypto::{cryptostore_integration_tests, cryptostore_integration_tests_time};
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
+    use tokio::fs;
 
     use super::SqliteCryptoStore;
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
 
-    async fn get_store(name: &str, passphrase: Option<&str>) -> SqliteCryptoStore {
+    async fn get_store(
+        name: &str,
+        passphrase: Option<&str>,
+        clear_data: bool,
+    ) -> SqliteCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
+
+        if clear_data {
+            let _ = fs::remove_dir_all(&tmpdir_path).await;
+        }
 
         SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), passphrase)
             .await
@@ -1353,14 +1362,23 @@ mod encrypted_tests {
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
+    use tokio::fs;
 
     use super::SqliteCryptoStore;
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
 
-    async fn get_store(name: &str, passphrase: Option<&str>) -> SqliteCryptoStore {
+    async fn get_store(
+        name: &str,
+        passphrase: Option<&str>,
+        clear_data: bool,
+    ) -> SqliteCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
         let pass = passphrase.unwrap_or("default_test_password");
+
+        if clear_data {
+            let _ = fs::remove_dir_all(&tmpdir_path).await;
+        }
 
         SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(pass))
             .await
