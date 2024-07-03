@@ -31,7 +31,7 @@ use ruma::{
         },
         FullStateEventContent,
     },
-    owned_event_id, MilliSecondsSinceUnixEpoch,
+    owned_event_id, owned_mxc_uri, MilliSecondsSinceUnixEpoch,
 };
 use stream_assert::assert_next_matches;
 
@@ -191,7 +191,7 @@ async fn test_room_member() {
         .handle_live_state_event_with_state_key(
             &ALICE,
             ALICE.to_owned(),
-            third_room_member_content,
+            third_room_member_content.clone(),
             Some(second_room_member_content),
         )
         .await;
@@ -200,6 +200,48 @@ async fn test_room_member() {
     assert_let!(TimelineItemContent::ProfileChange(profile) = item.content());
     assert_matches!(profile.displayname_change(), Some(_));
     assert_matches!(profile.avatar_url_change(), None);
+
+    let mut fourth_room_member_content = RoomMemberEventContent::new(MembershipState::Join);
+    fourth_room_member_content.displayname = Some("Alice In Wonderland".to_owned());
+    fourth_room_member_content.avatar_url = Some(owned_mxc_uri!("mxc://lolcathost.io/abc"));
+    timeline
+        .handle_live_state_event_with_state_key(
+            &ALICE,
+            ALICE.to_owned(),
+            fourth_room_member_content.clone(),
+            Some(third_room_member_content),
+        )
+        .await;
+
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert_let!(TimelineItemContent::ProfileChange(profile) = item.content());
+    assert_matches!(profile.displayname_change(), None);
+    assert_matches!(profile.avatar_url_change(), Some(_));
+
+    {
+        // No avatar or display name in the new room member event content, but it's
+        // possible to get the previous one using the getters.
+        let room_member_content = RoomMemberEventContent::new(MembershipState::Leave);
+
+        timeline
+            .handle_live_state_event_with_state_key(
+                &ALICE,
+                ALICE.to_owned(),
+                room_member_content,
+                Some(fourth_room_member_content),
+            )
+            .await;
+
+        let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+        assert_let!(TimelineItemContent::MembershipChange(membership) = item.content());
+        assert_matches!(membership.display_name().as_deref(), Some("Alice In Wonderland"));
+        assert_matches!(
+            membership.avatar_url().map(|url| url.to_string()).as_deref(),
+            Some("mxc://lolcathost.io/abc")
+        );
+        assert_matches!(membership.content(), FullStateEventContent::Original { .. });
+        assert_matches!(membership.change(), Some(MembershipChange::Left));
+    }
 
     timeline
         .handle_live_redacted_state_event_with_state_key(

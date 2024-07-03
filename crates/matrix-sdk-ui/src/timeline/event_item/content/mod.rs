@@ -432,6 +432,38 @@ impl RoomMembershipChange {
         &self.content
     }
 
+    /// Retrieve the member's display name from the current event, or, if
+    /// missing, from the one it replaced.
+    pub fn display_name(&self) -> Option<String> {
+        if let FullStateEventContent::Original { content, prev_content } = &self.content {
+            content
+                .displayname
+                .as_ref()
+                .or_else(|| {
+                    prev_content.as_ref().and_then(|prev_content| prev_content.displayname.as_ref())
+                })
+                .cloned()
+        } else {
+            None
+        }
+    }
+
+    /// Retrieve the avatar URL from the current event, or, if missing, from the
+    /// one it replaced.
+    pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
+        if let FullStateEventContent::Original { content, prev_content } = &self.content {
+            content
+                .avatar_url
+                .as_ref()
+                .or_else(|| {
+                    prev_content.as_ref().and_then(|prev_content| prev_content.avatar_url.as_ref())
+                })
+                .cloned()
+        } else {
+            None
+        }
+    }
+
     /// The membership change induced by this event.
     ///
     /// If this returns `None`, it doesn't mean that there was no change, but
