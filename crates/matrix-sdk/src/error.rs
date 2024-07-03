@@ -17,6 +17,7 @@
 use std::{io::Error as IoError, sync::Arc, time::Duration};
 
 use as_variant::as_variant;
+use http::StatusCode;
 #[cfg(feature = "qrcode")]
 use matrix_sdk_base::crypto::ScanError;
 #[cfg(feature = "e2e-encryption")]
@@ -28,7 +29,7 @@ use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
         client::{
-            error::{ErrorBody, ErrorKind},
+            error::{ErrorBody, ErrorKind, RetryAfter},
             uiaa::{UiaaInfo, UiaaResponse},
         },
         error::{FromHttpResponseError, IntoHttpError},
@@ -151,49 +152,20 @@ impl HttpError {
     /// Returns whether an HTTP error response should be qualified as transient
     /// or permanent.
     pub(crate) fn retry_kind(&self) -> RetryKind {
-        use ruma::api::client::error::{ErrorBody, ErrorKind, RetryAfter};
-
-        use crate::RumaApiError;
-
-        // If it was a plain network error, it's either that we're disconnected from the
-        // internet, or that the remote is, so retry a few times.
-        if matches!(self, Self::Reqwest(..)) {
-            return RetryKind::Transient { retry_after: None };
+        match self {
+            // If it was a plain network error, it's either that we're disconnected from the
+            // internet, or that the remote is, so retry a few times.
+            HttpError::Reqwest(_) => RetryKind::Transient { retry_after: None },
+            HttpError::Api(api_error) => match api_error {
+                FromHttpResponseError::Server(api_error) => RetryKind::from_api_error(api_error),
+                _ => RetryKind::Permanent,
+            },
+            _ => RetryKind::Permanent,
         }
-
-        if let Some(api_error) = self.as_ruma_api_error() {
-            let status_code = match api_error {
-                RumaApiError::ClientApi(e) => match e.body {
-                    ErrorBody::Standard {
-                        kind: ErrorKind::LimitExceeded { retry_after }, ..
-                    } => {
-                        let retry_after = retry_after.and_then(|retry_after| match retry_after {
-                            RetryAfter::Delay(d) => Some(d),
-                            RetryAfter::DateTime(_) => None,
-                        });
-                        return RetryKind::Transient { retry_after };
-                    }
-                    _ => Some(e.status_code),
-                },
-                RumaApiError::Other(e) => Some(e.status_code),
-                RumaApiError::Uiaa(_) => None,
-            };
-
-            if let Some(status_code) = status_code {
-                // If the status code is 429, this is requesting a retry in HTTP, without the
-                // custom `errcode`. Treat that as a retriable request with no
-                // specified retry_after delay.
-                if status_code.as_u16() == 429 || status_code.is_server_error() {
-                    return RetryKind::Transient { retry_after: None };
-                }
-            }
-        }
-
-        RetryKind::Permanent
     }
 }
 
-/// How should we behave with respect to retry behavior after an `HttpError`
+/// How should we behave with respect to retry behavior after an [`HttpError`]
 /// happened?
 pub(crate) enum RetryKind {
     Transient {
@@ -203,6 +175,69 @@ pub(crate) enum RetryKind {
     },
 
     Permanent,
+}
+
+impl RetryKind {
+    /// Construct a [`RetryKind`] from a Ruma API error.
+    ///
+    /// The Ruma API error is for errors which have the standard error response
+    /// format defined in the [spec].
+    ///
+    /// [spec]: https://spec.matrix.org/v1.11/client-server-api/#standard-error-response
+    fn from_api_error(api_error: &RumaApiError) -> Self {
+        use ruma::api::client::Error;
+
+        match api_error {
+            RumaApiError::ClientApi(client_error) => {
+                let Error { status_code, body, .. } = client_error;
+
+                match body {
+                    ErrorBody::Standard { kind, .. } => match kind {
+                        ErrorKind::LimitExceeded { retry_after } => {
+                            RetryKind::from_retry_after(retry_after.as_ref())
+                        }
+                        _ => RetryKind::from_status_code(*status_code),
+                    },
+                    _ => RetryKind::from_status_code(*status_code),
+                }
+            }
+            RumaApiError::Other(e) => RetryKind::from_status_code(e.status_code),
+            RumaApiError::Uiaa(_) => RetryKind::Permanent,
+        }
+    }
+
+    /// Create a [`RetryKind`] if we have found a [`RetryAfter`] defined in an
+    /// error.
+    ///
+    /// This method should be used for errors where the server explicitly tells
+    /// us how long we must wait before we retry the request again.
+    fn from_retry_after(retry_after: Option<&RetryAfter>) -> Self {
+        let retry_after = retry_after
+            .and_then(|retry_after| match retry_after {
+                RetryAfter::Delay(d) => Some(d),
+                RetryAfter::DateTime(_) => None,
+            })
+            .copied();
+
+        Self::Transient { retry_after }
+    }
+
+    /// Construct a [`RetryKind`] from a HTTP [`StatusCode`].
+    ///
+    /// This should be used if we don't have a more specific Matrix style error
+    /// which gives us more information about the nature of the error, i.e.
+    /// if we received an error from a reverse proxy while the Matrix
+    /// homeserver is down.
+    fn from_status_code(status_code: StatusCode) -> Self {
+        // If the status code is 429, this is requesting a retry in HTTP, without the
+        // custom `errcode`. Treat that as a retriable request with no specified
+        // retry_after delay.
+        if status_code == StatusCode::TOO_MANY_REQUESTS || status_code.is_server_error() {
+            RetryKind::Transient { retry_after: None }
+        } else {
+            RetryKind::Permanent
+        }
+    }
 }
 
 /// Internal representation of errors.
