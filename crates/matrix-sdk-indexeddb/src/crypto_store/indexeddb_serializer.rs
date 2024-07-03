@@ -24,6 +24,7 @@ use matrix_sdk_store_encryption::{EncryptedValueBase64, StoreCipher};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
+use zeroize::Zeroizing;
 
 use crate::{safe_encode::SafeEncode, IndexeddbCryptoStoreError};
 
@@ -135,17 +136,28 @@ impl IndexeddbSerializer {
     }
 
     /// Encode an object for storage as a value in indexeddb.
+    ///
+    /// First serializes the object as JSON bytes.
+    ///
+    /// Then, if a cipher is set, encrypts the JSON with a nonce into binary
+    /// blobs, and base64-encodes the blobs.
+    ///
+    /// If no cipher is set, just base64-encodes the JSON bytes.
+    ///
+    /// Finally, returns an object encapsulating the result.
     pub fn maybe_encrypt_value<T: Serialize>(
         &self,
         value: T,
     ) -> Result<MaybeEncrypted, CryptoStoreError> {
+        // First serialize the object as JSON.
+        let serialized = serde_json::to_vec(&value).map_err(CryptoStoreError::backend)?;
+
+        // Then either encrypt the JSON, or just base64-encode it.
         Ok(match &self.store_cipher {
             Some(cipher) => MaybeEncrypted::Encrypted(
-                cipher.encrypt_value_base64_typed(&value).map_err(CryptoStoreError::backend)?,
+                cipher.encrypt_value_base64_data(serialized).map_err(CryptoStoreError::backend)?,
             ),
-            None => MaybeEncrypted::Unencrypted(
-                BASE64.encode(serde_json::to_vec(&value).map_err(CryptoStoreError::backend)?),
-            ),
+            None => MaybeEncrypted::Unencrypted(BASE64.encode(serialized)),
         })
     }
 
@@ -219,17 +231,20 @@ impl IndexeddbSerializer {
         &self,
         value: MaybeEncrypted,
     ) -> Result<T, CryptoStoreError> {
-        match (&self.store_cipher, value) {
+        // First extract the plaintext JSON, either by decrypting or un-base64-ing.
+        let plaintext = Zeroizing::new(match (&self.store_cipher, value) {
             (Some(cipher), MaybeEncrypted::Encrypted(enc)) => {
-                cipher.decrypt_value_base64_typed(enc).map_err(CryptoStoreError::backend)
+                cipher.decrypt_value_base64_data(enc).map_err(CryptoStoreError::backend)?
             }
             (None, MaybeEncrypted::Unencrypted(unc)) => {
-                Ok(serde_json::from_slice(&BASE64.decode(unc).map_err(CryptoStoreError::backend)?)
-                    .map_err(CryptoStoreError::backend)?)
+                BASE64.decode(unc).map_err(CryptoStoreError::backend)?
             }
 
-            _ => Err(CryptoStoreError::UnpicklingError),
-        }
+            _ => return Err(CryptoStoreError::UnpicklingError),
+        });
+
+        // Then deserialize the JSON.
+        Ok(serde_json::from_slice(&plaintext)?)
     }
 }
 

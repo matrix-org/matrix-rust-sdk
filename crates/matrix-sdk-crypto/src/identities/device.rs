@@ -43,7 +43,9 @@ use crate::{
     olm::{
         InboundGroupSession, OutboundGroupSession, Session, ShareInfo, SignedJsonObject, VerifyJson,
     },
-    store::{Changes, CryptoStoreWrapper, DeviceChanges, Result as StoreResult},
+    store::{
+        caches::SequenceNumber, Changes, CryptoStoreWrapper, DeviceChanges, Result as StoreResult,
+    },
     types::{
         events::{
             forwarded_room_key::ForwardedRoomKeyContent,
@@ -89,6 +91,10 @@ pub struct ReadOnlyDevice {
     /// Default to epoch for migration purpose.
     #[serde(default = "default_timestamp")]
     first_time_seen_ts: MilliSecondsSinceUnixEpoch,
+    /// The number of times the device has tried to unwedge Olm sessions with
+    /// us.
+    #[serde(default)]
+    pub(crate) olm_wedging_index: SequenceNumber,
 }
 
 fn default_timestamp() -> MilliSecondsSinceUnixEpoch {
@@ -580,6 +586,7 @@ impl ReadOnlyDevice {
             deleted: Arc::new(AtomicBool::new(false)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
             first_time_seen_ts: MilliSecondsSinceUnixEpoch::now(),
+            olm_wedging_index: Default::default(),
         }
     }
 
@@ -833,7 +840,11 @@ impl ReadOnlyDevice {
 
         match self.encrypt(store, event_type, content).await {
             Ok((session, encrypted)) => Ok(MaybeEncryptedRoomKey::Encrypted {
-                share_info: ShareInfo::new_shared(session.sender_key().to_owned(), message_index),
+                share_info: ShareInfo::new_shared(
+                    session.sender_key().to_owned(),
+                    message_index,
+                    self.olm_wedging_index,
+                ),
                 used_session: session,
                 message: encrypted.cast(),
             }),
@@ -871,7 +882,8 @@ impl ReadOnlyDevice {
         }
     }
 
-    pub(crate) fn as_device_keys(&self) -> &DeviceKeys {
+    /// Return the device keys
+    pub fn as_device_keys(&self) -> &DeviceKeys {
         &self.inner
     }
 
@@ -970,6 +982,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
             trust_state: Arc::new(RwLock::new(LocalTrust::Unset)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
             first_time_seen_ts: MilliSecondsSinceUnixEpoch::now(),
+            olm_wedging_index: Default::default(),
         };
 
         device.verify_device_keys(device_keys)?;

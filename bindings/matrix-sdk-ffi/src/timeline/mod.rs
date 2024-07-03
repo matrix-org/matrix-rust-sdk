@@ -232,9 +232,9 @@ impl Timeline {
     pub async fn send(
         self: Arc<Self>,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
-    ) -> Result<Arc<AbortSendHandle>, ClientError> {
+    ) -> Result<Arc<SendHandle>, ClientError> {
         match self.inner.send((*msg).to_owned().with_relation(None).into()).await {
-            Ok(handle) => Ok(Arc::new(AbortSendHandle { inner: Mutex::new(Some(handle)) })),
+            Ok(handle) => Ok(Arc::new(SendHandle { inner: Mutex::new(Some(handle)) })),
             Err(err) => {
                 error!("error when sending a message: {err}");
                 Err(anyhow::anyhow!(err).into())
@@ -470,22 +470,38 @@ impl Timeline {
         Ok(())
     }
 
+    /// Edits an event from the timeline.
+    ///
+    /// Only works for events that exist as timeline items.
+    ///
+    /// If it was a local event, this will *try* to edit it, if it was not
+    /// being sent already. If the event was a remote event, then it will be
+    /// redacted by sending an edit request to the server.
+    ///
+    /// Returns whether the edit did happen. It can only return false for
+    /// local events that are being processed.
     pub async fn edit(
         &self,
+        item: Arc<EventTimelineItem>,
         new_content: Arc<RoomMessageEventContentWithoutRelation>,
+    ) -> Result<bool, ClientError> {
+        let edit_info = item.0.edit_info().map_err(ClientError::from)?;
+
+        self.inner.edit((*new_content).clone(), edit_info).await.map_err(ClientError::from)
+    }
+
+    /// Edit an event given its event id. Useful when we're not sure a remote
+    /// timeline event has been fetched by the timeline.
+    pub async fn edit_by_event_id(
+        &self,
         event_id: String,
+        new_content: Arc<RoomMessageEventContentWithoutRelation>,
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
-        let edit_info = self
-            .inner
-            .edit_info_from_event_id(&event_id)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))?;
+        let edit_info =
+            self.inner.edit_info_from_event_id(&event_id).await.map_err(ClientError::from)?;
 
-        self.inner
-            .edit((*new_content).clone(), edit_info)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))?;
+        self.inner.edit((*new_content).clone(), edit_info).await.map_err(ClientError::from)?;
         Ok(())
     }
 
@@ -647,12 +663,12 @@ impl Timeline {
 }
 
 #[derive(uniffi::Object)]
-pub struct AbortSendHandle {
-    inner: Mutex<Option<matrix_sdk::send_queue::AbortSendHandle>>,
+pub struct SendHandle {
+    inner: Mutex<Option<matrix_sdk::send_queue::SendHandle>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
-impl AbortSendHandle {
+impl SendHandle {
     /// Try to abort the sending of the current event.
     ///
     /// If this returns `true`, then the sending could be aborted, because the
@@ -661,12 +677,15 @@ impl AbortSendHandle {
     ///
     /// This has an effect only on the first call; subsequent calls will always
     /// return `false`.
-    async fn abort(self: Arc<Self>) -> bool {
+    async fn abort(self: Arc<Self>) -> Result<bool, ClientError> {
         if let Some(inner) = self.inner.lock().await.take() {
-            inner.abort().await
+            Ok(inner
+                .abort()
+                .await
+                .map_err(|err| anyhow::anyhow!("error when saving in store: {err}"))?)
         } else {
             warn!("trying to abort an send handle that's already been actioned");
-            false
+            Ok(false)
         }
     }
 }

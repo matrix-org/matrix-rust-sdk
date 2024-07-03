@@ -135,6 +135,20 @@ impl EncryptionData {
             tasks.download_room_keys = Some(BackupDownloadTask::new(weak_client));
         }
     }
+
+    /// Initialize the background task which listens for changes in the
+    /// [`backups::BackupState`] and updataes the [`recovery::RecoveryState`].
+    ///
+    /// This should happen after the usual tasks have been set up and after the
+    /// E2EE initialization tasks have been set up.
+    pub fn initialize_recovery_state_update_task(&self, client: &Client) {
+        let mut guard = self.tasks.lock().unwrap();
+
+        let future = Recovery::update_state_after_backup_state_change(client);
+        let join_handle = spawn(future);
+
+        guard.update_recovery_state_after_backup = Some(join_handle);
+    }
 }
 
 /// Settings for end-to-end encryption features.
@@ -980,10 +994,10 @@ impl Encryption {
     /// # Arguments
     ///
     /// * `auth_data` - This request requires user interactive auth, the first
-    /// request needs to set this to `None` and will always fail with an
-    /// `UiaaResponse`. The response will contain information for the
-    /// interactive auth and the same request needs to be made but this time
-    /// with some `auth_data` provided.
+    ///   request needs to set this to `None` and will always fail with an
+    ///   `UiaaResponse`. The response will contain information for the
+    ///   interactive auth and the same request needs to be made but this time
+    ///   with some `auth_data` provided.
     ///
     /// # Examples
     ///
@@ -1067,10 +1081,10 @@ impl Encryption {
     /// # Arguments
     ///
     /// * `auth_data` - This request requires user interactive auth, the first
-    /// request needs to set this to `None` and will always fail with an
-    /// `UiaaResponse`. The response will contain information for the
-    /// interactive auth and the same request needs to be made but this time
-    /// with some `auth_data` provided.
+    ///   request needs to set this to `None` and will always fail with an
+    ///   `UiaaResponse`. The response will contain information for the
+    ///   interactive auth and the same request needs to be made but this time
+    ///   with some `auth_data` provided.
     ///
     /// # Examples
     /// ```no_run
@@ -1126,13 +1140,12 @@ impl Encryption {
     /// * `path` - The file path where the exported key file will be saved.
     ///
     /// * `passphrase` - The passphrase that will be used to encrypt the
-    ///   exported
-    /// room keys.
+    ///   exported room keys.
     ///
     /// * `predicate` - A closure that will be called for every known
-    /// `InboundGroupSession`, which represents a room key. If the closure
-    /// returns `true` the `InboundGroupSessoin` will be included in the export,
-    /// if the closure returns `false` it will not be included.
+    ///   `InboundGroupSession`, which represents a room key. If the closure
+    ///   returns `true` the `InboundGroupSessoin` will be included in the
+    ///   export, if the closure returns `false` it will not be included.
     ///
     /// # Panics
     ///
@@ -1202,7 +1215,7 @@ impl Encryption {
     /// * `path` - The file path where the exported key file will can be found.
     ///
     /// * `passphrase` - The passphrase that should be used to decrypt the
-    /// exported room keys.
+    ///   exported room keys.
     ///
     /// Returns a tuple of numbers that represent the number of sessions that
     /// were imported and the total number of sessions that were found in the
@@ -1416,12 +1429,12 @@ impl Encryption {
     /// # Arguments
     ///
     /// * `auth_data` - Some requests may require re-authentication. To prevent
-    /// the user from having to re-enter their password (or use other methods),
-    /// we can provide the authentication data here. This is necessary for
-    /// uploading cross-signing keys. However, please note that there is a
-    /// proposal (MSC3967) to remove this requirement, which would allow for
-    /// the initial upload of cross-signing keys without authentication,
-    /// rendering this parameter obsolete.
+    ///   the user from having to re-enter their password (or use other
+    ///   methods), we can provide the authentication data here. This is
+    ///   necessary for uploading cross-signing keys. However, please note that
+    ///   there is a proposal (MSC3967) to remove this requirement, which would
+    ///   allow for the initial upload of cross-signing keys without
+    ///   authentication, rendering this parameter obsolete.
     pub(crate) fn spawn_initialization_task(&self, auth_data: Option<AuthData>) {
         let mut tasks = self.client.inner.e2ee.tasks.lock().unwrap();
 

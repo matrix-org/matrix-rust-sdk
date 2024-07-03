@@ -175,12 +175,15 @@ impl HttpError {
                     }
                     _ => Some(e.status_code),
                 },
-                RumaApiError::Uiaa(_) => None,
                 RumaApiError::Other(e) => Some(e.status_code),
+                RumaApiError::Uiaa(_) => None,
             };
 
             if let Some(status_code) = status_code {
-                if status_code.is_server_error() {
+                // If the status code is 429, this is requesting a retry in HTTP, without the
+                // custom `errcode`. Treat that as a retriable request with no
+                // specified retry_after delay.
+                if status_code.as_u16() == 429 || status_code.is_server_error() {
                     return RetryKind::Transient { retry_after: None };
                 }
             }
@@ -299,11 +302,6 @@ pub enum Error {
     #[error("wrong room state: {0}")]
     WrongRoomState(WrongRoomState),
 
-    /// The client is in inconsistent state. This happens when we set a room to
-    /// a specific type, but then cannot get it in this type.
-    #[error("The internal client state is inconsistent.")]
-    InconsistentState,
-
     /// Session callbacks have been set multiple times.
     #[error("session callbacks have been set multiple times")]
     MultipleSessionCallbacks,
@@ -317,8 +315,9 @@ pub enum Error {
     #[error("a concurrent request failed; see logs for details")]
     ConcurrentRequestFailed,
 
-    /// An other error was raised
-    /// this might happen because encryption was enabled on the base-crate
+    /// An other error was raised.
+    ///
+    /// This might happen because encryption was enabled on the base-crate
     /// but not here and that raised.
     #[error("unknown error: {0}")]
     UnknownError(Box<dyn std::error::Error + Send + Sync>),

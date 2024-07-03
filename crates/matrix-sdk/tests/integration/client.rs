@@ -4,10 +4,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::FutureExt;
 use matrix_sdk::{
-    config::SyncSettings,
-    media::{MediaFormat, MediaRequest, MediaThumbnailSize},
-    sync::RoomUpdate,
-    test_utils::no_retry_test_client_with_server,
+    config::SyncSettings, sync::RoomUpdate, test_utils::no_retry_test_client_with_server,
 };
 use matrix_sdk_base::{sync::RoomUpdates, RoomState};
 use matrix_sdk_test::{
@@ -24,20 +21,15 @@ use ruma::{
             get_public_rooms,
             get_public_rooms_filtered::{self, v3::Request as PublicRoomsFilterRequest},
         },
-        media::get_content_thumbnail::v3::Method,
         uiaa,
     },
     assign, device_id,
     directory::Filter,
     event_id,
-    events::{
-        direct::DirectEventContent,
-        room::{message::ImageMessageEventContent, ImageInfo, MediaSource},
-        AnyInitialStateEvent,
-    },
-    mxc_uri, room_id,
+    events::{direct::DirectEventContent, AnyInitialStateEvent},
+    room_id,
     serde::Raw,
-    uint, user_id, OwnedUserId,
+    user_id, OwnedUserId,
 };
 use serde_json::{json, Value as JsonValue};
 use stream_assert::{assert_next_matches, assert_pending};
@@ -288,119 +280,6 @@ async fn test_left_rooms() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert_eq!(room.state(), RoomState::Left);
-}
-
-#[async_test]
-async fn test_get_media_content() {
-    let (client, server) = logged_in_client_with_server().await;
-
-    let media = client.media();
-
-    let request = MediaRequest {
-        source: MediaSource::Plain(mxc_uri!("mxc://localhost/textfile").to_owned()),
-        format: MediaFormat::File,
-    };
-
-    // First time, without the cache.
-    {
-        let expected_content = "Hello, World!";
-        let _mock_guard = Mock::given(method("GET"))
-            .and(path("/_matrix/media/r0/download/localhost/textfile"))
-            .respond_with(ResponseTemplate::new(200).set_body_string(expected_content))
-            .mount_as_scoped(&server)
-            .await;
-
-        assert_eq!(
-            media.get_media_content(&request, false).await.unwrap(),
-            expected_content.as_bytes()
-        );
-    }
-
-    // Second time, without the cache, error from the HTTP server.
-    {
-        let _mock_guard = Mock::given(method("GET"))
-            .and(path("/_matrix/media/r0/download/localhost/textfile"))
-            .respond_with(ResponseTemplate::new(500))
-            .mount_as_scoped(&server)
-            .await;
-
-        assert!(media.get_media_content(&request, false).await.is_err());
-    }
-
-    let expected_content = "Hello, World (2)!";
-
-    // Third time, with the cache.
-    {
-        let _mock_guard = Mock::given(method("GET"))
-            .and(path("/_matrix/media/r0/download/localhost/textfile"))
-            .respond_with(ResponseTemplate::new(200).set_body_string(expected_content))
-            .mount_as_scoped(&server)
-            .await;
-
-        assert_eq!(
-            media.get_media_content(&request, true).await.unwrap(),
-            expected_content.as_bytes()
-        );
-    }
-
-    // Third time, with the cache, the HTTP server isn't reached.
-    {
-        let _mock_guard = Mock::given(method("GET"))
-            .and(path("/_matrix/media/r0/download/localhost/textfile"))
-            .respond_with(ResponseTemplate::new(500))
-            .mount_as_scoped(&server)
-            .await;
-
-        assert_eq!(
-            client.media().get_media_content(&request, true).await.unwrap(),
-            expected_content.as_bytes()
-        );
-    }
-}
-
-#[async_test]
-async fn test_get_media_file() {
-    let (client, server) = logged_in_client_with_server().await;
-
-    let event_content = ImageMessageEventContent::plain(
-        "filename.jpg".into(),
-        mxc_uri!("mxc://example.org/image").to_owned(),
-    )
-    .info(Box::new(assign!(ImageInfo::new(), {
-        height: Some(uint!(398)),
-        width: Some(uint!(394)),
-        mimetype: Some("image/jpeg".into()),
-        size: Some(uint!(31037)),
-    })));
-
-    Mock::given(method("GET"))
-        .and(path("/_matrix/media/r0/download/example.org/image"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw("binaryjpegdata", "image/jpeg"))
-        .named("get_file")
-        .mount(&server)
-        .await;
-
-    client.media().get_file(&event_content, false).await.unwrap();
-
-    Mock::given(method("GET"))
-        .and(path("/_matrix/media/r0/thumbnail/example.org/image"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw("smallerbinaryjpegdata", "image/jpeg"),
-        )
-        .expect(1)
-        .named("get_thumbnail")
-        .mount(&server)
-        .await;
-
-    client
-        .media()
-        .get_thumbnail(
-            &event_content,
-            MediaThumbnailSize { method: Method::Scale, width: uint!(100), height: uint!(100) },
-            false,
-        )
-        .await
-        .unwrap();
 }
 
 #[async_test]

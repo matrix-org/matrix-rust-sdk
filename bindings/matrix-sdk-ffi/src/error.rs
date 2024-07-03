@@ -1,8 +1,9 @@
 use std::fmt::Display;
 
 use matrix_sdk::{
-    encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, HttpError,
-    IdParseError, NotificationSettingsError as SdkNotificationSettingsError, StoreError,
+    encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, reqwest,
+    send_queue::RoomSendQueueError, HttpError, IdParseError,
+    NotificationSettingsError as SdkNotificationSettingsError, StoreError,
 };
 use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
 use uniffi::UnexpectedUniFFICallbackError;
@@ -22,6 +23,12 @@ impl ClientError {
 impl From<anyhow::Error> for ClientError {
     fn from(e: anyhow::Error) -> ClientError {
         ClientError::Generic { msg: format!("{e:#}") }
+    }
+}
+
+impl From<reqwest::Error> for ClientError {
+    fn from(e: reqwest::Error) -> Self {
+        Self::new(e)
     }
 }
 
@@ -91,6 +98,12 @@ impl From<timeline::Error> for ClientError {
     }
 }
 
+impl From<timeline::UnsupportedEditItem> for ClientError {
+    fn from(e: timeline::UnsupportedEditItem) -> Self {
+        Self::new(e)
+    }
+}
+
 impl From<notification_client::Error> for ClientError {
     fn from(e: notification_client::Error) -> Self {
         Self::new(e)
@@ -117,6 +130,12 @@ impl From<RoomError> for ClientError {
 
 impl From<EventCacheError> for ClientError {
     fn from(e: EventCacheError) -> Self {
+        Self::new(e)
+    }
+}
+
+impl From<RoomSendQueueError> for ClientError {
+    fn from(e: RoomSendQueueError) -> Self {
         Self::new(e)
     }
 }

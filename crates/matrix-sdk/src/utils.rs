@@ -76,10 +76,16 @@ impl<T: 'static + Send + Clone> ChannelObservable<T> {
     }
 
     /// Set the underlying data to the new value.
-    pub(crate) fn set(&self, new_value: T) {
-        *self.value.write().unwrap() = new_value.to_owned();
+    pub(crate) fn set(&self, new_value: T) -> T {
+        let old_value = {
+            let mut guard = self.value.write().unwrap();
+            std::mem::replace(&mut (*guard), new_value.clone())
+        };
+
         // We're ignoring the error case where no receivers exist.
         let _ = self.channel.send(new_value);
+
+        old_value
     }
 
     /// Get the current value of the underlying data.
@@ -181,5 +187,19 @@ impl IntoRawStateEventContent for &RawJsonValue {
 impl IntoRawStateEventContent for &Box<RawJsonValue> {
     fn into_raw_state_event_content(self) -> Raw<AnyStateEventContent> {
         self.clone().into_raw_state_event_content()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[cfg(feature = "e2e-encryption")]
+    #[test]
+    fn test_channel_observable_get_set() {
+        let observable = super::ChannelObservable::new(0);
+
+        assert_eq!(observable.get(), 0);
+        assert_eq!(observable.set(1), 0);
+        assert_eq!(observable.set(10), 1);
+        assert_eq!(observable.get(), 10);
     }
 }

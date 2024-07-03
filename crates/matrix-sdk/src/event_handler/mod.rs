@@ -692,6 +692,7 @@ mod tests {
     }
 
     #[async_test]
+    #[allow(dependency_on_unit_never_type_fallback)]
     async fn add_room_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -753,6 +754,7 @@ mod tests {
     }
 
     #[async_test]
+    #[allow(dependency_on_unit_never_type_fallback)]
     async fn remove_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 

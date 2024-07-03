@@ -85,6 +85,7 @@ macro_rules! cryptostore_integration_tests {
                     sender_key,
                     one_time_key,
                     false,
+                    alice.device_keys(),
                 );
 
                 (alice, session)
@@ -216,6 +217,16 @@ macro_rules! cryptostore_integration_tests {
                         })
                         .await
                         .expect("Can't save account");
+                    store
+                        .save_changes(Changes {
+                            devices: DeviceChanges {
+                                new: vec![ReadOnlyDevice::from_account(&account)],
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        })
+                        .await
+                        .unwrap();
 
                     let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
                     store.save_changes(changes).await.unwrap();

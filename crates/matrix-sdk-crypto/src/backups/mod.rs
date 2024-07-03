@@ -312,8 +312,8 @@ impl BackupMachine {
     ///
     /// # Arguments
     ///
-    /// * `backup_info`: The backup info that should be verified. Should
-    /// be fetched from the server using the [`/room_keys/version`] endpoint.
+    /// * `backup_info`: The backup info that should be verified. Should be
+    ///   fetched from the server using the [`/room_keys/version`] endpoint.
     ///
     /// * `compute_all_signatures`: *Useful for debugging only*. If this
     ///   parameter is `true`, the internal machinery will compute the trust
@@ -341,9 +341,9 @@ impl BackupMachine {
     ///
     /// # Arguments
     ///
-    /// * `backup_info`: The backup version that should be verified. Should
-    /// be created from the [`BackupDecryptionKey`] using the
-    /// [`BackupDecryptionKey::to_backup_info()`] method.
+    /// * `backup_info`: The backup version that should be verified. Should be
+    ///   created from the [`BackupDecryptionKey`] using the
+    ///   [`BackupDecryptionKey::to_backup_info()`] method.
     pub async fn sign_backup(
         &self,
         backup_info: &mut RoomKeyBackupInfo,
@@ -595,8 +595,8 @@ impl BackupMachine {
     /// # Arguments
     ///
     /// * `room_keys` - A list of previously exported keys that should be
-    /// imported into our store. If we already have a better version of a key
-    /// the key will *not* be imported.
+    ///   imported into our store. If we already have a better version of a key
+    ///   the key will *not* be imported.
     ///
     /// Returns a [`RoomKeyImportResult`] containing information about room keys
     /// which were imported.

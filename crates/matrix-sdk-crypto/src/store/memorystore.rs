@@ -474,6 +474,12 @@ impl CryptoStore for MemoryStore {
         Ok(self.devices.user_devices(user_id))
     }
 
+    async fn get_own_device(&self) -> Result<ReadOnlyDevice> {
+        let account = self.load_account().await?.unwrap();
+
+        Ok(self.devices.get(&account.user_id, &account.device_id).unwrap())
+    }
+
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
         Ok(self.identities.read().unwrap().get(user_id).cloned())
     }
@@ -619,7 +625,7 @@ mod tests {
         identities::device::testing::get_device,
         olm::{
             tests::get_account_and_session_test_helper, Account, InboundGroupSession,
-            OlmMessageHash, PrivateCrossSigningIdentity,
+            OlmMessageHash, PrivateCrossSigningIdentity, SenderData,
         },
         store::{memorystore::MemoryStore, Changes, CryptoStore, PendingChanges},
     };
@@ -654,6 +660,7 @@ mod tests {
             Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE").unwrap(),
             room_id,
             &outbound.session_key().await,
+            SenderData::unknown(),
             outbound.settings().algorithm.to_owned(),
             None,
         )
@@ -1050,6 +1057,7 @@ mod tests {
             Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE").unwrap(),
             room_id,
             &outbound.session_key().await,
+            SenderData::unknown(),
             outbound.settings().algorithm.to_owned(),
             None,
         )
@@ -1263,6 +1271,10 @@ mod integration_tests {
             user_id: &UserId,
         ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>, Self::Error> {
             self.0.get_user_devices(user_id).await
+        }
+
+        async fn get_own_device(&self) -> Result<ReadOnlyDevice, Self::Error> {
+            self.0.get_own_device().await
         }
 
         async fn get_user_identity(

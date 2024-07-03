@@ -90,7 +90,8 @@
 //!
 //! [`Recovery key`]: https://spec.matrix.org/v1.8/client-server-api/#recovery-key
 
-use futures_core::Stream;
+use futures_core::{Future, Stream};
+use futures_util::StreamExt as _;
 use ruma::{
     api::client::keys::get_keys,
     events::{
@@ -105,7 +106,7 @@ use crate::encryption::{
     backups::Backups,
     secret_storage::{SecretStorage, SecretStore},
 };
-use crate::Client;
+use crate::{client::WeakClient, encryption::backups::BackupState, Client};
 
 pub mod futures;
 mod types;
@@ -437,6 +438,7 @@ impl Recovery {
 
         self.client.add_event_handler(Self::default_key_event_handler);
         self.client.add_event_handler(Self::secret_send_event_handler);
+        self.client.inner.e2ee.initialize_recovery_state_update_task(&self.client);
 
         self.update_recovery_state().await?;
 
@@ -488,7 +490,11 @@ impl Recovery {
 
     async fn update_recovery_state(&self) -> Result<()> {
         let new_state = self.check_recovery_state().await?;
-        self.client.inner.e2ee.recovery_state.set(new_state);
+        let old_state = self.client.inner.e2ee.recovery_state.set(new_state);
+
+        if new_state != old_state {
+            info!("Recovery state changed from {old_state:?} to {new_state:?}");
+        }
 
         Ok(())
     }
@@ -509,12 +515,44 @@ impl Recovery {
         client.encryption().recovery().update_recovery_state_no_fail().await;
     }
 
-    #[instrument]
-    pub(crate) async fn update_state_after_backup_disabling(&self) {
-        // TODO: This is quite ugly, this method is called by the backups subsystem.
-        // Backups shouldn't depend on recovery, recovery should listen to the
-        // backup state change.
-        self.update_recovery_state_no_fail().await;
+    /// Listen for changes in the [`BackupState`] and, if necessary, update the
+    /// [`RecoveryState`] accordingly.
+    ///
+    /// This should not be called directly, this method is put into a background
+    /// task which is always listening for updates in the [`BackupState`].
+    pub(crate) fn update_state_after_backup_state_change(
+        client: &Client,
+    ) -> impl Future<Output = ()> {
+        let mut stream = client.encryption().backups().state_stream();
+        let weak = WeakClient::from_client(client);
+
+        async move {
+            while let Some(update) = stream.next().await {
+                if let Some(client) = weak.get() {
+                    match update {
+                        Ok(update) => {
+                            // The recovery state only cares about these two states, the
+                            // intermediate states that tell us that
+                            // we're creating a backup are not interesting.
+                            if matches!(update, BackupState::Unknown | BackupState::Enabled) {
+                                client
+                                    .encryption()
+                                    .recovery()
+                                    .update_recovery_state_no_fail()
+                                    .await;
+                            }
+                        }
+                        Err(_) => {
+                            // We missed some updates, let's update our state in case something
+                            // changed.
+                            client.encryption().recovery().update_recovery_state_no_fail().await;
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
     }
 
     #[instrument]

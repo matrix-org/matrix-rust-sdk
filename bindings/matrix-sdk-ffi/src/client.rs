@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     mem::ManuallyDrop,
+    path::Path,
     sync::{Arc, RwLock},
 };
 
@@ -8,6 +9,7 @@ use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
     media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
     oidc::{
+        registrations::{ClientId, OidcRegistrations},
         requests::account_management::AccountManagementActionFull,
         types::{
             client_credentials::ClientCredentials,
@@ -15,7 +17,7 @@ use matrix_sdk::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
         },
-        OidcSession,
+        OidcAuthorizationData, OidcSession,
     },
     ruma::{
         api::client::{
@@ -58,6 +60,7 @@ use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
+    authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError},
     client,
     encryption::Encryption,
     notification::NotificationClient,
@@ -251,6 +254,20 @@ impl Client {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl Client {
+    /// Information about login options for the client's homeserver.
+    pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
+        let supports_oidc_login = self.inner.oidc().fetch_authentication_issuer().await.is_ok();
+        let supports_password_login = self.supports_password_login().await.ok().unwrap_or(false);
+        let sliding_sync_proxy = self.sliding_sync_proxy().map(|proxy_url| proxy_url.to_string());
+
+        Arc::new(HomeserverLoginDetails {
+            url: self.homeserver(),
+            sliding_sync_proxy,
+            supports_oidc_login,
+            supports_password_login,
+        })
+    }
+
     /// Login using a username and password.
     pub async fn login(
         &self,
@@ -267,6 +284,57 @@ impl Client {
             builder = builder.device_id(device_id);
         }
         builder.send().await?;
+        Ok(())
+    }
+
+    /// Requests the URL needed for login in a web view using OIDC. Once the web
+    /// view has succeeded, call `login_with_oidc_callback` with the callback it
+    /// returns. If a failure occurs and a callback isn't available, make sure
+    /// to call `abort_oidc_login` to inform the client of this.
+    pub async fn url_for_oidc_login(
+        &self,
+        oidc_configuration: &OidcConfiguration,
+    ) -> Result<Arc<OidcAuthorizationData>, OidcError> {
+        let oidc_metadata: VerifiedClientMetadata = oidc_configuration.try_into()?;
+        let registrations_file = Path::new(&oidc_configuration.dynamic_registrations_file);
+        let static_registrations = oidc_configuration
+            .static_registrations
+            .iter()
+            .filter_map(|(issuer, client_id)| {
+                let Ok(issuer) = Url::parse(issuer) else {
+                    tracing::error!("Failed to parse {:?}", issuer);
+                    return None;
+                };
+                Some((issuer, ClientId(client_id.clone())))
+            })
+            .collect::<HashMap<_, _>>();
+        let registrations = OidcRegistrations::new(
+            registrations_file,
+            oidc_metadata.clone(),
+            static_registrations,
+        )?;
+
+        let data = self.inner.oidc().url_for_oidc_login(oidc_metadata, registrations).await?;
+
+        Ok(Arc::new(data))
+    }
+
+    /// Aborts an existing OIDC login operation that might have been cancelled,
+    /// failed etc.
+    pub async fn abort_oidc_login(&self, authorization_data: Arc<OidcAuthorizationData>) {
+        self.inner.oidc().abort_authorization(&authorization_data.state).await;
+    }
+
+    /// Completes the OIDC login process.
+    pub async fn login_with_oidc_callback(
+        &self,
+        authorization_data: Arc<OidcAuthorizationData>,
+        callback_url: String,
+    ) -> Result<(), OidcError> {
+        let url = Url::parse(&callback_url).or(Err(OidcError::CallbackUrlInvalid))?;
+
+        self.inner.oidc().login_with_oidc_callback(&authorization_data, url).await?;
+
         Ok(())
     }
 
@@ -320,8 +388,8 @@ impl Client {
     ///
     /// This can be controlled for individual rooms, using
     /// [`Room::enable_send_queue`].
-    pub fn enable_all_send_queues(&self, enable: bool) {
-        self.inner.send_queue().set_enabled(enable);
+    pub async fn enable_all_send_queues(&self, enable: bool) {
+        self.inner.send_queue().set_enabled(enable).await;
     }
 
     /// Subscribe to the global enablement status of the send queue, at the
@@ -333,9 +401,14 @@ impl Client {
         &self,
         listener: Box<dyn SendQueueRoomErrorListener>,
     ) -> Arc<TaskHandle> {
-        let mut subscriber = self.inner.send_queue().subscribe_errors();
+        let q = self.inner.send_queue();
+        let mut subscriber = q.subscribe_errors();
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            // Respawn tasks for rooms that had unsent events. At this point we've just
+            // created the subscriber, so it'll be notified about errors.
+            q.respawn_tasks_for_rooms_with_unsent_events().await;
+
             loop {
                 match subscriber.recv().await {
                     Ok(report) => listener
@@ -346,6 +419,13 @@ impl Client {
                 }
             }
         })))
+    }
+
+    /// Allows generic GET requests to be made through the SDKs internal HTTP
+    /// client
+    pub async fn get_url(&self, url: String) -> Result<String, ClientError> {
+        let http_client = self.inner.http_client();
+        Ok(http_client.get(url).send().await?.text().await?)
     }
 }
 
@@ -426,6 +506,12 @@ impl Client {
         Ok(user_id.to_string())
     }
 
+    /// The server name part of the current user ID
+    pub fn user_id_server_name(&self) -> Result<String, ClientError> {
+        let user_id = self.inner.user_id().context("No User ID found")?;
+        Ok(user_id.server_name().to_string())
+    }
+
     pub async fn display_name(&self) -> Result<String, ClientError> {
         let display_name =
             self.inner.account().get_display_name().await?.context("No User ID found")?;
@@ -462,7 +548,7 @@ impl Client {
 
     /// Retrieves an avatar cached from a previous call to [`Self::avatar_url`].
     pub fn cached_avatar_url(&self) -> Result<Option<String>, ClientError> {
-        Ok(RUNTIME.block_on(self.inner.account().get_cached_avatar_url())?)
+        Ok(RUNTIME.block_on(self.inner.account().get_cached_avatar_url())?.map(Into::into))
     }
 
     pub fn device_id(&self) -> Result<String, ClientError> {
@@ -787,11 +873,19 @@ impl Client {
     }
 
     pub async fn get_recently_visited_rooms(&self) -> Result<Vec<String>, ClientError> {
-        Ok(self.inner.account().get_recently_visited_rooms().await?)
+        Ok(self
+            .inner
+            .account()
+            .get_recently_visited_rooms()
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     pub async fn track_recently_visited_room(&self, room: String) -> Result<(), ClientError> {
-        self.inner.account().track_recently_visited_room(room).await?;
+        let room_id = RoomId::parse(room)?;
+        self.inner.account().track_recently_visited_room(room_id).await?;
         Ok(())
     }
 

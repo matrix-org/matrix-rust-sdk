@@ -4,7 +4,8 @@ use anyhow::{Context, Result};
 use matrix_sdk::{
     event_cache::paginator::PaginatorError,
     room::{power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole},
-    ComposerDraft, RoomHero as SdkRoomHero, RoomMemberships, RoomState,
+    ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType,
+    RoomHero as SdkRoomHero, RoomMemberships, RoomState,
 };
 use matrix_sdk_ui::timeline::{PaginationError, RoomExt, TimelineFocus};
 use mime::Mime;
@@ -306,8 +307,8 @@ impl Room {
     ///
     /// * `event_id` - The ID of the event to redact
     ///
-    /// * `reason` - The reason for the event being redacted (optional).
-    /// its transaction ID (optional). If not given one is created.
+    /// * `reason` - The reason for the event being redacted (optional). its
+    ///   transaction ID (optional). If not given one is created.
     pub async fn redact(
         &self,
         event_id: String,
@@ -625,6 +626,7 @@ impl Room {
     /// This function is supposed to be called whenever the user creates a room
     /// call. It will send a `m.call.notify` event if:
     ///  - there is not yet a running call.
+    ///
     /// It will configure the notify type: ring or notify based on:
     ///  - is this a DM room -> ring
     ///  - is this a group with more than one other member -> notify
@@ -676,12 +678,12 @@ impl Room {
     /// Store the given `ComposerDraft` in the state store using the current
     /// room id, as identifier.
     pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<(), ClientError> {
-        Ok(self.inner.save_composer_draft(draft).await?)
+        Ok(self.inner.save_composer_draft(draft.try_into()?).await?)
     }
 
     /// Retrieve the `ComposerDraft` stored in the state store for this room.
     pub async fn load_composer_draft(&self) -> Result<Option<ComposerDraft>, ClientError> {
-        Ok(self.inner.load_composer_draft().await?)
+        Ok(self.inner.load_composer_draft().await?.map(Into::into))
     }
 
     /// Remove the `ComposerDraft` stored in the state store for this room.
@@ -845,5 +847,74 @@ impl From<RtcApplicationType> for notify::ApplicationType {
         match value {
             RtcApplicationType::Call => notify::ApplicationType::Call,
         }
+    }
+}
+
+/// Current draft of the composer for the room.
+#[derive(uniffi::Record)]
+pub struct ComposerDraft {
+    /// The draft content in plain text.
+    pub plain_text: String,
+    /// If the message is formatted in HTML, the HTML representation of the
+    /// message.
+    pub html_text: Option<String>,
+    /// The type of draft.
+    pub draft_type: ComposerDraftType,
+}
+
+impl From<SdkComposerDraft> for ComposerDraft {
+    fn from(value: SdkComposerDraft) -> Self {
+        let SdkComposerDraft { plain_text, html_text, draft_type } = value;
+        Self { plain_text, html_text, draft_type: draft_type.into() }
+    }
+}
+
+impl TryFrom<ComposerDraft> for SdkComposerDraft {
+    type Error = ruma::IdParseError;
+
+    fn try_from(value: ComposerDraft) -> std::result::Result<Self, Self::Error> {
+        let ComposerDraft { plain_text, html_text, draft_type } = value;
+        Ok(Self { plain_text, html_text, draft_type: draft_type.try_into()? })
+    }
+}
+
+/// The type of draft of the composer.
+#[derive(uniffi::Enum)]
+pub enum ComposerDraftType {
+    /// The draft is a new message.
+    NewMessage,
+    /// The draft is a reply to an event.
+    Reply {
+        /// The ID of the event being replied to.
+        event_id: String,
+    },
+    /// The draft is an edit of an event.
+    Edit {
+        /// The ID of the event being edited.
+        event_id: String,
+    },
+}
+
+impl From<SdkComposerDraftType> for ComposerDraftType {
+    fn from(value: SdkComposerDraftType) -> Self {
+        match value {
+            SdkComposerDraftType::NewMessage => Self::NewMessage,
+            SdkComposerDraftType::Reply { event_id } => Self::Reply { event_id: event_id.into() },
+            SdkComposerDraftType::Edit { event_id } => Self::Edit { event_id: event_id.into() },
+        }
+    }
+}
+
+impl TryFrom<ComposerDraftType> for SdkComposerDraftType {
+    type Error = ruma::IdParseError;
+
+    fn try_from(value: ComposerDraftType) -> std::result::Result<Self, Self::Error> {
+        let draft_type = match value {
+            ComposerDraftType::NewMessage => Self::NewMessage,
+            ComposerDraftType::Reply { event_id } => Self::Reply { event_id: event_id.try_into()? },
+            ComposerDraftType::Edit { event_id } => Self::Edit { event_id: event_id.try_into()? },
+        };
+
+        Ok(draft_type)
     }
 }

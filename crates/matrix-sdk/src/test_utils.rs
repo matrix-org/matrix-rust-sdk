@@ -52,12 +52,8 @@ pub async fn no_retry_test_client(homeserver_url: Option<String>) -> Client {
         .unwrap()
 }
 
-/// A [`Client`] using the given `homeserver_url` (or localhost:1234), that will
-/// never retry any failed requests, and already logged in with an hardcoded
-/// Matrix authentication session (the user id and device id are hardcoded too).
-pub async fn logged_in_client(homeserver_url: Option<String>) -> Client {
-    let client = no_retry_test_client(homeserver_url).await;
-
+/// Restore the common (Matrix-auth) user session for a client.
+pub async fn set_client_session(client: &Client) {
     client
         .matrix_auth()
         .restore_session(MatrixSession {
@@ -69,7 +65,14 @@ pub async fn logged_in_client(homeserver_url: Option<String>) -> Client {
         })
         .await
         .unwrap();
+}
 
+/// A [`Client`] using the given `homeserver_url` (or localhost:1234), that will
+/// never retry any failed requests, and already logged in with an hardcoded
+/// Matrix authentication session (the user id and device id are hardcoded too).
+pub async fn logged_in_client(homeserver_url: Option<String>) -> Client {
+    let client = no_retry_test_client(homeserver_url).await;
+    set_client_session(&client).await;
     client
 }
 

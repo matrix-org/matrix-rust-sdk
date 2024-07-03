@@ -76,7 +76,7 @@ pub(super) enum EventTimelineItemKind {
 
 /// A wrapper that can contain either a transaction id, or an event id.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum EventItemIdentifier {
+pub enum TimelineEventItemId {
     /// The item is local, identified by its transaction id (to be used in
     /// subsequent requests).
     TransactionId(OwnedTransactionId),
@@ -201,6 +201,20 @@ impl EventTimelineItem {
         as_variant!(&self.kind, EventTimelineItemKind::Local(local) => &local.send_state)
     }
 
+    /// Get the unique identifier of this item.
+    ///
+    /// Returns the transaction ID for a local echo item that has not been sent
+    /// and the event ID for a local echo item that has been sent or a
+    /// remote item.
+    pub(crate) fn identifier(&self) -> TimelineEventItemId {
+        match &self.kind {
+            EventTimelineItemKind::Local(local) => local.identifier(),
+            EventTimelineItemKind::Remote(remote) => {
+                TimelineEventItemId::EventId(remote.event_id.clone())
+            }
+        }
+    }
+
     /// Get the transaction ID of a local echo item.
     ///
     /// The transaction ID is currently only kept until the remote echo for a
@@ -282,14 +296,11 @@ impl EventTimelineItem {
 
     /// Flag indicating this timeline item can be edited by the current user.
     pub fn is_editable(&self) -> bool {
-        // This must be in sync with the early returns of `Timeline::edit`
+        // Steps here should be in sync with [`EventTimelineItem::edit_info`] and
+        // [`Timeline::edit_poll`].
+
         if !self.is_own() {
             // In theory could work, but it's hard to compute locally.
-            return false;
-        }
-
-        if self.event_id().is_none() {
-            // Local echoes without an event id (not sent yet) can't be edited.
             return false;
         }
 
@@ -429,7 +440,7 @@ impl EventTimelineItem {
             TimelineItemContent::Message(msg) => ReplyContent::Message(msg.to_owned()),
             _ => {
                 let Some(raw_event) = self.latest_json() else {
-                    return Err(UnsupportedReplyItem::MISSING_JSON);
+                    return Err(UnsupportedReplyItem::MissingJson);
                 };
 
                 ReplyContent::Raw(raw_event.clone())
@@ -437,7 +448,7 @@ impl EventTimelineItem {
         };
 
         let Some(event_id) = self.event_id() else {
-            return Err(UnsupportedReplyItem::MISSING_EVENT_ID);
+            return Err(UnsupportedReplyItem::MissingEventId);
         };
 
         Ok(RepliedToInfo {
@@ -450,18 +461,16 @@ impl EventTimelineItem {
 
     /// Gives the information needed to edit the event of the item.
     pub fn edit_info(&self) -> Result<EditInfo, UnsupportedEditItem> {
+        // Steps here should be in sync with [`EventTimelineItem::is_editable`].
         if !self.is_own() {
-            return Err(UnsupportedEditItem::NOT_OWN_EVENT);
+            return Err(UnsupportedEditItem::NotOwnEvent);
         }
-        // Early returns here must be in sync with
-        // `EventTimelineItem::can_be_edited`
-        let Some(event_id) = self.event_id() else {
-            return Err(UnsupportedEditItem::MISSING_EVENT_ID);
-        };
+
         let TimelineItemContent::Message(original_content) = self.content() else {
-            return Err(UnsupportedEditItem::NOT_ROOM_MESSAGE);
+            return Err(UnsupportedEditItem::NotRoomMessage);
         };
-        Ok(EditInfo { event_id: event_id.to_owned(), original_message: original_content.clone() })
+
+        Ok(EditInfo { id: self.identifier(), original_message: original_content.clone() })
     }
 }
 
