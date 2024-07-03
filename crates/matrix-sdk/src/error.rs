@@ -156,10 +156,9 @@ impl HttpError {
             // If it was a plain network error, it's either that we're disconnected from the
             // internet, or that the remote is, so retry a few times.
             HttpError::Reqwest(_) => RetryKind::Transient { retry_after: None },
-            HttpError::Api(api_error) => match api_error {
-                FromHttpResponseError::Server(api_error) => RetryKind::from_api_error(api_error),
-                _ => RetryKind::Permanent,
-            },
+            HttpError::Api(FromHttpResponseError::Server(api_error)) => {
+                RetryKind::from_api_error(api_error)
+            }
             _ => RetryKind::Permanent,
         }
     }
@@ -196,6 +195,7 @@ impl RetryKind {
                         ErrorKind::LimitExceeded { retry_after } => {
                             RetryKind::from_retry_after(retry_after.as_ref())
                         }
+                        ErrorKind::Unrecognized => RetryKind::Permanent,
                         _ => RetryKind::from_status_code(*status_code),
                     },
                     _ => RetryKind::from_status_code(*status_code),

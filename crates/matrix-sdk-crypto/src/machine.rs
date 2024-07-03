@@ -2323,7 +2323,7 @@ impl OlmMachine {
 
 /// A set of requests to be executed when bootstrapping cross-signing using
 /// [`OlmMachine::bootstrap_cross_signing`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CrossSigningBootstrapRequests {
     /// An optional request to upload a device key.
     ///

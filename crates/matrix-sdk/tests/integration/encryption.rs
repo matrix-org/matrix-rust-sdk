@@ -1,4 +1,5 @@
 mod backups;
+mod cross_signing;
 mod recovery;
 mod secret_storage;
 mod verification;

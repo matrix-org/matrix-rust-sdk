@@ -36,14 +36,16 @@ use matrix_sdk_base::crypto::{
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     api::client::{
+        error::{ErrorBody, ErrorKind},
         keys::{
-            get_keys, upload_keys, upload_signing_keys::v3::Request as UploadSigningKeysRequest,
+            get_keys, upload_keys, upload_signatures::v3::Request as UploadSignaturesRequest,
+            upload_signing_keys::v3::Request as UploadSigningKeysRequest,
         },
         message::send_message_event,
         to_device::send_event_to_device::v3::{
             Request as RumaToDeviceRequest, Response as ToDeviceResponse,
         },
-        uiaa::AuthData,
+        uiaa::{AuthData, UiaaInfo},
     },
     assign,
     events::room::{
@@ -57,6 +59,7 @@ use ruma::{
 };
 use tokio::sync::RwLockReadGuard;
 use tracing::{debug, error, instrument, trace, warn};
+use url::Url;
 use vodozemac::Curve25519PublicKey;
 
 use self::{
@@ -73,7 +76,7 @@ use crate::{
     client::{ClientInner, WeakClient},
     error::HttpResult,
     store_locks::CrossProcessStoreLockGuard,
-    Client, Error, Result, Room, TransmissionProgress,
+    Client, Error, HttpError, Result, Room, TransmissionProgress,
 };
 
 pub mod backups;
@@ -224,6 +227,121 @@ impl CrossProcessLockStoreGuardWithGeneration {
     /// Return the Crypto Store generation associated with this store lock.
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+}
+
+/// A stateful struct remembering the cross-signing keys we need to upload.
+///
+/// Since the `/_matrix/client/v3/keys/device_signing/upload` might require
+/// additional authentication, this struct will contain information on the type
+/// of authentication the user needs to complete before the upload might be
+/// continued.
+///
+/// More info can be found in the [spec].
+///
+/// [spec]: https://spec.matrix.org/v1.11/client-server-api/#post_matrixclientv3keysdevice_signingupload
+#[derive(Debug)]
+pub struct CrossSigningResetHandle {
+    client: Client,
+    upload_request: UploadSigningKeysRequest,
+    signatures_request: UploadSignaturesRequest,
+    auth_type: CrossSigningResetAuthType,
+}
+
+impl CrossSigningResetHandle {
+    /// Get the [`CrossSigningResetAuthType`] this cross-signing reset process
+    /// is using.
+    pub fn auth_type(&self) -> &CrossSigningResetAuthType {
+        &self.auth_type
+    }
+
+    /// Continue the cross-signing reset by either waiting for the
+    /// authentication to be done on the side of the OIDC issuer or by
+    /// providing additional [`AuthData`] the homeserver requires.
+    pub async fn auth(&self, auth: Option<AuthData>) -> Result<()> {
+        let mut upload_request = self.upload_request.clone();
+        upload_request.auth = auth;
+
+        // TODO: Do we want to put a limit on this infinite loop? 🤷
+        while let Err(e) = self.client.send(upload_request.clone(), None).await {
+            if e.client_api_error_kind() != Some(&ErrorKind::Unrecognized) {
+                return Err(e.into());
+            }
+        }
+
+        self.client.send(self.signatures_request.clone(), None).await?;
+
+        Ok(())
+    }
+}
+
+/// information about the additional authentication that is required before the
+/// cross-signing keys can be uploaded.
+#[derive(Debug, Clone)]
+pub enum CrossSigningResetAuthType {
+    /// The homeserver requires user-interactive authentication.
+    Uiaa(UiaaInfo),
+    /// OIDC is used for authentication and the user needs to open a URL to
+    /// approve the upload of cross-signing keys.
+    Oidc(OidcCrossSigningResetInfo),
+}
+
+impl CrossSigningResetAuthType {
+    async fn new(client: &Client, error: &HttpError) -> Result<Option<Self>> {
+        if let Some(auth_info) = error.as_uiaa_response() {
+            Ok(Some(CrossSigningResetAuthType::Uiaa(auth_info.clone())))
+        } else if let Some(ErrorBody::Standard { kind, message }) =
+            error.as_client_api_error().map(|e| &e.body)
+        {
+            OidcCrossSigningResetInfo::from_matrix_error(client, kind, message)
+                .await
+                .map(|t| t.map(CrossSigningResetAuthType::Oidc))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+/// OIDC specific information about the required authentication for the upload
+/// of cross-signing keys.
+#[derive(Debug, Clone)]
+pub struct OidcCrossSigningResetInfo {
+    /// The error message we received from the homeserver after we attempted to
+    /// reset the cross-signing keys.
+    pub error: String,
+    /// The URL where the user can approve the reset of the cross-signing keys.
+    pub approval_url: Url,
+}
+
+impl OidcCrossSigningResetInfo {
+    #[allow(clippy::unused_async)]
+    async fn from_matrix_error(
+        // This is used if the OIDC feature is enabled.
+        #[allow(unused_variables)] client: &Client,
+        kind: &ErrorKind,
+        message: &str,
+    ) -> Result<Option<Self>> {
+        #[cfg(feature = "experimental-oidc")]
+        use mas_oidc_client::requests::account_management::AccountManagementActionFull;
+
+        if kind == &ErrorKind::Unrecognized {
+            #[cfg(feature = "experimental-oidc")]
+            let approval_url = client
+                .oidc()
+                .account_management_url(Some(AccountManagementActionFull::CrossSigningReset))
+                .await?;
+
+            #[cfg(not(feature = "experimental-oidc"))]
+            let approval_url = None;
+
+            if let Some(approval_url) = approval_url {
+                Ok(Some(OidcCrossSigningResetInfo { error: message.to_owned(), approval_url }))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -1050,6 +1168,79 @@ impl Encryption {
         self.client.send(upload_signatures_req, None).await?;
 
         Ok(())
+    }
+
+    /// Reset the cross-signing keys.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{ruma::api::client::uiaa, Client, encryption::CrossSigningResetAuthType};
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// # let user_id = unimplemented!();
+    /// let encryption = client.encryption();
+    ///       
+    /// if let Some(handle) = encryption.reset_cross_signing().await? {
+    ///     match handle.auth_type() {
+    ///         CrossSigningResetAuthType::Uiaa(uiaa) => {
+    ///             use matrix_sdk::ruma::api::client::uiaa;
+    ///
+    ///             let password = "1234".to_owned();
+    ///             let mut password = uiaa::Password::new(user_id, password);
+    ///             password.session = uiaa.session;
+    ///
+    ///             handle.auth(Some(uiaa::AuthData::Password(password))).await?;
+    ///         }
+    ///         CrossSigningResetAuthType::Oidc(o) => {
+    ///             println!("To reset your end-to-end encryption cross-signing identity, you first need to approve it at {}", o.approval_url);
+    ///             handle.auth(None).await?;
+    ///         }
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn reset_cross_signing(&self) -> Result<Option<CrossSigningResetHandle>> {
+        let olm = self.client.olm_machine().await;
+        let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
+
+        let CrossSigningBootstrapRequests {
+            upload_keys_req,
+            upload_signing_keys_req,
+            upload_signatures_req,
+        } = olm.bootstrap_cross_signing(true).await?;
+
+        let upload_signing_keys_req = assign!(UploadSigningKeysRequest::new(), {
+            auth: None,
+            master_key: upload_signing_keys_req.master_key.map(|c| c.to_raw()),
+            self_signing_key: upload_signing_keys_req.self_signing_key.map(|c| c.to_raw()),
+            user_signing_key: upload_signing_keys_req.user_signing_key.map(|c| c.to_raw()),
+        });
+
+        if let Some(req) = upload_keys_req {
+            self.client.send_outgoing_request(req).await?;
+        }
+
+        if let Err(error) = self.client.send(upload_signing_keys_req.clone(), None).await {
+            if let Some(auth_type) = CrossSigningResetAuthType::new(&self.client, &error).await? {
+                let client = self.client.clone();
+
+                Ok(Some(CrossSigningResetHandle {
+                    client,
+                    upload_request: upload_signing_keys_req,
+                    signatures_request: upload_signatures_req,
+                    auth_type,
+                }))
+            } else {
+                Err(error.into())
+            }
+        } else {
+            self.client.send(upload_signatures_req, None).await?;
+
+            Ok(None)
+        }
     }
 
     /// Query the user's own device keys, if, and only if, we didn't have their
