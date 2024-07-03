@@ -166,7 +166,7 @@ impl IndexeddbSerializer {
         // - `MaybeEncrypted::Encrypted` becomes a JS object with properties {`version`,
         //   `nonce`, `ciphertext`}.
         //
-        // - `MaybeEncrypted::Unencrypted` becomes a JS string.
+        // - `MaybeEncrypted::Unencrypted` becomes a JS string containing base64 text.
         //
         // Otherwise, it probably uses our old serialization format:
         //
@@ -175,30 +175,63 @@ impl IndexeddbSerializer {
         //   array of JSON bytes. Net result is a JS array.
         //
         // - Unencrypted values were serialized to JSON, then deserialized into a
-        //   javascript object. (Hopefully not one that can be turned into a
-        //   `MaybeEncrypted::Encrypted`.)
+        //   javascript object/string/array/bool.
+        //
+        // Note that there are several potential ambiguities here:
+        //
+        // - A JS string could either be a legacy unencrypted value, or a
+        //   `MaybeEncrypted::Unencrypted`. However, the only thing that actually got
+        //   stored as a string under the legacy system was `backup_key_v1`, and that is
+        //   special-cased not to use this path — so if we can convert it into a
+        //   `MaybeEncrypted::Unencrypted`, then we assume it is one.
+        //
+        // - A JS array could be either a legacy encrypted value or a legacy unencrypted
+        //   value. We can tell the difference by whether we have a `cipher`.
+        //
+        // - A JS object could be either a legacy unencrypted value or a
+        //   `MaybeEncrypted::Encrypted`. We assume that no legacy JS objects have the
+        //   properties to be successfully decoded into a `MaybeEncrypted::Encrypted`.
 
         // First check if it looks like a `MaybeEncrypted`, of either type.
         if let Ok(maybe_encrypted) = serde_wasm_bindgen::from_value(value.clone()) {
             return Ok(self.maybe_decrypt_value(maybe_encrypted)?);
         }
 
-        // Check for legacy encrypted format.
-        if let (true, Some(cipher)) = (value.is_array(), &self.store_cipher) {
-            // `value` is a JS-side array containing the byte values. Turn it into a
-            // rust-side Vec<u8>.
-            let value: Vec<u8> = serde_wasm_bindgen::from_value(value)?;
+        // Otherwise, fall back to the legacy deserializer.
+        self.deserialize_legacy_value(value)
+    }
 
-            return Ok(cipher.decrypt_value(&value).map_err(CryptoStoreError::backend)?);
+    /// Decode a value that was encoded with an old version of
+    /// `serialize_value`.
+    ///
+    /// This should only be used on values from an old database which
+    pub fn deserialize_legacy_value<T: DeserializeOwned>(
+        &self,
+        value: JsValue,
+    ) -> Result<T, IndexeddbCryptoStoreError> {
+        match &self.store_cipher {
+            Some(cipher) => {
+                if !value.is_array() {
+                    return Err(IndexeddbCryptoStoreError::CryptoStoreError(
+                        CryptoStoreError::UnpicklingError,
+                    ));
+                }
+
+                // Looks like legacy encrypted format.
+                //
+                // `value` is a JS-side array containing the byte values. Turn it into a
+                // rust-side Vec<u8>, then decrypt.
+                let value: Vec<u8> = serde_wasm_bindgen::from_value(value)?;
+                Ok(cipher.decrypt_value(&value).map_err(CryptoStoreError::backend)?)
+            }
+
+            None => {
+                // Legacy unencrypted format could be just about anything; just try
+                // JSON-serializing the value, then deserializing it into the
+                // desired type.
+                Ok(value.into_serde()?)
+            }
         }
-
-        // Check for legacy unencrypted format
-        if value.is_object() && self.store_cipher.is_none() {
-            return Ok(value.into_serde()?);
-        }
-
-        // Can't figure out what this is.
-        Err(IndexeddbCryptoStoreError::CryptoStoreError(CryptoStoreError::UnpicklingError))
     }
 
     /// Decode a value that was previously encoded with
