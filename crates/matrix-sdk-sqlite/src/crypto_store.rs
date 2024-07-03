@@ -1387,7 +1387,7 @@ mod encrypted_tests {
 
     #[async_test]
     async fn cache_cleared() {
-        let store = get_store("cache_cleared", None).await;
+        let store = get_store("cache_cleared", None, true).await;
         // Given we created a session and saved it in the store
         let (account, session) = cryptostore_integration_tests::get_account_and_session().await;
         let sender_key = session.sender_key.to_base64();
@@ -1414,7 +1414,7 @@ mod encrypted_tests {
 
     #[async_test]
     async fn cache_cleared_after_device_update() {
-        let store = get_store("cache_cleared_after_device_update", None).await;
+        let store = get_store("cache_cleared_after_device_update", None, true).await;
         // Given we created a session and saved it in the store
         let (account, session) = cryptostore_integration_tests::get_account_and_session().await;
         let sender_key = session.sender_key.to_base64();
