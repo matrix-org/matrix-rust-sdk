@@ -733,6 +733,10 @@ fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut Room
     if room_data.limited {
         room_info.mark_members_missing();
     }
+
+    if let Some(recency_timestamp) = &room_data.timestamp {
+        room_info.update_recency_timestamp(*recency_timestamp);
+    }
 }
 
 #[cfg(test)]
@@ -762,7 +766,8 @@ mod tests {
         },
         mxc_uri, owned_mxc_uri, owned_user_id, room_alias_id, room_id,
         serde::Raw,
-        uint, user_id, JsOption, MxcUri, OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, UserId,
+        uint, user_id, JsOption, MilliSecondsSinceUnixEpoch, MxcUri, OwnedRoomId, OwnedUserId,
+        RoomAliasId, RoomId, UserId,
     };
     use serde_json::json;
 
@@ -1734,6 +1739,80 @@ mod tests {
 
         // The decrypted one is stored as the latest
         assert_eq!(rawev_id(room.latest_event().unwrap().event().clone()), "$a");
+    }
+
+    #[async_test]
+    async fn test_recency_timestamp_is_found_when_processing_sliding_sync_response() {
+        // Given a logged-in client
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+
+        // When I send sliding sync response containing a room with a recency timestamp
+        let room = assign!(v4::SlidingSyncRoom::new(), {
+            timestamp: Some(MilliSecondsSinceUnixEpoch(42u32.into())),
+        });
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // Then the room in the client has the recency timestamp
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(client_room.recency_timestamp().expect("No recency timestamp").0, 42u32.into());
+    }
+
+    #[async_test]
+    async fn test_recency_timestamp_can_be_overwritten_when_present_in_a_sliding_sync_response() {
+        // Given a logged-in client
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+
+        {
+            // When I send sliding sync response containing a room with a recency timestamp
+            let room = assign!(v4::SlidingSyncRoom::new(), {
+                timestamp: Some(MilliSecondsSinceUnixEpoch(42u32.into())),
+            });
+            let response = response_with_room(room_id, room);
+            client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+            // Then the room in the client has the recency timestamp
+            let client_room = client.get_room(room_id).expect("No room found");
+            assert_eq!(
+                client_room.recency_timestamp().expect("No recency timestamp").0,
+                42u32.into()
+            );
+        }
+
+        {
+            // When I send sliding sync response containing a room with NO recency timestamp
+            let room = assign!(v4::SlidingSyncRoom::new(), {
+                timestamp: None,
+            });
+            let response = response_with_room(room_id, room);
+            client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+            // Then the room in the client has the previous recency timestamp
+            let client_room = client.get_room(room_id).expect("No room found");
+            assert_eq!(
+                client_room.recency_timestamp().expect("No recency timestamp").0,
+                42u32.into()
+            );
+        }
+
+        {
+            // When I send sliding sync response containing a room with a NEW recency
+            // timestamp
+            let room = assign!(v4::SlidingSyncRoom::new(), {
+                timestamp: Some(MilliSecondsSinceUnixEpoch(153u32.into())),
+            });
+            let response = response_with_room(room_id, room);
+            client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+            // Then the room in the client has the recency timestamp
+            let client_room = client.get_room(room_id).expect("No room found");
+            assert_eq!(
+                client_room.recency_timestamp().expect("No recency timestamp").0,
+                153u32.into()
+            );
+        }
     }
 
     async fn choose_event_to_cache(events: &[SyncTimelineEvent]) -> Option<SyncTimelineEvent> {

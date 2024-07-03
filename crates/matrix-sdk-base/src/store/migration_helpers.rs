@@ -125,6 +125,8 @@ impl RoomInfoV1 {
             base_info: base_info.migrate(create),
             warned_about_unknown_room_version: Arc::new(false.into()),
             cached_display_name: None,
+            #[cfg(feature = "experimental-sliding-sync")]
+            recency_timestamp: None,
         }
     }
 }
