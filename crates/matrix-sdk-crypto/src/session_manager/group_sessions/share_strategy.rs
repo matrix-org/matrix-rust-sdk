@@ -98,8 +98,6 @@ pub(crate) async fn collect_session_recipients(
     outbound: &OutboundGroupSession,
 ) -> OlmResult<CollectRecipientsResult> {
     let users: BTreeSet<&UserId> = users.collect();
-    let mut devices: BTreeMap<OwnedUserId, Vec<DeviceData>> = Default::default();
-    let mut withheld_devices: Vec<(DeviceData, WithheldCode)> = Default::default();
 
     trace!(?users, ?settings, "Calculating group session recipients");
 
@@ -125,49 +123,80 @@ pub(crate) async fn collect_session_recipients(
     // This is calculated in the following code and stored in this variable.
     let mut should_rotate = user_left || visibility_changed || algorithm_changed;
 
-    let own_identity = store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
+    let mut devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>> = Default::default();
+    let mut withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)> = Default::default();
 
-    for user_id in users {
-        let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
+    match settings.sharing_strategy {
+        CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices } => {
+            let own_identity =
+                store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
+            for user_id in users {
+                let user_devices = store.get_readonly_devices_filtered(user_id).await?;
 
-        let recipient_devices = match settings.sharing_strategy {
-            CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices } => {
                 // We only need the user identity if only_allow_trusted_devices is set.
                 let device_owner_identity = if only_allow_trusted_devices {
                     store.get_user_identity(user_id).await?
                 } else {
                     None
                 };
-                split_recipients_withhelds_for_user(
+                let recipient_devices = split_recipients_withhelds_for_user(
                     user_devices,
                     &own_identity,
                     &device_owner_identity,
                     only_allow_trusted_devices,
-                )
+                );
+
+                // If we haven't already concluded that the session should be
+                // rotated for other reasons, we also need to check whether any
+                // of the devices in the session got deleted or blacklisted in the
+                // meantime. If so, we should also rotate the session.
+                if !should_rotate {
+                    should_rotate = should_rotate_due_to_left_device(
+                        user_id,
+                        &recipient_devices.allowed_devices,
+                        outbound,
+                    );
+                }
+
+                devices
+                    .entry(user_id.to_owned())
+                    .or_default()
+                    .extend(recipient_devices.allowed_devices);
+                withheld_devices.extend(recipient_devices.denied_devices_with_code);
             }
-            CollectStrategy::IdentityBasedStrategy => {
+        }
+        CollectStrategy::IdentityBasedStrategy => {
+            let _maybe_own_identity =
+                store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
+
+            for user_id in users {
+                let user_devices = store.get_readonly_devices_filtered(user_id).await?;
                 let device_owner_identity = store.get_user_identity(user_id).await?;
-                split_recipients_withhelds_for_user_based_on_identity(
+                let recipient_devices = split_recipients_withhelds_for_user_based_on_identity(
                     user_devices,
                     &device_owner_identity,
-                )
+                );
+
+                // If we haven't already concluded that the session should be
+                // rotated for other reasons, we also need to check whether any
+                // of the devices in the session got deleted or blacklisted in the
+                // meantime. If so, we should also rotate the session.
+                if !should_rotate {
+                    should_rotate = should_rotate_due_to_left_device(
+                        user_id,
+                        &recipient_devices.allowed_devices,
+                        outbound,
+                    );
+                }
+
+                devices
+                    .entry(user_id.to_owned())
+                    .or_default()
+                    .extend(recipient_devices.allowed_devices);
+                withheld_devices.extend(recipient_devices.denied_devices_with_code);
             }
-        };
-
-        let recipients = recipient_devices.allowed_devices;
-        let withheld_recipients = recipient_devices.denied_devices_with_code;
-
-        // If we haven't already concluded that the session should be
-        // rotated for other reasons, we also need to check whether any
-        // of the devices in the session got deleted or blacklisted in the
-        // meantime. If so, we should also rotate the session.
-        if !should_rotate {
-            should_rotate = should_rotate_due_to_left_device(user_id, &recipients, outbound);
         }
-
-        devices.entry(user_id.to_owned()).or_default().extend(recipients);
-        withheld_devices.extend(withheld_recipients);
-    }
+    };
 
     if should_rotate {
         debug!(
