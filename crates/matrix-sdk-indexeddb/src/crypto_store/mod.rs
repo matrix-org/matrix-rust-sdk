@@ -377,6 +377,14 @@ impl IndexeddbCryptoStore {
         IndexeddbCryptoStore::open_with_store_cipher(name, None).await
     }
 
+    /// Delete the IndexedDB databases for the given name.
+    #[cfg(test)]
+    pub fn delete_stores(prefix: &str) -> Result<()> {
+        IdbDatabase::delete_by_name(&format!("{prefix:0}::matrix-sdk-crypto-meta"))?;
+        IdbDatabase::delete_by_name(&format!("{prefix:0}::matrix-sdk-crypto"))?;
+        Ok(())
+    }
+
     fn get_static_account(&self) -> Option<StaticAccountData> {
         self.static_account.read().unwrap().clone()
     }
@@ -1735,7 +1743,14 @@ mod tests {
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    async fn get_store(name: &str, passphrase: Option<&str>) -> IndexeddbCryptoStore {
+    async fn get_store(
+        name: &str,
+        passphrase: Option<&str>,
+        clear_data: bool,
+    ) -> IndexeddbCryptoStore {
+        if clear_data {
+            IndexeddbCryptoStore::delete_stores(name).unwrap();
+        }
         match passphrase {
             Some(pass) => IndexeddbCryptoStore::open_with_passphrase(name, pass)
                 .await
@@ -1748,7 +1763,7 @@ mod tests {
 
     #[async_test]
     async fn cache_cleared_after_device_update() {
-        let store = get_store("cache_cleared_after_device_update", None).await;
+        let store = get_store("cache_cleared_after_device_update", None, true).await;
         // Given we created a session and saved it in the store
         let (account, session) = cryptostore_integration_tests::get_account_and_session().await;
         let sender_key = session.sender_key.to_base64();
@@ -1800,11 +1815,17 @@ mod encrypted_tests {
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    async fn get_store(name: &str, passphrase: Option<&str>) -> IndexeddbCryptoStore {
+    async fn get_store(
+        name: &str,
+        passphrase: Option<&str>,
+        clear_data: bool,
+    ) -> IndexeddbCryptoStore {
+        if clear_data {
+            IndexeddbCryptoStore::delete_stores(name).unwrap();
+        }
+
         let pass = passphrase.unwrap_or(name);
-        // make sure to use a different store name than the equivalent unencrypted test
-        let store_name = name.to_owned() + "_enc";
-        IndexeddbCryptoStore::open_with_passphrase(&store_name, pass)
+        IndexeddbCryptoStore::open_with_passphrase(&name, pass)
             .await
             .expect("Can't create a passphrase protected store")
     }
@@ -1819,6 +1840,7 @@ mod encrypted_tests {
         let b64_passdata = base64_encode(passdata);
 
         // Initialise the store with some account data
+        IndexeddbCryptoStore::delete_stores(store_name).unwrap();
         let store = IndexeddbCryptoStore::open_with_passphrase(&store_name, &b64_passdata)
             .await
             .expect("Can't create a passphrase-protected store");

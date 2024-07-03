@@ -1132,7 +1132,11 @@ mod integration_tests {
     /// dropping this store won't destroy its data, since
     /// [PersistentMemoryStore] is a reference-counted smart pointer
     /// to an underlying [MemoryStore].
-    async fn get_store(name: &str, _passphrase: Option<&str>) -> PersistentMemoryStore {
+    async fn get_store(
+        name: &str,
+        _passphrase: Option<&str>,
+        clear_data: bool,
+    ) -> PersistentMemoryStore {
         // Holds on to one [PersistentMemoryStore] per test, so even if the test drops
         // the store, we keep its data alive. This simulates the behaviour of
         // the other stores, which keep their data in a real DB, allowing us to
@@ -1140,12 +1144,16 @@ mod integration_tests {
         static STORES: OnceLock<Mutex<HashMap<String, PersistentMemoryStore>>> = OnceLock::new();
         let stores = STORES.get_or_init(|| Mutex::new(HashMap::new()));
 
-        stores
-            .lock()
-            .unwrap()
-            .entry(name.to_owned())
-            .or_insert_with(PersistentMemoryStore::new)
-            .clone()
+        let mut stores = stores.lock().unwrap();
+
+        if clear_data {
+            // Create a new PersistentMemoryStore
+            let new_store = PersistentMemoryStore::new();
+            stores.insert(name.to_owned(), new_store.clone());
+            new_store
+        } else {
+            stores.entry(name.to_owned()).or_insert_with(PersistentMemoryStore::new).clone()
+        }
     }
 
     /// Forwards all methods to the underlying [MemoryStore].
