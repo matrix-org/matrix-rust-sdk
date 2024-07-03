@@ -90,7 +90,11 @@ mod keys {
 
     // backup v1
     pub const BACKUP_KEYS: &str = "backup_keys";
-    pub const BACKUP_KEY_V1: &str = "backup_key_v1";
+
+    /// Indexeddb key for the key backup version that [`RECOVERY_KEY_V1`]
+    /// corresponds to.
+    pub const BACKUP_VERSION_V1: &str = "backup_version_v1";
+
     /// Indexeddb key for the backup decryption key.
     ///
     /// Known, for historical reasons, as the recovery key. Not to be confused
@@ -479,9 +483,10 @@ impl IndexeddbCryptoStore {
         }
 
         if let Some(a) = &backup_version {
-            indexeddb_changes
-                .get(keys::BACKUP_KEYS)
-                .put(JsValue::from_str(keys::BACKUP_KEY_V1), self.serializer.serialize_value(&a)?);
+            indexeddb_changes.get(keys::BACKUP_KEYS).put(
+                JsValue::from_str(keys::BACKUP_VERSION_V1),
+                self.serializer.serialize_value(&a)?,
+            );
         }
 
         if !changes.sessions.is_empty() {
@@ -1208,7 +1213,7 @@ impl_crypto_store! {
             let store = tx.object_store(keys::BACKUP_KEYS)?;
 
             let backup_version = store
-                .get(&JsValue::from_str(keys::BACKUP_KEY_V1))?
+                .get(&JsValue::from_str(keys::BACKUP_VERSION_V1))?
                 .await?
                 .map(|i| self.serializer.deserialize_value(i))
                 .transpose()?;

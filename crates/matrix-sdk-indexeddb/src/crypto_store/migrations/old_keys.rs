@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(doc)]
+use crate::crypto_store::keys::BACKUP_VERSION_V1;
+
 /// Old format of the `inbound_group_sessions` store which lacked indexes or
 /// a sensible structure
 pub const INBOUND_GROUP_SESSIONS_V1: &str = "inbound_group_sessions";
@@ -20,3 +23,6 @@ pub const INBOUND_GROUP_SESSIONS_V1: &str = "inbound_group_sessions";
 /// JSON-encoding and arrays of ints instead of base64.
 /// Also lacked the `backed_up_to` property+index.
 pub const INBOUND_GROUP_SESSIONS_V2: &str = "inbound_group_sessions2";
+
+/// An old name for [`BACKUP_VERSION_V1`].
+pub const BACKUP_KEY_V1: &str = "backup_key_v1";

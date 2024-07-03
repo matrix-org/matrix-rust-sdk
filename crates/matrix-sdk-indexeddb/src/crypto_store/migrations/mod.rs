@@ -25,6 +25,7 @@ use crate::{
 
 mod old_keys;
 mod v0_to_v5;
+mod v10_to_v11;
 mod v5_to_v7;
 mod v7;
 mod v7_to_v8;
@@ -106,8 +107,12 @@ pub async fn open_and_upgrade_db(
         v8_to_v10::schema_delete(name).await?;
     }
 
+    if old_version < 11 {
+        v10_to_v11::data_migrate(name, serializer).await?;
+    }
+
     // Open and return the DB (we know it's at the latest version)
-    Ok(IdbDatabase::open_u32(name, 10)?.await?)
+    Ok(IdbDatabase::open_u32(name, 11)?.await?)
 }
 
 async fn db_version(name: &str) -> Result<u32, IndexeddbCryptoStoreError> {
@@ -183,7 +188,10 @@ mod tests {
 
     use super::{v0_to_v5, v7::InboundGroupSessionIndexedDbObject2};
     use crate::{
-        crypto_store::{keys, migrations::*, InboundGroupSessionIndexedDbObject},
+        crypto_store::{
+            indexeddb_serializer::MaybeEncrypted, keys, migrations::*,
+            InboundGroupSessionIndexedDbObject,
+        },
         IndexeddbCryptoStore,
     };
 
