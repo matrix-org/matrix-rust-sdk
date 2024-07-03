@@ -31,7 +31,7 @@ use axum::{
 use futures_util::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
-    encryption::recovery::RecoveryState,
+    encryption::{recovery::RecoveryState, CrossSigningResetAuthType},
     oidc::{
         requests::account_management::AccountManagementActionFull,
         types::{
@@ -356,6 +356,12 @@ impl OidcCli {
                 Some("refresh") => {
                     self.refresh_token().await?;
                 }
+                Some("recover") => {
+                    self.recover().await?;
+                }
+                Some("reset-cross-signing") => {
+                    self.reset_cross_signing().await?;
+                }
                 Some("logout") => {
                     self.logout().await?;
                     break;
@@ -365,9 +371,6 @@ impl OidcCli {
                 }
                 Some("help") => {
                     help();
-                }
-                Some("recover") => {
-                    self.recover().await?;
                 }
                 Some(cmd) => {
                     println!("Error: unknown command '{cmd}'\n");
@@ -401,6 +404,26 @@ impl OidcCli {
             RecoveryState::Incomplete => println!("Couldn't recover all E2EE secrets."),
             _ => unreachable!("We should know our recovery state by now"),
         }
+
+        Ok(())
+    }
+
+    async fn reset_cross_signing(&self) -> Result<()> {
+        let encryption = self.client.encryption();
+
+        if let Some(handle) = encryption.reset_cross_signing().await? {
+            match handle.auth_type() {
+                CrossSigningResetAuthType::Uiaa(_) => {
+                    unimplemented!("This should never happen, this is after all the OIDC example.")
+                }
+                CrossSigningResetAuthType::Oidc(o) => {
+                    println!("To reset your end-to-end encryption cross-signing identity, you first need to approve it at {}", o.approval_url);
+                    handle.auth(None).await?;
+                }
+            }
+        }
+
+        print!("Successfully reset cross-signing");
 
         Ok(())
     }
