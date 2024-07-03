@@ -183,6 +183,7 @@ mod tests {
     use matrix_sdk_store_encryption::StoreCipher;
     use matrix_sdk_test::async_test;
     use ruma::{room_id, OwnedRoomId, RoomId};
+    use serde::Serialize;
     use tracing_subscriber::util::SubscriberInitExt;
     use web_sys::console;
 
@@ -483,7 +484,7 @@ mod tests {
         fetched_backed_up_session: InboundGroupSession,
     ) {
         let db = IdbDatabase::open(&db_name).unwrap().await.unwrap();
-        assert_eq!(db.version(), 10.0);
+        assert!(db.version() >= 10.0);
         let transaction = db.transaction_on_one("inbound_group_sessions3").unwrap();
         let raw_store = transaction.object_store("inbound_group_sessions3").unwrap();
         let key = store.serializer.encode_key(
@@ -568,19 +569,9 @@ mod tests {
                 serializer.encode_key(old_keys::INBOUND_GROUP_SESSIONS_V1, (room_id, session_id));
             let pickle = session.pickle().await;
 
-            let serialized_session = if let Some(cipher) = &store_cipher {
-                // Old-style serialization/encryption. First JSON-serialize into a byte array...
-                let data = serde_json::to_vec(&pickle).unwrap();
-                // ... then encrypt...
-                let encrypted = cipher.encrypt_value_data(data).unwrap();
-                // ... then JSON-serialize into another byte array ...
-                let value = serde_json::to_vec(&encrypted).unwrap();
-                // and finally, turn it into a javascript array.
-                JsValue::from_serde(&value).unwrap()
-            } else {
-                JsValue::from_serde(&pickle).unwrap()
-            };
-
+            // Serialize the session with the old style of serialization, since that's what
+            // we used at the time.
+            let serialized_session = serialize_value_as_legacy(&store_cipher, &pickle);
             sessions.put_key_val(&key, &serialized_session).unwrap();
         }
         txn.await.into_result().unwrap();
@@ -590,8 +581,83 @@ mod tests {
         db.close();
     }
 
+    /// Test migrating `backup_keys` data from store v10 to latest,
+    /// on a store with encryption disabled.
+    #[async_test]
+    async fn test_v10_v11_migration_unencrypted() {
+        test_v10_v11_migration_with_cipher("test_v10_migration_unencrypted", None).await
+    }
+
+    /// Test migrating `backup_keys` data from store v10 to latest,
+    /// on a store with encryption enabled.
+    #[async_test]
+    async fn test_v10_v11_migration_encrypted() {
+        let cipher = StoreCipher::new().unwrap();
+        test_v10_v11_migration_with_cipher("test_v10_migration_encrypted", Some(Arc::new(cipher)))
+            .await;
+    }
+
+    /// Helper function for `test_v10_v11_migration_{un,}encrypted`: test
+    /// migrating `backup_keys` data from store v10 to store v11.
+    async fn test_v10_v11_migration_with_cipher(
+        db_prefix: &str,
+        store_cipher: Option<Arc<StoreCipher>>,
+    ) {
+        let _ = make_tracing_subscriber(None).try_init();
+        let db_name = format!("{db_prefix:0}::matrix-sdk-crypto");
+
+        // delete the db in case it was used in a previous run
+        let _ = IdbDatabase::delete_by_name(&db_name);
+
+        // Given a DB with data in it as it was at v5
+        let db = create_v5_db(&db_name).await.unwrap();
+
+        let txn = db
+            .transaction_on_one_with_mode(keys::BACKUP_KEYS, IdbTransactionMode::Readwrite)
+            .unwrap();
+        let store = txn.object_store(keys::BACKUP_KEYS).unwrap();
+        store
+            .put_key_val(
+                &JsValue::from_str(old_keys::BACKUP_KEY_V1),
+                &serialize_value_as_legacy(&store_cipher, &"1".to_owned()),
+            )
+            .unwrap();
+        db.close();
+
+        // When I open a store based on that DB, triggering an upgrade
+        let store =
+            IndexeddbCryptoStore::open_with_store_cipher(&db_prefix, store_cipher).await.unwrap();
+
+        // Then I can read the backup settings
+        let backup_data = store.load_backup_keys().await.unwrap();
+        assert_eq!(backup_data.backup_version, Some("1".to_owned()));
+    }
+
     async fn create_v5_db(name: &str) -> std::result::Result<IdbDatabase, DomException> {
         v0_to_v5::schema_add(name).await?;
         IdbDatabase::open_u32(name, 5)?.await
+    }
+
+    /// Emulate the old behaviour of [`IndexeddbSerializer::serialize_value`].
+    ///
+    /// We used to use an inefficient format for serializing objects in the
+    /// indexeddb store. This replicates that old behaviour, for testing
+    /// purposes.
+    fn serialize_value_as_legacy<T: Serialize>(
+        store_cipher: &Option<Arc<StoreCipher>>,
+        value: &T,
+    ) -> JsValue {
+        if let Some(cipher) = &store_cipher {
+            // Old-style serialization/encryption. First JSON-serialize into a byte array...
+            let data = serde_json::to_vec(&value).unwrap();
+            // ... then encrypt...
+            let encrypted = cipher.encrypt_value_data(data).unwrap();
+            // ... then JSON-serialize into another byte array ...
+            let value = serde_json::to_vec(&encrypted).unwrap();
+            // and finally, turn it into a javascript array.
+            JsValue::from_serde(&value).unwrap()
+        } else {
+            JsValue::from_serde(&value).unwrap()
+        }
     }
 }
