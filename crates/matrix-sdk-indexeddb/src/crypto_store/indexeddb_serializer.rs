@@ -20,7 +20,7 @@ use base64::{
     Engine,
 };
 use gloo_utils::format::JsValueSerdeExt;
-use matrix_sdk_crypto::{olm::PickledInboundGroupSession, CryptoStoreError};
+use matrix_sdk_crypto::CryptoStoreError;
 use matrix_sdk_store_encryption::{EncryptedValueBase64, StoreCipher};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use wasm_bindgen::JsValue;
@@ -145,10 +145,10 @@ impl IndexeddbSerializer {
         }
     }
 
-    /// Encode an InboundGroupSession for storage as a value in indexeddb.
-    pub fn maybe_encrypt_value(
+    /// Encode an object for storage as a value in indexeddb.
+    pub fn maybe_encrypt_value<T: Serialize>(
         &self,
-        value: PickledInboundGroupSession,
+        value: T,
     ) -> Result<MaybeEncrypted, CryptoStoreError> {
         Ok(match &self.store_cipher {
             Some(cipher) => MaybeEncrypted::Encrypted(
@@ -194,10 +194,10 @@ impl IndexeddbSerializer {
 
     /// Decode a value that was previously encoded with
     /// [`Self::maybe_encrypt_value`]
-    pub fn maybe_decrypt_value(
+    pub fn maybe_decrypt_value<T: DeserializeOwned>(
         &self,
         value: MaybeEncrypted,
-    ) -> Result<PickledInboundGroupSession, CryptoStoreError> {
+    ) -> Result<T, CryptoStoreError> {
         match (&self.store_cipher, value) {
             (Some(cipher), MaybeEncrypted::Encrypted(enc)) => {
                 cipher.decrypt_value_base64_typed(enc).map_err(CryptoStoreError::backend)
