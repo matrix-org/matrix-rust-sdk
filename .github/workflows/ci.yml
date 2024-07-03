@@ -223,6 +223,9 @@ jobs:
           - name: '[m], indexeddb stores, no crypto'
             cmd: matrix-sdk-indexeddb-stores-no-crypto
 
+          - name: '[m]-sdk-ui'
+            cmd: matrix-sdk-ui
+
     steps:
       - name: Checkout the repo
         uses: actions/checkout@v4
