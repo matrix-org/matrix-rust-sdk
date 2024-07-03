@@ -14,6 +14,7 @@
 
 //! The `Room` type.
 
+use core::fmt;
 use std::{ops::Deref, sync::Arc};
 
 use async_once_cell::OnceCell as AsyncOnceCell;
@@ -29,12 +30,17 @@ use crate::{
 /// A room in the room list.
 ///
 /// It's cheap to clone this type.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Room {
     inner: Arc<RoomInner>,
 }
 
-#[derive(Debug)]
+impl fmt::Debug for Room {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("Room").field(&self.id().to_owned()).finish()
+    }
+}
+
 struct RoomInner {
     /// The Sliding Sync where everything comes from.
     sliding_sync: Arc<SlidingSync>,

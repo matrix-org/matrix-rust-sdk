@@ -153,6 +153,8 @@ impl BaseClient {
         let mut notifications = Default::default();
         let mut rooms_account_data = account_data.rooms.clone();
 
+        let mut trigger_room_list_update = false;
+
         for (room_id, response_room_data) in rooms {
             let (room_info, joined_room, left_room, invited_room) = self
                 .process_sliding_sync_room(
@@ -163,6 +165,7 @@ impl BaseClient {
                     &mut changes,
                     &mut notifications,
                     &mut ambiguity_cache,
+                    &mut trigger_room_list_update,
                 )
                 .await?;
 
@@ -292,12 +295,7 @@ impl BaseClient {
 
         trace!("ready to submit changes to store");
         store.save_changes(&changes).await?;
-        self.apply_changes(
-            &changes,
-            // The changes may result in a latest event update, which should trigger a room list
-            // re-ordering. This the room list should be notified by these changes.
-            true,
-        );
+        self.apply_changes(&changes, trigger_room_list_update);
         trace!("applied changes");
 
         // Now that all the rooms information have been saved, update the display name
@@ -327,6 +325,7 @@ impl BaseClient {
         changes: &mut StateChanges,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
         ambiguity_cache: &mut AmbiguityCache,
+        trigger_room_list_update: &mut bool,
     ) -> Result<(RoomInfo, Option<JoinedRoomUpdate>, Option<LeftRoomUpdate>, Option<InvitedRoom>)>
     {
         let (raw_state_events, state_events): (Vec<_>, Vec<_>) = {
@@ -375,7 +374,7 @@ impl BaseClient {
             .await?;
         }
 
-        process_room_properties(room_data, &mut room_info);
+        process_room_properties(room_data, &mut room_info, trigger_room_list_update);
 
         let timeline = self
             .handle_timeline(
@@ -690,7 +689,11 @@ async fn cache_latest_events(
     room.latest_encrypted_events.write().unwrap().extend(encrypted_events.into_iter().rev());
 }
 
-fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut RoomInfo) {
+fn process_room_properties(
+    room_data: &v4::SlidingSyncRoom,
+    room_info: &mut RoomInfo,
+    trigger_room_list_update: &mut bool,
+) {
     // Handle the room's avatar.
     //
     // It can be updated via the state events, or via the
@@ -736,6 +739,7 @@ fn process_room_properties(room_data: &v4::SlidingSyncRoom, room_info: &mut Room
 
     if let Some(recency_timestamp) = &room_data.timestamp {
         room_info.update_recency_timestamp(*recency_timestamp);
+        *trigger_room_list_update = true;
     }
 }
 

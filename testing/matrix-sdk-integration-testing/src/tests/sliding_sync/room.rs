@@ -954,14 +954,6 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
             assert_eq!(room.room_id(), alice_room.room_id());
         }
     );
-    assert_let!(Some(diffs) = stream.next().await);
-    assert_eq!(diffs.len(), 1);
-    assert_matches!(
-        &diffs[0],
-        VectorDiff::Set { index: 0, value: room } => {
-            assert_eq!(room.room_id(), alice_room.room_id());
-        }
-    );
     assert_pending!(stream);
 
     // Send a message, it should arrive
@@ -982,6 +974,7 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
             }
         );
     }
+
     assert_pending!(stream);
 
     Ok(())
