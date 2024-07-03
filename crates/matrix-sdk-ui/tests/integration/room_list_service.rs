@@ -1654,6 +1654,277 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
 }
 
 #[async_test]
+async fn test_room_sorting() -> Result<(), Error> {
+    let (client, server, room_list) = new_room_list_service().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let all_rooms = room_list.all_rooms().await?;
+
+    let (stream, dynamic_entries) =
+        all_rooms.entries_with_dynamic_adapters(10, client.roominfo_update_receiver());
+    pin_mut!(stream);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Init => SettingUp,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 5,
+                },
+            },
+            "rooms": {
+                "!r0:bar.org": {
+                    "initial": true,
+                    "timestamp": 3,
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Bbb"
+                            },
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name",
+                            "event_id": "$s0",
+                            "origin_server_ts": 3,
+                        },
+                    ],
+                },
+                "!r1:bar.org": {
+                    "initial": true,
+                    "timestamp": 3,
+                    "required_state": [
+                        {
+                            "content": {
+                                "name": "Aaa"
+                            },
+                            "sender": "@example:bar.org",
+                            "state_key": "",
+                            "type": "m.room.name",
+                            "event_id": "$s1",
+                            "origin_server_ts": 3,
+                        },
+                    ],
+                },
+                "!r2:bar.org": {
+                    "initial": true,
+                    "timestamp": 1,
+                },
+                "!r3:bar.org": {
+                    "initial": true,
+                    "timestamp": 4,
+                },
+                "!r4:bar.org": {
+                    "initial": true,
+                    "timestamp": 5,
+                },
+            },
+        },
+    };
+
+    // Ensure the dynamic entries' stream is pending because there is no filter set
+    // yet.
+    assert_pending!(stream);
+
+    // Now, let's define a filter.
+    dynamic_entries.set_filter(Box::new(new_filter_non_left()));
+
+    // Assert rooms are sorted by recency and by name!.
+    assert_entries_batch! {
+        [stream]
+        reset [
+            "!r4:bar.org", // recency of 5
+            "!r3:bar.org", // recency of 4
+            "!r1:bar.org", // recency of 3, but name comes before `!r0`
+            "!r0:bar.org", // recency of 3, but name comes after `!r1`
+            "!r2:bar.org", // recency of 1
+        ];
+        end;
+    };
+
+    // Now we have:
+    //
+    // | index | room ID | recency | name |
+    // |-------|---------|---------|------|
+    // | 0     | !r4     | 5       |      |
+    // | 1     | !r3     | 4       |      |
+    // | 2     | !r1     | 3       | Aaa  |
+    // | 3     | !r0     | 3       | Bbb  |
+    // | 4     | !r2     | 1       |      |
+
+    assert_pending!(stream);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = SettingUp => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 4]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 5,
+                },
+            },
+            "rooms": {
+                "!r0:bar.org": {
+                    "timestamp": 7,
+                },
+                "!r1:bar.org": {
+                    "timestamp": 6,
+                },
+                "!r2:bar.org": {
+                    "timestamp": 9,
+                },
+            },
+        },
+    };
+
+    // Assert rooms are moving.
+    assert_entries_batch! {
+        [stream]
+        remove [ 3 ];
+        insert [ 0 ] [ "!r0:bar.org" ];
+        end;
+    };
+
+    // Now we have:
+    //
+    // | index | room ID | recency | name |
+    // |-------|---------|---------|------|
+    // | 0     | !r0     | 7       | Bbb  |
+    // | 1     | !r4     | 5       |      |
+    // | 2     | !r3     | 4       |      |
+    // | 3     | !r1     | 3       | Aaa  |
+    // | 4     | !r2     | 1       |      |
+
+    assert_entries_batch! {
+        [stream]
+        remove [ 3 ];
+        insert [ 1 ] [ "!r1:bar.org" ];
+        end;
+    };
+
+    // Now we have:
+    //
+    // | index | room ID | recency | name |
+    // |-------|---------|---------|------|
+    // | 0     | !r0     | 7       | Bbb  |
+    // | 1     | !r1     | 6       | Aaa  |
+    // | 2     | !r4     | 5       |      |
+    // | 3     | !r3     | 4       |      |
+    // | 4     | !r2     | 1       |      |
+
+    assert_entries_batch! {
+        [stream]
+        remove [ 4 ];
+        insert [ 0 ] [ "!r2:bar.org" ];
+        end;
+    };
+
+    // Now we have:
+    //
+    // | index | room ID | recency | name |
+    // |-------|---------|---------|------|
+    // | 0     | !r2     | 9       |      |
+    // | 1     | !r0     | 7       | Bbb  |
+    // | 2     | !r1     | 6       | Aaa  |
+    // | 3     | !r4     | 5       |      |
+    // | 4     | !r3     | 4       |      |
+
+    assert_pending!(stream);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Running => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 4]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "2",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 6,
+                },
+            },
+            "rooms": {
+                "!r6:bar.org": {
+                    "initial": true,
+                    "timestamp": 8,
+                },
+                "!r3:bar.org": {
+                    "timestamp": 10,
+                },
+            },
+        },
+    };
+
+    assert_entries_batch! {
+        [stream]
+        insert [ 1 ] [ "!r6:bar.org" ];
+        end;
+    };
+
+    // Now we have:
+    //
+    // | index | room ID | recency | name |
+    // |-------|---------|---------|------|
+    // | 0     | !r2     | 9       |      |
+    // | 1     | !r6     | 8       |      |
+    // | 2     | !r0     | 7       | Bbb  |
+    // | 3     | !r1     | 6       | Aaa  |
+    // | 4     | !r4     | 5       |      |
+    // | 5     | !r3     | 4       |      |
+
+    assert_entries_batch! {
+        [stream]
+        remove [ 5 ];
+        insert [ 0 ] [ "!r3:bar.org" ];
+        end;
+    };
+
+    // Now we have:
+    //
+    // | index | room ID | recency | name |
+    // |-------|---------|---------|------|
+    // | 0     | !r3     | 10      |      |
+    // | 1     | !r2     | 9       |      |
+    // | 2     | !r6     | 8       |      |
+    // | 3     | !r0     | 7       | Bbb  |
+    // | 4     | !r1     | 6       | Aaa  |
+    // | 5     | !r4     | 5       |      |
+
+    assert_entries_batch! {
+        [stream]
+        set [ 2 ] [ "!r6:bar.org" ];
+        end;
+    };
+
+    assert_pending!(stream);
+
+    Ok(())
+}
+
+#[async_test]
 async fn test_room() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
 
