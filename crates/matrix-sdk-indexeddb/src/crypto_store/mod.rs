@@ -377,6 +377,14 @@ impl IndexeddbCryptoStore {
         IndexeddbCryptoStore::open_with_store_cipher(name, None).await
     }
 
+    /// Delete the IndexedDB databases for the given name.
+    #[cfg(test)]
+    pub fn delete_stores(prefix: &str) -> Result<()> {
+        IdbDatabase::delete_by_name(&format!("{prefix:0}::matrix-sdk-crypto-meta"))?;
+        IdbDatabase::delete_by_name(&format!("{prefix:0}::matrix-sdk-crypto"))?;
+        Ok(())
+    }
+
     fn get_static_account(&self) -> Option<StaticAccountData> {
         self.static_account.read().unwrap().clone()
     }
@@ -1724,7 +1732,6 @@ mod wasm_unit_tests {
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
-    use indexed_db_futures::IdbDatabase;
     use matrix_sdk_crypto::{
         cryptostore_integration_tests,
         store::{Changes, CryptoStore as _, DeviceChanges, PendingChanges},
@@ -1742,8 +1749,7 @@ mod tests {
         clear_data: bool,
     ) -> IndexeddbCryptoStore {
         if clear_data {
-            IdbDatabase::delete_by_name(&format!("{name:0}::matrix-sdk-crypto-meta")).unwrap();
-            IdbDatabase::delete_by_name(&format!("{name:0}::matrix-sdk-crypto")).unwrap();
+            IndexeddbCryptoStore::delete_stores(name).unwrap();
         }
         match passphrase {
             Some(pass) => IndexeddbCryptoStore::open_with_passphrase(name, pass)
@@ -1796,7 +1802,6 @@ mod tests {
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod encrypted_tests {
-    use indexed_db_futures::IdbDatabase;
     use matrix_sdk_crypto::{
         cryptostore_integration_tests,
         olm::Account,
@@ -1816,8 +1821,7 @@ mod encrypted_tests {
         clear_data: bool,
     ) -> IndexeddbCryptoStore {
         if clear_data {
-            IdbDatabase::delete_by_name(&format!("{name:0}::matrix-sdk-crypto-meta")).unwrap();
-            IdbDatabase::delete_by_name(&format!("{name:0}::matrix-sdk-crypto")).unwrap();
+            IndexeddbCryptoStore::delete_stores(name).unwrap();
         }
 
         let pass = passphrase.unwrap_or(name);
@@ -1836,6 +1840,7 @@ mod encrypted_tests {
         let b64_passdata = base64_encode(passdata);
 
         // Initialise the store with some account data
+        IndexeddbCryptoStore::delete_stores(store_name).unwrap();
         let store = IndexeddbCryptoStore::open_with_passphrase(&store_name, &b64_passdata)
             .await
             .expect("Can't create a passphrase-protected store");
