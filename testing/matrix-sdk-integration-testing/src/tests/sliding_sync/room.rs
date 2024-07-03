@@ -801,8 +801,8 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     assert_eq!(bob_room.state(), RoomState::Joined);
 
     let alice_all_rooms = alice_sync_service.room_list_service().all_rooms().await.unwrap();
-    let (stream, entries) =
-        alice_all_rooms.entries_with_dynamic_adapters(10, alice.room_info_notable_update_receiver());
+    let (stream, entries) = alice_all_rooms
+        .entries_with_dynamic_adapters(10, alice.room_info_notable_update_receiver());
     entries.set_filter(Box::new(new_filter_all(vec![])));
     pin_mut!(stream);
 
@@ -847,18 +847,6 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
             assert_eq!(room.room_id(), alice_room.room_id());
         }
     );
-
-    // Sometimes Synapse sends the same message twice. Let's consume useless `Set`…
-    // if they arrived before 3s.
-    if let Ok(Some(diffs)) = timeout(Duration::from_secs(3), stream.next()).await {
-        assert_eq!(diffs.len(), 1);
-        assert_matches!(
-            &diffs[0],
-            VectorDiff::Set { index: 0, value: room } => {
-                assert_eq!(room.room_id(), alice_room.room_id());
-            }
-        );
-    }
 
     assert_pending!(stream);
 
@@ -927,8 +915,8 @@ async fn test_room_info_notable_update_deduplication() -> Result<()> {
     alice_room.enable_encryption().await.unwrap();
 
     let alice_all_rooms = alice_sync_service.room_list_service().all_rooms().await.unwrap();
-    let (stream, entries) =
-        alice_all_rooms.entries_with_dynamic_adapters(10, alice.room_info_notable_update_receiver());
+    let (stream, entries) = alice_all_rooms
+        .entries_with_dynamic_adapters(10, alice.room_info_notable_update_receiver());
     entries.set_filter(Box::new(new_filter_all(vec![])));
 
     pin_mut!(stream);
@@ -999,17 +987,14 @@ async fn test_room_info_notable_update_deduplication() -> Result<()> {
         }
     );
 
-    // Sometimes Synapse sends the same message twice. Let's consume useless `Set`…
-    // if they arrived before 3s.
-    if let Ok(Some(diffs)) = timeout(Duration::from_secs(3), stream.next()).await {
-        assert_eq!(diffs.len(), 1);
-        assert_matches!(
-            &diffs[0],
-            VectorDiff::Set { index: 0, value: room } => {
-                assert_eq!(room.room_id(), alice_room.room_id());
-            }
-        );
-    }
+    assert_let!(Some(diffs) = stream.next().await);
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(
+        &diffs[0],
+        VectorDiff::Set { index: 0, value: room } => {
+            assert_eq!(room.room_id(), alice_room.room_id());
+        }
+    );
 
     assert_pending!(stream);
 
