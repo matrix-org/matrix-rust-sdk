@@ -4,32 +4,37 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use matrix_sdk::{config::SyncSettings, ruma::OwnedUserId, Client, LoopCtrl};
+use anyhow::Result;
+use matrix_sdk::{
+    config::SyncSettings,
+    encryption::CrossSigningResetAuthType,
+    ruma::{api::client::uiaa, OwnedUserId},
+    Client, LoopCtrl,
+};
 use url::Url;
 
-async fn bootstrap(client: Client, user_id: OwnedUserId, password: String) {
+async fn bootstrap(client: Client, user_id: OwnedUserId, password: String) -> Result<()> {
     println!("Bootstrapping a new cross signing identity, press enter to continue.");
 
     let mut input = String::new();
 
     io::stdin().read_line(&mut input).expect("error: unable to read user input");
 
-    if let Err(e) = client.encryption().bootstrap_cross_signing(None).await {
-        use matrix_sdk::ruma::api::client::uiaa;
-
-        if let Some(response) = e.as_uiaa_response() {
-            let mut password = uiaa::Password::new(user_id.into(), password);
-            password.session = response.session.clone();
-
-            client
-                .encryption()
-                .bootstrap_cross_signing(Some(uiaa::AuthData::Password(password)))
-                .await
-                .expect("Couldn't bootstrap cross signing")
-        } else {
-            panic!("Error during cross-signing bootstrap {e:#?}");
+    if let Some(handle) = client.encryption().reset_cross_signing().await? {
+        match handle.auth_type() {
+            CrossSigningResetAuthType::Uiaa(uiaa) => {
+                let mut password = uiaa::Password::new(user_id.into(), password);
+                password.session = uiaa.session.clone();
+                handle.auth(Some(uiaa::AuthData::Password(password))).await?;
+            }
+            CrossSigningResetAuthType::Oidc(oidc) => {
+                println!("To reset your end-to-end encryption cross-signing identity, you first need to approve it at {}", oidc.approval_url);
+                handle.auth(None).await?;
+            }
         }
     }
+
+    Ok(())
 }
 
 async fn login(homeserver_url: String, username: &str, password: &str) -> matrix_sdk::Result<()> {
@@ -67,7 +72,7 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> matrix
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let (homeserver_url, username, password) =
