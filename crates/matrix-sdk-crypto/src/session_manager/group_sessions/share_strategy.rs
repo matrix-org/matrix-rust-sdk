@@ -42,13 +42,22 @@ pub enum CollectStrategy {
         ///       trusted via interactive verification.
         ///     - It is the current own device of the user.
         only_allow_trusted_devices: bool,
-    }, // XXX some new strategy to be defined later
+    },
+    /// Share based on identity. Only distribute to devices signed by their
+    /// owner. If a user has no published identity he will not receive
+    /// any room keys.
+    IdentityBasedStrategy,
 }
 
 impl CollectStrategy {
     /// Creates a new legacy strategy, based on per device trust.
     pub const fn new_device_based(only_allow_trusted_devices: bool) -> Self {
         CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices }
+    }
+
+    /// Creates an identity based strategy
+    pub const fn new_identity_based() -> Self {
+        CollectStrategy::IdentityBasedStrategy
     }
 }
 
@@ -134,6 +143,13 @@ pub(crate) async fn collect_session_recipients(
                     &own_identity,
                     &device_owner_identity,
                     only_allow_trusted_devices,
+                )
+            }
+            CollectStrategy::IdentityBasedStrategy => {
+                let device_owner_identity = store.get_user_identity(user_id).await?;
+                split_recipients_withhelds_for_user_based_on_identity(
+                    user_devices,
+                    &device_owner_identity,
                 )
             }
         };
@@ -223,6 +239,42 @@ fn split_recipients_withhelds_for_user(
     });
 
     RecipientDevices { allowed_devices: recipients, denied_devices_with_code: withheld_recipients }
+}
+
+fn split_recipients_withhelds_for_user_based_on_identity(
+    user_devices: HashMap<OwnedDeviceId, ReadOnlyDevice>,
+    device_owner_identity: &Option<ReadOnlyUserIdentities>,
+) -> RecipientDevices {
+    match device_owner_identity {
+        None => {
+            // withheld all the users devices, we need to have an identity for this
+            // distribution mode
+            RecipientDevices {
+                allowed_devices: Vec::default(),
+                denied_devices_with_code: user_devices
+                    .into_values()
+                    .map(|d| (d, WithheldCode::Unauthorised))
+                    .collect(),
+            }
+        }
+        Some(device_owner_identity) => {
+            // Only accept devices signed by the current identity
+            let (recipients, withheld_recipients): (
+                Vec<ReadOnlyDevice>,
+                Vec<(ReadOnlyDevice, WithheldCode)>,
+            ) = user_devices.into_values().partition_map(|d| {
+                if d.is_cross_signed_by_owner(device_owner_identity) {
+                    Either::Left(d)
+                } else {
+                    Either::Right((d, WithheldCode::Unauthorised))
+                }
+            });
+            RecipientDevices {
+                allowed_devices: recipients,
+                denied_devices_with_code: withheld_recipients,
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -391,7 +443,7 @@ mod tests {
             .find(|(d, _)| d.device_id() == KeyDistributionTestData::dan_unsigned_device_id())
             .expect("This dan's device should receive a withheld code");
 
-        assert_eq!(code.as_str(), WithheldCode::Unverified.as_str());
+        assert_eq!(code, &WithheldCode::Unverified);
 
         let (_, code) = share_result
             .withheld_devices
@@ -399,7 +451,82 @@ mod tests {
             .find(|(d, _)| d.device_id() == KeyDistributionTestData::dave_device_id())
             .expect("This daves's device should receive a withheld code");
 
-        assert_eq!(code.as_str(), WithheldCode::Unverified.as_str());
+        assert_eq!(code, &WithheldCode::Unverified);
+    }
+
+    #[async_test]
+    async fn test_share_with_identity_strategy() {
+        let machine = set_up_test_machine().await;
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_identity_based();
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![
+                KeyDistributionTestData::dan_id(),
+                KeyDistributionTestData::dave_id(),
+                KeyDistributionTestData::good_id(),
+            ]
+            .into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await
+        .unwrap();
+
+        assert!(!share_result.should_rotate);
+
+        let dave_devices_shared = share_result.devices.get(KeyDistributionTestData::dave_id());
+        let good_devices_shared = share_result.devices.get(KeyDistributionTestData::good_id());
+        // dave has no published identity so will not receive the key
+        assert!(dave_devices_shared.unwrap().is_empty());
+
+        // @good has properly signed his devices, he should get the keys
+        assert_eq!(good_devices_shared.unwrap().len(), 2);
+
+        // dan has one of his devices self signed, so should get
+        // the key
+        let dan_devices_shared =
+            share_result.devices.get(KeyDistributionTestData::dan_id()).unwrap();
+
+        assert_eq!(dan_devices_shared.len(), 1);
+        let dan_device_that_will_get_the_key = &dan_devices_shared[0];
+        assert_eq!(
+            dan_device_that_will_get_the_key.device_id().as_str(),
+            KeyDistributionTestData::dan_signed_device_id()
+        );
+
+        // Check withhelds for others
+        let (_, code) = share_result
+            .withheld_devices
+            .iter()
+            .find(|(d, _)| d.device_id() == KeyDistributionTestData::dan_unsigned_device_id())
+            .expect("This dan's device should receive a withheld code");
+
+        assert_eq!(code, &WithheldCode::Unauthorised);
+
+        // Check withhelds for others
+        let (_, code) = share_result
+            .withheld_devices
+            .iter()
+            .find(|(d, _)| d.device_id() == KeyDistributionTestData::dave_device_id())
+            .expect("This dave device should receive a withheld code");
+
+        assert_eq!(code, &WithheldCode::Unauthorised);
     }
 
     #[async_test]
