@@ -166,6 +166,7 @@ fn add_unique_index<'a>(
 mod tests {
     use std::{future::Future, sync::Arc};
 
+    use gloo_utils::format::JsValueSerdeExt;
     use indexed_db_futures::prelude::*;
     use matrix_sdk_common::js_tracing::make_tracing_subscriber;
     use matrix_sdk_crypto::{
@@ -182,10 +183,7 @@ mod tests {
 
     use super::{v0_to_v5, v7::InboundGroupSessionIndexedDbObject2};
     use crate::{
-        crypto_store::{
-            indexeddb_serializer::MaybeEncrypted, keys, migrations::*,
-            InboundGroupSessionIndexedDbObject,
-        },
+        crypto_store::{keys, migrations::*, InboundGroupSessionIndexedDbObject},
         IndexeddbCryptoStore,
     };
 
@@ -546,7 +544,7 @@ mod tests {
         // entry.
         let db = create_v5_db(&db_name).await.unwrap();
 
-        let serializer = IndexeddbSerializer::new(store_cipher);
+        let serializer = IndexeddbSerializer::new(store_cipher.clone());
 
         let txn = db
             .transaction_on_one_with_mode(
@@ -562,7 +560,20 @@ mod tests {
                 serializer.encode_key(old_keys::INBOUND_GROUP_SESSIONS_V1, (room_id, session_id));
             let pickle = session.pickle().await;
 
-            sessions.put_key_val(&key, &serializer.serialize_value(&pickle).unwrap()).unwrap();
+            let serialized_session = if let Some(cipher) = &store_cipher {
+                // Old-style serialization/encryption. First JSON-serialize into a byte array...
+                let data = serde_json::to_vec(&pickle).unwrap();
+                // ... then encrypt...
+                let encrypted = cipher.encrypt_value_data(data).unwrap();
+                // ... then JSON-serialize into another byte array ...
+                let value = serde_json::to_vec(&encrypted).unwrap();
+                // and finally, turn it into a javascript array.
+                JsValue::from_serde(&value).unwrap()
+            } else {
+                JsValue::from_serde(&pickle).unwrap()
+            };
+
+            sessions.put_key_val(&key, &serialized_session).unwrap();
         }
         txn.await.into_result().unwrap();
 
