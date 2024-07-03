@@ -1090,14 +1090,14 @@ impl_crypto_store! {
         device_id: &DeviceId,
     ) -> Result<Option<ReadOnlyDevice>> {
         let key = self.serializer.encode_key(keys::DEVICES, (user_id, device_id));
-        Ok(self
+        self
             .inner
             .transaction_on_one_with_mode(keys::DEVICES, IdbTransactionMode::Readonly)?
             .object_store(keys::DEVICES)?
             .get(&key)?
             .await?
             .map(|i| self.serializer.deserialize_value(i))
-            .transpose()?)
+            .transpose()
     }
 
     async fn get_user_devices(
@@ -1127,14 +1127,14 @@ impl_crypto_store! {
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
-        Ok(self
+        self
             .inner
             .transaction_on_one_with_mode(keys::IDENTITIES, IdbTransactionMode::Readonly)?
             .object_store(keys::IDENTITIES)?
             .get(&self.serializer.encode_key(keys::IDENTITIES, user_id))?
             .await?
             .map(|i| self.serializer.deserialize_value(i))
-            .transpose()?)
+            .transpose()
     }
 
     async fn is_message_known(&self, hash: &OlmMessageHash) -> Result<bool> {
@@ -1282,25 +1282,25 @@ impl_crypto_store! {
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
         let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id);
-        Ok(self
+        self
             .inner
             .transaction_on_one_with_mode(keys::ROOM_SETTINGS, IdbTransactionMode::Readonly)?
             .object_store(keys::ROOM_SETTINGS)?
             .get(&key)?
             .await?
             .map(|v| self.serializer.deserialize_value(v))
-            .transpose()?)
+            .transpose()
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        Ok(self
+        self
             .inner
             .transaction_on_one_with_mode(keys::CORE, IdbTransactionMode::Readonly)?
             .object_store(keys::CORE)?
             .get(&JsValue::from_str(key))?
             .await?
             .map(|v| self.serializer.deserialize_value(v))
-            .transpose()?)
+            .transpose()
     }
 
     #[allow(clippy::unused_async)] // Mandated by trait on wasm.
