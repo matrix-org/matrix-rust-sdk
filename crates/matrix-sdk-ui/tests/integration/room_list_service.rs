@@ -1292,18 +1292,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             "rooms": {
                 "!r0:bar.org": {
                     "initial": true,
-                    "timeline": [
-                        {
-                            "content": {
-                                "body": "foo",
-                                "msgtype": "m.text",
-                            },
-                            "sender": "@a:b.c",
-                            "event_id": "$t0",
-                            "origin_server_ts": 1,
-                            "type": "m.room.message",
-                        },
-                    ],
+                    "timestamp": 1,
                     "required_state": [
                         {
                             "content": {
@@ -1357,18 +1346,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             "rooms": {
                 "!r1:bar.org": {
                     "initial": true,
-                    "timeline": [
-                        {
-                            "content": {
-                                "body": "foo",
-                                "msgtype": "m.text",
-                            },
-                            "sender": "@a:b.c",
-                            "event_id": "$t1",
-                            "origin_server_ts": 2,
-                            "type": "m.room.message",
-                        },
-                    ],
+                    "timestamp": 2,
                     "required_state": [
                         {
                             "content": {
@@ -1384,18 +1362,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                 },
                 "!r2:bar.org": {
                     "initial": true,
-                    "timeline": [
-                        {
-                            "content": {
-                                "body": "foo",
-                                "msgtype": "m.text",
-                            },
-                            "sender": "@a:b.c",
-                            "event_id": "$t2",
-                            "origin_server_ts": 3,
-                            "type": "m.room.message",
-                        },
-                    ],
+                    "timestamp": 3,
                     "required_state": [
                         {
                             "content": {
@@ -1411,18 +1378,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                 },
                 "!r3:bar.org": {
                     "initial": true,
-                    "timeline": [
-                        {
-                            "content": {
-                                "body": "foo",
-                                "msgtype": "m.text",
-                            },
-                            "sender": "@a:b.c",
-                            "event_id": "$t3",
-                            "origin_server_ts": 4,
-                            "type": "m.room.message",
-                        },
-                    ],
+                    "timestamp": 4,
                     "required_state": [
                         {
                             "content": {
@@ -1438,18 +1394,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                 },
                 "!r4:bar.org": {
                     "initial": true,
-                    "timeline": [
-                        {
-                            "content": {
-                                "body": "foo",
-                                "msgtype": "m.text",
-                            },
-                            "sender": "@a:b.c",
-                            "event_id": "$t4",
-                            "origin_server_ts": 5,
-                            "type": "m.room.message",
-                        },
-                    ],
+                    "timestamp": 5,
                     "required_state": [
                         {
                             "content": {
@@ -1508,18 +1453,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             "rooms": {
                 "!r5:bar.org": {
                     "initial": true,
-                    "timeline": [
-                        {
-                            "content": {
-                                "body": "foo",
-                                "msgtype": "m.text",
-                            },
-                            "sender": "@a:b.c",
-                            "event_id": "$t5",
-                            "origin_server_ts": 6,
-                            "type": "m.room.message",
-                        },
-                    ],
+                    "timestamp": 6,
                     "required_state": [
                         {
                             "content": {
@@ -1535,18 +1469,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                 },
                 "!r6:bar.org": {
                     "initial": true,
-                    "timeline": [
-                        {
-                            "content": {
-                                "body": "foo",
-                                "msgtype": "m.text",
-                            },
-                            "sender": "@a:b.c",
-                            "event_id": "$t6",
-                            "origin_server_ts": 7,
-                            "type": "m.room.message",
-                        },
-                    ],
+                    "timestamp": 7,
                     "required_state": [
                         {
                             "content": {
@@ -1562,18 +1485,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
                 },
                 "!r7:bar.org": {
                     "initial": true,
-                    "timeline": [
-                        {
-                            "content": {
-                                "body": "foo",
-                                "msgtype": "m.text",
-                            },
-                            "sender": "@a:b.c",
-                            "event_id": "$t7",
-                            "origin_server_ts": 8,
-                            "type": "m.room.message",
-                        },
-                    ],
+                    "timestamp": 8,
                     "required_state": [
                         {
                             "content": {
@@ -1704,18 +1616,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
             "rooms": {
                 "!r0:bar.org": {
                     "initial": true,
-                    "timeline": [
-                        {
-                            "content": {
-                                "body": "foo",
-                                "msgtype": "m.text",
-                            },
-                            "sender": "@a:b.c",
-                            "event_id": "$t8",
-                            "origin_server_ts": 9,
-                            "type": "m.room.message",
-                        },
-                    ],
+                    "timestamp": 9,
                     "required_state": [],
                 },
             },
