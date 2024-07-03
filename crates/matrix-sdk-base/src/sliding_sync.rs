@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
+use std::{collections::BTreeMap, ops::Not};
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
@@ -341,6 +341,8 @@ impl BaseClient {
         };
 
         // Find or create the room in the store
+        let is_a_new_room = store.room_exists(room_id).not();
+
         #[allow(unused_mut)] // Required for some feature flag combinations
         let (mut room, mut room_info, invited_room) =
             self.process_sliding_sync_room_membership(room_data, &state_events, store, room_id);
@@ -374,7 +376,7 @@ impl BaseClient {
             .await?;
         }
 
-        process_room_properties(room_id, room_data, &mut room_info, changes);
+        process_room_properties(room_id, room_data, &mut room_info, is_a_new_room, changes);
 
         let timeline = self
             .handle_timeline(
@@ -693,6 +695,7 @@ fn process_room_properties(
     room_id: &RoomId,
     room_data: &v4::SlidingSyncRoom,
     room_info: &mut RoomInfo,
+    is_a_new_room: bool,
     changes: &mut StateChanges,
 ) {
     // Handle the room's avatar.
@@ -741,11 +744,16 @@ fn process_room_properties(
     if let Some(recency_timestamp) = &room_data.timestamp {
         room_info.update_recency_timestamp(*recency_timestamp);
 
-        changes
-            .room_info_notable_updates
-            .entry(room_id.to_owned())
-            .or_default()
-            .insert(RoomInfoNotableUpdateReasons::RECENCY_TIMESTAMP);
+        // If it's not a new room, let's emit a `RECENCY_TIMESTAMP` update.
+        // For a new room, the room will appear as new, so we don't care about this
+        // update.
+        if is_a_new_room.not() {
+            changes
+                .room_info_notable_updates
+                .entry(room_id.to_owned())
+                .or_default()
+                .insert(RoomInfoNotableUpdateReasons::RECENCY_TIMESTAMP);
+        }
     }
 }
 
