@@ -19,6 +19,7 @@ use base64::{
     engine::{general_purpose, GeneralPurpose},
     Engine,
 };
+use gloo_utils::format::JsValueSerdeExt;
 use matrix_sdk_crypto::CryptoStoreError;
 use matrix_sdk_store_encryption::{EncryptedValueBase64, StoreCipher};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -193,7 +194,7 @@ impl IndexeddbSerializer {
 
         // Check for legacy unencrypted format
         if value.is_object() && self.store_cipher.is_none() {
-            return Ok(serde_wasm_bindgen::from_value(value)?);
+            return Ok(value.into_serde()?);
         }
 
         // Can't figure out what this is.
