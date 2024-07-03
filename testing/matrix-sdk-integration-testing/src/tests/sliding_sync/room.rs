@@ -7,7 +7,7 @@ use anyhow::Result;
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use futures_util::{pin_mut, FutureExt, StreamExt as _};
+use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
     bytes::Bytes,
     config::SyncSettings,
@@ -847,6 +847,19 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
             assert_eq!(room.room_id(), alice_room.room_id());
         }
     );
+
+    // Sometimes Synapse sends the same message twice. Let's consume useless `Set`…
+    // if they arrived before 3s.
+    if let Ok(Some(diffs)) = timeout(Duration::from_secs(3), stream.next()).await {
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(
+            &diffs[0],
+            VectorDiff::Set { index: 0, value: room } => {
+                assert_eq!(room.room_id(), alice_room.room_id());
+            }
+        );
+    }
+
     assert_pending!(stream);
 
     Ok(())
@@ -920,10 +933,6 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
 
     pin_mut!(stream);
 
-    // Wait shortly so the manual roominfo update is triggered before we load the
-    // stream.
-    sleep(Duration::from_secs(1)).await;
-
     // Stream only has the initial Reset entry.
     assert_let!(Some(diffs) = stream.next().await);
     assert_eq!(diffs.len(), 1);
@@ -936,15 +945,17 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
     );
     assert_pending!(stream);
 
-    sleep(Duration::from_secs(1)).await;
     let alice_room = alice.get_room(alice_room.room_id()).unwrap();
+    assert_eq!(alice_room.state(), RoomState::Joined);
+    assert!(alice_room.is_encrypted().await.unwrap());
+
     let bob_room = bob.get_room(alice_room.room_id()).unwrap();
     bob_room.join().await.unwrap();
 
-    sleep(Duration::from_secs(1)).await;
-    assert_eq!(alice_room.state(), RoomState::Joined);
-    assert!(alice_room.is_encrypted().await.unwrap());
+    // Wait Bob to be in the room.
+    sleep(Duration::from_secs(2)).await;
     assert_eq!(bob_room.state(), RoomState::Joined);
+
     // Room update for join
     assert_let!(Some(diffs) = stream.next().await);
     assert_eq!(diffs.len(), 1);
@@ -954,21 +965,46 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
             assert_eq!(room.room_id(), alice_room.room_id());
         }
     );
+
+    // Sometimes Synapse sends the same message twice. Let's consume useless `Set`…
+    // if they arrived before 3s.
+    if let Ok(Some(diffs)) = timeout(Duration::from_secs(3), stream.next()).await {
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(
+            &diffs[0],
+            VectorDiff::Set { index: 0, value: room } => {
+                assert_eq!(room.room_id(), alice_room.room_id());
+            }
+        );
+    }
+
     assert_pending!(stream);
 
     // Send a message, it should arrive
     let event = bob_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
 
-    sleep(Duration::from_secs(1)).await;
+    // Wait the message from Bob to be sent.
+    sleep(Duration::from_secs(2)).await;
 
     // Latest event is set now
     assert_eq!(alice_room.latest_event().unwrap().event_id(), Some(event.event_id));
 
-    // Stream has the room again, but no second event
-    while let Some(Some(updated_rooms)) = stream.next().now_or_never() {
-        assert!(!updated_rooms.is_empty());
+    // Room has been updated.
+    assert_let!(Some(diffs) = stream.next().await);
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(
+        &diffs[0],
+        VectorDiff::Set { index: 0, value: room } => {
+            assert_eq!(room.room_id(), alice_room.room_id());
+        }
+    );
+
+    // Sometimes Synapse sends the same message twice. Let's consume useless `Set`…
+    // if they arrived before 3s.
+    if let Ok(Some(diffs)) = timeout(Duration::from_secs(3), stream.next()).await {
+        assert_eq!(diffs.len(), 1);
         assert_matches!(
-            &updated_rooms[0],
+            &diffs[0],
             VectorDiff::Set { index: 0, value: room } => {
                 assert_eq!(room.room_id(), alice_room.room_id());
             }
