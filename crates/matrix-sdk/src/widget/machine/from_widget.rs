@@ -137,15 +137,16 @@ pub(super) struct ReadEventResponse {
 pub struct SendEventResponse {
     /// The room id for the send event.
     pub room_id: Option<OwnedRoomId>,
-    /// The event id of the send event. Its optional because if its a future one does not get
-    /// the event_id at this point.
+    /// The event id of the send event. Its optional because if its a future one
+    /// does not get the event_id at this point.
     pub event_id: Option<OwnedEventId>,
     /// A token to send/insert the future into the DAG.
     pub send_token: Option<String>,
     /// A token to cancel this future. It will never be send if this is called.
     pub cancel_token: Option<String>,
-    /// The `future_group_id` generated for this future. Used to connect multiple futures
-    /// only one of the connected futures will be sent and inserted into the DAG.
+    /// The `future_group_id` generated for this future. Used to connect
+    /// multiple futures only one of the connected futures will be sent and
+    /// inserted into the DAG.
     pub future_group_id: Option<String>,
     /// A token used to refresh the timer of the future. This allows
     /// to implement heartbeat like capabilities. An event is only sent once

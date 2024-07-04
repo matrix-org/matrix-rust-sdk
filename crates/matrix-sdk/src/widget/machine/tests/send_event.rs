@@ -1,19 +1,16 @@
-use ruma::owned_room_id;
+use std::time::Duration;
 
-use crate::widget::machine::{IncomingMessage, WidgetMachine};
+use ruma::{api::client::future::FutureParameters, events::TimelineEventType};
 
 use super::WIDGET_ID;
+use crate::widget::machine::{
+    from_widget::FromWidgetRequest,
+    incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
+};
 
 #[test]
-fn process_send_event() {
-    let (mut machine, _) = WidgetMachine::new(
-        WIDGET_ID.to_owned(),
-        owned_room_id!("!a98sd12bjh:example.org"),
-        true,
-        None,
-    );
-
-    let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
+fn parse_future_action() {
+    let raw = json_string!({
         "api": "fromWidget",
         "widgetId": WIDGET_ID,
         "requestId": "send_event-request-id",
@@ -25,6 +22,19 @@ fn process_send_event() {
             "state_key": "_@abc:example.org_VFKPEKYWMP",
             "type": "org.matrix.msc3401.call.member",
         },
-    })));
-    println!("{:?}", actions);
+    });
+    if let IncomingWidgetMessageKind::Request(a) =
+        serde_json::from_str::<IncomingWidgetMessage>(&raw).unwrap().kind
+    {
+        if let FromWidgetRequest::SendEvent(b) = a.deserialize().unwrap() {
+            let FutureParameters::Timeout { timeout, group_id } = b.future_parameters.unwrap()
+            else {
+                panic!()
+            };
+            assert_eq!(timeout, Duration::from_millis(10000));
+            assert_eq!(group_id, None);
+            assert_eq!(b.event_type, TimelineEventType::CallMember);
+            assert_eq!(b.state_key.unwrap(), "_@abc:example.org_VFKPEKYWMP".to_owned());
+        }
+    }
 }
