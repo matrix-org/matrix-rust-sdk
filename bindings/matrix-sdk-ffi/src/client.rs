@@ -442,6 +442,15 @@ impl Client {
         let http_client = self.inner.http_client();
         Ok(http_client.get(url).send().await?.text().await?)
     }
+
+    /// Empty the server version and unstable features cache.
+    ///
+    /// Since the SDK caches server capabilities (versions and unstable
+    /// features), it's possible to have a stale entry in the cache. This
+    /// functions makes it possible to force reset it.
+    pub async fn reset_server_capabilities(&self) -> Result<(), ClientError> {
+        Ok(self.inner.reset_server_capabilities().await?)
+    }
 }
 
 impl Client {
