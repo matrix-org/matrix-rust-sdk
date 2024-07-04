@@ -1444,8 +1444,10 @@ impl Client {
             .send(SessionChange::UnknownToken { soft_logout: *soft_logout });
     }
 
-    async fn request_server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
-        let server_versions: Box<[MatrixVersion]> = self
+    async fn request_server_capabilities(
+        &self,
+    ) -> HttpResult<(Box<[MatrixVersion]>, BTreeMap<String, bool>)> {
+        let resp = self
             .inner
             .http_client
             .send(
@@ -1456,47 +1458,33 @@ impl Client {
                 &[MatrixVersion::V1_0],
                 Default::default(),
             )
-            .await?
-            .known_versions()
-            .collect();
+            .await?;
 
-        if server_versions.is_empty() {
-            Ok(vec![MatrixVersion::V1_0].into())
-        } else {
-            Ok(server_versions)
+        // Fill both unstable features and server versions at once.
+        let mut versions: Box<[MatrixVersion]> = resp.known_versions().collect();
+        if versions.is_empty() {
+            versions = vec![MatrixVersion::V1_0].into();
         }
+
+        Ok((versions, resp.unstable_features))
     }
 
     pub(crate) async fn server_versions(&self) -> HttpResult<&[MatrixVersion]> {
-        let server_versions = self
+        Ok(self
             .inner
             .server_versions
-            .get_or_try_init(|| Box::pin(self.request_server_versions()))
-            .await?;
+            .get_or_try_init(|| async {
+                let (versions, unstable_features) = self.request_server_capabilities().await?;
 
-        Ok(server_versions)
+                // Fill the unstable features, while we're at it.
+                self.inner.unstable_features.get_or_init(|| async { unstable_features }).await;
+
+                HttpResult::Ok(versions)
+            })
+            .await?)
     }
 
-    /// Fetch unstable_features from homeserver
-    async fn request_unstable_features(&self) -> HttpResult<BTreeMap<String, bool>> {
-        let unstable_features: BTreeMap<String, bool> = self
-            .inner
-            .http_client
-            .send(
-                get_supported_versions::Request::new(),
-                None,
-                self.homeserver().to_string(),
-                None,
-                &[MatrixVersion::V1_0],
-                Default::default(),
-            )
-            .await?
-            .unstable_features;
-
-        Ok(unstable_features)
-    }
-
-    /// Get unstable features from `request_unstable_features` or cache
+    /// Get unstable features from by fetching from the server or the cache.
     ///
     /// # Examples
     ///
@@ -1511,13 +1499,18 @@ impl Client {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn unstable_features(&self) -> HttpResult<&BTreeMap<String, bool>> {
-        let unstable_features = self
+        Ok(self
             .inner
             .unstable_features
-            .get_or_try_init(|| self.request_unstable_features())
-            .await?;
+            .get_or_try_init(|| async {
+                let (versions, unstable_features) = self.request_server_capabilities().await?;
 
-        Ok(unstable_features)
+                // Fill the versions, while we're at it.
+                self.inner.server_versions.get_or_init(|| async { versions }).await;
+
+                HttpResult::Ok(unstable_features)
+            })
+            .await?)
     }
 
     /// Check whether MSC 4028 is enabled on the homeserver.
@@ -2448,10 +2441,10 @@ pub(crate) mod tests {
             )
             .mount(&server)
             .await;
-        let unstable_features = client.request_unstable_features().await.unwrap();
 
+        let unstable_features = client.unstable_features().await.unwrap();
         assert_eq!(unstable_features.get("org.matrix.e2e_cross_signing"), Some(&true));
-        assert_eq!(unstable_features, client.unstable_features().await.unwrap().clone());
+        assert_eq!(unstable_features.get("you.shall.pass"), None);
     }
 
     #[async_test]
