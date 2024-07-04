@@ -60,6 +60,7 @@ use ruma::{
 use thiserror::Error;
 use tracing::{error, instrument, trace, warn};
 
+mod beacons;
 mod builder;
 mod day_dividers;
 mod error;

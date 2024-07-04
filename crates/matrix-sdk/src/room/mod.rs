@@ -25,10 +25,6 @@ use matrix_sdk_base::{
 use matrix_sdk_common::timeout::timeout;
 use mime::Mime;
 #[cfg(feature = "e2e-encryption")]
-use ruma::events::{
-    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    SyncMessageLikeEvent,
-};
 use ruma::{
     api::client::{
         config::{set_global_account_data, set_room_account_data},
@@ -51,12 +47,14 @@ use ruma::{
     },
     assign,
     events::{
+        beacon_info::BeaconInfoEventContent,
         call::notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         direct::DirectEventContent,
         marked_unread::MarkedUnreadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             avatar::{self, RoomAvatarEventContent},
+            encrypted::OriginalSyncRoomEncryptedEvent,
             encryption::RoomEncryptionEventContent,
             history_visibility::HistoryVisibility,
             message::RoomMessageEventContent,
@@ -69,11 +67,11 @@ use ruma::{
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         tag::{TagInfo, TagName},
         typing::SyncTypingEvent,
-        AnyRoomAccountDataEvent, AnyTimelineEvent, EmptyStateKey, Mentions,
-        MessageLikeEventContent, MessageLikeEventType, RedactContent, RedactedStateEventContent,
-        RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType,
-        StateEventContent, StateEventType, StaticEventContent, StaticStateEventContent,
-        SyncStateEvent,
+        AnyRoomAccountDataEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+        EmptyStateKey, Mentions, MessageLikeEventContent, MessageLikeEventType, RedactContent,
+        RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
+        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
+        StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
     },
     push::{Action, PushConditionRoomCtx},
     serde::Raw,
@@ -2497,6 +2495,59 @@ impl Room {
         let inviter_id = event.sender();
         let inviter = self.get_member_no_sync(inviter_id).await?;
         Ok(Invite { invitee, inviter })
+    }
+
+    /// Send a beacon_info state event with the given duration in milliseconds.
+    ///
+    /// This will start a live location share in the room.
+    pub async fn send_beacon_info(
+        &self,
+        duration_millis: u64,
+    ) -> Result<send_state_event::v3::Response> {
+        let beacon_info_description = format!("{} live location share", self.own_user_id());
+        self.send_state_event_for_key(
+            self.own_user_id(),
+            BeaconInfoEventContent::new(
+                Some(beacon_info_description),
+                Duration::from_millis(duration_millis),
+                true,
+                None,
+            ),
+        )
+        .await
+    }
+
+    /// Send a beacon_info state event to stop an existing live location share.
+    ///
+    /// Find existing beacon_info by state key and set the `live` field to
+    /// `false` in the existing beacon_info event.
+    ///
+    /// TODO: Update the return type to be specific.
+    pub async fn stop_beacon_info(&self) -> Result<send_state_event::v3::Response> {
+        let Some(raw_event) = self
+            .get_state_event_static_for_key::<BeaconInfoEventContent, _>(self.own_user_id())
+            .await?
+        else {
+            todo!("How to handle case of missing beacon event for state key?")
+        };
+
+        match raw_event.deserialize() {
+            Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(beacon_info))) => {
+                let mut content = beacon_info.content.clone();
+                content.stop();
+                self.send_state_event_for_key(self.own_user_id(), content).await
+            }
+            Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => {
+                todo!("How to handle redacted event?")
+            }
+            Ok(SyncOrStrippedState::Stripped(_)) => {
+                todo!("How to handle stripped event?")
+            }
+            Err(e) => {
+                info!(room_id = ?self.inner.room_id(), "Could not deserialize m.beacon_info: {e}");
+                todo!("How to handle deserialization error?")
+            }
+        }
     }
 
     /// Forget this room.

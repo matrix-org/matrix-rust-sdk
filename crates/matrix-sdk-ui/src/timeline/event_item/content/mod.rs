@@ -55,7 +55,7 @@ use ruma::{
 };
 use tracing::warn;
 
-use crate::timeline::{polls::PollState, TimelineItem};
+use crate::timeline::{beacons::BeaconState, polls::PollState, TimelineItem};
 
 mod message;
 
@@ -109,11 +109,14 @@ pub enum TimelineItemContent {
     /// An `m.poll.start` event.
     Poll(PollState),
 
-    /// An `m.call.invite` event
+    /// An `m.call.invite` event.
     CallInvite,
 
-    /// An `m.call.notify` event
+    /// An `m.call.notify` event.
     CallNotify,
+
+    /// An `m.beacon_info` event.
+    BeaconInfoState(BeaconState),
 }
 
 impl TimelineItemContent {
@@ -262,6 +265,7 @@ impl TimelineItemContent {
             TimelineItemContent::Poll(_) => "a poll",
             TimelineItemContent::CallInvite => "a call invite",
             TimelineItemContent::CallNotify => "a call notification",
+            TimelineItemContent::BeaconInfoState(_) => "a beacon sharing event",
         }
     }
 
@@ -340,6 +344,7 @@ impl TimelineItemContent {
             | Self::RedactedMessage
             | Self::Sticker(_)
             | Self::Poll(_)
+            | Self::BeaconInfoState(_)
             | Self::CallInvite
             | Self::CallNotify
             | Self::UnableToDecrypt(_) => Self::RedactedMessage,

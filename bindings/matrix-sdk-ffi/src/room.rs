@@ -160,6 +160,20 @@ impl Room {
         }
     }
 
+    pub async fn send_beacon_info(&self, duration_millis: u64) -> Result<(), ClientError> {
+        RUNTIME.block_on(async move {
+            self.inner.send_beacon_info(duration_millis).await?;
+            Ok(())
+        })
+    }
+
+    pub async fn stop_beacon_info(&self) -> Result<(), ClientError> {
+        RUNTIME.block_on(async move {
+            self.inner.stop_beacon_info().await?;
+            Ok(())
+        })
+    }
+
     /// Forces the currently active room key, which is used to encrypt messages,
     /// to be rotated.
     ///
