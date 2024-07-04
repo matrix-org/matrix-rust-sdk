@@ -263,7 +263,7 @@ impl RepliedToEvent {
         &self.sender_profile
     }
 
-    pub(crate) fn from_timeline_item(timeline_item: &EventTimelineItem) -> Self {
+    pub fn from_timeline_item(timeline_item: &EventTimelineItem) -> Self {
         Self {
             content: timeline_item.content.clone(),
             sender: timeline_item.sender.clone(),

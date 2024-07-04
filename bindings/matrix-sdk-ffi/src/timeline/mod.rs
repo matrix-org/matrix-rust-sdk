@@ -19,9 +19,12 @@ use as_variant::as_variant;
 use content::{InReplyToDetails, RepliedToEventDetails};
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt as _};
-use matrix_sdk::attachment::{
-    AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
-    BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
+use matrix_sdk::{
+    attachment::{
+        AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
+        BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
+    },
+    Error,
 };
 use matrix_sdk_ui::timeline::{
     EventItemOrigin, LiveBackPaginationStatus, Profile, RepliedToEvent, TimelineDetails,
@@ -636,23 +639,29 @@ impl Timeline {
     ) -> Result<InReplyToDetails, ClientError> {
         let event_id = EventId::parse(&event_id_str)?;
 
-        match self.inner.room().event(&event_id).await {
-            Ok(timeline_event) => {
-                let replied_to = RepliedToEvent::try_from_timeline_event_for_room(
-                    timeline_event,
-                    self.inner.room(),
-                )
-                .await?;
+        let replied_to: Result<RepliedToEvent, Error> =
+            if let Some(event) = self.inner.item_by_event_id(&event_id).await {
+                Ok(RepliedToEvent::from_timeline_item(&event))
+            } else {
+                match self.inner.room().event(&event_id).await {
+                    Ok(timeline_event) => Ok(RepliedToEvent::try_from_timeline_event_for_room(
+                        timeline_event,
+                        self.inner.room(),
+                    )
+                    .await?),
+                    Err(e) => Err(e),
+                }
+            };
 
-                Ok(InReplyToDetails::new(
-                    event_id_str,
-                    RepliedToEventDetails::Ready {
-                        content: Arc::new(TimelineItemContent(replied_to.content().clone())),
-                        sender: replied_to.sender().to_string(),
-                        sender_profile: replied_to.sender_profile().into(),
-                    },
-                ))
-            }
+        match replied_to {
+            Ok(replied_to) => Ok(InReplyToDetails::new(
+                event_id_str,
+                RepliedToEventDetails::Ready {
+                    content: Arc::new(TimelineItemContent(replied_to.content().clone())),
+                    sender: replied_to.sender().to_string(),
+                    sender_profile: replied_to.sender_profile().into(),
+                },
+            )),
 
             Err(e) => Ok(InReplyToDetails::new(
                 event_id_str,
