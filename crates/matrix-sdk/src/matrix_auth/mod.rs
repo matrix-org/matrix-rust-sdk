@@ -346,7 +346,7 @@ impl MatrixAuth {
             login_token: Option<String>,
         }
 
-        let query_string = callback_url.query().unwrap_or("");
+        let query_string = callback_url.query().unwrap_or_default();
         let query: QueryParameters =
             serde_html_form::from_str(query_string).map_err(|_| SsoError::CallbackUrlInvalid)?;
         let token = query.login_token.ok_or(SsoError::CallbackUrlInvalid)?;
