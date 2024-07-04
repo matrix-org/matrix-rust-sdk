@@ -61,6 +61,73 @@ jobs:
       - name: Build library & generate bindings
         run: target/debug/xtask ci bindings
 
+  test-android:
+    name: matrix-rust-components-kotlin
+    needs: xtask
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    steps:
+      - name: Checkout Rust SDK
+        uses: actions/checkout@v4
+
+      - name: Checkout Kotlin Rust Components project
+        uses: actions/checkout@v4
+        with:
+          repository: matrix-org/matrix-rust-components-kotlin
+          path: rust-components-kotlin
+          ref: main
+
+      - name: Use JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin' # See 'Supported distributions' for available options
+          java-version: '17'
+
+      - name: Install android sdk
+        uses: malinskiy/action-android/install-sdk@release/0.1.4
+
+      - name: Install android ndk
+        uses: nttld/setup-ndk@v1
+        id: install-ndk
+        with:
+          ndk-version: r25c
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Cargo config can screw with caching and is only used for alias config
+      # and extra lints, which we don't care about here
+      - name: Delete cargo config
+        run: rm .cargo/config.toml
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Get xtask
+        uses: actions/cache/restore@v4
+        with:
+          path: target/debug/xtask
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          fail-on-cache-miss: true
+
+      - name: Install Rust dependencies
+        run: |
+          rustup target add x86_64-linux-android
+          cargo install cargo-ndk
+
+      - name: Build SDK bindings for Android
+        # Building for x86_64-linux-android as it's the most prone to breaking and building for every arch is too much
+        run: |
+          echo "Building SDK for x86_64-linux-android and creating bindings"
+          target/debug/xtask kotlin build-android-library --package full-sdk --only-target x86_64-linux-android --src-dir rust-components-kotlin/sdk/sdk-android/src/main
+          echo "Copying the result binary to the Android project"
+          cd rust-components-kotlin
+          echo "Building the Kotlin bindings"
+          ./gradlew :sdk:sdk-android:assembleDebug
+
   test-apple:
     name: matrix-rust-components-swift
     needs: xtask
