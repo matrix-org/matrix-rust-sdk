@@ -85,7 +85,7 @@ impl SsoHandler {
 
 impl Debug for SsoHandler {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(fmt, "SsoHandler")
+        fmt.debug_struct("SsoHandler").field("url", &self.url).finish_non_exhaustive()
     }
 }
 
