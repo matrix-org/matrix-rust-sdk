@@ -220,6 +220,7 @@ pub(crate) struct SendEventRequest {
     /// Raw content of an event.
     pub(crate) content: Box<RawJsonValue>,
     /// Addition send event parameters to send a future
+    #[serde(flatten)]
     pub(crate) future_parameters: Option<FutureParameters>,
 }
 
