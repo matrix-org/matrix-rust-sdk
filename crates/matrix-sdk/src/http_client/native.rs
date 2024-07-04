@@ -26,7 +26,7 @@ use eyeball::SharedObservable;
 use http::header::CONTENT_LENGTH;
 use reqwest::Certificate;
 use ruma::api::{error::FromHttpResponseError, IncomingResponse, OutgoingRequest};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::{response_to_http_response, HttpClient, TransmissionProgress, DEFAULT_REQUEST_TIMEOUT};
 use crate::{
@@ -52,6 +52,8 @@ impl HttpClient {
         let send_request = || {
             let send_progress = send_progress.clone();
             async {
+                debug!(num_attempt = retry_count.load(Ordering::SeqCst), "Sending request");
+
                 let stop = if let Some(retry_limit) = config.retry_limit {
                     retry_count.fetch_add(1, Ordering::Relaxed) >= retry_limit
                 } else {
