@@ -920,11 +920,15 @@ pub struct ServerCapabilities {
     /// List of unstable features and their enablement status.
     pub unstable_features: BTreeMap<String, bool>,
 
-    /// Last time we fetched this data from the server.
+    /// Last time we fetched this data from the server, in milliseconds since
+    /// epoch.
     last_fetch_ts: f64,
 }
 
 impl ServerCapabilities {
+    /// The number of milliseconds after which the data is considered stale.
+    pub const STALE_THRESHOLD: f64 = (1000 * 60 * 60 * 24 * 7) as _; // seven days
+
     /// Encode server capabilities into this serializable struct.
     pub fn new(versions: &[MatrixVersion], unstable_features: BTreeMap<String, bool>) -> Self {
         Self {
@@ -935,11 +939,19 @@ impl ServerCapabilities {
     }
 
     /// Decode server capabilities from this serializable struct.
-    pub fn decode(&self) -> (Vec<MatrixVersion>, BTreeMap<String, bool>) {
-        (
-            self.versions.iter().filter_map(|item| item.parse().ok()).collect(),
-            self.unstable_features.clone(),
-        )
+    ///
+    /// May return `None` if the data is considered stale, after
+    /// [`Self::STALE_THRESHOLD`] milliseconds since the last time we stored
+    /// it.
+    pub fn maybe_decode(&self) -> Option<(Vec<MatrixVersion>, BTreeMap<String, bool>)> {
+        if instant::now() - self.last_fetch_ts >= Self::STALE_THRESHOLD {
+            None
+        } else {
+            Some((
+                self.versions.iter().filter_map(|item| item.parse().ok()).collect(),
+                self.unstable_features.clone(),
+            ))
+        }
     }
 }
 
@@ -1159,5 +1171,28 @@ impl fmt::Debug for QueuedEvent {
             .field("transaction_id", &self.transaction_id)
             .field("is_wedged", &self.is_wedged)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_common::instant;
+
+    use super::ServerCapabilities;
+
+    #[test]
+    fn test_stale_server_capabilities() {
+        let mut caps = ServerCapabilities {
+            versions: Default::default(),
+            unstable_features: Default::default(),
+            last_fetch_ts: instant::now() - ServerCapabilities::STALE_THRESHOLD - 1.0,
+        };
+
+        // Definitely stale.
+        assert!(caps.maybe_decode().is_none());
+
+        // Definitely not stale.
+        caps.last_fetch_ts = instant::now() - 1.0;
+        assert!(caps.maybe_decode().is_some());
     }
 }

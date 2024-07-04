@@ -592,7 +592,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         );
         assert_eq!(stored_caps, server_caps);
 
-        let (stored_versions, stored_features) = stored_caps.decode();
+        let (stored_versions, stored_features) = stored_caps.maybe_decode().unwrap();
 
         assert_eq!(stored_versions, versions);
         assert_eq!(stored_features.len(), 1);
