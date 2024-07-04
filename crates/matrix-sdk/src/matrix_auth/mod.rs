@@ -305,6 +305,40 @@ impl MatrixAuth {
     /// A higher level wrapper around the methods to complete an SSO login after
     /// the user has logged in through a webview. This method should be used
     /// in tandem with [`MatrixAuth::get_sso_login_url`].
+    ///
+    /// # Arguments
+    ///
+    /// * `callback_url` - The received callback URL carrying the login token.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("https://example.com").unwrap();
+    /// # let redirect_url = "http://localhost:1234";
+    /// # let callback_url = Url::parse("http://localhost:1234?loginToken=token").unwrap();
+    /// # async {
+    /// let client = Client::new(homeserver).await.unwrap();
+    /// let auth = client.matrix_auth();
+    /// let sso_url = auth.get_sso_login_url(redirect_url, None);
+    ///
+    /// // Let the user authenticate at the SSO URL.
+    /// // Receive the callback_url.
+    ///
+    /// let response = auth
+    ///     .login_with_sso_callback(callback_url)
+    ///     .unwrap()
+    ///     .initial_device_display_name("My app")
+    ///     .await
+    ///     .unwrap();
+    ///
+    /// println!(
+    ///     "Logged in as {}, got device_id {} and access_token {}",
+    ///     response.user_id, response.device_id, response.access_token,
+    /// );
+    /// # };
+    /// ```
     pub fn login_with_sso_callback(&self, callback_url: Url) -> Result<LoginBuilder, SsoError> {
         #[derive(Deserialize)]
         struct QueryParameters {
