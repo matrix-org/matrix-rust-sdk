@@ -73,8 +73,8 @@ pub use self::{
     memory_store::MemoryStore,
     traits::{
         ComposerDraft, ComposerDraftType, DynStateStore, IntoStateStore, QueuedEvent,
-        SerializableEventContent, StateStore, StateStoreDataKey, StateStoreDataValue,
-        StateStoreExt,
+        SerializableEventContent, ServerCapabilities, StateStore, StateStoreDataKey,
+        StateStoreDataValue, StateStoreExt,
     },
 };
 

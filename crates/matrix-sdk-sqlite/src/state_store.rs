@@ -291,6 +291,9 @@ impl SqliteStateStore {
     fn encode_state_store_data_key(&self, key: StateStoreDataKey<'_>) -> Key {
         let key_s = match key {
             StateStoreDataKey::SyncToken => Cow::Borrowed(StateStoreDataKey::SYNC_TOKEN),
+            StateStoreDataKey::ServerCapabilities => {
+                Cow::Borrowed(StateStoreDataKey::SERVER_CAPABILITIES)
+            }
             StateStoreDataKey::Filter(f) => {
                 Cow::Owned(format!("{}:{f}", StateStoreDataKey::FILTER))
             }
@@ -921,6 +924,9 @@ impl StateStore for SqliteStateStore {
                     StateStoreDataKey::SyncToken => {
                         StateStoreDataValue::SyncToken(self.deserialize_value(&data)?)
                     }
+                    StateStoreDataKey::ServerCapabilities => {
+                        StateStoreDataValue::ServerCapabilities(self.deserialize_value(&data)?)
+                    }
                     StateStoreDataKey::Filter(_) => {
                         StateStoreDataValue::Filter(self.deserialize_value(&data)?)
                     }
@@ -949,6 +955,11 @@ impl StateStore for SqliteStateStore {
         let serialized_value = match key {
             StateStoreDataKey::SyncToken => self.serialize_value(
                 &value.into_sync_token().expect("Session data not a sync token"),
+            )?,
+            StateStoreDataKey::ServerCapabilities => self.serialize_value(
+                &value
+                    .into_server_capabilities()
+                    .expect("Session data not containing server capabilities"),
             )?,
             StateStoreDataKey::Filter(_) => {
                 self.serialize_value(&value.into_filter().expect("Session data not a filter"))?
