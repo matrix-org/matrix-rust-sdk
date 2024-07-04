@@ -37,7 +37,7 @@ use ruma::{
 use tracing::{debug, instrument, trace, warn};
 
 use super::{
-    traits::{ComposerDraft, QueuedEvent, SerializableEventContent},
+    traits::{ComposerDraft, QueuedEvent, SerializableEventContent, ServerCapabilities},
     Result, RoomInfo, StateChanges, StateStore, StoreError,
 };
 use crate::{
@@ -56,6 +56,7 @@ pub struct MemoryStore {
     composer_drafts: StdRwLock<HashMap<OwnedRoomId, ComposerDraft>>,
     user_avatar_url: StdRwLock<HashMap<OwnedUserId, OwnedMxcUri>>,
     sync_token: StdRwLock<Option<String>>,
+    server_capabilities: StdRwLock<Option<ServerCapabilities>>,
     filters: StdRwLock<HashMap<String, String>>,
     utd_hook_manager_data: StdRwLock<Option<GrowableBloom>>,
     account_data: StdRwLock<HashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
@@ -101,6 +102,7 @@ impl Default for MemoryStore {
             composer_drafts: Default::default(),
             user_avatar_url: Default::default(),
             sync_token: Default::default(),
+            server_capabilities: Default::default(),
             filters: Default::default(),
             utd_hook_manager_data: Default::default(),
             account_data: Default::default(),
@@ -175,6 +177,12 @@ impl StateStore for MemoryStore {
             StateStoreDataKey::SyncToken => {
                 self.sync_token.read().unwrap().clone().map(StateStoreDataValue::SyncToken)
             }
+            StateStoreDataKey::ServerCapabilities => self
+                .server_capabilities
+                .read()
+                .unwrap()
+                .clone()
+                .map(StateStoreDataValue::ServerCapabilities),
             StateStoreDataKey::Filter(filter_name) => self
                 .filters
                 .read()
@@ -255,6 +263,13 @@ impl StateStore for MemoryStore {
                     value.into_composer_draft().expect("Session data not a composer draft"),
                 );
             }
+            StateStoreDataKey::ServerCapabilities => {
+                *self.server_capabilities.write().unwrap() = Some(
+                    value
+                        .into_server_capabilities()
+                        .expect("Session data not containing server capabilities"),
+                );
+            }
         }
 
         Ok(())
@@ -263,6 +278,9 @@ impl StateStore for MemoryStore {
     async fn remove_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<()> {
         match key {
             StateStoreDataKey::SyncToken => *self.sync_token.write().unwrap() = None,
+            StateStoreDataKey::ServerCapabilities => {
+                *self.server_capabilities.write().unwrap() = None
+            }
             StateStoreDataKey::Filter(filter_name) => {
                 self.filters.write().unwrap().remove(filter_name);
             }
