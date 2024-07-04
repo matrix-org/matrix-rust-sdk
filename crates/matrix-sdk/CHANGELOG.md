@@ -22,6 +22,7 @@ Breaking changes:
 
 Additions:
 
+- new `RequestConfig.max_concurrent_requests` which allows to limit the maximum number of concurrent requests the internal HTTP client issues (all others have to wait until the number drops below that threshold again)
 - Expose new method `Client::Oidc::login_with_qr_code()`.
   ([#3466](https://github.com/matrix-org/matrix-rust-sdk/pull/3466))
 - Add the `ClientBuilder::add_root_certificates()` method which re-exposes the
