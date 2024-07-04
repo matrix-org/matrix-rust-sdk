@@ -675,7 +675,14 @@ impl Room {
             .room_infos
             .entry(self.room_id().to_owned())
             .or_insert_with(|| self.clone_info());
+
         room_info.latest_event = Some(latest_event);
+
+        changes
+            .room_info_notable_updates
+            .entry(self.room_id().to_owned())
+            .or_default()
+            .insert(RoomInfoNotableUpdateReasons::LATEST_EVENT);
     }
 
     /// Get the list of users ids that are considered to be joined members of
@@ -2324,6 +2331,10 @@ mod tests {
     async fn test_setting_the_latest_event_doesnt_cause_a_room_info_notable_update() {
         // Given a room,
 
+        use assert_matches::assert_matches;
+
+        use crate::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons};
+
         let client = BaseClient::new();
 
         client
@@ -2347,7 +2358,7 @@ mod tests {
         assert!(room.latest_event().is_none());
 
         // When I set up an observer on the latest_event,
-        let mut room_info_subscriber = room.subscribe_info();
+        let mut room_info_notable_update = client.room_info_notable_update_receiver();
 
         // And I provide a decrypted event to replace the encrypted one,
         let event = make_latest_event("$A");
@@ -2355,16 +2366,23 @@ mod tests {
         let mut changes = StateChanges::default();
         room.on_latest_event_decrypted(event.clone(), 0, &mut changes);
 
+        assert!(changes.room_info_notable_updates.contains_key(room_id));
+
         // The subscriber isn't notified at this point.
-        assert_pending!(room_info_subscriber);
+        assert!(room_info_notable_update.try_recv().is_err());
 
         // Then updating the room info will store the event,
         client.apply_changes(&changes);
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
 
         // And wake up the subscriber.
-        assert_ready!(room_info_subscriber);
-        assert_pending!(room_info_subscriber);
+        assert_matches!(
+            room_info_notable_update.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(reasons.contains(RoomInfoNotableUpdateReasons::LATEST_EVENT));
+            }
+        );
     }
 
     #[async_test]
