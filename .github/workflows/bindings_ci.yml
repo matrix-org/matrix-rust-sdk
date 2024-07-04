@@ -177,12 +177,12 @@ jobs:
       - name: Build Framework
         run: target/debug/xtask swift build-framework --target=aarch64-apple-ios
 
-  # complement-crypto:
-  #   name: "Run Complement Crypto tests"
-  #   uses: matrix-org/complement-crypto/.github/workflows/single_sdk_tests.yml@main
-  #   with:
-  #       use_rust_sdk: "." # use local checkout
-  #       use_complement_crypto: "MATCHING_BRANCH"
+  complement-crypto:
+    name: "Run Complement Crypto tests"
+    uses: matrix-org/complement-crypto/.github/workflows/single_sdk_tests.yml@main
+    with:
+        use_rust_sdk: "." # use local checkout
+        use_complement_crypto: "MATCHING_BRANCH"
 
   test-crypto-apple-framework-generation:
     name: Generate Crypto FFI Apple XCFramework
