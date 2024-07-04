@@ -33,10 +33,10 @@ use imbl::Vector;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
-    store::DynStateStore,
+    store::{DynStateStore, ServerCapabilities},
     sync::{Notification, RoomUpdates},
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
-    SyncOutsideWasm,
+    StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "e2e-encryption")]
@@ -70,7 +70,7 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
-use tracing::{debug, error, instrument, trace, Instrument, Span};
+use tracing::{debug, error, instrument, trace, warn, Instrument, Span};
 use url::Url;
 
 use self::futures::SendRequest;
@@ -1444,7 +1444,7 @@ impl Client {
             .send(SessionChange::UnknownToken { soft_logout: *soft_logout });
     }
 
-    async fn request_server_capabilities(
+    async fn fetch_and_cache_server_capabilities(
         &self,
     ) -> HttpResult<(Box<[MatrixVersion]>, BTreeMap<String, bool>)> {
         let resp = self
@@ -1461,12 +1461,52 @@ impl Client {
             .await?;
 
         // Fill both unstable features and server versions at once.
-        let mut versions: Box<[MatrixVersion]> = resp.known_versions().collect();
+        let mut versions = resp.known_versions().collect::<Vec<_>>();
         if versions.is_empty() {
-            versions = vec![MatrixVersion::V1_0].into();
+            versions.push(MatrixVersion::V1_0);
         }
 
-        Ok((versions, resp.unstable_features))
+        let unstable_features = resp.unstable_features;
+
+        {
+            // Attempt to cache the result.
+            let encoded = ServerCapabilities::new(&versions, unstable_features.clone());
+            if let Err(err) = self
+                .store()
+                .set_kv_data(
+                    StateStoreDataKey::ServerCapabilities,
+                    StateStoreDataValue::ServerCapabilities(encoded),
+                )
+                .await
+            {
+                warn!("error when caching server capabilities: {err}");
+            }
+        }
+
+        Ok((versions.into(), unstable_features))
+    }
+
+    async fn load_or_fetch_server_capabilities(
+        &self,
+    ) -> HttpResult<(Box<[MatrixVersion]>, BTreeMap<String, bool>)> {
+        match self.store().get_kv_data(StateStoreDataKey::ServerCapabilities).await {
+            Ok(Some(stored)) => {
+                if let Some((versions, unstable_features)) =
+                    stored.into_server_capabilities().and_then(|cap| cap.maybe_decode())
+                {
+                    return Ok((versions.into(), unstable_features));
+                }
+            }
+            Ok(None) => {
+                // fallthrough: cache is empty
+            }
+            Err(err) => {
+                warn!("error when loading cached server capabilities: {err}");
+                // fallthrough to network.
+            }
+        }
+
+        self.fetch_and_cache_server_capabilities().await
     }
 
     pub(crate) async fn server_versions(&self) -> HttpResult<&[MatrixVersion]> {
@@ -1474,7 +1514,8 @@ impl Client {
             .inner
             .server_versions
             .get_or_try_init(|| async {
-                let (versions, unstable_features) = self.request_server_capabilities().await?;
+                let (versions, unstable_features) =
+                    self.load_or_fetch_server_capabilities().await?;
 
                 // Fill the unstable features, while we're at it.
                 self.inner.unstable_features.get_or_init(|| async { unstable_features }).await;
@@ -1503,7 +1544,8 @@ impl Client {
             .inner
             .unstable_features
             .get_or_try_init(|| async {
-                let (versions, unstable_features) = self.request_server_capabilities().await?;
+                let (versions, unstable_features) =
+                    self.load_or_fetch_server_capabilities().await?;
 
                 // Fill the versions, while we're at it.
                 self.inner.server_versions.get_or_init(|| async { versions }).await;
