@@ -3384,7 +3384,6 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "as_variant",
- "assert_matches",
  "async-compat",
  "extension-trait",
  "eyeball-im",
@@ -3392,7 +3391,6 @@ dependencies = [
  "language-tags",
  "log-panics",
  "matrix-sdk",
- "matrix-sdk-test",
  "matrix-sdk-ui",
  "mime",
  "once_cell",
@@ -3400,7 +3398,6 @@ dependencies = [
  "ruma",
  "sanitize-filename-reader-friendly",
  "serde",
- "serde_html_form",
  "serde_json",
  "thiserror",
  "tokio",
@@ -3412,7 +3409,6 @@ dependencies = [
  "url",
  "uuid",
  "vergen",
- "wiremock",
  "zeroize",
 ]
 

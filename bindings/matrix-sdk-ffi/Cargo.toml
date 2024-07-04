@@ -46,10 +46,6 @@ url = { workspace = true }
 zeroize = { workspace = true }
 uuid = { version = "1.4.1", features = ["v4"] }
 language-tags = "0.3.2"
-serde_html_form = { workspace = true }
-wiremock = { workspace = true }
-matrix-sdk-test = { workspace = true }
-assert_matches = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 paranoid-android = "0.2.1"
