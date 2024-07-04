@@ -713,12 +713,6 @@ impl BaseClient {
         // encrypted events
         if let Some((found, found_index)) = self.decrypt_latest_suitable_event(room).await {
             room.on_latest_event_decrypted(found, found_index, changes);
-
-            changes
-                .room_info_notable_updates
-                .entry(room.room_id().to_owned())
-                .or_default()
-                .insert(RoomInfoNotableUpdateReasons::LATEST_EVENT);
         }
     }
 
