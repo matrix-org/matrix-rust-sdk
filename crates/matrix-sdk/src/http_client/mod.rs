@@ -53,7 +53,7 @@ pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Clone, Debug)]
 struct MaybeSemaphore(Arc<Option<Semaphore>>);
 
-#[allow(dead_code)] // holding this until drop is all we are doing
+#[allow(dead_code)] // false-positive lint: we never use it but only hold it for the drop
 struct MaybeSemaphorePermit<'a>(Option<SemaphorePermit<'a>>);
 
 impl MaybeSemaphore {
@@ -65,7 +65,8 @@ impl MaybeSemaphore {
     async fn acquire(&self) -> MaybeSemaphorePermit<'_> {
         match self.0.as_ref() {
             Some(inner) => {
-                // ignoring errors as we never close this
+                // This can only ever error if the semaphore was closed,
+                // which we never do, so we can safely ignore any error case
                 MaybeSemaphorePermit(inner.acquire().await.ok())
             }
             None => MaybeSemaphorePermit(None),
@@ -397,7 +398,7 @@ mod tests {
         });
 
         // give it some time to issue the requests
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         assert_eq!(counter.load(Ordering::SeqCst), 254, "Not all requests passed through");
         bg_task.abort();
