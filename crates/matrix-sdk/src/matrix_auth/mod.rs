@@ -130,13 +130,13 @@ impl MatrixAuth {
                 .try_into_http_request::<Vec<u8>>(
                     homeserver.as_str(),
                     SendAccessToken::None,
-                    server_versions,
+                    &server_versions,
                 )
         } else {
             sso_login::v3::Request::new(redirect_url.to_owned()).try_into_http_request::<Vec<u8>>(
                 homeserver.as_str(),
                 SendAccessToken::None,
-                server_versions,
+                &server_versions,
             )
         };
 
