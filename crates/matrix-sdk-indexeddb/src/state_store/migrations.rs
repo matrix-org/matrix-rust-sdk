@@ -41,12 +41,12 @@ use wasm_bindgen::JsValue;
 use web_sys::IdbTransactionMode;
 
 use super::{
-    deserialize_event, encode_key, encode_to_range, keys, serialize_event, Result, RoomMember,
+    deserialize_value, encode_key, encode_to_range, keys, serialize_value, Result, RoomMember,
     ALL_STORES,
 };
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: u32 = 8;
+const CURRENT_DB_VERSION: u32 = 9;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
@@ -225,6 +225,9 @@ pub async fn upgrade_inner_db(
             if old_version < 8 {
                 db = migrate_to_v8(db, store_cipher).await?;
             }
+            if old_version < 9 {
+                db = migrate_to_v9(db).await?;
+            }
         }
 
         db.close();
@@ -386,10 +389,10 @@ async fn v3_fix_store(
 
     if let Some(cursor) = cursor {
         loop {
-            let raw_json: Box<RawJsonValue> = deserialize_event(store_cipher, &cursor.value())?;
+            let raw_json: Box<RawJsonValue> = deserialize_value(store_cipher, &cursor.value())?;
 
             if let Some(fixed_json) = maybe_fix_json(&raw_json)? {
-                cursor.update(&serialize_event(store_cipher, &fixed_json)?)?.await?;
+                cursor.update(&serialize_value(store_cipher, &fixed_json)?)?.await?;
             }
 
             if !cursor.continue_cursor()?.await? {
@@ -487,7 +490,7 @@ async fn migrate_to_v5(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         .get_all()?
         .await?
         .iter()
-        .filter_map(|f| deserialize_event::<RoomInfoV1>(store_cipher, &f).ok())
+        .filter_map(|f| deserialize_value::<RoomInfoV1>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
 
     for room_info in room_infos {
@@ -495,7 +498,7 @@ async fn migrate_to_v5(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         let range = encode_to_range(store_cipher, old_keys::MEMBERS, room_id)?;
         for value in members_store.get_all_with_key(&range)?.await?.iter() {
             let raw_member_event =
-                deserialize_event::<Raw<SyncRoomMemberEvent>>(store_cipher, &value)?;
+                deserialize_value::<Raw<SyncRoomMemberEvent>>(store_cipher, &value)?;
             let state_key = raw_member_event.get_field::<String>("state_key")?.unwrap_or_default();
             let key = encode_key(
                 store_cipher,
@@ -514,7 +517,7 @@ async fn migrate_to_v5(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         .get_all()?
         .await?
         .iter()
-        .filter_map(|f| deserialize_event::<RoomInfoV1>(store_cipher, &f).ok())
+        .filter_map(|f| deserialize_value::<RoomInfoV1>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
 
     for room_info in stripped_room_infos {
@@ -522,7 +525,7 @@ async fn migrate_to_v5(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         let range = encode_to_range(store_cipher, old_keys::STRIPPED_MEMBERS, room_id)?;
         for value in stripped_members_store.get_all_with_key(&range)?.await?.iter() {
             let raw_member_event =
-                deserialize_event::<Raw<StrippedRoomMemberEvent>>(store_cipher, &value)?;
+                deserialize_value::<Raw<StrippedRoomMemberEvent>>(store_cipher, &value)?;
             let state_key = raw_member_event.get_field::<String>("state_key")?.unwrap_or_default();
             let key = encode_key(
                 store_cipher,
@@ -564,7 +567,7 @@ async fn migrate_to_v6(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         .get_all()?
         .await?
         .iter()
-        .filter_map(|f| deserialize_event::<RoomInfoV1>(store_cipher, &f).ok())
+        .filter_map(|f| deserialize_value::<RoomInfoV1>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
     let mut values = Vec::new();
 
@@ -573,10 +576,10 @@ async fn migrate_to_v6(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         let range =
             encode_to_range(store_cipher, keys::ROOM_STATE, (room_id, StateEventType::RoomMember))?;
         for value in state_store.get_all_with_key(&range)?.await?.iter() {
-            let member_event = deserialize_event::<Raw<SyncRoomMemberEvent>>(store_cipher, &value)?
+            let member_event = deserialize_value::<Raw<SyncRoomMemberEvent>>(store_cipher, &value)?
                 .deserialize()?;
             let key = encode_key(store_cipher, keys::USER_IDS, (room_id, member_event.state_key()));
-            let value = serialize_event(store_cipher, &RoomMember::from(&member_event))?;
+            let value = serialize_value(store_cipher, &RoomMember::from(&member_event))?;
 
             values.push((key, value));
         }
@@ -588,7 +591,7 @@ async fn migrate_to_v6(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         .get_all()?
         .await?
         .iter()
-        .filter_map(|f| deserialize_event::<RoomInfoV1>(store_cipher, &f).ok())
+        .filter_map(|f| deserialize_value::<RoomInfoV1>(store_cipher, &f).ok())
         .collect::<Vec<_>>();
     let mut stripped_values = Vec::new();
 
@@ -601,14 +604,14 @@ async fn migrate_to_v6(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         )?;
         for value in stripped_state_store.get_all_with_key(&range)?.await?.iter() {
             let stripped_member_event =
-                deserialize_event::<Raw<StrippedRoomMemberEvent>>(store_cipher, &value)?
+                deserialize_value::<Raw<StrippedRoomMemberEvent>>(store_cipher, &value)?
                     .deserialize()?;
             let key = encode_key(
                 store_cipher,
                 keys::STRIPPED_USER_IDS,
                 (room_id, &stripped_member_event.state_key),
             );
-            let value = serialize_event(store_cipher, &RoomMember::from(&stripped_member_event))?;
+            let value = serialize_value(store_cipher, &RoomMember::from(&stripped_member_event))?;
 
             stripped_values.push((key, value));
         }
@@ -651,7 +654,7 @@ async fn migrate_to_v7(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         .await?
         .iter()
         .filter_map(|value| {
-            deserialize_event::<RoomInfoV1>(store_cipher, &value)
+            deserialize_value::<RoomInfoV1>(store_cipher, &value)
                 .ok()
                 .map(|info| (encode_key(store_cipher, keys::ROOM_INFOS, info.room_id()), value))
         })
@@ -687,7 +690,7 @@ async fn migrate_to_v8(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         .get_all()?
         .await?
         .iter()
-        .map(|value| deserialize_event::<RoomInfoV1>(store_cipher, &value))
+        .map(|value| deserialize_value::<RoomInfoV1>(store_cipher, &value))
         .collect::<Result<Vec<_>, _>>()?;
 
     for room_info_v1 in room_infos_v1 {
@@ -698,7 +701,7 @@ async fn migrate_to_v8(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
                 (room_info_v1.room_id(), &StateEventType::RoomCreate, ""),
             ))?
             .await?
-            .map(|f| deserialize_event(store_cipher, &f))
+            .map(|f| deserialize_value(store_cipher, &f))
             .transpose()?
         {
             Some(SyncOrStrippedState::<RoomCreateEventContent>::Stripped(event))
@@ -710,7 +713,7 @@ async fn migrate_to_v8(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
                     (room_info_v1.room_id(), &StateEventType::RoomCreate, ""),
                 ))?
                 .await?
-                .map(|f| deserialize_event(store_cipher, &f))
+                .map(|f| deserialize_value(store_cipher, &f))
                 .transpose()?
                 .map(SyncOrStrippedState::<RoomCreateEventContent>::Sync)
         };
@@ -718,7 +721,7 @@ async fn migrate_to_v8(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
         let room_info = room_info_v1.migrate(create.as_ref());
         room_infos_store.put_key_val(
             &encode_key(store_cipher, keys::ROOM_INFOS, room_info.room_id()),
-            &serialize_event(store_cipher, &room_info)?,
+            &serialize_value(store_cipher, &room_info)?,
         )?;
     }
 
@@ -729,6 +732,16 @@ async fn migrate_to_v8(db: IdbDatabase, store_cipher: Option<&StoreCipher>) -> R
 
     // Update the version of the database.
     Ok(IdbDatabase::open_u32(&name, 8)?.await?)
+}
+
+/// Add the new [`keys::ROOM_SEND_QUEUE`] table.
+async fn migrate_to_v9(db: IdbDatabase) -> Result<IdbDatabase> {
+    let migration = OngoingMigration {
+        drop_stores: [].into(),
+        create_stores: [keys::ROOM_SEND_QUEUE].into_iter().collect(),
+        data: Default::default(),
+    };
+    apply_migration(db, 9, migration).await
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -763,7 +776,7 @@ mod tests {
     use super::{old_keys, MigrationConflictStrategy, CURRENT_DB_VERSION, CURRENT_META_DB_VERSION};
     use crate::{
         safe_encode::SafeEncode,
-        state_store::{encode_key, keys, serialize_event, Result},
+        state_store::{encode_key, keys, serialize_value, Result},
         IndexeddbStateStore, IndexeddbStateStoreError,
     };
 
@@ -909,7 +922,7 @@ mod tests {
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
             );
-            custom.put_key_val(&jskey, &serialize_event(None, &CUSTOM_DATA)?)?;
+            custom.put_key_val(&jskey, &serialize_value(None, &CUSTOM_DATA)?)?;
             tx.await.into_result()?;
             db.close();
         }
@@ -944,7 +957,7 @@ mod tests {
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
             );
-            custom.put_key_val(&jskey, &serialize_event(None, &CUSTOM_DATA)?)?;
+            custom.put_key_val(&jskey, &serialize_value(None, &CUSTOM_DATA)?)?;
             tx.await.into_result()?;
             db.close();
         }
@@ -982,7 +995,7 @@ mod tests {
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
             );
-            custom.put_key_val(&jskey, &serialize_event(None, &CUSTOM_DATA)?)?;
+            custom.put_key_val(&jskey, &serialize_value(None, &CUSTOM_DATA)?)?;
             tx.await.into_result()?;
             db.close();
         }
@@ -1023,7 +1036,7 @@ mod tests {
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
             );
-            custom.put_key_val(&jskey, &serialize_event(None, &CUSTOM_DATA)?)?;
+            custom.put_key_val(&jskey, &serialize_value(None, &CUSTOM_DATA)?)?;
             tx.await.into_result()?;
             db.close();
         }
@@ -1077,7 +1090,7 @@ mod tests {
                 db.transaction_on_one_with_mode(keys::ROOM_STATE, IdbTransactionMode::Readwrite)?;
             let state = tx.object_store(keys::ROOM_STATE)?;
             let key: JsValue = (room_id, StateEventType::RoomTopic, "").as_encoded_string().into();
-            state.put_key_val(&key, &serialize_event(None, &wrong_redacted_state_event)?)?;
+            state.put_key_val(&key, &serialize_value(None, &wrong_redacted_state_event)?)?;
             tx.await.into_result()?;
             db.close();
         }
@@ -1116,17 +1129,17 @@ mod tests {
             let sync_token_store = tx.object_store(old_keys::SYNC_TOKEN)?;
             sync_token_store.put_key_val(
                 &JsValue::from_str(old_keys::SYNC_TOKEN),
-                &serialize_event(None, &sync_token)?,
+                &serialize_value(None, &sync_token)?,
             )?;
 
             let session_store = tx.object_store(old_keys::SESSION)?;
             session_store.put_key_val(
                 &encode_key(None, StateStoreDataKey::FILTER, (StateStoreDataKey::FILTER, filter_1)),
-                &serialize_event(None, &filter_1_id)?,
+                &serialize_value(None, &filter_1_id)?,
             )?;
             session_store.put_key_val(
                 &encode_key(None, StateStoreDataKey::FILTER, (StateStoreDataKey::FILTER, filter_2)),
-                &serialize_event(None, &filter_2_id)?,
+                &serialize_value(None, &filter_2_id)?,
             )?;
 
             tx.await.into_result()?;
@@ -1193,26 +1206,26 @@ mod tests {
             let members_store = tx.object_store(old_keys::MEMBERS)?;
             members_store.put_key_val(
                 &encode_key(None, old_keys::MEMBERS, (room_id, user_id)),
-                &serialize_event(None, &member_event)?,
+                &serialize_value(None, &member_event)?,
             )?;
             let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
             let room_info = room_info_v1_json(room_id, RoomState::Joined, None, None);
             room_infos_store.put_key_val(
                 &encode_key(None, keys::ROOM_INFOS, room_id),
-                &serialize_event(None, &room_info)?,
+                &serialize_value(None, &room_info)?,
             )?;
 
             let stripped_members_store = tx.object_store(old_keys::STRIPPED_MEMBERS)?;
             stripped_members_store.put_key_val(
                 &encode_key(None, old_keys::STRIPPED_MEMBERS, (stripped_room_id, stripped_user_id)),
-                &serialize_event(None, &stripped_member_event)?,
+                &serialize_value(None, &stripped_member_event)?,
             )?;
             let stripped_room_infos_store = tx.object_store(old_keys::STRIPPED_ROOM_INFOS)?;
             let stripped_room_info =
                 room_info_v1_json(stripped_room_id, RoomState::Invited, None, None);
             stripped_room_infos_store.put_key_val(
                 &encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id),
-                &serialize_event(None, &stripped_room_info)?,
+                &serialize_value(None, &stripped_room_info)?,
             )?;
 
             tx.await.into_result()?;
@@ -1278,7 +1291,7 @@ mod tests {
                     keys::ROOM_STATE,
                     (room_id, StateEventType::RoomMember, invite_user_id),
                 ),
-                &serialize_event(None, &invite_member_event)?,
+                &serialize_value(None, &invite_member_event)?,
             )?;
             state_store.put_key_val(
                 &encode_key(
@@ -1286,13 +1299,13 @@ mod tests {
                     keys::ROOM_STATE,
                     (room_id, StateEventType::RoomMember, ban_user_id),
                 ),
-                &serialize_event(None, &ban_member_event)?,
+                &serialize_value(None, &ban_member_event)?,
             )?;
             let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
             let room_info = room_info_v1_json(room_id, RoomState::Joined, None, None);
             room_infos_store.put_key_val(
                 &encode_key(None, keys::ROOM_INFOS, room_id),
-                &serialize_event(None, &room_info)?,
+                &serialize_value(None, &room_info)?,
             )?;
 
             let stripped_state_store = tx.object_store(keys::STRIPPED_ROOM_STATE)?;
@@ -1302,26 +1315,26 @@ mod tests {
                     keys::STRIPPED_ROOM_STATE,
                     (stripped_room_id, StateEventType::RoomMember, stripped_user_id),
                 ),
-                &serialize_event(None, &stripped_member_event)?,
+                &serialize_value(None, &stripped_member_event)?,
             )?;
             let stripped_room_infos_store = tx.object_store(old_keys::STRIPPED_ROOM_INFOS)?;
             let stripped_room_info =
                 room_info_v1_json(stripped_room_id, RoomState::Invited, None, None);
             stripped_room_infos_store.put_key_val(
                 &encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id),
-                &serialize_event(None, &stripped_room_info)?,
+                &serialize_value(None, &stripped_room_info)?,
             )?;
 
             // Populate the old user IDs stores to check the data is not reused.
             let joined_user_id = user_id!("@joined_user:localhost");
             tx.object_store(old_keys::JOINED_USER_IDS)?.put_key_val(
                 &encode_key(None, old_keys::JOINED_USER_IDS, (room_id, joined_user_id)),
-                &serialize_event(None, &joined_user_id)?,
+                &serialize_value(None, &joined_user_id)?,
             )?;
             let invited_user_id = user_id!("@invited_user:localhost");
             tx.object_store(old_keys::INVITED_USER_IDS)?.put_key_val(
                 &encode_key(None, old_keys::INVITED_USER_IDS, (room_id, invited_user_id)),
-                &serialize_event(None, &invited_user_id)?,
+                &serialize_value(None, &invited_user_id)?,
             )?;
             let stripped_joined_user_id = user_id!("@stripped_joined_user:localhost");
             tx.object_store(old_keys::STRIPPED_JOINED_USER_IDS)?.put_key_val(
@@ -1330,7 +1343,7 @@ mod tests {
                     old_keys::STRIPPED_JOINED_USER_IDS,
                     (room_id, stripped_joined_user_id),
                 ),
-                &serialize_event(None, &stripped_joined_user_id)?,
+                &serialize_value(None, &stripped_joined_user_id)?,
             )?;
             let stripped_invited_user_id = user_id!("@stripped_invited_user:localhost");
             tx.object_store(old_keys::STRIPPED_INVITED_USER_IDS)?.put_key_val(
@@ -1339,7 +1352,7 @@ mod tests {
                     old_keys::STRIPPED_INVITED_USER_IDS,
                     (room_id, stripped_invited_user_id),
                 ),
-                &serialize_event(None, &stripped_invited_user_id)?,
+                &serialize_value(None, &stripped_invited_user_id)?,
             )?;
 
             tx.await.into_result()?;
@@ -1398,7 +1411,7 @@ mod tests {
             let room_info = room_info_v1_json(room_id, RoomState::Joined, None, None);
             room_infos_store.put_key_val(
                 &encode_key(None, keys::ROOM_INFOS, room_id),
-                &serialize_event(None, &room_info)?,
+                &serialize_value(None, &room_info)?,
             )?;
 
             let stripped_room_infos_store = tx.object_store(old_keys::STRIPPED_ROOM_INFOS)?;
@@ -1406,7 +1419,7 @@ mod tests {
                 room_info_v1_json(stripped_room_id, RoomState::Invited, None, None);
             stripped_room_infos_store.put_key_val(
                 &encode_key(None, old_keys::STRIPPED_ROOM_INFOS, stripped_room_id),
-                &serialize_event(None, &stripped_room_info)?,
+                &serialize_value(None, &stripped_room_info)?,
             )?;
 
             tx.await.into_result()?;
@@ -1434,7 +1447,7 @@ mod tests {
 
         room_infos_store.put_key_val(
             &encode_key(None, keys::ROOM_INFOS, room_id),
-            &serialize_event(None, &room_info_json)?,
+            &serialize_value(None, &room_info_json)?,
         )?;
 
         // Test with or without `m.room.create` event in the room state.
@@ -1460,7 +1473,7 @@ mod tests {
 
         room_state_store.put_key_val(
             &encode_key(None, keys::ROOM_STATE, (room_id, &StateEventType::RoomCreate, "")),
-            &serialize_event(None, &create_event)?,
+            &serialize_value(None, &create_event)?,
         )?;
 
         Ok(())

@@ -33,7 +33,7 @@ use pbkdf2::pbkdf2;
 use rand::{thread_rng, Error as RandomError, Fill};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::Sha256;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 const VERSION: u8 = 1;
 const KDF_SALT_SIZE: usize = 32;
@@ -126,8 +126,8 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `passphrase` - The passphrase that should be used to encrypt the
-    /// store cipher.
+    /// * `passphrase` - The passphrase that should be used to encrypt the store
+    ///   cipher.
     ///
     /// # Examples
     ///
@@ -159,7 +159,7 @@ impl StoreCipher {
     /// # Arguments
     ///
     /// * `key` - The 32-byte key to be used to encrypt the store cipher. It's
-    /// recommended to use a freshly and securely generated random key.
+    ///   recommended to use a freshly and securely generated random key.
     ///
     /// # Examples
     ///
@@ -260,7 +260,7 @@ impl StoreCipher {
     /// # Arguments
     ///
     /// * `passphrase` - The passphrase that was used to encrypt the store
-    /// cipher.
+    ///   cipher.
     ///
     /// * `encrypted` - The exported and encrypted version of the store cipher.
     ///
@@ -310,8 +310,8 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `key` - The 32-byte decryption key that was previously used to
-    /// encrypt the store cipher.
+    /// * `key` - The 32-byte decryption key that was previously used to encrypt
+    ///   the store cipher.
     ///
     /// * `encrypted` - The exported and encrypted version of the store cipher.
     ///
@@ -353,10 +353,10 @@ impl StoreCipher {
     /// # Arguments
     ///
     /// * `table_name` - The name of the key/value table this key will be
-    /// inserted into. This can also contain additional unique data. It will be
-    /// used to derive a table-specific cryptographic key which will be used
-    /// in a keyed hash function. This ensures data independence between the
-    /// different tables of the key/value store.
+    ///   inserted into. This can also contain additional unique data. It will
+    ///   be used to derive a table-specific cryptographic key which will be
+    ///   used in a keyed hash function. This ensures data independence between
+    ///   the different tables of the key/value store.
     ///
     /// * `key` - The key to be hashed, prior to insertion into the key/value
     ///   store.
@@ -395,8 +395,8 @@ impl StoreCipher {
     /// # Arguments
     ///
     /// * `value` - A value that should be encrypted, any value that implements
-    /// `Serialize` can be given to this method. The value will be serialized as
-    /// json before it is encrypted.
+    ///   `Serialize` can be given to this method. The value will be serialized
+    ///   as json before it is encrypted.
     ///
     /// # Examples
     ///
@@ -418,45 +418,8 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, Error> {
-        Ok(serde_json::to_vec(&self.encrypt_value_typed(value)?)?)
-    }
-
-    /// Encrypt a value before it is inserted into the key/value store.
-    ///
-    /// A value can be decrypted using the
-    /// [`StoreCipher::decrypt_value_typed()`] method. This is the lower
-    /// level function to `encrypt_value`, but returns the
-    /// full `EncryptdValue`-type
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - A value that should be encrypted, any value that implements
-    /// `Serialize` can be given to this method. The value will be serialized as
-    /// json before it is encrypted.
-    ///
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # let example = || {
-    /// use matrix_sdk_store_encryption::StoreCipher;
-    /// use serde_json::{json, value::Value};
-    ///
-    /// let store_cipher = StoreCipher::new()?;
-    ///
-    /// let value = json!({
-    ///     "some": "data",
-    /// });
-    ///
-    /// let encrypted = store_cipher.encrypt_value_typed(&value)?;
-    /// let decrypted: Value = store_cipher.decrypt_value_typed(encrypted)?;
-    ///
-    /// assert_eq!(value, decrypted);
-    /// # anyhow::Ok(()) };
-    /// ```
-    pub fn encrypt_value_typed(&self, value: &impl Serialize) -> Result<EncryptedValue, Error> {
         let data = serde_json::to_vec(value)?;
-        self.encrypt_value_data(data)
+        Ok(serde_json::to_vec(&self.encrypt_value_data(data)?)?)
     }
 
     /// Encrypt some data before it is inserted into the key/value store.
@@ -495,47 +458,6 @@ impl StoreCipher {
 
         data.zeroize();
         Ok(EncryptedValue { version: VERSION, ciphertext, nonce })
-    }
-
-    /// Encrypt a value before it is inserted into the key/value store.
-    ///
-    /// A value can be decrypted using the
-    /// [`StoreCipher::decrypt_value_typed()`] method. This is the lower
-    /// level function to `encrypt_value`, but returns the
-    /// full `EncryptdValue`-type
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - A value that should be encrypted, any value that implements
-    /// `Serialize` can be given to this method. The value will be serialized as
-    /// json before it is encrypted.
-    ///
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # let example = || {
-    /// use matrix_sdk_store_encryption::StoreCipher;
-    /// use serde_json::{json, value::Value};
-    ///
-    /// let store_cipher = StoreCipher::new()?;
-    ///
-    /// let value = json!({
-    ///     "some": "data",
-    /// });
-    ///
-    /// let encrypted = store_cipher.encrypt_value_typed(&value)?;
-    /// let decrypted: Value = store_cipher.decrypt_value_typed(encrypted)?;
-    ///
-    /// assert_eq!(value, decrypted);
-    /// # anyhow::Ok(()) };
-    /// ```
-    pub fn encrypt_value_base64_typed(
-        &self,
-        value: &impl Serialize,
-    ) -> Result<EncryptedValueBase64, Error> {
-        let data = serde_json::to_vec(value)?;
-        self.encrypt_value_base64_data(data)
     }
 
     /// Encrypt some data before it is inserted into the key/value store,
@@ -603,87 +525,10 @@ impl StoreCipher {
     /// ```
     pub fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, Error> {
         let value: EncryptedValue = serde_json::from_slice(value)?;
-        self.decrypt_value_typed(value)
-    }
-
-    /// Decrypt a value after it was fetched from the key/value store.
-    ///
-    /// A value can be encrypted using the
-    /// [`StoreCipher::encrypt_value_typed()`] method. Lower level method to
-    /// [`StoreCipher::decrypt_value_typed()`]
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - The EncryptedValue of a value that should be decrypted.
-    ///
-    /// The method will deserialize the decrypted value into the expected type.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let example = || {
-    /// use matrix_sdk_store_encryption::StoreCipher;
-    /// use serde_json::{json, value::Value};
-    ///
-    /// let store_cipher = StoreCipher::new()?;
-    ///
-    /// let value = json!({
-    ///     "some": "data",
-    /// });
-    ///
-    /// let encrypted = store_cipher.encrypt_value_typed(&value)?;
-    /// let decrypted: Value = store_cipher.decrypt_value_typed(encrypted)?;
-    ///
-    /// assert_eq!(value, decrypted);
-    /// # anyhow::Ok(()) };
-    /// ```
-    pub fn decrypt_value_typed<T: DeserializeOwned>(
-        &self,
-        value: EncryptedValue,
-    ) -> Result<T, Error> {
         let mut plaintext = self.decrypt_value_data(value)?;
         let ret = serde_json::from_slice(&plaintext);
         plaintext.zeroize();
         Ok(ret?)
-    }
-
-    /// Decrypt a base64-encoded value after it was fetched from the key/value
-    /// store.
-    ///
-    /// A value can be encrypted using the
-    /// [`StoreCipher::encrypt_value_base64_typed()`] method.
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - The EncryptedValueBase64 of a value that should be
-    ///   decrypted.
-    ///
-    /// The method will deserialize the decrypted value into the expected type.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let example = || {
-    /// use matrix_sdk_store_encryption::StoreCipher;
-    /// use serde_json::{json, value::Value};
-    ///
-    /// let store_cipher = StoreCipher::new()?;
-    ///
-    /// let value = json!({
-    ///     "some": "data",
-    /// });
-    ///
-    /// let encrypted = store_cipher.encrypt_value_base64_typed(&value)?;
-    /// let decrypted: Value = store_cipher.decrypt_value_base64_typed(encrypted)?;
-    ///
-    /// assert_eq!(value, decrypted);
-    /// # anyhow::Ok(()) };
-    /// ```
-    pub fn decrypt_value_base64_typed<T: DeserializeOwned>(
-        &self,
-        value: EncryptedValueBase64,
-    ) -> Result<T, Error> {
-        self.decrypt_value_typed(value.try_into()?)
     }
 
     /// Decrypt a base64-encoded value after it was fetched from the key/value
@@ -774,8 +619,7 @@ impl StoreCipher {
     }
 }
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
+#[derive(ZeroizeOnDrop)]
 struct MacKey(Box<[u8; 32]>);
 
 impl MacKey {
@@ -878,8 +722,7 @@ impl From<EncryptedValue> for EncryptedValueBase64 {
     }
 }
 
-#[derive(Zeroize)]
-#[zeroize(drop)]
+#[derive(ZeroizeOnDrop)]
 struct Keys {
     encryption_key: Box<[u8; 32]>,
     mac_key_seed: Box<MacKeySeed>,
@@ -1102,8 +945,11 @@ mod tests {
 
         let store_cipher = StoreCipher::new()?;
 
-        let encrypted = store_cipher.encrypt_value_base64_typed(&event)?;
-        let decrypted: Value = store_cipher.decrypt_value_base64_typed(encrypted)?;
+        let data = serde_json::to_vec(&event)?;
+        let encrypted = store_cipher.encrypt_value_base64_data(data)?;
+
+        let plaintext = store_cipher.decrypt_value_base64_data(encrypted)?;
+        let decrypted: Value = serde_json::from_slice(&plaintext)?;
 
         assert_eq!(event, decrypted);
 

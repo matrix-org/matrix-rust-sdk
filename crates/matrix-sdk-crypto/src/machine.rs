@@ -66,7 +66,7 @@ use crate::{
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
-        OlmDecryptionInfo, PrivateCrossSigningIdentity, SessionType, StaticAccountData,
+        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData, SessionType, StaticAccountData,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -173,7 +173,14 @@ impl OlmMachine {
         let static_account = account.static_data().clone();
 
         let store = Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()));
+        let device = ReadOnlyDevice::from_account(&account);
         store.save_pending_changes(PendingChanges { account: Some(account) }).await?;
+        store
+            .save_changes(Changes {
+                devices: DeviceChanges { new: vec![device], ..Default::default() },
+                ..Default::default()
+            })
+            .await?;
 
         Ok(Self::new_helper(
             device_id,
@@ -508,10 +515,10 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `request_id` - The unique id of the request that was sent out. This is
-    /// needed to couple the response with the now sent out request.
+    ///   needed to couple the response with the now sent out request.
     ///
     /// * `response` - The response that was received from the server after the
-    /// outgoing request was sent out.
+    ///   outgoing request was sent out.
     pub async fn mark_request_as_sent<'a>(
         &self,
         request_id: &TransactionId,
@@ -809,11 +816,14 @@ impl OlmMachine {
         event: &DecryptedRoomKeyEvent,
         content: &MegolmV1AesSha2Content,
     ) -> OlmResult<Option<InboundGroupSession>> {
+        let sender_data = SenderData::unknown();
+
         let session = InboundGroupSession::new(
             sender_key,
             event.keys.ed25519,
             &content.room_id,
             &content.session_key,
+            sender_data,
             event.content.algorithm(),
             None,
         );
@@ -867,6 +877,8 @@ impl OlmMachine {
     }
 
     fn add_withheld_info(&self, changes: &mut Changes, event: &RoomKeyWithheldEvent) {
+        debug!(?event.content, "Processing `m.room_key.withheld` event");
+
         if let RoomKeyWithheldContent::MegolmV1AesSha2(
             MegolmV1AesSha2WithheldContent::BlackListed(c)
             | MegolmV1AesSha2WithheldContent::Unverified(c),
@@ -919,10 +931,10 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `room_id` - The id of the room for which the message should be
-    /// encrypted.
+    ///   encrypted.
     ///
     /// * `content` - The plaintext content of the message that should be
-    /// encrypted.
+    ///   encrypted.
     ///
     /// # Panics
     ///
@@ -946,10 +958,10 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `room_id` - The id of the room for which the message should be
-    /// encrypted.
+    ///   encrypted.
     ///
     /// * `content` - The plaintext content of the message that should be
-    /// encrypted as a raw JSON value.
+    ///   encrypted as a raw JSON value.
     ///
     /// * `event_type` - The plaintext type of the event.
     ///
@@ -2109,7 +2121,7 @@ impl OlmMachine {
     /// ## Requirements
     ///
     /// - This assumes that `initialize_crypto_store_generation` has been called
-    /// beforehand.
+    ///   beforehand.
     /// - This requires that the crypto store lock has been acquired.
     ///
     /// # Arguments
@@ -2408,8 +2420,10 @@ pub(crate) mod tests {
         error::{EventError, SetRoomSettingsError},
         machine::{EncryptionSyncChanges, OlmMachine},
         olm::{
-            BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, OutboundGroupSession, VerifyJson,
+            BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, OutboundGroupSession,
+            SenderData, VerifyJson,
         },
+        session_manager::CollectStrategy,
         store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore, RoomSettings},
         types::{
             events::{
@@ -3228,8 +3242,10 @@ pub(crate) mod tests {
         let room_id = room_id!("!test:example.org");
 
         let encryption_settings = EncryptionSettings::default();
-        let encryption_settings =
-            EncryptionSettings { only_allow_trusted_devices: true, ..encryption_settings };
+        let encryption_settings = EncryptionSettings {
+            sharing_strategy: CollectStrategy::new_device_based(true),
+            ..encryption_settings
+        };
 
         let to_device_requests = alice
             .share_room_key(room_id, iter::once(bob.user_id()), encryption_settings)
@@ -3701,6 +3717,7 @@ pub(crate) mod tests {
             Ed25519PublicKey::from_base64("loz5i40dP+azDtWvsD0L/xpnCjNkmrcvtXVXzCHX8Vw").unwrap(),
             fake_room_id,
             &olm,
+            SenderData::unknown(),
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
         )
@@ -3718,6 +3735,7 @@ pub(crate) mod tests {
             Ed25519PublicKey::from_base64("48f3WQAMGwYLBg5M5qUhqnEVA8yeibjZpPsShoWMFT8").unwrap(),
             fake_room_id,
             &olm,
+            SenderData::unknown(),
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             None,
         )

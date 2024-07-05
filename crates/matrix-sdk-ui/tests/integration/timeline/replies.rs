@@ -535,7 +535,7 @@ async fn test_send_reply_to_threaded() {
     // The reply should be considered part of the thread.
     assert!(reply_message.is_threaded());
 
-    // Some extra assertions
+    // Some extra assertions.
     assert_eq!(reply_message.body(), "Hello, Bob!");
     let in_reply_to = reply_message.in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);
@@ -543,13 +543,13 @@ async fn test_send_reply_to_threaded() {
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_eq!(replied_to_event.sender(), *BOB);
 
-    // Wait for remote echo
+    // Wait for remote echo.
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 1, value: reply_item_remote_echo } = diff);
 
     assert_matches!(reply_item_remote_echo.send_state(), Some(EventSendState::Sent { .. }));
 
-    // Same assertions as before still hold on the contained message
+    // Same assertions as before still hold on the contained message.
     assert!(reply_message.is_threaded());
 
     assert_eq!(reply_message.body(), "Hello, Bob!");

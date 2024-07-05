@@ -28,9 +28,9 @@ async-trait = "0.1.60"
 as_variant = "1.2.0"
 base64 = "0.22.0"
 byteorder = "1.4.3"
-eyeball = { version = "0.8.7", features = ["tracing"] }
-eyeball-im = { version = "0.4.1", features = ["tracing"] }
-eyeball-im-util = "0.5.1"
+eyeball = { version = "0.8.8", features = ["tracing"] }
+eyeball-im = { version = "0.5.0", features = ["tracing"] }
+eyeball-im-util = "0.6.0"
 futures-core = "0.3.28"
 futures-executor = "0.3.21"
 futures-util = { version = "0.3.26", default-features = false, features = [
@@ -38,13 +38,13 @@ futures-util = { version = "0.3.26", default-features = false, features = [
 ] }
 growable-bloom-filter = "2.1.0"
 http = "1.1.0"
-imbl = "2.0.0"
+imbl = "3.0.0"
 itertools = "0.12.0"
 once_cell = "1.16.0"
 pin-project-lite = "0.2.9"
 rand = "0.8.5"
 reqwest = { version = "0.12.4", default-features = false }
-ruma = { git = "https://github.com/ruma/ruma", rev = "c21817436979acbe66d43064498920a6d289b562", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "e5a370f7e5fcebb0da6e4945e51c5fafba9aa5f0", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -55,11 +55,12 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "c21817436979acbe66d4306449
     "unstable-msc3266",
     "unstable-msc4075"
 ] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "c21817436979acbe66d43064498920a6d289b562" }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "e5a370f7e5fcebb0da6e4945e51c5fafba9aa5f0" }
 serde = "1.0.151"
 serde_html_form = "0.2.0"
 serde_json = "1.0.91"
 sha2 = "0.10.8"
+similar-asserts = "1.5.0"
 stream_assert = "0.1.1"
 thiserror = "1.0.38"
 tokio = { version = "1.30.0", default-features = false, features = ["sync"] }

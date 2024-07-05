@@ -164,20 +164,36 @@ where
     )
 }
 
+/// Configuration to save logs to (rotated) log-files.
 #[derive(uniffi::Record)]
 pub struct TracingFileConfiguration {
+    /// Base location for all the log files.
     path: String,
+
+    /// Prefix for the log files' names.
     file_prefix: String,
+
+    /// Optional suffix for the log file's names.
     file_suffix: Option<String>,
+
+    /// Maximum number of rotated files.
+    ///
+    /// If not set, there's no max limit, i.e. the number of log files is
+    /// unlimited.
     max_files: Option<u64>,
 }
 
 #[derive(uniffi::Record)]
 pub struct TracingConfiguration {
+    /// A filter line following the [RUST_LOG format].
+    ///
+    /// [RUST_LOG format]: https://rust-lang-nursery.github.io/rust-cookbook/development_tools/debugging/config_log.html
     filter: String,
-    /// Controls whether to print to stdout or, equivalent, the system logs on
-    /// Android.
+
+    /// Whether to log to stdout, or in the logcat on Android.
     write_to_stdout_or_system: bool,
+
+    /// If set, configures rotated log files where to write additional logs.
     write_to_files: Option<TracingFileConfiguration>,
 }
 

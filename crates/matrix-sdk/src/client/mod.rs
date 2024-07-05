@@ -394,6 +394,11 @@ impl Client {
         &self.inner.base_client
     }
 
+    /// The underlying HTTP client.
+    pub fn http_client(&self) -> &reqwest::Client {
+        &self.inner.http_client.inner
+    }
+
     pub(crate) fn locks(&self) -> &ClientLocks {
         &self.inner.locks
     }
@@ -1165,8 +1170,8 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `alias` - The `RoomId` or `RoomAliasId` of the room to be joined.
-    /// An alias looks like `#name:example.com`.
+    /// * `alias` - The `RoomId` or `RoomAliasId` of the room to be joined. An
+    ///   alias looks like `#name:example.com`.
     pub async fn join_room_by_id_or_alias(
         &self,
         alias: &RoomOrAliasId,
@@ -1311,7 +1316,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `room_search` - The easiest way to create this request is using the
-    /// `get_public_rooms_filtered::Request` itself.
+    ///   `get_public_rooms_filtered::Request` itself.
     ///
     /// # Examples
     ///
@@ -1357,7 +1362,7 @@ impl Client {
     /// * `request` - A filled out and valid request for the endpoint to be hit
     ///
     /// * `timeout` - An optional request timeout setting, this overrides the
-    /// default request setting if one was set.
+    ///   default request setting if one was set.
     ///
     /// # Examples
     ///
@@ -1565,13 +1570,13 @@ impl Client {
     /// # Arguments
     ///
     /// * `devices` - The list of devices that should be deleted from the
-    /// server.
+    ///   server.
     ///
     /// * `auth_data` - This request requires user interactive auth, the first
-    /// request needs to set this to `None` and will always fail with an
-    /// `UiaaResponse`. The response will contain information for the
-    /// interactive auth and the same request needs to be made but this time
-    /// with some `auth_data` provided.
+    ///   request needs to set this to `None` and will always fail with an
+    ///   `UiaaResponse`. The response will contain information for the
+    ///   interactive auth and the same request needs to be made but this time
+    ///   with some `auth_data` provided.
     ///
     /// ```no_run
     /// # use matrix_sdk::{
@@ -2204,7 +2209,10 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use ruma::{events::ignored_user_list::IgnoredUserListEventContent, room_id, UserId};
+    use ruma::{
+        events::ignored_user_list::IgnoredUserListEventContent, owned_room_id, room_id, RoomId,
+        UserId,
+    };
     use url::Url;
     use wiremock::{
         matchers::{body_json, header, method, path},
@@ -2468,7 +2476,7 @@ pub(crate) mod tests {
         // Tracking recently visited rooms requires authentication
         let client = no_retry_test_client(Some("http://localhost".to_owned())).await;
         assert_matches!(
-            client.account().track_recently_visited_room("!alpha:localhost".to_owned()).await,
+            client.account().track_recently_visited_room(owned_room_id!("!alpha:localhost")).await,
             Err(Error::AuthenticationRequired)
         );
 
@@ -2479,45 +2487,39 @@ pub(crate) mod tests {
         assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 0);
 
         // Tracking a valid room id should add it to the list
-        account.track_recently_visited_room("!alpha:localhost".to_owned()).await.unwrap();
+        account.track_recently_visited_room(owned_room_id!("!alpha:localhost")).await.unwrap();
         assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 1);
         assert_eq!(account.get_recently_visited_rooms().await.unwrap(), ["!alpha:localhost"]);
-
-        // Trying to track an invalid room id should return an error
-        assert_matches!(
-            account.track_recently_visited_room("this_is_not_a_valid_room_id".to_owned()).await,
-            Err(Error::Identifier { .. })
-        );
 
         // And the existing list shouldn't be changed
         assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 1);
         assert_eq!(account.get_recently_visited_rooms().await.unwrap(), ["!alpha:localhost"]);
 
         // Tracking the same room again shouldn't change the list
-        account.track_recently_visited_room("!alpha:localhost".to_owned()).await.unwrap();
+        account.track_recently_visited_room(owned_room_id!("!alpha:localhost")).await.unwrap();
         assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 1);
         assert_eq!(account.get_recently_visited_rooms().await.unwrap(), ["!alpha:localhost"]);
 
         // Tracking a second room should add it to the front of the list
-        account.track_recently_visited_room("!beta:localhost".to_owned()).await.unwrap();
+        account.track_recently_visited_room(owned_room_id!("!beta:localhost")).await.unwrap();
         assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 2);
         assert_eq!(
             account.get_recently_visited_rooms().await.unwrap(),
-            ["!beta:localhost", "!alpha:localhost"]
+            [room_id!("!beta:localhost"), room_id!("!alpha:localhost")]
         );
 
         // Tracking the first room yet again should move it to the front of the list
-        account.track_recently_visited_room("!alpha:localhost".to_owned()).await.unwrap();
+        account.track_recently_visited_room(owned_room_id!("!alpha:localhost")).await.unwrap();
         assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 2);
         assert_eq!(
             account.get_recently_visited_rooms().await.unwrap(),
-            ["!alpha:localhost", "!beta:localhost"]
+            [room_id!("!alpha:localhost"), room_id!("!beta:localhost")]
         );
 
         // Tracking should be capped at 20
         for n in 0..20 {
             account
-                .track_recently_visited_room(format!("!{n}:localhost").to_owned())
+                .track_recently_visited_room(RoomId::parse(format!("!{n}:localhost")).unwrap())
                 .await
                 .unwrap();
         }
@@ -2526,11 +2528,11 @@ pub(crate) mod tests {
 
         // And the initial rooms should've been pushed out
         let rooms = account.get_recently_visited_rooms().await.unwrap();
-        assert!(!rooms.contains(&"!alpha:localhost".to_owned()));
-        assert!(!rooms.contains(&"!beta:localhost".to_owned()));
+        assert!(!rooms.contains(&owned_room_id!("!alpha:localhost")));
+        assert!(!rooms.contains(&owned_room_id!("!beta:localhost")));
 
         // And the last tracked room should be the first
-        assert_eq!(rooms.first().unwrap(), "!19:localhost");
+        assert_eq!(rooms.first().unwrap(), room_id!("!19:localhost"));
     }
 
     #[async_test]

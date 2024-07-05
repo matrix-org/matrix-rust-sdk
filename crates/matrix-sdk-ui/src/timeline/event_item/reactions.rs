@@ -18,7 +18,7 @@ use indexmap::IndexMap;
 use itertools::Itertools as _;
 use ruma::{OwnedEventId, OwnedTransactionId, UserId};
 
-use super::EventItemIdentifier;
+use super::TimelineEventItemId;
 use crate::timeline::ReactionSenderData;
 
 /// The reactions grouped by key.
@@ -32,7 +32,7 @@ pub type BundledReactions = IndexMap<String, ReactionGroup>;
 /// This is a map of the event ID or transaction ID of the reactions to the ID
 /// of the sender of the reaction.
 #[derive(Clone, Debug, Default)]
-pub struct ReactionGroup(pub(in crate::timeline) IndexMap<EventItemIdentifier, ReactionSenderData>);
+pub struct ReactionGroup(pub(in crate::timeline) IndexMap<TimelineEventItemId, ReactionSenderData>);
 
 impl ReactionGroup {
     /// The (deduplicated) senders of the reactions in this group.
@@ -51,15 +51,15 @@ impl ReactionGroup {
     ) -> impl Iterator<Item = (Option<&OwnedTransactionId>, Option<&OwnedEventId>)> + 'a {
         self.iter().filter_map(move |(k, v)| {
             (v.sender_id == user_id).then_some(match k {
-                EventItemIdentifier::TransactionId(txn_id) => (Some(txn_id), None),
-                EventItemIdentifier::EventId(event_id) => (None, Some(event_id)),
+                TimelineEventItemId::TransactionId(txn_id) => (Some(txn_id), None),
+                TimelineEventItemId::EventId(event_id) => (None, Some(event_id)),
             })
         })
     }
 }
 
 impl Deref for ReactionGroup {
-    type Target = IndexMap<EventItemIdentifier, ReactionSenderData>;
+    type Target = IndexMap<TimelineEventItemId, ReactionSenderData>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

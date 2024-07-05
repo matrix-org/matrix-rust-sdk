@@ -15,8 +15,10 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use matrix_sdk::{send_queue::AbortSendHandle, Error};
+use matrix_sdk::{send_queue::SendHandle, Error};
 use ruma::{EventId, OwnedEventId, OwnedTransactionId};
+
+use super::TimelineEventItemId;
 
 /// An item for an event that was created locally and not yet echoed back by
 /// the homeserver.
@@ -26,11 +28,25 @@ pub(in crate::timeline) struct LocalEventTimelineItem {
     pub send_state: EventSendState,
     /// The transaction ID.
     pub transaction_id: OwnedTransactionId,
-    /// A handle to abort sending this event, if possible.
-    pub abort_handle: Option<AbortSendHandle>,
+    /// A handle to manipulate this event before it is sent, if possible.
+    pub send_handle: Option<SendHandle>,
 }
 
 impl LocalEventTimelineItem {
+    /// Get the unique identifier of this item.
+    ///
+    /// Returns the transaction ID for a local echo item that has not been sent
+    /// and the event ID for a local echo item that has been sent.
+    pub(crate) fn identifier(&self) -> TimelineEventItemId {
+        if let Some(event_id) =
+            as_variant!(&self.send_state, EventSendState::Sent { event_id } => event_id)
+        {
+            TimelineEventItemId::EventId(event_id.clone())
+        } else {
+            TimelineEventItemId::TransactionId(self.transaction_id.clone())
+        }
+    }
+
     /// Get the event ID of this item.
     ///
     /// Will be `Some` if and only if `send_state` is

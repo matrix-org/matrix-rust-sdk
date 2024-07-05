@@ -20,7 +20,7 @@ use ruma::{
     OwnedUserId,
 };
 
-use super::event_item::EventItemIdentifier;
+use super::event_item::TimelineEventItemId;
 
 /// Data associated with a reaction sender. It can be used to display
 /// a details UI component for a reaction with both sender
@@ -36,7 +36,7 @@ pub struct ReactionSenderData {
 #[derive(Clone, Debug, Default)]
 pub(super) struct Reactions {
     /// Reaction event / txn ID => sender and reaction data.
-    pub(super) map: HashMap<EventItemIdentifier, (ReactionSenderData, Annotation)>,
+    pub(super) map: HashMap<TimelineEventItemId, (ReactionSenderData, Annotation)>,
     /// ID of event that is not in the timeline yet => List of reaction event
     /// IDs.
     pub(super) pending: HashMap<OwnedEventId, IndexSet<OwnedEventId>>,

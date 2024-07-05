@@ -155,8 +155,8 @@ impl ToDeviceEvents {
     /// * `m.room_key` - The `session_key` field.
     /// * `m.forwarded_room_key` - The `session_key` field.
     /// * `m.secret.send` - The `secret` field will be zeroized, unless the
-    /// secret name of the matching `m.secret.request` event was
-    /// `m.megolm_backup.v1`.
+    ///   secret name of the matching `m.secret.request` event was
+    ///   `m.megolm_backup.v1`.
     ///
     /// **Warning**: Some events won't be able to be deserialized into the
     /// `ToDeviceEvents` type again since they might expect a valid `SessionKey`
@@ -165,12 +165,12 @@ impl ToDeviceEvents {
     /// You can do a couple of things to avoid this problem:
     ///
     /// 1. Call `Raw::cast()` to convert the event to another, less strict type.
-    /// [`AnyToDeviceEvent`] from Ruma will work.
+    ///    [`AnyToDeviceEvent`] from Ruma will work.
     ///
     /// 2. Call `Raw::deserialize_as()` to deserialize into a less strict type.
     ///
     /// 3. Pass the event over FFI, losing the exact type information, this will
-    /// mostl likely end up using a less strict type naturally.
+    ///    most likely end up using a less strict type naturally.
     ///
     /// [`AnyToDeviceEvent`]: ruma::events::AnyToDeviceEvent
     pub(crate) fn serialize_zeroized(self) -> Result<Raw<ToDeviceEvents>, serde_json::Error> {

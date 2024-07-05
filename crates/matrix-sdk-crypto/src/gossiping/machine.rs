@@ -268,7 +268,7 @@ impl GossipMachine {
     /// # Arguments
     ///
     /// * `user_id` - The user id of the device that we created the Olm session
-    /// with.
+    ///   with.
     ///
     /// * `device_id` - The device ID of the device that got the Olm session.
     pub fn retry_keyshare(&self, user_id: &UserId, device_id: &DeviceId) {
@@ -588,14 +588,14 @@ impl GossipMachine {
     /// The logic for this is currently as follows:
     ///
     /// * Share the session in full, starting from the earliest known index, if
-    /// the requesting device is our own, trusted (verified) device.
+    ///   the requesting device is our own, trusted (verified) device.
     ///
     /// * For other requesting devices, share only a limited session and only if
-    /// we originally shared with that device because it was present when the
-    /// message was initially sent. By limited, we mean that the session will
-    /// not be shared in full, but only from the message index at that moment.
-    /// Since this information is recorded in the outbound session, we need to
-    /// have it for this to work.
+    ///   we originally shared with that device because it was present when the
+    ///   message was initially sent. By limited, we mean that the session will
+    ///   not be shared in full, but only from the message index at that moment.
+    ///   Since this information is recorded in the outbound session, we need to
+    ///   have it for this to work.
     ///
     /// * In all other cases, refuse to share the session.
     ///
@@ -642,7 +642,9 @@ impl GossipMachine {
         // information is recorded there.
         } else if let Some(outbound) = outbound_session {
             match outbound.is_shared_with(&device.inner) {
-                ShareState::Shared(message_index) => Ok(Some(message_index)),
+                ShareState::Shared { message_index, olm_wedging_index: _ } => {
+                    Ok(Some(message_index))
+                }
                 ShareState::SharedButChangedSenderKey => Err(KeyForwardDecision::ChangedSenderKey),
                 ShareState::NotShared => Err(KeyForwardDecision::OutboundSessionNotShared),
             }
@@ -661,7 +663,7 @@ impl GossipMachine {
     /// # Arguments
     ///
     /// * `key_info` - The info of our key request containing information about
-    /// the key we wish to request.
+    ///   the key we wish to request.
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn should_request_key(&self, key_info: &SecretInfo) -> Result<bool, CryptoStoreError> {
         if self.inner.room_key_requests_enabled.load(Ordering::SeqCst) {
@@ -1476,6 +1478,7 @@ mod tests {
             alice_id(),
             alice_id(),
             alice_device.ed25519_key().unwrap(),
+            None,
             content,
         );
 
@@ -1523,6 +1526,7 @@ mod tests {
             alice_id(),
             alice_id(),
             alice_device.ed25519_key().unwrap(),
+            None,
             content,
         );
 
@@ -1541,6 +1545,7 @@ mod tests {
             alice_id(),
             alice_id(),
             alice_device.ed25519_key().unwrap(),
+            None,
             content,
         );
 

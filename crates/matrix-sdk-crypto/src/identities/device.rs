@@ -43,7 +43,9 @@ use crate::{
     olm::{
         InboundGroupSession, OutboundGroupSession, Session, ShareInfo, SignedJsonObject, VerifyJson,
     },
-    store::{Changes, CryptoStoreWrapper, DeviceChanges, Result as StoreResult},
+    store::{
+        caches::SequenceNumber, Changes, CryptoStoreWrapper, DeviceChanges, Result as StoreResult,
+    },
     types::{
         events::{
             forwarded_room_key::ForwardedRoomKeyContent,
@@ -89,6 +91,10 @@ pub struct ReadOnlyDevice {
     /// Default to epoch for migration purpose.
     #[serde(default = "default_timestamp")]
     first_time_seen_ts: MilliSecondsSinceUnixEpoch,
+    /// The number of times the device has tried to unwedge Olm sessions with
+    /// us.
+    #[serde(default)]
+    pub(crate) olm_wedging_index: SequenceNumber,
 }
 
 fn default_timestamp() -> MilliSecondsSinceUnixEpoch {
@@ -273,16 +279,9 @@ impl Device {
 
     /// Is this device cross signed by its owner?
     pub fn is_cross_signed_by_owner(&self) -> bool {
-        self.device_owner_identity.as_ref().is_some_and(|device_identity| match device_identity {
-            // If it's one of our own devices, just check that
-            // we signed the device.
-            ReadOnlyUserIdentities::Own(identity) => identity.is_device_signed(&self.inner).is_ok(),
-            // If it's a device from someone else, check
-            // if the other user has signed this device.
-            ReadOnlyUserIdentities::Other(device_identity) => {
-                device_identity.is_device_signed(&self.inner).is_ok()
-            }
-        })
+        self.device_owner_identity
+            .as_ref()
+            .is_some_and(|owner_identity| self.inner.is_cross_signed_by_owner(owner_identity))
     }
 
     /// Is the device owner verified by us?
@@ -580,6 +579,7 @@ impl ReadOnlyDevice {
             deleted: Arc::new(AtomicBool::new(false)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
             first_time_seen_ts: MilliSecondsSinceUnixEpoch::now(),
+            olm_wedging_index: Default::default(),
         }
     }
 
@@ -764,6 +764,22 @@ impl ReadOnlyDevice {
         )
     }
 
+    pub(crate) fn is_cross_signed_by_owner(
+        &self,
+        device_owner_identity: &ReadOnlyUserIdentities,
+    ) -> bool {
+        match device_owner_identity {
+            // If it's one of our own devices, just check that
+            // we signed the device.
+            ReadOnlyUserIdentities::Own(identity) => identity.is_device_signed(self).is_ok(),
+            // If it's a device from someone else, check
+            // if the other user has signed this device.
+            ReadOnlyUserIdentities::Other(device_identity) => {
+                device_identity.is_device_signed(self).is_ok()
+            }
+        }
+    }
+
     /// Encrypt the given content for this device.
     ///
     /// # Arguments
@@ -833,7 +849,11 @@ impl ReadOnlyDevice {
 
         match self.encrypt(store, event_type, content).await {
             Ok((session, encrypted)) => Ok(MaybeEncryptedRoomKey::Encrypted {
-                share_info: ShareInfo::new_shared(session.sender_key().to_owned(), message_index),
+                share_info: ShareInfo::new_shared(
+                    session.sender_key().to_owned(),
+                    message_index,
+                    self.olm_wedging_index,
+                ),
                 used_session: session,
                 message: encrypted.cast(),
             }),
@@ -871,7 +891,8 @@ impl ReadOnlyDevice {
         }
     }
 
-    pub(crate) fn as_device_keys(&self) -> &DeviceKeys {
+    /// Return the device keys
+    pub fn as_device_keys(&self) -> &DeviceKeys {
         &self.inner
     }
 
@@ -970,6 +991,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
             trust_state: Arc::new(RwLock::new(LocalTrust::Unset)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
             first_time_seen_ts: MilliSecondsSinceUnixEpoch::now(),
+            olm_wedging_index: Default::default(),
         };
 
         device.verify_device_keys(device_keys)?;

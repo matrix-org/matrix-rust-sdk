@@ -25,16 +25,16 @@ use matrix_sdk::{
         events::room::message::{MessageType, RoomMessageEventContent},
         MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
     },
-    AuthSession, Client, RoomListEntry, ServerName, SqliteCryptoStore, SqliteStateStore,
+    AuthSession, Client, ServerName, SqliteCryptoStore, SqliteStateStore,
 };
 use matrix_sdk_ui::{
-    room_list_service,
+    room_list_service::{self, filters::new_filter_non_left},
     sync_service::{self, SyncService},
     timeline::{TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem},
     Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
-use tokio::{spawn, task::JoinHandle};
+use tokio::{runtime::Handle, spawn, task::JoinHandle};
 use tracing::error;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter};
 
@@ -112,7 +112,7 @@ enum DetailsMode {
     ReadReceipts,
     #[default]
     TimelineItems,
-    // Events // TODO: Soon™
+    Events,
 }
 
 struct Timeline {
@@ -144,8 +144,8 @@ struct App {
     /// Timelines data structures for each room.
     timelines: Arc<Mutex<HashMap<OwnedRoomId, Timeline>>>,
 
-    /// Ratatui's list of room list entries.
-    room_list_entries: StatefulList<RoomListEntry>,
+    /// Ratatui's list of room list rooms.
+    room_list_rooms: StatefulList<room_list_service::Room>,
 
     /// Extra information about rooms.
     room_info: Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>>,
@@ -172,45 +172,46 @@ impl App {
     async fn new(client: Client) -> anyhow::Result<Self> {
         let sync_service = Arc::new(SyncService::builder(client.clone()).build().await?);
 
-        let room_list_service = sync_service.room_list_service();
-
-        let all_rooms = room_list_service.all_rooms().await?;
-        let (rooms, stream) = all_rooms.entries();
-
-        let rooms = Arc::new(Mutex::new(rooms));
+        let rooms = Arc::new(Mutex::new(Vector::<room_list_service::Room>::new()));
         let room_infos: Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>> =
             Arc::new(Mutex::new(Default::default()));
         let ui_rooms: Arc<Mutex<HashMap<OwnedRoomId, room_list_service::Room>>> =
             Default::default();
         let timelines = Arc::new(Mutex::new(HashMap::new()));
 
+        let c = client.clone();
         let r = rooms.clone();
         let ri = room_infos.clone();
         let ur = ui_rooms.clone();
-        let s = sync_service.clone();
         let t = timelines.clone();
 
+        let room_list_service = sync_service.room_list_service();
+        let all_rooms = room_list_service.all_rooms().await?;
+
         let listen_task = spawn(async move {
-            pin_mut!(stream);
+            let client = c;
             let rooms = r;
             let room_infos = ri;
             let ui_rooms = ur;
-            let sync_service = s;
             let timelines = t;
+
+            let (stream, entries_controller) =
+                all_rooms.entries_with_dynamic_adapters(50_000, client.roominfo_update_receiver());
+            entries_controller.set_filter(Box::new(new_filter_non_left()));
+
+            pin_mut!(stream);
 
             while let Some(diffs) = stream.next().await {
                 let all_rooms = {
                     // Apply the diffs to the list of room entries.
                     let mut rooms = rooms.lock().unwrap();
+
                     for diff in diffs {
                         diff.apply(&mut rooms);
                     }
 
                     // Collect rooms early to release the room entries list lock.
-                    rooms
-                        .iter()
-                        .filter_map(|entry| entry.as_room_id().map(ToOwned::to_owned))
-                        .collect::<Vec<_>>()
+                    (*rooms).clone()
                 };
 
                 // Clone the previous set of ui rooms to avoid keeping the ui_rooms lock (which
@@ -223,15 +224,10 @@ impl App {
                 let mut new_timelines = Vec::new();
 
                 // Initialize all the new rooms.
-                for room_id in
-                    all_rooms.into_iter().filter(|room_id| !previous_ui_rooms.contains_key(room_id))
+                for ui_room in all_rooms
+                    .into_iter()
+                    .filter(|room| !previous_ui_rooms.contains_key(room.room_id()))
                 {
-                    // Retrieve the room list service's Room.
-                    let Ok(ui_room) = sync_service.room_list_service().room(&room_id) else {
-                        error!("error when retrieving room after an update");
-                        continue;
-                    };
-
                     // Initialize the timeline.
                     let builder = match ui_room.default_room_timeline_builder().await {
                         Ok(builder) => builder,
@@ -262,12 +258,12 @@ impl App {
                     });
 
                     new_timelines.push((
-                        room_id.clone(),
+                        ui_room.room_id().to_owned(),
                         Timeline { timeline: sdk_timeline, items, task: timeline_task },
                     ));
 
                     // Save the room list service room in the cache.
-                    new_ui_rooms.insert(room_id, ui_room);
+                    new_ui_rooms.insert(ui_room.room_id().to_owned(), ui_room);
                 }
 
                 for (room_id, room) in &new_ui_rooms {
@@ -276,7 +272,7 @@ impl App {
                     room_infos
                         .lock()
                         .unwrap()
-                        .insert(room_id.clone(), ExtraRoomInfo { raw_name, display_name });
+                        .insert(room_id.to_owned(), ExtraRoomInfo { raw_name, display_name });
                 }
 
                 ui_rooms.lock().unwrap().extend(new_ui_rooms);
@@ -290,7 +286,7 @@ impl App {
 
         Ok(Self {
             sync_service,
-            room_list_entries: StatefulList { state: Default::default(), items: rooms },
+            room_list_rooms: StatefulList { state: Default::default(), items: rooms },
             room_info: room_infos,
             client,
             listen_task,
@@ -382,15 +378,15 @@ impl App {
 
     /// Returns the currently selected room id, if any.
     fn get_selected_room_id(&self, selected: Option<usize>) -> Option<OwnedRoomId> {
-        let selected = selected.or_else(|| self.room_list_entries.state.selected())?;
+        let selected = selected.or_else(|| self.room_list_rooms.state.selected())?;
 
-        self.room_list_entries
+        self.room_list_rooms
             .items
             .lock()
             .unwrap()
             .get(selected)
             .cloned()
-            .and_then(|entry| entry.as_room_id().map(ToOwned::to_owned))
+            .map(|room| room.room_id().to_owned())
     }
 
     fn subscribe_to_selected_room(&mut self, selected: usize) {
@@ -421,13 +417,13 @@ impl App {
                             Char('q') | Esc => return Ok(()),
 
                             Char('j') | Down => {
-                                if let Some(i) = self.room_list_entries.next() {
+                                if let Some(i) = self.room_list_rooms.next() {
                                     self.subscribe_to_selected_room(i);
                                 }
                             }
 
                             Char('k') | Up => {
-                                if let Some(i) = self.room_list_entries.previous() {
+                                if let Some(i) = self.room_list_rooms.previous() {
                                     self.subscribe_to_selected_room(i);
                                 }
                             }
@@ -438,19 +434,19 @@ impl App {
                             Char('Q') => {
                                 let q = self.client.send_queue();
                                 let enabled = q.is_enabled();
-                                q.set_enabled(!enabled);
+                                q.set_enabled(!enabled).await;
                             }
 
                             Char('M') => {
-                                if let Some(sdk_timeline) =
-                                    self.get_selected_room_id(None).and_then(|room_id| {
-                                        self.timelines
-                                            .lock()
-                                            .unwrap()
-                                            .get(&room_id)
-                                            .map(|timeline| timeline.timeline.clone())
-                                    })
-                                {
+                                let selected = self.get_selected_room_id(None);
+
+                                if let Some(sdk_timeline) = selected.and_then(|room_id| {
+                                    self.timelines
+                                        .lock()
+                                        .unwrap()
+                                        .get(&room_id)
+                                        .map(|timeline| timeline.timeline.clone())
+                                }) {
                                     match sdk_timeline
                                         .send(
                                             RoomMessageEventContent::text_plain(format!(
@@ -477,6 +473,7 @@ impl App {
 
                             Char('r') => self.details_mode = DetailsMode::ReadReceipts,
                             Char('t') => self.details_mode = DetailsMode::TimelineItems,
+                            Char('e') => self.details_mode = DetailsMode::Events,
 
                             Char('b') if self.details_mode == DetailsMode::TimelineItems => {
                                 self.back_paginate();
@@ -577,21 +574,19 @@ impl App {
 
         // Iterate through all elements in the `items` and stylize them.
         let items: Vec<ListItem<'_>> = self
-            .room_list_entries
+            .room_list_rooms
             .items
             .lock()
             .unwrap()
             .iter()
             .enumerate()
-            .map(|(i, item)| {
+            .map(|(i, room)| {
                 let bg_color = match i % 2 {
                     0 => NORMAL_ROW_COLOR,
                     _ => ALT_ROW_COLOR,
                 };
 
-                let line = if let Some(room) =
-                    item.as_room_id().and_then(|room_id| self.client.get_room(room_id))
-                {
+                let line = {
                     let room_id = room.room_id();
                     let room_info = room_info.remove(room_id);
 
@@ -610,8 +605,6 @@ impl App {
                     };
 
                     format!("#{i} {}", room_name)
-                } else {
-                    "non-filled room".to_owned()
                 };
 
                 let line = Line::styled(line, TEXT_COLOR);
@@ -631,7 +624,7 @@ impl App {
             .highlight_symbol(">")
             .highlight_spacing(HighlightSpacing::Always);
 
-        StatefulWidget::render(items, inner_area, buf, &mut self.room_list_entries.state);
+        StatefulWidget::render(items, inner_area, buf, &mut self.room_list_rooms.state);
     }
 
     /// Render the right part of the screen, showing the details of the current
@@ -707,6 +700,32 @@ impl App {
                         render_paragraph(buf, "(room's timeline disappeared)".to_owned())
                     }
                 }
+
+                DetailsMode::Events => match self.ui_rooms.lock().unwrap().get(&room_id).cloned() {
+                    Some(room) => {
+                        let events = tokio::task::block_in_place(|| {
+                            Handle::current().block_on(async {
+                                let (room_event_cache, _drop_handles) =
+                                    room.event_cache().await.unwrap();
+                                let (events, _) = room_event_cache.subscribe().await.unwrap();
+                                events
+                            })
+                        });
+
+                        let rendered_events = events
+                            .into_iter()
+                            .map(|sync_timeline_item| sync_timeline_item.event.json().to_string())
+                            .collect::<Vec<_>>()
+                            .join("\n\n");
+
+                        render_paragraph(buf, format!("Events:\n\n{rendered_events}"))
+                    }
+
+                    None => render_paragraph(
+                        buf,
+                        "(room disappeared in the room list service)".to_owned(),
+                    ),
+                },
             }
         } else {
             render_paragraph(buf, "Nothing to see here...".to_owned())
@@ -811,10 +830,13 @@ impl App {
         } else {
             match self.details_mode {
                 DetailsMode::ReadReceipts => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, m to mark as read, t to show the timeline.".to_owned()
+                    "\nUse j/k to move, s/S to start/stop the sync service, m to mark as read, t to show the timeline, e to show events.".to_owned()
                 }
                 DetailsMode::TimelineItems => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, Q to enable/disable the send queue, M to send a message.".to_owned()
+                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, e to show events, Q to enable/disable the send queue, M to send a message.".to_owned()
+                }
+                DetailsMode::Events => {
+                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, t to show the timeline".to_owned()
                 }
             }
         };

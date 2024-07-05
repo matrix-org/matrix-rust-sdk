@@ -24,8 +24,6 @@ use bitflags::bitflags;
 use eyeball::{SharedObservable, Subscriber};
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use matrix_sdk_common::ring_buffer::RingBuffer;
-#[cfg(feature = "experimental-sliding-sync")]
-use ruma::events::AnySyncTimelineEvent;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
@@ -51,6 +49,8 @@ use ruma::{
     EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId,
     RoomAliasId, RoomId, RoomVersionId, UserId,
 };
+#[cfg(feature = "experimental-sliding-sync")]
+use ruma::{events::AnySyncTimelineEvent, MilliSecondsSinceUnixEpoch};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tracing::{debug, field::debug, info, instrument, warn};
@@ -888,6 +888,14 @@ impl Room {
     pub fn is_marked_unread(&self) -> bool {
         self.inner.read().base_info.is_marked_unread
     }
+
+    /// Returns the recency timestamp of the room.
+    ///
+    /// Please read `RoomInfo::recency_timestamp` to learn more.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub fn recency_timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        self.inner.read().recency_timestamp
+    }
 }
 
 /// The underlying pure data structure for joined and left rooms.
@@ -946,6 +954,16 @@ pub struct RoomInfo {
     /// filled at start when creating a room, or on every successful sync.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) cached_display_name: Option<DisplayName>,
+
+    /// The recency timestamp of this room.
+    ///
+    /// It's not to be confused with `origin_server_ts` of the latest event.
+    /// Sliding Sync might "ignore” some events when computing the recency
+    /// timestamp of the room. Thus, using this `recency_timestamp` value is
+    /// more accurate than relying on the latest event.
+    #[cfg(feature = "experimental-sliding-sync")]
+    #[serde(default)]
+    pub(crate) recency_timestamp: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -983,6 +1001,8 @@ impl RoomInfo {
             base_info: Box::new(BaseRoomInfo::new()),
             warned_about_unknown_room_version: Arc::new(false.into()),
             cached_display_name: None,
+            #[cfg(feature = "experimental-sliding-sync")]
+            recency_timestamp: None,
         }
     }
 
@@ -1072,7 +1092,18 @@ impl RoomInfo {
     ///
     /// Returns true if the event modified the info, false otherwise.
     pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
-        self.base_info.handle_state_event(event)
+        let ret = self.base_info.handle_state_event(event);
+
+        // If we received an `m.room.encryption` event here, and encryption got enabled,
+        // then we can be certain that we have synced the encryption state event, so
+        // mark it here as synced.
+        if let AnySyncStateEvent::RoomEncryption(_) = event {
+            if self.is_encrypted() {
+                self.mark_encryption_state_synced();
+            }
+        }
+
+        ret
     }
 
     /// Handle the given stripped state event.
@@ -1376,6 +1407,14 @@ impl RoomInfo {
     pub fn latest_event(&self) -> Option<&LatestEvent> {
         self.latest_event.as_deref()
     }
+
+    /// Updates the recency timestamp of this room.
+    ///
+    /// Please read [`Self::recency_timestamp`] to learn more.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub(crate) fn update_recency_timestamp(&mut self, timestamp: MilliSecondsSinceUnixEpoch) {
+        self.recency_timestamp = Some(timestamp);
+    }
 }
 
 #[cfg(feature = "experimental-sliding-sync")]
@@ -1524,17 +1563,19 @@ mod tests {
             },
             room::{
                 canonical_alias::RoomCanonicalAliasEventContent,
+                encryption::{OriginalSyncRoomEncryptionEvent, RoomEncryptionEventContent},
                 member::{
                     MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
                     SyncRoomMemberEvent,
                 },
                 name::RoomNameEventContent,
             },
-            AnySyncStateEvent, StateEventType, StateUnsigned, SyncStateEvent,
+            AnySyncStateEvent, EmptyStateKey, StateEventType, StateUnsigned, SyncStateEvent,
         },
         room_alias_id, room_id,
         serde::Raw,
-        user_id, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
+        user_id, EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
+        UserId,
     };
     use serde_json::json;
     use stream_assert::{assert_pending, assert_ready};
@@ -1588,6 +1629,7 @@ mod tests {
             read_receipts: Default::default(),
             warned_about_unknown_room_version: Arc::new(false.into()),
             cached_display_name: None,
+            recency_timestamp: Some(MilliSecondsSinceUnixEpoch(42u32.into())),
         };
 
         let info_json = json!({
@@ -1640,6 +1682,7 @@ mod tests {
                 "latest_active": null,
                 "pending": []
             },
+            "recency_timestamp": 42,
         });
 
         assert_eq!(serde_json::to_value(info).unwrap(), info_json);
@@ -2531,5 +2574,32 @@ mod tests {
 
         actual = compute_display_name_from_heroes(1, 0, vec!["a", "b", "c"]);
         assert_eq!(DisplayName::EmptyWas("a, b, c".to_owned()), actual);
+    }
+
+    #[test]
+    fn test_encryption_is_set_when_encryption_event_is_received() {
+        let (_store, room) = make_room_test_helper(RoomState::Joined);
+
+        assert!(room.is_encryption_state_synced().not());
+        assert!(room.is_encrypted().not());
+
+        let encryption_content =
+            RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
+        let encryption_event = AnySyncStateEvent::RoomEncryption(SyncStateEvent::Original(
+            OriginalSyncRoomEncryptionEvent {
+                content: encryption_content,
+                event_id: OwnedEventId::from_str("$1234_1").unwrap(),
+                sender: ALICE.to_owned(),
+                // we can simply use now here since this will be dropped when using a
+                // MinimalStateEvent in the roomInfo
+                origin_server_ts: timestamp(0),
+                state_key: EmptyStateKey,
+                unsigned: StateUnsigned::new(),
+            },
+        ));
+        receive_state_events(&room, vec![&encryption_event]);
+
+        assert!(room.is_encryption_state_synced());
+        assert!(room.is_encrypted());
     }
 }

@@ -8,8 +8,8 @@ use crate::helpers::TestClientBuilder;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_invitation_details() -> Result<()> {
-    let tamatoa = TestClientBuilder::new("tamatoa".to_owned()).use_sqlite().build().await?;
-    let sebastian = TestClientBuilder::new("sebastian".to_owned()).use_sqlite().build().await?;
+    let tamatoa = TestClientBuilder::new("tamatoa").use_sqlite().build().await?;
+    let sebastian = TestClientBuilder::new("sebastian").use_sqlite().build().await?;
 
     let invite = vec![sebastian.user_id().expect("sebastian has a userid!").to_owned()];
     // create a room and invite sebastian;

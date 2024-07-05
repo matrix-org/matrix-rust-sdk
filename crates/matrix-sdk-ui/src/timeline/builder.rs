@@ -267,22 +267,13 @@ impl TimelineBuilder {
         });
 
         let local_echo_listener_handle = if is_live {
-            Some(spawn({
-                let timeline = inner.clone();
-                let (local_echoes, mut listener) = room.send_queue().subscribe().await;
+            let timeline = inner.clone();
+            let (local_echoes, mut listener) = room.send_queue().subscribe().await?;
 
+            Some(spawn({
                 // Handles existing local echoes first.
                 for echo in local_echoes {
-                    timeline
-                        .handle_local_event(
-                            echo.transaction_id,
-                            TimelineEventKind::Message {
-                                content: echo.content,
-                                relations: Default::default(),
-                            },
-                            Some(echo.abort_handle),
-                        )
-                        .await;
+                    handle_local_echo(echo, &timeline).await;
                 }
 
                 let span = info_span!(parent: Span::none(), "local_echo_handler", room_id = ?room.room_id());
@@ -295,26 +286,33 @@ impl TimelineBuilder {
                     loop {
                         match listener.recv().await {
                             Ok(update) => match update {
-                                RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
-                                    transaction_id,
-                                    content,
-                                    abort_handle,
-                                }) => {
-                                    timeline
-                                        .handle_local_event(
-                                            transaction_id,
-                                            TimelineEventKind::Message {
-                                                content,
-                                                relations: Default::default(),
-                                            },
-                                            Some(abort_handle),
-                                        )
-                                        .await;
+                                RoomSendQueueUpdate::NewLocalEvent(echo) => {
+                                    handle_local_echo(echo, &timeline).await;
                                 }
 
                                 RoomSendQueueUpdate::CancelledLocalEvent { transaction_id } => {
                                     if !timeline.discard_local_echo(&transaction_id).await {
                                         warn!("couldn't find the local echo to discard");
+                                    }
+                                }
+
+                                RoomSendQueueUpdate::ReplacedLocalEvent {
+                                    transaction_id,
+                                    new_content,
+                                } => {
+                                    let content = match new_content.deserialize() {
+                                        Ok(d) => d,
+                                        Err(err) => {
+                                            warn!(
+                                                "error deserializing local echo (upon edit): {err}"
+                                            );
+                                            return;
+                                        }
+                                    };
+
+                                    if !timeline.replace_local_echo(&transaction_id, content).await
+                                    {
+                                        warn!("couldn't find the local echo to replace");
                                     }
                                 }
 
@@ -428,5 +426,43 @@ impl TimelineBuilder {
         }
 
         Ok(timeline)
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("local echo failed to send in a previous session")]
+struct MissingLocalEchoFailError;
+
+async fn handle_local_echo(echo: LocalEcho, timeline: &TimelineInner) {
+    let content = match echo.serialized_event.deserialize() {
+        Ok(d) => d,
+        Err(err) => {
+            warn!("error deserializing local echo: {err}");
+            return;
+        }
+    };
+
+    timeline
+        .handle_local_event(
+            echo.transaction_id.clone(),
+            TimelineEventKind::Message { content, relations: Default::default() },
+            Some(echo.send_handle),
+        )
+        .await;
+
+    if echo.is_wedged {
+        timeline
+            .update_event_send_state(
+                &echo.transaction_id,
+                EventSendState::SendingFailed {
+                    // Put a dummy error in this case, since we're not persisting the errors that
+                    // occurred in previous sessions.
+                    error: Arc::new(matrix_sdk::Error::UnknownError(Box::new(
+                        MissingLocalEchoFailError,
+                    ))),
+                    is_recoverable: false,
+                },
+            )
+            .await;
     }
 }

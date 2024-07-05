@@ -4,8 +4,10 @@ use std::{
 };
 
 use anyhow::Result;
+use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use futures_util::{pin_mut, FutureExt, StreamExt as _};
+use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
     bytes::Bytes,
     config::SyncSettings,
@@ -40,7 +42,7 @@ use matrix_sdk_ui::{
 use once_cell::sync::Lazy;
 use rand::Rng as _;
 use serde_json::Value;
-use stream_assert::{assert_next_eq, assert_pending};
+use stream_assert::assert_pending;
 use tokio::{
     spawn,
     sync::Mutex,
@@ -53,16 +55,8 @@ use crate::helpers::TestClientBuilder;
 
 #[tokio::test]
 async fn test_left_room() -> Result<()> {
-    let peter = TestClientBuilder::new("peter".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
-    let steven = TestClientBuilder::new("steven".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
+    let peter = TestClientBuilder::new("peter").use_sqlite().build().await?;
+    let steven = TestClientBuilder::new("steven").use_sqlite().build().await?;
 
     // Set up sliding sync for Peter.
     let sliding_peter = peter
@@ -139,18 +133,9 @@ async fn test_left_room() -> Result<()> {
 
 #[tokio::test]
 async fn test_room_avatar_group_conversation() -> Result<()> {
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
-    let bob =
-        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
-    let celine = TestClientBuilder::new("celine".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+    let celine = TestClientBuilder::new("celine").use_sqlite().build().await?;
 
     // Bob and Celine set their avatars.
     bob.account().set_avatar_url(Some(mxc_uri!("mxc://localhost/bob"))).await?;
@@ -248,14 +233,9 @@ async fn test_joined_user_can_create_push_context_with_room_list_service() -> Re
     // send a message, and fake a new "device" by creating another client for
     // the same user.
 
-    let bob =
-        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
 
     // Set up regular sync for Alice to start with.
     let a = alice.clone();
@@ -387,8 +367,7 @@ impl UpdateObserver {
 async fn test_room_notification_count() -> Result<()> {
     use tokio::time::timeout;
 
-    let bob =
-        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
     // Spawn sync for bob.
     let b = bob.clone();
@@ -402,11 +381,7 @@ async fn test_room_notification_count() -> Result<()> {
     });
 
     // Set up sliding sync for alice.
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
 
     spawn({
         let sync = alice
@@ -755,14 +730,9 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
 
     server.register(Mock::given(AnyMatcher).respond_with(&**CUSTOM_RESPONDER)).await;
 
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .http_proxy(server.uri())
-        .build()
-        .await?;
-    let bob =
-        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+    let alice =
+        TestClientBuilder::new("alice").use_sqlite().http_proxy(server.uri()).build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
     let alice_sync_service = SyncService::builder(alice.clone()).build().await.unwrap();
     alice_sync_service.start().await;
@@ -830,12 +800,9 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     assert!(alice_room.is_encrypted().await.unwrap());
     assert_eq!(bob_room.state(), RoomState::Joined);
 
-    let (stream, entries) = alice_sync_service
-        .room_list_service()
-        .all_rooms()
-        .await
-        .unwrap()
-        .entries_with_dynamic_adapters(10, alice.roominfo_update_receiver());
+    let alice_all_rooms = alice_sync_service.room_list_service().all_rooms().await.unwrap();
+    let (stream, entries) =
+        alice_all_rooms.entries_with_dynamic_adapters(10, alice.roominfo_update_receiver());
     entries.set_filter(Box::new(new_filter_all(vec![])));
     pin_mut!(stream);
 
@@ -848,11 +815,14 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     sleep(Duration::from_secs(1)).await;
 
     // Stream only has the initial Reset entry.
-    assert_next_eq!(
-        stream,
-        vec![VectorDiff::Reset {
-            values: vec![RoomListEntry::Filled(alice_room.room_id().to_owned())].into()
-        }]
+    assert_let!(Some(diffs) = stream.next().await);
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(
+        &diffs[0],
+        VectorDiff::Reset { values: rooms } => {
+            assert_eq!(rooms.len(), 1);
+            assert_eq!(rooms[0].room_id(), alice_room.room_id());
+        }
     );
     assert_pending!(stream);
 
@@ -869,13 +839,27 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     assert_eq!(alice_room.latest_event().unwrap().event_id(), Some(event.event_id));
 
     // The stream has a single update
-    assert_next_eq!(
-        stream,
-        vec![VectorDiff::Set {
-            index: 0,
-            value: RoomListEntry::Filled(alice_room.room_id().to_owned())
-        }]
+    assert_let!(Some(diffs) = stream.next().await);
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(
+        &diffs[0],
+        VectorDiff::Set { index: 0, value: room } => {
+            assert_eq!(room.room_id(), alice_room.room_id());
+        }
     );
+
+    // Sometimes Synapse sends the same message twice. Let's consume useless `Set`…
+    // if they arrived before 3s.
+    if let Ok(Some(diffs)) = timeout(Duration::from_secs(3), stream.next()).await {
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(
+            &diffs[0],
+            VectorDiff::Set { index: 0, value: room } => {
+                assert_eq!(room.room_id(), alice_room.room_id());
+            }
+        );
+    }
+
     assert_pending!(stream);
 
     Ok(())
@@ -883,13 +867,8 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
 
 #[tokio::test]
 async fn test_roominfo_update_deduplication() -> Result<()> {
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
-    let bob =
-        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
     let alice_sync_service = SyncService::builder(alice.clone()).build().await.unwrap();
     alice_sync_service.start().await;
@@ -947,78 +926,90 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
         .await?;
     alice_room.enable_encryption().await.unwrap();
 
-    let (stream, entries) = alice_sync_service
-        .room_list_service()
-        .all_rooms()
-        .await
-        .unwrap()
-        .entries_with_dynamic_adapters(10, alice.roominfo_update_receiver());
+    let alice_all_rooms = alice_sync_service.room_list_service().all_rooms().await.unwrap();
+    let (stream, entries) =
+        alice_all_rooms.entries_with_dynamic_adapters(10, alice.roominfo_update_receiver());
     entries.set_filter(Box::new(new_filter_all(vec![])));
 
     pin_mut!(stream);
 
-    // Wait shortly so the manual roominfo update is triggered before we load the
-    // stream.
-    sleep(Duration::from_secs(1)).await;
-
     // Stream only has the initial Reset entry.
-    assert_next_eq!(
-        stream,
-        vec![VectorDiff::Reset {
-            values: vec![RoomListEntry::Filled(alice_room.room_id().to_owned())].into()
-        }]
+    assert_let!(Some(diffs) = stream.next().await);
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(
+        &diffs[0],
+        VectorDiff::Reset {  values: rooms } => {
+            assert_eq!(rooms.len(), 1);
+            assert_eq!(rooms[0].room_id(), alice_room.room_id());
+        }
     );
     assert_pending!(stream);
 
-    sleep(Duration::from_secs(1)).await;
     let alice_room = alice.get_room(alice_room.room_id()).unwrap();
+    assert_eq!(alice_room.state(), RoomState::Joined);
+    assert!(alice_room.is_encrypted().await.unwrap());
+
     let bob_room = bob.get_room(alice_room.room_id()).unwrap();
     bob_room.join().await.unwrap();
 
-    sleep(Duration::from_secs(1)).await;
-    assert_eq!(alice_room.state(), RoomState::Joined);
-    assert!(alice_room.is_encrypted().await.unwrap());
+    // Wait Bob to be in the room.
+    sleep(Duration::from_secs(2)).await;
     assert_eq!(bob_room.state(), RoomState::Joined);
+
     // Room update for join
-    assert_next_eq!(
-        stream,
-        vec![VectorDiff::Set {
-            index: 0,
-            value: RoomListEntry::Filled(alice_room.room_id().to_owned())
-        }]
+    assert_let!(Some(diffs) = stream.next().await);
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(
+        &diffs[0],
+        VectorDiff::Set { index: 0, value: room } => {
+            assert_eq!(room.room_id(), alice_room.room_id());
+        }
     );
+
+    // Sometimes Synapse sends the same message twice. Let's consume useless `Set`…
+    // if they arrived before 3s.
+    if let Ok(Some(diffs)) = timeout(Duration::from_secs(3), stream.next()).await {
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(
+            &diffs[0],
+            VectorDiff::Set { index: 0, value: room } => {
+                assert_eq!(room.room_id(), alice_room.room_id());
+            }
+        );
+    }
+
     assert_pending!(stream);
 
     // Send a message, it should arrive
     let event = bob_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
 
-    sleep(Duration::from_secs(1)).await;
+    // Wait the message from Bob to be sent.
+    sleep(Duration::from_secs(2)).await;
 
     // Latest event is set now
     assert_eq!(alice_room.latest_event().unwrap().event_id(), Some(event.event_id));
 
-    // Stream has the room again, but no second event
-    // TODO: Synapse sometimes sends the same event two times. This is the
-    // workaround:
-    let updated_rooms = stream.next().now_or_never().unwrap().unwrap();
-    assert!(
-        updated_rooms
-            == vec![VectorDiff::Set {
-                index: 0,
-                value: RoomListEntry::Filled(alice_room.room_id().to_owned())
-            }]
-            || updated_rooms
-                == vec![
-                    VectorDiff::Set {
-                        index: 0,
-                        value: RoomListEntry::Filled(alice_room.room_id().to_owned())
-                    },
-                    VectorDiff::Set {
-                        index: 0,
-                        value: RoomListEntry::Filled(alice_room.room_id().to_owned())
-                    }
-                ]
+    // Room has been updated.
+    assert_let!(Some(diffs) = stream.next().await);
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(
+        &diffs[0],
+        VectorDiff::Set { index: 0, value: room } => {
+            assert_eq!(room.room_id(), alice_room.room_id());
+        }
     );
+
+    // Sometimes Synapse sends the same message twice. Let's consume useless `Set`…
+    // if they arrived before 3s.
+    if let Ok(Some(diffs)) = timeout(Duration::from_secs(3), stream.next()).await {
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(
+            &diffs[0],
+            VectorDiff::Set { index: 0, value: room } => {
+                assert_eq!(room.room_id(), alice_room.room_id());
+            }
+        );
+    }
 
     assert_pending!(stream);
 
@@ -1027,13 +1018,8 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
 
 #[tokio::test]
 async fn test_room_preview() -> Result<()> {
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
-    let bob =
-        TestClientBuilder::new("bob".to_owned()).randomize_username().use_sqlite().build().await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
     let alice_sync_service = SyncService::builder(alice.clone()).build().await.unwrap();
     alice_sync_service.start().await;

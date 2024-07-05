@@ -16,10 +16,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::{crypto::types::events::UtdCause, room::power_levels::power_level_user_changes};
 use matrix_sdk_ui::timeline::{PollResult, TimelineDetails};
-use ruma::events::{
-    room::{message::RoomMessageEventContentWithoutRelation, MediaSource},
-    FullStateEventContent,
-};
+use ruma::events::room::{message::RoomMessageEventContentWithoutRelation, MediaSource};
 use tracing::warn;
 
 use super::ProfileDetails;
@@ -35,7 +32,9 @@ impl TimelineItemContent {
 
         match &self.0 {
             Content::Message(_) => TimelineItemContentKind::Message,
+
             Content::RedactedMessage => TimelineItemContentKind::RedactedMessage,
+
             Content::Sticker(sticker) => {
                 let content = sticker.content();
                 TimelineItemContentKind::Sticker {
@@ -44,23 +43,23 @@ impl TimelineItemContent {
                     source: Arc::new(MediaSource::from(content.source.clone())),
                 }
             }
+
             Content::Poll(poll_state) => TimelineItemContentKind::from(poll_state.results()),
+
             Content::CallInvite => TimelineItemContentKind::CallInvite,
+
             Content::CallNotify => TimelineItemContentKind::CallNotify,
+
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
             }
+
             Content::MembershipChange(membership) => TimelineItemContentKind::RoomMembership {
                 user_id: membership.user_id().to_string(),
-                user_display_name: if let FullStateEventContent::Original { content, .. } =
-                    membership.content()
-                {
-                    content.displayname.clone()
-                } else {
-                    None
-                },
+                user_display_name: membership.display_name(),
                 change: membership.change().map(Into::into),
             },
+
             Content::ProfileChange(profile) => {
                 let (display_name, prev_display_name) = profile
                     .displayname_change()
@@ -82,16 +81,19 @@ impl TimelineItemContent {
                     prev_avatar_url: prev_avatar_url.flatten(),
                 }
             }
+
             Content::OtherState(state) => TimelineItemContentKind::State {
                 state_key: state.state_key().to_owned(),
                 content: state.content().into(),
             },
+
             Content::FailedToParseMessageLike { event_type, error } => {
                 TimelineItemContentKind::FailedToParseMessageLike {
                     event_type: event_type.to_string(),
                     error: error.to_string(),
                 }
             }
+
             Content::FailedToParseState { event_type, state_key, error } => {
                 TimelineItemContentKind::FailedToParseState {
                     event_type: event_type.to_string(),

@@ -98,7 +98,7 @@ macro_rules! timer {
     }};
 
     ($string:expr) => {
-        timer!(tracing::Level::DEBUG, $string)
+        $crate::timer!(tracing::Level::DEBUG, $string)
     };
 }
 

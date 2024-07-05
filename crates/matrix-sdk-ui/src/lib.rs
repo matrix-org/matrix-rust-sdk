@@ -16,6 +16,8 @@ use ruma::html::HtmlSanitizerMode;
 
 mod events;
 
+pub use eyeball_im;
+
 pub mod encryption_sync_service;
 pub mod notification_client;
 pub mod room_list_service;

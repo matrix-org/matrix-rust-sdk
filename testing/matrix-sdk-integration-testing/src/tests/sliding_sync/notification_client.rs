@@ -31,8 +31,8 @@ use crate::helpers::TestClientBuilder;
 async fn test_notification() -> Result<()> {
     // Create new users for each test run, to avoid conflicts with invites existing
     // from previous runs.
-    let alice = TestClientBuilder::new("alice").randomize_username().use_sqlite().build().await?;
-    let bob = TestClientBuilder::new("bob").randomize_username().use_sqlite().build().await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
     let dummy_sync_service = Arc::new(SyncService::builder(bob.clone()).build().await?);
     let process_setup =

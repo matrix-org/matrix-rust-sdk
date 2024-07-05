@@ -474,6 +474,12 @@ impl CryptoStore for MemoryStore {
         Ok(self.devices.user_devices(user_id))
     }
 
+    async fn get_own_device(&self) -> Result<ReadOnlyDevice> {
+        let account = self.load_account().await?.unwrap();
+
+        Ok(self.devices.get(&account.user_id, &account.device_id).unwrap())
+    }
+
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
         Ok(self.identities.read().unwrap().get(user_id).cloned())
     }
@@ -619,7 +625,7 @@ mod tests {
         identities::device::testing::get_device,
         olm::{
             tests::get_account_and_session_test_helper, Account, InboundGroupSession,
-            OlmMessageHash, PrivateCrossSigningIdentity,
+            OlmMessageHash, PrivateCrossSigningIdentity, SenderData,
         },
         store::{memorystore::MemoryStore, Changes, CryptoStore, PendingChanges},
     };
@@ -654,6 +660,7 @@ mod tests {
             Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE").unwrap(),
             room_id,
             &outbound.session_key().await,
+            SenderData::unknown(),
             outbound.settings().algorithm.to_owned(),
             None,
         )
@@ -1050,6 +1057,7 @@ mod tests {
             Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE").unwrap(),
             room_id,
             &outbound.session_key().await,
+            SenderData::unknown(),
             outbound.settings().algorithm.to_owned(),
             None,
         )
@@ -1124,7 +1132,11 @@ mod integration_tests {
     /// dropping this store won't destroy its data, since
     /// [PersistentMemoryStore] is a reference-counted smart pointer
     /// to an underlying [MemoryStore].
-    async fn get_store(name: &str, _passphrase: Option<&str>) -> PersistentMemoryStore {
+    async fn get_store(
+        name: &str,
+        _passphrase: Option<&str>,
+        clear_data: bool,
+    ) -> PersistentMemoryStore {
         // Holds on to one [PersistentMemoryStore] per test, so even if the test drops
         // the store, we keep its data alive. This simulates the behaviour of
         // the other stores, which keep their data in a real DB, allowing us to
@@ -1132,12 +1144,16 @@ mod integration_tests {
         static STORES: OnceLock<Mutex<HashMap<String, PersistentMemoryStore>>> = OnceLock::new();
         let stores = STORES.get_or_init(|| Mutex::new(HashMap::new()));
 
-        stores
-            .lock()
-            .unwrap()
-            .entry(name.to_owned())
-            .or_insert_with(PersistentMemoryStore::new)
-            .clone()
+        let mut stores = stores.lock().unwrap();
+
+        if clear_data {
+            // Create a new PersistentMemoryStore
+            let new_store = PersistentMemoryStore::new();
+            stores.insert(name.to_owned(), new_store.clone());
+            new_store
+        } else {
+            stores.entry(name.to_owned()).or_insert_with(PersistentMemoryStore::new).clone()
+        }
     }
 
     /// Forwards all methods to the underlying [MemoryStore].
@@ -1263,6 +1279,10 @@ mod integration_tests {
             user_id: &UserId,
         ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>, Self::Error> {
             self.0.get_user_devices(user_id).await
+        }
+
+        async fn get_own_device(&self) -> Result<ReadOnlyDevice, Self::Error> {
+            self.0.get_own_device().await
         }
 
         async fn get_user_identity(

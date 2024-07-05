@@ -12,23 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod share_strategy;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
-    ops::Deref,
     sync::{Arc, RwLock as StdRwLock},
 };
 
 use futures_util::future::join_all;
-use itertools::{Either, Itertools};
+use itertools::Itertools;
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     events::{AnyMessageLikeEventContent, ToDeviceEventType},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
-    UserId,
+    OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
+pub(crate) use share_strategy::CollectRecipientsResult;
+pub use share_strategy::CollectStrategy;
 use tracing::{debug, error, info, instrument, trace};
 
 use crate::{
@@ -97,7 +99,7 @@ impl GroupSessionCache {
     /// # Arguments
     ///
     /// * `room_id` - The id of the room for which we should get the outbound
-    /// group session.
+    ///   group session.
     fn get(&self, room_id: &RoomId) -> Option<OutboundGroupSession> {
         self.sessions.read().unwrap().get(room_id).cloned()
     }
@@ -114,23 +116,6 @@ impl GroupSessionCache {
     fn mark_as_being_shared(&self, id: OwnedTransactionId, session: OutboundGroupSession) {
         self.sessions_being_shared.write().unwrap().insert(id, session);
     }
-}
-
-/// Returned by `collect_session_recipients`.
-///
-/// Information indicating whether the session needs to be rotated
-/// (`should_rotate`) and the list of users/devices that should receive
-/// (`devices`) or not the session,  including withheld reason
-/// `withheld_devices`.
-#[derive(Debug)]
-pub(crate) struct CollectRecipientsResult {
-    /// If true the outbound group session should be rotated
-    pub should_rotate: bool,
-    /// The map of user|device that should receive the session
-    pub devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>>,
-    /// The map of user|device that won't receive the key with the withheld
-    /// code.
-    pub withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)>,
 }
 
 #[derive(Debug, Clone)]
@@ -350,118 +335,7 @@ impl GroupSessionManager {
         settings: &EncryptionSettings,
         outbound: &OutboundGroupSession,
     ) -> OlmResult<CollectRecipientsResult> {
-        let users: BTreeSet<&UserId> = users.collect();
-        let mut devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>> = Default::default();
-        let mut withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)> = Default::default();
-
-        trace!(?users, ?settings, "Calculating group session recipients");
-
-        let users_shared_with: BTreeSet<OwnedUserId> =
-            outbound.shared_with_set.read().unwrap().keys().cloned().collect();
-
-        let users_shared_with: BTreeSet<&UserId> =
-            users_shared_with.iter().map(Deref::deref).collect();
-
-        // A user left if a user is missing from the set of users that should
-        // get the session but is in the set of users that received the session.
-        let user_left = !users_shared_with.difference(&users).collect::<BTreeSet<_>>().is_empty();
-
-        let visibility_changed =
-            outbound.settings().history_visibility != settings.history_visibility;
-        let algorithm_changed = outbound.settings().algorithm != settings.algorithm;
-
-        // To protect the room history we need to rotate the session if either:
-        //
-        // 1. Any user left the room.
-        // 2. Any of the users' devices got deleted or blacklisted.
-        // 3. The history visibility changed.
-        // 4. The encryption algorithm changed.
-        //
-        // This is calculated in the following code and stored in this variable.
-        let mut should_rotate = user_left || visibility_changed || algorithm_changed;
-
-        let own_identity =
-            self.store.get_user_identity(self.store.user_id()).await?.and_then(|i| i.into_own());
-
-        for user_id in users {
-            let user_devices = self.store.get_readonly_devices_filtered(user_id).await?;
-
-            // We only need the user identity if settings.only_allow_trusted_devices is set.
-            let device_owner_identity = if settings.only_allow_trusted_devices {
-                self.store.get_user_identity(user_id).await?
-            } else {
-                None
-            };
-
-            // From all the devices a user has, we're splitting them into two
-            // buckets, a bucket of devices that should receive the
-            // room key and a bucket of devices that should receive
-            // a withheld code.
-            let (recipients, withheld_recipients): (
-                Vec<ReadOnlyDevice>,
-                Vec<(ReadOnlyDevice, WithheldCode)>,
-            ) = user_devices.into_values().partition_map(|d| {
-                if d.is_blacklisted() {
-                    Either::Right((d, WithheldCode::Blacklisted))
-                } else if settings.only_allow_trusted_devices
-                    && !d.is_verified(&own_identity, &device_owner_identity)
-                {
-                    Either::Right((d, WithheldCode::Unverified))
-                } else {
-                    Either::Left(d)
-                }
-            });
-
-            // If we haven't already concluded that the session should be
-            // rotated for other reasons, we also need to check whether any
-            // of the devices in the session got deleted or blacklisted in the
-            // meantime. If so, we should also rotate the session.
-            if !should_rotate {
-                // Device IDs that should receive this session
-                let recipient_device_ids: BTreeSet<&DeviceId> =
-                    recipients.iter().map(|d| d.device_id()).collect();
-
-                if let Some(shared) = outbound.shared_with_set.read().unwrap().get(user_id) {
-                    // Devices that received this session
-                    let shared: BTreeSet<OwnedDeviceId> = shared.keys().cloned().collect();
-                    let shared: BTreeSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
-
-                    // The set difference between
-                    //
-                    // 1. Devices that had previously received the session, and
-                    // 2. Devices that would now receive the session
-                    //
-                    // Represents newly deleted or blacklisted devices. If this
-                    // set is non-empty, we must rotate.
-                    let newly_deleted_or_blacklisted =
-                        shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
-
-                    should_rotate = !newly_deleted_or_blacklisted.is_empty();
-                    if should_rotate {
-                        debug!(
-                            "Rotating a room key due to these devices being deleted/blacklisted {:?}",
-                            newly_deleted_or_blacklisted,
-                        );
-                    }
-                };
-            }
-
-            devices.entry(user_id.to_owned()).or_default().extend(recipients);
-            withheld_devices.extend(withheld_recipients);
-        }
-
-        if should_rotate {
-            debug!(
-                should_rotate,
-                user_left,
-                visibility_changed,
-                algorithm_changed,
-                "Rotating room key to protect room history",
-            );
-        }
-        trace!(should_rotate, "Done calculating group session recipients");
-
-        Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
+        share_strategy::collect_session_recipients(&self.store, users, settings, outbound).await
     }
 
     async fn encrypt_request(
@@ -797,8 +671,19 @@ impl GroupSessionManager {
         let devices: Vec<_> = devices
             .into_iter()
             .flat_map(|(_, d)| {
-                d.into_iter()
-                    .filter(|d| matches!(outbound.is_shared_with(d), ShareState::NotShared))
+                d.into_iter().filter(|d| match outbound.is_shared_with(d) {
+                    ShareState::NotShared => true,
+                    ShareState::Shared { message_index: _, olm_wedging_index } => {
+                        // If the recipient device's Olm wedging index is higher
+                        // than the value that we stored with the session, that
+                        // means that they tried to unwedge the session since we
+                        // last shared the room key.  So we re-share it with
+                        // them in case they weren't able to decrypt the room
+                        // key the last time we shared it.
+                        olm_wedging_index < d.olm_wedging_index
+                    }
+                    _ => false,
+                })
             })
             .collect();
 
@@ -851,13 +736,19 @@ impl GroupSessionManager {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, iter, ops::Deref, sync::Arc};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        iter,
+        ops::Deref,
+        sync::Arc,
+    };
 
+    use assert_matches2::assert_let;
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
         api::{
             client::{
-                keys::{claim_keys, get_keys},
+                keys::{claim_keys, get_keys, upload_keys},
                 to_device::send_event_to_device::v3::Response as ToDeviceResponse,
             },
             IncomingResponse,
@@ -866,17 +757,24 @@ mod tests {
         events::room::history_visibility::HistoryVisibility,
         room_id,
         to_device::DeviceIdOrAllDevices,
-        user_id, DeviceId, TransactionId, UserId,
+        user_id, DeviceId, DeviceKeyAlgorithm, TransactionId, UInt, UserId,
     };
     use serde_json::{json, Value};
 
     use crate::{
-        session_manager::group_sessions::CollectRecipientsResult,
+        identities::ReadOnlyDevice,
+        machine::EncryptionSyncChanges,
+        olm::Account,
+        session_manager::{group_sessions::CollectRecipientsResult, CollectStrategy},
         types::{
-            events::room_key_withheld::{
-                RoomKeyWithheldContent, RoomKeyWithheldContent::MegolmV1AesSha2, WithheldCode,
+            events::{
+                room::encrypted::EncryptedToDeviceEvent,
+                room_key_withheld::{
+                    RoomKeyWithheldContent::{self, MegolmV1AesSha2},
+                    WithheldCode,
+                },
             },
-            EventEncryptionAlgorithm,
+            DeviceKeys, EventEncryptionAlgorithm,
         },
         EncryptionSettings, LocalTrust, OlmMachine, ToDeviceRequest,
     };
@@ -891,7 +789,7 @@ mod tests {
 
     /// Returns a /keys/query response for user "@example:localhost"
     fn keys_query_response() -> get_keys::v3::Response {
-        let data = include_bytes!("../../../../benchmarks/benches/crypto_bench/keys_query.json");
+        let data = include_bytes!("../../../../../benchmarks/benches/crypto_bench/keys_query.json");
         let data: Value = serde_json::from_slice(data).unwrap();
         let data = response_from_file(&data);
         get_keys::v3::Response::try_from_http_response(data)
@@ -958,7 +856,7 @@ mod tests {
     /// Returns a key claim response for device `NMMBNBUSNR` of user
     /// `@example2:localhost`
     fn keys_claim_response() -> claim_keys::v3::Response {
-        let data = include_bytes!("../../../../benchmarks/benches/crypto_bench/keys_claim.json");
+        let data = include_bytes!("../../../../../benchmarks/benches/crypto_bench/keys_claim.json");
         let data: Value = serde_json::from_slice(data).unwrap();
         let data = response_from_file(&data);
         claim_keys::v3::Response::try_from_http_response(data)
@@ -1237,8 +1135,10 @@ mod tests {
             .iter()
             .any(|d| d.user_id() == user_id && d.device_id() == device_id));
 
-        let settings =
-            EncryptionSettings { only_allow_trusted_devices: true, ..Default::default() };
+        let settings = EncryptionSettings {
+            sharing_strategy: CollectStrategy::new_device_based(true),
+            ..Default::default()
+        };
         let users = [user_id].into_iter();
 
         let CollectRecipientsResult { devices: recipients, .. } = machine
@@ -1295,8 +1195,10 @@ mod tests {
         let keys_claim = keys_claim_response();
 
         let users = keys_claim.one_time_keys.keys().map(Deref::deref);
-        let settings =
-            EncryptionSettings { only_allow_trusted_devices: true, ..Default::default() };
+        let settings = EncryptionSettings {
+            sharing_strategy: CollectStrategy::new_device_based(true),
+            ..Default::default()
+        };
 
         // Trust only one
         let user_id = user_id!("@example:localhost");
@@ -1406,5 +1308,167 @@ mod tests {
         let device = machine.get_device(bob_id, "BOBDEVICE".into(), None).await.unwrap().unwrap();
 
         assert!(device.was_withheld_code_sent());
+    }
+
+    #[async_test]
+    async fn test_resend_session_after_unwedging() {
+        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        assert_let!(Ok(Some((txn_id, device_keys_request))) = machine.upload_device_keys().await);
+        let device_keys_response = upload_keys::v3::Response::new(BTreeMap::from([(
+            DeviceKeyAlgorithm::SignedCurve25519,
+            UInt::new(device_keys_request.one_time_keys.len() as u64).unwrap(),
+        )]));
+        machine.mark_request_as_sent(&txn_id, &device_keys_response).await.unwrap();
+
+        let room_id = room_id!("!test:localhost");
+
+        let bob_id = user_id!("@bob:localhost");
+        let bob_account = Account::new(bob_id);
+        let keys_query_data = json!({
+            "device_keys": {
+                "@bob:localhost": {
+                    bob_account.device_id.clone(): bob_account.device_keys()
+                }
+            }
+        });
+        let keys_query =
+            get_keys::v3::Response::try_from_http_response(response_from_file(&keys_query_data))
+                .unwrap();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let alice_device_keys =
+            device_keys_request.device_keys.unwrap().deserialize_as::<DeviceKeys>().unwrap();
+        let mut alice_otks = device_keys_request.one_time_keys.iter();
+        let alice_device = ReadOnlyDevice::new(alice_device_keys, LocalTrust::Unset);
+
+        {
+            // Bob creates an Olm session with Alice and encrypts a message to her
+            let (alice_otk_id, alice_otk) = alice_otks.next().unwrap();
+            let mut session = bob_account
+                .create_outbound_session(
+                    &alice_device,
+                    &BTreeMap::from([(alice_otk_id.clone(), alice_otk.clone())]),
+                    bob_account.device_keys(),
+                )
+                .unwrap();
+            let content = session.encrypt(&alice_device, "m.dummy", json!({}), None).await.unwrap();
+
+            let to_device =
+                EncryptedToDeviceEvent::new(bob_id.to_owned(), content.deserialize().unwrap());
+
+            // Alice decrypts the message
+            let sync_changes = EncryptionSyncChanges {
+                to_device_events: vec![crate::utilities::json_convert(&to_device).unwrap()],
+                changed_devices: &Default::default(),
+                one_time_keys_counts: &Default::default(),
+                unused_fallback_keys: None,
+                next_batch_token: None,
+            };
+            let (decrypted, _) = machine.receive_sync_changes(sync_changes).await.unwrap();
+
+            assert_eq!(1, decrypted.len());
+        }
+
+        // Alice shares the room key with Bob
+        {
+            let requests = machine
+                .share_room_key(room_id, [bob_id].into_iter(), EncryptionSettings::default())
+                .await
+                .unwrap();
+
+            // We should have had one to-device event
+            let event_count: usize = requests
+                .iter()
+                .filter(|r| r.event_type == "m.room.encrypted".into())
+                .map(|r| r.message_count())
+                .sum();
+            assert_eq!(event_count, 1);
+
+            let response = ToDeviceResponse::new();
+            for request in requests {
+                machine.mark_request_as_sent(&request.txn_id, &response).await.unwrap();
+            }
+        }
+
+        // When Alice shares the room key again, there shouldn't be any
+        // to-device events, since we already shared with Bob
+        {
+            let requests = machine
+                .share_room_key(room_id, [bob_id].into_iter(), EncryptionSettings::default())
+                .await
+                .unwrap();
+
+            let event_count: usize = requests
+                .iter()
+                .filter(|r| r.event_type == "m.room.encrypted".into())
+                .map(|r| r.message_count())
+                .sum();
+            assert_eq!(event_count, 0);
+        }
+
+        // Pretend that Bob wasn't able to decrypt, so he tries to unwedge
+        {
+            let (alice_otk_id, alice_otk) = alice_otks.next().unwrap();
+            let mut session = bob_account
+                .create_outbound_session(
+                    &alice_device,
+                    &BTreeMap::from([(alice_otk_id.clone(), alice_otk.clone())]),
+                    bob_account.device_keys(),
+                )
+                .unwrap();
+            let content = session.encrypt(&alice_device, "m.dummy", json!({}), None).await.unwrap();
+
+            let to_device =
+                EncryptedToDeviceEvent::new(bob_id.to_owned(), content.deserialize().unwrap());
+
+            // Alice decrypts the unwedge message
+            let sync_changes = EncryptionSyncChanges {
+                to_device_events: vec![crate::utilities::json_convert(&to_device).unwrap()],
+                changed_devices: &Default::default(),
+                one_time_keys_counts: &Default::default(),
+                unused_fallback_keys: None,
+                next_batch_token: None,
+            };
+            let (decrypted, _) = machine.receive_sync_changes(sync_changes).await.unwrap();
+
+            assert_eq!(1, decrypted.len());
+        }
+
+        // When Alice shares the room key again, it should be re-shared with Bob
+        {
+            let requests = machine
+                .share_room_key(room_id, [bob_id].into_iter(), EncryptionSettings::default())
+                .await
+                .unwrap();
+
+            let event_count: usize = requests
+                .iter()
+                .filter(|r| r.event_type == "m.room.encrypted".into())
+                .map(|r| r.message_count())
+                .sum();
+            assert_eq!(event_count, 1);
+
+            let response = ToDeviceResponse::new();
+            for request in requests {
+                machine.mark_request_as_sent(&request.txn_id, &response).await.unwrap();
+            }
+        }
+
+        // When Alice shares the room key yet again, there shouldn't be any
+        // to-device events
+        {
+            let requests = machine
+                .share_room_key(room_id, [bob_id].into_iter(), EncryptionSettings::default())
+                .await
+                .unwrap();
+
+            let event_count: usize = requests
+                .iter()
+                .filter(|r| r.event_type == "m.room.encrypted".into())
+                .map(|r| r.message_count())
+                .sum();
+            assert_eq!(event_count, 0);
+        }
     }
 }

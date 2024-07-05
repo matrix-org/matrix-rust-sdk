@@ -423,8 +423,12 @@ impl Backups {
     }
 
     /// Set the state of the backup.
-    fn set_state(&self, state: BackupState) {
-        self.client.inner.e2ee.backup_state.global_state.set(state);
+    fn set_state(&self, new_state: BackupState) {
+        let old_state = self.client.inner.e2ee.backup_state.global_state.set(new_state);
+
+        if old_state != new_state {
+            info!("Backup state changed from {old_state:?} to {new_state:?}");
+        }
     }
 
     /// Set the backup state to the `Enabled` variant and insert the backup key
@@ -860,6 +864,7 @@ impl Backups {
 
     /// Listen for `m.secret.send` to-device messages and check the secret inbox
     /// if we do receive one.
+    #[instrument(skip_all)]
     pub(crate) async fn secret_send_event_handler(_: ToDeviceSecretSendEvent, client: Client) {
         let olm_machine = client.olm_machine().await;
 
@@ -921,7 +926,6 @@ impl Backups {
     /// removed on the homeserver.
     async fn handle_deleted_backup_version(&self, olm_machine: &OlmMachine) -> Result<(), Error> {
         olm_machine.backup_machine().disable_backup().await?;
-        self.client.encryption().recovery().update_state_after_backup_disabling().await;
         self.set_state(BackupState::Unknown);
 
         Ok(())

@@ -20,7 +20,7 @@ use futures_util::{pin_mut, FutureExt, StreamExt};
 use matrix_sdk::{
     config::RequestConfig,
     crypto::{
-        olm::{InboundGroupSession, SessionCreationError},
+        olm::{InboundGroupSession, SenderData, SessionCreationError},
         store::BackupDecryptionKey,
         types::EventEncryptionAlgorithm,
     },
@@ -1533,6 +1533,7 @@ async fn inbound_session_from_outbound_session(
         sender_signing_key,
         room_id,
         &outbound_group_session.session_key().await,
+        SenderData::unknown(),
         EventEncryptionAlgorithm::MegolmV1AesSha2,
         None,
     )

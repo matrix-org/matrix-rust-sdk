@@ -26,7 +26,7 @@ use matrix_sdk::ruma::{
     events::{relation::Annotation, room::message::RoomMessageEventContent},
     EventId, MilliSecondsSinceUnixEpoch, UserId,
 };
-use matrix_sdk_ui::timeline::{EventTimelineItem, RoomExt, TimelineItem};
+use matrix_sdk_ui::timeline::{EventSendState, EventTimelineItem, RoomExt, TimelineItem};
 use tokio::{
     spawn,
     task::JoinHandle,
@@ -39,11 +39,7 @@ use crate::helpers::TestClientBuilder;
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_toggling_reaction() -> Result<()> {
     // Set up sync for user Alice, and create a room.
-    let alice = TestClientBuilder::new("alice".to_owned())
-        .randomize_username()
-        .use_sqlite()
-        .build()
-        .await?;
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
 
     let alice_clone = alice.clone();
     let alice_sync = spawn(async move {
@@ -252,4 +248,94 @@ async fn assert_event_is_updated(
     assert_eq!(event.event_id().unwrap(), event_id);
 
     event.to_owned()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_stale_local_echo_time_abort_edit() {
+    // Set up sync for user Alice, and create a room.
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await.unwrap();
+
+    let alice_clone = alice.clone();
+    let alice_sync = spawn(async move {
+        alice_clone.sync(Default::default()).await.expect("sync failed!");
+    });
+
+    debug!("Creating room…");
+    let room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            is_direct: true,
+        }))
+        .await
+        .unwrap();
+
+    // Create a timeline for this room, filtering out all non-message items.
+    let timeline = room.timeline().await.unwrap();
+    let (items, mut stream) = timeline
+        .subscribe_filter_map(|item| {
+            item.as_event()
+                .and_then(|item| item.content().as_message().is_some().then(|| item.clone()))
+        })
+        .await;
+
+    assert!(items.is_empty());
+
+    // Send message.
+    debug!("Sending initial message…");
+    timeline.send(RoomMessageEventContent::text_plain("hi!").into()).await.unwrap();
+
+    // Receiving the local echo for the message.
+    let vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
+    let local_echo = assert_matches!(vector_diff, VectorDiff::PushBack { value } => value);
+
+    assert!(local_echo.is_local_echo());
+    assert!(local_echo.is_editable());
+    assert_matches!(local_echo.send_state(), Some(EventSendState::NotSentYet));
+    assert_eq!(local_echo.content().as_message().unwrap().body(), "hi!");
+
+    let mut has_sender_profile = local_echo.sender_profile().is_ready();
+
+    // It is then sent. The timeline stream can be racy here:
+    //
+    // - either the local echo is marked as sent *before*, and we receive an update
+    //   for this before
+    // the remote echo.
+    // - or the remote echo comes up faster.
+    //
+    // Handle both orderings.
+    while let Ok(Some(vector_diff)) = timeout(Duration::from_secs(1), stream.next()).await {
+        let VectorDiff::Set { index: 0, value: echo } = vector_diff else {
+            panic!("unexpected diff: {vector_diff:#?}");
+        };
+
+        if echo.is_local_echo() {
+            // If the sender profile wasn't available, we may receive an update about it;
+            // ignore it.
+            if !has_sender_profile && echo.sender_profile().is_ready() {
+                has_sender_profile = true;
+                continue;
+            }
+            assert_matches!(echo.send_state(), Some(EventSendState::Sent { .. }));
+        }
+        assert!(echo.is_editable());
+        assert_eq!(echo.content().as_message().unwrap().body(), "hi!");
+    }
+
+    // Now do a crime: try to edit the local echo.
+    let edit_info = local_echo.edit_info().unwrap();
+    let did_edit = timeline
+        .edit(RoomMessageEventContent::text_plain("bonjour").into(), edit_info)
+        .await
+        .unwrap();
+
+    // The edit works on the local echo and applies to the remote echo \o/.
+    assert!(did_edit);
+
+    let vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
+    let remote_echo = assert_matches!(vector_diff, VectorDiff::Set { index: 0, value } => value);
+    assert!(!remote_echo.is_local_echo());
+    assert!(remote_echo.is_editable());
+
+    assert_eq!(remote_echo.content().as_message().unwrap().body(), "bonjour");
+
+    alice_sync.abort();
 }

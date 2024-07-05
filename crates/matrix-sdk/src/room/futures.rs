@@ -32,7 +32,9 @@ use ruma::{
     serde::Raw,
     OwnedTransactionId, TransactionId,
 };
-use tracing::{debug, info, Instrument, Span};
+#[cfg(feature = "image-proc")]
+use tracing::debug;
+use tracing::{info, trace, Instrument, Span};
 
 use super::Room;
 #[cfg(feature = "image-proc")]
@@ -148,6 +150,13 @@ impl<'a> SendRawMessageLikeEvent<'a> {
         self.transaction_id = Some(txn_id.to_owned());
         self
     }
+
+    /// Assign a given [`RequestConfig`] to configure how this request should
+    /// behave with respect to the network.
+    pub fn with_request_config(mut self, request_config: RequestConfig) -> Self {
+        self.request_config = Some(request_config);
+        self
+    }
 }
 
 impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
@@ -172,17 +181,17 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
             Span::current().record("transaction_id", tracing::field::debug(&txn_id));
 
             #[cfg(not(feature = "e2e-encryption"))]
-            debug!("Sending plaintext event to room because we don't have encryption support.");
+            trace!("Sending plaintext event to room because we don't have encryption support.");
 
             #[cfg(feature = "e2e-encryption")]
             if room.is_encrypted().await? {
-                Span::current().record("encrypted", true);
+                Span::current().record("is_room_encrypted", true);
                 // Reactions are currently famously not encrypted, skip encrypting
                 // them until they are.
                 if event_type == "m.reaction" {
-                    debug!("Sending plaintext event because of the event type.");
+                    trace!("Sending plaintext event because of the event type.");
                 } else {
-                    debug!(
+                    trace!(
                         room_id = ?room.room_id(),
                         "Sending encrypted event because the room is encrypted.",
                     );
@@ -210,8 +219,8 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
                     event_type = "m.room.encrypted";
                 }
             } else {
-                Span::current().record("encrypted", false);
-                debug!("Sending plaintext event because the room is NOT encrypted.",);
+                Span::current().record("is_room_encrypted", false);
+                trace!("Sending plaintext event because the room is NOT encrypted.",);
             };
 
             let request = send_message_event::v3::Request::new_raw(

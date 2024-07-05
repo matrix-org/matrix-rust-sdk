@@ -14,10 +14,11 @@
 
 //! The `Room` type.
 
+use core::fmt;
 use std::{ops::Deref, sync::Arc};
 
 use async_once_cell::OnceCell as AsyncOnceCell;
-use matrix_sdk::{Client, SlidingSync};
+use matrix_sdk::SlidingSync;
 use ruma::{api::client::sync::sync_events::v4::RoomSubscription, events::StateEventType, RoomId};
 
 use super::Error;
@@ -29,12 +30,17 @@ use crate::{
 /// A room in the room list.
 ///
 /// It's cheap to clone this type.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Room {
     inner: Arc<RoomInner>,
 }
 
-#[derive(Debug)]
+impl fmt::Debug for Room {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("Room").field(&self.id().to_owned()).finish()
+    }
+}
+
 struct RoomInner {
     /// The Sliding Sync where everything comes from.
     sliding_sync: Arc<SlidingSync>,
@@ -56,21 +62,14 @@ impl Deref for Room {
 
 impl Room {
     /// Create a new `Room`.
-    pub(super) fn new(
-        client: &Client,
-        room_id: &RoomId,
-        sliding_sync: &Arc<SlidingSync>,
-    ) -> Result<Self, Error> {
-        let room =
-            client.get_room(room_id).ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))?;
-
-        Ok(Self {
+    pub(super) fn new(room: matrix_sdk::Room, sliding_sync: &Arc<SlidingSync>) -> Self {
+        Self {
             inner: Arc::new(RoomInner {
                 sliding_sync: sliding_sync.clone(),
                 room,
                 timeline: AsyncOnceCell::new(),
             }),
-        })
+        }
     }
 
     /// Get the room ID.

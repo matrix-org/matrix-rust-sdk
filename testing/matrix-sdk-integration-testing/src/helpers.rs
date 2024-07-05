@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     ops::Deref,
     option_env,
     path::{Path, PathBuf},
@@ -13,14 +12,16 @@ use matrix_sdk::{
     config::{RequestConfig, SyncSettings},
     encryption::EncryptionSettings,
     ruma::api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
-    Client,
+    Client, ClientBuilder,
 };
 use once_cell::sync::Lazy;
 use rand::Rng as _;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::Mutex;
 
-static USERS: Lazy<Mutex<HashMap<String, (Client, TempDir)>>> = Lazy::new(Mutex::default);
+/// This global maintains temp directories alive for the whole lifetime of the
+/// process.
+static TMP_DIRS: Lazy<Mutex<Vec<TempDir>>> = Lazy::new(Mutex::default);
 
 enum SqlitePath {
     Random,
@@ -35,19 +36,19 @@ pub struct TestClientBuilder {
 }
 
 impl TestClientBuilder {
-    pub fn new(username: impl Into<String>) -> Self {
+    pub fn new(username: impl AsRef<str>) -> Self {
+        let suffix: u128 = rand::thread_rng().gen();
+        let randomized_username = format!("{}{}", username.as_ref(), suffix);
+        Self::with_exact_username(randomized_username)
+    }
+
+    pub fn with_exact_username(username: String) -> Self {
         Self {
-            username: username.into(),
+            username,
             use_sqlite_dir: None,
             encryption_settings: Default::default(),
             http_proxy: None,
         }
-    }
-
-    pub fn randomize_username(mut self) -> Self {
-        let suffix: u128 = rand::thread_rng().gen();
-        self.username = format!("{}{}", self.username, suffix);
-        self
     }
 
     pub fn use_sqlite(mut self) -> Self {
@@ -74,9 +75,7 @@ impl TestClientBuilder {
         self
     }
 
-    /// Create a new Client that is a copy of the supplied one, created using
-    /// [`Client::restore_session`].
-    pub async fn duplicate(self, other: &Client) -> Result<Client> {
+    fn common_client_builder(&self) -> ClientBuilder {
         let homeserver_url =
             option_env!("HOMESERVER_URL").unwrap_or("http://localhost:8228").to_owned();
         let sliding_sync_proxy_url =
@@ -89,9 +88,17 @@ impl TestClientBuilder {
             .with_encryption_settings(self.encryption_settings)
             .request_config(RequestConfig::short_retry());
 
-        if let Some(proxy) = self.http_proxy {
+        if let Some(proxy) = &self.http_proxy {
             client_builder = client_builder.proxy(proxy);
         }
+
+        client_builder
+    }
+
+    /// Create a new Client that is a copy of the supplied one, created using
+    /// [`Client::restore_session`].
+    pub async fn duplicate(self, other: &Client) -> Result<Client> {
+        let client_builder = self.common_client_builder();
 
         let client = match self.use_sqlite_dir {
             Some(SqlitePath::Path(path_buf)) => {
@@ -113,33 +120,14 @@ impl TestClientBuilder {
     }
 
     pub async fn build(self) -> Result<Client> {
-        let mut users = USERS.lock().await;
-        if let Some((client, _)) = users.get(&self.username) {
-            return Ok(client.clone());
-        }
-
-        let homeserver_url =
-            option_env!("HOMESERVER_URL").unwrap_or("http://localhost:8228").to_owned();
-        let sliding_sync_proxy_url =
-            option_env!("SLIDING_SYNC_PROXY_URL").unwrap_or("http://localhost:8338").to_owned();
-
-        let tmp_dir = tempdir()?;
-
-        let mut client_builder = Client::builder()
-            .user_agent("matrix-sdk-integration-tests")
-            .homeserver_url(homeserver_url)
-            .sliding_sync_proxy(sliding_sync_proxy_url)
-            .with_encryption_settings(self.encryption_settings)
-            .request_config(RequestConfig::short_retry());
-
-        if let Some(proxy) = self.http_proxy {
-            client_builder = client_builder.proxy(proxy);
-        }
-
+        let client_builder = self.common_client_builder();
         let client = match self.use_sqlite_dir {
             None => client_builder.build().await?,
             Some(SqlitePath::Random) => {
-                client_builder.sqlite_store(tmp_dir.path(), None).build().await?
+                let tmp_dir = tempdir()?;
+                let client = client_builder.sqlite_store(tmp_dir.path(), None).build().await?;
+                TMP_DIRS.lock().await.push(tmp_dir);
+                client
             }
             Some(SqlitePath::Path(path_buf)) => {
                 client_builder.sqlite_store(&path_buf, None).build().await?
@@ -166,7 +154,6 @@ impl TestClientBuilder {
         if try_login {
             auth.login_username(&self.username, &self.username).await?;
         }
-        users.insert(self.username, (client.clone(), tmp_dir)); // keeping temp dir around so it doesn't get destroyed yet
 
         Ok(client)
     }
