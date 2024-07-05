@@ -290,10 +290,8 @@ impl StateStore for MemoryStore {
 
         if let Some(s) = &changes.sync_token {
             *self.sync_token.write().unwrap() = Some(s.to_owned());
-            trace!("assigned sync token");
         }
 
-        trace!("profiles");
         {
             let mut profiles = self.profiles.write().unwrap();
 
@@ -316,7 +314,6 @@ impl StateStore for MemoryStore {
             }
         }
 
-        trace!("ambiguity maps");
         for (room, map) in &changes.ambiguity_maps {
             for (display_name, display_names) in map {
                 self.display_names
@@ -328,7 +325,6 @@ impl StateStore for MemoryStore {
             }
         }
 
-        trace!("account data");
         {
             let mut account_data = self.account_data.write().unwrap();
             for (event_type, event) in &changes.account_data {
@@ -336,7 +332,6 @@ impl StateStore for MemoryStore {
             }
         }
 
-        trace!("room account data");
         {
             let mut room_account_data = self.room_account_data.write().unwrap();
             for (room, events) in &changes.room_account_data {
@@ -352,9 +347,13 @@ impl StateStore for MemoryStore {
         trace!("room state");
         {
             let mut room_state = self.room_state.write().unwrap();
+            trace!("room state: got room_state lock");
             let mut stripped_room_state = self.stripped_room_state.write().unwrap();
+            trace!("room state: got stripped_room_state lock");
             let mut members = self.members.write().unwrap();
+            trace!("room state: got members lock");
             let mut stripped_members = self.stripped_members.write().unwrap();
+            trace!("room state: got stripped_members lock");
 
             for (room, event_types) in &changes.state {
                 for (event_type, events) in event_types {
@@ -669,6 +668,7 @@ impl StateStore for MemoryStore {
             .collect())
     }
 
+    #[instrument(skip(self, memberships))]
     async fn get_user_ids(
         &self,
         room_id: &RoomId,
@@ -697,11 +697,12 @@ impl StateStore for MemoryStore {
                 })
                 .unwrap_or_default()
         }
-
+        trace!("getting stripped_members lock");
         let v = get_user_ids_inner(&self.stripped_members.read().unwrap(), room_id, memberships);
         if !v.is_empty() {
             return Ok(v);
         }
+        trace!("getting members lock");
         Ok(get_user_ids_inner(&self.members.read().unwrap(), room_id, memberships))
     }
 
