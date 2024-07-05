@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc};
+use std::{future, ops::Deref, sync::Arc};
 
 use futures_core::Stream;
 use futures_util::StreamExt;
@@ -131,38 +131,14 @@ impl CryptoStoreWrapper {
     /// logged and items will be dropped.
     pub fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
         let stream = BroadcastStream::new(self.room_keys_received_sender.subscribe());
-
-        // the raw BroadcastStream gives us Results which can fail with
-        // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
-        // with, so here we just drop the errors.
-        stream.filter_map(|result| async move {
-            match result {
-                Ok(r) => Some(r),
-                Err(BroadcastStreamRecvError::Lagged(lag)) => {
-                    warn!("room_keys_received_stream missed {lag} updates");
-                    None
-                }
-            }
-        })
+        Self::filter_errors_out_of_stream(stream, "room_keys_received_stream")
     }
 
     /// Receive notifications of gossipped secrets being received and stored in
     /// the secret inbox as a [`Stream`].
     pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> {
         let stream = BroadcastStream::new(self.secrets_broadcaster.subscribe());
-
-        // the raw BroadcastStream gives us Results which can fail with
-        // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
-        // with, so here we just drop the errors.
-        stream.filter_map(|result| async move {
-            match result {
-                Ok(r) => Some(r),
-                Err(BroadcastStreamRecvError::Lagged(lag)) => {
-                    warn!("secrets_stream missed {lag} updates");
-                    None
-                }
-            }
-        })
+        Self::filter_errors_out_of_stream(stream, "secrets_stream")
     }
 
     /// Returns a stream of newly created or updated cryptographic identities.
@@ -173,17 +149,31 @@ impl CryptoStoreWrapper {
         &self,
     ) -> impl Stream<Item = (Option<ReadOnlyOwnUserIdentity>, IdentityChanges, DeviceChanges)> {
         let stream = BroadcastStream::new(self.identities_broadcaster.subscribe());
+        Self::filter_errors_out_of_stream(stream, "identities_stream")
+    }
 
-        // See the comment in the [`Store::room_keys_received_stream()`] on why we're
-        // ignoring the lagged error.
-        stream.filter_map(|result| async move {
-            match result {
+    /// Helper for *_stream functions: filters errors out of the stream,
+    /// creating a new Stream.
+    ///
+    /// `BroadcastStream`s gives us `Result`s which can fail with
+    /// `BroadcastStreamRecvError` if the reader falls behind. That's annoying
+    /// to work with, so here we just emit a warning and drop the errors.
+    fn filter_errors_out_of_stream<ItemType>(
+        stream: BroadcastStream<ItemType>,
+        stream_name: &str,
+    ) -> impl Stream<Item = ItemType>
+    where
+        ItemType: 'static + Clone + Send,
+    {
+        let stream_name = stream_name.to_owned();
+        stream.filter_map(move |result| {
+            future::ready(match result {
                 Ok(r) => Some(r),
                 Err(BroadcastStreamRecvError::Lagged(lag)) => {
-                    warn!("devices_stream missed {lag} updates");
+                    warn!("{stream_name} missed {lag} updates");
                     None
                 }
-            }
+            })
         })
     }
 
