@@ -13,6 +13,7 @@ use crate::{
     olm::InboundGroupSession,
     store,
     store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo},
+    types::events::room_key_withheld::RoomKeyWithheldEvent,
     GossippedSecret, ReadOnlyOwnUserIdentity,
 };
 
@@ -29,6 +30,10 @@ pub(crate) struct CryptoStoreWrapper {
     /// an update to an inbound group session.
     room_keys_received_sender: broadcast::Sender<Vec<RoomKeyInfo>>,
 
+    /// The sender side of a broadcast stream that is notified whenever we
+    /// receive an `m.room_key.withheld` message.
+    room_keys_withheld_received_sender: broadcast::Sender<Vec<RoomKeyWithheldEvent>>,
+
     /// The sender side of a broadcast channel which sends out secrets we
     /// received as a `m.secret.send` event.
     secrets_broadcaster: broadcast::Sender<GossippedSecret>,
@@ -42,6 +47,7 @@ pub(crate) struct CryptoStoreWrapper {
 impl CryptoStoreWrapper {
     pub(crate) fn new(user_id: &UserId, store: impl IntoCryptoStore) -> Self {
         let room_keys_received_sender = broadcast::Sender::new(10);
+        let room_keys_withheld_received_sender = broadcast::Sender::new(10);
         let secrets_broadcaster = broadcast::Sender::new(10);
         // The identities broadcaster is responsible for user identities as well as
         // devices, that's why we increase the capacity here.
@@ -51,6 +57,7 @@ impl CryptoStoreWrapper {
             user_id: user_id.to_owned(),
             store: store.into_crypto_store(),
             room_keys_received_sender,
+            room_keys_withheld_received_sender,
             secrets_broadcaster,
             identities_broadcaster,
         }
@@ -68,6 +75,13 @@ impl CryptoStoreWrapper {
         let room_key_updates: Vec<_> =
             changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
 
+        let withheld_session_updates: Vec<_> = changes
+            .withheld_session_info
+            .values()
+            .flat_map(|session_map| session_map.values())
+            .map(Clone::clone)
+            .collect();
+
         let secrets = changes.secrets.to_owned();
         let devices = changes.devices.to_owned();
         let identities = changes.identities.to_owned();
@@ -77,6 +91,10 @@ impl CryptoStoreWrapper {
         if !room_key_updates.is_empty() {
             // Ignore the result. It can only fail if there are no listeners.
             let _ = self.room_keys_received_sender.send(room_key_updates);
+        }
+
+        if !withheld_session_updates.is_empty() {
+            let _ = self.room_keys_withheld_received_sender.send(withheld_session_updates);
         }
 
         for secret in secrets {
@@ -132,6 +150,21 @@ impl CryptoStoreWrapper {
     pub fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
         let stream = BroadcastStream::new(self.room_keys_received_sender.subscribe());
         Self::filter_errors_out_of_stream(stream, "room_keys_received_stream")
+    }
+
+    /// Receive notifications of received `m.room_key.withheld` messages.
+    ///
+    /// Each time an `m.room_key.withheld` is received and stored, an update
+    /// will be sent to the stream. Updates that happen at the same time are
+    /// batched into a [`Vec`].
+    ///
+    /// If the reader of the stream lags too far behind, a warning will be
+    /// logged and items will be dropped.
+    pub fn room_keys_withheld_received_stream(
+        &self,
+    ) -> impl Stream<Item = Vec<RoomKeyWithheldEvent>> {
+        let stream = BroadcastStream::new(self.room_keys_withheld_received_sender.subscribe());
+        Self::filter_errors_out_of_stream(stream, "room_keys_withheld_received_stream")
     }
 
     /// Receive notifications of gossipped secrets being received and stored in

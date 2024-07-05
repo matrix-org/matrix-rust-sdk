@@ -1463,6 +1463,20 @@ impl Store {
         self.inner.store.room_keys_received_stream()
     }
 
+    /// Receive notifications of received `m.room_key.withheld` messages.
+    ///
+    /// Each time an `m.room_key.withheld` is received and stored, an update
+    /// will be sent to the stream. Updates that happen at the same time are
+    /// batched into a [`Vec`].
+    ///
+    /// If the reader of the stream lags too far behind, a warning will be
+    /// logged and items will be dropped.
+    pub fn room_keys_withheld_received_stream(
+        &self,
+    ) -> impl Stream<Item = Vec<RoomKeyWithheldEvent>> {
+        self.inner.store.room_keys_withheld_received_stream()
+    }
+
     /// Returns a stream of user identity updates, allowing users to listen for
     /// notifications about new or changed user identities.
     ///
