@@ -290,8 +290,10 @@ impl StateStore for MemoryStore {
 
         if let Some(s) = &changes.sync_token {
             *self.sync_token.write().unwrap() = Some(s.to_owned());
+            trace!("assigned sync token");
         }
 
+        trace!("profiles");
         {
             let mut profiles = self.profiles.write().unwrap();
 
@@ -314,6 +316,7 @@ impl StateStore for MemoryStore {
             }
         }
 
+        trace!("ambiguity maps");
         for (room, map) in &changes.ambiguity_maps {
             for (display_name, display_names) in map {
                 self.display_names
@@ -325,6 +328,7 @@ impl StateStore for MemoryStore {
             }
         }
 
+        trace!("account data");
         {
             let mut account_data = self.account_data.write().unwrap();
             for (event_type, event) in &changes.account_data {
@@ -332,6 +336,7 @@ impl StateStore for MemoryStore {
             }
         }
 
+        trace!("room account data");
         {
             let mut room_account_data = self.room_account_data.write().unwrap();
             for (room, events) in &changes.room_account_data {
