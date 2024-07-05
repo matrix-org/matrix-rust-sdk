@@ -19,6 +19,7 @@ use base64::{
     engine::{general_purpose, GeneralPurpose},
     Engine,
 };
+use gloo_utils::format::JsValueSerdeExt;
 use matrix_sdk_crypto::CryptoStoreError;
 use matrix_sdk_store_encryption::{EncryptedValueBase64, StoreCipher};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -177,7 +178,7 @@ impl IndexeddbSerializer {
         // - `MaybeEncrypted::Encrypted` becomes a JS object with properties {`version`,
         //   `nonce`, `ciphertext`}.
         //
-        // - `MaybeEncrypted::Unencrypted` becomes a JS string.
+        // - `MaybeEncrypted::Unencrypted` becomes a JS string containing base64 text.
         //
         // Otherwise, it probably uses our old serialization format:
         //
@@ -186,30 +187,73 @@ impl IndexeddbSerializer {
         //   array of JSON bytes. Net result is a JS array.
         //
         // - Unencrypted values were serialized to JSON, then deserialized into a
-        //   javascript object. (Hopefully not one that can be turned into a
-        //   `MaybeEncrypted::Encrypted`.)
+        //   javascript object/string/array/bool.
+        //
+        // Note that there are several potential ambiguities here:
+        //
+        // - A JS string could either be a legacy unencrypted value, or a
+        //   `MaybeEncrypted::Unencrypted`. However, the only thing that actually got
+        //   stored as a string under the legacy system was `backup_key_v1`, and that is
+        //   special-cased not to use this path — so if we can convert it into a
+        //   `MaybeEncrypted::Unencrypted`, then we assume it is one.
+        //
+        // - A JS array could be either a legacy encrypted value or a legacy unencrypted
+        //   value. We can tell the difference by whether we have a `cipher`.
+        //
+        // - A JS object could be either a legacy unencrypted value or a
+        //   `MaybeEncrypted::Encrypted`. We assume that no legacy JS objects have the
+        //   properties to be successfully decoded into a `MaybeEncrypted::Encrypted`.
 
         // First check if it looks like a `MaybeEncrypted`, of either type.
         if let Ok(maybe_encrypted) = serde_wasm_bindgen::from_value(value.clone()) {
             return Ok(self.maybe_decrypt_value(maybe_encrypted)?);
         }
 
-        // Check for legacy encrypted format.
-        if let (true, Some(cipher)) = (value.is_array(), &self.store_cipher) {
-            // `value` is a JS-side array containing the byte values. Turn it into a
-            // rust-side Vec<u8>.
-            let value: Vec<u8> = serde_wasm_bindgen::from_value(value)?;
+        // Otherwise, fall back to the legacy deserializer.
+        self.deserialize_legacy_value(value)
+    }
 
-            return Ok(cipher.decrypt_value(&value).map_err(CryptoStoreError::backend)?);
+    /// Decode a value that was encoded with an old version of
+    /// `serialize_value`.
+    ///
+    /// This should only be used on values from an old database which are known
+    /// to be serialized with the old format.
+    pub fn deserialize_legacy_value<T: DeserializeOwned>(
+        &self,
+        value: JsValue,
+    ) -> Result<T, IndexeddbCryptoStoreError> {
+        match &self.store_cipher {
+            Some(cipher) => {
+                if !value.is_array() {
+                    return Err(IndexeddbCryptoStoreError::CryptoStoreError(
+                        CryptoStoreError::UnpicklingError,
+                    ));
+                }
+
+                // Looks like legacy encrypted format.
+                //
+                // `value` is a JS-side array containing the byte values. Turn it into a
+                // rust-side Vec<u8>, then decrypt.
+                let value: Vec<u8> = serde_wasm_bindgen::from_value(value)?;
+                Ok(cipher.decrypt_value(&value).map_err(CryptoStoreError::backend)?)
+            }
+
+            None => {
+                // Legacy unencrypted format could be just about anything; just try
+                // JSON-serializing the value, then deserializing it into the
+                // desired type.
+                //
+                // Note that the stored data was actually encoded by JSON-serializing it, and
+                // then deserializing the JSON into Javascript objects — so, for
+                // example, `HashMap`s are converted into Javascript Objects
+                // (whose keys are always strings) rather than Maps (whose keys
+                // can be other things). `serde_wasm_bindgen::from_value` will complain about
+                // such things. The correct thing to do is to go *back* to JSON
+                // and then deserialize into Rust again, which is what `JsValue::into_serde`
+                // does.
+                Ok(value.into_serde()?)
+            }
         }
-
-        // Check for legacy unencrypted format
-        if value.is_object() && self.store_cipher.is_none() {
-            return Ok(serde_wasm_bindgen::from_value(value)?);
-        }
-
-        // Can't figure out what this is.
-        Err(IndexeddbCryptoStoreError::CryptoStoreError(CryptoStoreError::UnpicklingError))
     }
 
     /// Decode a value that was previously encoded with
@@ -250,8 +294,9 @@ impl IndexeddbSerializer {
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
-    use std::sync::Arc;
+    use std::{collections::BTreeMap, sync::Arc};
 
+    use gloo_utils::format::JsValueSerdeExt;
     use matrix_sdk_store_encryption::StoreCipher;
     use matrix_sdk_test::async_test;
     use serde::{Deserialize, Serialize};
@@ -293,33 +338,26 @@ mod tests {
     /// an old implementation of `serialize_value`, when a cipher is in use.
     #[async_test]
     async fn test_deserialize_old_serialized_value_with_cipher() {
-        // An example of an object which was serialized using the old-format
-        // `serialize_value`.
-        let serialized = [
-            123, 34, 118, 101, 114, 115, 105, 111, 110, 34, 58, 49, 44, 34, 99, 105, 112, 104, 101,
-            114, 116, 101, 120, 116, 34, 58, 91, 52, 53, 44, 49, 49, 54, 44, 49, 54, 57, 44, 49,
-            57, 49, 44, 49, 49, 54, 44, 57, 53, 44, 49, 50, 54, 44, 52, 51, 44, 54, 49, 44, 50, 52,
-            55, 44, 50, 50, 52, 44, 57, 54, 44, 49, 49, 51, 44, 49, 50, 50, 44, 49, 57, 50, 44, 52,
-            55, 44, 50, 51, 52, 44, 50, 52, 51, 44, 55, 44, 49, 55, 55, 44, 49, 57, 44, 50, 48, 57,
-            44, 50, 52, 50, 44, 49, 48, 56, 44, 49, 52, 54, 44, 49, 52, 44, 49, 52, 52, 44, 50, 54,
-            44, 50, 52, 56, 44, 49, 54, 55, 44, 49, 53, 44, 50, 51, 48, 44, 49, 52, 48, 44, 56, 51,
-            44, 50, 48, 52, 44, 51, 55, 44, 49, 56, 51, 44, 55, 50, 93, 44, 34, 110, 111, 110, 99,
-            101, 34, 58, 91, 49, 52, 48, 44, 49, 50, 56, 44, 50, 50, 52, 44, 50, 49, 52, 44, 56,
-            54, 44, 49, 53, 51, 44, 50, 50, 52, 44, 49, 55, 56, 44, 49, 54, 54, 44, 49, 48, 49, 44,
-            48, 44, 54, 54, 44, 49, 57, 55, 44, 53, 55, 44, 50, 57, 44, 50, 52, 51, 44, 57, 53, 44,
-            50, 49, 53, 44, 56, 54, 44, 50, 48, 54, 44, 54, 53, 44, 49, 53, 54, 44, 49, 49, 57, 44,
-            53, 57, 93, 125,
-        ]
-        .into_iter()
-        .map(JsValue::from)
-        .collect::<js_sys::Array>()
-        .into();
+        let cipher = test_cipher();
+        let obj = make_test_object();
 
-        let serializer = IndexeddbSerializer::new(Some(Arc::new(test_cipher())));
+        // Follow the old format for encoding:
+        //  1. Encode as JSON, in a Vec<u8> of bytes
+        //  2. Encrypt
+        //  3. JSON-encode to another Vec<u8>
+        //  4. Turn the Vec into a Javascript array of numbers.
+        let data = serde_json::to_vec(&obj).unwrap();
+        let data = cipher.encrypt_value_data(data).unwrap();
+        let data = serde_json::to_vec(&data).unwrap();
+        let serialized = JsValue::from_serde(&data).unwrap();
+
+        // Now, try deserializing with `deserialize_value`, and check we get the right
+        // thing.
+        let serializer = IndexeddbSerializer::new(Some(Arc::new(cipher)));
         let deserialized: TestStruct =
             serializer.deserialize_value(serialized).expect("could not deserialize");
 
-        assert_eq!(make_test_object(), deserialized);
+        assert_eq!(obj, deserialized);
     }
 
     /// Test that `deserialize_value` can decode a value that was encoded with
@@ -328,13 +366,29 @@ mod tests {
     async fn test_deserialize_old_serialized_value_no_cipher() {
         // An example of an object which was serialized using the old-format
         // `serialize_value`.
-        let serialized = js_sys::JSON::parse(&(json!({"id":0,"name":"test"}).to_string())).unwrap();
+        let json = json!({ "id":0, "name": "test", "map": { "0": "test" }});
+        let serialized = js_sys::JSON::parse(&json.to_string()).unwrap();
 
         let serializer = IndexeddbSerializer::new(None);
         let deserialized: TestStruct =
             serializer.deserialize_value(serialized).expect("could not deserialize");
 
         assert_eq!(make_test_object(), deserialized);
+    }
+
+    /// Test that `deserialize_value` can decode an array value that was encoded
+    /// with an old implementation of `serialize_value`, when no cipher is
+    /// in use.
+    #[async_test]
+    async fn test_deserialize_old_serialized_array_no_cipher() {
+        let json = json!([1, 2, 3, 4]);
+        let serialized = js_sys::JSON::parse(&json.to_string()).unwrap();
+
+        let serializer = IndexeddbSerializer::new(None);
+        let deserialized: Vec<u8> =
+            serializer.deserialize_value(serialized).expect("could not deserialize");
+
+        assert_eq!(vec![1, 2, 3, 4], deserialized);
     }
 
     /// Test that `deserialize_value` can decode a value encoded with
@@ -399,10 +453,15 @@ mod tests {
     struct TestStruct {
         id: u32,
         name: String,
+
+        // A map, whose keys are not strings. This is an edge-case we previously got wrong. Maps
+        // are represented differently in JSON from Javascript objects, and that particularly
+        // matters when their keys are not strings.
+        map: BTreeMap<u8, String>,
     }
 
     fn make_test_object() -> TestStruct {
-        TestStruct { id: 0, name: "test".to_owned() }
+        TestStruct { id: 0, name: "test".to_owned(), map: BTreeMap::from([(0, "test".to_owned())]) }
     }
 
     /// Build a [`StoreCipher`] using a hardcoded key.
