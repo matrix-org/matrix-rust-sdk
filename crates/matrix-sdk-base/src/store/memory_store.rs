@@ -352,9 +352,13 @@ impl StateStore for MemoryStore {
         trace!("room state");
         {
             let mut room_state = self.room_state.write().unwrap();
+            trace!("room state: got room_state lock");
             let mut stripped_room_state = self.stripped_room_state.write().unwrap();
+            trace!("room state: got stripped_room_state lock");
             let mut members = self.members.write().unwrap();
+            trace!("room state: got members lock");
             let mut stripped_members = self.stripped_members.write().unwrap();
+            trace!("room state: got stripped_members lock");
 
             for (room, event_types) in &changes.state {
                 for (event_type, events) in event_types {
@@ -669,6 +673,7 @@ impl StateStore for MemoryStore {
             .collect())
     }
 
+    #[instrument(skip(self, memberships))]
     async fn get_user_ids(
         &self,
         room_id: &RoomId,
@@ -697,11 +702,12 @@ impl StateStore for MemoryStore {
                 })
                 .unwrap_or_default()
         }
-
+        trace!("getting stripped_members lock");
         let v = get_user_ids_inner(&self.stripped_members.read().unwrap(), room_id, memberships);
         if !v.is_empty() {
             return Ok(v);
         }
+        trace!("getting members lock");
         Ok(get_user_ids_inner(&self.members.read().unwrap(), room_id, memberships))
     }
 
