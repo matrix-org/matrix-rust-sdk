@@ -802,7 +802,7 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
 
     let alice_all_rooms = alice_sync_service.room_list_service().all_rooms().await.unwrap();
     let (stream, entries) =
-        alice_all_rooms.entries_with_dynamic_adapters(10, alice.roominfo_update_receiver());
+        alice_all_rooms.entries_with_dynamic_adapters(10, alice.room_info_notable_update_receiver());
     entries.set_filter(Box::new(new_filter_all(vec![])));
     pin_mut!(stream);
 
@@ -866,7 +866,7 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_roominfo_update_deduplication() -> Result<()> {
+async fn test_room_info_notable_update_deduplication() -> Result<()> {
     let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
@@ -928,7 +928,7 @@ async fn test_roominfo_update_deduplication() -> Result<()> {
 
     let alice_all_rooms = alice_sync_service.room_list_service().all_rooms().await.unwrap();
     let (stream, entries) =
-        alice_all_rooms.entries_with_dynamic_adapters(10, alice.roominfo_update_receiver());
+        alice_all_rooms.entries_with_dynamic_adapters(10, alice.room_info_notable_update_receiver());
     entries.set_filter(Box::new(new_filter_all(vec![])));
 
     pin_mut!(stream);

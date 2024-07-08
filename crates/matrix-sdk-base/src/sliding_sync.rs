@@ -475,7 +475,7 @@ impl BaseClient {
             let room = store.get_or_create_room(
                 room_id,
                 RoomState::Invited,
-                self.roominfo_update_sender.clone(),
+                self.room_info_notable_update_sender.clone(),
             );
             let mut room_info = room.clone_info();
 
@@ -497,7 +497,7 @@ impl BaseClient {
             let room = store.get_or_create_room(
                 room_id,
                 RoomState::Joined,
-                self.roominfo_update_sender.clone(),
+                self.room_info_notable_update_sender.clone(),
             );
             let mut room_info = room.clone_info();
 

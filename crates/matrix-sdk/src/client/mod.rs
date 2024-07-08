@@ -35,7 +35,7 @@ use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
     store::DynStateStore,
     sync::{Notification, RoomUpdates},
-    BaseClient, RoomInfoUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
+    BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
@@ -487,8 +487,8 @@ impl Client {
     /// Returns a receiver that gets events for each room info update. To watch
     /// for new events, use `receiver.resubscribe()`. Each event contains the
     /// room and a boolean whether this event should trigger a room list update.
-    pub fn roominfo_update_receiver(&self) -> broadcast::Receiver<RoomInfoUpdate> {
-        self.base_client().roominfo_update_receiver()
+    pub fn room_info_notable_update_receiver(&self) -> broadcast::Receiver<RoomInfoNotableUpdate> {
+        self.base_client().room_info_notable_update_receiver()
     }
 
     /// Performs a search for users.

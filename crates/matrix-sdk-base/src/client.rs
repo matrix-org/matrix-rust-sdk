@@ -70,7 +70,7 @@ use crate::RoomMemberships;
 use crate::{
     deserialized_responses::{RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent},
     error::{Error, Result},
-    rooms::{normal::RoomInfoUpdate, Room, RoomInfo, RoomState},
+    rooms::{normal::RoomInfoNotableUpdate, Room, RoomInfo, RoomState},
     store::{
         ambiguity_map::AmbiguityCache, DynStateStore, MemoryStore, Result as StoreResult,
         StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
@@ -104,7 +104,7 @@ pub struct BaseClient {
     /// A sender that is used to communicate changes to room information. Each
     /// event contains the room and a boolean whether this event should
     /// trigger a room list update.
-    pub(crate) roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
+    pub(crate) room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -130,7 +130,8 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     ///   previous login call.
     pub fn with_store_config(config: StoreConfig) -> Self {
-        let (roominfo_update_sender, _roominfo_update_receiver) = broadcast::channel(100);
+        let (room_info_notable_update_sender, _room_info_notable_update_receiver) =
+            broadcast::channel(100);
 
         BaseClient {
             store: Store::new(config.state_store),
@@ -139,7 +140,7 @@ impl BaseClient {
             #[cfg(feature = "e2e-encryption")]
             olm_machine: Default::default(),
             ignore_user_list_changes: Default::default(),
-            roominfo_update_sender,
+            room_info_notable_update_sender,
         }
     }
 
@@ -183,7 +184,11 @@ impl BaseClient {
     /// Lookup the Room for the given RoomId, or create one, if it didn't exist
     /// yet in the store
     pub fn get_or_create_room(&self, room_id: &RoomId, room_state: RoomState) -> Room {
-        self.store.get_or_create_room(room_id, room_state, self.roominfo_update_sender.clone())
+        self.store.get_or_create_room(
+            room_id,
+            room_state,
+            self.room_info_notable_update_sender.clone(),
+        )
     }
 
     /// Get a reference to the store.
@@ -225,7 +230,9 @@ impl BaseClient {
         >,
     ) -> Result<()> {
         debug!(user_id = ?session_meta.user_id, device_id = ?session_meta.device_id, "Restoring login");
-        self.store.set_session_meta(session_meta.clone(), &self.roominfo_update_sender).await?;
+        self.store
+            .set_session_meta(session_meta.clone(), &self.room_info_notable_update_sender)
+            .await?;
 
         #[cfg(feature = "e2e-encryption")]
         self.regenerate_olm(custom_account).await?;
@@ -754,7 +761,7 @@ impl BaseClient {
         let room = self.store.get_or_create_room(
             room_id,
             RoomState::Joined,
-            self.roominfo_update_sender.clone(),
+            self.room_info_notable_update_sender.clone(),
         );
 
         if room.state() != RoomState::Joined {
@@ -781,7 +788,7 @@ impl BaseClient {
         let room = self.store.get_or_create_room(
             room_id,
             RoomState::Left,
-            self.roominfo_update_sender.clone(),
+            self.room_info_notable_update_sender.clone(),
         );
 
         if room.state() != RoomState::Left {
@@ -857,7 +864,7 @@ impl BaseClient {
             let room = self.store.get_or_create_room(
                 &room_id,
                 RoomState::Joined,
-                self.roominfo_update_sender.clone(),
+                self.room_info_notable_update_sender.clone(),
             );
 
             let mut room_info = room.clone_info();
@@ -970,7 +977,7 @@ impl BaseClient {
             let room = self.store.get_or_create_room(
                 &room_id,
                 RoomState::Left,
-                self.roominfo_update_sender.clone(),
+                self.room_info_notable_update_sender.clone(),
             );
 
             let mut room_info = room.clone_info();
@@ -1029,7 +1036,7 @@ impl BaseClient {
             let room = self.store.get_or_create_room(
                 &room_id,
                 RoomState::Invited,
-                self.roominfo_update_sender.clone(),
+                self.room_info_notable_update_sender.clone(),
             );
 
             let mut room_info = room.clone_info();
@@ -1476,13 +1483,11 @@ impl BaseClient {
             .collect()
     }
 
-    /// Returns a new receiver that gets events for all future room info
-    /// updates.
+    /// Returns a new receiver that gets future room info notable updates.
     ///
-    /// Each event contains the room and a boolean whether this event should
-    /// trigger a room list update.
-    pub fn roominfo_update_receiver(&self) -> broadcast::Receiver<RoomInfoUpdate> {
-        self.roominfo_update_sender.subscribe()
+    /// Learn more by reading the [`RoomInfoNotableUpdate`] type.
+    pub fn room_info_notable_update_receiver(&self) -> broadcast::Receiver<RoomInfoNotableUpdate> {
+        self.room_info_notable_update_sender.subscribe()
     }
 }
 

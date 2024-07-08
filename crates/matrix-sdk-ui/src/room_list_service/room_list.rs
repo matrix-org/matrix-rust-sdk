@@ -25,7 +25,7 @@ use matrix_sdk::{
     executor::{spawn, JoinHandle},
     Client, SlidingSync, SlidingSyncList,
 };
-use matrix_sdk_base::RoomInfoUpdate;
+use matrix_sdk_base::RoomInfoNotableUpdate;
 use tokio::{select, sync::broadcast};
 
 use super::{
@@ -138,7 +138,7 @@ impl RoomList {
     pub fn entries_with_dynamic_adapters(
         &self,
         page_size: usize,
-        roominfo_update_recv: broadcast::Receiver<RoomInfoUpdate>,
+        room_info_notable_update_receiver: broadcast::Receiver<RoomInfoNotableUpdate>,
     ) -> (impl Stream<Item = Vec<VectorDiff<Room>>> + '_, RoomListDynamicEntriesController) {
         let list = self.sliding_sync_list.clone();
 
@@ -161,7 +161,7 @@ impl RoomList {
                 let (raw_values, raw_stream) = self.entries();
 
                 // Combine normal stream events with other updates from rooms
-                let merged_streams = merge_stream_and_receiver(raw_values.clone(), raw_stream, roominfo_update_recv.resubscribe());
+                let merged_streams = merge_stream_and_receiver(raw_values.clone(), raw_stream, room_info_notable_update_receiver.resubscribe());
 
                 let (values, stream) = (raw_values, merged_streams)
                     .filter(filter_fn)
@@ -188,7 +188,7 @@ impl RoomList {
 fn merge_stream_and_receiver(
     mut raw_current_values: Vector<Room>,
     raw_stream: impl Stream<Item = Vec<VectorDiff<Room>>>,
-    mut roominfo_update_recv: broadcast::Receiver<RoomInfoUpdate>,
+    mut room_info_notable_update_receiver: broadcast::Receiver<RoomInfoNotableUpdate>,
 ) -> impl Stream<Item = Vec<VectorDiff<Room>>> {
     stream! {
         pin_mut!(raw_stream);
@@ -211,10 +211,8 @@ fn merge_stream_and_receiver(
                     }
                 }
 
-                Ok(update) = roominfo_update_recv.recv() => {
-                    if !update.trigger_room_list_update {
-                        continue;
-                    }
+                Ok(update) = room_info_notable_update_receiver.recv() => {
+                    let reasons = &update.reasons;
 
                     // Search list for the updated room
                     if let Some(index) = raw_current_values.iter().position(|room| room.room_id() == update.room_id) {

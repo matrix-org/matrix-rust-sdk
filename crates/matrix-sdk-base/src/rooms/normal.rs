@@ -69,11 +69,17 @@ use crate::{
     MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
 };
 
-/// A summary of changes to room information.
+/// Indicates that a notable update of `RoomInfo` has been applied, and why.
 ///
-/// It also indicates whether this update should update the room list.
+/// A room info notable update is an update that can be interested for other
+/// parts of the code. This mechanism is used in coordination with
+/// [`BaseClient::room_info_notable_update_receiver`][baseclient] (and
+/// `Room::inner` plus `Room::room_info_notable_update_sender`) where `RoomInfo`
+/// can be observed and some of its updates can be spread to listeners.
+///
+/// [baseclient]: crate::BaseClient::room_info_notable_update_receiver
 #[derive(Debug, Clone)]
-pub struct RoomInfoUpdate {
+pub struct RoomInfoNotableUpdate {
     /// The room which was updated.
     pub room_id: OwnedRoomId,
     /// Whether this event should trigger the room list to update.
@@ -90,7 +96,7 @@ pub struct Room {
     room_id: OwnedRoomId,
     own_user_id: OwnedUserId,
     inner: SharedObservable<RoomInfo>,
-    roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
+    room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     store: Arc<DynStateStore>,
 
     /// The most recent few encrypted events. When the keys come through to
@@ -190,17 +196,17 @@ impl Room {
         store: Arc<DynStateStore>,
         room_id: &RoomId,
         room_state: RoomState,
-        roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
+        room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Self {
         let room_info = RoomInfo::new(room_id, room_state);
-        Self::restore(own_user_id, store, room_info, roominfo_update_sender)
+        Self::restore(own_user_id, store, room_info, room_info_notable_update_sender)
     }
 
     pub(crate) fn restore(
         own_user_id: &UserId,
         store: Arc<DynStateStore>,
         room_info: RoomInfo,
-        roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
+        room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Self {
         Self {
             own_user_id: own_user_id.into(),
@@ -211,7 +217,7 @@ impl Room {
             latest_encrypted_events: Arc::new(SyncRwLock::new(RingBuffer::new(
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
-            roominfo_update_sender,
+            room_info_notable_update_sender,
         }
     }
 
@@ -762,9 +768,10 @@ impl Room {
         self.inner.set(room_info);
 
         // Ignore error if no receiver exists.
-        let _ = self
-            .roominfo_update_sender
-            .send(RoomInfoUpdate { room_id: self.room_id.clone(), trigger_room_list_update });
+        let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
+            room_id: self.room_id.clone(),
+            trigger_room_list_update,
+        });
     }
 
     /// Get the `RoomMember` with the given `user_id`.
@@ -2296,7 +2303,7 @@ mod tests {
 
     #[async_test]
     #[cfg(feature = "experimental-sliding-sync")]
-    async fn test_setting_the_latest_event_doesnt_cause_a_room_info_update() {
+    async fn test_setting_the_latest_event_doesnt_cause_a_room_info_notable_update() {
         // Given a room,
 
         let client = BaseClient::new();
