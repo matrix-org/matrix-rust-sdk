@@ -70,7 +70,10 @@ use crate::RoomMemberships;
 use crate::{
     deserialized_responses::{RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent},
     error::{Error, Result},
-    rooms::{normal::RoomInfoNotableUpdate, Room, RoomInfo, RoomState},
+    rooms::{
+        normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons},
+        Room, RoomInfo, RoomState,
+    },
     store::{
         ambiguity_map::AmbiguityCache, DynStateStore, MemoryStore, Result as StoreResult,
         StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, Store, StoreConfig,
@@ -710,6 +713,12 @@ impl BaseClient {
         // encrypted events
         if let Some((found, found_index)) = self.decrypt_latest_suitable_event(room).await {
             room.on_latest_event_decrypted(found, found_index, changes);
+
+            changes
+                .room_info_notable_updates
+                .entry(room.room_id().to_owned())
+                .or_default()
+                .insert(RoomInfoNotableUpdateReasons::LATEST_EVENT);
         }
     }
 
@@ -774,8 +783,7 @@ impl BaseClient {
             let mut changes = StateChanges::default();
             changes.add_room(room_info.clone());
             self.store.save_changes(&changes).await?; // Update the store
-            room.set_room_info(room_info, false); // Update the cached room
-                                                  // handle
+            room.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
         }
 
         Ok(room)
@@ -801,8 +809,7 @@ impl BaseClient {
             let mut changes = StateChanges::default();
             changes.add_room(room_info.clone());
             self.store.save_changes(&changes).await?; // Update the store
-            room.set_room_info(room_info, false); // Update the cached room
-                                                  // handle
+            room.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
         }
 
         Ok(())
@@ -1080,7 +1087,7 @@ impl BaseClient {
             let _sync_lock = self.sync_lock().lock().await;
             self.store.save_changes(&changes).await?;
             *self.store.sync_token.write().await = Some(response.next_batch.clone());
-            self.apply_changes(&changes, false);
+            self.apply_changes(&changes);
         }
 
         // Now that all the rooms information have been saved, update the display name
@@ -1103,7 +1110,7 @@ impl BaseClient {
         Ok(response)
     }
 
-    pub(crate) fn apply_changes(&self, changes: &StateChanges, trigger_room_list_update: bool) {
+    pub(crate) fn apply_changes(&self, changes: &StateChanges) {
         if changes.account_data.contains_key(&GlobalAccountDataEventType::IgnoredUserList) {
             if let Some(event) =
                 changes.account_data.get(&GlobalAccountDataEventType::IgnoredUserList)
@@ -1124,7 +1131,10 @@ impl BaseClient {
 
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.room(room_id) {
-                room.set_room_info(room_info.clone(), trigger_room_list_update)
+                let room_info_notable_update_reasons =
+                    changes.room_info_notable_updates.get(room_id).copied().unwrap_or_default();
+
+                room.set_room_info(room_info.clone(), room_info_notable_update_reasons)
             }
         }
     }
@@ -1229,7 +1239,7 @@ impl BaseClient {
         changes.add_room(room_info);
 
         self.store.save_changes(&changes).await?;
-        self.apply_changes(&changes, false);
+        self.apply_changes(&changes);
 
         Ok(())
     }

@@ -25,7 +25,7 @@ use matrix_sdk::{
     executor::{spawn, JoinHandle},
     Client, SlidingSync, SlidingSyncList,
 };
-use matrix_sdk_base::RoomInfoNotableUpdate;
+use matrix_sdk_base::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons};
 use tokio::{select, sync::broadcast};
 
 use super::{
@@ -214,10 +214,14 @@ fn merge_stream_and_receiver(
                 Ok(update) = room_info_notable_update_receiver.recv() => {
                     let reasons = &update.reasons;
 
-                    // Search list for the updated room
-                    if let Some(index) = raw_current_values.iter().position(|room| room.room_id() == update.room_id) {
-                        let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
-                        yield vec![update];
+                    // We are interested by these _reasons_.
+                    if reasons.contains(RoomInfoNotableUpdateReasons::LATEST_EVENT) ||
+                        reasons.contains(RoomInfoNotableUpdateReasons::RECENCY_TIMESTAMP) {
+                        // Emit a `VectorDiff::Set` for the specific rooms.
+                        if let Some(index) = raw_current_values.iter().position(|room| room.room_id() == update.room_id) {
+                            let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
+                            yield vec![update];
+                        }
                     }
                 }
             }

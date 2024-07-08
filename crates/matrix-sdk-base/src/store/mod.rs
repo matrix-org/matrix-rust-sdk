@@ -60,7 +60,7 @@ use tokio::sync::{broadcast, Mutex, RwLock};
 
 use crate::{
     rooms::{normal::RoomInfoNotableUpdate, RoomInfo, RoomState},
-    MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
+    MinimalRoomMemberEvent, Room, RoomInfoNotableUpdateReasons, RoomStateFilter, SessionMeta,
 };
 
 pub(crate) mod ambiguity_map;
@@ -313,8 +313,21 @@ pub struct StateChanges {
     /// A mapping of `RoomId` to a map of event type string to `AnyBasicEvent`.
     pub room_account_data:
         BTreeMap<OwnedRoomId, BTreeMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>,
-    /// A map of `RoomId` to `RoomInfo`.
+
+    /// A map of `OwnedRoomId` to `RoomInfo`.
     pub room_infos: BTreeMap<OwnedRoomId, RoomInfo>,
+
+    /// A map of `OwnedRoomId` to `RoomInfoNotableUpdateReason`.
+    ///
+    /// A room info notable update is an update that can be interested for other
+    /// parts of the code. This mechanism is used in coordination with
+    /// [`BaseClient::room_info_notable_update_receiver`][baseclient] where
+    /// `RoomInfo` can be observed and some of its updates can be spread to
+    /// listeners.
+    ///
+    /// [baseclient]: crate::BaseClient::room_info_notable_update_receiver
+    pub room_info_notable_updates: BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
+
     /// A map of `RoomId` to `ReceiptEventContent`.
     pub receipts: BTreeMap<OwnedRoomId, ReceiptEventContent>,
 

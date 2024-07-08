@@ -39,7 +39,10 @@ use crate::RoomMemberships;
 use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
-    rooms::{normal::RoomHero, RoomState},
+    rooms::{
+        normal::{RoomHero, RoomInfoNotableUpdateReasons},
+        RoomState,
+    },
     store::{ambiguity_map::AmbiguityCache, StateChanges, Store},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Notification, RoomUpdates, SyncResponse},
     Room, RoomInfo,
@@ -97,7 +100,7 @@ impl BaseClient {
 
         trace!("ready to submit changes to store");
         self.store.save_changes(&changes).await?;
-        self.apply_changes(&changes, true);
+        self.apply_changes(&changes);
         trace!("applied changes");
 
         Ok(to_device)
@@ -154,8 +157,6 @@ impl BaseClient {
         let mut notifications = Default::default();
         let mut rooms_account_data = account_data.rooms.clone();
 
-        let mut trigger_room_list_update = false;
-
         for (room_id, response_room_data) in rooms {
             let (room_info, joined_room, left_room, invited_room) = self
                 .process_sliding_sync_room(
@@ -166,7 +167,6 @@ impl BaseClient {
                     &mut changes,
                     &mut notifications,
                     &mut ambiguity_cache,
-                    &mut trigger_room_list_update,
                 )
                 .await?;
 
@@ -296,7 +296,7 @@ impl BaseClient {
 
         trace!("ready to submit changes to store");
         store.save_changes(&changes).await?;
-        self.apply_changes(&changes, trigger_room_list_update);
+        self.apply_changes(&changes);
         trace!("applied changes");
 
         // Now that all the rooms information have been saved, update the display name
@@ -326,7 +326,6 @@ impl BaseClient {
         changes: &mut StateChanges,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
         ambiguity_cache: &mut AmbiguityCache,
-        trigger_room_list_update: &mut bool,
     ) -> Result<(RoomInfo, Option<JoinedRoomUpdate>, Option<LeftRoomUpdate>, Option<InvitedRoom>)>
     {
         let (raw_state_events, state_events): (Vec<_>, Vec<_>) = {
@@ -375,7 +374,7 @@ impl BaseClient {
             .await?;
         }
 
-        process_room_properties(room_data, &mut room_info, trigger_room_list_update);
+        process_room_properties(room_id, room_data, &mut room_info, changes);
 
         let timeline = self
             .handle_timeline(
@@ -691,9 +690,10 @@ async fn cache_latest_events(
 }
 
 fn process_room_properties(
+    room_id: &RoomId,
     room_data: &v4::SlidingSyncRoom,
     room_info: &mut RoomInfo,
-    trigger_room_list_update: &mut bool,
+    changes: &mut StateChanges,
 ) {
     // Handle the room's avatar.
     //
@@ -740,7 +740,12 @@ fn process_room_properties(
 
     if let Some(recency_timestamp) = &room_data.timestamp {
         room_info.update_recency_timestamp(*recency_timestamp);
-        *trigger_room_list_update = true;
+
+        changes
+            .room_info_notable_updates
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(RoomInfoNotableUpdateReasons::RECENCY_TIMESTAMP);
     }
 }
 
@@ -778,8 +783,10 @@ mod tests {
 
     use super::cache_latest_events;
     use crate::{
-        rooms::normal::RoomHero, store::MemoryStore, test_utils::logged_in_base_client, BaseClient,
-        Room, RoomState,
+        rooms::normal::{RoomHero, RoomInfoNotableUpdateReasons},
+        store::MemoryStore,
+        test_utils::logged_in_base_client,
+        BaseClient, Room, RoomState,
     };
 
     #[async_test]
@@ -1557,7 +1564,7 @@ mod tests {
             rawev_id(event2.clone())
         );
 
-        room.set_room_info(room_info, false);
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
         assert_eq!(
             ev_id(room.latest_event().map(|latest_event| latest_event.event().clone())),
             rawev_id(event2)
@@ -1579,7 +1586,7 @@ mod tests {
         let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
-        room.set_room_info(room_info, false);
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
 
         // The latest message is stored
         assert_eq!(
@@ -1606,7 +1613,7 @@ mod tests {
         let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
-        room.set_room_info(room_info, false);
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
 
         // The latest message is stored, ignoring the receipt
         assert_eq!(
@@ -1659,7 +1666,7 @@ mod tests {
         let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
-        room.set_room_info(room_info, false);
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
 
         // The latest message is stored, ignoring encrypted and receipts
         assert_eq!(
@@ -1700,7 +1707,7 @@ mod tests {
             None,
         )
         .await;
-        room.set_room_info(room_info, false);
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
 
         // Sanity: room_info has 10 encrypted events inside it
         assert_eq!(room.latest_encrypted_events.read().unwrap().len(), 10);
@@ -1709,7 +1716,7 @@ mod tests {
         let eventa = make_encrypted_event("$a");
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, &[eventa], None, None).await;
-        room.set_room_info(room_info, false);
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
 
         // The oldest event is gone
         assert!(!rawevs_ids(&room.latest_encrypted_events).contains(&"$0".to_owned()));
@@ -1731,13 +1738,13 @@ mod tests {
             None,
         )
         .await;
-        room.set_room_info(room_info.clone(), false);
+        room.set_room_info(room_info.clone(), RoomInfoNotableUpdateReasons::empty());
 
         // When I ask to cache an unencrypted event, and some more encrypted events
         let eventa = make_event("m.room.message", "$a");
         let eventb = make_encrypted_event("$b");
         cache_latest_events(&room, &mut room_info, &[eventa, eventb], None, None).await;
-        room.set_room_info(room_info, false);
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
 
         // The only encrypted events stored are the ones after the decrypted one
         assert_eq!(rawevs_ids(&room.latest_encrypted_events), &["$b"]);
@@ -1824,7 +1831,7 @@ mod tests {
         let room = make_room();
         let mut room_info = room.clone_info();
         cache_latest_events(&room, &mut room_info, events, None, None).await;
-        room.set_room_info(room_info, false);
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
         room.latest_event().map(|latest_event| latest_event.event().clone())
     }
 
