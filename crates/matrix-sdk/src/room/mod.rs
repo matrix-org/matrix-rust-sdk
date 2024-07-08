@@ -20,7 +20,8 @@ use matrix_sdk_base::{
     },
     instant::Instant,
     store::StateStoreExt,
-    ComposerDraft, RoomMemberships, StateChanges, StateStoreDataKey, StateStoreDataValue,
+    ComposerDraft, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges, StateStoreDataKey,
+    StateStoreDataValue,
 };
 use matrix_sdk_common::timeout::timeout;
 use mime::Mime;
@@ -495,7 +496,7 @@ impl Room {
                 changes.add_room(room_info.clone());
 
                 self.client.store().save_changes(&changes).await?;
-                self.set_room_info(room_info, false);
+                self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
 
                 Ok(())
             })

@@ -53,7 +53,7 @@ pub use matrix_sdk_crypto as crypto;
 pub use once_cell;
 pub use rooms::{
     DisplayName, Room, RoomCreateWithCreatorEventContent, RoomHero, RoomInfo,
-    RoomInfoNotableUpdate, RoomMember, RoomMemberships, RoomState,
+    RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMember, RoomMemberships, RoomState,
     RoomStateFilter,
 };
 pub use store::{

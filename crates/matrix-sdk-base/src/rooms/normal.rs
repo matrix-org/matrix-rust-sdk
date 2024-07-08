@@ -82,11 +82,27 @@ use crate::{
 pub struct RoomInfoNotableUpdate {
     /// The room which was updated.
     pub room_id: OwnedRoomId,
-    /// Whether this event should trigger the room list to update.
-    ///
-    /// If the change is minor or if another action already causes the room list
-    /// to update, this should be false to avoid duplicate updates.
-    pub trigger_room_list_update: bool,
+
+    /// The reason for this update.
+    pub reasons: RoomInfoNotableUpdateReasons,
+}
+
+bitflags! {
+    /// The reason why a [`RoomInfoNotableUpdate`] is emitted.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct RoomInfoNotableUpdateReasons: u8 {
+        /// The recency timestamp of the `Room` has changed.
+        const RECENCY_TIMESTAMP = 0b0000_0001;
+
+        /// The latest event of the `Room` has changed.
+        const LATEST_EVENT = 0b0000_0010;
+    }
+}
+
+impl Default for RoomInfoNotableUpdateReasons {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 /// The underlying room data structure collecting state for joined, left and
@@ -761,16 +777,17 @@ impl Room {
     }
 
     /// Update the summary with given RoomInfo.
-    ///
-    /// This also triggers an update for room info observers if
-    /// `trigger_room_list_update` is true.
-    pub fn set_room_info(&self, room_info: RoomInfo, trigger_room_list_update: bool) {
+    pub fn set_room_info(
+        &self,
+        room_info: RoomInfo,
+        room_info_notable_update_reasons: RoomInfoNotableUpdateReasons,
+    ) {
         self.inner.set(room_info);
 
         // Ignore error if no receiver exists.
         let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
             room_id: self.room_id.clone(),
-            trigger_room_list_update,
+            reasons: room_info_notable_update_reasons,
         });
     }
 
@@ -1594,6 +1611,7 @@ mod tests {
     #[cfg(any(feature = "experimental-sliding-sync", feature = "e2e-encryption"))]
     use crate::latest_event::LatestEvent;
     use crate::{
+        rooms::normal::RoomInfoNotableUpdateReasons,
         store::{MemoryStore, StateChanges, StateStore},
         BaseClient, DisplayName, MinimalStateEvent, OriginalMinimalStateEvent, SessionMeta,
     };
@@ -1827,7 +1845,7 @@ mod tests {
         // When the new tag is handled and applied.
         let mut changes = StateChanges::default();
         client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
-        client.apply_changes(&changes, false);
+        client.apply_changes(&changes);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -1846,7 +1864,7 @@ mod tests {
         .unwrap()
         .cast();
         client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
-        client.apply_changes(&changes, false);
+        client.apply_changes(&changes);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -1901,7 +1919,7 @@ mod tests {
         // When the new tag is handled and applied.
         let mut changes = StateChanges::default();
         client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
-        client.apply_changes(&changes, false);
+        client.apply_changes(&changes);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -1920,7 +1938,7 @@ mod tests {
         .unwrap()
         .cast();
         client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
-        client.apply_changes(&changes, false);
+        client.apply_changes(&changes);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2341,7 +2359,7 @@ mod tests {
         assert_pending!(room_info_subscriber);
 
         // Then updating the room info will store the event,
-        client.apply_changes(&changes, false);
+        client.apply_changes(&changes);
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
 
         // And wake up the subscriber.
@@ -2362,7 +2380,10 @@ mod tests {
         let event = make_latest_event("$A");
         let mut changes = StateChanges::default();
         room.on_latest_event_decrypted(event.clone(), 0, &mut changes);
-        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap(), false);
+        room.set_room_info(
+            changes.room_infos.get(room.room_id()).cloned().unwrap(),
+            RoomInfoNotableUpdateReasons::empty(),
+        );
 
         // Then is it stored
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
@@ -2384,7 +2405,10 @@ mod tests {
         let new_event_index = 1;
         let mut changes = StateChanges::default();
         room.on_latest_event_decrypted(new_event.clone(), new_event_index, &mut changes);
-        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap(), false);
+        room.set_room_info(
+            changes.room_infos.get(room.room_id()).cloned().unwrap(),
+            RoomInfoNotableUpdateReasons::empty(),
+        );
 
         // Then the encrypted events list is shortened to only newer events
         let enc_evs = room.latest_encrypted_events();
@@ -2411,7 +2435,10 @@ mod tests {
         let new_event_index = 3;
         let mut changes = StateChanges::default();
         room.on_latest_event_decrypted(new_event, new_event_index, &mut changes);
-        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap(), false);
+        room.set_room_info(
+            changes.room_infos.get(room.room_id()).cloned().unwrap(),
+            RoomInfoNotableUpdateReasons::empty(),
+        );
 
         // Then the encrypted events list ie empty
         let enc_evs = room.latest_encrypted_events();
