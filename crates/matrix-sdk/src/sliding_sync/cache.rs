@@ -8,12 +8,12 @@ use std::collections::BTreeMap;
 
 use matrix_sdk_base::{StateStore, StoreError};
 use matrix_sdk_common::timer;
-use ruma::UserId;
+use ruma::{OwnedRoomId, UserId};
 use tracing::{trace, warn};
 
 use super::{
     FrozenSlidingSync, FrozenSlidingSyncList, SlidingSync, SlidingSyncList,
-    SlidingSyncPositionMarkers,
+    SlidingSyncPositionMarkers, SlidingSyncRoom,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::sliding_sync::FrozenSlidingSyncPos;
@@ -88,7 +88,10 @@ pub(super) async fn store_sliding_sync_state(
     storage
         .set_custom_value(
             instance_storage_key.as_bytes(),
-            serde_json::to_vec(&FrozenSlidingSync::new(position))?,
+            serde_json::to_vec(&FrozenSlidingSync::new(
+                position,
+                &*sliding_sync.inner.rooms.read().await,
+            ))?,
         )
         .await?;
 
@@ -106,8 +109,6 @@ pub(super) async fn store_sliding_sync_state(
 
     // Write every `SlidingSyncList` that's configured for caching into the store.
     let frozen_lists = {
-        let rooms_lock = sliding_sync.inner.rooms.read().await;
-
         sliding_sync
             .inner
             .lists
@@ -118,7 +119,7 @@ pub(super) async fn store_sliding_sync_state(
             .map(|(list_name, list)| {
                 Ok((
                     format_storage_key_for_sliding_sync_list(storage_key, list_name),
-                    serde_json::to_vec(&FrozenSlidingSyncList::freeze(list, &rooms_lock))?,
+                    serde_json::to_vec(&FrozenSlidingSyncList::freeze(list))?,
                 ))
             })
             .collect::<Result<Vec<_>, crate::Error>>()?
@@ -163,9 +164,9 @@ pub(super) async fn restore_sliding_sync_list(
             // error, we remove the entry from the cache and keep the list in its initial
             // state.
             warn!(
-                    list_name,
-                    "failed to deserialize the list from the cache, it is obsolete; removing the cache entry!"
-                );
+                list_name,
+                "failed to deserialize the list from the cache, it is obsolete; removing the cache entry!"
+            );
             // Let's clear the list and stop here.
             invalidate_cached_list(storage, storage_key, list_name).await;
         }
@@ -186,6 +187,7 @@ pub(super) struct RestoredFields {
     pub delta_token: Option<String>,
     pub to_device_token: Option<String>,
     pub pos: Option<String>,
+    pub rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
 }
 
 /// Restore the `SlidingSync`'s state from what is stored in the storage.
@@ -221,7 +223,11 @@ pub(super) async fn restore_sliding_sync_state(
         .map(|custom_value| serde_json::from_slice::<FrozenSlidingSync>(&custom_value))
     {
         // `SlidingSync` has been found and successfully deserialized.
-        Some(Ok(FrozenSlidingSync { to_device_since, delta_token: frozen_delta_token })) => {
+        Some(Ok(FrozenSlidingSync {
+            to_device_since,
+            delta_token: frozen_delta_token,
+            rooms: frozen_rooms,
+        })) => {
             trace!("Successfully read the `SlidingSync` from the cache");
             // Only update the to-device token if we failed to read it from the crypto store
             // above.
@@ -246,6 +252,16 @@ pub(super) async fn restore_sliding_sync_state(
                     }
                 }
             }
+
+            restored_fields.rooms = frozen_rooms
+                .into_iter()
+                .map(|frozen_room| {
+                    (
+                        frozen_room.room_id.clone(),
+                        SlidingSyncRoom::from_frozen(frozen_room, client.clone()),
+                    )
+                })
+                .collect();
         }
 
         // `SlidingSync` has been found, but it wasn't possible to deserialize it. It's
@@ -281,11 +297,11 @@ mod tests {
     use matrix_sdk_test::async_test;
 
     use super::{
-        clean_storage, format_storage_key_for_sliding_sync,
+        super::FrozenSlidingSyncRoom, clean_storage, format_storage_key_for_sliding_sync,
         format_storage_key_for_sliding_sync_list, format_storage_key_prefix,
-        restore_sliding_sync_state, store_sliding_sync_state,
+        restore_sliding_sync_state, store_sliding_sync_state, SlidingSyncList,
     };
-    use crate::{test_utils::logged_in_client, Result, SlidingSyncList};
+    use crate::{test_utils::logged_in_client, Result};
 
     #[allow(clippy::await_holding_lock)]
     #[async_test]
@@ -440,6 +456,9 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_sliding_sync_high_level_cache_and_restore() -> Result<()> {
+        use imbl::Vector;
+        use ruma::owned_room_id;
+
         use crate::sliding_sync::FrozenSlidingSync;
 
         let client = logged_in_client(Some("https://foo.bar".to_owned())).await;
@@ -513,6 +532,11 @@ mod tests {
                 serde_json::to_vec(&FrozenSlidingSync {
                     to_device_since: Some(to_device_token.clone()),
                     delta_token: Some(delta_token.clone()),
+                    rooms: vec![FrozenSlidingSyncRoom {
+                        room_id: owned_room_id!("!r0:matrix.org"),
+                        prev_batch: Some("t0ken".to_owned()),
+                        timeline_queue: Vector::new(),
+                    }],
                 })?,
             )
             .await?;
@@ -521,11 +545,12 @@ mod tests {
             .await?
             .expect("must have restored fields");
 
-        // After restoring, the delta token, the to-device since token, and stream
-        // position could be read from the state store.
+        // After restoring, the delta token, the to-device since token, stream
+        // position and rooms could be read from the state store.
         assert_eq!(restored_fields.delta_token.unwrap(), delta_token);
         assert_eq!(restored_fields.to_device_token.unwrap(), to_device_token);
         assert_eq!(restored_fields.pos.unwrap(), pos);
+        assert_eq!(restored_fields.rooms.len(), 1);
 
         Ok(())
     }

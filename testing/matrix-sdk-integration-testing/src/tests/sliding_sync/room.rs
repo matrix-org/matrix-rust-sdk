@@ -34,7 +34,7 @@ use matrix_sdk::{
         space::SpaceRoomJoinRule,
         RoomId,
     },
-    Client, RoomInfo, RoomListEntry, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
+    Client, RoomInfo, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
 };
 use matrix_sdk_ui::{
     room_list_service::filters::new_filter_all, sync_service::SyncService, RoomListService,
@@ -114,19 +114,6 @@ async fn test_left_room() -> Result<()> {
     sleep(Duration::from_secs(1)).await;
     let peter_room = peter.get_room(peter_room.room_id()).unwrap();
     assert_eq!(peter_room.state(), RoomState::Left);
-
-    let list = sliding_peter
-        .on_list("all", |l| {
-            let list = l.clone();
-            async { list }
-        })
-        .await
-        .expect("must found room list");
-
-    // Even though we left the room, the server still includes the room in the list,
-    // so the SDK doesn't receive a DELETE sync op for this room entry.
-    // See also https://github.com/vector-im/element-x-ios/issues/2005.
-    assert_eq!(list.room_list::<RoomListEntry>().len(), 1);
 
     Ok(())
 }
