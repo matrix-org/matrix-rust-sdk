@@ -238,11 +238,9 @@ pub(crate) struct ClientInner {
     /// User session data.
     base_client: BaseClient,
 
-    /// The Matrix versions the server supports (well-known ones only)
-    server_versions: RwLock<Option<Box<[MatrixVersion]>>>,
-
-    /// The unstable features and their on/off state on the server
-    unstable_features: RwLock<Option<BTreeMap<String, bool>>>,
+    /// Server capabilities, either prefilled during building or fetched from
+    /// the server.
+    server_capabilities: RwLock<ClientServerCapabilities>,
 
     /// Collection of locks individual client methods might want to use, either
     /// to ensure that only a single call to a method happens at once or to
@@ -309,8 +307,7 @@ impl ClientInner {
         #[cfg(feature = "experimental-sliding-sync")] sliding_sync_proxy: Option<Url>,
         http_client: HttpClient,
         base_client: BaseClient,
-        server_versions: Option<Box<[MatrixVersion]>>,
-        unstable_features: Option<BTreeMap<String, bool>>,
+        server_capabilities: ClientServerCapabilities,
         respect_login_well_known: bool,
         event_cache: OnceCell<EventCache>,
         send_queue: Arc<SendQueueData>,
@@ -324,8 +321,7 @@ impl ClientInner {
             http_client,
             base_client,
             locks: Default::default(),
-            server_versions: RwLock::new(server_versions),
-            unstable_features: RwLock::new(unstable_features),
+            server_capabilities: RwLock::new(server_capabilities),
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
@@ -1444,7 +1440,8 @@ impl Client {
             .send(SessionChange::UnknownToken { soft_logout: *soft_logout });
     }
 
-    async fn fetch_and_cache_server_capabilities(
+    /// Fetches server capabilities from network; no caching.
+    async fn fetch_server_capabilities(
         &self,
     ) -> HttpResult<(Box<[MatrixVersion]>, BTreeMap<String, bool>)> {
         let resp = self
@@ -1466,26 +1463,11 @@ impl Client {
             versions.push(MatrixVersion::V1_0);
         }
 
-        let unstable_features = resp.unstable_features;
-
-        {
-            // Attempt to cache the result.
-            let encoded = ServerCapabilities::new(&versions, unstable_features.clone());
-            if let Err(err) = self
-                .store()
-                .set_kv_data(
-                    StateStoreDataKey::ServerCapabilities,
-                    StateStoreDataValue::ServerCapabilities(encoded),
-                )
-                .await
-            {
-                warn!("error when caching server capabilities: {err}");
-            }
-        }
-
-        Ok((versions.into(), unstable_features))
+        Ok((versions.into(), resp.unstable_features))
     }
 
+    /// Load server capabilities from storage, or fetch them from network and
+    /// cache them.
     async fn load_or_fetch_server_capabilities(
         &self,
     ) -> HttpResult<(Box<[MatrixVersion]>, BTreeMap<String, bool>)> {
@@ -1506,28 +1488,54 @@ impl Client {
             }
         }
 
-        self.fetch_and_cache_server_capabilities().await
-    }
+        let (versions, unstable_features) = self.fetch_server_capabilities().await?;
 
-    pub(crate) async fn server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
-        if let Some(server_versions) = self.inner.server_versions.read().await.as_ref() {
-            return Ok(server_versions.clone());
+        // Attempt to cache the result in storage.
+        {
+            let encoded = ServerCapabilities::new(&versions, unstable_features.clone());
+            if let Err(err) = self
+                .store()
+                .set_kv_data(
+                    StateStoreDataKey::ServerCapabilities,
+                    StateStoreDataValue::ServerCapabilities(encoded),
+                )
+                .await
+            {
+                warn!("error when caching server capabilities: {err}");
+            }
         }
 
-        let mut guard = self.inner.server_versions.write().await;
-        if let Some(server_versions) = guard.as_ref() {
-            return Ok(server_versions.clone());
+        Ok((versions, unstable_features))
+    }
+
+    async fn get_or_load_and_cache_server_capabilities<
+        T,
+        F: Fn(&ClientServerCapabilities) -> Option<T>,
+    >(
+        &self,
+        f: F,
+    ) -> HttpResult<T> {
+        let caps = &self.inner.server_capabilities;
+        if let Some(val) = f(&*caps.read().await) {
+            return Ok(val);
+        }
+
+        let mut guard = caps.write().await;
+        if let Some(val) = f(&guard) {
+            return Ok(val);
         }
 
         let (versions, unstable_features) = self.load_or_fetch_server_capabilities().await?;
 
-        *guard = Some(versions.clone());
-        drop(guard);
+        guard.server_versions = Some(versions);
+        guard.unstable_features = Some(unstable_features);
 
-        // Fill the unstable features, while we're at it.
-        *self.inner.unstable_features.write().await = Some(unstable_features);
+        // SAFETY: both fields were set above, so the function will always return some.
+        Ok(f(&guard).unwrap())
+    }
 
-        Ok(versions)
+    pub(crate) async fn server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
+        self.get_or_load_and_cache_server_capabilities(|caps| caps.server_versions.clone()).await
     }
 
     /// Get unstable features from by fetching from the server or the cache.
@@ -1545,24 +1553,7 @@ impl Client {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn unstable_features(&self) -> HttpResult<BTreeMap<String, bool>> {
-        if let Some(unstable_features) = self.inner.unstable_features.read().await.as_ref() {
-            return Ok(unstable_features.clone());
-        }
-
-        let mut guard = self.inner.unstable_features.write().await;
-        if let Some(unstable_features) = guard.as_ref() {
-            return Ok(unstable_features.clone());
-        }
-
-        let (versions, unstable_features) = self.load_or_fetch_server_capabilities().await?;
-
-        *guard = Some(unstable_features.clone());
-        drop(guard);
-
-        // Fill the versions, while we're at it.
-        *self.inner.server_versions.write().await = Some(versions);
-
-        Ok(unstable_features)
+        self.get_or_load_and_cache_server_capabilities(|caps| caps.unstable_features.clone()).await
     }
 
     /// Empty the server version and unstable features cache.
@@ -1572,8 +1563,9 @@ impl Client {
     /// functions makes it possible to force reset it.
     pub async fn reset_server_capabilities(&self) -> Result<()> {
         // Empty the in-memory caches.
-        *self.inner.server_versions.write().await = None;
-        *self.inner.unstable_features.write().await = None;
+        let mut guard = self.inner.server_capabilities.write().await;
+        guard.server_versions = None;
+        guard.unstable_features = None;
 
         // Empty the store cache.
         Ok(self.store().remove_kv_data(StateStoreDataKey::ServerCapabilities).await?)
@@ -2185,8 +2177,7 @@ impl Client {
                 sliding_sync_proxy,
                 self.inner.http_client.clone(),
                 self.inner.base_client.clone_with_in_memory_state_store(),
-                self.inner.server_versions.read().await.clone(),
-                self.inner.unstable_features.read().await.clone(),
+                self.inner.server_capabilities.read().await.clone(),
                 self.inner.respect_login_well_known,
                 self.inner.event_cache.clone(),
                 self.inner.send_queue_data.clone(),
@@ -2252,6 +2243,15 @@ impl WeakClient {
     pub fn strong_count(&self) -> usize {
         self.client.strong_count()
     }
+}
+
+#[derive(Clone)]
+struct ClientServerCapabilities {
+    /// The Matrix versions the server supports (well-known ones only).
+    server_versions: Option<Box<[MatrixVersion]>>,
+
+    /// The unstable features and their on/off state on the server.
+    unstable_features: Option<BTreeMap<String, bool>>,
 }
 
 // The http mocking library is not supported for wasm32

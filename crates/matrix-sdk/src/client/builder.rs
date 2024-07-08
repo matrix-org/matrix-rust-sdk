@@ -37,8 +37,9 @@ use crate::http_client::HttpSettings;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::OidcCtx;
 use crate::{
-    authentication::AuthCtx, config::RequestConfig, error::RumaApiError, http_client::HttpClient,
-    send_queue::SendQueueData, HttpError, IdParseError,
+    authentication::AuthCtx, client::ClientServerCapabilities, config::RequestConfig,
+    error::RumaApiError, http_client::HttpClient, send_queue::SendQueueData, HttpError,
+    IdParseError,
 };
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
@@ -477,6 +478,11 @@ impl ClientBuilder {
         // Enable the send queue by default.
         let send_queue = Arc::new(SendQueueData::new(true));
 
+        let server_capabilities = ClientServerCapabilities {
+            server_versions: self.server_versions,
+            unstable_features: None,
+        };
+
         let event_cache = OnceCell::new();
         let inner = ClientInner::new(
             auth_ctx,
@@ -485,8 +491,7 @@ impl ClientBuilder {
             sliding_sync_proxy,
             http_client,
             base_client,
-            self.server_versions,
-            None,
+            server_capabilities,
             self.respect_login_well_known,
             event_cache,
             send_queue,
