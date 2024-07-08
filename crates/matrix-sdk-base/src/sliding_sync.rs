@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
-use std::{collections::BTreeMap, ops::Not};
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
@@ -76,6 +76,8 @@ impl BaseClient {
         );
 
         let mut changes = StateChanges::default();
+        let mut room_info_notable_updates =
+            BTreeMap::<OwnedRoomId, RoomInfoNotableUpdateReasons>::new();
 
         // Process the to-device events and other related e2ee data. This returns a list
         // of all the to-device events that were passed in but encrypted ones
@@ -95,12 +97,13 @@ impl BaseClient {
                         .map(|to_device| to_device.next_batch.clone()),
                 },
                 &mut changes,
+                &mut room_info_notable_updates,
             )
             .await?;
 
         trace!("ready to submit changes to store");
         self.store.save_changes(&changes).await?;
-        self.apply_changes(&changes);
+        self.apply_changes(&changes, room_info_notable_updates);
         trace!("applied changes");
 
         Ok(to_device)
@@ -144,6 +147,8 @@ impl BaseClient {
         };
 
         let mut changes = StateChanges::default();
+        let mut room_info_notable_updates =
+            BTreeMap::<OwnedRoomId, RoomInfoNotableUpdateReasons>::new();
 
         let store = self.store.clone();
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
@@ -165,6 +170,7 @@ impl BaseClient {
                     &mut rooms_account_data,
                     &store,
                     &mut changes,
+                    &mut room_info_notable_updates,
                     &mut notifications,
                     &mut ambiguity_cache,
                 )
@@ -296,7 +302,7 @@ impl BaseClient {
 
         trace!("ready to submit changes to store");
         store.save_changes(&changes).await?;
-        self.apply_changes(&changes);
+        self.apply_changes(&changes, room_info_notable_updates);
         trace!("applied changes");
 
         // Now that all the rooms information have been saved, update the display name
@@ -324,6 +330,7 @@ impl BaseClient {
         rooms_account_data: &mut BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
         store: &Store,
         changes: &mut StateChanges,
+        room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
         ambiguity_cache: &mut AmbiguityCache,
     ) -> Result<(RoomInfo, Option<JoinedRoomUpdate>, Option<LeftRoomUpdate>, Option<InvitedRoom>)>
@@ -341,7 +348,7 @@ impl BaseClient {
         };
 
         // Find or create the room in the store
-        let is_a_new_room = store.room_exists(room_id).not();
+        let is_new_room = !store.room_exists(room_id);
 
         #[allow(unused_mut)] // Required for some feature flag combinations
         let (mut room, mut room_info, invited_room) =
@@ -376,7 +383,13 @@ impl BaseClient {
             .await?;
         }
 
-        process_room_properties(room_id, room_data, &mut room_info, is_a_new_room, changes);
+        process_room_properties(
+            room_id,
+            room_data,
+            &mut room_info,
+            is_new_room,
+            room_info_notable_updates,
+        );
 
         let timeline = self
             .handle_timeline(
@@ -695,8 +708,8 @@ fn process_room_properties(
     room_id: &RoomId,
     room_data: &v4::SlidingSyncRoom,
     room_info: &mut RoomInfo,
-    is_a_new_room: bool,
-    changes: &mut StateChanges,
+    is_new_room: bool,
+    room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
 ) {
     // Handle the room's avatar.
     //
@@ -747,9 +760,8 @@ fn process_room_properties(
         // If it's not a new room, let's emit a `RECENCY_TIMESTAMP` update.
         // For a new room, the room will appear as new, so we don't care about this
         // update.
-        if is_a_new_room.not() {
-            changes
-                .room_info_notable_updates
+        if !is_new_room {
+            room_info_notable_updates
                 .entry(room_id.to_owned())
                 .or_default()
                 .insert(RoomInfoNotableUpdateReasons::RECENCY_TIMESTAMP);

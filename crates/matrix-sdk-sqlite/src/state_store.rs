@@ -992,7 +992,6 @@ impl StateStore for SqliteStateStore {
                     state,
                     room_account_data,
                     room_infos,
-                    room_info_notable_updates: _,
                     receipts,
                     redactions,
                     stripped_state,
