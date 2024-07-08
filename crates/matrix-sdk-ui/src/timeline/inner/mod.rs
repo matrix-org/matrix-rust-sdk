@@ -782,7 +782,19 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         if let Some((idx, _)) =
             rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))
         {
-            state.items.remove(idx);
+            let mut txn = state.transaction();
+
+            txn.items.remove(idx);
+
+            // A read marker or a day divider may have been inserted before the local echo.
+            // Ensure both are up to date.
+            let mut adjuster = DayDividerAdjuster::default();
+            adjuster.run(&mut txn.items, &mut txn.meta);
+
+            txn.meta.update_read_marker(&mut txn.items);
+
+            txn.commit();
+
             debug!("Discarded local echo");
             true
         } else {
@@ -806,9 +818,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         };
 
         let mut state = self.state.write().await;
+        let mut txn = state.transaction();
 
         let Some((idx, prev_item)) =
-            rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))
+            rfind_event_item(&txn.items, |it| it.transaction_id() == Some(txn_id))
         else {
             debug!("Can't find local echo to replace");
             return false;
@@ -827,13 +840,20 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         // Replace the local-related state (kind) and the content state.
         let new_item = TimelineItem::new(
             prev_item.with_kind(ti_kind).with_content(
-                TimelineItemContent::message(content, Default::default(), &state.items),
+                TimelineItemContent::message(content, Default::default(), &txn.items),
                 None,
             ),
             prev_item.internal_id.to_owned(),
         );
 
-        state.items.set(idx, new_item);
+        txn.items.set(idx, new_item);
+
+        // If the edit happened after a day boundary, we might need a day divider.
+        let mut adjuster = DayDividerAdjuster::default();
+        adjuster.run(&mut txn.items, &mut txn.meta);
+
+        txn.commit();
+
         debug!("Replaced local echo");
         true
     }
