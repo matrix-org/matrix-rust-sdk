@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Debug,
     mem::ManuallyDrop,
     path::Path,
     sync::{Arc, RwLock},
@@ -60,7 +61,7 @@ use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
-    authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError},
+    authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError, SsoHandler},
     client,
     encryption::Encryption,
     notification::NotificationClient,
@@ -285,6 +286,20 @@ impl Client {
         }
         builder.send().await?;
         Ok(())
+    }
+
+    /// Returns a handler to start the SSO login process.
+    pub(crate) async fn start_sso_login(
+        self: &Arc<Self>,
+        redirect_url: String,
+        idp_id: Option<String>,
+    ) -> Result<Arc<SsoHandler>, SsoError> {
+        let auth = self.inner.matrix_auth();
+        let url = auth
+            .get_sso_login_url(redirect_url.as_str(), idp_id.as_deref())
+            .await
+            .map_err(|e| SsoError::Generic { message: e.to_string() })?;
+        Ok(Arc::new(SsoHandler { client: Arc::clone(self), url }))
     }
 
     /// Requests the URL needed for login in a web view using OIDC. Once the web
