@@ -24,8 +24,10 @@ use tracing::{debug, instrument, trace};
 
 use super::OutboundGroupSession;
 use crate::{
-    error::OlmResult, store::Store, types::events::room_key_withheld::WithheldCode, DeviceData,
-    EncryptionSettings, OwnUserIdentityData, UserIdentityData,
+    error::{OlmResult, RoomKeyDistributionError},
+    store::Store,
+    types::events::room_key_withheld::WithheldCode,
+    DeviceData, EncryptionSettings, OlmError, OwnUserIdentityData, UserIdentityData,
 };
 
 /// Strategy to collect the devices that should receive room keys for the
@@ -123,15 +125,15 @@ pub(crate) async fn collect_session_recipients(
     // This is calculated in the following code and stored in this variable.
     let mut should_rotate = user_left || visibility_changed || algorithm_changed;
 
-    let mut devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>> = Default::default();
-    let mut withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)> = Default::default();
+    let mut devices: BTreeMap<OwnedUserId, Vec<DeviceData>> = Default::default();
+    let mut withheld_devices: Vec<(DeviceData, WithheldCode)> = Default::default();
 
     match settings.sharing_strategy {
         CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices } => {
             let own_identity =
                 store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
             for user_id in users {
-                let user_devices = store.get_readonly_devices_filtered(user_id).await?;
+                let user_devices = store.get_device_data_for_user(user_id).await?;
 
                 // We only need the user identity if only_allow_trusted_devices is set.
                 let device_owner_identity = if only_allow_trusted_devices {
@@ -166,12 +168,42 @@ pub(crate) async fn collect_session_recipients(
             }
         }
         CollectStrategy::IdentityBasedStrategy => {
-            let _maybe_own_identity =
+            let maybe_own_identity =
                 store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
 
+            let own_verified_identity = match maybe_own_identity {
+                None => {
+                    return Err(OlmError::KeyDistributionError(
+                        RoomKeyDistributionError::CrossSigningNotSetup,
+                    ))
+                }
+                Some(identity) if !identity.is_verified() => {
+                    return Err(OlmError::KeyDistributionError(
+                        RoomKeyDistributionError::SendingFromUnverifiedDevice,
+                    ))
+                }
+                Some(identity) => identity,
+            };
+
+            // Collect all potential identity mismatch and report at the end if any.
+            let mut users_with_identity_mismatch: Vec<OwnedUserId> = Vec::default();
             for user_id in users {
-                let user_devices = store.get_readonly_devices_filtered(user_id).await?;
                 let device_owner_identity = store.get_user_identity(user_id).await?;
+                // debug!(?device_owner_identity, "Other Checking identity");
+
+                if let Some(other_identity) = device_owner_identity.as_ref().and_then(|i| i.other())
+                {
+                    if other_identity.has_pin_violation()
+                        && own_verified_identity.is_identity_signed(other_identity).is_err()
+                    {
+                        debug!(?other_identity, "Identity Mismatch detected");
+                        // Identity mismatch
+                        users_with_identity_mismatch.push(other_identity.user_id().to_owned());
+                        continue;
+                    }
+                }
+                let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
+
                 let recipient_devices = split_recipients_withhelds_for_user_based_on_identity(
                     user_devices,
                     &device_owner_identity,
@@ -195,6 +227,13 @@ pub(crate) async fn collect_session_recipients(
                     .extend(recipient_devices.allowed_devices);
                 withheld_devices.extend(recipient_devices.denied_devices_with_code);
             }
+
+            // Abort sharing and fail when there are identities mismatch.
+            if !users_with_identity_mismatch.is_empty() {
+                return Err(OlmError::KeyDistributionError(
+                    RoomKeyDistributionError::KeyPinningViolation(users_with_identity_mismatch),
+                ));
+            }
         }
     };
 
@@ -217,7 +256,7 @@ pub(crate) async fn collect_session_recipients(
 // blacklisted in the meantime. If it's the case the session should be rotated.
 fn should_rotate_due_to_left_device(
     user_id: &UserId,
-    future_recipients: &Vec<ReadOnlyDevice>,
+    future_recipients: &[DeviceData],
     outbound: &OutboundGroupSession,
 ) -> bool {
     // Device IDs that should receive this session
@@ -323,7 +362,12 @@ mod tests {
 
     use std::sync::Arc;
 
-    use matrix_sdk_test::{async_test, test_json::keys_query_sets::KeyDistributionTestData};
+    use matrix_sdk_test::{
+        async_test,
+        test_json::keys_query_sets::{
+            IdentityChangeDataSet, KeyDistributionTestData, MaloIdentityChangeDataSet,
+        },
+    };
     use ruma::{events::room::history_visibility::HistoryVisibility, room_id, TransactionId};
 
     use crate::{
@@ -332,7 +376,7 @@ mod tests {
             group_sessions::share_strategy::collect_session_recipients, CollectStrategy,
         },
         types::events::room_key_withheld::WithheldCode,
-        CrossSigningKeyExport, EncryptionSettings, OlmMachine,
+        CrossSigningKeyExport, EncryptionSettings, OlmError, OlmMachine,
     };
 
     async fn set_up_test_machine() -> OlmMachine {
@@ -568,6 +612,172 @@ mod tests {
             .expect("This dave device should receive a withheld code");
 
         assert_eq!(code, &WithheldCode::Unauthorised);
+    }
+
+    #[async_test]
+    async fn test_share_identity_strategy_no_cross_signing() {
+        let machine: OlmMachine = OlmMachine::new(
+            KeyDistributionTestData::me_id(),
+            KeyDistributionTestData::me_device_id(),
+        )
+        .await;
+
+        let keys_query = KeyDistributionTestData::dan_keys_query_response();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_identity_based();
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let request_result = machine
+            .share_room_key(
+                fake_room_id,
+                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                encryption_settings.clone(),
+            )
+            .await;
+
+        assert!(request_result.is_err());
+        let err = request_result.unwrap_err();
+        match err {
+            OlmError::KeyDistributionError(
+                crate::error::RoomKeyDistributionError::CrossSigningNotSetup,
+            ) => {
+                // ok
+            }
+            _ => panic!("Unexpected share error"),
+        }
+
+        // Let's now have cross-signing, but the identity is not trusted
+        let keys_query = KeyDistributionTestData::me_keys_query_response();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let request_result = machine
+            .share_room_key(
+                fake_room_id,
+                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                encryption_settings.clone(),
+            )
+            .await;
+
+        assert!(request_result.is_err());
+        let err = request_result.unwrap_err();
+        match err {
+            OlmError::KeyDistributionError(
+                crate::error::RoomKeyDistributionError::SendingFromUnverifiedDevice,
+            ) => {
+                // ok
+            }
+            _ => panic!("Unexpected share error"),
+        }
+
+        // If we are verified it should then work
+        machine
+            .import_cross_signing_keys(CrossSigningKeyExport {
+                master_key: KeyDistributionTestData::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+                self_signing_key: KeyDistributionTestData::SELF_SIGNING_KEY_PRIVATE_EXPORT
+                    .to_owned()
+                    .into(),
+                user_signing_key: KeyDistributionTestData::USER_SIGNING_KEY_PRIVATE_EXPORT
+                    .to_owned()
+                    .into(),
+            })
+            .await
+            .unwrap();
+
+        let request_result = machine
+            .share_room_key(
+                fake_room_id,
+                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                encryption_settings.clone(),
+            )
+            .await;
+
+        assert!(request_result.is_ok());
+    }
+
+    #[async_test]
+    async fn test_share_identity_strategy_report_pinning_violation() {
+        let machine: OlmMachine = OlmMachine::new(
+            KeyDistributionTestData::me_id(),
+            KeyDistributionTestData::me_device_id(),
+        )
+        .await;
+
+        machine.bootstrap_cross_signing(false).await.unwrap();
+
+        let keys_query = IdentityChangeDataSet::key_query_with_identity_a();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let keys_query = MaloIdentityChangeDataSet::initial_key_query();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        // Simulate pinning violation
+        let keys_query = IdentityChangeDataSet::key_query_with_identity_b();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let keys_query = MaloIdentityChangeDataSet::updated_key_query();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let fake_room_id = room_id!("!roomid:localhost");
+        let strategy = CollectStrategy::new_identity_based();
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let request_result = machine
+            .share_room_key(
+                fake_room_id,
+                vec![IdentityChangeDataSet::user_id(), MaloIdentityChangeDataSet::user_id()]
+                    .into_iter(),
+                encryption_settings.clone(),
+            )
+            .await;
+
+        assert!(request_result.is_err());
+        let err = request_result.unwrap_err();
+        match err {
+            OlmError::KeyDistributionError(
+                crate::error::RoomKeyDistributionError::KeyPinningViolation(affected_users),
+            ) => {
+                assert_eq!(2, affected_users.len());
+
+                // resolve by pinning the new identity
+                for user_id in affected_users {
+                    machine
+                        .get_identity(&user_id, None)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .other()
+                        .unwrap()
+                        .pin_current_master_key()
+                        .await
+                        .unwrap()
+                }
+
+                let request_result = machine
+                    .share_room_key(
+                        fake_room_id,
+                        // vec![KeyDistributionTestData::dan_id()].into_iter(),
+                        vec![IdentityChangeDataSet::user_id()].into_iter(),
+                        encryption_settings.clone(),
+                    )
+                    .await;
+
+                assert!(request_result.is_ok());
+            }
+            _ => panic!("Unexpected share error"),
+        }
     }
 
     #[async_test]
