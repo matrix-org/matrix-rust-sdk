@@ -490,6 +490,7 @@ name = "benchmarks"
 version = "1.0.0"
 dependencies = [
  "criterion",
+ "futures-util",
  "matrix-sdk",
  "matrix-sdk-base",
  "matrix-sdk-crypto",
