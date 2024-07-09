@@ -47,7 +47,7 @@ use ruma::{
     room_id,
     serde::Raw,
     server_name, uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId,
-    OwnedUserId, RoomId, RoomVersionId, TransactionId, UInt, UserId,
+    OwnedUserId, RoomVersionId, TransactionId, UInt, UserId,
 };
 
 use super::{
@@ -251,19 +251,6 @@ impl TestTimeline {
             )
             .await;
         txn_id
-    }
-
-    async fn handle_back_paginated_message_event_with_id<C>(
-        &self,
-        sender: &UserId,
-        room_id: &RoomId,
-        event_id: &EventId,
-        content: C,
-    ) where
-        C: MessageLikeEventContent,
-    {
-        let ev = self.event_builder.make_message_event_with_id(sender, room_id, event_id, content);
-        self.handle_back_paginated_custom_event(ev).await;
     }
 
     async fn handle_back_paginated_custom_event(&self, event: Raw<AnyTimelineEvent>) {

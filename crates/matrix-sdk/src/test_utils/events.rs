@@ -155,8 +155,14 @@ impl EventFactory {
         }
     }
 
+    /// Create a new plain text `m.room.message`.
     pub fn text_msg(&self, content: impl Into<String>) -> EventBuilder<RoomMessageEventContent> {
         self.event(RoomMessageEventContent::text_plain(content.into()))
+    }
+
+    /// Create a new plain notice `m.room.message`.
+    pub fn notice(&self, content: impl Into<String>) -> EventBuilder<RoomMessageEventContent> {
+        self.event(RoomMessageEventContent::notice_plain(content))
     }
 
     /// Set the next server timestamp.
