@@ -384,13 +384,13 @@ impl Oidc {
     /// let qr_code_data = QrCodeData::from_bytes(bytes)?;
     ///
     /// // Fetch the homeserver out of the parsed QR code data.
-    /// let QrCodeModeData::Reciprocate{ homeserver_url } = qr_code_data.mode_data else {
+    /// let QrCodeModeData::Reciprocate{ server_name } = qr_code_data.mode_data else {
     ///     bail!("The QR code is invalid, we did not receive a homeserver in the QR code.");
     /// };
     ///
     /// // Build the client as usual.
     /// let client = Client::builder()
-    ///     .homeserver_url(homeserver_url)
+    ///     .server_name_or_homeserver_url(server_name)
     ///     .handle_refresh_tokens()
     ///     .build()
     ///     .await?;
