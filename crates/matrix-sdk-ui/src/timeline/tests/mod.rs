@@ -45,8 +45,8 @@ use ruma::{
     push::{PushConditionPowerLevelsCtx, PushConditionRoomCtx, Ruleset},
     room_id,
     serde::Raw,
-    server_name, uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId,
-    OwnedUserId, RoomVersionId, TransactionId, UInt, UserId,
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    RoomVersionId, TransactionId, UInt, UserId,
 };
 
 use super::{
@@ -197,13 +197,6 @@ impl TestTimeline {
         let ev =
             self.event_builder.make_sync_redacted_state_event(sender, state_key.as_ref(), content);
         self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
-    }
-
-    async fn handle_live_reaction(&self, sender: &UserId, annotation: &Annotation) -> OwnedEventId {
-        let event_id = EventId::new(server_name!("dummy.server"));
-        let ev = self.event_builder.make_reaction_event(sender, &event_id, annotation);
-        self.handle_live_event(ev).await;
-        event_id
     }
 
     async fn handle_live_event(&self, event: impl Into<SyncTimelineEvent>) {

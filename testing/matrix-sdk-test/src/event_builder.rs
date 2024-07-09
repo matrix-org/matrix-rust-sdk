@@ -235,27 +235,6 @@ impl EventBuilder {
         ev_content
     }
 
-    pub fn make_reaction_event(
-        &self,
-        sender: &UserId,
-        event_id: &EventId,
-        annotation: &Annotation,
-    ) -> Raw<AnySyncTimelineEvent> {
-        sync_timeline_event!({
-            "type": "m.reaction",
-            "content": {
-                "m.relates_to": {
-                    "rel_type": "m.annotation",
-                    "event_id": annotation.event_id,
-                    "key": annotation.key,
-                },
-            },
-            "event_id": event_id,
-            "sender": sender,
-            "origin_server_ts": self.next_server_ts(),
-        })
-    }
-
     fn make_redacted_unsigned(&self, sender: &UserId) -> JsonValue {
         json!({
             "redacted_because": {

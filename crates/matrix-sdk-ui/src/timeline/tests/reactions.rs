@@ -18,9 +18,11 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
+use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
+    event_id,
     events::{relation::Annotation, room::message::RoomMessageEventContent},
     server_name, uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId,
 };
@@ -41,8 +43,8 @@ async fn test_add_reaction_failed() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
-    let reaction = create_reaction(&msg_id);
 
+    let reaction = create_reaction(&msg_id);
     let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
     assert_let!(ReactionAction::SendRemote(txn_id) = action);
     assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, None, Some(&txn_id)).await;
@@ -94,13 +96,20 @@ async fn test_add_reaction_success() {
 
 #[async_test]
 async fn test_redact_reaction_success() {
+    let f = EventFactory::new();
+
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
     let reaction = create_reaction(&msg_id);
 
-    let event_id = timeline.handle_live_reaction(&ALICE, &reaction).await;
-    assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(&event_id), None).await;
+    let event_id = event_id!("$1");
+    timeline
+        .handle_live_event(
+            f.reaction(&msg_id, REACTION_KEY.to_owned()).sender(&ALICE).event_id(event_id),
+        )
+        .await;
+    assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(event_id), None).await;
 
     let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
     assert_matches!(action, ReactionAction::RedactRemote(_));
@@ -119,11 +128,18 @@ async fn test_redact_reaction_failure() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
+
+    let f = EventFactory::new();
+
+    let event_id = event_id!("$1");
+    timeline
+        .handle_live_event(
+            f.reaction(&msg_id, REACTION_KEY.to_owned()).sender(&ALICE).event_id(event_id),
+        )
+        .await;
+    assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(event_id), None).await;
+
     let reaction = create_reaction(&msg_id);
-
-    let event_id = timeline.handle_live_reaction(&ALICE, &reaction).await;
-    assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(&event_id), None).await;
-
     let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
     assert_matches!(action, ReactionAction::RedactRemote(_));
     assert_reactions_are_removed(&mut stream, &msg_id, msg_pos).await;
@@ -131,11 +147,11 @@ async fn test_redact_reaction_failure() {
     timeline
         .handle_reaction_response(
             &reaction,
-            &ReactionToggleResult::RedactFailure { event_id: event_id.clone() },
+            &ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() },
         )
         .await
         .unwrap_err();
-    assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(&event_id), None).await;
+    assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(event_id), None).await;
 
     assert_no_more_updates(&mut stream).await;
 }
