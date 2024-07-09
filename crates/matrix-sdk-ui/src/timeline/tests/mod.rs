@@ -226,7 +226,7 @@ impl TestTimeline {
 
     async fn handle_live_event(&self, event: Raw<AnySyncTimelineEvent>) {
         let event = SyncTimelineEvent::new(event);
-        self.inner.handle_live_event(event).await
+        self.inner.add_events_at(vec![event], TimelineEnd::Back, RemoteEventOrigin::Sync).await;
     }
 
     async fn handle_local_event(&self, content: AnyMessageLikeEventContent) -> OwnedTransactionId {

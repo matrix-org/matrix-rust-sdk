@@ -626,20 +626,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         state.handle_ephemeral_events(events, &self.room_data_provider).await;
     }
 
-    #[cfg(test)]
-    pub(super) async fn handle_live_event(&self, event: SyncTimelineEvent) {
-        let mut state = self.state.write().await;
-        state
-            .add_remote_events_at(
-                vec![event],
-                TimelineEnd::Back,
-                RemoteEventOrigin::Sync,
-                &self.room_data_provider,
-                &self.settings,
-            )
-            .await;
-    }
-
     /// Creates the local echo for an event we're sending.
     #[instrument(skip_all)]
     pub(super) async fn handle_local_event(
