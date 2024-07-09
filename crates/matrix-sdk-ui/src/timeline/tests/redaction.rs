@@ -218,7 +218,7 @@ async fn test_receive_unredacted() {
 
     // send new events with the same event ID as the previous ones
     timeline
-        .handle_live_custom_event(sync_timeline_event!({
+        .handle_live_event(sync_timeline_event!({
             "content": {
                 "body": "unredacted #1",
                 "msgtype": "m.text",
@@ -230,7 +230,7 @@ async fn test_receive_unredacted() {
         }))
         .await;
     timeline
-        .handle_live_custom_event(sync_timeline_event!({
+        .handle_live_event(sync_timeline_event!({
             "content": {
                 "body": "unredacted #2",
                 "msgtype": "m.text",

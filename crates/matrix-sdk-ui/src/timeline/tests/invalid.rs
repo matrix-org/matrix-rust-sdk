@@ -63,7 +63,7 @@ async fn invalid_event_content() {
     // m.room.message events must have a msgtype and body in content, so this
     // event with an empty content object should fail to deserialize.
     timeline
-        .handle_live_custom_event(sync_timeline_event!({
+        .handle_live_event(sync_timeline_event!({
             "content": {},
             "event_id": "$eeG0HA0FAZ37wP8kXlNkxx3I",
             "origin_server_ts": 10,
@@ -82,7 +82,7 @@ async fn invalid_event_content() {
     // Similar to above, the m.room.member state event must also not have an
     // empty content object.
     timeline
-        .handle_live_custom_event(sync_timeline_event!({
+        .handle_live_event(sync_timeline_event!({
             "content": {},
             "event_id": "$d5G0HA0FAZ37wP8kXlNkxx3I",
             "origin_server_ts": 2179,
@@ -110,7 +110,7 @@ async fn invalid_event() {
     // This event is missing the sender field which the homeserver must add to
     // all timeline events. Because the event is malformed, it will be ignored.
     timeline
-        .handle_live_custom_event(sync_timeline_event!({
+        .handle_live_event(sync_timeline_event!({
             "content": {
                 "body": "hello world",
                 "msgtype": "m.text"
