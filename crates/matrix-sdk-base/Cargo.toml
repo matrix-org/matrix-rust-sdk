@@ -22,7 +22,10 @@ js = ["matrix-sdk-common/js", "matrix-sdk-crypto?/js", "ruma/js", "matrix-sdk-st
 qrcode = ["matrix-sdk-crypto?/qrcode"]
 automatic-room-key-forwarding = ["matrix-sdk-crypto?/automatic-room-key-forwarding"]
 message-ids = ["matrix-sdk-crypto?/message-ids"]
-experimental-sliding-sync = ["ruma/unstable-msc3575"]
+experimental-sliding-sync = [
+    "ruma/unstable-msc3575",
+    "ruma/unstable-simplified-msc3575",
+]
 uniffi = ["dep:uniffi", "matrix-sdk-crypto?/uniffi"]
 
 # helpers for testing features build upon this
