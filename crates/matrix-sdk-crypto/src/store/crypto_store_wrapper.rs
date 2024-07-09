@@ -12,8 +12,7 @@ use super::{DeviceChanges, IdentityChanges, LockableCryptoStore};
 use crate::{
     olm::InboundGroupSession,
     store,
-    store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo},
-    types::events::room_key_withheld::RoomKeyWithheldEvent,
+    store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
     GossippedSecret, ReadOnlyOwnUserIdentity,
 };
 
@@ -32,7 +31,7 @@ pub(crate) struct CryptoStoreWrapper {
 
     /// The sender side of a broadcast stream that is notified whenever we
     /// receive an `m.room_key.withheld` message.
-    room_keys_withheld_received_sender: broadcast::Sender<Vec<RoomKeyWithheldEvent>>,
+    room_keys_withheld_received_sender: broadcast::Sender<Vec<RoomKeyWithheldInfo>>,
 
     /// The sender side of a broadcast channel which sends out secrets we
     /// received as a `m.secret.send` event.
@@ -77,8 +76,14 @@ impl CryptoStoreWrapper {
 
         let withheld_session_updates: Vec<_> = changes
             .withheld_session_info
-            .values()
-            .flat_map(|session_map| session_map.values().cloned())
+            .iter()
+            .flat_map(|(room_id, session_map)| {
+                session_map.iter().map(|(session_id, withheld_event)| RoomKeyWithheldInfo {
+                    room_id: room_id.to_owned(),
+                    session_id: session_id.to_owned(),
+                    withheld_event: withheld_event.clone(),
+                })
+            })
             .collect();
 
         let secrets = changes.secrets.to_owned();
@@ -161,7 +166,7 @@ impl CryptoStoreWrapper {
     /// logged and items will be dropped.
     pub fn room_keys_withheld_received_stream(
         &self,
-    ) -> impl Stream<Item = Vec<RoomKeyWithheldEvent>> {
+    ) -> impl Stream<Item = Vec<RoomKeyWithheldInfo>> {
         let stream = BroadcastStream::new(self.room_keys_withheld_received_sender.subscribe());
         Self::filter_errors_out_of_stream(stream, "room_keys_withheld_received_stream")
     }

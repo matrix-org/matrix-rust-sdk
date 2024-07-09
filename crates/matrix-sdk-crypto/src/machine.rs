@@ -3292,8 +3292,10 @@ pub(crate) mod tests {
             .flatten()
             .expect("We should have received a notification of room key being withheld");
         assert_eq!(withheld_received.len(), 1);
+
+        assert_eq!(&withheld_received[0].room_id, room_id);
         assert_matches!(
-            &withheld_received[0].content,
+            &withheld_received[0].withheld_event.content,
             RoomKeyWithheldContent::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::Unverified(
                 unverified_withheld_content
             ))
