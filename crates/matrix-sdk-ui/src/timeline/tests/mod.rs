@@ -253,7 +253,7 @@ impl TestTimeline {
         txn_id
     }
 
-    async fn handle_back_paginated_custom_event(&self, event: Raw<AnyTimelineEvent>) {
+    async fn handle_back_paginated_event(&self, event: Raw<AnyTimelineEvent>) {
         let timeline_event = TimelineEvent::new(event.cast());
         self.inner
             .add_events_at(vec![timeline_event], TimelineEnd::Front, RemoteEventOrigin::Pagination)
