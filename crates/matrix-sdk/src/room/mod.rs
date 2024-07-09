@@ -1229,6 +1229,14 @@ impl Room {
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request, None).await?;
 
+        // Force room members reload to prevent UTDs that could happen when a message is
+        // sent assuming the just invited user is still not invited (/sync
+        // didn't catch up on time). Ideally we'd just request the single
+        // member or only invited ones, but there's no current way to do it.
+        if let Some(room) = self.client.get_room(self.room_id()) {
+            room.request_members().await?;
+        }
+
         Ok(())
     }
 
@@ -1242,6 +1250,14 @@ impl Room {
         let recipient = InvitationRecipient::ThirdPartyId(invite_id);
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request, None).await?;
+
+        // Force room members reload to prevent UTDs that could happen when a message is
+        // sent assuming the just invited user is still not invited (/sync
+        // didn't catch up on time). Ideally we'd just request the single
+        // member or only invited ones, but there's no current way to do it.
+        if let Some(room) = self.client.get_room(self.room_id()) {
+            room.request_members().await?;
+        }
 
         Ok(())
     }
