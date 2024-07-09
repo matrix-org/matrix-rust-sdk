@@ -212,10 +212,6 @@ impl TestTimeline {
         self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
-    async fn handle_live_custom_event(&self, event: Raw<AnySyncTimelineEvent>) {
-        self.handle_live_event(event).await;
-    }
-
     async fn handle_live_redaction(&self, sender: &UserId, redacts: &EventId) {
         let ev = self.event_builder.make_redaction_event(sender, redacts);
         self.handle_live_event(ev).await;
