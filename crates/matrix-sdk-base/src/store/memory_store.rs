@@ -579,21 +579,18 @@ impl StateStore for MemoryStore {
             Some(state_events.values().cloned().map(to_enum).collect())
         }
 
-        Ok(get_events(
-            &self.stripped_room_state.read().unwrap(),
-            room_id,
-            &event_type,
-            RawAnySyncOrStrippedState::Stripped,
-        )
-        .or_else(|| {
-            get_events(
-                &self.room_state.read().unwrap(),
-                room_id,
-                &event_type,
-                RawAnySyncOrStrippedState::Sync,
-            )
-        })
-        .unwrap_or_default())
+        let state_map = self.stripped_room_state.read().unwrap();
+        Ok(get_events(&state_map, room_id, &event_type, RawAnySyncOrStrippedState::Stripped)
+            .or_else(|| {
+                drop(state_map); // release the lock on stripped_room_state
+                get_events(
+                    &self.room_state.read().unwrap(),
+                    room_id,
+                    &event_type,
+                    RawAnySyncOrStrippedState::Sync,
+                )
+            })
+            .unwrap_or_default())
     }
 
     async fn get_state_events_for_keys(
@@ -702,12 +699,12 @@ impl StateStore for MemoryStore {
                 })
                 .unwrap_or_default()
         }
-        trace!("getting stripped_members lock");
-        let v = get_user_ids_inner(&self.stripped_members.read().unwrap(), room_id, memberships);
+        let state_map = self.stripped_members.read().unwrap();
+        let v = get_user_ids_inner(&state_map, room_id, memberships);
         if !v.is_empty() {
             return Ok(v);
         }
-        trace!("getting members lock");
+        drop(state_map); // release the stripped_members lock
         Ok(get_user_ids_inner(&self.members.read().unwrap(), room_id, memberships))
     }
 
