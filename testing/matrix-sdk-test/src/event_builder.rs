@@ -57,23 +57,6 @@ impl EventBuilder {
         self.next_ts.store(value, SeqCst);
     }
 
-    pub fn make_message_event_with_id<C: MessageLikeEventContent>(
-        &self,
-        sender: &UserId,
-        room_id: &RoomId,
-        event_id: &EventId,
-        content: C,
-    ) -> Raw<AnyTimelineEvent> {
-        timeline_event!({
-            "type": content.event_type(),
-            "content": content,
-            "event_id": event_id,
-            "sender": sender,
-            "room_id": room_id,
-            "origin_server_ts": self.next_server_ts(),
-        })
-    }
-
     pub fn make_state_event<C: StateEventContent>(
         &self,
         sender: &UserId,
