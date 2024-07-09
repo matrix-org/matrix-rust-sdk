@@ -296,7 +296,7 @@ async fn test_dedup_pagination() {
     // back-paginated events, as they are missing `room_id`. However, the
     // timeline doesn't care about that `room_id` and casts back to
     // `Raw<AnySyncTimelineEvent>` before attempting to deserialize.
-    timeline.handle_back_paginated_custom_event(event.cast()).await;
+    timeline.handle_back_paginated_event(event.cast()).await;
 
     let timeline_items = timeline.inner.items().await;
     assert_eq!(timeline_items.len(), 2);

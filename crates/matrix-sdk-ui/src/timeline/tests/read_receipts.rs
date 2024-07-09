@@ -109,12 +109,12 @@ async fn test_read_receipts_updates_on_back_paginated_events() {
     let f = EventFactory::new().room(room_id);
 
     timeline
-        .handle_back_paginated_custom_event(
+        .handle_back_paginated_event(
             f.text_msg("A").sender(*BOB).event_id(event_id!("$event_a")).into_raw_timeline(),
         )
         .await;
     timeline
-        .handle_back_paginated_custom_event(
+        .handle_back_paginated_event(
             f.text_msg("B")
                 .sender(*CAROL)
                 .event_id(event_id!("$event_with_bob_receipt"))
@@ -289,12 +289,12 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
     let f = EventFactory::new().room(room_id);
 
     timeline
-        .handle_back_paginated_custom_event(
+        .handle_back_paginated_event(
             f.text_msg("A").sender(*ALICE).event_id(event_id!("$event_a")).into_raw_timeline(),
         )
         .await;
     timeline
-        .handle_back_paginated_custom_event(
+        .handle_back_paginated_event(
             f.notice("B")
                 .sender(*CAROL)
                 .event_id(event_id!("$event_with_bob_receipt"))
@@ -312,7 +312,7 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
 
     // Add non-filtered event to show read receipts.
     timeline
-        .handle_back_paginated_custom_event(
+        .handle_back_paginated_event(
             f.text_msg("C").sender(*CAROL).event_id(event_id!("$event_c")).into_raw_timeline(),
         )
         .await;
@@ -606,7 +606,7 @@ async fn test_clear_read_receipts() {
 
     // Old message via back-pagination.
     timeline
-        .handle_back_paginated_custom_event(
+        .handle_back_paginated_event(
             f.event(event_a_content)
                 .sender(*BOB)
                 .room(room_id)
