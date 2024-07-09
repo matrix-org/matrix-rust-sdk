@@ -1229,13 +1229,10 @@ impl Room {
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request, None).await?;
 
-        // Force room members reload to prevent UTDs that could happen when a message is
-        // sent assuming the just invited user is still not invited (/sync
-        // didn't catch up on time). Ideally we'd just request the single
-        // member or only invited ones, but there's no current way to do it.
-        if let Some(room) = self.client.get_room(self.room_id()) {
-            room.request_members().await?;
-        }
+        // Force a future room members reload before sending any event to prevent UTDs
+        // that can happen when some event is sent after a room member has been invited
+        // but before the /sync request could fetch the membership change event.
+        self.mark_members_missing();
 
         Ok(())
     }
@@ -1251,13 +1248,10 @@ impl Room {
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request, None).await?;
 
-        // Force room members reload to prevent UTDs that could happen when a message is
-        // sent assuming the just invited user is still not invited (/sync
-        // didn't catch up on time). Ideally we'd just request the single
-        // member or only invited ones, but there's no current way to do it.
-        if let Some(room) = self.client.get_room(self.room_id()) {
-            room.request_members().await?;
-        }
+        // Force a future room members reload before sending any event to prevent UTDs
+        // that can happen when some event is sent after a room member has been invited
+        // but before the /sync request could fetch the membership change event.
+        self.mark_members_missing();
 
         Ok(())
     }
