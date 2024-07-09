@@ -9,15 +9,9 @@ use matrix_sdk::{
     test_utils::{assert_event_matches_msg, events::EventFactory, logged_in_client_with_server},
 };
 use matrix_sdk_test::{
-    async_test, EventBuilder, GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder,
+    async_test, GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder,
 };
-use ruma::{
-    event_id,
-    events::{room::message::RoomMessageEventContent, AnyTimelineEvent},
-    room_id,
-    serde::Raw,
-    user_id,
-};
+use ruma::{event_id, events::AnyTimelineEvent, room_id, serde::Raw, user_id};
 use serde_json::json;
 use tokio::{spawn, time::timeout};
 use wiremock::{
@@ -265,12 +259,12 @@ macro_rules! non_sync_events {
             @_ $builder,
             [ $( $( $rest )* )? ]
             [ $( $accumulator )*
-              $builder.make_message_event_with_id(
-                user_id!("@a:b.c"),
-                $room_id,
-                event_id!($event_id),
-                RoomMessageEventContent::text_plain($msg)
-              ),
+              $builder
+                .text_msg($msg)
+                .sender(user_id!("@a:b.c"))
+                .room($room_id)
+                .event_id(event_id!($event_id))
+                .into_raw_timeline(),
             ]
         )
     };
@@ -321,7 +315,7 @@ async fn test_backpaginate_once() {
     // token,
     let room_id = room_id!("!omelette:fromage.fr");
 
-    let event_builder = EventBuilder::new();
+    let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();
 
     {
@@ -329,10 +323,7 @@ async fn test_backpaginate_once() {
             JoinedRoomBuilder::new(room_id)
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
-                .add_timeline_event(event_builder.make_sync_message_event(
-                    user_id!("@a:b.c"),
-                    RoomMessageEventContent::text_plain("heyo"),
-                ))
+                .add_timeline_event(f.text_msg("heyo").sender(user_id!("@a:b.c")))
                 .set_timeline_prev_batch("prev_batch".to_owned()),
         );
         let response_body = sync_builder.build_json_sync_response();
@@ -363,7 +354,7 @@ async fn test_backpaginate_once() {
             &server,
             "prev_batch",
             None,
-            non_sync_events!(event_builder, [ (room_id, "$2": "world"), (room_id, "$3": "hello") ]),
+            non_sync_events!(f, [ (room_id, "$2": "world"), (room_id, "$3": "hello") ]),
         )
         .await;
 
@@ -399,7 +390,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     // token,
     let room_id = room_id!("!omelette:fromage.fr");
 
-    let event_builder = EventBuilder::new();
+    let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();
 
     {
@@ -407,10 +398,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
             JoinedRoomBuilder::new(room_id)
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
-                .add_timeline_event(event_builder.make_sync_message_event(
-                    user_id!("@a:b.c"),
-                    RoomMessageEventContent::text_plain("heyo"),
-                ))
+                .add_timeline_event(f.text_msg("heyo").sender(user_id!("@a:b.c")))
                 .set_timeline_prev_batch("prev_batch".to_owned()),
         );
         let response_body = sync_builder.build_json_sync_response();
@@ -444,7 +432,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
         &server,
         "prev_batch",
         Some("prev_batch2"),
-        non_sync_events!(event_builder, [ (room_id, "$2": "world"), (room_id, "$3": "hello") ]),
+        non_sync_events!(f, [ (room_id, "$2": "world"), (room_id, "$3": "hello") ]),
     )
     .await;
 
@@ -453,7 +441,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
         &server,
         "prev_batch2",
         None,
-        non_sync_events!(event_builder, [ (room_id, "$4": "oh well"), ]),
+        non_sync_events!(f, [ (room_id, "$4": "oh well"), ]),
     )
     .await;
 
@@ -515,7 +503,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     // token,
     let room_id = room_id!("!omelette:fromage.fr");
 
-    let event_builder = EventBuilder::new();
+    let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();
 
     {
@@ -523,10 +511,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
             JoinedRoomBuilder::new(room_id)
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
-                .add_timeline_event(event_builder.make_sync_message_event(
-                    user_id!("@a:b.c"),
-                    RoomMessageEventContent::text_plain("heyo"),
-                ))
+                .add_timeline_event(f.text_msg("heyo").sender(user_id!("@a:b.c")))
                 .set_timeline_prev_batch("prev_batch".to_owned()),
         );
         let response_body = sync_builder.build_json_sync_response();
@@ -560,7 +545,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
         &server,
         "prev_batch",
         Some("prev_batch2"),
-        non_sync_events!(event_builder, [ (room_id, "$2": "world"), (room_id, "$3": "hello") ]),
+        non_sync_events!(f, [ (room_id, "$2": "world"), (room_id, "$3": "hello") ]),
     )
     .await;
 
@@ -569,7 +554,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
         &server,
         "prev_batch2",
         None,
-        non_sync_events!(event_builder, [ (room_id, "$4": "oh well"), ]),
+        non_sync_events!(f, [ (room_id, "$4": "oh well"), ]),
     )
     .await;
 
@@ -770,7 +755,7 @@ async fn test_backpaginating_without_token() {
     // token,
     let room_id = room_id!("!omelette:fromage.fr");
 
-    let event_builder = EventBuilder::new();
+    let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();
 
     {
@@ -794,7 +779,7 @@ async fn test_backpaginating_without_token() {
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "chunk": non_sync_events!(event_builder, [(room_id, "$2": "hi")]),
+            "chunk": non_sync_events!(f, [(room_id, "$2": "hi")]),
             "start": "t392-516_47314_0_7_1_1_1_11444_1",
         })))
         .expect(1)
