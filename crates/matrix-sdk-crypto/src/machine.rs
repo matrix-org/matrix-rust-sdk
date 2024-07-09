@@ -2372,7 +2372,7 @@ pub(crate) mod tests {
     };
 
     use assert_matches2::{assert_let, assert_matches};
-    use futures_util::{FutureExt, StreamExt};
+    use futures_util::{pin_mut, FutureExt, StreamExt};
     use itertools::Itertools;
     use matrix_sdk_common::deserialized_responses::{
         DeviceLinkProblem, ShieldState, UnableToDecryptInfo, UnsignedDecryptionResult,
@@ -2428,7 +2428,9 @@ pub(crate) mod tests {
         types::{
             events::{
                 room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
-                room_key_withheld::{RoomKeyWithheldContent, WithheldCode},
+                room_key_withheld::{
+                    MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, WithheldCode,
+                },
                 ToDeviceEvent,
             },
             CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, SignedKey, SigningKeys,
@@ -3241,6 +3243,9 @@ pub(crate) mod tests {
             get_machine_pair_with_setup_sessions_test_helper(alice_id(), user_id(), false).await;
         let room_id = room_id!("!test:example.org");
 
+        let room_keys_withheld_received_stream = bob.store().room_keys_withheld_received_stream();
+        pin_mut!(room_keys_withheld_received_stream);
+
         let encryption_settings = EncryptionSettings::default();
         let encryption_settings = EncryptionSettings {
             sharing_strategy: CollectStrategy::new_device_based(true),
@@ -3279,6 +3284,21 @@ pub(crate) mod tests {
         })
         .await
         .unwrap();
+
+        // We should receive a notification on the room_keys_withheld_received_stream
+        let withheld_received = room_keys_withheld_received_stream
+            .next()
+            .now_or_never()
+            .flatten()
+            .expect("We should have received a notification of room key being withheld");
+        assert_eq!(withheld_received.len(), 1);
+        assert_matches!(
+            &withheld_received[0].content,
+            RoomKeyWithheldContent::MegolmV1AesSha2(MegolmV1AesSha2WithheldContent::Unverified(
+                unverified_withheld_content
+            ))
+        );
+        assert_eq!(unverified_withheld_content.room_id, room_id);
 
         let plaintext = "You shouldn't be able to decrypt that message";
 

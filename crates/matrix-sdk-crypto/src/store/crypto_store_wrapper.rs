@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc};
+use std::{future, ops::Deref, sync::Arc};
 
 use futures_core::Stream;
 use futures_util::StreamExt;
@@ -13,6 +13,7 @@ use crate::{
     olm::InboundGroupSession,
     store,
     store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo},
+    types::events::room_key_withheld::RoomKeyWithheldEvent,
     GossippedSecret, ReadOnlyOwnUserIdentity,
 };
 
@@ -29,6 +30,10 @@ pub(crate) struct CryptoStoreWrapper {
     /// an update to an inbound group session.
     room_keys_received_sender: broadcast::Sender<Vec<RoomKeyInfo>>,
 
+    /// The sender side of a broadcast stream that is notified whenever we
+    /// receive an `m.room_key.withheld` message.
+    room_keys_withheld_received_sender: broadcast::Sender<Vec<RoomKeyWithheldEvent>>,
+
     /// The sender side of a broadcast channel which sends out secrets we
     /// received as a `m.secret.send` event.
     secrets_broadcaster: broadcast::Sender<GossippedSecret>,
@@ -42,6 +47,7 @@ pub(crate) struct CryptoStoreWrapper {
 impl CryptoStoreWrapper {
     pub(crate) fn new(user_id: &UserId, store: impl IntoCryptoStore) -> Self {
         let room_keys_received_sender = broadcast::Sender::new(10);
+        let room_keys_withheld_received_sender = broadcast::Sender::new(10);
         let secrets_broadcaster = broadcast::Sender::new(10);
         // The identities broadcaster is responsible for user identities as well as
         // devices, that's why we increase the capacity here.
@@ -51,6 +57,7 @@ impl CryptoStoreWrapper {
             user_id: user_id.to_owned(),
             store: store.into_crypto_store(),
             room_keys_received_sender,
+            room_keys_withheld_received_sender,
             secrets_broadcaster,
             identities_broadcaster,
         }
@@ -68,6 +75,12 @@ impl CryptoStoreWrapper {
         let room_key_updates: Vec<_> =
             changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
 
+        let withheld_session_updates: Vec<_> = changes
+            .withheld_session_info
+            .values()
+            .flat_map(|session_map| session_map.values().cloned())
+            .collect();
+
         let secrets = changes.secrets.to_owned();
         let devices = changes.devices.to_owned();
         let identities = changes.identities.to_owned();
@@ -77,6 +90,10 @@ impl CryptoStoreWrapper {
         if !room_key_updates.is_empty() {
             // Ignore the result. It can only fail if there are no listeners.
             let _ = self.room_keys_received_sender.send(room_key_updates);
+        }
+
+        if !withheld_session_updates.is_empty() {
+            let _ = self.room_keys_withheld_received_sender.send(withheld_session_updates);
         }
 
         for secret in secrets {
@@ -131,38 +148,29 @@ impl CryptoStoreWrapper {
     /// logged and items will be dropped.
     pub fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
         let stream = BroadcastStream::new(self.room_keys_received_sender.subscribe());
+        Self::filter_errors_out_of_stream(stream, "room_keys_received_stream")
+    }
 
-        // the raw BroadcastStream gives us Results which can fail with
-        // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
-        // with, so here we just drop the errors.
-        stream.filter_map(|result| async move {
-            match result {
-                Ok(r) => Some(r),
-                Err(BroadcastStreamRecvError::Lagged(lag)) => {
-                    warn!("room_keys_received_stream missed {lag} updates");
-                    None
-                }
-            }
-        })
+    /// Receive notifications of received `m.room_key.withheld` messages.
+    ///
+    /// Each time an `m.room_key.withheld` is received and stored, an update
+    /// will be sent to the stream. Updates that happen at the same time are
+    /// batched into a [`Vec`].
+    ///
+    /// If the reader of the stream lags too far behind, a warning will be
+    /// logged and items will be dropped.
+    pub fn room_keys_withheld_received_stream(
+        &self,
+    ) -> impl Stream<Item = Vec<RoomKeyWithheldEvent>> {
+        let stream = BroadcastStream::new(self.room_keys_withheld_received_sender.subscribe());
+        Self::filter_errors_out_of_stream(stream, "room_keys_withheld_received_stream")
     }
 
     /// Receive notifications of gossipped secrets being received and stored in
     /// the secret inbox as a [`Stream`].
     pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> {
         let stream = BroadcastStream::new(self.secrets_broadcaster.subscribe());
-
-        // the raw BroadcastStream gives us Results which can fail with
-        // BroadcastStreamRecvError if the reader falls behind. That's annoying to work
-        // with, so here we just drop the errors.
-        stream.filter_map(|result| async move {
-            match result {
-                Ok(r) => Some(r),
-                Err(BroadcastStreamRecvError::Lagged(lag)) => {
-                    warn!("secrets_stream missed {lag} updates");
-                    None
-                }
-            }
-        })
+        Self::filter_errors_out_of_stream(stream, "secrets_stream")
     }
 
     /// Returns a stream of newly created or updated cryptographic identities.
@@ -173,17 +181,31 @@ impl CryptoStoreWrapper {
         &self,
     ) -> impl Stream<Item = (Option<ReadOnlyOwnUserIdentity>, IdentityChanges, DeviceChanges)> {
         let stream = BroadcastStream::new(self.identities_broadcaster.subscribe());
+        Self::filter_errors_out_of_stream(stream, "identities_stream")
+    }
 
-        // See the comment in the [`Store::room_keys_received_stream()`] on why we're
-        // ignoring the lagged error.
-        stream.filter_map(|result| async move {
-            match result {
+    /// Helper for *_stream functions: filters errors out of the stream,
+    /// creating a new Stream.
+    ///
+    /// `BroadcastStream`s gives us `Result`s which can fail with
+    /// `BroadcastStreamRecvError` if the reader falls behind. That's annoying
+    /// to work with, so here we just emit a warning and drop the errors.
+    fn filter_errors_out_of_stream<ItemType>(
+        stream: BroadcastStream<ItemType>,
+        stream_name: &str,
+    ) -> impl Stream<Item = ItemType>
+    where
+        ItemType: 'static + Clone + Send,
+    {
+        let stream_name = stream_name.to_owned();
+        stream.filter_map(move |result| {
+            future::ready(match result {
                 Ok(r) => Some(r),
                 Err(BroadcastStreamRecvError::Lagged(lag)) => {
-                    warn!("devices_stream missed {lag} updates");
+                    warn!("{stream_name} missed {lag} updates");
                     None
                 }
-            }
+            })
         })
     }
 
