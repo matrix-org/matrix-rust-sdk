@@ -139,6 +139,8 @@ async fn test_read_receipts_updates_on_back_paginated_events() {
 
 #[async_test]
 async fn test_read_receipts_updates_on_filtered_events() {
+    let f = EventFactory::new();
+
     let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_notice),
@@ -177,15 +179,9 @@ async fn test_read_receipts_updates_on_filtered_events() {
     // Populate more events.
     let event_d_id = owned_event_id!("$event_d");
 
-    timeline
-        .handle_live_message_event_with_id(
-            *ALICE,
-            &event_d_id,
-            RoomMessageEventContent::notice_plain("D"),
-        )
-        .await;
+    timeline.handle_live_event(f.notice("D").sender(*ALICE).event_id(&event_d_id)).await;
 
-    timeline.handle_live_message_event(*ALICE, RoomMessageEventContent::text_plain("E")).await;
+    timeline.handle_live_event(f.text_msg("E").sender(*ALICE)).await;
 
     let item_e = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_e = item_e.as_event().unwrap();
@@ -225,6 +221,8 @@ async fn test_read_receipts_updates_on_filtered_events() {
 
 #[async_test]
 async fn test_read_receipts_updates_on_filtered_events_with_stored() {
+    let f = EventFactory::new();
+
     let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_notice),
@@ -232,12 +230,10 @@ async fn test_read_receipts_updates_on_filtered_events_with_stored() {
     });
     let mut stream = timeline.subscribe().await;
 
-    timeline.handle_live_message_event(*ALICE, RoomMessageEventContent::text_plain("A")).await;
+    timeline.handle_live_event(f.text_msg("A").sender(*ALICE)).await;
     timeline
-        .handle_live_message_event_with_id(
-            *CAROL,
-            event_id!("$event_with_bob_receipt"),
-            RoomMessageEventContent::notice_plain("B"),
+        .handle_live_event(
+            f.notice("B").sender(*CAROL).event_id(event_id!("$event_with_bob_receipt")),
         )
         .await;
 
@@ -582,7 +578,9 @@ async fn test_clear_read_receipts() {
         .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
 
     let event_a_content = RoomMessageEventContent::text_plain("A");
-    timeline.handle_live_message_event_with_id(*BOB, event_a_id, event_a_content.clone()).await;
+    timeline
+        .handle_live_event(f.event(event_a_content.clone()).sender(*BOB).event_id(event_a_id))
+        .await;
 
     let items = timeline.inner.items().await;
     assert_eq!(items.len(), 2);
@@ -596,13 +594,7 @@ async fn test_clear_read_receipts() {
     timeline.inner.clear().await;
 
     // New message via sync.
-    timeline
-        .handle_live_message_event_with_id(
-            *BOB,
-            event_b_id,
-            RoomMessageEventContent::text_plain("B"),
-        )
-        .await;
+    timeline.handle_live_event(f.text_msg("B").sender(*BOB).event_id(event_b_id)).await;
 
     // Old message via back-pagination.
     timeline
