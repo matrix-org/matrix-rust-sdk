@@ -17,15 +17,15 @@
 use core::fmt;
 use std::{ops::Deref, sync::Arc};
 
-use async_once_cell::OnceCell as AsyncOnceCell;
-use matrix_sdk::SlidingSync;
-use ruma::{api::client::sync::sync_events::v4::RoomSubscription, events::StateEventType, RoomId};
-
 use super::Error;
 use crate::{
     timeline::{EventTimelineItem, TimelineBuilder},
     Timeline,
 };
+use async_once_cell::OnceCell as AsyncOnceCell;
+use matrix_sdk::SlidingSync;
+use ruma::{api::client::sync::sync_events::v4::RoomSubscription, events::StateEventType, RoomId};
+use tracing::trace;
 
 /// A room in the room list.
 ///
@@ -133,11 +133,13 @@ impl Room {
         if self.inner.timeline.get().is_some() {
             Err(Error::TimelineAlreadyExists(self.inner.room.room_id().to_owned()))
         } else {
+            trace!("init_timeline_with_builder: {:?}", self.inner.room.room_id());
             self.inner
                 .timeline
                 .get_or_try_init(async { Ok(Arc::new(builder.build().await?)) })
                 .await
                 .map_err(Error::InitializingTimeline)?;
+            trace!("init_timeline_with_builder done: {:?}", self.inner.room.room_id());
             Ok(())
         }
     }

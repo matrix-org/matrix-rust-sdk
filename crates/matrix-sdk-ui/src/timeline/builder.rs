@@ -150,6 +150,7 @@ impl TimelineBuilder {
         )
     )]
     pub async fn build(self) -> Result<Timeline, Error> {
+        trace!("timeline_builder.build");
         let Self { room, settings, unable_to_decrypt_hook, focus, internal_id_prefix } = self;
 
         let client = room.client();
@@ -159,15 +160,16 @@ impl TimelineBuilder {
         event_cache.subscribe()?;
 
         let (room_event_cache, event_cache_drop) = room.event_cache().await?;
+        trace!("got event cache");
         let (_, mut event_subscriber) = room_event_cache.subscribe().await?;
-
+        trace!("subscribed to event cache");
         let is_live = matches!(focus, TimelineFocus::Live);
 
         let inner = TimelineInner::new(room, focus, internal_id_prefix, unable_to_decrypt_hook)
             .with_settings(settings);
 
         let has_events = inner.init_focus(&room_event_cache).await?;
-
+        trace!("init_focus");
         let room = inner.room();
         let client = room.client();
 
@@ -417,6 +419,7 @@ impl TimelineBuilder {
             }),
         };
 
+        trace!("attempting decryption retry");
         #[cfg(feature = "e2e-encryption")]
         if has_events {
             // The events we're injecting might be encrypted events, but we might
