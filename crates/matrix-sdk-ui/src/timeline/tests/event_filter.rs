@@ -17,6 +17,7 @@ use std::sync::Arc;
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
+use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
 use ruma::{
     assign,
@@ -47,10 +48,11 @@ async fn test_default_filter() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
+    let f = EventFactory::new();
+
     // Test edits work.
-    timeline
-        .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
-        .await;
+    timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
+
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     let first_event_id = item.as_event().unwrap().event_id().unwrap();
@@ -72,31 +74,24 @@ async fn test_default_filter() {
     // TODO: After adding raw timeline items, check for one here.
 
     // Test redactions work.
-    timeline
-        .handle_live_message_event(
-            &ALICE,
-            RoomMessageEventContent::text_plain("The second message"),
-        )
-        .await;
+    timeline.handle_live_event(f.text_msg("The second message").sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let second_event_id = item.as_event().unwrap().event_id().unwrap();
 
-    timeline.handle_live_redaction(&BOB, second_event_id).await;
+    timeline.handle_live_event(f.redaction(second_event_id).sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 2, value } => value);
     assert_matches!(item.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
 
     // TODO: After adding raw timeline items, check for one here.
 
     // Test reactions work.
-    timeline
-        .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The third message"))
-        .await;
+    timeline.handle_live_event(f.text_msg("The third message").sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let third_event_id = item.as_event().unwrap().event_id().unwrap();
 
     let rel = Annotation::new(third_event_id.to_owned(), "+1".to_owned());
     timeline.handle_live_message_event(&BOB, ReactionEventContent::new(rel)).await;
-    timeline.handle_live_redaction(&BOB, second_event_id).await;
+    timeline.handle_live_event(f.redaction(second_event_id).sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 3, value } => value);
     assert_eq!(item.as_event().unwrap().reactions().len(), 1);
 

@@ -37,9 +37,8 @@ use ruma::{
     events::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::Annotation,
-        AnyMessageLikeEventContent, AnySyncTimelineEvent, AnyTimelineEvent, EmptyStateKey,
-        MessageLikeEventContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
-        StaticStateEventContent,
+        AnyMessageLikeEventContent, AnyTimelineEvent, EmptyStateKey, MessageLikeEventContent,
+        RedactedMessageLikeEventContent, RedactedStateEventContent, StaticStateEventContent,
     },
     int,
     power_levels::NotificationPowerLevels,
@@ -212,11 +211,6 @@ impl TestTimeline {
         self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
-    async fn handle_live_redaction(&self, sender: &UserId, redacts: &EventId) {
-        let ev = self.event_builder.make_redaction_event(sender, redacts);
-        self.handle_live_event(ev).await;
-    }
-
     async fn handle_live_reaction(&self, sender: &UserId, annotation: &Annotation) -> OwnedEventId {
         let event_id = EventId::new(server_name!("dummy.server"));
         let ev = self.event_builder.make_reaction_event(sender, &event_id, annotation);
@@ -224,8 +218,8 @@ impl TestTimeline {
         event_id
     }
 
-    async fn handle_live_event(&self, event: Raw<AnySyncTimelineEvent>) {
-        let event = SyncTimelineEvent::new(event);
+    async fn handle_live_event(&self, event: impl Into<SyncTimelineEvent>) {
+        let event = event.into();
         self.inner.add_events_at(vec![event], TimelineEnd::Back, RemoteEventOrigin::Sync).await;
     }
 

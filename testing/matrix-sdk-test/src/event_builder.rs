@@ -235,21 +235,6 @@ impl EventBuilder {
         ev_content
     }
 
-    pub fn make_redaction_event(
-        &self,
-        sender: &UserId,
-        redacts: &EventId,
-    ) -> Raw<AnySyncTimelineEvent> {
-        sync_timeline_event!({
-            "type": "m.room.redaction",
-            "content": {},
-            "redacts": redacts,
-            "event_id": EventId::new(server_name!("dummy.server")),
-            "sender": sender,
-            "origin_server_ts": self.next_server_ts(),
-        })
-    }
-
     pub fn make_reaction_event(
         &self,
         sender: &UserId,

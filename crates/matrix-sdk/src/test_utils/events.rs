@@ -20,8 +20,12 @@ use matrix_sdk_base::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
 use matrix_sdk_test::{sync_timeline_event, timeline_event};
 use ruma::{
     events::{
-        relation::InReplyTo,
-        room::message::{Relation, RoomMessageEventContent},
+        reaction::ReactionEventContent,
+        relation::{Annotation, InReplyTo},
+        room::{
+            message::{Relation, RoomMessageEventContent},
+            redaction::RoomRedactionEventContent,
+        },
         AnySyncTimelineEvent, AnyTimelineEvent, EventContent,
     },
     serde::Raw,
@@ -35,6 +39,7 @@ pub struct EventBuilder<E: EventContent> {
     sender: Option<OwnedUserId>,
     room: Option<OwnedRoomId>,
     event_id: Option<OwnedEventId>,
+    redacts: Option<OwnedEventId>,
     content: E,
     server_ts: MilliSecondsSinceUnixEpoch,
 }
@@ -58,6 +63,11 @@ where
         self
     }
 
+    pub fn server_ts(mut self, ts: MilliSecondsSinceUnixEpoch) -> Self {
+        self.server_ts = ts;
+        self
+    }
+
     pub fn into_raw_timeline(self) -> Raw<AnyTimelineEvent> {
         let room_id = self.room.expect("we should have a room id at this point");
         let event_id =
@@ -69,7 +79,8 @@ where
             "event_id": event_id,
             "sender": self.sender.expect("we should have a sender user id at this point"),
             "room_id": room_id,
-            "origin_server_ts": self.server_ts
+            "origin_server_ts": self.server_ts,
+            "redacts": self.redacts,
         })
     }
 
@@ -88,7 +99,8 @@ where
             "content": self.content,
             "event_id": event_id,
             "sender": self.sender.expect("we should have a sender user id at this point"),
-            "origin_server_ts": self.server_ts
+            "origin_server_ts": self.server_ts,
+            "redacts": self.redacts,
         })
     }
 
@@ -111,6 +123,15 @@ where
 {
     fn from(val: EventBuilder<E>) -> Self {
         val.into_raw_sync()
+    }
+}
+
+impl<E: EventContent> From<EventBuilder<E>> for SyncTimelineEvent
+where
+    E::EventType: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.into_sync()
     }
 }
 
@@ -145,12 +166,14 @@ impl EventFactory {
         )
     }
 
+    /// Create an event from any event content.
     pub fn event<E: EventContent>(&self, content: E) -> EventBuilder<E> {
         EventBuilder {
             sender: self.sender.clone(),
             room: self.room.clone(),
             server_ts: self.next_server_ts(),
             event_id: None,
+            redacts: None,
             content,
         }
     }
@@ -163,6 +186,22 @@ impl EventFactory {
     /// Create a new plain notice `m.room.message`.
     pub fn notice(&self, content: impl Into<String>) -> EventBuilder<RoomMessageEventContent> {
         self.event(RoomMessageEventContent::notice_plain(content))
+    }
+
+    /// Add a reaction to an event.
+    pub fn reaction(
+        &self,
+        event_id: &EventId,
+        annotation: String,
+    ) -> EventBuilder<ReactionEventContent> {
+        self.event(ReactionEventContent::new(Annotation::new(event_id.to_owned(), annotation)))
+    }
+
+    /// Create a redaction for the given event id.
+    pub fn redaction(&self, event_id: &EventId) -> EventBuilder<RoomRedactionEventContent> {
+        let mut builder = self.event(RoomRedactionEventContent::new_v11(event_id.to_owned()));
+        builder.redacts = Some(event_id.to_owned());
+        builder
     }
 
     /// Set the next server timestamp.
