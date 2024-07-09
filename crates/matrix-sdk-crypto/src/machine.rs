@@ -2372,7 +2372,7 @@ pub(crate) mod tests {
     };
 
     use assert_matches2::{assert_let, assert_matches};
-    use futures_util::{FutureExt, StreamExt};
+    use futures_util::{pin_mut, FutureExt, StreamExt};
     use itertools::Itertools;
     use matrix_sdk_common::deserialized_responses::{
         DeviceLinkProblem, ShieldState, UnableToDecryptInfo, UnsignedDecryptionResult,
@@ -3243,8 +3243,8 @@ pub(crate) mod tests {
             get_machine_pair_with_setup_sessions_test_helper(alice_id(), user_id(), false).await;
         let room_id = room_id!("!test:example.org");
 
-        let mut room_keys_withheld_received_stream =
-            Box::pin(bob.store().room_keys_withheld_received_stream());
+        let room_keys_withheld_received_stream = bob.store().room_keys_withheld_received_stream();
+        pin_mut!(room_keys_withheld_received_stream);
 
         let encryption_settings = EncryptionSettings::default();
         let encryption_settings = EncryptionSettings {

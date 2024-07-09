@@ -78,8 +78,7 @@ impl CryptoStoreWrapper {
         let withheld_session_updates: Vec<_> = changes
             .withheld_session_info
             .values()
-            .flat_map(|session_map| session_map.values())
-            .map(Clone::clone)
+            .flat_map(|session_map| session_map.values().cloned())
             .collect();
 
         let secrets = changes.secrets.to_owned();
