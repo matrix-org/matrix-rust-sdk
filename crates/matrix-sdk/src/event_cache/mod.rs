@@ -90,8 +90,8 @@ pub enum EventCacheError {
 
     /// The room hasn't been found in the client.
     ///
-    /// Technically, it's possible to request a `RoomEventCache` for a room that
-    /// is not known to the client, leading to this error.
+    /// Technically, it's possible to request a [`RoomEventCache`] for a room
+    /// that is not known to the client, leading to this error.
     #[error("Room {0} hasn't been found in the Client.")]
     RoomNotFound(OwnedRoomId),
 
@@ -203,11 +203,8 @@ impl EventCache {
     pub async fn event(&self, event_id: &EventId) -> Option<SyncTimelineEvent> {
         let by_room = self.inner.by_room.read().await;
         for room in by_room.values() {
-            let events = room.inner.events.read().await;
-            for (_pos, event) in events.revents() {
-                if event.event_id().as_deref() == Some(event_id) {
-                    return Some(event.clone());
-                }
+            if let Some(event) = room.event(event_id).await {
+                return Some(event);
             }
         }
         None
@@ -462,6 +459,21 @@ impl RoomEventCache {
     /// back-pagination queries in the current room.
     pub fn pagination(&self) -> RoomPagination {
         RoomPagination { inner: self.inner.clone() }
+    }
+
+    /// Try to find an event by id in this room.
+    ///
+    /// Note: this does a linear scan, so it could be slow. If performance
+    /// requires it, using a direct mapping of event id -> event might be
+    /// better.
+    pub async fn event(&self, event_id: &EventId) -> Option<SyncTimelineEvent> {
+        let events = self.inner.events.read().await;
+        for (_pos, event) in events.revents() {
+            if event.event_id().as_deref() == Some(event_id) {
+                return Some(event.clone());
+            }
+        }
+        None
     }
 }
 
@@ -849,14 +861,14 @@ mod tests {
     #[async_test]
     async fn test_get_event_by_id() {
         let client = logged_in_client(None).await;
-        let room1 = room_id!("!galette:saucisse.bzh");
-        let room2 = room_id!("!crepe:saucisse.bzh");
+        let room_id1 = room_id!("!galette:saucisse.bzh");
+        let room_id2 = room_id!("!crepe:saucisse.bzh");
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
         // Insert two rooms with a few events.
-        let f = EventFactory::new().room(room1).sender(user_id!("@ben:saucisse.bzh"));
+        let f = EventFactory::new().room(room_id1).sender(user_id!("@ben:saucisse.bzh"));
 
         let eid1 = event_id!("$1");
         let eid2 = event_id!("$2");
@@ -882,8 +894,8 @@ mod tests {
         };
 
         let mut updates = RoomUpdates::default();
-        updates.join.insert(room1.to_owned(), joined_room_update1);
-        updates.join.insert(room2.to_owned(), joined_room_update2);
+        updates.join.insert(room_id1.to_owned(), joined_room_update1);
+        updates.join.insert(room_id2.to_owned(), joined_room_update2);
 
         // Have the event cache handle them.
         event_cache.inner.handle_room_updates(updates).await.unwrap();
@@ -900,5 +912,19 @@ mod tests {
 
         // An unknown event won't be found.
         assert!(event_cache.event(event_id!("$unknown")).await.is_none());
+
+        // Can also find events in a single room.
+        client.base_client().get_or_create_room(room_id1, matrix_sdk_base::RoomState::Joined);
+        let room1 = client.get_room(room_id1).unwrap();
+
+        let (room_event_cache, _drop_handles) = room1.event_cache().await.unwrap();
+
+        let found1 = room_event_cache.event(eid1).await.unwrap();
+        assert_event_matches_msg(&found1, "hey");
+
+        let found2 = room_event_cache.event(eid2).await.unwrap();
+        assert_event_matches_msg(&found2, "you");
+
+        assert!(room_event_cache.event(eid3).await.is_none());
     }
 }
