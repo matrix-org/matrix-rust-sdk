@@ -27,7 +27,7 @@ use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent,
     event_cache::{paginator::Paginator, RoomEventCache},
-    send_queue::SendHandle,
+    send_queue::{LocalEcho, RoomSendQueueUpdate, SendHandle},
     Result, Room,
 };
 #[cfg(test)]
@@ -1132,6 +1132,81 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ) -> Option<OwnedEventId> {
         self.state.read().await.latest_user_read_receipt_timeline_event_id(user_id)
     }
+
+    /// Handle a room send update that's a new local echo.
+    pub(crate) async fn handle_local_echo(&self, echo: LocalEcho) {
+        let content = match echo.serialized_event.deserialize() {
+            Ok(d) => d,
+            Err(err) => {
+                warn!("error deserializing local echo: {err}");
+                return;
+            }
+        };
+
+        self.handle_local_event(
+            echo.transaction_id.clone(),
+            TimelineEventKind::Message { content, relations: Default::default() },
+            Some(echo.send_handle),
+        )
+        .await;
+
+        if echo.is_wedged {
+            self.update_event_send_state(
+                &echo.transaction_id,
+                EventSendState::SendingFailed {
+                    // Put a dummy error in this case, since we're not persisting the errors that
+                    // occurred in previous sessions.
+                    error: Arc::new(matrix_sdk::Error::UnknownError(Box::new(
+                        MissingLocalEchoFailError,
+                    ))),
+                    is_recoverable: false,
+                },
+            )
+            .await;
+        }
+    }
+
+    /// Handle a single room send queue update.
+    pub(crate) async fn handle_room_send_queue_update(&self, update: RoomSendQueueUpdate) {
+        match update {
+            RoomSendQueueUpdate::NewLocalEvent(echo) => {
+                self.handle_local_echo(echo).await;
+            }
+
+            RoomSendQueueUpdate::CancelledLocalEvent { transaction_id } => {
+                if !self.discard_local_echo(&transaction_id).await {
+                    warn!("couldn't find the local echo to discard");
+                }
+            }
+
+            RoomSendQueueUpdate::ReplacedLocalEvent { transaction_id, new_content } => {
+                let content = match new_content.deserialize() {
+                    Ok(d) => d,
+                    Err(err) => {
+                        warn!("error deserializing local echo (upon edit): {err}");
+                        return;
+                    }
+                };
+
+                if !self.replace_local_echo(&transaction_id, content).await {
+                    warn!("couldn't find the local echo to replace");
+                }
+            }
+
+            RoomSendQueueUpdate::SendError { transaction_id, error, is_recoverable } => {
+                self.update_event_send_state(
+                    &transaction_id,
+                    EventSendState::SendingFailed { error, is_recoverable },
+                )
+                .await;
+            }
+
+            RoomSendQueueUpdate::SentEvent { transaction_id, event_id } => {
+                self.update_event_send_state(&transaction_id, EventSendState::Sent { event_id })
+                    .await;
+            }
+        }
+    }
 }
 
 impl TimelineInner {
@@ -1282,6 +1357,10 @@ impl TimelineInner {
         state.meta.all_events.back().map(|event_meta| &event_meta.event_id).cloned()
     }
 }
+
+#[derive(Debug, Error)]
+#[error("local echo failed to send in a previous session")]
+struct MissingLocalEchoFailError;
 
 #[derive(Debug, Default)]
 pub(super) struct HandleManyEventsResult {
