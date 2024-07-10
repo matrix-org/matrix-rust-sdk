@@ -243,7 +243,7 @@ impl RoomList {
         let (entries_stream, dynamic_entries_controller) =
             this.inner.entries_with_dynamic_adapters(
                 page_size.try_into().unwrap(),
-                client.roominfo_update_receiver(),
+                client.room_info_notable_update_receiver(),
             );
 
         // FFI dance to make those values consumable by foreign language, nothing fancy

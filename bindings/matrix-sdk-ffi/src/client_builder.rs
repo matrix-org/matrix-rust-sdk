@@ -6,10 +6,7 @@ use matrix_sdk::{
     crypto::types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Certificate,
-    ruma::{
-        api::{error::UnknownVersionError, MatrixVersion},
-        ServerName, UserId,
-    },
+    ruma::{ServerName, UserId},
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
     RumaApiError,
 };
@@ -250,7 +247,6 @@ pub struct ClientBuilder {
     session_path: Option<String>,
     username: Option<String>,
     homeserver_cfg: Option<HomeserverConfig>,
-    server_versions: Option<Vec<String>>,
     passphrase: Zeroizing<Option<String>>,
     user_agent: Option<String>,
     requires_sliding_sync: bool,
@@ -272,7 +268,6 @@ impl ClientBuilder {
             session_path: None,
             username: None,
             homeserver_cfg: None,
-            server_versions: None,
             passphrase: Zeroizing::new(None),
             user_agent: None,
             requires_sliding_sync: false,
@@ -326,12 +321,6 @@ impl ClientBuilder {
     pub fn username(self: Arc<Self>, username: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.username = Some(username);
-        Arc::new(builder)
-    }
-
-    pub fn server_versions(self: Arc<Self>, versions: Vec<String>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.server_versions = Some(versions);
         Arc::new(builder)
     }
 
@@ -506,16 +495,6 @@ impl ClientBuilder {
 
         if let Some(user_agent) = builder.user_agent {
             inner_builder = inner_builder.user_agent(user_agent);
-        }
-
-        if let Some(server_versions) = builder.server_versions {
-            inner_builder = inner_builder.server_versions(
-                server_versions
-                    .iter()
-                    .map(|s| MatrixVersion::try_from(s.as_str()))
-                    .collect::<Result<Vec<MatrixVersion>, UnknownVersionError>>()
-                    .map_err(|e| ClientBuildError::Generic { message: e.to_string() })?,
-            );
         }
 
         inner_builder = inner_builder.with_encryption_settings(builder.encryption_settings);

@@ -1,19 +1,15 @@
 //! Builder for [`SlidingSyncList`].
 
 use std::{
-    collections::BTreeMap,
     convert::identity,
     fmt,
     sync::{Arc, RwLock as StdRwLock},
 };
 
-use eyeball::Observable;
-use eyeball_im::ObservableVector;
-use imbl::Vector;
+use eyeball::{Observable, SharedObservable};
 use ruma::{
     api::client::sync::sync_events::v4,
     events::{StateEventType, TimelineEventType},
-    OwnedRoomId,
 };
 use tokio::sync::broadcast::Sender;
 
@@ -23,11 +19,8 @@ use super::{
     SlidingSyncListStickyParameters, SlidingSyncMode,
 };
 use crate::{
-    sliding_sync::{
-        cache::restore_sliding_sync_list, sticky_parameters::SlidingSyncStickyManager,
-        FrozenSlidingSyncRoom,
-    },
-    Client, RoomListEntry,
+    sliding_sync::{cache::restore_sliding_sync_list, sticky_parameters::SlidingSyncStickyManager},
+    Client,
 };
 
 /// Data that might have been read from the cache.
@@ -37,10 +30,6 @@ struct SlidingSyncListCachedData {
     /// See also comment of [`SlidingSyncList::maximum_number_of_rooms`].
     /// May be reloaded from the cache.
     maximum_number_of_rooms: Option<u32>,
-
-    /// List of room entries.
-    /// May be reloaded from the cache.
-    room_list: Vector<RoomListEntry>,
 }
 
 /// Builder for [`SlidingSyncList`].
@@ -169,8 +158,9 @@ impl SlidingSyncListBuilder {
         &mut self,
         client: &Client,
         storage_key: &str,
-    ) -> crate::Result<BTreeMap<OwnedRoomId, FrozenSlidingSyncRoom>> {
+    ) -> crate::Result<()> {
         self.cache_policy = SlidingSyncListCachePolicy::Enabled;
+
         if let Some(frozen_list) =
             restore_sliding_sync_list(client.store(), storage_key, &self.name).await?
         {
@@ -180,11 +170,10 @@ impl SlidingSyncListBuilder {
             );
             self.reloaded_cached_data = Some(SlidingSyncListCachedData {
                 maximum_number_of_rooms: frozen_list.maximum_number_of_rooms,
-                room_list: frozen_list.room_list,
             });
-            Ok(frozen_list.rooms)
+            Ok(())
         } else {
-            Ok(Default::default())
+            Ok(())
         }
     }
 
@@ -233,10 +222,7 @@ impl SlidingSyncListBuilder {
                 // Values read from deserialization, or that are still equal to the default values
                 // otherwise.
                 state: StdRwLock::new(Observable::new(Default::default())),
-                maximum_number_of_rooms: StdRwLock::new(Observable::new(None)),
-                // We want to avoid triggering `VectorDiff::Reset` too much, hence we
-                // increase the observable capacity.
-                room_list: StdRwLock::new(ObservableVector::with_capacity(4096)),
+                maximum_number_of_rooms: SharedObservable::new(None),
 
                 // Internal data.
                 sliding_sync_internal_channel_sender,
@@ -254,7 +240,7 @@ impl SlidingSyncListBuilder {
         // callback. That's why we're doing this here *after* constructing the
         // list, and not a few lines above.
 
-        if let Some(SlidingSyncListCachedData { maximum_number_of_rooms, room_list }) =
+        if let Some(SlidingSyncListCachedData { maximum_number_of_rooms }) =
             self.reloaded_cached_data
         {
             // Mark state as preloaded.
@@ -263,15 +249,8 @@ impl SlidingSyncListBuilder {
                 SlidingSyncListLoadingState::Preloaded,
             );
 
-            // Reload values.
-            Observable::set(
-                &mut list.inner.maximum_number_of_rooms.write().unwrap(),
-                maximum_number_of_rooms,
-            );
-
-            let mut prev_room_list = list.inner.room_list.write().unwrap();
-            assert!(prev_room_list.is_empty(), "room list was empty on creation above!");
-            prev_room_list.append(room_list);
+            // Reload the maximum number of rooms.
+            list.inner.maximum_number_of_rooms.set(maximum_number_of_rooms);
         }
 
         list

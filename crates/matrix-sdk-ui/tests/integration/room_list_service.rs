@@ -1269,7 +1269,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     let all_rooms = room_list.all_rooms().await?;
 
     let (dynamic_entries_stream, dynamic_entries) =
-        all_rooms.entries_with_dynamic_adapters(5, client.roominfo_update_receiver());
+        all_rooms.entries_with_dynamic_adapters(5, client.room_info_notable_update_receiver());
     pin_mut!(dynamic_entries_stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1413,22 +1413,11 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     };
 
     // Assert the dynamic entries.
-    // It's pushed on the front because rooms are sorted by recency (based on their
-    // `origin_server_ts` of their latest event candidate).
+    // It's pushed on the front because rooms are sorted by recency.
     assert_entries_batch! {
         [dynamic_entries_stream]
         push front [ "!r1:bar.org" ];
         push front [ "!r4:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        set [ 1 ] [ "!r1:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        set [ 0 ] [ "!r4:bar.org" ];
         end;
     };
     assert_pending!(dynamic_entries_stream);
@@ -1508,16 +1497,6 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         [dynamic_entries_stream]
         push front [ "!r5:bar.org" ];
         push front [ "!r7:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        set [ 1 ] [ "!r5:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        set [ 0 ] [ "!r7:bar.org" ];
         end;
     };
     assert_pending!(dynamic_entries_stream);
@@ -1663,7 +1642,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     let all_rooms = room_list.all_rooms().await?;
 
     let (stream, dynamic_entries) =
-        all_rooms.entries_with_dynamic_adapters(10, client.roominfo_update_receiver());
+        all_rooms.entries_with_dynamic_adapters(10, client.room_info_notable_update_receiver());
     pin_mut!(stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1913,11 +1892,49 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 4     | !r1     | 6       | Aaa  |
     // | 5     | !r4     | 5       |      |
 
+    assert_pending!(stream);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Running => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 5]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "3",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 6,
+                },
+            },
+            "rooms": {
+                "!r3:bar.org": {
+                    "timestamp": 11,
+                },
+            },
+        },
+    };
+
     assert_entries_batch! {
         [stream]
-        set [ 2 ] [ "!r6:bar.org" ];
+        set [ 0 ] [ "!r3:bar.org" ];
         end;
     };
+
+    // Now we have:
+    //
+    // | index | room ID | recency | name |
+    // |-------|---------|---------|------|
+    // | 0     | !r3     | 11      |      |
+    // | 1     | !r2     | 9       |      |
+    // | 2     | !r6     | 8       |      |
+    // | 3     | !r0     | 7       | Bbb  |
+    // | 4     | !r1     | 6       | Aaa  |
+    // | 5     | !r4     | 5       |      |
 
     assert_pending!(stream);
 

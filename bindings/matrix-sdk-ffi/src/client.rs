@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Debug,
     mem::ManuallyDrop,
     path::Path,
     sync::{Arc, RwLock},
@@ -60,7 +61,7 @@ use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController, RUNTIME};
 use crate::{
-    authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError},
+    authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError, SsoHandler},
     client,
     encryption::Encryption,
     notification::NotificationClient,
@@ -287,6 +288,20 @@ impl Client {
         Ok(())
     }
 
+    /// Returns a handler to start the SSO login process.
+    pub(crate) async fn start_sso_login(
+        self: &Arc<Self>,
+        redirect_url: String,
+        idp_id: Option<String>,
+    ) -> Result<Arc<SsoHandler>, SsoError> {
+        let auth = self.inner.matrix_auth();
+        let url = auth
+            .get_sso_login_url(redirect_url.as_str(), idp_id.as_deref())
+            .await
+            .map_err(|e| SsoError::Generic { message: e.to_string() })?;
+        Ok(Arc::new(SsoHandler { client: Arc::clone(self), url }))
+    }
+
     /// Requests the URL needed for login in a web view using OIDC. Once the web
     /// view has succeeded, call `login_with_oidc_callback` with the callback it
     /// returns. If a failure occurs and a callback isn't available, make sure
@@ -426,6 +441,15 @@ impl Client {
     pub async fn get_url(&self, url: String) -> Result<String, ClientError> {
         let http_client = self.inner.http_client();
         Ok(http_client.get(url).send().await?.text().await?)
+    }
+
+    /// Empty the server version and unstable features cache.
+    ///
+    /// Since the SDK caches server capabilities (versions and unstable
+    /// features), it's possible to have a stale entry in the cache. This
+    /// functions makes it possible to force reset it.
+    pub async fn reset_server_capabilities(&self) -> Result<(), ClientError> {
+        Ok(self.inner.reset_server_capabilities().await?)
     }
 }
 

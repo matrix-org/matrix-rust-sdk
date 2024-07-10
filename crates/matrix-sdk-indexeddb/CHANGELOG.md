@@ -1,6 +1,7 @@
 # UNRELEASED
 
-- Improve the efficiency of objects stored in the crypto store. ([#3645](https://github.com/matrix-org/matrix-rust-sdk/pull/3645))
+- Improve the efficiency of objects stored in the crypto store.
+  ([#3645](https://github.com/matrix-org/matrix-rust-sdk/pull/3645), [#3651](https://github.com/matrix-org/matrix-rust-sdk/pull/3651))
 
 - Add new method `IndexeddbCryptoStore::open_with_key`. ([#3423](https://github.com/matrix-org/matrix-rust-sdk/pull/3423))
 

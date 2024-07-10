@@ -16,7 +16,7 @@ use matrix_sdk_ui::timeline::{
     Error as TimelineError, EventSendState, RoomExt, TimelineDetails, TimelineItemContent,
 };
 use ruma::{
-    assign, event_id,
+    event_id,
     events::{
         reaction::RedactedReactionEventContent,
         relation::InReplyTo,
@@ -169,9 +169,10 @@ async fn test_in_reply_to_details() {
 
 #[async_test]
 async fn test_transfer_in_reply_to_details_to_re_received_item() {
+    let f = EventFactory::new();
+
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -186,14 +187,7 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
 
     // Given a reply to an event that's not itself in the timeline...
     let event_id_1 = event_id!("$event1");
-    let reply_event = event_builder.make_sync_message_event(
-        &BOB,
-        assign!(RoomMessageEventContent::text_plain("Reply"), {
-            relates_to: Some(Relation::Reply {
-                in_reply_to: InReplyTo::new(event_id_1.to_owned()),
-            }),
-        }),
-    );
+    let reply_event = f.text_msg("Reply").sender(&BOB).reply_to(event_id_1).into_raw_sync();
     sync_builder
         .add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(reply_event.clone()));
 
@@ -212,14 +206,16 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/\$event1"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            event_builder.make_message_event_with_id(
-                &ALICE,
-                room_id,
-                event_id_1,
-                RoomMessageEventContent::text_plain("Original Message"),
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                f.text_msg("Original Message")
+                    .sender(&ALICE)
+                    .room(room_id)
+                    .event_id(event_id_1)
+                    .into_raw_timeline()
+                    .json(),
             ),
-        ))
+        )
         .expect(1)
         .mount(&server)
         .await;

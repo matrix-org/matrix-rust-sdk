@@ -913,6 +913,20 @@ impl From<&InboundGroupSession> for RoomKeyInfo {
     }
 }
 
+/// Information on a room key that has been withheld
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RoomKeyWithheldInfo {
+    /// The room where the key is used.
+    pub room_id: OwnedRoomId,
+
+    /// The ID of the session that the key is for.
+    pub session_id: String,
+
+    /// The `m.room_key.withheld` event that notified us that the key is being
+    /// withheld.
+    pub withheld_event: RoomKeyWithheldEvent,
+}
+
 impl Store {
     /// Create a new Store.
     pub(crate) fn new(
@@ -1461,6 +1475,20 @@ impl Store {
     /// `CryptoStoreWrapper` are dropped.
     pub fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
         self.inner.store.room_keys_received_stream()
+    }
+
+    /// Receive notifications of received `m.room_key.withheld` messages.
+    ///
+    /// Each time an `m.room_key.withheld` is received and stored, an update
+    /// will be sent to the stream. Updates that happen at the same time are
+    /// batched into a [`Vec`].
+    ///
+    /// If the reader of the stream lags too far behind, a warning will be
+    /// logged and items will be dropped.
+    pub fn room_keys_withheld_received_stream(
+        &self,
+    ) -> impl Stream<Item = Vec<RoomKeyWithheldInfo>> {
+        self.inner.store.room_keys_withheld_received_stream()
     }
 
     /// Returns a stream of user identity updates, allowing users to listen for

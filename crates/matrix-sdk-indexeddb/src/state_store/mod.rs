@@ -26,7 +26,8 @@ use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey},
     store::{
-        ComposerDraft, QueuedEvent, SerializableEventContent, StateChanges, StateStore, StoreError,
+        ComposerDraft, QueuedEvent, SerializableEventContent, ServerCapabilities, StateChanges,
+        StateStore, StoreError,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateStoreDataKey,
     StateStoreDataValue,
@@ -398,6 +399,10 @@ impl IndexeddbStateStore {
             StateStoreDataKey::SyncToken => {
                 self.encode_key(StateStoreDataKey::SYNC_TOKEN, StateStoreDataKey::SYNC_TOKEN)
             }
+            StateStoreDataKey::ServerCapabilities => self.encode_key(
+                StateStoreDataKey::SERVER_CAPABILITIES,
+                StateStoreDataKey::SERVER_CAPABILITIES,
+            ),
             StateStoreDataKey::Filter(filter_name) => {
                 self.encode_key(StateStoreDataKey::FILTER, (StateStoreDataKey::FILTER, filter_name))
             }
@@ -475,6 +480,10 @@ impl_state_store!({
                 .map(|f| self.deserialize_value::<String>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::SyncToken),
+            StateStoreDataKey::ServerCapabilities => value
+                .map(|f| self.deserialize_value::<ServerCapabilities>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::ServerCapabilities),
             StateStoreDataKey::Filter(_) => value
                 .map(|f| self.deserialize_value::<String>(&f))
                 .transpose()?
@@ -510,6 +519,11 @@ impl_state_store!({
         let serialized_value = match key {
             StateStoreDataKey::SyncToken => self
                 .serialize_value(&value.into_sync_token().expect("Session data not a sync token")),
+            StateStoreDataKey::ServerCapabilities => self.serialize_value(
+                &value
+                    .into_server_capabilities()
+                    .expect("Session data not containing server capabilities"),
+            ),
             StateStoreDataKey::Filter(_) => {
                 self.serialize_value(&value.into_filter().expect("Session data not a filter"))
             }

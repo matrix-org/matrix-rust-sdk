@@ -95,15 +95,11 @@ list-object. Once a list has been added to [`SlidingSync`], a cloned shared
 copy can be retrieved by calling `SlidingSync::list()`, providing the name
 of the list. Next to the configuration settings (like name and
 `timeline_limit`), the list provides the stateful
-[`maximum_number_of_rooms`](SlidingSyncList::maximum_number_of_rooms),
-[`room_list`](SlidingSyncList::room_list) and
+[`maximum_number_of_rooms`](SlidingSyncList::maximum_number_of_rooms) and
 [`state`](SlidingSyncList::state):
 
  - `maximum_number_of_rooms` is the number of rooms _total_ there were found
    matching the filters given.
- - `room_list` is a vector of `maximum_number_of_rooms` [`RoomListEntry`]'s
-   at the current state. `RoomListEntry`'s only hold `the room_id` if given,
-   the [Rooms API](#rooms) holds the actual information about each room
  - `state` is a [`SlidingSyncMode`] signalling meta information about the
    list and its stateful data — whether this is the state loaded from local
    cache, whether the [full sync](#helper-lists) is in progress or whether
@@ -148,32 +144,6 @@ to will receive updates (with the given settings) regardless of whether they are
 visible in any list. The most common case for using this API is when the user
 enters a room - as we want to receive the incoming new messages regardless of
 whether the room is pushed out of the lists room list.
-
-### Room List Entries
-
-As the room list of each list is a vec of the `maximum_number_of_rooms` len
-but a room may only know of a subset of entries for sure at any given time,
-these entries are wrapped in [`RoomListEntry`][]. This type, in close
-proximity to the [specification][MSC], can be either `Empty`, `Filled` or
-`Invalidated`, signaling the state of each entry position.
-- `Empty` we don't know what sits here at this position in the list.
-- `Filled`: there is this `room_id` at this position.
-- `Invalidated` in that sense means that we _knew_ what was here before, but
-  can't be sure anymore this is still accurate. This occurs when we move the
-  sliding window (by changing the ranges) or when a room might drop out of
-  the window we are looking at. For the sake of displaying, this is probably
-  still fine to display to be at this position, but we can't be sure
-  anymore.
-
-Because `Invalidated` occurs whenever a room we knew about before drops out
-of focus, we aren't updated about its changes anymore either, there could be
-duplicates rooms within invalidated rooms as well as in the union of
-invalidated and filled rooms. Keep that in mind, as most UI frameworks don't
-like it when their list entries aren't unique.
-
-When [restoring from cold cache][#caching] the room list also only
-propagated with `Invalidated` rooms. So if you want to be able to display
-data quickly, ensure you are able to render `Invalidated` entries.
 
 ### Unsubscribe
 
@@ -345,14 +315,12 @@ subscribing to updates via [`eyeball`].
 
 ## Caching
 
-All room data, for filled but also _invalidated_ rooms, including the entire
-timeline events as well as all list `room_lists` and
-`maximum_number_of_rooms` are held in memory (unless one `pop`s the list
-out).
+All room data, including the entire timeline events as well as all lists and
+`maximum_number_of_rooms` are held in memory (unless one `pop`s the list out).
 
-Sliding Sync instances are also cached on disk, and restored from disk at creation. This ensures
-that we keep track of important position markers, like the `since` tokens used in the sync
-requests.
+Sliding Sync instances are also cached on disk, and restored from disk at
+creation. This ensures that we keep track of important position markers, like
+the `since` tokens used in the sync requests.
 
 Caching for lists can be enabled independently, using the
 [`add_cached_list`][`SlidingSyncBuilder::add_cached_list`] method, assuming
@@ -369,10 +337,6 @@ are stored to storage, but only retrieved upon `build()` of the
 `SlidingSyncBuilder`. So if one only adds them later, they will not be reading
 the data from storage (to avoid inconsistencies) and might require more data to
 be sent in their first request than if they were loaded from a cold cache.
-
-When loading from storage `room_list` entries found are set to
-`Invalidated` — the initial setting here is communicated as a single
-`VecDiff::Replace` event through the [reactive API](#reactive-api).
 
 Only the latest 10 timeline items of each room are cached and they are reset
 whenever a new set of timeline items is received by the server.
@@ -446,30 +410,15 @@ let sliding_sync = sliding_sync_builder
     .build()
     .await?;
 
-// subscribe to the list APIs for updates
-
-let ((_, list_state_stream), list_count_stream, (_, list_stream)) = sliding_sync.on_list(&active_list_name, |list| {
-    ready((list.state_stream(), list.maximum_number_of_rooms_stream(), list.room_list_stream()))
-}).await.unwrap();
 
 tokio::spawn(async move {
-    pin_mut!(list_state_stream);
-    while let Some(new_state) = list_state_stream.next().await {
-        info!("active-list switched state to {new_state:?}");
-    }
-});
+    // subscribe to rooms updates
+    let (_rooms, rooms_stream) = client.rooms_stream();
+    // do something with `_rooms`
 
-tokio::spawn(async move {
-    pin_mut!(list_count_stream);
-    while let Some(new_count) = list_count_stream.next().await {
-        info!("active-list new count: {new_count:?}");
-    }
-});
-
-tokio::spawn(async move {
-    pin_mut!(list_stream);
-    while let Some(v_diff) = list_stream.next().await {
-        info!("active-list room list diff update: {v_diff:?}");
+    pin_mut!(rooms_stream);
+    while let Some(_room) = rooms_stream.next().await {
+        info!("a room has been updated");
     }
 });
 

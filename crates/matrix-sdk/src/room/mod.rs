@@ -20,7 +20,8 @@ use matrix_sdk_base::{
     },
     instant::Instant,
     store::StateStoreExt,
-    ComposerDraft, RoomMemberships, StateChanges, StateStoreDataKey, StateStoreDataValue,
+    ComposerDraft, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges, StateStoreDataKey,
+    StateStoreDataValue,
 };
 use matrix_sdk_common::timeout::timeout;
 use mime::Mime;
@@ -495,7 +496,7 @@ impl Room {
                 changes.add_room(room_info.clone());
 
                 self.client.store().save_changes(&changes).await?;
-                self.set_room_info(room_info, false);
+                self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
 
                 Ok(())
             })
@@ -1228,6 +1229,11 @@ impl Room {
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request, None).await?;
 
+        // Force a future room members reload before sending any event to prevent UTDs
+        // that can happen when some event is sent after a room member has been invited
+        // but before the /sync request could fetch the membership change event.
+        self.mark_members_missing();
+
         Ok(())
     }
 
@@ -1241,6 +1247,11 @@ impl Room {
         let recipient = InvitationRecipient::ThirdPartyId(invite_id);
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request, None).await?;
+
+        // Force a future room members reload before sending any event to prevent UTDs
+        // that can happen when some event is sent after a room member has been invited
+        // but before the /sync request could fetch the membership change event.
+        self.mark_members_missing();
 
         Ok(())
     }

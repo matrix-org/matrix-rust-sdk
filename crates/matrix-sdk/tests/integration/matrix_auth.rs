@@ -192,6 +192,42 @@ async fn test_login_with_sso_token() {
 }
 
 #[async_test]
+async fn test_login_with_sso_callback() {
+    let (client, server) = no_retry_test_client_with_server().await;
+
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/login"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_TYPES))
+        .mount(&server)
+        .await;
+
+    let auth = client.matrix_auth();
+    let can_sso = auth
+        .get_login_types()
+        .await
+        .unwrap()
+        .flows
+        .iter()
+        .any(|flow| matches!(flow, LoginType::Sso(_)));
+    assert!(can_sso);
+
+    let sso_url = auth.get_sso_login_url("http://127.0.0.1:3030", None).await;
+    sso_url.unwrap();
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/login"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN))
+        .mount(&server)
+        .await;
+
+    let callback_url = Url::parse("http://127.0.0.1:3030?loginToken=averysmalltoken").unwrap();
+    auth.login_with_sso_callback(callback_url).unwrap().await.unwrap();
+
+    let logged_in = client.logged_in();
+    assert!(logged_in, "Client should be logged in");
+}
+
+#[async_test]
 async fn test_login_error() {
     let (client, server) = no_retry_test_client_with_server().await;
 

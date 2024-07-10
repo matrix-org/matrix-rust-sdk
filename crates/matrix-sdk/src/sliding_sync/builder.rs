@@ -95,16 +95,10 @@ impl SlidingSyncBuilder {
     /// cache.
     ///
     /// Replace any list with the same name.
-    pub async fn add_cached_list(mut self, mut list: SlidingSyncListBuilder) -> Result<Self> {
+    pub async fn add_cached_list(self, mut list: SlidingSyncListBuilder) -> Result<Self> {
         let _timer = timer!(format!("restoring (loading+processing) list {}", list.name));
 
-        let reloaded_rooms = list.set_cached_and_reload(&self.client, &self.storage_key).await?;
-
-        for (key, frozen) in reloaded_rooms {
-            self.rooms
-                .entry(key)
-                .or_insert_with(|| SlidingSyncRoom::from_frozen(frozen, self.client.clone()));
-        }
+        list.set_cached_and_reload(&self.client, &self.storage_key).await?;
 
         Ok(self.add_list(list))
     }

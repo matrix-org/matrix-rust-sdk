@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use eyeball_im::VectorDiff;
+use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_test::{async_test, ALICE, BOB, CAROL};
 use ruma::{
     event_id,
@@ -105,20 +106,19 @@ async fn test_read_receipts_updates_on_back_paginated_events() {
         .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
     let room_id = room_id!("!room:localhost");
 
+    let f = EventFactory::new().room(room_id);
+
     timeline
-        .handle_back_paginated_message_event_with_id(
-            *BOB,
-            room_id,
-            event_id!("$event_a"),
-            RoomMessageEventContent::text_plain("A"),
+        .handle_back_paginated_event(
+            f.text_msg("A").sender(*BOB).event_id(event_id!("$event_a")).into_raw_timeline(),
         )
         .await;
     timeline
-        .handle_back_paginated_message_event_with_id(
-            *CAROL,
-            room_id,
-            event_id!("$event_with_bob_receipt"),
-            RoomMessageEventContent::text_plain("B"),
+        .handle_back_paginated_event(
+            f.text_msg("B")
+                .sender(*CAROL)
+                .event_id(event_id!("$event_with_bob_receipt"))
+                .into_raw_timeline(),
         )
         .await;
 
@@ -139,6 +139,8 @@ async fn test_read_receipts_updates_on_back_paginated_events() {
 
 #[async_test]
 async fn test_read_receipts_updates_on_filtered_events() {
+    let f = EventFactory::new();
+
     let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_notice),
@@ -176,15 +178,10 @@ async fn test_read_receipts_updates_on_filtered_events() {
 
     // Populate more events.
     let event_d_id = owned_event_id!("$event_d");
-    timeline
-        .handle_live_message_event_with_id(
-            *ALICE,
-            &event_d_id,
-            RoomMessageEventContent::notice_plain("D"),
-        )
-        .await;
 
-    timeline.handle_live_message_event(*ALICE, RoomMessageEventContent::text_plain("E")).await;
+    timeline.handle_live_event(f.notice("D").sender(*ALICE).event_id(&event_d_id)).await;
+
+    timeline.handle_live_event(f.text_msg("E").sender(*ALICE)).await;
 
     let item_e = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_e = item_e.as_event().unwrap();
@@ -224,6 +221,8 @@ async fn test_read_receipts_updates_on_filtered_events() {
 
 #[async_test]
 async fn test_read_receipts_updates_on_filtered_events_with_stored() {
+    let f = EventFactory::new();
+
     let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_notice),
@@ -231,12 +230,10 @@ async fn test_read_receipts_updates_on_filtered_events_with_stored() {
     });
     let mut stream = timeline.subscribe().await;
 
-    timeline.handle_live_message_event(*ALICE, RoomMessageEventContent::text_plain("A")).await;
+    timeline.handle_live_event(f.text_msg("A").sender(*ALICE)).await;
     timeline
-        .handle_live_message_event_with_id(
-            *CAROL,
-            event_id!("$event_with_bob_receipt"),
-            RoomMessageEventContent::notice_plain("B"),
+        .handle_live_event(
+            f.notice("B").sender(*CAROL).event_id(event_id!("$event_with_bob_receipt")),
         )
         .await;
 
@@ -285,20 +282,19 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
     let mut stream = timeline.subscribe().await;
     let room_id = room_id!("!room:localhost");
 
+    let f = EventFactory::new().room(room_id);
+
     timeline
-        .handle_back_paginated_message_event_with_id(
-            *ALICE,
-            room_id,
-            event_id!("$event_a"),
-            RoomMessageEventContent::text_plain("A"),
+        .handle_back_paginated_event(
+            f.text_msg("A").sender(*ALICE).event_id(event_id!("$event_a")).into_raw_timeline(),
         )
         .await;
     timeline
-        .handle_back_paginated_message_event_with_id(
-            *CAROL,
-            room_id,
-            event_id!("$event_with_bob_receipt"),
-            RoomMessageEventContent::notice_plain("B"),
+        .handle_back_paginated_event(
+            f.notice("B")
+                .sender(*CAROL)
+                .event_id(event_id!("$event_with_bob_receipt"))
+                .into_raw_timeline(),
         )
         .await;
 
@@ -312,11 +308,8 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
 
     // Add non-filtered event to show read receipts.
     timeline
-        .handle_back_paginated_message_event_with_id(
-            *CAROL,
-            room_id,
-            event_id!("$event_c"),
-            RoomMessageEventContent::text_plain("C"),
+        .handle_back_paginated_event(
+            f.text_msg("C").sender(*CAROL).event_id(event_id!("$event_c")).into_raw_timeline(),
         )
         .await;
 
@@ -579,11 +572,15 @@ async fn test_clear_read_receipts() {
     let event_a_id = event_id!("$event_a");
     let event_b_id = event_id!("$event_b");
 
+    let f = EventFactory::new();
+
     let timeline = TestTimeline::new()
         .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
 
     let event_a_content = RoomMessageEventContent::text_plain("A");
-    timeline.handle_live_message_event_with_id(*BOB, event_a_id, event_a_content.clone()).await;
+    timeline
+        .handle_live_event(f.event(event_a_content.clone()).sender(*BOB).event_id(event_a_id))
+        .await;
 
     let items = timeline.inner.items().await;
     assert_eq!(items.len(), 2);
@@ -597,16 +594,17 @@ async fn test_clear_read_receipts() {
     timeline.inner.clear().await;
 
     // New message via sync.
-    timeline
-        .handle_live_message_event_with_id(
-            *BOB,
-            event_b_id,
-            RoomMessageEventContent::text_plain("B"),
-        )
-        .await;
+    timeline.handle_live_event(f.text_msg("B").sender(*BOB).event_id(event_b_id)).await;
+
     // Old message via back-pagination.
     timeline
-        .handle_back_paginated_message_event_with_id(*BOB, room_id, event_a_id, event_a_content)
+        .handle_back_paginated_event(
+            f.event(event_a_content)
+                .sender(*BOB)
+                .room(room_id)
+                .event_id(event_a_id)
+                .into_raw_timeline(),
+        )
         .await;
 
     let items = timeline.inner.items().await;

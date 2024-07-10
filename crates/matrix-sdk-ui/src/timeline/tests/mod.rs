@@ -37,17 +37,16 @@ use ruma::{
     events::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::Annotation,
-        AnyMessageLikeEventContent, AnySyncTimelineEvent, AnyTimelineEvent, EmptyStateKey,
-        MessageLikeEventContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
-        StaticStateEventContent,
+        AnyMessageLikeEventContent, AnyTimelineEvent, EmptyStateKey, MessageLikeEventContent,
+        RedactedMessageLikeEventContent, RedactedStateEventContent, StaticStateEventContent,
     },
     int,
     power_levels::NotificationPowerLevels,
     push::{PushConditionPowerLevelsCtx, PushConditionRoomCtx, Ruleset},
     room_id,
     serde::Raw,
-    server_name, uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId,
-    OwnedUserId, RoomId, RoomVersionId, TransactionId, UInt, UserId,
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    RoomVersionId, TransactionId, UInt, UserId,
 };
 
 use super::{
@@ -145,18 +144,6 @@ impl TestTimeline {
         self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
-    async fn handle_live_message_event_with_id<C>(
-        &self,
-        sender: &UserId,
-        event_id: &EventId,
-        content: C,
-    ) where
-        C: MessageLikeEventContent,
-    {
-        let ev = self.event_builder.make_sync_message_event_with_id(sender, event_id, content);
-        self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
-    }
-
     async fn handle_live_redacted_message_event<C>(&self, sender: &UserId, content: C)
     where
         C: RedactedMessageLikeEventContent,
@@ -212,25 +199,9 @@ impl TestTimeline {
         self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
     }
 
-    async fn handle_live_custom_event(&self, event: Raw<AnySyncTimelineEvent>) {
-        self.handle_live_event(event).await;
-    }
-
-    async fn handle_live_redaction(&self, sender: &UserId, redacts: &EventId) {
-        let ev = self.event_builder.make_redaction_event(sender, redacts);
-        self.handle_live_event(ev).await;
-    }
-
-    async fn handle_live_reaction(&self, sender: &UserId, annotation: &Annotation) -> OwnedEventId {
-        let event_id = EventId::new(server_name!("dummy.server"));
-        let ev = self.event_builder.make_reaction_event(sender, &event_id, annotation);
-        self.handle_live_event(ev).await;
-        event_id
-    }
-
-    async fn handle_live_event(&self, event: Raw<AnySyncTimelineEvent>) {
-        let event = SyncTimelineEvent::new(event);
-        self.inner.handle_live_event(event).await
+    async fn handle_live_event(&self, event: impl Into<SyncTimelineEvent>) {
+        let event = event.into();
+        self.inner.add_events_at(vec![event], TimelineEnd::Back, RemoteEventOrigin::Sync).await;
     }
 
     async fn handle_local_event(&self, content: AnyMessageLikeEventContent) -> OwnedTransactionId {
@@ -257,20 +228,7 @@ impl TestTimeline {
         txn_id
     }
 
-    async fn handle_back_paginated_message_event_with_id<C>(
-        &self,
-        sender: &UserId,
-        room_id: &RoomId,
-        event_id: &EventId,
-        content: C,
-    ) where
-        C: MessageLikeEventContent,
-    {
-        let ev = self.event_builder.make_message_event_with_id(sender, room_id, event_id, content);
-        self.handle_back_paginated_custom_event(ev).await;
-    }
-
-    async fn handle_back_paginated_custom_event(&self, event: Raw<AnyTimelineEvent>) {
+    async fn handle_back_paginated_event(&self, event: Raw<AnyTimelineEvent>) {
         let timeline_event = TimelineEvent::new(event.cast());
         self.inner
             .add_events_at(vec![timeline_event], TimelineEnd::Front, RemoteEventOrigin::Pagination)

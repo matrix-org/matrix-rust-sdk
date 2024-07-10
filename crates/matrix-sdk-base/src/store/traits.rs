@@ -22,8 +22,9 @@ use std::{
 use as_variant::as_variant;
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
-use matrix_sdk_common::AsyncTraitDeps;
+use matrix_sdk_common::{instant, AsyncTraitDeps};
 use ruma::{
+    api::MatrixVersion,
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -908,11 +909,60 @@ where
     }
 }
 
+/// Server capabilities returned by the /client/versions endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ServerCapabilities {
+    /// Versions supported by the remote server.
+    ///
+    /// This contains [`MatrixVersion`]s converted to strings.
+    pub versions: Vec<String>,
+
+    /// List of unstable features and their enablement status.
+    pub unstable_features: BTreeMap<String, bool>,
+
+    /// Last time we fetched this data from the server, in milliseconds since
+    /// epoch.
+    last_fetch_ts: f64,
+}
+
+impl ServerCapabilities {
+    /// The number of milliseconds after which the data is considered stale.
+    pub const STALE_THRESHOLD: f64 = (1000 * 60 * 60 * 24 * 7) as _; // seven days
+
+    /// Encode server capabilities into this serializable struct.
+    pub fn new(versions: &[MatrixVersion], unstable_features: BTreeMap<String, bool>) -> Self {
+        Self {
+            versions: versions.iter().map(|item| item.to_string()).collect(),
+            unstable_features,
+            last_fetch_ts: instant::now(),
+        }
+    }
+
+    /// Decode server capabilities from this serializable struct.
+    ///
+    /// May return `None` if the data is considered stale, after
+    /// [`Self::STALE_THRESHOLD`] milliseconds since the last time we stored
+    /// it.
+    pub fn maybe_decode(&self) -> Option<(Vec<MatrixVersion>, BTreeMap<String, bool>)> {
+        if instant::now() - self.last_fetch_ts >= Self::STALE_THRESHOLD {
+            None
+        } else {
+            Some((
+                self.versions.iter().filter_map(|item| item.parse().ok()).collect(),
+                self.unstable_features.clone(),
+            ))
+        }
+    }
+}
+
 /// A value for key-value data that should be persisted into the store.
 #[derive(Debug, Clone)]
 pub enum StateStoreDataValue {
     /// The sync token.
     SyncToken(String),
+
+    /// The server capabilities.
+    ServerCapabilities(ServerCapabilities),
 
     /// A filter with the given ID.
     Filter(String),
@@ -993,6 +1043,11 @@ impl StateStoreDataValue {
     pub fn into_composer_draft(self) -> Option<ComposerDraft> {
         as_variant!(self, Self::ComposerDraft)
     }
+
+    /// Get this value if it is the server capabilities metadata.
+    pub fn into_server_capabilities(self) -> Option<ServerCapabilities> {
+        as_variant!(self, Self::ServerCapabilities)
+    }
 }
 
 /// A key for key-value data.
@@ -1000,6 +1055,9 @@ impl StateStoreDataValue {
 pub enum StateStoreDataKey<'a> {
     /// The sync token.
     SyncToken,
+
+    /// The server capabilities,
+    ServerCapabilities,
 
     /// A filter with the given name.
     Filter(&'a str),
@@ -1024,6 +1082,9 @@ pub enum StateStoreDataKey<'a> {
 impl StateStoreDataKey<'_> {
     /// Key to use for the [`SyncToken`][Self::SyncToken] variant.
     pub const SYNC_TOKEN: &'static str = "sync_token";
+    /// Key to use for the [`ServerCapabilities`][Self::ServerCapabilities]
+    /// variant.
+    pub const SERVER_CAPABILITIES: &'static str = "server_capabilities";
     /// Key prefix to use for the [`Filter`][Self::Filter] variant.
     pub const FILTER: &'static str = "filter";
     /// Key prefix to use for the [`UserAvatarUrl`][Self::UserAvatarUrl]
@@ -1110,5 +1171,28 @@ impl fmt::Debug for QueuedEvent {
             .field("transaction_id", &self.transaction_id)
             .field("is_wedged", &self.is_wedged)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_common::instant;
+
+    use super::ServerCapabilities;
+
+    #[test]
+    fn test_stale_server_capabilities() {
+        let mut caps = ServerCapabilities {
+            versions: Default::default(),
+            unstable_features: Default::default(),
+            last_fetch_ts: instant::now() - ServerCapabilities::STALE_THRESHOLD - 1.0,
+        };
+
+        // Definitely stale.
+        assert!(caps.maybe_decode().is_none());
+
+        // Definitely not stale.
+        caps.last_fetch_ts = instant::now() - 1.0;
+        assert!(caps.maybe_decode().is_some());
     }
 }

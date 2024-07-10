@@ -69,18 +69,40 @@ use crate::{
     MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
 };
 
-/// A summary of changes to room information.
+/// Indicates that a notable update of `RoomInfo` has been applied, and why.
 ///
-/// It also indicates whether this update should update the room list.
+/// A room info notable update is an update that can be interested for other
+/// parts of the code. This mechanism is used in coordination with
+/// [`BaseClient::room_info_notable_update_receiver`][baseclient] (and
+/// `Room::inner` plus `Room::room_info_notable_update_sender`) where `RoomInfo`
+/// can be observed and some of its updates can be spread to listeners.
+///
+/// [baseclient]: crate::BaseClient::room_info_notable_update_receiver
 #[derive(Debug, Clone)]
-pub struct RoomInfoUpdate {
+pub struct RoomInfoNotableUpdate {
     /// The room which was updated.
     pub room_id: OwnedRoomId,
-    /// Whether this event should trigger the room list to update.
-    ///
-    /// If the change is minor or if another action already causes the room list
-    /// to update, this should be false to avoid duplicate updates.
-    pub trigger_room_list_update: bool,
+
+    /// The reason for this update.
+    pub reasons: RoomInfoNotableUpdateReasons,
+}
+
+bitflags! {
+    /// The reason why a [`RoomInfoNotableUpdate`] is emitted.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct RoomInfoNotableUpdateReasons: u8 {
+        /// The recency timestamp of the `Room` has changed.
+        const RECENCY_TIMESTAMP = 0b0000_0001;
+
+        /// The latest event of the `Room` has changed.
+        const LATEST_EVENT = 0b0000_0010;
+    }
+}
+
+impl Default for RoomInfoNotableUpdateReasons {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 /// The underlying room data structure collecting state for joined, left and
@@ -90,7 +112,7 @@ pub struct Room {
     room_id: OwnedRoomId,
     own_user_id: OwnedUserId,
     inner: SharedObservable<RoomInfo>,
-    roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
+    room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     store: Arc<DynStateStore>,
 
     /// The most recent few encrypted events. When the keys come through to
@@ -190,17 +212,17 @@ impl Room {
         store: Arc<DynStateStore>,
         room_id: &RoomId,
         room_state: RoomState,
-        roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
+        room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Self {
         let room_info = RoomInfo::new(room_id, room_state);
-        Self::restore(own_user_id, store, room_info, roominfo_update_sender)
+        Self::restore(own_user_id, store, room_info, room_info_notable_update_sender)
     }
 
     pub(crate) fn restore(
         own_user_id: &UserId,
         store: Arc<DynStateStore>,
         room_info: RoomInfo,
-        roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
+        room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Self {
         Self {
             own_user_id: own_user_id.into(),
@@ -211,7 +233,7 @@ impl Room {
             latest_encrypted_events: Arc::new(SyncRwLock::new(RingBuffer::new(
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
-            roominfo_update_sender,
+            room_info_notable_update_sender,
         }
     }
 
@@ -646,6 +668,7 @@ impl Room {
         latest_event: Box<LatestEvent>,
         index: usize,
         changes: &mut crate::StateChanges,
+        room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
     ) {
         self.latest_encrypted_events.write().unwrap().drain(0..=index);
 
@@ -653,7 +676,13 @@ impl Room {
             .room_infos
             .entry(self.room_id().to_owned())
             .or_insert_with(|| self.clone_info());
+
         room_info.latest_event = Some(latest_event);
+
+        room_info_notable_updates
+            .entry(self.room_id().to_owned())
+            .or_default()
+            .insert(RoomInfoNotableUpdateReasons::LATEST_EVENT);
     }
 
     /// Get the list of users ids that are considered to be joined members of
@@ -755,16 +784,18 @@ impl Room {
     }
 
     /// Update the summary with given RoomInfo.
-    ///
-    /// This also triggers an update for room info observers if
-    /// `trigger_room_list_update` is true.
-    pub fn set_room_info(&self, room_info: RoomInfo, trigger_room_list_update: bool) {
+    pub fn set_room_info(
+        &self,
+        room_info: RoomInfo,
+        room_info_notable_update_reasons: RoomInfoNotableUpdateReasons,
+    ) {
         self.inner.set(room_info);
 
         // Ignore error if no receiver exists.
-        let _ = self
-            .roominfo_update_sender
-            .send(RoomInfoUpdate { room_id: self.room_id.clone(), trigger_room_list_update });
+        let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
+            room_id: self.room_id.clone(),
+            reasons: room_info_notable_update_reasons,
+        });
     }
 
     /// Get the `RoomMember` with the given `user_id`.
@@ -1820,7 +1851,7 @@ mod tests {
         // When the new tag is handled and applied.
         let mut changes = StateChanges::default();
         client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
-        client.apply_changes(&changes, false);
+        client.apply_changes(&changes, Default::default());
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -1839,7 +1870,7 @@ mod tests {
         .unwrap()
         .cast();
         client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
-        client.apply_changes(&changes, false);
+        client.apply_changes(&changes, Default::default());
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -1894,7 +1925,7 @@ mod tests {
         // When the new tag is handled and applied.
         let mut changes = StateChanges::default();
         client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
-        client.apply_changes(&changes, false);
+        client.apply_changes(&changes, Default::default());
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -1913,7 +1944,7 @@ mod tests {
         .unwrap()
         .cast();
         client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
-        client.apply_changes(&changes, false);
+        client.apply_changes(&changes, Default::default());
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2296,9 +2327,14 @@ mod tests {
 
     #[async_test]
     #[cfg(feature = "experimental-sliding-sync")]
-    async fn test_setting_the_latest_event_doesnt_cause_a_room_info_update() {
-        // Given a room,
+    async fn test_setting_the_latest_event_doesnt_cause_a_room_info_notable_update() {
+        use std::collections::BTreeMap;
 
+        use assert_matches::assert_matches;
+
+        use crate::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons};
+
+        // Given a room,
         let client = BaseClient::new();
 
         client
@@ -2322,29 +2358,44 @@ mod tests {
         assert!(room.latest_event().is_none());
 
         // When I set up an observer on the latest_event,
-        let mut room_info_subscriber = room.subscribe_info();
+        let mut room_info_notable_update = client.room_info_notable_update_receiver();
 
         // And I provide a decrypted event to replace the encrypted one,
         let event = make_latest_event("$A");
 
         let mut changes = StateChanges::default();
-        room.on_latest_event_decrypted(event.clone(), 0, &mut changes);
+        let mut room_info_notable_updates = BTreeMap::new();
+        room.on_latest_event_decrypted(
+            event.clone(),
+            0,
+            &mut changes,
+            &mut room_info_notable_updates,
+        );
+
+        assert!(room_info_notable_updates.contains_key(room_id));
 
         // The subscriber isn't notified at this point.
-        assert_pending!(room_info_subscriber);
+        assert!(room_info_notable_update.try_recv().is_err());
 
         // Then updating the room info will store the event,
-        client.apply_changes(&changes, false);
+        client.apply_changes(&changes, room_info_notable_updates);
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
 
         // And wake up the subscriber.
-        assert_ready!(room_info_subscriber);
-        assert_pending!(room_info_subscriber);
+        assert_matches!(
+            room_info_notable_update.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(reasons.contains(RoomInfoNotableUpdateReasons::LATEST_EVENT));
+            }
+        );
     }
 
     #[async_test]
     #[cfg(feature = "experimental-sliding-sync")]
     async fn test_when_we_provide_a_newly_decrypted_event_it_replaces_latest_event() {
+        use std::collections::BTreeMap;
+
         // Given a room with an encrypted event
         let (_store, room) = make_room_test_helper(RoomState::Joined);
         add_encrypted_event(&room, "$A");
@@ -2354,8 +2405,17 @@ mod tests {
         // When I provide a decrypted event to replace the encrypted one
         let event = make_latest_event("$A");
         let mut changes = StateChanges::default();
-        room.on_latest_event_decrypted(event.clone(), 0, &mut changes);
-        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap(), false);
+        let mut room_info_notable_updates = BTreeMap::new();
+        room.on_latest_event_decrypted(
+            event.clone(),
+            0,
+            &mut changes,
+            &mut room_info_notable_updates,
+        );
+        room.set_room_info(
+            changes.room_infos.get(room.room_id()).cloned().unwrap(),
+            room_info_notable_updates.get(room.room_id()).copied().unwrap(),
+        );
 
         // Then is it stored
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
@@ -2364,6 +2424,8 @@ mod tests {
     #[async_test]
     #[cfg(feature = "experimental-sliding-sync")]
     async fn test_when_a_newly_decrypted_event_appears_we_delete_all_older_encrypted_events() {
+        use std::collections::BTreeMap;
+
         // Given a room with some encrypted events and a latest event
         let (_store, room) = make_room_test_helper(RoomState::Joined);
         room.inner.update(|info| info.latest_event = Some(make_latest_event("$A")));
@@ -2376,8 +2438,17 @@ mod tests {
         let new_event = make_latest_event("$1");
         let new_event_index = 1;
         let mut changes = StateChanges::default();
-        room.on_latest_event_decrypted(new_event.clone(), new_event_index, &mut changes);
-        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap(), false);
+        let mut room_info_notable_updates = BTreeMap::new();
+        room.on_latest_event_decrypted(
+            new_event.clone(),
+            new_event_index,
+            &mut changes,
+            &mut room_info_notable_updates,
+        );
+        room.set_room_info(
+            changes.room_infos.get(room.room_id()).cloned().unwrap(),
+            room_info_notable_updates.get(room.room_id()).copied().unwrap(),
+        );
 
         // Then the encrypted events list is shortened to only newer events
         let enc_evs = room.latest_encrypted_events();
@@ -2392,6 +2463,8 @@ mod tests {
     #[async_test]
     #[cfg(feature = "experimental-sliding-sync")]
     async fn test_replacing_the_newest_event_leaves_none_left() {
+        use std::collections::BTreeMap;
+
         // Given a room with some encrypted events
         let (_store, room) = make_room_test_helper(RoomState::Joined);
         add_encrypted_event(&room, "$0");
@@ -2403,8 +2476,17 @@ mod tests {
         let new_event = make_latest_event("$3");
         let new_event_index = 3;
         let mut changes = StateChanges::default();
-        room.on_latest_event_decrypted(new_event, new_event_index, &mut changes);
-        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap(), false);
+        let mut room_info_notable_updates = BTreeMap::new();
+        room.on_latest_event_decrypted(
+            new_event,
+            new_event_index,
+            &mut changes,
+            &mut room_info_notable_updates,
+        );
+        room.set_room_info(
+            changes.room_infos.get(room.room_id()).cloned().unwrap(),
+            room_info_notable_updates.get(room.room_id()).copied().unwrap(),
+        );
 
         // Then the encrypted events list ie empty
         let enc_evs = room.latest_encrypted_events();
