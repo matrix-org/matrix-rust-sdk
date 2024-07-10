@@ -929,16 +929,15 @@ async fn test_delayed_invite_response_and_sent_message_decryption() -> Result<()
     loop {
         let diff = timeout(Duration::from_millis(100), timeline_stream.next())
             .await
-            .expect("Timed out. Neither an UTD or the sent message were found")
+            .expect("Timed out. Neither an UTD nor the sent message were found")
             .unwrap();
         if let VectorDiff::PushFront { value } = diff {
             if let Some(content) = value.as_event().map(|e| e.content()) {
                 if let Some(message) = content.as_message() {
                     if message.body() == "hello world" {
                         return Ok(());
-                    } else {
-                        panic!("Unexpected message event found");
                     }
+                    panic!("Unexpected message event found");
                 } else if content.as_unable_to_decrypt().is_some() {
                     panic!("UTD found!")
                 }
