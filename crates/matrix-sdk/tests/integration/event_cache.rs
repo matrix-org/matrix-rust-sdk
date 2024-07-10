@@ -253,31 +253,6 @@ async fn test_ignored_unignored() {
     assert!(subscriber.is_empty());
 }
 
-macro_rules! non_sync_events {
-    ( @_ $builder:expr, [ ( $room_id:expr , $event_id:literal : $msg:literal ) $(, $( $rest:tt )* )? ] [ $( $accumulator:tt )* ] ) => {
-        non_sync_events!(
-            @_ $builder,
-            [ $( $( $rest )* )? ]
-            [ $( $accumulator )*
-              $builder
-                .text_msg($msg)
-                .sender(user_id!("@a:b.c"))
-                .room($room_id)
-                .event_id(event_id!($event_id))
-                .into_raw_timeline(),
-            ]
-        )
-    };
-
-    ( @_ $builder:expr, [] [ $( $accumulator:tt )* ] ) => {
-        vec![ $( $accumulator )* ]
-    };
-
-    ( $builder:expr, [ $( $all:tt )* ] ) => {
-        non_sync_events!( @_ $builder, [ $( $all )* ] [] )
-    };
-}
-
 /// Puts a mounting point for /messages for a pagination request, matching
 /// against a precise `from` token given as `expected_from`, and returning the
 /// chunk of events and the next token as `end` (if available).
@@ -285,10 +260,10 @@ async fn mock_messages(
     server: &MockServer,
     expected_from: &str,
     next_token: Option<&str>,
-    chunk: Vec<Raw<AnyTimelineEvent>>,
+    chunk: Vec<impl Into<Raw<AnyTimelineEvent>>>,
 ) {
     let response_json = json!({
-        "chunk": chunk,
+        "chunk": chunk.into_iter().map(|item| item.into()).collect::<Vec<_>>(),
         "start": "t392-516_47314_0_7_1_1_1_11444_1",
         "end": next_token,
     });
@@ -315,7 +290,7 @@ async fn test_backpaginate_once() {
     // token,
     let room_id = room_id!("!omelette:fromage.fr");
 
-    let f = EventFactory::new();
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
     let mut sync_builder = SyncResponseBuilder::new();
 
     {
@@ -323,7 +298,7 @@ async fn test_backpaginate_once() {
             JoinedRoomBuilder::new(room_id)
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
-                .add_timeline_event(f.text_msg("heyo").sender(user_id!("@a:b.c")))
+                .add_timeline_event(f.text_msg("heyo"))
                 .set_timeline_prev_batch("prev_batch".to_owned()),
         );
         let response_body = sync_builder.build_json_sync_response();
@@ -354,7 +329,10 @@ async fn test_backpaginate_once() {
             &server,
             "prev_batch",
             None,
-            non_sync_events!(f, [ (room_id, "$2": "world"), (room_id, "$3": "hello") ]),
+            vec![
+                f.text_msg("world").event_id(event_id!("$2")),
+                f.text_msg("hello").event_id(event_id!("$3")),
+            ],
         )
         .await;
 
@@ -390,7 +368,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     // token,
     let room_id = room_id!("!omelette:fromage.fr");
 
-    let f = EventFactory::new();
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
     let mut sync_builder = SyncResponseBuilder::new();
 
     {
@@ -398,7 +376,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
             JoinedRoomBuilder::new(room_id)
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
-                .add_timeline_event(f.text_msg("heyo").sender(user_id!("@a:b.c")))
+                .add_timeline_event(f.text_msg("heyo"))
                 .set_timeline_prev_batch("prev_batch".to_owned()),
         );
         let response_body = sync_builder.build_json_sync_response();
@@ -432,7 +410,10 @@ async fn test_backpaginate_many_times_with_many_iterations() {
         &server,
         "prev_batch",
         Some("prev_batch2"),
-        non_sync_events!(f, [ (room_id, "$2": "world"), (room_id, "$3": "hello") ]),
+        vec![
+            f.text_msg("world").event_id(event_id!("$2")),
+            f.text_msg("hello").event_id(event_id!("$3")),
+        ],
     )
     .await;
 
@@ -441,7 +422,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
         &server,
         "prev_batch2",
         None,
-        non_sync_events!(f, [ (room_id, "$4": "oh well"), ]),
+        vec![f.text_msg("oh well").event_id(event_id!("$4"))],
     )
     .await;
 
@@ -503,7 +484,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     // token,
     let room_id = room_id!("!omelette:fromage.fr");
 
-    let f = EventFactory::new();
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
     let mut sync_builder = SyncResponseBuilder::new();
 
     {
@@ -511,7 +492,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
             JoinedRoomBuilder::new(room_id)
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
-                .add_timeline_event(f.text_msg("heyo").sender(user_id!("@a:b.c")))
+                .add_timeline_event(f.text_msg("heyo"))
                 .set_timeline_prev_batch("prev_batch".to_owned()),
         );
         let response_body = sync_builder.build_json_sync_response();
@@ -545,7 +526,10 @@ async fn test_backpaginate_many_times_with_one_iteration() {
         &server,
         "prev_batch",
         Some("prev_batch2"),
-        non_sync_events!(f, [ (room_id, "$2": "world"), (room_id, "$3": "hello") ]),
+        vec![
+            f.text_msg("world").event_id(event_id!("$2")),
+            f.text_msg("hello").event_id(event_id!("$3")),
+        ],
     )
     .await;
 
@@ -554,7 +538,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
         &server,
         "prev_batch2",
         None,
-        non_sync_events!(f, [ (room_id, "$4": "oh well"), ]),
+        vec![f.text_msg("oh well").event_id(event_id!("$4"))],
     )
     .await;
 
@@ -755,7 +739,7 @@ async fn test_backpaginating_without_token() {
     // token,
     let room_id = room_id!("!omelette:fromage.fr");
 
-    let f = EventFactory::new();
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
     let mut sync_builder = SyncResponseBuilder::new();
 
     {
@@ -779,7 +763,9 @@ async fn test_backpaginating_without_token() {
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "chunk": non_sync_events!(f, [(room_id, "$2": "hi")]),
+            "chunk": vec![
+                f.text_msg("hi").event_id(event_id!("$2")).into_raw_timeline()
+            ],
             "start": "t392-516_47314_0_7_1_1_1_11444_1",
         })))
         .expect(1)
