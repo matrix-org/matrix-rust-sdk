@@ -848,9 +848,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         txn.items.set(idx, new_item);
 
-        // If the edit happened after a day boundary, we might need a day divider.
-        let mut adjuster = DayDividerAdjuster::default();
-        adjuster.run(&mut txn.items, &mut txn.meta);
+        // This doesn't change the original sending time, so there's no need to adjust
+        // day dividers.
 
         txn.commit();
 

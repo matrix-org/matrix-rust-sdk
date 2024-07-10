@@ -29,6 +29,7 @@ use matrix_sdk::{
     deserialized_responses::{SyncTimelineEvent, TimelineEvent},
     event_cache::paginator::{PaginableRoom, PaginatorError},
     room::{EventWithContextResponse, Messages, MessagesOptions},
+    send_queue::RoomSendQueueUpdate,
 };
 use matrix_sdk_base::latest_event::LatestEvent;
 use matrix_sdk_test::{EventBuilder, ALICE, BOB};
@@ -256,6 +257,10 @@ impl TestTimeline {
         result: &ReactionToggleResult,
     ) -> Result<ReactionAction, super::Error> {
         self.inner.resolve_reaction_response(annotation, result).await
+    }
+
+    async fn handle_room_send_queue_update(&self, update: RoomSendQueueUpdate) {
+        self.inner.handle_room_send_queue_update(update).await
     }
 }
 
