@@ -299,7 +299,7 @@ impl<'a, S: FinderCryptoStore> SenderDataFinder<'a, S> {
         }
     }
 
-    /// If sender_device is correctly cross-signed by user_identity, return
+    /// If `sender_device` is correctly cross-signed by `sender_user_identity`, return
     /// user_identity's master key and whether it is verified.
     /// Otherwise, return None.
     async fn master_key_if_device_is_signed_by_user<'i>(
