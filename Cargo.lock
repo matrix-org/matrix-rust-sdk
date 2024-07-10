@@ -531,17 +531,20 @@ name = "benchmarks"
 version = "1.0.0"
 dependencies = [
  "criterion",
+ "futures-util",
  "matrix-sdk",
  "matrix-sdk-base",
  "matrix-sdk-crypto",
  "matrix-sdk-sqlite",
  "matrix-sdk-test",
+ "matrix-sdk-ui",
  "pprof",
  "ruma",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "wiremock",
 ]
 
 [[package]]

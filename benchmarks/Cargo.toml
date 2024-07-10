@@ -9,16 +9,19 @@ publish = false
 
 [dependencies]
 criterion = { version = "0.5.1", features = ["async", "async_tokio", "html_reports"] }
+futures-util = { workspace = true }
 matrix-sdk-base = { workspace = true }
 matrix-sdk-crypto = { workspace = true }
 matrix-sdk-sqlite = { workspace = true, features = ["crypto-store"] }
 matrix-sdk-test = { workspace = true }
 matrix-sdk = { workspace = true, features = ["native-tls", "e2e-encryption", "sqlite"] }
+matrix-sdk-ui = { workspace = true }
 ruma = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3.3.0"
 tokio = { version = "1.24.2", default-features = false, features = ["rt-multi-thread"] }
+wiremock = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pprof = { version = "0.13.0", features = ["flamegraph", "criterion"] }
@@ -33,4 +36,8 @@ harness = false
 
 [[bench]]
 name = "room_bench"
+harness = false
+
+[[bench]]
+name = "room_list_bench"
 harness = false
