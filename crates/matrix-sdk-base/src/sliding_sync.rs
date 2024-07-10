@@ -806,7 +806,7 @@ mod tests {
         rooms::normal::{RoomHero, RoomInfoNotableUpdateReasons},
         store::MemoryStore,
         test_utils::logged_in_base_client,
-        BaseClient, Room, RoomState,
+        BaseClient, Room, RoomInfoNotableUpdate, RoomState,
     };
 
     #[async_test]
@@ -1845,6 +1845,46 @@ mod tests {
                 153u32.into()
             );
         }
+    }
+
+    #[async_test]
+    async fn test_recency_timestamp_can_trigger_a_notable_update_reason() {
+        // Given a logged-in client
+        let client = logged_in_base_client(None).await;
+        let mut room_info_notable_update_stream = client.room_info_notable_update_receiver();
+        let room_id = room_id!("!r:e.uk");
+
+        // When I send sliding sync response containing a room with a recency timestamp.
+        let room = assign!(v4::SlidingSyncRoom::new(), {
+            timestamp: Some(MilliSecondsSinceUnixEpoch(42u32.into())),
+        });
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // Then a room info notable update is NOT received, because it's the first time the room is seen.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::RECENCY_TIMESTAMP));
+            }
+        );
+
+        // When I send sliding sync response containing a room with a recency timestamp.
+        let room = assign!(v4::SlidingSyncRoom::new(), {
+            timestamp: Some(MilliSecondsSinceUnixEpoch(43u32.into())),
+        });
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // Then a room info notable update is received.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::RECENCY_TIMESTAMP));
+            }
+        );
     }
 
     async fn choose_event_to_cache(events: &[SyncTimelineEvent]) -> Option<SyncTimelineEvent> {
