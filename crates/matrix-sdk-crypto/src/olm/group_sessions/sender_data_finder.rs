@@ -341,11 +341,7 @@ impl<'a, S: FinderCryptoStore> SenderDataFinder<'a, S> {
         let own_identity =
             self.own_crypto_store.get_user_identity(self.own_user_id).await.ok()??;
 
-        let ReadOnlyUserIdentities::Own(own_identity) = own_identity else {
-            panic!("The user identity for our own user ID was not an own identity!");
-        };
-
-        Some(own_identity)
+        own_identity.into_own()
     }
 }
 
