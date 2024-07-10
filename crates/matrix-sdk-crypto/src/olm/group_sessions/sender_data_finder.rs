@@ -243,7 +243,7 @@ impl<'a, S: FinderCryptoStore> SenderDataFinder<'a, S> {
         // And is the signature in the device info valid?
         let maybe_master_key_info = self
             .master_key_if_device_is_signed_by_user(&sender_device, &sender_user_identity)
-            .await;
+            .await?;
 
         if let Some((master_key, master_key_verified)) = maybe_master_key_info {
             // Yes: H (cross-signing key matches that used to sign the device info!)
@@ -306,8 +306,8 @@ impl<'a, S: FinderCryptoStore> SenderDataFinder<'a, S> {
         &self,
         sender_device: &'_ ReadOnlyDevice,
         sender_user_identity: &'i ReadOnlyUserIdentities,
-    ) -> Option<(&'i MasterPubkey, bool)> {
-        match sender_user_identity {
+    ) -> OlmResult<Option<(&'i MasterPubkey, bool)>> {
+        Ok(match sender_user_identity {
             ReadOnlyUserIdentities::Own(own_identity) => {
                 if own_identity.is_device_signed(sender_device).is_ok() {
                     Some((own_identity.master_key(), own_identity.is_verified()))
@@ -316,32 +316,34 @@ impl<'a, S: FinderCryptoStore> SenderDataFinder<'a, S> {
                 }
             }
             ReadOnlyUserIdentities::Other(other_identity) => {
-                if other_identity.is_device_signed(sender_device).is_err() {
-                    return None;
-                }
+                if other_identity.is_device_signed(sender_device).is_ok() {
+                    let master_key = other_identity.master_key();
 
-                let master_key = other_identity.master_key();
+                    // Use our own identity to determine whether this other identity is signed
+                    let master_key_verified =
+                        if let Some(own_identity) = self.own_identity().await? {
+                            own_identity.is_identity_signed(other_identity).is_ok()
+                        } else {
+                            // Couldn't get own identity! Assume master_key is not verified.
+                            false
+                        };
 
-                // Use our own identity to determine whether this other identity is signed
-                let master_key_verified = if let Some(own_identity) = self.own_identity().await {
-                    own_identity.is_identity_signed(other_identity).is_ok()
+                    Some((master_key, master_key_verified))
                 } else {
-                    // Couldn't get own identity! Assume master_key is not verified.
-                    false
-                };
-
-                Some((master_key, master_key_verified))
+                    None
+                }
             }
-        }
+        })
     }
 
     /// Return the user identity of the current user, or None if we failed to
     /// find it (which is unexpected)
-    async fn own_identity(&self) -> Option<ReadOnlyOwnUserIdentity> {
-        let own_identity =
-            self.own_crypto_store.get_user_identity(self.own_user_id).await.ok()??;
-
-        own_identity.into_own()
+    async fn own_identity(&self) -> OlmResult<Option<ReadOnlyOwnUserIdentity>> {
+        Ok(self
+            .own_crypto_store
+            .get_user_identity(self.own_user_id)
+            .await?
+            .and_then(|i| i.into_own()))
     }
 }
 
