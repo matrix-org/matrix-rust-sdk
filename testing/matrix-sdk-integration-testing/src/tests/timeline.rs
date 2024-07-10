@@ -321,9 +321,8 @@ async fn test_stale_local_echo_time_abort_edit() {
     }
 
     // Now do a crime: try to edit the local echo.
-    let edit_info = local_echo.edit_info().unwrap();
     let did_edit = timeline
-        .edit(RoomMessageEventContent::text_plain("bonjour").into(), edit_info)
+        .edit(&local_echo, RoomMessageEventContent::text_plain("bonjour").into())
         .await
         .unwrap();
 

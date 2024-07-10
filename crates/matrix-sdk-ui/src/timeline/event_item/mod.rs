@@ -45,7 +45,7 @@ pub(super) use self::{
     local::LocalEventTimelineItem,
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},
 };
-use super::{EditInfo, RepliedToInfo, ReplyContent, UnsupportedEditItem, UnsupportedReplyItem};
+use super::{RepliedToInfo, ReplyContent, UnsupportedReplyItem};
 
 /// An item in the timeline that represents at least one event.
 ///
@@ -458,20 +458,6 @@ impl EventTimelineItem {
             timestamp: self.timestamp(),
             content: reply_content,
         })
-    }
-
-    /// Gives the information needed to edit the event of the item.
-    pub fn edit_info(&self) -> Result<EditInfo, UnsupportedEditItem> {
-        // Steps here should be in sync with [`EventTimelineItem::is_editable`].
-        if !self.is_own() {
-            return Err(UnsupportedEditItem::NotOwnEvent);
-        }
-
-        let TimelineItemContent::Message(original_content) = self.content() else {
-            return Err(UnsupportedEditItem::NotRoomMessage);
-        };
-
-        Ok(EditInfo { id: self.identifier(), original_message: original_content.clone() })
     }
 }
 

@@ -14,6 +14,7 @@
 
 use matrix_sdk::{
     event_cache::{paginator::PaginatorError, EventCacheError},
+    room::edit::EditError,
     send_queue::{RoomSendQueueError, RoomSendQueueStorageError},
 };
 use ruma::OwnedTransactionId;
@@ -70,6 +71,10 @@ pub enum Error {
     /// An error happened while operating the room's send queue.
     #[error(transparent)]
     SendQueueError(#[from] RoomSendQueueError),
+
+    /// An error happened while attempting to edit an event.
+    #[error(transparent)]
+    EditError(#[from] EditError),
 }
 
 #[derive(Error, Debug)]

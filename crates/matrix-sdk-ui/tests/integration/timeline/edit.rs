@@ -227,10 +227,8 @@ async fn test_edit_local_echo() {
         .await;
 
     // Let's edit the local echo.
-    let edit_info = item.edit_info().expect("getting the edit info for the local echo");
-
     let did_edit = timeline
-        .edit(RoomMessageEventContent::text_plain("hello, world").into(), edit_info)
+        .edit(item, RoomMessageEventContent::text_plain("hello, world").into())
         .await
         .unwrap();
 
@@ -312,9 +310,8 @@ async fn test_send_edit() {
         .mount(&server)
         .await;
 
-    let edit_info = hello_world_item.edit_info().unwrap();
     timeline
-        .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), edit_info)
+        .edit(&hello_world_item, RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"))
         .await
         .unwrap();
 
@@ -403,9 +400,8 @@ async fn test_send_reply_edit() {
         .mount(&server)
         .await;
 
-    let edit_info = reply_item.edit_info().unwrap();
     timeline
-        .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), edit_info)
+        .edit(&reply_item, RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"))
         .await
         .unwrap();
 
@@ -563,9 +559,10 @@ async fn test_send_edit_when_timeline_is_clear() {
     assert!(!hello_world_message.is_edited());
     assert!(hello_world_item.is_editable());
 
-    // Clear the timeline to make sure the old item does not need to be
-    // available in it for the edit to work.
-    timeline.clear().await;
+    // Clear the event cache (hence the timeline) to make sure the old item does not
+    // need to be available in it for the edit to work.
+    client.event_cache().add_initial_events(room_id, vec![], None).await.unwrap();
+    yield_now().await;
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     mock_encryption_state(&server, false).await;
@@ -590,10 +587,8 @@ async fn test_send_edit_when_timeline_is_clear() {
         .mount(&server)
         .await;
 
-    let edit_info =
-        timeline.edit_info_from_event_id(hello_world_item.event_id().unwrap()).await.unwrap();
     timeline
-        .edit(RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"), edit_info)
+        .edit(&hello_world_item, RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"))
         .await
         .unwrap();
 

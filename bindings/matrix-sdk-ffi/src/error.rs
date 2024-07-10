@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use matrix_sdk::{
     encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, reqwest,
-    send_queue::RoomSendQueueError, HttpError, IdParseError,
+    room::edit::EditError, send_queue::RoomSendQueueError, HttpError, IdParseError,
     NotificationSettingsError as SdkNotificationSettingsError, StoreError,
 };
 use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
@@ -136,6 +136,12 @@ impl From<EventCacheError> for ClientError {
 
 impl From<RoomSendQueueError> for ClientError {
     fn from(e: RoomSendQueueError) -> Self {
+        Self::new(e)
+    }
+}
+
+impl From<EditError> for ClientError {
+    fn from(e: EditError) -> Self {
         Self::new(e)
     }
 }
