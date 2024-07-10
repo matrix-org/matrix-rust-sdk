@@ -895,7 +895,7 @@ async fn test_delayed_invite_response_and_sent_message_decryption() -> Result<()
         .await?;
 
     let s = sliding_bob.clone();
-    spawn(async move {
+    let sliding_bob_handle = spawn(async move {
         let stream = s.sync();
         pin_mut!(stream);
         while let Some(up) = stream.next().await {
@@ -910,6 +910,8 @@ async fn test_delayed_invite_response_and_sent_message_decryption() -> Result<()
     // Join the room from Bob's client
     let bob_room = bob.get_room(alice_room.room_id()).unwrap();
     bob_room.join().await?;
+
+    sliding_bob_handle.abort();
 
     assert_eq!(alice_room.state(), RoomState::Joined);
     assert!(alice_room.is_encrypted().await.unwrap());
