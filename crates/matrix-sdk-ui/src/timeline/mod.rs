@@ -26,7 +26,7 @@ use matrix_sdk::{
     event_cache::{EventCacheDropHandles, RoomEventCache},
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
-    room::{Receipts, Room},
+    room::{edit::EditedContent, Receipts, Room},
     send_queue::{RoomSendQueueError, SendHandle},
     Client, Result,
 };
@@ -45,8 +45,8 @@ use ruma::{
         relation::Annotation,
         room::{
             message::{
-                AddMentions, ForwardThread, OriginalRoomMessageEvent, ReplacementMetadata,
-                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+                AddMentions, ForwardThread, OriginalRoomMessageEvent, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation,
             },
             redaction::RoomRedactionEventContent,
         },
@@ -54,7 +54,7 @@ use ruma::{
         SyncMessageLikeEvent,
     },
     serde::Raw,
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     RoomVersionId, TransactionId, UserId,
 };
 use thiserror::Error;
@@ -105,27 +105,6 @@ use self::{
     reactions::ReactionToggleResult,
     util::{rfind_event_by_id, rfind_event_item},
 };
-
-/// Information needed to edit an event.
-#[derive(Debug, Clone)]
-pub struct EditInfo {
-    /// The ID of the event that needs editing.
-    id: TimelineEventItemId,
-    /// The original content of the event that needs editing.
-    original_message: Message,
-}
-
-impl EditInfo {
-    /// The ID of the event that needs editing.
-    pub fn id(&self) -> &TimelineEventItemId {
-        &self.id
-    }
-
-    /// The original content of the event that needs editing.
-    pub fn original_message(&self) -> &Message {
-        &self.original_message
-    }
-}
 
 /// Information needed to reply to an event.
 #[derive(Debug, Clone)]
@@ -513,10 +492,10 @@ impl Timeline {
     #[instrument(skip(self, new_content))]
     pub async fn edit(
         &self,
+        item: &EventTimelineItem,
         new_content: RoomMessageEventContentWithoutRelation,
-        edit_info: EditInfo,
-    ) -> Result<bool, RoomSendQueueError> {
-        let event_id = match edit_info.id {
+    ) -> Result<bool, Error> {
+        let event_id = match item.identifier() {
             TimelineEventItemId::TransactionId(txn_id) => {
                 if let Some(item) = self.item_by_transaction_id(&txn_id).await {
                     let Some(handle) = item.as_local().and_then(|item| item.send_handle.clone())
@@ -528,7 +507,11 @@ impl Timeline {
                     // Assume no relations, since it's not been sent yet.
                     let new_content: RoomMessageEventContent = new_content.clone().into();
 
-                    if handle.edit(new_content.into()).await? {
+                    if handle
+                        .edit(new_content.into())
+                        .await
+                        .map_err(RoomSendQueueError::StorageError)?
+                    {
                         return Ok(true);
                     }
                 }
@@ -555,83 +538,12 @@ impl Timeline {
             TimelineEventItemId::EventId(event_id) => event_id,
         };
 
-        let original_content = edit_info.original_message;
-        let replied_to_message =
-            original_content.in_reply_to().and_then(|details| match &details.event {
-                TimelineDetails::Ready(event) => match event.content() {
-                    TimelineItemContent::Message(msg) => Some(OriginalRoomMessageEvent {
-                        content: msg.to_content(),
-                        event_id: event_id.to_owned(),
-                        sender: event.sender.clone(),
-                        // Dummy value, not used by make_replacement
-                        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
-                        room_id: self.room().room_id().to_owned(),
-                        unsigned: Default::default(),
-                    }),
-                    _ => None,
-                },
-                _ => {
-                    warn!("original event is a reply, but we don't have the replied-to event");
-                    None
-                }
-            });
+        let content =
+            self.room().make_edit_event(&event_id, EditedContent::RoomMessage(new_content)).await?;
 
-        let content = new_content.make_replacement(
-            ReplacementMetadata::new(event_id.to_owned(), original_content.mentions.clone()),
-            replied_to_message.as_ref(),
-        );
-
-        self.send(content.into()).await?;
+        self.send(content).await?;
 
         Ok(true)
-    }
-
-    /// Get the information needed to edit the event with the given ID.
-    pub async fn edit_info_from_event_id(
-        &self,
-        event_id: &EventId,
-    ) -> Result<EditInfo, UnsupportedEditItem> {
-        if let Some(timeline_item) = self.item_by_event_id(event_id).await {
-            return timeline_item.edit_info();
-        }
-
-        let event = self.room().event(event_id).await.map_err(|error| {
-            error!("Failed to fetch event with ID {event_id} with error: {error}");
-            UnsupportedEditItem::MissingEvent
-        })?;
-
-        // We need to get the content and we can do that by casting
-        // the event as a `AnySyncTimelineEvent` which is the same as a
-        // `AnyTimelineEvent`, but without the `room_id` field.
-        // The cast is valid because we are just losing track of such field.
-        let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
-        let event = raw_sync_event.deserialize().map_err(|error| {
-            error!("Failed to deserialize event with ID {event_id} with error: {error}");
-            UnsupportedEditItem::FailedToDeserializeEvent
-        })?;
-
-        if event.sender() != self.room().own_user_id() {
-            return Err(UnsupportedEditItem::NotOwnEvent);
-        };
-
-        if let AnySyncTimelineEvent::MessageLike(message_like_event) = &event {
-            if let AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
-                original_message,
-            )) = message_like_event
-            {
-                let message = Message::from_event(
-                    original_message.content.clone(),
-                    message_like_event.relations(),
-                    &self.items().await,
-                );
-                return Ok(EditInfo {
-                    id: TimelineEventItemId::EventId(event_id.to_owned()),
-                    original_message: message,
-                });
-            }
-        }
-
-        Err(UnsupportedEditItem::NotRoomMessage)
     }
 
     pub async fn edit_poll(
