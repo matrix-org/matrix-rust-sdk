@@ -49,7 +49,7 @@ pub fn new_filter(pattern: &str) -> impl Filter {
     move |room| -> bool {
         let Some(room_name) = room.cached_display_name() else { return false };
 
-        searcher.matches(&room_name.to_string())
+        searcher.matches(&room_name)
     }
 }
 

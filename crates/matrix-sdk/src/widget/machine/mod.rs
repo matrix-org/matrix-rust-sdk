@@ -346,7 +346,7 @@ impl WidgetMachine {
         let (request, action) = self.send_matrix_driver_request(request);
         request.then(|mut result, machine| {
             if let Ok(r) = result.as_mut() {
-                r.set_room_id(machine.room_id.clone().to_owned());
+                r.set_room_id(machine.room_id.clone());
             }
             vec![machine.send_from_widget_result_response(raw_request, result)]
         });

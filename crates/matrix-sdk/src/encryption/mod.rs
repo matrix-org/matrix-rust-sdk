@@ -347,7 +347,7 @@ impl Client {
                     thumbnail_source,
                     thumbnail_info
                 });
-                let content = assign!(ImageMessageEventContent::encrypted(body.to_owned(), file), {
+                let content = assign!(ImageMessageEventContent::encrypted(body, file), {
                     info: Some(Box::new(info)),
                     formatted: config.formatted_caption,
                     filename
@@ -355,8 +355,7 @@ impl Client {
                 MessageType::Image(content)
             }
             mime::AUDIO => {
-                let audio_message_event_content =
-                    AudioMessageEventContent::encrypted(body.to_owned(), file);
+                let audio_message_event_content = AudioMessageEventContent::encrypted(body, file);
                 MessageType::Audio(crate::media::update_audio_message_event(
                     audio_message_event_content,
                     content_type,
@@ -369,7 +368,7 @@ impl Client {
                     thumbnail_source,
                     thumbnail_info
                 });
-                let content = assign!(VideoMessageEventContent::encrypted(body.to_owned(), file), {
+                let content = assign!(VideoMessageEventContent::encrypted(body, file), {
                     info: Some(Box::new(info)),
                     formatted: config.formatted_caption,
                     filename
@@ -382,7 +381,7 @@ impl Client {
                     thumbnail_source,
                     thumbnail_info
                 });
-                let content = assign!(FileMessageEventContent::encrypted(body.to_owned(), file), {
+                let content = assign!(FileMessageEventContent::encrypted(body, file), {
                     info: Some(Box::new(info))
                 });
                 MessageType::File(content)

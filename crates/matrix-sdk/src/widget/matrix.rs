@@ -126,7 +126,7 @@ impl MatrixDriver {
             (None, Some(future_event_parameters)) => {
                 let r = future::send_future_message_event::unstable::Request::new_raw(
                     self.room.room_id().to_owned(),
-                    TransactionId::new().to_owned(),
+                    TransactionId::new(),
                     MessageLikeEventType::from(type_str),
                     future_event_parameters,
                     Raw::<AnyMessageLikeEventContent>::from_json(content),

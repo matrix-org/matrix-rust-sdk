@@ -674,7 +674,7 @@ async fn cache_latest_events(
                     ));
 
                     // Store it in the return RoomInfo (it will be saved for us in the room later).
-                    room_info.latest_event = Some(latest_event.clone());
+                    room_info.latest_event = Some(latest_event);
                     // We don't need any of the older encrypted events because we have a new
                     // decrypted one.
                     room.latest_encrypted_events.write().unwrap().clear();
