@@ -601,7 +601,7 @@ async fn send_room_name() {
 }
 
 #[async_test]
-async fn send_future_room_message() {
+async fn send_future_room_message_event() {
     let (_, mock_server, driver_handle) = run_test_driver(false).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc2762.send.event:m.room.message"]))
@@ -654,7 +654,7 @@ async fn send_future_room_message() {
 }
 
 #[async_test]
-async fn send_future_state() {
+async fn send_future_state_event() {
     let (_, mock_server, driver_handle) = run_test_driver(false).await;
 
     negotiate_capabilities(

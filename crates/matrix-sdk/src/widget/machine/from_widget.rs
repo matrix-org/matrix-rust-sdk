@@ -140,20 +140,20 @@ pub(crate) struct SendEventResponse {
     /// The event id of the send event. It's optional because if it's a future
     /// event, it does not get the event_id at this point.
     pub(crate) event_id: Option<OwnedEventId>,
-    /// A token to send/insert the future into the DAG.
+    /// A token to send/insert the future event into the DAG.
     pub(crate) send_token: Option<String>,
-    /// A token to cancel this future event. It will never be seny if this is
+    /// A token to cancel this future event. It will never be sent if this is
     /// called.
     pub(crate) cancel_token: Option<String>,
     /// The `future_group_id` generated for this future event. Used to connect
-    /// multiple future events. Only one of the connected future event will be
+    /// multiple future events. Only one of the connected future events will be
     /// sent and inserted into the DAG.
     pub(crate) future_group_id: Option<String>,
-    /// A token used to refresh the timer of the future. This allows
+    /// A token used to refresh the timer of the future event. This allows
     /// to implement heartbeat-like capabilities. An event is only sent once
     /// a refresh in the timeout interval is missed.
     ///
-    /// If the future does not have a timeout this will be `None`.
+    /// If the future event does not have a timeout this will be `None`.
     pub(crate) refresh_token: Option<String>,
 }
 
