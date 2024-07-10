@@ -66,6 +66,7 @@ pub(super) struct IncomingWidgetMessage {
     pub(super) kind: IncomingWidgetMessageKind,
 }
 
+#[derive(Debug)]
 pub(super) enum IncomingWidgetMessageKind {
     Request(Raw<FromWidgetRequest>),
     Response(ToWidgetResponse),
