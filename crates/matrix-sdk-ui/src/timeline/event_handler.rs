@@ -87,6 +87,8 @@ pub(super) enum Flow {
         raw_event: Raw<AnySyncTimelineEvent>,
         /// Where should this be added in the timeline.
         position: TimelineItemPosition,
+        /// Information about the encryption for this event.
+        encryption_info: Option<EncryptionInfo>,
         /// Should this event actually be added, based on the event filters.
         should_add: bool,
     },
@@ -98,7 +100,6 @@ pub(super) struct TimelineEventContext {
     pub(super) sender_profile: Option<Profile>,
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,
     pub(super) is_own_event: bool,
-    pub(super) encryption_info: Option<EncryptionInfo>,
     pub(super) read_receipts: IndexMap<OwnedUserId, Receipt>,
     pub(super) is_highlighted: bool,
     pub(super) flow: Flow,
@@ -891,7 +892,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
             .into(),
 
-            Flow::Remote { event_id, raw_event, position, txn_id, .. } => {
+            Flow::Remote { event_id, raw_event, position, txn_id, encryption_info, .. } => {
                 // Drop pending reactions if the message is redacted.
                 if let TimelineItemContent::RedactedMessage = content {
                     if !reactions.is_empty() {
@@ -921,7 +922,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     read_receipts: self.ctx.read_receipts.clone(),
                     is_own: self.ctx.is_own_event,
                     is_highlighted: self.ctx.is_highlighted,
-                    encryption_info: self.ctx.encryption_info.clone(),
+                    encryption_info: encryption_info.clone(),
                     original_json: Some(raw_event.clone()),
                     latest_edit_json: None,
                     origin,
