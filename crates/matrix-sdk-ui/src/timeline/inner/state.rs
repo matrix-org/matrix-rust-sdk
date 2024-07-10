@@ -876,7 +876,11 @@ impl TimelineInnerMetadata {
 
             (Some(from), Some(to)) => {
                 if from >= to {
-                    // The read marker can't move backwards. Keep the current one.
+                    // The read marker can't move backwards.
+                    if from + 1 == items.len() {
+                        // The read marker has nothing after it. An item disappeared; remove it.
+                        items.remove(from);
+                    }
                     self.has_up_to_date_read_marker_item = true;
                     return;
                 }
