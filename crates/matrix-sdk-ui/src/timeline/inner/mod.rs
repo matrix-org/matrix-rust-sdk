@@ -609,7 +609,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             if let Some(fully_read_event_id) =
                 self.room_data_provider.load_fully_read_marker().await
             {
-                state.set_fully_read_event(fully_read_event_id);
+                state.handle_fully_read_marker(fully_read_event_id);
             }
         }
     }
@@ -855,11 +855,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         debug!("Replaced local echo");
         true
-    }
-
-    #[cfg(test)]
-    pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
-        self.state.write().await.set_fully_read_event(fully_read_event_id);
     }
 
     #[cfg(feature = "e2e-encryption")]
