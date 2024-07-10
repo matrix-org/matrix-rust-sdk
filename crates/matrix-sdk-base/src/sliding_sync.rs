@@ -1866,7 +1866,8 @@ mod tests {
         let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
-        // Then a room info notable update is NOT received, because it's the first time the room is seen.
+        // Then a room info notable update is NOT received, because it's the first time
+        // the room is seen.
         assert_matches!(
             room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
@@ -1913,7 +1914,8 @@ mod tests {
             }
         );
 
-        // When I send sliding sync response containing a couple of events with no read receipt.
+        // When I send sliding sync response containing a couple of events with no read
+        // receipt.
         let room_id = room_id!("!r:e.uk");
         let events = vec![
             make_raw_event("m.room.message", "$3"),
