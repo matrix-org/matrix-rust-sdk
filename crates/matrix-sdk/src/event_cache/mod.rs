@@ -56,7 +56,7 @@ use matrix_sdk_common::executor::{spawn, JoinHandle};
 use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
     serde::Raw,
-    OwnedEventId, OwnedRoomId, RoomId,
+    EventId, OwnedEventId, OwnedRoomId, RoomId,
 };
 use tokio::sync::{
     broadcast::{error::RecvError, Receiver, Sender},
@@ -194,6 +194,23 @@ impl EventCache {
         });
 
         Ok(())
+    }
+
+    /// Try to find an event by its ID in all the rooms.
+    // NOTE: this does a linear scan, so it could be slow. If performance
+    // requires it, we could use a direct mapping of event id -> event, and keep it
+    // in memory until we store it on disk (and this becomes a SQL query by id).
+    pub async fn event(&self, event_id: &EventId) -> Option<SyncTimelineEvent> {
+        let by_room = self.inner.by_room.read().await;
+        for room in by_room.values() {
+            let events = room.inner.events.read().await;
+            for (_pos, event) in events.revents() {
+                if event.event_id().as_deref() == Some(event_id) {
+                    return Some(event.clone());
+                }
+            }
+        }
+        None
     }
 
     #[instrument(skip_all)]
@@ -759,13 +776,13 @@ pub enum EventsOrigin {
 mod tests {
     use assert_matches2::assert_matches;
     use futures_util::FutureExt as _;
-    use matrix_sdk_base::sync::JoinedRoomUpdate;
+    use matrix_sdk_base::sync::{JoinedRoomUpdate, RoomUpdates, Timeline};
     use matrix_sdk_test::async_test;
-    use ruma::{room_id, serde::Raw};
+    use ruma::{event_id, room_id, serde::Raw, user_id};
     use serde_json::json;
 
     use super::{EventCacheError, RoomEventCacheUpdate};
-    use crate::test_utils::logged_in_client;
+    use crate::test_utils::{assert_event_matches_msg, events::EventFactory, logged_in_client};
 
     #[async_test]
     async fn test_must_explicitly_subscribe() {
@@ -827,5 +844,61 @@ mod tests {
         );
 
         assert!(stream.recv().now_or_never().is_none());
+    }
+
+    #[async_test]
+    async fn test_get_event_by_id() {
+        let client = logged_in_client(None).await;
+        let room1 = room_id!("!galette:saucisse.bzh");
+        let room2 = room_id!("!crepe:saucisse.bzh");
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        // Insert two rooms with a few events.
+        let f = EventFactory::new().room(room1).sender(user_id!("@ben:saucisse.bzh"));
+
+        let eid1 = event_id!("$1");
+        let eid2 = event_id!("$2");
+        let eid3 = event_id!("$3");
+
+        let joined_room_update1 = JoinedRoomUpdate {
+            timeline: Timeline {
+                events: vec![
+                    f.text_msg("hey").event_id(eid1).into(),
+                    f.text_msg("you").event_id(eid2).into(),
+                ],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let joined_room_update2 = JoinedRoomUpdate {
+            timeline: Timeline {
+                events: vec![f.text_msg("bjr").event_id(eid3).into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let mut updates = RoomUpdates::default();
+        updates.join.insert(room1.to_owned(), joined_room_update1);
+        updates.join.insert(room2.to_owned(), joined_room_update2);
+
+        // Have the event cache handle them.
+        event_cache.inner.handle_room_updates(updates).await.unwrap();
+
+        // Now retrieve all the events one by one.
+        let found1 = event_cache.event(eid1).await.unwrap();
+        assert_event_matches_msg(&found1, "hey");
+
+        let found2 = event_cache.event(eid2).await.unwrap();
+        assert_event_matches_msg(&found2, "you");
+
+        let found3 = event_cache.event(eid3).await.unwrap();
+        assert_event_matches_msg(&found3, "bjr");
+
+        // An unknown event won't be found.
+        assert!(event_cache.event(event_id!("$unknown")).await.is_none());
     }
 }
