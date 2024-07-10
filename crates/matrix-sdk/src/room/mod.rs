@@ -108,6 +108,7 @@ use crate::{
     BaseRoom, Client, Error, HttpResult, Result, RoomState, TransmissionProgress,
 };
 
+pub mod edit;
 pub mod futures;
 mod member;
 mod messages;
