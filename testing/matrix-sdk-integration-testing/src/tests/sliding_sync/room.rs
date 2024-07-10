@@ -881,38 +881,16 @@ async fn test_delayed_invite_response_and_sent_message_decryption() -> Result<()
         .send(RoomMessageEventContent::text_plain("dummy message to make members call"))
         .await?;
 
-    // Set up sliding sync for bob.
-    let sliding_bob = bob
-        .sliding_sync("main")?
-        .with_all_extensions()
-        .poll_timeout(Duration::from_secs(2))
-        .network_timeout(Duration::from_secs(2))
-        .add_list(
-            SlidingSyncList::builder("all")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
-        )
-        .build()
-        .await?;
-
-    let s = sliding_bob.clone();
-    let sliding_bob_handle = spawn(async move {
-        let stream = s.sync();
-        pin_mut!(stream);
-        while let Some(up) = stream.next().await {
-            warn!("bob received update: {up:?}");
-        }
-    });
-
     // Send the invite to Bob and a message to reproduce the edge case
     alice_room.invite_user_by_id(bob.user_id().unwrap()).await.unwrap();
     alice_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
 
     // Wait until Bob receives the invite
-    let bob_room_stream = bob.sync_stream(SyncSettings::new()).await;
-    pin_mut!(bob_room_stream);
+    let bob_sync_stream = bob.sync_stream(SyncSettings::new()).await;
+    pin_mut!(bob_sync_stream);
 
     while let Some(Ok(response)) =
-        timeout(Duration::from_secs(3), bob_room_stream.next()).await.expect("Room sync timed out")
+        timeout(Duration::from_secs(3), bob_sync_stream.next()).await.expect("Room sync timed out")
     {
         if response.rooms.invite.contains_key(alice_room.room_id()) {
             break;
@@ -922,8 +900,6 @@ async fn test_delayed_invite_response_and_sent_message_decryption() -> Result<()
     // Join the room from Bob's client
     let bob_room = bob.get_room(alice_room.room_id()).unwrap();
     bob_room.join().await?;
-
-    sliding_bob_handle.abort();
 
     assert_eq!(alice_room.state(), RoomState::Joined);
     assert!(alice_room.is_encrypted().await.unwrap());
