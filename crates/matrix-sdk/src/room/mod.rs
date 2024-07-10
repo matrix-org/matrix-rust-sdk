@@ -1229,6 +1229,11 @@ impl Room {
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request, None).await?;
 
+        // Force a future room members reload before sending any event to prevent UTDs
+        // that can happen when some event is sent after a room member has been invited
+        // but before the /sync request could fetch the membership change event.
+        self.mark_members_missing();
+
         Ok(())
     }
 
@@ -1242,6 +1247,11 @@ impl Room {
         let recipient = InvitationRecipient::ThirdPartyId(invite_id);
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request, None).await?;
+
+        // Force a future room members reload before sending any event to prevent UTDs
+        // that can happen when some event is sent after a room member has been invited
+        // but before the /sync request could fetch the membership change event.
+        self.mark_members_missing();
 
         Ok(())
     }
