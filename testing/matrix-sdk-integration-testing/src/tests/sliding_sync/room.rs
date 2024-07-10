@@ -907,6 +907,18 @@ async fn test_delayed_invite_response_and_sent_message_decryption() -> Result<()
     alice_room.invite_user_by_id(bob.user_id().unwrap()).await.unwrap();
     alice_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
 
+    // Wait until Bob receives the invite
+    let bob_room_stream = bob.sync_stream(SyncSettings::new()).await;
+    pin_mut!(bob_room_stream);
+
+    while let Some(Ok(response)) =
+        timeout(Duration::from_secs(3), bob_room_stream.next()).await.expect("Room sync timed out")
+    {
+        if response.rooms.invite.contains_key(alice_room.room_id()) {
+            break;
+        }
+    }
+
     // Join the room from Bob's client
     let bob_room = bob.get_room(alice_room.room_id()).unwrap();
     bob_room.join().await?;
