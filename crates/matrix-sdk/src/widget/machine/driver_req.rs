@@ -219,9 +219,9 @@ pub(crate) struct SendEventRequest {
     pub(crate) state_key: Option<String>,
     /// Raw content of an event.
     pub(crate) content: Box<RawJsonValue>,
-    /// Additional send event parameters to send a future
+    /// Additional send event parameters to send a future event.  
     #[serde(flatten)]
-    pub(crate) future_parameters: Option<FutureParameters>,
+    pub(crate) future_event_parameters: Option<FutureParameters>,
 }
 
 impl From<SendEventRequest> for MatrixDriverRequestData {

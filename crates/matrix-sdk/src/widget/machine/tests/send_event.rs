@@ -10,7 +10,7 @@ use crate::widget::machine::{
 };
 
 #[test]
-fn parse_future_action() {
+fn parse_future_event_widget_action() {
     let raw = json_string!({
         "api": "fromWidget",
         "widgetId": WIDGET_ID,
@@ -33,7 +33,7 @@ fn parse_future_action() {
     );
     assert_let!(
         FutureParameters::Timeout { timeout, group_id } =
-            send_event_request.future_parameters.unwrap()
+            send_event_request.future_event_parameters.unwrap()
     );
 
     assert_eq!(timeout, Duration::from_millis(10000));

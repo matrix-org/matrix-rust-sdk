@@ -225,10 +225,14 @@ impl<T: CapabilitiesProvider> ProcessingContext<T> {
                         .map_err(|e| e.to_string()),
 
                     MatrixDriverRequestData::SendMatrixEvent(req) => {
-                        let SendEventRequest { event_type, state_key, content, future_parameters } =
-                            req;
+                        let SendEventRequest {
+                            event_type,
+                            state_key,
+                            content,
+                            future_event_parameters,
+                        } = req;
                         self.matrix_driver
-                            .send(event_type, state_key, content, future_parameters)
+                            .send(event_type, state_key, content, future_event_parameters)
                             .await
                             .map(MatrixDriverResponse::MatrixEventSent)
                             .map_err(|e| e.to_string())
