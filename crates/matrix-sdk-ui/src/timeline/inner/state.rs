@@ -347,12 +347,6 @@ impl TimelineInnerState {
         Ok(())
     }
 
-    pub(super) fn set_fully_read_event(&mut self, fully_read_event_id: OwnedEventId) {
-        let mut txn = self.transaction();
-        txn.set_fully_read_event(fully_read_event_id);
-        txn.commit();
-    }
-
     #[cfg(test)]
     pub(super) fn handle_read_receipts(
         &mut self,
