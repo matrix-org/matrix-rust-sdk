@@ -842,7 +842,7 @@ pub(crate) mod tests {
         )
         .unwrap();
 
-        let mut master_key_updated_signature = master_key.clone();
+        let mut master_key_updated_signature = master_key;
         master_key_updated_signature.signatures = Signatures::new();
 
         let updated_identity = ReadOnlyOwnUserIdentity::new(

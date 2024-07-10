@@ -535,8 +535,7 @@ impl Oidc {
 
         // The format of the credentials changes according to the client metadata that
         // was sent. Public clients only get a client ID.
-        let credentials =
-            ClientCredentials::None { client_id: registration_response.client_id.clone() };
+        let credentials = ClientCredentials::None { client_id: registration_response.client_id };
         self.restore_registered_client(issuer, client_metadata, credentials);
 
         tracing::info!("Persisting OIDC registration data.");

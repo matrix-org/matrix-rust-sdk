@@ -178,10 +178,7 @@ impl EstablishedSecureChannel {
             if response == LOGIN_OK_MESSAGE {
                 Ok(ret)
             } else {
-                Err(Error::SecureChannelMessage {
-                    expected: LOGIN_OK_MESSAGE,
-                    received: response.to_owned(),
-                })
+                Err(Error::SecureChannelMessage { expected: LOGIN_OK_MESSAGE, received: response })
             }
         }
     }

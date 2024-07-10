@@ -2023,10 +2023,10 @@ mod tests {
                 // partial overlap).
                 already_limited.to_owned(),
                 SlidingSyncRoom::new(
-                    client.clone(),
+                    client,
                     already_limited.to_owned(),
                     None,
-                    vec![event_a.clone(), event_b.clone(), event_c.clone()],
+                    vec![event_a, event_b, event_c.clone()],
                 ),
             ),
         ]);
@@ -2076,7 +2076,7 @@ mod tests {
                 assign!(v4::SlidingSyncRoom::default(), {
                     initial: Some(true),
                     limited: true,
-                    timeline: vec![event_c.event.clone(), event_d.event.clone()],
+                    timeline: vec![event_c.event, event_d.event],
                 }),
             ),
         ]);
@@ -2248,7 +2248,7 @@ mod tests {
             account_data: assign!(v4::AccountData::default(), {
                 rooms: BTreeMap::from([
                     (
-                        room_id.clone(),
+                        room_id,
                         vec![
                             Raw::from_json_string(
                                 json!({

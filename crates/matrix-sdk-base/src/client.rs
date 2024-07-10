@@ -1413,7 +1413,7 @@ impl BaseClient {
                 events.get(&StateEventType::RoomMember)?.get(user_id.as_str())?.deserialize().ok()
             })
         {
-            member.content.displayname.clone().unwrap_or_else(|| user_id.localpart().to_owned())
+            member.content.displayname.unwrap_or_else(|| user_id.localpart().to_owned())
         } else if let Some(member) = Box::pin(room.get_member(user_id)).await? {
             member.name().to_owned()
         } else {

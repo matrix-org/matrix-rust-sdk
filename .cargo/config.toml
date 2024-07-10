@@ -39,6 +39,7 @@ rustflags = [
     "-Wclippy::str_to_string",
     "-Wclippy::todo",
     "-Wclippy::unused_async",
+    "-Wclippy::redundant_clone",
 ]
 
 [target.'cfg(target_arch = "wasm32")']

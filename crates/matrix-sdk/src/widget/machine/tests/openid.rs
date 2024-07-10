@@ -80,7 +80,7 @@ fn openid_request_handling_works() {
                 request_openid_token::v3::Response::new(
                     "access_token".to_owned(),
                     TokenType::Bearer,
-                    ServerName::parse("example.org").unwrap().to_owned(),
+                    ServerName::parse("example.org").unwrap(),
                     Duration::from_secs(3600),
                 ),
             )),

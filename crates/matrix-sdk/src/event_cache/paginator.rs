@@ -675,7 +675,7 @@ mod tests {
             };
 
             return Ok(Messages {
-                start: opts.from.unwrap().to_owned(),
+                start: opts.from.unwrap(),
                 end,
                 chunk: events,
                 state: Vec::new(),
