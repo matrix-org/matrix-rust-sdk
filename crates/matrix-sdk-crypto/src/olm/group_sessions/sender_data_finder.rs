@@ -241,23 +241,25 @@ impl<'a, S: FinderCryptoStore> SenderDataFinder<'a, S> {
         //
         // Does the cross-signing key match that used to sign the device info?
         // And is the signature in the device info valid?
-        let maybe_msk_info =
-            self.msk_if_device_is_signed_by_user(&sender_device, &sender_user_identity).await;
+        let maybe_master_key_info = self
+            .master_key_if_device_is_signed_by_user(&sender_device, &sender_user_identity)
+            .await;
 
-        if let Some((msk, msk_verified)) = maybe_msk_info {
+        if let Some((master_key, master_key_verified)) = maybe_master_key_info {
             // Yes: H (cross-signing key matches that used to sign the device info!)
             // and: J (device info is verified by matching cross-signing key)
 
             // Find the actual key within the MasterPubkey struct
-            if let Some(msk) = msk.get_first_key() {
-                // We have MXID and MSK for the user sending the to-device message.
-                // Decide the MSK trust level based on whether we have verified this user.
-                // Set the MXID, MSK and trust level in the session. Remove the device
-                // info and retries since we don't need them.
+            if let Some(master_key) = master_key.get_first_key() {
+                // We have MXID and master_key for the user sending the to-device message.
+                // Decide the master_key trust level based on whether we have verified this
+                // user. Set the MXID, master_key and trust level in the
+                // session. Remove the device info and retries since we don't
+                // need them.
                 Ok(SenderData::SenderKnown {
                     user_id: sender_device.user_id().to_owned(),
-                    msk,
-                    msk_verified,
+                    master_key,
+                    master_key_verified,
                 })
                 // TODO: [drop the lock]
             } else {
@@ -266,7 +268,7 @@ impl<'a, S: FinderCryptoStore> SenderDataFinder<'a, S> {
                 //
                 tracing::error!(
                     "MasterPubkey for user {} does not contain any keys!",
-                    msk.user_id()
+                    master_key.user_id()
                 );
 
                 Ok(SenderData::DeviceInfo {
@@ -300,7 +302,7 @@ impl<'a, S: FinderCryptoStore> SenderDataFinder<'a, S> {
     /// If sender_device is correctly cross-signed by user_identity, return
     /// user_identity's master key and whether it is verified.
     /// Otherwise, return None.
-    async fn msk_if_device_is_signed_by_user<'i>(
+    async fn master_key_if_device_is_signed_by_user<'i>(
         &self,
         sender_device: &'_ ReadOnlyDevice,
         sender_user_identity: &'i ReadOnlyUserIdentities,
@@ -318,17 +320,17 @@ impl<'a, S: FinderCryptoStore> SenderDataFinder<'a, S> {
                     return None;
                 }
 
-                let msk = other_identity.master_key();
+                let master_key = other_identity.master_key();
 
                 // Use our own identity to determine whether this other identity is signed
-                let msk_verified = if let Some(own_identity) = self.own_identity().await {
+                let master_key_verified = if let Some(own_identity) = self.own_identity().await {
                     own_identity.is_identity_signed(other_identity).is_ok()
                 } else {
-                    // Couldn't get own identity! Assume msk is not verified.
+                    // Couldn't get own identity! Assume master_key is not verified.
                     false
                 };
 
-                Some((msk, msk_verified))
+                Some((master_key, master_key_verified))
             }
         }
     }
@@ -541,10 +543,12 @@ mod tests {
         let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
 
         // Then we get back the information about the sender
-        assert_let!(SenderData::SenderKnown { user_id, msk, msk_verified } = sender_data);
+        assert_let!(
+            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+        );
         assert_eq!(user_id, account.user_id());
-        assert_eq!(msk, user_identity.master_key().get_first_key().unwrap());
-        assert!(!msk_verified);
+        assert_eq!(master_key, user_identity.master_key().get_first_key().unwrap());
+        assert!(!master_key_verified);
     }
 
     #[async_test]
@@ -573,10 +577,12 @@ mod tests {
         let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
 
         // Then we get back the information about the sender
-        assert_let!(SenderData::SenderKnown { user_id, msk, msk_verified } = sender_data);
+        assert_let!(
+            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+        );
         assert_eq!(user_id, account.user_id());
-        assert_eq!(msk, user_identity.master_key().get_first_key().unwrap());
-        assert!(!msk_verified);
+        assert_eq!(master_key, user_identity.master_key().get_first_key().unwrap());
+        assert!(!master_key_verified);
     }
 
     #[async_test]
@@ -600,10 +606,12 @@ mod tests {
         let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
 
         // Then we get back the information about the sender
-        assert_let!(SenderData::SenderKnown { user_id, msk, msk_verified } = sender_data);
+        assert_let!(
+            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+        );
         assert_eq!(user_id, account.user_id());
-        assert_eq!(msk, user_identity.master_key().get_first_key().unwrap());
-        assert!(!msk_verified);
+        assert_eq!(master_key, user_identity.master_key().get_first_key().unwrap());
+        assert!(!master_key_verified);
     }
 
     #[async_test]
@@ -632,14 +640,16 @@ mod tests {
         let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
 
         // Then we get back the information about the sender
-        assert_let!(SenderData::SenderKnown { user_id, msk, msk_verified } = sender_data);
+        assert_let!(
+            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+        );
         assert_eq!(user_id, account.user_id());
-        assert_eq!(msk, user_identity.master_key().get_first_key().unwrap());
-        assert!(!msk_verified);
+        assert_eq!(master_key, user_identity.master_key().get_first_key().unwrap());
+        assert!(!master_key_verified);
     }
 
     #[async_test]
-    async fn test_marks_msk_as_verified_if_it_is_for_own_identity() {
+    async fn test_marks_master_key_as_verified_if_it_is_for_own_identity() {
         // Given an account and user identity which is verified
         let account = Account::with_device_id(user_id!("@u:s.co"), device_id!("DEVICEID"));
         let private_identity = create_private_identity(&account).await;
@@ -660,15 +670,17 @@ mod tests {
         let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
 
         // Then we get back the information about the sender
-        assert_let!(SenderData::SenderKnown { user_id, msk, msk_verified } = sender_data);
+        assert_let!(
+            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+        );
         assert_eq!(user_id, account.user_id());
-        assert_eq!(msk, user_identity.master_key().get_first_key().unwrap());
+        assert_eq!(master_key, user_identity.master_key().get_first_key().unwrap());
         // Including the fact that it was verified
-        assert!(msk_verified);
+        assert!(master_key_verified);
     }
 
     #[async_test]
-    async fn test_marks_msk_as_verified_if_it_is_for_other_identity() {
+    async fn test_marks_master_key_as_verified_if_it_is_for_other_identity() {
         // Given an account, user identity, and a separate identity to be our own
         let account = Account::with_device_id(user_id!("@u:s.co"), device_id!("DEVICEID"));
         let private_identity = create_private_identity(&account).await;
@@ -703,11 +715,13 @@ mod tests {
         let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
 
         // Then we get back the information about the sender
-        assert_let!(SenderData::SenderKnown { user_id, msk, msk_verified } = sender_data);
+        assert_let!(
+            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+        );
         assert_eq!(user_id, account.user_id());
-        assert_eq!(msk, user_identity.master_key().get_first_key().unwrap());
+        assert_eq!(master_key, user_identity.master_key().get_first_key().unwrap());
         // Including the fact that it was verified
-        assert!(msk_verified);
+        assert!(master_key_verified);
     }
 
     #[async_test]
@@ -728,10 +742,12 @@ mod tests {
         let sender_data = finder.have_device_keys(device.as_device_keys()).await.unwrap();
 
         // Then we get back the information about the sender
-        assert_let!(SenderData::SenderKnown { user_id, msk, msk_verified } = sender_data);
+        assert_let!(
+            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+        );
         assert_eq!(user_id, account.user_id());
-        assert_eq!(msk, user_identity.master_key().get_first_key().unwrap());
-        assert!(!msk_verified);
+        assert_eq!(master_key, user_identity.master_key().get_first_key().unwrap());
+        assert!(!master_key_verified);
     }
 
     async fn create_private_identity(account: &Account) -> PrivateCrossSigningIdentity {
