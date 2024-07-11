@@ -554,35 +554,33 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             if let TimelineItemContent::RedactedMessage = event_item.content() {
                 debug!("Ignoring reaction on redacted event");
                 return;
-            } else {
-                let mut reactions = remote_event_item.reactions.clone();
-                let reaction_group = reactions.entry(c.relates_to.key.clone()).or_default();
-
-                if let Some(txn_id) = old_txn_id {
-                    let id = TimelineEventItemId::TransactionId(txn_id.clone());
-                    // Remove the local echo from the related event.
-                    if reaction_group.0.swap_remove(&id).is_none() {
-                        warn!(
-                            "Received reaction with transaction ID, but didn't \
-                             find matching reaction in the related event's reactions"
-                        );
-                    }
-                }
-                reaction_group.0.insert(
-                    reaction_id.clone(),
-                    ReactionSenderData {
-                        sender_id: self.ctx.sender.clone(),
-                        timestamp: self.ctx.timestamp,
-                    },
-                );
-
-                trace!("Adding reaction");
-                self.items.set(
-                    idx,
-                    event_item.with_inner_kind(remote_event_item.with_reactions(reactions)),
-                );
-                self.result.items_updated += 1;
             }
+
+            let mut reactions = remote_event_item.reactions.clone();
+            let reaction_group = reactions.entry(c.relates_to.key.clone()).or_default();
+
+            if let Some(txn_id) = old_txn_id {
+                let id = TimelineEventItemId::TransactionId(txn_id.clone());
+                // Remove the local echo from the related event.
+                if reaction_group.0.swap_remove(&id).is_none() {
+                    warn!(
+                        "Received reaction with transaction ID, but didn't \
+                             find matching reaction in the related event's reactions"
+                    );
+                }
+            }
+            reaction_group.0.insert(
+                reaction_id.clone(),
+                ReactionSenderData {
+                    sender_id: self.ctx.sender.clone(),
+                    timestamp: self.ctx.timestamp,
+                },
+            );
+
+            trace!("Adding reaction");
+            self.items
+                .set(idx, event_item.with_inner_kind(remote_event_item.with_reactions(reactions)));
+            self.result.items_updated += 1;
         } else {
             trace!("Timeline item not found, adding reaction to the pending list");
             let TimelineEventItemId::EventId(reaction_event_id) = reaction_id.clone() else {
