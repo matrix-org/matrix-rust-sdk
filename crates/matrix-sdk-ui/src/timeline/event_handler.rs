@@ -562,13 +562,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             if let Some(txn_id) = old_txn_id {
                 let id = TimelineEventItemId::TransactionId(txn_id.clone());
                 // Remove the local echo from the related event.
-                if reaction_group.0.swap_remove(&id).is_none() {
-                    warn!(
-                        "Received reaction with transaction ID, but didn't \
-                             find matching reaction in the related event's reactions"
-                    );
-                }
+                reaction_group.0.swap_remove(&id);
             }
+
             reaction_group.0.insert(
                 reaction_id.clone(),
                 ReactionSenderData {
