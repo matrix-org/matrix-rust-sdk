@@ -58,7 +58,7 @@ where
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ToWidgetResponse {
     /// The action from the original request.

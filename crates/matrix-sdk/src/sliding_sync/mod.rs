@@ -120,7 +120,7 @@ pub(super) struct SlidingSyncInner {
     /// The lists of this Sliding Sync instance.
     lists: AsyncRwLock<BTreeMap<String, SlidingSyncList>>,
 
-    /// The rooms details
+    /// All the rooms synced with Sliding Sync.
     rooms: AsyncRwLock<BTreeMap<OwnedRoomId, SlidingSyncRoom>>,
 
     /// Request parameters that are sticky.
@@ -250,18 +250,7 @@ impl SlidingSync {
     ) -> Result<Option<SlidingSyncList>> {
         let _timer = timer!(format!("restoring (loading+processing) list {}", list_builder.name));
 
-        let reloaded_rooms =
-            list_builder.set_cached_and_reload(&self.inner.client, &self.inner.storage_key).await?;
-
-        if !reloaded_rooms.is_empty() {
-            let mut rooms = self.inner.rooms.write().await;
-
-            for (key, frozen) in reloaded_rooms {
-                rooms.entry(key).or_insert_with(|| {
-                    SlidingSyncRoom::from_frozen(frozen, self.inner.client.clone())
-                });
-            }
-        }
+        list_builder.set_cached_and_reload(&self.inner.client, &self.inner.storage_key).await?;
 
         self.add_list(list_builder).await
     }
@@ -432,14 +421,10 @@ impl SlidingSync {
                         let maximum_number_of_rooms: u32 =
                             updates.count.try_into().expect("failed to convert `count` to `u32`");
 
-                        if list.update(
-                            Some(maximum_number_of_rooms),
-                            &updates.ops,
-                            &updated_rooms,
-                        )? {
+                        if list.update(Some(maximum_number_of_rooms))? {
                             updated_lists.push(name.clone());
                         }
-                    } else if list.update(None, &[], &updated_rooms)? {
+                    } else if list.update(None)? {
                         updated_lists.push(name.clone());
                     }
                 }
@@ -900,19 +885,31 @@ pub(super) struct SlidingSyncPositionMarkers {
 }
 
 /// Frozen bits of a Sliding Sync that are stored in the *state* store.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct FrozenSlidingSync {
     /// Deprecated: prefer storing in the crypto store.
     #[serde(skip_serializing_if = "Option::is_none")]
     to_device_since: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     delta_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    rooms: Vec<FrozenSlidingSyncRoom>,
 }
 
 impl FrozenSlidingSync {
-    fn new(position: &SlidingSyncPositionMarkers) -> Self {
+    fn new(
+        position: &SlidingSyncPositionMarkers,
+        rooms: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
+    ) -> Self {
         // The to-device token must be saved in the `FrozenCryptoSlidingSync` now.
-        Self { delta_token: position.delta_token.clone(), to_device_since: None }
+        Self {
+            delta_token: position.delta_token.clone(),
+            to_device_since: None,
+            rooms: rooms
+                .iter()
+                .map(|(_room_id, sliding_sync_room)| FrozenSlidingSyncRoom::from(sliding_sync_room))
+                .collect::<Vec<_>>(),
+        }
     }
 }
 
@@ -1053,18 +1050,13 @@ mod tests {
     };
 
     use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
-    use eyeball_im::VectorDiff;
-    use futures_util::{future::join_all, pin_mut, FutureExt as _, StreamExt};
-    use matrix_sdk_base::RoomState;
+    use futures_util::{future::join_all, pin_mut, StreamExt};
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::{
             error::ErrorKind,
-            sync::sync_events::v4::{
-                self, AccountDataConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
-            },
+            sync::sync_events::v4::{self, ExtensionsConfig, ToDeviceConfig},
         },
         assign, owned_room_id, room_id,
         serde::Raw,
@@ -1072,7 +1064,6 @@ mod tests {
     };
     use serde::Deserialize;
     use serde_json::json;
-    use stream_assert::assert_pending;
     use url::Url;
     use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
@@ -1084,7 +1075,6 @@ mod tests {
     };
     use crate::{
         sliding_sync::cache::restore_sliding_sync_state, test_utils::logged_in_client, Result,
-        RoomListEntry,
     };
 
     #[derive(Copy, Clone)]
@@ -1233,7 +1223,7 @@ mod tests {
         // FrozenSlidingSync doesn't contain the to_device_token anymore, as it's saved
         // in the crypto store since PR #2323.
         let position_guard = sliding_sync.inner.position.lock().await;
-        let frozen = FrozenSlidingSync::new(&position_guard);
+        let frozen = FrozenSlidingSync::new(&position_guard, &Default::default());
         assert!(frozen.to_device_since.is_none());
 
         Ok(())
@@ -2111,7 +2101,7 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_receipt_extension(assign!(ReceiptsConfig::default(), { enabled: Some(true) }))
+            .with_receipt_extension(assign!(v4::ReceiptsConfig::default(), { enabled: Some(true) }))
             .add_list(
                 SlidingSyncList::builder("all")
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=100)),
@@ -2119,20 +2109,20 @@ mod tests {
             .build()
             .await?;
 
-        let list =
-            sliding_sync.on_list("all", |list| ready(list.clone())).await.expect("found list all");
-
+        // Initial state.
         {
-            // Pretend the list knows that one room that will receive the read receipt.
-            list.set_maximum_number_of_rooms(Some(1));
-            list.set_filled_rooms(vec![room.clone()]);
+            let server_response = assign!(v4::Response::new("0".to_owned()), {
+                rooms: BTreeMap::from([(
+                    room.clone(),
+                    v4::SlidingSyncRoom::default(),
+                )])
+            });
+
+            let _summary = {
+                let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+                sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+            };
         }
-
-        let (_, list_stream) = list.room_list_stream();
-
-        pin_mut!(list_stream);
-
-        assert_pending!(list_stream);
 
         let server_response = assign!(v4::Response::new("1".to_owned()), {
             extensions: assign!(v4::Extensions::default(), {
@@ -2168,15 +2158,6 @@ mod tests {
         };
 
         assert!(summary.rooms.contains(&room));
-        assert!(summary.lists.contains(&String::from("all")));
-
-        // The room has had an update in the room list stream too.
-        assert_let!(Some(Some(updates)) = list_stream.next().now_or_never());
-        assert_eq!(updates.len(), 1);
-        assert_let!(
-            VectorDiff::Set { index: 0, value: RoomListEntry::Filled(updated_room) } = &updates[0]
-        );
-        assert_eq!(*updated_room, room);
 
         Ok(())
     }
@@ -2187,14 +2168,13 @@ mod tests {
 
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
-        client.base_client().get_or_create_room(&room_id, RoomState::Joined);
 
         // Setup sliding sync with with one room and one list
 
         let sliding_sync = client
             .sliding_sync("test")?
             .with_account_data_extension(
-                assign!(AccountDataConfig::default(), { enabled: Some(true) }),
+                assign!(v4::AccountDataConfig::default(), { enabled: Some(true) }),
             )
             .add_list(
                 SlidingSyncList::builder("all")
@@ -2203,20 +2183,20 @@ mod tests {
             .build()
             .await?;
 
-        let list =
-            sliding_sync.on_list("all", |list| ready(list.clone())).await.expect("found list all");
-
+        // Initial state.
         {
-            // Pretend the list knows that one room that will receive the account data.
-            list.set_maximum_number_of_rooms(Some(1));
-            list.set_filled_rooms(vec![room_id.clone()]);
+            let server_response = assign!(v4::Response::new("0".to_owned()), {
+                rooms: BTreeMap::from([(
+                    room_id.clone(),
+                    v4::SlidingSyncRoom::default(),
+                )])
+            });
+
+            let _summary = {
+                let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+                sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+            };
         }
-
-        let (_, list_stream) = list.room_list_stream();
-
-        pin_mut!(list_stream);
-
-        assert_pending!(list_stream);
 
         // Simulate a response that only changes the marked unread state of the room to
         // true
@@ -2231,18 +2211,8 @@ mod tests {
         // Check that the list list and entry received the update
 
         assert!(update_summary.rooms.contains(&room_id));
-        assert!(update_summary.lists.contains(&String::from("all")));
 
-        // The room has had an update in the room list stream too.
-        assert_let!(Some(Some(updates)) = list_stream.next().now_or_never());
-        assert_eq!(updates.len(), 1);
-        assert_let!(
-            VectorDiff::Set { index: 0, value: RoomListEntry::Filled(updated_room_id) } =
-                &updates[0]
-        );
-        assert_eq!(*updated_room_id, room_id);
-
-        let room = client.get_room(updated_room_id).unwrap();
+        let room = client.get_room(&room_id).unwrap();
 
         // Check the actual room data, this powers RoomInfo
 
@@ -2255,7 +2225,7 @@ mod tests {
         let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
         sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?;
 
-        let room = client.get_room(updated_room_id).unwrap();
+        let room = client.get_room(&room_id).unwrap();
 
         assert!(!room.is_marked_unread());
 
@@ -2269,13 +2239,7 @@ mod tests {
         add_rooms_section: bool,
     ) -> v4::Response {
         let rooms = if add_rooms_section {
-            BTreeMap::from([(
-                room_id.clone(),
-                assign!(v4::SlidingSyncRoom::default(), {
-                    name: Some("Marked as unread".to_owned()),
-                    timeline: Vec::new(),
-                }),
-            )])
+            BTreeMap::from([(room_id.clone(), v4::SlidingSyncRoom::default())])
         } else {
             BTreeMap::new()
         };
@@ -2310,12 +2274,11 @@ mod tests {
 
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
-        client.base_client().get_or_create_room(&room, RoomState::Joined);
 
         let sliding_sync = client
             .sliding_sync("test")?
             .with_account_data_extension(
-                assign!(AccountDataConfig::default(), { enabled: Some(true) }),
+                assign!(v4::AccountDataConfig::default(), { enabled: Some(true) }),
             )
             .add_list(
                 SlidingSyncList::builder("all")
@@ -2324,20 +2287,20 @@ mod tests {
             .build()
             .await?;
 
-        let list =
-            sliding_sync.on_list("all", |list| ready(list.clone())).await.expect("found list all");
-
+        // Initial state.
         {
-            // Pretend the list knows that one room that will receive the account data.
-            list.set_maximum_number_of_rooms(Some(1));
-            list.set_filled_rooms(vec![room.clone()]);
+            let server_response = assign!(v4::Response::new("0".to_owned()), {
+                rooms: BTreeMap::from([(
+                    room.clone(),
+                    v4::SlidingSyncRoom::default(),
+                )])
+            });
+
+            let _summary = {
+                let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+                sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+            };
         }
-
-        let (_, list_stream) = list.room_list_stream();
-
-        pin_mut!(list_stream);
-
-        assert_pending!(list_stream);
 
         let server_response = assign!(v4::Response::new("1".to_owned()), {
             extensions: assign!(v4::Extensions::default(), {
@@ -2371,15 +2334,6 @@ mod tests {
         };
 
         assert!(summary.rooms.contains(&room));
-        assert!(summary.lists.contains(&String::from("all")));
-
-        // The room has had an update in the room list stream too.
-        assert_let!(Some(Some(updates)) = list_stream.next().now_or_never());
-        assert_eq!(updates.len(), 1);
-        assert_let!(
-            VectorDiff::Set { index: 0, value: RoomListEntry::Filled(updated_room) } = &updates[0]
-        );
-        assert_eq!(*updated_room, room);
 
         Ok(())
     }

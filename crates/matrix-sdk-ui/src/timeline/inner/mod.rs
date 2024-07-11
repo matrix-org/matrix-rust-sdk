@@ -27,7 +27,7 @@ use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent,
     event_cache::{paginator::Paginator, RoomEventCache},
-    send_queue::SendHandle,
+    send_queue::{LocalEcho, RoomSendQueueUpdate, SendHandle},
     Result, Room,
 };
 #[cfg(test)]
@@ -609,7 +609,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             if let Some(fully_read_event_id) =
                 self.room_data_provider.load_fully_read_marker().await
             {
-                state.set_fully_read_event(fully_read_event_id);
+                state.handle_fully_read_marker(fully_read_event_id);
             }
         }
     }
@@ -624,20 +624,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ) {
         let mut state = self.state.write().await;
         state.handle_ephemeral_events(events, &self.room_data_provider).await;
-    }
-
-    #[cfg(test)]
-    pub(super) async fn handle_live_event(&self, event: SyncTimelineEvent) {
-        let mut state = self.state.write().await;
-        state
-            .add_remote_events_at(
-                vec![event],
-                TimelineEnd::Back,
-                RemoteEventOrigin::Sync,
-                &self.room_data_provider,
-                &self.settings,
-            )
-            .await;
     }
 
     /// Creates the local echo for an event we're sending.
@@ -796,7 +782,19 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         if let Some((idx, _)) =
             rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))
         {
-            state.items.remove(idx);
+            let mut txn = state.transaction();
+
+            txn.items.remove(idx);
+
+            // A read marker or a day divider may have been inserted before the local echo.
+            // Ensure both are up to date.
+            let mut adjuster = DayDividerAdjuster::default();
+            adjuster.run(&mut txn.items, &mut txn.meta);
+
+            txn.meta.update_read_marker(&mut txn.items);
+
+            txn.commit();
+
             debug!("Discarded local echo");
             true
         } else {
@@ -820,9 +818,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         };
 
         let mut state = self.state.write().await;
+        let mut txn = state.transaction();
 
         let Some((idx, prev_item)) =
-            rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))
+            rfind_event_item(&txn.items, |it| it.transaction_id() == Some(txn_id))
         else {
             debug!("Can't find local echo to replace");
             return false;
@@ -841,20 +840,21 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         // Replace the local-related state (kind) and the content state.
         let new_item = TimelineItem::new(
             prev_item.with_kind(ti_kind).with_content(
-                TimelineItemContent::message(content, Default::default(), &state.items),
+                TimelineItemContent::message(content, Default::default(), &txn.items),
                 None,
             ),
             prev_item.internal_id.to_owned(),
         );
 
-        state.items.set(idx, new_item);
+        txn.items.set(idx, new_item);
+
+        // This doesn't change the original sending time, so there's no need to adjust
+        // day dividers.
+
+        txn.commit();
+
         debug!("Replaced local echo");
         true
-    }
-
-    #[cfg(test)]
-    pub(super) async fn set_fully_read_event(&self, fully_read_event_id: OwnedEventId) {
-        self.state.write().await.set_fully_read_event(fully_read_event_id);
     }
 
     #[cfg(feature = "e2e-encryption")]
@@ -1126,6 +1126,81 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ) -> Option<OwnedEventId> {
         self.state.read().await.latest_user_read_receipt_timeline_event_id(user_id)
     }
+
+    /// Handle a room send update that's a new local echo.
+    pub(crate) async fn handle_local_echo(&self, echo: LocalEcho) {
+        let content = match echo.serialized_event.deserialize() {
+            Ok(d) => d,
+            Err(err) => {
+                warn!("error deserializing local echo: {err}");
+                return;
+            }
+        };
+
+        self.handle_local_event(
+            echo.transaction_id.clone(),
+            TimelineEventKind::Message { content, relations: Default::default() },
+            Some(echo.send_handle),
+        )
+        .await;
+
+        if echo.is_wedged {
+            self.update_event_send_state(
+                &echo.transaction_id,
+                EventSendState::SendingFailed {
+                    // Put a dummy error in this case, since we're not persisting the errors that
+                    // occurred in previous sessions.
+                    error: Arc::new(matrix_sdk::Error::UnknownError(Box::new(
+                        MissingLocalEchoFailError,
+                    ))),
+                    is_recoverable: false,
+                },
+            )
+            .await;
+        }
+    }
+
+    /// Handle a single room send queue update.
+    pub(crate) async fn handle_room_send_queue_update(&self, update: RoomSendQueueUpdate) {
+        match update {
+            RoomSendQueueUpdate::NewLocalEvent(echo) => {
+                self.handle_local_echo(echo).await;
+            }
+
+            RoomSendQueueUpdate::CancelledLocalEvent { transaction_id } => {
+                if !self.discard_local_echo(&transaction_id).await {
+                    warn!("couldn't find the local echo to discard");
+                }
+            }
+
+            RoomSendQueueUpdate::ReplacedLocalEvent { transaction_id, new_content } => {
+                let content = match new_content.deserialize() {
+                    Ok(d) => d,
+                    Err(err) => {
+                        warn!("error deserializing local echo (upon edit): {err}");
+                        return;
+                    }
+                };
+
+                if !self.replace_local_echo(&transaction_id, content).await {
+                    warn!("couldn't find the local echo to replace");
+                }
+            }
+
+            RoomSendQueueUpdate::SendError { transaction_id, error, is_recoverable } => {
+                self.update_event_send_state(
+                    &transaction_id,
+                    EventSendState::SendingFailed { error, is_recoverable },
+                )
+                .await;
+            }
+
+            RoomSendQueueUpdate::SentEvent { transaction_id, event_id } => {
+                self.update_event_send_state(&transaction_id, EventSendState::Sent { event_id })
+                    .await;
+            }
+        }
+    }
 }
 
 impl TimelineInner {
@@ -1276,6 +1351,10 @@ impl TimelineInner {
         state.meta.all_events.back().map(|event_meta| &event_meta.event_id).cloned()
     }
 }
+
+#[derive(Debug, Error)]
+#[error("local echo failed to send in a previous session")]
+struct MissingLocalEchoFailError;
 
 #[derive(Debug, Default)]
 pub(super) struct HandleManyEventsResult {

@@ -33,10 +33,10 @@ use imbl::Vector;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
-    store::DynStateStore,
+    store::{DynStateStore, ServerCapabilities},
     sync::{Notification, RoomUpdates},
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
-    SyncOutsideWasm,
+    StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
 };
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "e2e-encryption")]
@@ -70,7 +70,7 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
-use tracing::{debug, error, instrument, trace, Instrument, Span};
+use tracing::{debug, error, instrument, trace, warn, Instrument, Span};
 use url::Url;
 
 use self::futures::SendRequest;
@@ -238,11 +238,9 @@ pub(crate) struct ClientInner {
     /// User session data.
     base_client: BaseClient,
 
-    /// The Matrix versions the server supports (well-known ones only)
-    server_versions: OnceCell<Box<[MatrixVersion]>>,
-
-    /// The unstable features and their on/off state on the server
-    unstable_features: OnceCell<BTreeMap<String, bool>>,
+    /// Server capabilities, either prefilled during building or fetched from
+    /// the server.
+    server_capabilities: RwLock<ClientServerCapabilities>,
 
     /// Collection of locks individual client methods might want to use, either
     /// to ensure that only a single call to a method happens at once or to
@@ -309,8 +307,7 @@ impl ClientInner {
         #[cfg(feature = "experimental-sliding-sync")] sliding_sync_proxy: Option<Url>,
         http_client: HttpClient,
         base_client: BaseClient,
-        server_versions: Option<Box<[MatrixVersion]>>,
-        unstable_features: Option<BTreeMap<String, bool>>,
+        server_capabilities: ClientServerCapabilities,
         respect_login_well_known: bool,
         event_cache: OnceCell<EventCache>,
         send_queue: Arc<SendQueueData>,
@@ -324,8 +321,7 @@ impl ClientInner {
             http_client,
             base_client,
             locks: Default::default(),
-            server_versions: OnceCell::new_with(server_versions),
-            unstable_features: OnceCell::new_with(unstable_features),
+            server_capabilities: RwLock::new(server_capabilities),
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
@@ -1430,7 +1426,7 @@ impl Client {
                 config,
                 homeserver,
                 access_token.as_deref(),
-                self.server_versions().await?,
+                &self.server_versions().await?,
                 send_progress,
             )
             .await
@@ -1444,8 +1440,11 @@ impl Client {
             .send(SessionChange::UnknownToken { soft_logout: *soft_logout });
     }
 
-    async fn request_server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
-        let server_versions: Box<[MatrixVersion]> = self
+    /// Fetches server capabilities from network; no caching.
+    async fn fetch_server_capabilities(
+        &self,
+    ) -> HttpResult<(Box<[MatrixVersion]>, BTreeMap<String, bool>)> {
+        let resp = self
             .inner
             .http_client
             .send(
@@ -1456,47 +1455,90 @@ impl Client {
                 &[MatrixVersion::V1_0],
                 Default::default(),
             )
-            .await?
-            .known_versions()
-            .collect();
-
-        if server_versions.is_empty() {
-            Ok(vec![MatrixVersion::V1_0].into())
-        } else {
-            Ok(server_versions)
-        }
-    }
-
-    pub(crate) async fn server_versions(&self) -> HttpResult<&[MatrixVersion]> {
-        let server_versions = self
-            .inner
-            .server_versions
-            .get_or_try_init(|| Box::pin(self.request_server_versions()))
             .await?;
 
-        Ok(server_versions)
+        // Fill both unstable features and server versions at once.
+        let mut versions = resp.known_versions().collect::<Vec<_>>();
+        if versions.is_empty() {
+            versions.push(MatrixVersion::V1_0);
+        }
+
+        Ok((versions.into(), resp.unstable_features))
     }
 
-    /// Fetch unstable_features from homeserver
-    async fn request_unstable_features(&self) -> HttpResult<BTreeMap<String, bool>> {
-        let unstable_features: BTreeMap<String, bool> = self
-            .inner
-            .http_client
-            .send(
-                get_supported_versions::Request::new(),
-                None,
-                self.homeserver().to_string(),
-                None,
-                &[MatrixVersion::V1_0],
-                Default::default(),
-            )
-            .await?
-            .unstable_features;
+    /// Load server capabilities from storage, or fetch them from network and
+    /// cache them.
+    async fn load_or_fetch_server_capabilities(
+        &self,
+    ) -> HttpResult<(Box<[MatrixVersion]>, BTreeMap<String, bool>)> {
+        match self.store().get_kv_data(StateStoreDataKey::ServerCapabilities).await {
+            Ok(Some(stored)) => {
+                if let Some((versions, unstable_features)) =
+                    stored.into_server_capabilities().and_then(|cap| cap.maybe_decode())
+                {
+                    return Ok((versions.into(), unstable_features));
+                }
+            }
+            Ok(None) => {
+                // fallthrough: cache is empty
+            }
+            Err(err) => {
+                warn!("error when loading cached server capabilities: {err}");
+                // fallthrough to network.
+            }
+        }
 
-        Ok(unstable_features)
+        let (versions, unstable_features) = self.fetch_server_capabilities().await?;
+
+        // Attempt to cache the result in storage.
+        {
+            let encoded = ServerCapabilities::new(&versions, unstable_features.clone());
+            if let Err(err) = self
+                .store()
+                .set_kv_data(
+                    StateStoreDataKey::ServerCapabilities,
+                    StateStoreDataValue::ServerCapabilities(encoded),
+                )
+                .await
+            {
+                warn!("error when caching server capabilities: {err}");
+            }
+        }
+
+        Ok((versions, unstable_features))
     }
 
-    /// Get unstable features from `request_unstable_features` or cache
+    async fn get_or_load_and_cache_server_capabilities<
+        T,
+        F: Fn(&ClientServerCapabilities) -> Option<T>,
+    >(
+        &self,
+        f: F,
+    ) -> HttpResult<T> {
+        let caps = &self.inner.server_capabilities;
+        if let Some(val) = f(&*caps.read().await) {
+            return Ok(val);
+        }
+
+        let mut guard = caps.write().await;
+        if let Some(val) = f(&guard) {
+            return Ok(val);
+        }
+
+        let (versions, unstable_features) = self.load_or_fetch_server_capabilities().await?;
+
+        guard.server_versions = Some(versions);
+        guard.unstable_features = Some(unstable_features);
+
+        // SAFETY: both fields were set above, so the function will always return some.
+        Ok(f(&guard).unwrap())
+    }
+
+    pub(crate) async fn server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
+        self.get_or_load_and_cache_server_capabilities(|caps| caps.server_versions.clone()).await
+    }
+
+    /// Get unstable features from by fetching from the server or the cache.
     ///
     /// # Examples
     ///
@@ -1510,14 +1552,23 @@ impl Client {
     /// let msc_x = unstable_features.get("msc_x").unwrap_or(&false);
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn unstable_features(&self) -> HttpResult<&BTreeMap<String, bool>> {
-        let unstable_features = self
-            .inner
-            .unstable_features
-            .get_or_try_init(|| self.request_unstable_features())
-            .await?;
+    pub async fn unstable_features(&self) -> HttpResult<BTreeMap<String, bool>> {
+        self.get_or_load_and_cache_server_capabilities(|caps| caps.unstable_features.clone()).await
+    }
 
-        Ok(unstable_features)
+    /// Empty the server version and unstable features cache.
+    ///
+    /// Since the SDK caches server capabilities (versions and unstable
+    /// features), it's possible to have a stale entry in the cache. This
+    /// functions makes it possible to force reset it.
+    pub async fn reset_server_capabilities(&self) -> Result<()> {
+        // Empty the in-memory caches.
+        let mut guard = self.inner.server_capabilities.write().await;
+        guard.server_versions = None;
+        guard.unstable_features = None;
+
+        // Empty the store cache.
+        Ok(self.store().remove_kv_data(StateStoreDataKey::ServerCapabilities).await?)
     }
 
     /// Check whether MSC 4028 is enabled on the homeserver.
@@ -2126,8 +2177,7 @@ impl Client {
                 sliding_sync_proxy,
                 self.inner.http_client.clone(),
                 self.inner.base_client.clone_with_in_memory_state_store(),
-                self.inner.server_versions.get().cloned(),
-                self.inner.unstable_features.get().cloned(),
+                self.inner.server_capabilities.read().await.clone(),
                 self.inner.respect_login_well_known,
                 self.inner.event_cache.clone(),
                 self.inner.send_queue_data.clone(),
@@ -2195,13 +2245,25 @@ impl WeakClient {
     }
 }
 
+#[derive(Clone)]
+struct ClientServerCapabilities {
+    /// The Matrix versions the server supports (well-known ones only).
+    server_versions: Option<Box<[MatrixVersion]>>,
+
+    /// The unstable features and their on/off state on the server.
+    unstable_features: Option<BTreeMap<String, bool>>,
+}
+
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
     use std::{sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
-    use matrix_sdk_base::RoomState;
+    use matrix_sdk_base::{
+        store::{MemoryStore, StoreConfig},
+        RoomState,
+    };
     use matrix_sdk_test::{
         async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
         DEFAULT_TEST_ROOM_ID,
@@ -2210,8 +2272,8 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use ruma::{
-        events::ignored_user_list::IgnoredUserListEventContent, owned_room_id, room_id, RoomId,
-        UserId,
+        api::MatrixVersion, events::ignored_user_list::IgnoredUserListEventContent, owned_room_id,
+        room_id, RoomId, ServerName, UserId,
     };
     use url::Url;
     use wiremock::{
@@ -2448,10 +2510,10 @@ pub(crate) mod tests {
             )
             .mount(&server)
             .await;
-        let unstable_features = client.request_unstable_features().await.unwrap();
 
+        let unstable_features = client.unstable_features().await.unwrap();
         assert_eq!(unstable_features.get("org.matrix.e2e_cross_signing"), Some(&true));
-        assert_eq!(unstable_features, client.unstable_features().await.unwrap().clone());
+        assert_eq!(unstable_features.get("you.shall.pass"), None);
     }
 
     #[async_test]
@@ -2573,5 +2635,89 @@ pub(crate) mod tests {
             "too many strong references to the client: {}",
             Arc::strong_count(&client.unwrap().inner)
         );
+    }
+
+    #[async_test]
+    async fn test_server_capabilities_caching() {
+        let server = MockServer::start().await;
+        let server_url = server.uri();
+        let domain = server_url.strip_prefix("http://").unwrap();
+        let server_name = <&ServerName>::try_from(domain).unwrap();
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                test_json::WELL_KNOWN.to_string().replace("HOMESERVER_URL", server_url.as_ref()),
+                "application/json",
+            ))
+            .named("well known mock")
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let versions_mock = Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
+            .named("first versions mock")
+            .expect(1)
+            .mount_as_scoped(&server)
+            .await;
+
+        let memory_store = Arc::new(MemoryStore::new());
+        let client = Client::builder()
+            .insecure_server_name_no_tls(server_name)
+            .store_config(StoreConfig::new().state_store(memory_store.clone()))
+            .build()
+            .await
+            .unwrap();
+
+        assert_eq!(client.server_versions().await.unwrap().len(), 1);
+
+        // This second call hits the in-memory cache.
+        assert!(client
+            .server_versions()
+            .await
+            .unwrap()
+            .iter()
+            .any(|version| *version == MatrixVersion::V1_0));
+
+        drop(client);
+
+        let client = Client::builder()
+            .insecure_server_name_no_tls(server_name)
+            .store_config(StoreConfig::new().state_store(memory_store.clone()))
+            .build()
+            .await
+            .unwrap();
+
+        // This third call hits the on-disk cache.
+        assert_eq!(
+            client.unstable_features().await.unwrap().get("org.matrix.e2e_cross_signing"),
+            Some(&true)
+        );
+
+        drop(versions_mock);
+        server.verify().await;
+
+        // Now, reset the cache, and observe the endpoint being called again once.
+        client.reset_server_capabilities().await.unwrap();
+
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
+            .expect(1)
+            .named("second versions mock")
+            .mount(&server)
+            .await;
+
+        // Hits network again.
+        assert_eq!(client.server_versions().await.unwrap().len(), 1);
+        // Hits in-memory cache again.
+        assert!(client
+            .server_versions()
+            .await
+            .unwrap()
+            .iter()
+            .any(|version| *version == MatrixVersion::V1_0));
     }
 }

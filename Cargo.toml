@@ -44,7 +44,7 @@ once_cell = "1.16.0"
 pin-project-lite = "0.2.9"
 rand = "0.8.5"
 reqwest = { version = "0.12.4", default-features = false }
-ruma = { git = "https://github.com/ruma/ruma", rev = "e5a370f7e5fcebb0da6e4945e51c5fafba9aa5f0", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "c37843e9be619ffac8c4d33ad3a6a175cc32610c", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -53,9 +53,10 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "e5a370f7e5fcebb0da6e4945e5
     "compat-encrypted-stickers",
     "unstable-msc3401",
     "unstable-msc3266",
-    "unstable-msc4075"
+    "unstable-msc4075",
+    "unstable-msc4140",
 ] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "e5a370f7e5fcebb0da6e4945e51c5fafba9aa5f0" }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "c37843e9be619ffac8c4d33ad3a6a175cc32610c" }
 serde = "1.0.151"
 serde_html_form = "0.2.0"
 serde_json = "1.0.91"
@@ -67,6 +68,7 @@ tokio = { version = "1.30.0", default-features = false, features = ["sync"] }
 tokio-stream = "0.1.14"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
+tracing-subscriber = "0.3.18"
 uniffi = { version = "0.28.0" }
 uniffi_bindgen = { version = "0.28.0" }
 url = "2.5.0"

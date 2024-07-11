@@ -60,6 +60,11 @@ Deprecations:
 
 Additions:
 
+- Expose new method `OlmMachine::room_keys_withheld_received_stream`, to allow
+  applications to receive notifications about received `m.room_key.withheld`
+  events.
+  ([#3660](https://github.com/matrix-org/matrix-rust-sdk/pull/3660)),
+  ([#3674](https://github.com/matrix-org/matrix-rust-sdk/pull/3674))
 
 - Expose new method `OlmMachine::clear_crypto_cache()`, with FFI bindings
   ([#3462](https://github.com/matrix-org/matrix-rust-sdk/pull/3462))

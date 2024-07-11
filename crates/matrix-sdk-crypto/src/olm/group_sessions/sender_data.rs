@@ -60,13 +60,13 @@ pub enum SenderData {
         user_id: OwnedUserId,
 
         /// The cross-signing key of the user who established this session.
-        msk: Ed25519PublicKey,
+        master_key: Ed25519PublicKey,
 
         /// Whether, at the time we checked the signature on the device,
-        /// we had actively verified that `msk` belongs to the user.
+        /// we had actively verified that `master_key` belongs to the user.
         /// If false, we had simply accepted the key as this user's latest
         /// key.
-        msk_verified: bool,
+        master_key_verified: bool,
     },
 }
 

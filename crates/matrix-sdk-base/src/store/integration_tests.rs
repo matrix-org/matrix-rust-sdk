@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloomBuilder;
 use matrix_sdk_test::test_json;
 use ruma::{
-    api::client::media::get_content_thumbnail::v3::Method,
+    api::{client::media::get_content_thumbnail::v3::Method, MatrixVersion},
     event_id,
     events::{
         presence::PresenceEvent,
@@ -34,7 +34,7 @@ use ruma::{
 };
 use serde_json::{json, value::Value as JsonValue};
 
-use super::DynStateStore;
+use super::{DynStateStore, ServerCapabilities};
 use crate::{
     deserialized_responses::MemberEvent,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
@@ -89,6 +89,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_display_names_saving(&self);
     /// Test operations with the send queue.
     async fn test_send_queue(&self);
+    /// Test saving/restoring server capabilities.
+    async fn test_server_capabilities_saving(&self);
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -568,6 +570,36 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_kv_data(StateStoreDataKey::UserAvatarUrl(user_id)).await,
             Ok(None)
         );
+    }
+
+    async fn test_server_capabilities_saving(&self) {
+        let versions = &[MatrixVersion::V1_1, MatrixVersion::V1_2, MatrixVersion::V1_11];
+        let server_caps = ServerCapabilities::new(
+            versions,
+            [("org.matrix.experimental".to_owned(), true)].into(),
+        );
+
+        self.set_kv_data(
+            StateStoreDataKey::ServerCapabilities,
+            StateStoreDataValue::ServerCapabilities(server_caps.clone()),
+        )
+        .await
+        .unwrap();
+
+        assert_let!(
+            Ok(Some(StateStoreDataValue::ServerCapabilities(stored_caps))) =
+                self.get_kv_data(StateStoreDataKey::ServerCapabilities).await
+        );
+        assert_eq!(stored_caps, server_caps);
+
+        let (stored_versions, stored_features) = stored_caps.maybe_decode().unwrap();
+
+        assert_eq!(stored_versions, versions);
+        assert_eq!(stored_features.len(), 1);
+        assert_eq!(stored_features.get("org.matrix.experimental"), Some(&true));
+
+        self.remove_kv_data(StateStoreDataKey::ServerCapabilities).await.unwrap();
+        assert_matches!(self.get_kv_data(StateStoreDataKey::ServerCapabilities).await, Ok(None));
     }
 
     async fn test_sync_token_saving(&self) {
@@ -1532,6 +1564,12 @@ macro_rules! statestore_integration_tests {
         async fn test_user_avatar_url_saving() {
             let store = get_store().await.unwrap().into_state_store();
             store.test_user_avatar_url_saving().await
+        }
+
+        #[async_test]
+        async fn test_server_capabilities_saving() {
+            let store = get_store().await.unwrap().into_state_store();
+            store.test_server_capabilities_saving().await
         }
 
         #[async_test]

@@ -275,6 +275,11 @@ impl BaseClient {
                 );
 
                 if prev_read_receipts != room_info.read_receipts {
+                    room_info_notable_updates
+                        .entry(room_id.clone())
+                        .or_default()
+                        .insert(RoomInfoNotableUpdateReasons::READ_RECEIPT);
+
                     changes.add_room(room_info);
                 }
             }
@@ -806,7 +811,7 @@ mod tests {
         rooms::normal::{RoomHero, RoomInfoNotableUpdateReasons},
         store::MemoryStore,
         test_utils::logged_in_base_client,
-        BaseClient, Room, RoomState,
+        BaseClient, Room, RoomInfoNotableUpdate, RoomState,
     };
 
     #[async_test]
@@ -1847,6 +1852,92 @@ mod tests {
         }
     }
 
+    #[async_test]
+    async fn test_recency_timestamp_can_trigger_a_notable_update_reason() {
+        // Given a logged-in client
+        let client = logged_in_base_client(None).await;
+        let mut room_info_notable_update_stream = client.room_info_notable_update_receiver();
+        let room_id = room_id!("!r:e.uk");
+
+        // When I send sliding sync response containing a room with a recency timestamp.
+        let room = assign!(v4::SlidingSyncRoom::new(), {
+            timestamp: Some(MilliSecondsSinceUnixEpoch(42u32.into())),
+        });
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // Then a room info notable update is NOT received, because it's the first time
+        // the room is seen.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::RECENCY_TIMESTAMP));
+            }
+        );
+
+        // When I send sliding sync response containing a room with a recency timestamp.
+        let room = assign!(v4::SlidingSyncRoom::new(), {
+            timestamp: Some(MilliSecondsSinceUnixEpoch(43u32.into())),
+        });
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // Then a room info notable update is received.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::RECENCY_TIMESTAMP));
+            }
+        );
+    }
+
+    #[async_test]
+    async fn test_read_receipt_can_trigger_a_notable_update_reason() {
+        // Given a logged-in client
+        let client = logged_in_base_client(None).await;
+        let mut room_info_notable_update_stream = client.room_info_notable_update_receiver();
+
+        // When I send sliding sync response containing a new room.
+        let room_id = room_id!("!r:e.uk");
+        let room = v4::SlidingSyncRoom::new();
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // Then a room info notable update is NOT received.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::READ_RECEIPT));
+            }
+        );
+
+        // When I send sliding sync response containing a couple of events with no read
+        // receipt.
+        let room_id = room_id!("!r:e.uk");
+        let events = vec![
+            make_raw_event("m.room.message", "$3"),
+            make_raw_event("m.room.message", "$4"),
+            make_raw_event("m.read", "$5"),
+        ];
+        let room = assign!(v4::SlidingSyncRoom::new(), {
+            timeline: events,
+        });
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+
+        // Then a room info notable update is received.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::READ_RECEIPT));
+            }
+        );
+    }
+
     async fn choose_event_to_cache(events: &[SyncTimelineEvent]) -> Option<SyncTimelineEvent> {
         let room = make_room();
         let mut room_info = room.clone_info();
@@ -1883,20 +1974,22 @@ mod tests {
         )
     }
 
-    fn make_event(typ: &str, id: &str) -> SyncTimelineEvent {
-        SyncTimelineEvent::new(
-            Raw::from_json_string(
-                json!({
-                    "type": typ,
-                    "event_id": id,
-                    "content": { "msgtype": "m.text", "body": "my msg" },
-                    "sender": "@u:h.uk",
-                    "origin_server_ts": 12344445,
-                })
-                .to_string(),
-            )
-            .unwrap(),
+    fn make_raw_event(typ: &str, id: &str) -> Raw<AnySyncTimelineEvent> {
+        Raw::from_json_string(
+            json!({
+                "type": typ,
+                "event_id": id,
+                "content": { "msgtype": "m.text", "body": "my msg" },
+                "sender": "@u:h.uk",
+                "origin_server_ts": 12344445,
+            })
+            .to_string(),
         )
+        .unwrap()
+    }
+
+    fn make_event(typ: &str, id: &str) -> SyncTimelineEvent {
+        SyncTimelineEvent::new(make_raw_event(typ, id))
     }
 
     fn make_encrypted_event(id: &str) -> SyncTimelineEvent {

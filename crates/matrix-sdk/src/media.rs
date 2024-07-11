@@ -273,8 +273,6 @@ impl Media {
         };
 
         // Use the authenticated endpoints when the server supports Matrix 1.11.
-        // TODO: Add an option in ClientBuilder to force the use of the authenticated
-        // endpoints.
         let use_auth = self.client.server_versions().await?.contains(&MatrixVersion::V1_11);
 
         let content: Vec<u8> = match &request.source {

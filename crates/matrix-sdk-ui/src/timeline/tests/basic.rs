@@ -125,7 +125,7 @@ async fn test_sticker() {
     let mut stream = timeline.subscribe_events().await;
 
     timeline
-        .handle_live_custom_event(sync_timeline_event!({
+        .handle_live_event(sync_timeline_event!({
             "content": {
                 "body": "Happy sticker",
                 "info": {
@@ -291,12 +291,12 @@ async fn test_dedup_pagination() {
     let event = timeline
         .event_builder
         .make_sync_message_event(*ALICE, RoomMessageEventContent::text_plain("o/"));
-    timeline.handle_live_custom_event(event.clone()).await;
+    timeline.handle_live_event(event.clone()).await;
     // This cast is not actually correct, sync events aren't valid
     // back-paginated events, as they are missing `room_id`. However, the
     // timeline doesn't care about that `room_id` and casts back to
     // `Raw<AnySyncTimelineEvent>` before attempting to deserialize.
-    timeline.handle_back_paginated_custom_event(event.cast()).await;
+    timeline.handle_back_paginated_event(event.cast()).await;
 
     let timeline_items = timeline.inner.items().await;
     assert_eq!(timeline_items.len(), 2);
