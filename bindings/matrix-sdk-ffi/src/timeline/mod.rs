@@ -24,6 +24,7 @@ use matrix_sdk::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
         BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
     },
+    deserialized_responses::ShieldState as RustShieldState,
     Error,
 };
 use matrix_sdk_ui::timeline::{
@@ -922,6 +923,30 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
     }
 }
 
+/// Recommended decorations for decrypted messages, representing the message's
+/// authenticity properties.
+#[derive(uniffi::Enum)]
+pub enum ShieldState {
+    /// A red shield with a tooltip containing the associated message should be
+    /// presented.
+    Red { message: String },
+    /// A grey shield with a tooltip containing the associated message should be
+    /// presented.
+    Grey { message: String },
+    /// No shield should be presented.
+    None,
+}
+
+impl From<RustShieldState> for ShieldState {
+    fn from(value: RustShieldState) -> Self {
+        match value {
+            RustShieldState::Red { message } => Self::Red { message: message.to_owned() },
+            RustShieldState::Grey { message } => Self::Grey { message: message.to_owned() },
+            RustShieldState::None => Self::None,
+        }
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct EventTimelineItem(pub(crate) matrix_sdk_ui::timeline::EventTimelineItem);
 
@@ -1007,6 +1032,12 @@ impl EventTimelineItem {
 
     pub fn can_be_replied_to(&self) -> bool {
         self.0.can_be_replied_to()
+    }
+
+    /// Gets the [`ShieldState`] which can be used to decorate messages in the
+    /// recommended way.
+    pub fn get_shield(&self, strict: bool) -> Option<ShieldState> {
+        self.0.get_shield(strict).map(Into::into)
     }
 }
 
