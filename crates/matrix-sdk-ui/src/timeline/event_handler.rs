@@ -597,14 +597,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         if let Flow::Remote { txn_id: Some(txn_id), .. } = &self.ctx.flow {
             let id = TimelineEventItemId::TransactionId(txn_id.clone());
-            // Remove the local echo from the reaction map.
-            if self.meta.reactions.map.remove(&id).is_none() {
-                warn!(
-                    "Received reaction with transaction ID, but didn't \
-                     find matching reaction in reaction_map"
-                );
-            }
+            // Remove the local echo from the reaction map. It could be missing, if the
+            // transaction id refers to a reaction sent times ago, so no need to check its
+            // return value to know if the value was missing or not.
+            self.meta.reactions.map.remove(&id);
         }
+
         let reaction_sender_data = ReactionSenderData {
             sender_id: self.ctx.sender.clone(),
             timestamp: self.ctx.timestamp,
