@@ -10,7 +10,7 @@ test = false
 
 [dependencies]
 anyhow = "1"
-tokio = { version = "1.24.2", features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 # when copy-pasting this, please use a git dependency or make sure that you
