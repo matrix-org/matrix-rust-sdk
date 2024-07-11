@@ -108,11 +108,6 @@ pub enum EventCacheError {
     /// times where we try to use the client.
     #[error("The owning client of the event cache has been dropped.")]
     ClientDropped,
-
-    /// Another error caused by the SDK happened somewhere, and we report it to
-    /// the caller.
-    #[error("SDK error: {0}")]
-    SdkError(#[source] crate::Error),
 }
 
 /// A result using the [`EventCacheError`].
