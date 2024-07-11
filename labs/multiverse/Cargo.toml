@@ -9,7 +9,7 @@ name = "multiverse"
 test = false
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 color-eyre = "0.6.2"
 crossterm = "0.27.0"
 futures-util = { workspace = true }

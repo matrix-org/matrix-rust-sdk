@@ -9,7 +9,7 @@ name = "example-persist-session"
 test = false
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 dirs = "5.0.1"
 rand = { workspace = true }
 serde = { workspace = true }

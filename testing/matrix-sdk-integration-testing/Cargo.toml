@@ -6,9 +6,9 @@ edition = "2021"
 publish = false
 
 [dev-dependencies]
+anyhow = { workspace = true }
 assert_matches = { workspace = true }
 assert_matches2 = { workspace = true }
-anyhow = { workspace = true }
 assign = "1"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
