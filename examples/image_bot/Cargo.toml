@@ -9,7 +9,7 @@ name = "example-image-bot"
 test = false
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 mime = "0.3.16"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { workspace = true }

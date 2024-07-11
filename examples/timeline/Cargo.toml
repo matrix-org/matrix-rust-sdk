@@ -9,7 +9,7 @@ name = "example-timeline"
 test = false
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 clap = { version = "4.0.16", features = ["derive"] }
 futures-util = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

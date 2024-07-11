@@ -9,7 +9,7 @@ name = "example-secret-storage"
 test = false
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 clap = { version = "4.0.15", features = ["derive"] }
 tracing-subscriber = { workspace = true }

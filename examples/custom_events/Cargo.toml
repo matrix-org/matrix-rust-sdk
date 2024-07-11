@@ -9,7 +9,7 @@ name = "example-custom-events"
 test = false
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 serde = "1.0"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { workspace = true }
