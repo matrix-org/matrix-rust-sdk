@@ -148,7 +148,7 @@ once_cell = { workspace = true }
 serde_urlencoded = "0.7.1"
 similar-asserts = { workspace = true }
 stream_assert = { workspace = true }
-tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.33"

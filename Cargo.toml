@@ -68,6 +68,7 @@ tokio = { version = "1.30.0", default-features = false, features = ["sync"] }
 tokio-stream = "0.1.14"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
+tracing-subscriber = "0.3.18"
 uniffi = { version = "0.27.1" }
 uniffi_bindgen = { version = "0.27.1" }
 url = "2.5.0"
