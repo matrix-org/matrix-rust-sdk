@@ -1010,11 +1010,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                     // no return here, below code for adding a new event
                     // will run to re-add the removed item
-                } else if txn_id.is_some() {
-                    warn!(
-                        "Received event with transaction ID, but didn't \
-                         find matching timeline item"
-                    );
                 }
 
                 // Local echoes that are pending should stick to the bottom,
