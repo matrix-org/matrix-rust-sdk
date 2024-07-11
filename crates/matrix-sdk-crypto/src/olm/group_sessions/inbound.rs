@@ -55,6 +55,25 @@ use crate::{
     },
 };
 
+/// The trust level required to decrypt an event
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub enum TrustRequirement {
+    /// Decrypt events from everyone regardless of trust
+    Untrusted,
+    /// Only decrypt events from cross-signed or legacy devices
+    CrossSignedOrLegacy,
+    /// Only decrypt events from cross-signed devices
+    CrossSigned,
+    /// Only decrypt events from cross-signed devices where we have verified the user
+    VerifiedUser,
+}
+
+/// Settings for decrypting messages
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DecryptionSettings {
+    pub trust_requirement: TrustRequirement,
+}
+
 // TODO add creation times to the inbound group sessions so we can export
 // sessions that were created between some time period, this should only be set
 // for non-imported sessions.

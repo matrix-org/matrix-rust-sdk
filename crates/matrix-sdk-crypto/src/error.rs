@@ -115,6 +115,15 @@ pub enum MegolmError {
     /// The storage layer returned an error.
     #[error(transparent)]
     Store(#[from] CryptoStoreError),
+
+    /// The sender's cross-signing identity has changed, and the change hasn't
+    /// been acknowledged
+    #[error("message quarantined because sender's cross-signing identity has changed")]
+    SenderCrossSigningIdentityChanged,
+
+    /// The sender's cross-signing identity is unknown
+    #[error("message quarantined because sender is unknown")]
+    SenderCrossSigningIdentityUnknown,
 }
 
 /// Error that occurs when decrypting an event that is malformed.

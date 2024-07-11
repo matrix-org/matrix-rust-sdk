@@ -65,8 +65,9 @@ use crate::{
     gossiping::GossipMachine,
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
-        Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
-        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData, SessionType, StaticAccountData,
+        Account, CrossSigningStatus, DecryptionSettings, EncryptionSettings, IdentityKeys,
+        InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData,
+        SessionType, StaticAccountData, TrustRequirement,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -1539,14 +1540,85 @@ impl OlmMachine {
         self.get_encryption_info(&session, &event.sender).await
     }
 
+    async fn check_sender_trust_requirement(
+        &self,
+        session: &InboundGroupSession,
+        sender: &UserId,
+        decryption_settings: &DecryptionSettings,
+    ) -> MegolmResult<()> {
+        match decryption_settings.trust_requirement {
+            TrustRequirement::Untrusted => Ok(()),
+            TrustRequirement::CrossSignedOrLegacy => {
+                match session.sender_data {
+                    SenderData::SenderKnown { ref msk, .. } => {
+                        if let Some(identity) = self.inner.store.get_identity(sender).await? {
+                            if sender == self.inner.user_id {
+                                // FIXME: check whether identity matches
+                                Ok(())
+                            } else {
+                                let identity = identity.other().unwrap();
+                                if !identity.matches_pinned_identity(msk) {
+                                    Err(MegolmError::SenderCrossSigningIdentityChanged)
+                                } else {
+                                    Ok(())
+                                }
+                            }
+                        } else {
+                            // FIXME: is it right that we should be rejecting here?
+                            Err(MegolmError::SenderCrossSigningIdentityUnknown)
+                        }
+                    }
+                    SenderData::DeviceInfo { legacy_session: true, .. } => Ok(()),
+                    SenderData::UnknownDevice { legacy_session: true, .. } => Ok(()),
+                    _ => Err(MegolmError::SenderCrossSigningIdentityUnknown),
+                }
+            }
+            TrustRequirement::CrossSigned => {
+                match session.sender_data {
+                    SenderData::SenderKnown { ref msk, .. } => {
+                        if let Some(identity) = self.inner.store.get_identity(sender).await? {
+                            if sender == self.inner.user_id {
+                                // FIXME: check whether identity matches
+                                Ok(())
+                            } else {
+                                let identity = identity.other().unwrap();
+                                if !identity.matches_pinned_identity(msk) {
+                                    Err(MegolmError::SenderCrossSigningIdentityChanged)
+                                } else {
+                                    Ok(())
+                                }
+                            }
+                        } else {
+                            // FIXME: is it right that we should be rejecting here?
+                            Err(MegolmError::SenderCrossSigningIdentityUnknown)
+                        }
+                    }
+                    _ => Err(MegolmError::SenderCrossSigningIdentityUnknown),
+                }
+            }
+            TrustRequirement::VerifiedUser => {
+                match session.sender_data {
+                    SenderData::SenderKnown { msk_verified: true, .. } => {
+                        // FIXME: is this all the checking we need to do?
+                        Ok(())
+                    }
+                    _ => Err(MegolmError::SenderCrossSigningIdentityUnknown),
+                }
+            }
+        }
+    }
+
     async fn decrypt_megolm_events(
         &self,
         room_id: &RoomId,
         event: &EncryptedEvent,
         content: &SupportedEventEncryptionSchemes<'_>,
+        decryption_settings: &DecryptionSettings,
     ) -> MegolmResult<(JsonObject, EncryptionInfo)> {
         let session =
             self.get_inbound_group_session_or_error(room_id, content.session_id()).await?;
+
+        self.check_sender_trust_requirement(&session, &event.sender, decryption_settings).await?;
 
         // This function is only ever called by decrypt_room_event, so
         // room_id, sender, algorithm and session_id are recorded already
@@ -1617,8 +1689,9 @@ impl OlmMachine {
         &self,
         event: &Raw<EncryptedEvent>,
         room_id: &RoomId,
+        decryption_settings: &DecryptionSettings,
     ) -> MegolmResult<TimelineEvent> {
-        self.decrypt_room_event_inner(event, room_id, true).await
+        self.decrypt_room_event_inner(event, room_id, decryption_settings, true).await
     }
 
     #[instrument(name = "decrypt_room_event", skip_all, fields(?room_id, event_id, origin_server_ts, sender, algorithm, session_id, sender_key))]
@@ -1626,6 +1699,7 @@ impl OlmMachine {
         &self,
         event: &Raw<EncryptedEvent>,
         room_id: &RoomId,
+        decryption_settings: &DecryptionSettings,
         decrypt_unsigned: bool,
     ) -> MegolmResult<TimelineEvent> {
         let event = event.deserialize()?;
@@ -1654,7 +1728,8 @@ impl OlmMachine {
         };
 
         Span::current().record("session_id", content.session_id());
-        let result = self.decrypt_megolm_events(room_id, &event, &content).await;
+        let result =
+            self.decrypt_megolm_events(room_id, &event, &content, decryption_settings).await;
 
         if let Err(e) = &result {
             #[cfg(feature = "automatic-room-key-forwarding")]
@@ -1679,8 +1754,9 @@ impl OlmMachine {
         let mut unsigned_encryption_info = None;
         if decrypt_unsigned {
             // Try to decrypt encrypted unsigned events.
-            unsigned_encryption_info =
-                self.decrypt_unsigned_events(&mut decrypted_event, room_id).await;
+            unsigned_encryption_info = self
+                .decrypt_unsigned_events(&mut decrypted_event, room_id, decryption_settings)
+                .await;
         }
 
         let event = serde_json::from_value::<Raw<AnyTimelineEvent>>(decrypted_event.into())?;
@@ -1706,6 +1782,7 @@ impl OlmMachine {
         &self,
         main_event: &mut JsonObject,
         room_id: &RoomId,
+        decryption_settings: &DecryptionSettings,
     ) -> Option<BTreeMap<UnsignedEventLocation, UnsignedDecryptionResult>> {
         let unsigned = main_event.get_mut("unsigned")?.as_object_mut()?;
         let mut unsigned_encryption_info: Option<
@@ -1715,7 +1792,9 @@ impl OlmMachine {
         // Search for an encrypted event in `m.replace`, an edit.
         let location = UnsignedEventLocation::RelationsReplace;
         let replace = location.find_mut(unsigned);
-        if let Some(decryption_result) = self.decrypt_unsigned_event(replace, room_id).await {
+        if let Some(decryption_result) =
+            self.decrypt_unsigned_event(replace, room_id, decryption_settings).await
+        {
             unsigned_encryption_info
                 .get_or_insert_with(Default::default)
                 .insert(location, decryption_result);
@@ -1726,7 +1805,7 @@ impl OlmMachine {
         let location = UnsignedEventLocation::RelationsThreadLatestEvent;
         let thread_latest_event = location.find_mut(unsigned);
         if let Some(decryption_result) =
-            self.decrypt_unsigned_event(thread_latest_event, room_id).await
+            self.decrypt_unsigned_event(thread_latest_event, room_id, decryption_settings).await
         {
             unsigned_encryption_info
                 .get_or_insert_with(Default::default)
@@ -1747,6 +1826,7 @@ impl OlmMachine {
         &'a self,
         event: Option<&'a mut Value>,
         room_id: &'a RoomId,
+        decryption_settings: &'a DecryptionSettings,
     ) -> BoxFuture<'a, Option<UnsignedDecryptionResult>> {
         Box::pin(async move {
             let event = event?;
@@ -1760,7 +1840,10 @@ impl OlmMachine {
             }
 
             let raw_event = serde_json::from_value(event.clone()).ok()?;
-            match self.decrypt_room_event_inner(&raw_event, room_id, false).await {
+            match self
+                .decrypt_room_event_inner(&raw_event, room_id, decryption_settings, false)
+                .await
+            {
                 Ok(decrypted_event) => {
                     // Replace the encrypted event.
                     *event = serde_json::to_value(decrypted_event.event).ok()?;
@@ -2420,8 +2503,8 @@ pub(crate) mod tests {
         error::{EventError, SetRoomSettingsError},
         machine::{EncryptionSyncChanges, OlmMachine},
         olm::{
-            BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, OutboundGroupSession,
-            SenderData, VerifyJson,
+            BackedUpRoomKey, DecryptionSettings, ExportedRoomKey, InboundGroupSession,
+            OutboundGroupSession, SenderData, TrustRequirement, VerifyJson,
         },
         session_manager::CollectStrategy,
         store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore, RoomSettings},
@@ -3211,8 +3294,15 @@ pub(crate) mod tests {
 
         let event = json_convert(&event).unwrap();
 
-        let decrypted_event =
-            bob.decrypt_room_event(&event, room_id).await.unwrap().event.deserialize().unwrap();
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::Untrusted };
+        let decrypted_event = bob
+            .decrypt_room_event(&event, room_id, &decryption_settings)
+            .await
+            .unwrap()
+            .event
+            .deserialize()
+            .unwrap();
 
         if let AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
             MessageLikeEvent::Original(OriginalMessageLikeEvent { sender, content, .. }),
@@ -3298,7 +3388,10 @@ pub(crate) mod tests {
         });
         let room_event = json_convert(&room_event).unwrap();
 
-        let decrypt_result = bob.decrypt_room_event(&room_event, room_id).await;
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::Untrusted };
+        let decrypt_result =
+            bob.decrypt_room_event(&room_event, room_id, &decryption_settings).await;
 
         assert_matches!(&decrypt_result, Err(MegolmError::MissingRoomKey(Some(_))));
 
@@ -3365,8 +3458,14 @@ pub(crate) mod tests {
 
         let event = json_convert(&event).unwrap();
 
-        let encryption_info =
-            bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::Untrusted };
+        let encryption_info = bob
+            .decrypt_room_event(&event, room_id, &decryption_settings)
+            .await
+            .unwrap()
+            .encryption_info
+            .unwrap();
 
         assert_eq!(
             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
@@ -3466,9 +3565,11 @@ pub(crate) mod tests {
 
         let event = json_convert(&event).unwrap();
 
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::Untrusted };
         // decrypt_room_event should return an error
         assert_matches!(
-            bob.decrypt_room_event(&event, room_id).await,
+            bob.decrypt_room_event(&event, room_id, &decryption_settings).await,
             Err(MegolmError::JsonError(..))
         );
 
@@ -3811,7 +3912,10 @@ pub(crate) mod tests {
 
         let room_event = json_convert(&room_event).unwrap();
 
-        let decrypt_error = bob.decrypt_room_event(&room_event, room_id).await.unwrap_err();
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::Untrusted };
+        let decrypt_error =
+            bob.decrypt_room_event(&room_event, room_id, &decryption_settings).await.unwrap_err();
 
         if let MegolmError::Decryption(vodo_error) = decrypt_error {
             if let vodozemac::megolm::DecryptionError::UnknownMessageIndex(_, _) = vodo_error {
@@ -4192,8 +4296,10 @@ pub(crate) mod tests {
         });
         let event = json_convert(&event).unwrap();
 
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::Untrusted };
         assert_matches!(
-            alice.decrypt_room_event(&event, room_id).await,
+            alice.decrypt_room_event(&event, room_id, &decryption_settings).await,
             Err(MegolmError::MismatchedIdentityKeys { .. })
         );
     }
@@ -4652,9 +4758,13 @@ pub(crate) mod tests {
         });
         let raw_encrypted_event = json_convert(&first_message_encrypted_event).unwrap();
 
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::Untrusted };
         // Bob has the room key, so first message should be decrypted successfully.
-        let raw_decrypted_event =
-            bob.decrypt_room_event(&raw_encrypted_event, room_id).await.unwrap();
+        let raw_decrypted_event = bob
+            .decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings)
+            .await
+            .unwrap();
 
         let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
         assert_matches!(
@@ -4707,10 +4817,14 @@ pub(crate) mod tests {
             .insert("unsigned".to_owned(), relations);
         let raw_encrypted_event = json_convert(&first_message_encrypted_event).unwrap();
 
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::Untrusted };
         // Bob does not have the second room key, so second message should fail to
         // decrypt.
-        let raw_decrypted_event =
-            bob.decrypt_room_event(&raw_encrypted_event, room_id).await.unwrap();
+        let raw_decrypted_event = bob
+            .decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings)
+            .await
+            .unwrap();
 
         let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
         assert_matches!(
@@ -4757,8 +4871,10 @@ pub(crate) mod tests {
         bob.store().save_inbound_group_sessions(&[group_session]).await.unwrap();
 
         // Second message should decrypt now.
-        let raw_decrypted_event =
-            bob.decrypt_room_event(&raw_encrypted_event, room_id).await.unwrap();
+        let raw_decrypted_event = bob
+            .decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings)
+            .await
+            .unwrap();
 
         let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
         assert_matches!(
@@ -4825,8 +4941,10 @@ pub(crate) mod tests {
 
         // Bob does not have the third room key, so third message should fail to
         // decrypt.
-        let raw_decrypted_event =
-            bob.decrypt_room_event(&raw_encrypted_event, room_id).await.unwrap();
+        let raw_decrypted_event = bob
+            .decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings)
+            .await
+            .unwrap();
 
         let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
         assert_matches!(
@@ -4881,8 +4999,10 @@ pub(crate) mod tests {
         bob.store().save_inbound_group_sessions(&[group_session]).await.unwrap();
 
         // Third message should decrypt now.
-        let raw_decrypted_event =
-            bob.decrypt_room_event(&raw_encrypted_event, room_id).await.unwrap();
+        let raw_decrypted_event = bob
+            .decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings)
+            .await
+            .unwrap();
 
         let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
         assert_matches!(

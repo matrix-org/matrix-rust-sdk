@@ -32,6 +32,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::error;
+use vodozemac::Ed25519PublicKey;
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
@@ -576,6 +577,11 @@ impl ReadOnlyUserIdentity {
     pub(crate) fn has_pin_violation(&self) -> bool {
         let pinned_msk = self.pinned_msk.read().unwrap();
         pinned_msk.get_first_key() != self.master_key().get_first_key()
+    }
+
+    pub(crate) fn matches_pinned_identity(&self, msk: &Ed25519PublicKey) -> bool {
+        let pinned_msk = self.pinned_msk.read().unwrap();
+        pinned_msk.get_first_key() == Some(*msk)
     }
 
     /// Update the identity with a new master key and self signing key.

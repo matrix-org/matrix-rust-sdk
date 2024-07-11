@@ -19,7 +19,9 @@ mod inbound;
 mod outbound;
 mod sender_data;
 
-pub use inbound::{InboundGroupSession, PickledInboundGroupSession};
+pub use inbound::{
+    DecryptionSettings, InboundGroupSession, PickledInboundGroupSession, TrustRequirement,
+};
 pub(crate) use outbound::ShareState;
 pub use outbound::{
     EncryptionSettings, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
