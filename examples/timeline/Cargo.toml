@@ -11,7 +11,7 @@ test = false
 [dependencies]
 anyhow = "1"
 clap = { version = "4.0.16", features = ["derive"] }
-futures-util = "0.3"
+futures-util = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
