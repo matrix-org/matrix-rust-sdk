@@ -1034,6 +1034,8 @@ impl EventTimelineItem {
         self.0.can_be_replied_to()
     }
 
+    /// Gets the [`ShieldState`] which can be used to decorate messages in the
+    /// recommended way.
     pub fn get_shield(&self, strict: bool) -> Option<ShieldState> {
         self.0.get_shield(strict).map(Into::into)
     }

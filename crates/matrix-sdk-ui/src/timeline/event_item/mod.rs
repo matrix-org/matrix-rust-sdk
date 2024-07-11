@@ -338,7 +338,7 @@ impl EventTimelineItem {
         }
     }
 
-    /// Gets the `ShieldState` which can be used to decorate messages in the
+    /// Gets the [`ShieldState`] which can be used to decorate messages in the
     /// recommended way.
     pub fn get_shield(&self, strict: bool) -> Option<ShieldState> {
         self.encryption_info().map(|info| {
