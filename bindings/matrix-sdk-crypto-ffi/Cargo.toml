@@ -22,7 +22,7 @@ bundled-sqlite = ["matrix-sdk-sqlite/bundled"]
 
 [dependencies]
 anyhow = { workspace = true }
-futures-util = "0.3.28"
+futures-util = { workspace = true }
 hmac = "0.12.1"
 http = { workspace = true }
 matrix-sdk-common = { workspace = true }

@@ -12,7 +12,7 @@ test = false
 anyhow = "1"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 clap = { version = "4.0.15", features = ["derive"] }
-futures-util = "0.3.24"
+futures-util = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 # when copy-pasting this, please use a git dependency or make sure that you
