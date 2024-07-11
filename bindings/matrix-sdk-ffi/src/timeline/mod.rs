@@ -761,7 +761,6 @@ impl TimelineDiff {
             VectorDiff::PopBack => Self::PopBack,
             VectorDiff::PopFront => Self::PopFront,
             VectorDiff::Reset { values } => {
-                warn!("Timeline subscriber lagged behind and was reset");
                 Self::Reset { values: values.into_iter().map(TimelineItem::from_arc).collect() }
             }
         }
