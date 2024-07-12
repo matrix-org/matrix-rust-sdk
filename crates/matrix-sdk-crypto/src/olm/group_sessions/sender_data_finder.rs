@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::UserId;
 use tracing::error;
 use vodozemac::Curve25519PublicKey;
 
@@ -32,8 +31,7 @@ use crate::{
 /// The letters A, B etc. in the documentation refer to the algorithm described
 /// in https://github.com/matrix-org/matrix-rust-sdk/issues/3543
 pub(crate) struct SenderDataFinder<'a> {
-    own_crypto_store: &'a Store,
-    own_user_id: &'a UserId,
+    store: &'a Store,
 }
 
 impl<'a> SenderDataFinder<'a> {
@@ -47,10 +45,7 @@ impl<'a> SenderDataFinder<'a> {
         sender_curve_key: Curve25519PublicKey,
         room_key_event: &'a DecryptedRoomKeyEvent,
     ) -> OlmResult<SenderData> {
-        let finder = Self {
-            own_crypto_store: own_olm_machine.store(),
-            own_user_id: own_olm_machine.user_id(),
-        };
+        let finder = Self { store: own_olm_machine.store() };
         finder.have_event(sender_curve_key, room_key_event).await
     }
 
@@ -61,10 +56,7 @@ impl<'a> SenderDataFinder<'a> {
         own_olm_machine: &'a OlmMachine,
         device_keys: DeviceKeys,
     ) -> OlmResult<SenderData> {
-        let finder = Self {
-            own_crypto_store: own_olm_machine.store(),
-            own_user_id: own_olm_machine.user_id(),
-        };
+        let finder = Self { store: own_olm_machine.store() };
         finder.have_device_keys(&device_keys).await
     }
 
@@ -99,10 +91,8 @@ impl<'a> SenderDataFinder<'a> {
         //
         // Does the locally-cached (in the store) devices list contain a device with the
         // curve key of the sender of the to-device message?
-        if let Some(sender_device) = self
-            .own_crypto_store
-            .get_device_from_curve_key(&room_key_event.sender, sender_curve_key)
-            .await?
+        if let Some(sender_device) =
+            self.store.get_device_from_curve_key(&room_key_event.sender, sender_curve_key).await?
         {
             // Yes: use the device info to continue
             self.have_device(sender_device.inner).await
@@ -202,7 +192,7 @@ impl<'a> SenderDataFinder<'a> {
         // Do we have the cross-signing key for this user?
 
         let sender_user_id = sender_device.user_id();
-        let sender_user_identity = self.own_crypto_store.get_user_identity(sender_user_id).await?;
+        let sender_user_identity = self.store.get_user_identity(sender_user_id).await?;
 
         if let Some(sender_user_identity) = sender_user_identity {
             // Yes: check the device is signed by the identity
@@ -334,11 +324,7 @@ impl<'a> SenderDataFinder<'a> {
     /// Return the user identity of the current user, or None if we failed to
     /// find it (which is unexpected)
     async fn own_identity(&self) -> OlmResult<Option<ReadOnlyOwnUserIdentity>> {
-        Ok(self
-            .own_crypto_store
-            .get_user_identity(self.own_user_id)
-            .await?
-            .and_then(|i| i.into_own()))
+        Ok(self.store.get_user_identity(self.store.user_id()).await?.and_then(|i| i.into_own()))
     }
 }
 
@@ -366,8 +352,8 @@ mod tests {
     };
 
     impl<'a> SenderDataFinder<'a> {
-        fn new(own_crypto_store: &'a Store, own_user_id: &'a UserId) -> Self {
-            Self { own_crypto_store, own_user_id }
+        fn new(store: &'a Store) -> Self {
+            Self { store }
         }
     }
 
@@ -384,7 +370,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
+        let finder = SenderDataFinder::new(&setup.store);
 
         // When we try to find sender data
         let sender_data = finder
@@ -414,7 +400,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
+        let finder = SenderDataFinder::new(&setup.store);
 
         // When we try to find sender data
         let sender_data = finder
@@ -448,7 +434,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
+        let finder = SenderDataFinder::new(&setup.store);
 
         // When we try to find sender data
         let sender_data = finder
@@ -482,7 +468,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
+        let finder = SenderDataFinder::new(&setup.store);
 
         // When we try to find sender data
         let sender_data = finder
@@ -512,7 +498,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
+        let finder = SenderDataFinder::new(&setup.store);
 
         // When we try to find sender data
         let sender_data = finder
@@ -541,7 +527,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
+        let finder = SenderDataFinder::new(&setup.store);
 
         // When we try to find sender data
         let sender_data = finder
@@ -570,7 +556,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
+        let finder = SenderDataFinder::new(&setup.store);
 
         // When we try to find sender data
         let sender_data = finder
@@ -599,7 +585,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
+        let finder = SenderDataFinder::new(&setup.store);
 
         // When we try to find sender data
         let sender_data = finder
@@ -628,7 +614,7 @@ mod tests {
             sender_is_verified: true,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
+        let finder = SenderDataFinder::new(&setup.store);
 
         // When we try to find sender data
         let sender_data = finder
@@ -659,7 +645,7 @@ mod tests {
             sender_is_verified: true,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
+        let finder = SenderDataFinder::new(&setup.store);
 
         // When we try to find sender data
         let sender_data = finder
@@ -689,7 +675,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
+        let finder = SenderDataFinder::new(&setup.store);
 
         // When we supply the device keys directly while asking for the sender data
         let sender_data =
@@ -714,7 +700,6 @@ mod tests {
     }
 
     struct TestSetup {
-        me: TestUser,
         sender: TestUser,
         sender_device: Device,
         store: Store,
@@ -732,14 +717,14 @@ mod tests {
                 create_unsigned_device(&sender.account)
             };
 
-            let store = create_store(&sender);
+            let store = create_store(&me);
 
             save_to_store(&store, &me, &sender, &sender_device, &options).await;
 
             let room_key_event =
                 create_room_key_event(&sender.user_id, &me.user_id, &sender_device, &options);
 
-            Self { me, sender, sender_device, store, room_key_event }
+            Self { sender, sender_device, store, room_key_event }
         }
 
         fn sender_device_curve_key(&self) -> Curve25519PublicKey {
@@ -751,21 +736,23 @@ mod tests {
         }
     }
 
-    fn create_store(sender: &TestUser) -> Store {
-        let store_wrapper = Arc::new(CryptoStoreWrapper::new(&sender.user_id, MemoryStore::new()));
+    fn create_store(me: &TestUser) -> Store {
+        let store_wrapper = Arc::new(CryptoStoreWrapper::new(&me.user_id, MemoryStore::new()));
 
         let verification_machine = VerificationMachine::new(
-            sender.account.deref().clone(),
-            Arc::clone(&sender.private_identity),
-            Arc::new(CryptoStoreWrapper::new(&sender.user_id, MemoryStore::new())),
+            me.account.deref().clone(),
+            Arc::clone(&me.private_identity),
+            Arc::clone(&store_wrapper),
         );
 
-        Store::new(
-            sender.account.static_data.clone(),
-            Arc::clone(&sender.private_identity),
+        let store = Store::new(
+            me.account.static_data.clone(),
+            Arc::clone(&me.private_identity),
             store_wrapper,
             verification_machine,
-        )
+        );
+
+        store
     }
 
     async fn save_to_store(
