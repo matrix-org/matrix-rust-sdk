@@ -273,8 +273,13 @@ async fn test_joined_user_can_create_push_context_with_room_list_service() -> Re
     let sliding_sync_url = alice.sliding_sync_proxy();
     let alice_id = alice.user_id().unwrap().localpart().to_owned();
 
-    let alice = Client::new(hs).await?;
-    alice.set_sliding_sync_proxy(sliding_sync_url);
+    let alice = Client::builder()
+        .homeserver_url(hs)
+        .simplified_sliding_sync(false)
+        .sliding_sync_proxy(sliding_sync_url.unwrap())
+        .build()
+        .await
+        .unwrap();
     alice.matrix_auth().login_username(&alice_id, &alice_id).await?;
 
     let room_list_service = Arc::new(RoomListService::new(alice.clone()).await?);

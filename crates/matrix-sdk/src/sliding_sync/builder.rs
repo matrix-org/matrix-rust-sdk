@@ -50,6 +50,7 @@ impl SlidingSyncBuilder {
         } else {
             let storage_key =
                 format_storage_key_prefix(&id, client.user_id().ok_or(Error::UnauthenticatedUser)?);
+
             Ok(Self {
                 id,
                 storage_key,

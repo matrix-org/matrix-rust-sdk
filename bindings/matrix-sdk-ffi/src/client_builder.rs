@@ -251,6 +251,7 @@ pub struct ClientBuilder {
     user_agent: Option<String>,
     requires_sliding_sync: bool,
     sliding_sync_proxy: Option<String>,
+    is_simplified_sliding_sync_enabled: bool,
     proxy: Option<String>,
     disable_ssl_verification: bool,
     disable_automatic_token_refresh: bool,
@@ -272,6 +273,8 @@ impl ClientBuilder {
             user_agent: None,
             requires_sliding_sync: false,
             sliding_sync_proxy: None,
+            // By default, Simplified MSC3575 is turned off.
+            is_simplified_sliding_sync_enabled: false,
             proxy: None,
             disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
@@ -363,6 +366,12 @@ impl ClientBuilder {
     pub fn sliding_sync_proxy(self: Arc<Self>, sliding_sync_proxy: Option<String>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.sliding_sync_proxy = sliding_sync_proxy;
+        Arc::new(builder)
+    }
+
+    pub fn simplified_sliding_sync(self: Arc<Self>, enable: bool) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.is_simplified_sliding_sync_enabled = enable;
         Arc::new(builder)
     }
 
@@ -498,6 +507,9 @@ impl ClientBuilder {
         }
 
         inner_builder = inner_builder.with_encryption_settings(builder.encryption_settings);
+
+        inner_builder =
+            inner_builder.simplified_sliding_sync(builder.is_simplified_sliding_sync_enabled);
 
         if builder.requires_sliding_sync {
             inner_builder = inner_builder.requires_sliding_sync();
