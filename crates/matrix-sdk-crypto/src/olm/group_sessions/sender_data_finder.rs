@@ -388,7 +388,7 @@ mod tests {
     use assert_matches2::assert_let;
     use async_trait::async_trait;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, owned_room_id, user_id, UserId};
+    use ruma::{device_id, owned_room_id, user_id, DeviceId, OwnedUserId, UserId};
     use tokio::sync::Mutex;
     use vodozemac::{megolm::SessionKey, Curve25519PublicKey, Ed25519PublicKey};
 
@@ -396,7 +396,7 @@ mod tests {
     use crate::{
         error::OlmResult,
         olm::{PrivateCrossSigningIdentity, SenderData},
-        store::{self, CryptoStoreWrapper, MemoryStore},
+        store::{self, Changes, CryptoStoreWrapper, MemoryStore, Store},
         types::events::{
             olm_v1::DecryptedRoomKeyEvent,
             room_key::{MegolmV1AesSha2Content, RoomKeyContent},
@@ -406,16 +406,32 @@ mod tests {
         ReadOnlyUserIdentity,
     };
 
+    impl<'a> SenderDataFinder<'a, Store> {
+        fn new(own_crypto_store: &'a Store, own_user_id: &'a UserId) -> Self {
+            Self { own_crypto_store, own_user_id }
+        }
+    }
+
     #[async_test]
     async fn test_providing_no_device_data_returns_sender_data_with_no_device_info() {
-        // Given that the crypto store is empty and the initial event has no device info
-        let room_key_content = room_key_content();
-        let room_key_event = room_key_event(None, &room_key_content);
-        let own_crypto_store = FakeCryptoStore::empty();
+        // Given that the device is not in the store and the initial event has no device
+        // info
+        let setup = TestSetup::new(TestOptions {
+            store_contains_device: false,
+            store_contains_sender_identity: false,
+            device_is_signed: true,
+            event_contains_device_keys: false,
+            sender_is_ourself: false,
+            sender_is_verified: false,
+        })
+        .await;
+        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
 
         // When we try to find sender data
-        let finder = create_finder(&own_crypto_store, None);
-        let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
+        let sender_data = finder
+            .have_event(setup.sender_device_curve_key(), &setup.room_key_event)
+            .await
+            .unwrap();
 
         // Then we get back no useful information at all
         assert_let!(SenderData::UnknownDevice { retry_details, legacy_session } = sender_data);
@@ -429,27 +445,29 @@ mod tests {
 
     #[async_test]
     async fn test_if_the_todevice_event_contains_device_info_it_is_captured() {
-        // Given an account and user identity
-        let account = Account::with_device_id(user_id!("@u:s.co"), device_id!("DEVICEID"));
-        let private_identity = create_private_identity(&account).await;
-
-        // And a device signed by the user identity
-        let device = create_signed_device(&account, &private_identity).await;
-
-        // And an event containing device info
-        let room_key_content = room_key_content();
-        let room_key_event = room_key_event(Some(&device), &room_key_content);
+        // Given that the signed device keys are in the event
+        let setup = TestSetup::new(TestOptions {
+            store_contains_device: false,
+            store_contains_sender_identity: false,
+            device_is_signed: true,
+            event_contains_device_keys: true,
+            sender_is_ourself: false,
+            sender_is_verified: false,
+        })
+        .await;
+        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
 
         // When we try to find sender data
-        let own_crypto_store = FakeCryptoStore::empty();
-        let finder = create_finder(&own_crypto_store, None);
-        let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
+        let sender_data = finder
+            .have_event(setup.sender_device_curve_key(), &setup.room_key_event)
+            .await
+            .unwrap();
 
-        // Then we get back the device keys that were in the store
+        // Then we get back the device keys that were in the event
         assert_let!(
             SenderData::DeviceInfo { device_keys, retry_details, legacy_session } = sender_data
         );
-        assert_eq!(&device_keys, device.as_device_keys());
+        assert_eq!(&device_keys, setup.sender_device.as_device_keys());
         assert_eq!(retry_details.retry_count, 0);
 
         // TODO: This should not be marked as a legacy session, but for now it is
@@ -460,28 +478,30 @@ mod tests {
 
     #[async_test]
     async fn test_picks_up_device_info_from_the_store_if_missing_from_the_todevice_event() {
-        // Given an account and user identity
-        let account = Account::with_device_id(user_id!("@u:s.co"), device_id!("DEVICEID"));
-        let private_identity = create_private_identity(&account).await;
+        // Given that the device keys are not in the event but the device is in the
+        // store
+        let setup = TestSetup::new(TestOptions {
+            store_contains_device: true,
+            store_contains_sender_identity: false,
+            device_is_signed: true,
+            event_contains_device_keys: false,
+            sender_is_ourself: false,
+            sender_is_verified: false,
+        })
+        .await;
+        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
 
-        // And a device signed by the user identity
-        let device = create_signed_device(&account, &private_identity).await;
-
-        // And an event (not containing device info)
-        let room_key_content = room_key_content();
-        let room_key_event = room_key_event(None, &room_key_content);
-
-        // When we try to find sender data (but the user identity can't be found in the
-        // store)
-        let own_crypto_store = FakeCryptoStore::device_only(device.clone());
-        let finder = create_finder(&own_crypto_store, None);
-        let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
+        // When we try to find sender data
+        let sender_data = finder
+            .have_event(setup.sender_device_curve_key(), &setup.room_key_event)
+            .await
+            .unwrap();
 
         // Then we get back the device keys that were in the store
         assert_let!(
             SenderData::DeviceInfo { device_keys, retry_details, legacy_session } = sender_data
         );
-        assert_eq!(&device_keys, device.as_device_keys());
+        assert_eq!(&device_keys, setup.sender_device.as_device_keys());
         assert_eq!(retry_details.retry_count, 0);
 
         // TODO: This should not be marked as a legacy session, but for now it is
@@ -492,23 +512,24 @@ mod tests {
 
     #[async_test]
     async fn test_does_not_add_sender_data_if_device_is_not_signed() {
-        // Given an account and user identity
-        let account = Account::with_device_id(user_id!("@u:s.co"), device_id!("DEVICEID"));
-        let private_identity = create_private_identity(&account).await;
-        let user_identity = ReadOnlyOwnUserIdentity::from_private(&private_identity).await;
-        let user_identities = ReadOnlyUserIdentities::Own(user_identity.clone());
-
-        // And a device (not signed)
-        let device = create_unsigned_device(&account);
-
-        // And an event (not containing device info)
-        let room_key_content = room_key_content();
-        let room_key_event = room_key_event(None, &room_key_content);
+        // Given that the the device is in the store
+        // But it is not signed
+        let setup = TestSetup::new(TestOptions {
+            store_contains_device: true,
+            store_contains_sender_identity: false,
+            device_is_signed: false,
+            event_contains_device_keys: false,
+            sender_is_ourself: false,
+            sender_is_verified: false,
+        })
+        .await;
+        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
 
         // When we try to find sender data
-        let own_crypto_store = FakeCryptoStore::device_and_user(device, user_identities);
-        let finder = create_finder(&own_crypto_store, None);
-        let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
+        let sender_data = finder
+            .have_event(setup.sender_device_curve_key(), &setup.room_key_event)
+            .await
+            .unwrap();
 
         // Then we treat it as if there is no device info at all
         assert_let!(SenderData::UnknownDevice { retry_details, legacy_session } = sender_data);
@@ -522,230 +543,386 @@ mod tests {
 
     #[async_test]
     async fn test_adds_sender_data_for_own_verified_device_and_user_using_device_from_store() {
-        // Given an account and user identity
-        let account = Account::with_device_id(user_id!("@u:s.co"), device_id!("DEVICEID"));
-        let private_identity = create_private_identity(&account).await;
-        let user_identity = ReadOnlyOwnUserIdentity::from_private(&private_identity).await;
-        let user_identities = ReadOnlyUserIdentities::Own(user_identity.clone());
-
-        // And a device signed by the user identity
-        let device = create_signed_device(&account, &private_identity).await;
-
-        // And an event (not containing device info)
-        let room_key_content = room_key_content();
-        let room_key_event = room_key_event(None, &room_key_content);
+        // Given the device is in the store, and we sent the event
+        let setup = TestSetup::new(TestOptions {
+            store_contains_device: true,
+            store_contains_sender_identity: true,
+            device_is_signed: true,
+            event_contains_device_keys: false,
+            sender_is_ourself: true,
+            sender_is_verified: false,
+        })
+        .await;
+        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
 
         // When we try to find sender data
-        let own_crypto_store = FakeCryptoStore::device_and_user(device, user_identities);
-        let finder = create_finder(&own_crypto_store, None);
-        let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
+        let sender_data = finder
+            .have_event(setup.sender_device_curve_key(), &setup.room_key_event)
+            .await
+            .unwrap();
 
         // Then we get back the information about the sender
         assert_let!(
             SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
         );
-        assert_eq!(user_id, account.user_id());
-        assert_eq!(master_key, user_identity.master_key().get_first_key().unwrap());
+        assert_eq!(user_id, setup.sender.user_id);
+        assert_eq!(master_key, setup.sender_master_key());
         assert!(!master_key_verified);
     }
 
     #[async_test]
     async fn test_adds_sender_data_for_other_verified_device_and_user_using_device_from_store() {
-        // Given an account, user identity, and a separate identity to be our own
-        let account = Account::with_device_id(user_id!("@u:s.co"), device_id!("DEVICEID"));
-        let private_identity = create_private_identity(&account).await;
-        let user_identity = ReadOnlyUserIdentity::from_private(&private_identity).await;
-        let user_identities = ReadOnlyUserIdentities::Other(user_identity.clone());
-        let own_private_identity = create_private_identity(&account).await;
-        let own_user_identity = ReadOnlyOwnUserIdentity::from_private(&own_private_identity).await;
-        let own_user_identities = ReadOnlyUserIdentities::Own(own_user_identity.clone());
-
-        // And a device signed by the user identity
-        let device = create_signed_device(&account, &private_identity).await;
-
-        // And an event (not containing device info)
-        let room_key_content = room_key_content();
-        let room_key_event = room_key_event(None, &room_key_content);
+        // Given the device is in the store, and someone else sent the event
+        let setup = TestSetup::new(TestOptions {
+            store_contains_device: true,
+            store_contains_sender_identity: true,
+            device_is_signed: true,
+            event_contains_device_keys: false,
+            sender_is_ourself: false,
+            sender_is_verified: false,
+        })
+        .await;
+        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
 
         // When we try to find sender data
-        let own_crypto_store =
-            FakeCryptoStore::new(Some(device), Some(user_identities), Some(own_user_identities));
-
-        let finder = create_finder(&own_crypto_store, Some(user_id!("@myself:s.co")));
-        let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
+        let sender_data = finder
+            .have_event(setup.sender_device_curve_key(), &setup.room_key_event)
+            .await
+            .unwrap();
 
         // Then we get back the information about the sender
         assert_let!(
             SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
         );
-        assert_eq!(user_id, account.user_id());
-        assert_eq!(master_key, user_identity.master_key().get_first_key().unwrap());
+        assert_eq!(user_id, setup.sender.user_id);
+        assert_eq!(master_key, setup.sender_master_key());
         assert!(!master_key_verified);
     }
 
     #[async_test]
-    async fn test_adds_sender_data_for_own_verified_device_and_user_using_device_from_event() {
-        // Given an account and user identity
-        let account = Account::with_device_id(user_id!("@u:s.co"), device_id!("DEVICEID"));
-        let private_identity = create_private_identity(&account).await;
-        let user_identity = ReadOnlyOwnUserIdentity::from_private(&private_identity).await;
-        let user_identities = ReadOnlyUserIdentities::Own(user_identity.clone());
-
-        // And a device signed by the user identity
-        let device = create_signed_device(&account, &private_identity).await;
-
-        // And an event (not containing device info)
-        let room_key_content = room_key_content();
-        let room_key_event = room_key_event(Some(&device), &room_key_content);
+    async fn test_adds_sender_data_for_own_device_and_user_using_device_from_event() {
+        // Given the device keys are in the event, and we sent the event
+        let setup = TestSetup::new(TestOptions {
+            store_contains_device: false,
+            store_contains_sender_identity: true,
+            device_is_signed: true,
+            event_contains_device_keys: true,
+            sender_is_ourself: true,
+            sender_is_verified: false,
+        })
+        .await;
+        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
 
         // When we try to find sender data
-        let own_crypto_store = FakeCryptoStore::user_only(user_identities);
-        let finder = create_finder(&own_crypto_store, None);
-        let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
+        let sender_data = finder
+            .have_event(setup.sender_device_curve_key(), &setup.room_key_event)
+            .await
+            .unwrap();
 
         // Then we get back the information about the sender
         assert_let!(
             SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
         );
-        assert_eq!(user_id, account.user_id());
-        assert_eq!(master_key, user_identity.master_key().get_first_key().unwrap());
+        assert_eq!(user_id, setup.sender.user_id);
+        assert_eq!(master_key, setup.sender_master_key());
         assert!(!master_key_verified);
     }
 
     #[async_test]
     async fn test_adds_sender_data_for_other_verified_device_and_user_using_device_from_event() {
-        // Given an account, user identity, and a separate identity to be our own
-        let account = Account::with_device_id(user_id!("@u:s.co"), device_id!("DEVICEID"));
-        let private_identity = create_private_identity(&account).await;
-        let user_identity = ReadOnlyUserIdentity::from_private(&private_identity).await;
-        let user_identities = ReadOnlyUserIdentities::Other(user_identity.clone());
-        let own_private_identity = create_private_identity(&account).await;
-        let own_user_identity = ReadOnlyOwnUserIdentity::from_private(&own_private_identity).await;
-        let own_user_identities = ReadOnlyUserIdentities::Own(own_user_identity.clone());
-
-        // And a device signed by the user identity
-        let device = create_signed_device(&account, &private_identity).await;
-
-        // And an event (not containing device info)
-        let room_key_content = room_key_content();
-        let room_key_event = room_key_event(Some(&device), &room_key_content);
+        // Given the device keys are in the event, and someone else sent the event
+        let setup = TestSetup::new(TestOptions {
+            store_contains_device: false,
+            store_contains_sender_identity: true,
+            device_is_signed: true,
+            event_contains_device_keys: true,
+            sender_is_ourself: false,
+            sender_is_verified: false,
+        })
+        .await;
+        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
 
         // When we try to find sender data
-        let own_crypto_store =
-            FakeCryptoStore::new(None, Some(user_identities), Some(own_user_identities));
-
-        let finder = create_finder(&own_crypto_store, Some(user_id!("@myself:s.co")));
-        let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
+        let sender_data = finder
+            .have_event(setup.sender_device_curve_key(), &setup.room_key_event)
+            .await
+            .unwrap();
 
         // Then we get back the information about the sender
         assert_let!(
             SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
         );
-        assert_eq!(user_id, account.user_id());
-        assert_eq!(master_key, user_identity.master_key().get_first_key().unwrap());
+        assert_eq!(user_id, setup.sender.user_id);
+        assert_eq!(master_key, setup.sender_master_key());
         assert!(!master_key_verified);
     }
 
     #[async_test]
-    async fn test_marks_master_key_as_verified_if_it_is_for_own_identity() {
-        // Given an account and user identity which is verified
-        let account = Account::with_device_id(user_id!("@u:s.co"), device_id!("DEVICEID"));
-        let private_identity = create_private_identity(&account).await;
-        let user_identity = ReadOnlyOwnUserIdentity::from_private(&private_identity).await;
-        user_identity.mark_as_verified();
-        let user_identities = ReadOnlyUserIdentities::Own(user_identity.clone());
-
-        // And a device signed by the user identity
-        let device = create_signed_device(&account, &private_identity).await;
-
-        // And an event (not containing device info)
-        let room_key_content = room_key_content();
-        let room_key_event = room_key_event(Some(&device), &room_key_content);
+    async fn test_notes_master_key_is_verified_for_own_identity() {
+        // Given we can find the device info, and we sent the event, and we are verified
+        let setup = TestSetup::new(TestOptions {
+            store_contains_device: true,
+            store_contains_sender_identity: true,
+            device_is_signed: true,
+            event_contains_device_keys: true,
+            sender_is_ourself: true,
+            sender_is_verified: true,
+        })
+        .await;
+        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
 
         // When we try to find sender data
-        let own_crypto_store = FakeCryptoStore::user_only(user_identities);
-        let finder = create_finder(&own_crypto_store, None);
-        let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
+        let sender_data = finder
+            .have_event(setup.sender_device_curve_key(), &setup.room_key_event)
+            .await
+            .unwrap();
 
         // Then we get back the information about the sender
         assert_let!(
             SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
         );
-        assert_eq!(user_id, account.user_id());
-        assert_eq!(master_key, user_identity.master_key().get_first_key().unwrap());
+        assert_eq!(user_id, setup.sender.user_id);
+        assert_eq!(master_key, setup.sender_master_key());
         // Including the fact that it was verified
         assert!(master_key_verified);
     }
 
     #[async_test]
-    async fn test_marks_master_key_as_verified_if_it_is_for_other_identity() {
-        // Given an account, user identity, and a separate identity to be our own
-        let account = Account::with_device_id(user_id!("@u:s.co"), device_id!("DEVICEID"));
-        let private_identity = create_private_identity(&account).await;
-        let mut user_identity = ReadOnlyUserIdentity::from_private(&private_identity).await;
-        let own_private_identity = create_private_identity(&account).await;
-        let own_user_identity = ReadOnlyOwnUserIdentity::from_private(&own_private_identity).await;
+    async fn test_notes_master_key_is_verified_for_other_identity() {
+        // Given we can find the device info, and someone else sent the event
+        // And the sender is verified
+        let setup = TestSetup::new(TestOptions {
+            store_contains_device: true,
+            store_contains_sender_identity: true,
+            device_is_signed: true,
+            event_contains_device_keys: true,
+            sender_is_ourself: false,
+            sender_is_verified: true,
+        })
+        .await;
+        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
 
-        // Where the other identity is verified (signed by our identity)
-        {
-            let user_signing = own_private_identity.user_signing_key.lock().await;
-            let user_signing = user_signing.as_ref().unwrap();
-            let master = user_signing.sign_user(&user_identity).unwrap();
-            user_identity.master_key = Arc::new(master.try_into().unwrap());
-            user_signing.public_key().verify_master_key(user_identity.master_key()).unwrap();
+        // When we try to find sender data
+        let sender_data = finder
+            .have_event(setup.sender_device_curve_key(), &setup.room_key_event)
+            .await
+            .unwrap();
+
+        // Then we get back the information about the sender
+        assert_let!(
+            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+        );
+        assert_eq!(user_id, setup.sender.user_id);
+        assert_eq!(master_key, setup.sender_master_key());
+        // Including the fact that it was verified
+        assert!(master_key_verified);
+    }
+
+    #[async_test]
+    async fn test_can_add_user_sender_data_based_on_a_provided_device() {
+        // Given the device is not in the store or the event
+        let setup = TestSetup::new(TestOptions {
+            store_contains_device: false,
+            store_contains_sender_identity: true,
+            device_is_signed: true,
+            event_contains_device_keys: false,
+            sender_is_ourself: false,
+            sender_is_verified: false,
+        })
+        .await;
+        let finder = SenderDataFinder::new(&setup.store, &setup.me.user_id);
+
+        // When we supply the device keys directly while asking for the sender data
+        let sender_data =
+            finder.have_device_keys(setup.sender_device.as_device_keys()).await.unwrap();
+
+        // Then it is found using the device we supplied
+        assert_let!(
+            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+        );
+        assert_eq!(user_id, setup.sender.user_id);
+        assert_eq!(master_key, setup.sender_master_key());
+        assert!(!master_key_verified);
+    }
+
+    struct TestOptions {
+        store_contains_device: bool,
+        store_contains_sender_identity: bool,
+        device_is_signed: bool,
+        event_contains_device_keys: bool,
+        sender_is_ourself: bool,
+        sender_is_verified: bool,
+    }
+
+    struct TestSetup {
+        me: TestUser,
+        sender: TestUser,
+        sender_device: Device,
+        store: Store,
+        room_key_event: DecryptedRoomKeyEvent,
+    }
+
+    impl TestSetup {
+        async fn new(options: TestOptions) -> Self {
+            let me = TestUser::own().await;
+            let sender = TestUser::other(&me, &options).await;
+
+            let sender_device = if options.device_is_signed {
+                create_signed_device(&sender.account, &*sender.private_identity.lock().await).await
+            } else {
+                create_unsigned_device(&sender.account)
+            };
+
+            let store = create_store(&sender);
+
+            save_to_store(&store, &me, &sender, &sender_device, &options).await;
+
+            let room_key_event =
+                create_room_key_event(&sender.user_id, &me.user_id, &sender_device, &options);
+
+            Self { me, sender, sender_device, store, room_key_event }
         }
 
-        let own_user_identities = ReadOnlyUserIdentities::Own(own_user_identity.clone());
-        let user_identities = ReadOnlyUserIdentities::Other(user_identity.clone());
+        fn sender_device_curve_key(&self) -> Curve25519PublicKey {
+            self.sender_device.curve25519_key().unwrap().clone()
+        }
 
-        // And a device signed by the user identity
-        let device = create_signed_device(&account, &private_identity).await;
-
-        // And an event (not containing device info)
-        let room_key_content = room_key_content();
-        let room_key_event = room_key_event(Some(&device), &room_key_content);
-
-        // When we try to find sender data
-        let own_crypto_store =
-            FakeCryptoStore::new(None, Some(user_identities), Some(own_user_identities));
-
-        let finder = create_finder(&own_crypto_store, Some(user_id!("@myself:s.co")));
-        let sender_data = finder.have_event(create_curve_key(), &room_key_event).await.unwrap();
-
-        // Then we get back the information about the sender
-        assert_let!(
-            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
-        );
-        assert_eq!(user_id, account.user_id());
-        assert_eq!(master_key, user_identity.master_key().get_first_key().unwrap());
-        // Including the fact that it was verified
-        assert!(master_key_verified);
+        fn sender_master_key(&self) -> Ed25519PublicKey {
+            self.sender.user_identities.master_key().get_first_key().unwrap()
+        }
     }
 
-    #[async_test]
-    async fn test_adds_sender_data_based_on_existing_device() {
-        // Given an account and user identity
-        let account = Account::with_device_id(user_id!("@u:s.co"), device_id!("DEVICEID"));
-        let private_identity = create_private_identity(&account).await;
-        let user_identity = ReadOnlyOwnUserIdentity::from_private(&private_identity).await;
-        let user_identities = ReadOnlyUserIdentities::Own(user_identity.clone());
+    fn create_store(sender: &TestUser) -> Store {
+        let store_wrapper = Arc::new(CryptoStoreWrapper::new(&sender.user_id, MemoryStore::new()));
 
-        // And a device signed by the user identity
-        let device = create_signed_device(&account, &private_identity).await;
-
-        // When we try to find sender data directly using based in the device instead of
-        // using a room key event
-        let own_crypto_store = FakeCryptoStore::user_only(user_identities);
-        let finder = create_finder(&own_crypto_store, None);
-        let sender_data = finder.have_device_keys(device.as_device_keys()).await.unwrap();
-
-        // Then we get back the information about the sender
-        assert_let!(
-            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+        let verification_machine = VerificationMachine::new(
+            sender.account.deref().clone(),
+            Arc::clone(&sender.private_identity),
+            Arc::new(CryptoStoreWrapper::new(&sender.user_id, MemoryStore::new())),
         );
-        assert_eq!(user_id, account.user_id());
-        assert_eq!(master_key, user_identity.master_key().get_first_key().unwrap());
-        assert!(!master_key_verified);
+
+        Store::new(
+            sender.account.static_data.clone(),
+            Arc::clone(&sender.private_identity),
+            store_wrapper,
+            verification_machine,
+        )
+    }
+
+    async fn save_to_store(
+        store: &Store,
+        me: &TestUser,
+        sender: &TestUser,
+        sender_device: &Device,
+        options: &TestOptions,
+    ) {
+        let mut changes = Changes::default();
+
+        // If the device should exist in the store, add it
+        if options.store_contains_device {
+            changes.devices.new.push(sender_device.inner.clone())
+        }
+
+        // Add the sender identity to the store
+        if options.store_contains_sender_identity {
+            changes.identities.new.push(sender.user_identities.clone());
+        }
+
+        // If it's different from the sender, add our identity too
+        if !options.sender_is_ourself {
+            changes.identities.new.push(me.user_identities.clone());
+        }
+
+        store.save_changes(changes).await.unwrap();
+    }
+
+    struct TestUser {
+        user_id: OwnedUserId,
+        account: Account,
+        private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
+        user_identities: ReadOnlyUserIdentities,
+    }
+
+    impl TestUser {
+        async fn new(
+            user_id: &UserId,
+            device_id: &DeviceId,
+            is_me: bool,
+            is_verified: bool,
+            signer: Option<&TestUser>,
+        ) -> Self {
+            let account = Account::with_device_id(user_id, device_id);
+            let user_id = user_id.to_owned();
+            let private_identity = Arc::new(Mutex::new(create_private_identity(&account).await));
+
+            let user_identities =
+                create_user_identities(&*private_identity.lock().await, is_me, is_verified, signer)
+                    .await;
+
+            Self { user_id, account, private_identity, user_identities }
+        }
+
+        async fn own() -> Self {
+            Self::new(user_id!("@myself:s.co"), device_id!("OWNDEVICEID"), true, false, None).await
+        }
+
+        async fn other(me: &TestUser, options: &TestOptions) -> Self {
+            let user_id =
+                if options.sender_is_ourself { &me.user_id } else { user_id!("@other:s.co") };
+
+            Self::new(
+                user_id,
+                device_id!("SENDERDEVICEID"),
+                options.sender_is_ourself,
+                options.sender_is_verified,
+                Some(me),
+            )
+            .await
+        }
+    }
+
+    async fn create_user_identities(
+        private_identity: &PrivateCrossSigningIdentity,
+        is_me: bool,
+        is_verified: bool,
+        signer: Option<&TestUser>,
+    ) -> ReadOnlyUserIdentities {
+        if is_me {
+            let user_identity = ReadOnlyOwnUserIdentity::from_private(private_identity).await;
+
+            if is_verified {
+                user_identity.mark_as_verified();
+            }
+
+            ReadOnlyUserIdentities::Own(user_identity)
+        } else {
+            let mut user_identity = ReadOnlyUserIdentity::from_private(private_identity).await;
+
+            if is_verified {
+                sign_other_identity(signer, &mut user_identity).await;
+            }
+
+            ReadOnlyUserIdentities::Other(user_identity)
+        }
+    }
+
+    async fn sign_other_identity(
+        signer: Option<&TestUser>,
+        user_identity: &mut ReadOnlyUserIdentity,
+    ) {
+        if let Some(signer) = signer {
+            let signer_private_identity = signer.private_identity.lock().await;
+
+            let user_signing = signer_private_identity.user_signing_key.lock().await;
+
+            let user_signing = user_signing.as_ref().unwrap();
+            let master = user_signing.sign_user(&*user_identity).unwrap();
+            user_identity.master_key = Arc::new(master.try_into().unwrap());
+
+            user_signing.public_key().verify_master_key(user_identity.master_key()).unwrap();
+        } else {
+            panic!("You must provide a `signer` if you want an Other to be verified!");
+        }
     }
 
     async fn create_private_identity(account: &Account) -> PrivateCrossSigningIdentity {
@@ -787,33 +964,24 @@ mod tests {
         }
     }
 
-    fn create_curve_key() -> Curve25519PublicKey {
-        Curve25519PublicKey::from_base64("7PUPP6Ijt5R8qLwK2c8uK5hqCNF9tOzWYgGaAay5JBs").unwrap()
-    }
-
-    fn create_finder<'a, S>(
-        store: &'a S,
-        own_user_id: Option<&'a UserId>,
-    ) -> SenderDataFinder<'a, S>
-    where
-        S: FinderCryptoStore,
-    {
-        SenderDataFinder {
-            own_crypto_store: store,
-            own_user_id: own_user_id.unwrap_or(user_id!("@u:s.co")),
-        }
-    }
-
-    fn room_key_event(
-        device: Option<&Device>,
-        content: &MegolmV1AesSha2Content,
+    fn create_room_key_event(
+        sender: &UserId,
+        receiver: &UserId,
+        sender_device: &Device,
+        options: &TestOptions,
     ) -> DecryptedRoomKeyEvent {
+        let device = if options.event_contains_device_keys {
+            Some(sender_device.as_device_keys().clone())
+        } else {
+            None
+        };
+
         DecryptedRoomKeyEvent::new(
-            user_id!("@s:s.co"),
-            user_id!("@u:s.co"),
+            sender,
+            receiver,
             Ed25519PublicKey::from_base64("loz5i40dP+azDtWvsD0L/xpnCjNkmrcvtXVXzCHX8Vw").unwrap(),
-            device.map(|d| d.as_device_keys().clone()),
-            RoomKeyContent::MegolmV1AesSha2(Box::new(clone_content(content))),
+            device,
+            RoomKeyContent::MegolmV1AesSha2(Box::new(room_key_content())),
         )
     }
 
@@ -834,48 +1002,10 @@ mod tests {
         )
     }
 
-    fn clone_content(content: &MegolmV1AesSha2Content) -> MegolmV1AesSha2Content {
-        MegolmV1AesSha2Content::new(
-            content.room_id.clone(),
-            content.session_id.clone(),
-            SessionKey::from_base64(&content.session_key.to_base64()).unwrap(),
-        )
-    }
-
     struct FakeCryptoStore {
         device: Option<Device>,
         user_identities: Option<ReadOnlyUserIdentities>,
         own_user_identities: Option<ReadOnlyUserIdentities>,
-    }
-
-    impl FakeCryptoStore {
-        fn new(
-            device: Option<Device>,
-            user_identities: Option<ReadOnlyUserIdentities>,
-            own_user_identities: Option<ReadOnlyUserIdentities>,
-        ) -> Self {
-            Self { device, user_identities, own_user_identities }
-        }
-
-        fn device_and_user(device: Device, user_identities: ReadOnlyUserIdentities) -> Self {
-            Self {
-                device: Some(device),
-                user_identities: Some(user_identities),
-                own_user_identities: None,
-            }
-        }
-
-        fn device_only(device: Device) -> Self {
-            Self { device: Some(device), user_identities: None, own_user_identities: None }
-        }
-
-        fn user_only(user_identities: ReadOnlyUserIdentities) -> Self {
-            Self { device: None, user_identities: Some(user_identities), own_user_identities: None }
-        }
-
-        fn empty() -> Self {
-            Self { device: None, user_identities: None, own_user_identities: None }
-        }
     }
 
     #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
