@@ -1250,11 +1250,9 @@ impl Account {
                 let mut errors_by_olm_session = Vec::new();
 
                 if let Some(sessions) = existing_sessions {
-                    let sessions = &mut *sessions.lock().await;
-
                     // Try to decrypt the message using each Session we share with the
                     // given curve25519 sender key.
-                    for session in sessions.iter_mut() {
+                    for mut session in sessions {
                         match session.decrypt(message).await {
                             Ok(p) => {
                                 // success!
@@ -1282,7 +1280,7 @@ impl Account {
             OlmMessage::PreKey(prekey_message) => {
                 // First try to decrypt using an existing session.
                 if let Some(sessions) = existing_sessions {
-                    for session in sessions.lock().await.iter_mut() {
+                    for mut session in sessions {
                         if prekey_message.session_id() != session.session_id() {
                             // wrong session
                             continue;

@@ -338,10 +338,6 @@ async fn save_changes(
     processed_steps += 1;
     listener(processed_steps, total_steps);
 
-    // The Sessions were created with incorrect device keys, so clear the cache
-    // so that they'll get recreated with correct ones.
-    store.clear_caches().await;
-
     Ok(())
 }
 

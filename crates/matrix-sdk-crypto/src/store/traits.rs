@@ -19,7 +19,6 @@ use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId,
 };
-use tokio::sync::Mutex;
 
 use super::{
     BackupKeys, Changes, CryptoStoreError, PendingChanges, Result, RoomKeyCounts, RoomSettings,
@@ -85,10 +84,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// # Arguments
     ///
     /// * `sender_key` - The sender key that was used to establish the sessions.
-    async fn get_sessions(
-        &self,
-        sender_key: &str,
-    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>, Self::Error>;
+    async fn get_sessions(&self, sender_key: &str) -> Result<Option<Vec<Session>>, Self::Error>;
 
     /// Get the inbound group session from our store.
     ///
@@ -324,13 +320,6 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Load the next-batch token for a to-device query, if any.
     async fn next_batch_token(&self) -> Result<Option<String>, Self::Error>;
-
-    /// Clear any in-memory caches because they may be out of sync with the
-    /// underlying data store.
-    ///
-    /// If the store does not have any underlying persistence (e.g in-memory
-    /// store) then this should be a no-op.
-    async fn clear_caches(&self);
 }
 
 #[repr(transparent)]
@@ -347,10 +336,6 @@ impl<T: fmt::Debug> fmt::Debug for EraseCryptoStoreError<T> {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
     type Error = CryptoStoreError;
-
-    async fn clear_caches(&self) {
-        self.0.clear_caches().await
-    }
 
     async fn load_account(&self) -> Result<Option<Account>> {
         self.0.load_account().await.map_err(Into::into)
@@ -376,7 +361,7 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         self.0.save_inbound_group_sessions(sessions, backed_up_to_version).await.map_err(Into::into)
     }
 
-    async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
+    async fn get_sessions(&self, sender_key: &str) -> Result<Option<Vec<Session>>> {
         self.0.get_sessions(sender_key).await.map_err(Into::into)
     }
 
