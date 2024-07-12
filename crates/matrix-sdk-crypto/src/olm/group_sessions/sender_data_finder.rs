@@ -20,7 +20,7 @@ use crate::{
     error::OlmResult,
     store::Store,
     types::{events::olm_v1::DecryptedRoomKeyEvent, DeviceKeys, MasterPubkey},
-    EventError, OlmError, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
+    DeviceData, EventError, OlmError, OwnUserIdentityData, UserIdentityData,
 };
 
 /// Temporary struct that is used to look up [`SenderData`] based on the
@@ -226,7 +226,7 @@ impl<'a> SenderDataFinder<'a> {
 
     async fn have_device_keys(&self, sender_device_keys: &DeviceKeys) -> OlmResult<SenderData> {
         // Validate the signature of the DeviceKeys supplied.
-        if let Ok(sender_device) = ReadOnlyDevice::try_from(sender_device_keys) {
+        if let Ok(sender_device) = DeviceData::try_from(sender_device_keys) {
             self.have_device(sender_device).await
         } else {
             // The device keys supplied did not validate.
@@ -239,14 +239,14 @@ impl<'a> SenderDataFinder<'a> {
     /// Step D from https://github.com/matrix-org/matrix-rust-sdk/issues/3543
     /// We have device info for the sender of this to-device message. Look up
     /// whether it's cross-signed.
-    async fn have_device(&self, sender_device: ReadOnlyDevice) -> OlmResult<SenderData> {
+    async fn have_device(&self, sender_device: DeviceData) -> OlmResult<SenderData> {
         // D (we have device info)
         //
         // Is the device info cross-signed?
 
         let user_id = sender_device.user_id();
         let Some(signatures) = sender_device.signatures().get(user_id) else {
-            // This should never happen: we would not have managed to get a ReadOnlyDevice
+            // This should never happen: we would not have managed to get a DeviceData
             // if it did not contain a signature.
             error!(
                 "Found a device for user_id {user_id} but it has no signatures for that user id!"
@@ -257,7 +257,7 @@ impl<'a> SenderDataFinder<'a> {
         };
 
         // Count number of signatures - we know there is 1, because we would not have
-        // been able to construct a ReadOnlyDevice without a signature.
+        // been able to construct a DeviceData without a signature.
         // If there are more than 1, we assume this device was cross-signed by some
         // identity.
         if signatures.len() > 1 {
@@ -275,7 +275,7 @@ impl<'a> SenderDataFinder<'a> {
         }
     }
 
-    async fn device_is_cross_signed(&self, sender_device: ReadOnlyDevice) -> OlmResult<SenderData> {
+    async fn device_is_cross_signed(&self, sender_device: DeviceData) -> OlmResult<SenderData> {
         // E (we have cross-signed device info)
         //
         // Do we have the cross-signing key for this user?
@@ -298,8 +298,8 @@ impl<'a> SenderDataFinder<'a> {
 
     async fn have_user_cross_signing_keys(
         &self,
-        sender_device: ReadOnlyDevice,
-        sender_user_identity: ReadOnlyUserIdentities,
+        sender_device: DeviceData,
+        sender_user_identity: UserIdentityData,
     ) -> OlmResult<SenderData> {
         // G (we have cross-signing key)
         //
@@ -361,18 +361,18 @@ impl<'a> SenderDataFinder<'a> {
     /// Otherwise, return None.
     async fn master_key_if_device_is_signed_by_user<'i>(
         &self,
-        sender_device: &'_ ReadOnlyDevice,
-        sender_user_identity: &'i ReadOnlyUserIdentities,
+        sender_device: &'_ DeviceData,
+        sender_user_identity: &'i UserIdentityData,
     ) -> OlmResult<Option<(&'i MasterPubkey, bool)>> {
         Ok(match sender_user_identity {
-            ReadOnlyUserIdentities::Own(own_identity) => {
+            UserIdentityData::Own(own_identity) => {
                 if own_identity.is_device_signed(sender_device).is_ok() {
                     Some((own_identity.master_key(), own_identity.is_verified()))
                 } else {
                     None
                 }
             }
-            ReadOnlyUserIdentities::Other(other_identity) => {
+            UserIdentityData::Other(other_identity) => {
                 if other_identity.is_device_signed(sender_device).is_ok() {
                     let master_key = other_identity.master_key();
 
@@ -395,7 +395,7 @@ impl<'a> SenderDataFinder<'a> {
 
     /// Return the user identity of the current user, or None if we failed to
     /// find it (which is unexpected)
-    async fn own_identity(&self) -> OlmResult<Option<ReadOnlyOwnUserIdentity>> {
+    async fn own_identity(&self) -> OlmResult<Option<OwnUserIdentityData>> {
         Ok(self.store.get_user_identity(self.store.user_id()).await?.and_then(|i| i.into_own()))
     }
 }
@@ -419,8 +419,7 @@ mod tests {
             room_key::{MegolmV1AesSha2Content, RoomKeyContent},
         },
         verification::VerificationMachine,
-        Account, Device, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
-        ReadOnlyUserIdentity,
+        Account, Device, DeviceData, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData,
     };
 
     impl<'a> SenderDataFinder<'a> {
@@ -804,7 +803,7 @@ mod tests {
         }
 
         fn sender_master_key(&self) -> Ed25519PublicKey {
-            self.sender.user_identities.master_key().get_first_key().unwrap()
+            self.sender.user_identity.master_key().get_first_key().unwrap()
         }
     }
 
@@ -841,12 +840,12 @@ mod tests {
 
         // Add the sender identity to the store
         if options.store_contains_sender_identity {
-            changes.identities.new.push(sender.user_identities.clone());
+            changes.identities.new.push(sender.user_identity.clone());
         }
 
         // If it's different from the sender, add our identity too
         if !options.sender_is_ourself {
-            changes.identities.new.push(me.user_identities.clone());
+            changes.identities.new.push(me.user_identity.clone());
         }
 
         store.save_changes(changes).await.unwrap();
@@ -856,7 +855,7 @@ mod tests {
         user_id: OwnedUserId,
         account: Account,
         private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-        user_identities: ReadOnlyUserIdentities,
+        user_identity: UserIdentityData,
     }
 
     impl TestUser {
@@ -871,11 +870,11 @@ mod tests {
             let user_id = user_id.to_owned();
             let private_identity = Arc::new(Mutex::new(create_private_identity(&account).await));
 
-            let user_identities =
-                create_user_identities(&*private_identity.lock().await, is_me, is_verified, signer)
+            let user_identity =
+                create_user_identity(&*private_identity.lock().await, is_me, is_verified, signer)
                     .await;
 
-            Self { user_id, account, private_identity, user_identities }
+            Self { user_id, account, private_identity, user_identity }
         }
 
         async fn own() -> Self {
@@ -897,34 +896,35 @@ mod tests {
         }
     }
 
-    async fn create_user_identities(
+    async fn create_user_identity(
         private_identity: &PrivateCrossSigningIdentity,
         is_me: bool,
         is_verified: bool,
         signer: Option<&TestUser>,
-    ) -> ReadOnlyUserIdentities {
+    ) -> UserIdentityData {
         if is_me {
-            let user_identity = ReadOnlyOwnUserIdentity::from_private(private_identity).await;
+            let own_user_identity = OwnUserIdentityData::from_private(private_identity).await;
 
             if is_verified {
-                user_identity.mark_as_verified();
+                own_user_identity.mark_as_verified();
             }
 
-            ReadOnlyUserIdentities::Own(user_identity)
+            UserIdentityData::Own(own_user_identity)
         } else {
-            let mut user_identity = ReadOnlyUserIdentity::from_private(private_identity).await;
+            let mut other_user_identity =
+                OtherUserIdentityData::from_private(private_identity).await;
 
             if is_verified {
-                sign_other_identity(signer, &mut user_identity).await;
+                sign_other_identity(signer, &mut other_user_identity).await;
             }
 
-            ReadOnlyUserIdentities::Other(user_identity)
+            UserIdentityData::Other(other_user_identity)
         }
     }
 
     async fn sign_other_identity(
         signer: Option<&TestUser>,
-        user_identity: &mut ReadOnlyUserIdentity,
+        other_user_identity: &mut OtherUserIdentityData,
     ) {
         if let Some(signer) = signer {
             let signer_private_identity = signer.private_identity.lock().await;
@@ -932,10 +932,10 @@ mod tests {
             let user_signing = signer_private_identity.user_signing_key.lock().await;
 
             let user_signing = user_signing.as_ref().unwrap();
-            let master = user_signing.sign_user(&*user_identity).unwrap();
-            user_identity.master_key = Arc::new(master.try_into().unwrap());
+            let master = user_signing.sign_user(&*other_user_identity).unwrap();
+            other_user_identity.master_key = Arc::new(master.try_into().unwrap());
 
-            user_signing.public_key().verify_master_key(user_identity.master_key()).unwrap();
+            user_signing.public_key().verify_master_key(other_user_identity.master_key()).unwrap();
         } else {
             panic!("You must provide a `signer` if you want an Other to be verified!");
         }
@@ -949,7 +949,7 @@ mod tests {
         account: &Account,
         private_identity: &PrivateCrossSigningIdentity,
     ) -> Device {
-        let mut read_only_device = ReadOnlyDevice::from_account(account);
+        let mut read_only_device = DeviceData::from_account(account);
 
         let self_signing = private_identity.self_signing_key.lock().await;
         let self_signing = self_signing.as_ref().unwrap();
@@ -962,10 +962,10 @@ mod tests {
     }
 
     fn create_unsigned_device(account: &Account) -> Device {
-        wrap_device(account, ReadOnlyDevice::from_account(account))
+        wrap_device(account, DeviceData::from_account(account))
     }
 
-    fn wrap_device(account: &Account, read_only_device: ReadOnlyDevice) -> Device {
+    fn wrap_device(account: &Account, read_only_device: DeviceData) -> Device {
         Device {
             inner: read_only_device,
             verification_machine: VerificationMachine::new(
