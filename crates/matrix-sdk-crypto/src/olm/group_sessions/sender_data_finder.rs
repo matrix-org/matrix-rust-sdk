@@ -26,7 +26,8 @@ use crate::{
 };
 
 /// Temporary struct that is used to look up [`SenderData`] based on the
-/// information supplied with in [`InboundGroupSession`].
+/// information supplied in
+/// [`crate::types::events::olm_v1::DecryptedRoomKeyEvent`].
 ///
 /// The letters A, B etc. in the documentation refer to the algorithm described
 /// in https://github.com/matrix-org/matrix-rust-sdk/issues/3543
