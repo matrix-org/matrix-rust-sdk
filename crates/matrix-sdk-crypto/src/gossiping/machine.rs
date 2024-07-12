@@ -1125,7 +1125,7 @@ mod tests {
         EncryptionSettings, OutgoingRequests,
     };
     use crate::{
-        identities::{IdentityManager, LocalTrust, ReadOnlyDevice},
+        identities::{DeviceData, IdentityManager, LocalTrust},
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
         store::{Changes, CryptoStoreWrapper, MemoryStore, PendingChanges, Store},
@@ -1193,9 +1193,9 @@ mod tests {
     async fn get_machine_test_helper() -> GossipMachine {
         let user_id = alice_id().to_owned();
         let account = Account::with_device_id(&user_id, alice_device_id());
-        let device = ReadOnlyDevice::from_account(&account);
+        let device = DeviceData::from_account(&account);
         let another_device =
-            ReadOnlyDevice::from_account(&Account::with_device_id(&user_id, alice2_device_id()));
+            DeviceData::from_account(&Account::with_device_id(&user_id, alice2_device_id()));
 
         let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
@@ -1219,19 +1219,19 @@ mod tests {
         algorithm: EventEncryptionAlgorithm,
     ) -> (GossipMachine, OutboundGroupSession, GossipMachine) {
         let alice_machine = get_machine_test_helper().await;
-        let alice_device = ReadOnlyDevice::from_account(
+        let alice_device = DeviceData::from_account(
             &alice_machine.inner.store.cache().await.unwrap().account().await.unwrap(),
         );
 
         let bob_machine = gossip_machine_test_helper(other_machine_owner).await;
 
-        let bob_device = ReadOnlyDevice::from_account(
+        let bob_device = DeviceData::from_account(
             #[allow(clippy::explicit_auto_deref)] // clippy's wrong
             &*bob_machine.inner.store.cache().await.unwrap().account().await.unwrap(),
         );
 
         // We need a trusted device, otherwise we won't request keys
-        let second_device = ReadOnlyDevice::from_account(&alice_2_account());
+        let second_device = DeviceData::from_account(&alice_2_account());
         second_device.set_trust_state(LocalTrust::Verified);
         bob_device.set_trust_state(LocalTrust::Verified);
         alice_machine.inner.store.save_devices(&[bob_device, second_device]).await.unwrap();
@@ -1390,7 +1390,7 @@ mod tests {
         let machine = get_machine_test_helper().await;
         let account = account();
         let second_account = alice_2_account();
-        let alice_device = ReadOnlyDevice::from_account(&second_account);
+        let alice_device = DeviceData::from_account(&second_account);
 
         // We need a trusted device, otherwise we won't request keys
         alice_device.set_trust_state(LocalTrust::Verified);
@@ -1423,7 +1423,7 @@ mod tests {
         let machine = get_machine_test_helper().await;
         let account = account();
         let second_account = alice_2_account();
-        let alice_device = ReadOnlyDevice::from_account(&second_account);
+        let alice_device = DeviceData::from_account(&second_account);
 
         // We need a trusted device, otherwise we won't request keys
         alice_device.set_trust_state(LocalTrust::Verified);
@@ -1452,7 +1452,7 @@ mod tests {
         let account = account();
 
         let second_account = alice_2_account();
-        let alice_device = ReadOnlyDevice::from_account(&second_account);
+        let alice_device = DeviceData::from_account(&second_account);
 
         // We need a trusted device, otherwise we won't request keys
         alice_device.set_trust_state(LocalTrust::Verified);
@@ -1577,7 +1577,7 @@ mod tests {
         // Now we do want to share the keys.
         machine.should_share_key(&own_device, &inbound).await.unwrap();
 
-        let bob_device = ReadOnlyDevice::from_account(&bob_account());
+        let bob_device = DeviceData::from_account(&bob_account());
         machine.inner.store.save_devices(&[bob_device]).await.unwrap();
 
         let bob_device =
@@ -1635,7 +1635,7 @@ mod tests {
 
         // Finally, let's ensure we don't share the session with a device that rotated
         // its curve25519 key.
-        let bob_device = ReadOnlyDevice::from_account(&bob_account());
+        let bob_device = DeviceData::from_account(&bob_account());
         machine.inner.store.save_devices(&[bob_device]).await.unwrap();
 
         let bob_device =
@@ -1837,10 +1837,10 @@ mod tests {
         let alice_machine = get_machine_test_helper().await;
 
         let mut second_account = alice_2_account();
-        let alice_device = ReadOnlyDevice::from_account(&second_account);
+        let alice_device = DeviceData::from_account(&second_account);
 
         let bob_account = bob_account();
-        let bob_device = ReadOnlyDevice::from_account(&bob_account);
+        let bob_device = DeviceData::from_account(&bob_account);
 
         alice_machine.inner.store.save_devices(&[alice_device.clone()]).await.unwrap();
 

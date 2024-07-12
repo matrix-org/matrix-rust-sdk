@@ -34,7 +34,7 @@ use super::{
 };
 use crate::{
     gossiping::{GossipRequest, GossippedSecret, SecretInfo},
-    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
+    identities::{DeviceData, ReadOnlyUserIdentities},
     olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     TrackedUser,
@@ -127,13 +127,13 @@ impl MemoryStore {
         Self::default()
     }
 
-    pub(crate) fn save_devices(&self, devices: Vec<ReadOnlyDevice>) {
+    pub(crate) fn save_devices(&self, devices: Vec<DeviceData>) {
         for device in devices {
             let _ = self.devices.add(device);
         }
     }
 
-    fn delete_devices(&self, devices: Vec<ReadOnlyDevice>) {
+    fn delete_devices(&self, devices: Vec<DeviceData>) {
         for device in devices {
             let _ = self.devices.remove(device.user_id(), device.device_id());
         }
@@ -463,18 +463,18 @@ impl CryptoStore for MemoryStore {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>> {
+    ) -> Result<Option<DeviceData>> {
         Ok(self.devices.get(user_id, device_id))
     }
 
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
         Ok(self.devices.user_devices(user_id))
     }
 
-    async fn get_own_device(&self) -> Result<ReadOnlyDevice> {
+    async fn get_own_device(&self) -> Result<DeviceData> {
         let account = self.load_account().await?.unwrap();
 
         Ok(self.devices.get(&account.user_id, &account.device_id).unwrap())
@@ -1103,8 +1103,8 @@ mod integration_tests {
         },
         store::{BackupKeys, Changes, CryptoStore, PendingChanges, RoomKeyCounts, RoomSettings},
         types::events::room_key_withheld::RoomKeyWithheldEvent,
-        Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities,
-        SecretInfo, Session, TrackedUser,
+        Account, DeviceData, GossipRequest, GossippedSecret, ReadOnlyUserIdentities, SecretInfo,
+        Session, TrackedUser,
     };
 
     /// Holds on to a MemoryStore during a test, and moves it back into STORES
@@ -1270,18 +1270,18 @@ mod integration_tests {
             &self,
             user_id: &UserId,
             device_id: &DeviceId,
-        ) -> Result<Option<ReadOnlyDevice>, Self::Error> {
+        ) -> Result<Option<DeviceData>, Self::Error> {
             self.0.get_device(user_id, device_id).await
         }
 
         async fn get_user_devices(
             &self,
             user_id: &UserId,
-        ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>, Self::Error> {
+        ) -> Result<HashMap<OwnedDeviceId, DeviceData>, Self::Error> {
             self.0.get_user_devices(user_id).await
         }
 
-        async fn get_own_device(&self) -> Result<ReadOnlyDevice, Self::Error> {
+        async fn get_own_device(&self) -> Result<DeviceData, Self::Error> {
             self.0.get_own_device().await
         }
 

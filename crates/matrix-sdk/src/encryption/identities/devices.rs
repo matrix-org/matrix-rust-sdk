@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, ops::Deref};
 
 use matrix_sdk_base::crypto::{
-    store::CryptoStoreError, Device as BaseDevice, LocalTrust, ReadOnlyDevice,
+    store::CryptoStoreError, Device as BaseDevice, DeviceData, LocalTrust,
     UserDevices as BaseUserDevices,
 };
 use ruma::{events::key::verification::VerificationMethod, DeviceId, OwnedDeviceId, OwnedUserId};
@@ -100,7 +100,7 @@ pub struct Device {
 }
 
 impl Deref for Device {
-    type Target = ReadOnlyDevice;
+    type Target = DeviceData;
 
     fn deref(&self) -> &Self::Target {
         &self.inner

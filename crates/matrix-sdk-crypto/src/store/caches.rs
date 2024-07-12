@@ -32,7 +32,7 @@ use tokio::sync::Mutex;
 use tracing::{field::display, instrument, trace, Span};
 
 use crate::{
-    identities::ReadOnlyDevice,
+    identities::DeviceData,
     olm::{InboundGroupSession, Session},
 };
 
@@ -140,7 +140,7 @@ impl GroupSessionStore {
 /// In-memory store holding the devices of users.
 #[derive(Debug, Default)]
 pub struct DeviceStore {
-    entries: StdRwLock<BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ReadOnlyDevice>>>,
+    entries: StdRwLock<BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, DeviceData>>>,
 }
 
 impl DeviceStore {
@@ -152,7 +152,7 @@ impl DeviceStore {
     /// Add a device to the store.
     ///
     /// Returns true if the device was already in the store, false otherwise.
-    pub fn add(&self, device: ReadOnlyDevice) -> bool {
+    pub fn add(&self, device: DeviceData) -> bool {
         let user_id = device.user_id();
         self.entries
             .write()
@@ -164,7 +164,7 @@ impl DeviceStore {
     }
 
     /// Get the device with the given device_id and belonging to the given user.
-    pub fn get(&self, user_id: &UserId, device_id: &DeviceId) -> Option<ReadOnlyDevice> {
+    pub fn get(&self, user_id: &UserId, device_id: &DeviceId) -> Option<DeviceData> {
         Some(self.entries.read().unwrap().get(user_id)?.get(device_id)?.clone())
     }
 
@@ -172,12 +172,12 @@ impl DeviceStore {
     /// user.
     ///
     /// Returns the device if it was removed, None if it wasn't in the store.
-    pub fn remove(&self, user_id: &UserId, device_id: &DeviceId) -> Option<ReadOnlyDevice> {
+    pub fn remove(&self, user_id: &UserId, device_id: &DeviceId) -> Option<DeviceData> {
         self.entries.write().unwrap().get_mut(user_id)?.remove(device_id)
     }
 
     /// Get a read-only view over all devices of the given user.
-    pub fn user_devices(&self, user_id: &UserId) -> HashMap<OwnedDeviceId, ReadOnlyDevice> {
+    pub fn user_devices(&self, user_id: &UserId) -> HashMap<OwnedDeviceId, DeviceData> {
         self.entries
             .write()
             .unwrap()

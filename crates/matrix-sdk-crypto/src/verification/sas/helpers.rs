@@ -32,7 +32,7 @@ use vodozemac::{sas::EstablishedSas, Curve25519PublicKey};
 
 use super::{sas_state::SupportedMacMethod, FlowId, OutgoingContent};
 use crate::{
-    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
+    identities::{DeviceData, ReadOnlyUserIdentities},
     olm::StaticAccountData,
     verification::event_enums::{MacContent, StartContent},
     Emoji, ReadOnlyOwnUserIdentity,
@@ -42,7 +42,7 @@ use crate::{
 pub struct SasIds {
     pub account: StaticAccountData,
     pub own_identity: Option<ReadOnlyOwnUserIdentity>,
-    pub other_device: ReadOnlyDevice,
+    pub other_device: DeviceData,
     pub other_identity: Option<ReadOnlyUserIdentities>,
 }
 
@@ -199,7 +199,7 @@ pub fn receive_mac_event(
     sender: &UserId,
     mac_method: SupportedMacMethod,
     content: &MacContent<'_>,
-) -> Result<(Vec<ReadOnlyDevice>, Vec<ReadOnlyUserIdentities>), CancelCode> {
+) -> Result<(Vec<DeviceData>, Vec<ReadOnlyUserIdentities>), CancelCode> {
     let mut verified_devices = Vec::new();
     let mut verified_identities = Vec::new();
 

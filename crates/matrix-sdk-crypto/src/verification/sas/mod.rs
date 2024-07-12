@@ -41,7 +41,7 @@ use super::{
     CancelInfo, FlowId, IdentitiesBeingVerified, VerificationResult,
 };
 use crate::{
-    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
+    identities::{DeviceData, ReadOnlyUserIdentities},
     olm::StaticAccountData,
     requests::{OutgoingVerificationRequest, RoomMessageRequest},
     store::CryptoStoreError,
@@ -152,7 +152,7 @@ pub enum SasState {
     /// The verification process has been successfully concluded.
     Done {
         /// The list of devices that has been verified.
-        verified_devices: Vec<ReadOnlyDevice>,
+        verified_devices: Vec<DeviceData>,
         /// The list of user identities that has been verified.
         verified_identities: Vec<ReadOnlyUserIdentities>,
     },
@@ -253,7 +253,7 @@ impl Sas {
     }
 
     /// Get the device of the other user.
-    pub fn other_device(&self) -> &ReadOnlyDevice {
+    pub fn other_device(&self) -> &DeviceData {
         self.identities_being_verified.other_device()
     }
 
@@ -814,7 +814,7 @@ impl Sas {
         );
     }
 
-    pub(crate) fn verified_devices(&self) -> Option<Arc<[ReadOnlyDevice]>> {
+    pub(crate) fn verified_devices(&self) -> Option<Arc<[DeviceData]>> {
         self.inner.read().verified_devices()
     }
 
@@ -883,7 +883,7 @@ mod tests {
             event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent, StartContent},
             VerificationStore,
         },
-        Account, ReadOnlyDevice, SasState,
+        Account, DeviceData, SasState,
     };
 
     fn alice_id() -> &'static UserId {
@@ -902,13 +902,13 @@ mod tests {
         device_id!("BOBDEVCIE")
     }
 
-    fn machine_pair_test_helper(
-    ) -> (VerificationStore, ReadOnlyDevice, VerificationStore, ReadOnlyDevice) {
+    fn machine_pair_test_helper() -> (VerificationStore, DeviceData, VerificationStore, DeviceData)
+    {
         let alice = Account::with_device_id(alice_id(), alice_device_id());
-        let alice_device = ReadOnlyDevice::from_account(&alice);
+        let alice_device = DeviceData::from_account(&alice);
 
         let bob = Account::with_device_id(bob_id(), bob_device_id());
-        let bob_device = ReadOnlyDevice::from_account(&bob);
+        let bob_device = DeviceData::from_account(&bob);
 
         let alice_store = VerificationStore {
             account: alice.static_data.clone(),

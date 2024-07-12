@@ -1643,7 +1643,7 @@ mod tests {
             tests::{alice_id, bob_id, setup_stores},
             FlowId, Verification, VerificationStore,
         },
-        OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequestState,
+        DeviceData, OutgoingVerificationRequest, VerificationRequestState,
     };
 
     #[async_test]
@@ -1702,7 +1702,7 @@ mod tests {
         // test what happens when we cancel() a request that we have just received over
         // to-device messages.
         let (_alice, alice_store, bob, bob_store) = setup_stores().await;
-        let bob_device = ReadOnlyDevice::from_account(&bob);
+        let bob_device = DeviceData::from_account(&bob);
 
         // Set up the pair of verification requests
         let bob_request = build_test_request(&bob_store, alice_id(), None);
@@ -1740,7 +1740,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
 
         let (_alice, alice_store, bob, bob_store) = setup_stores().await;
-        let bob_device = ReadOnlyDevice::from_account(&bob);
+        let bob_device = DeviceData::from_account(&bob);
 
         let content = VerificationRequest::request(
             &bob_store.account.user_id,
@@ -1795,7 +1795,7 @@ mod tests {
     #[async_test]
     async fn test_requesting_until_sas_to_device() {
         let (_alice, alice_store, bob, bob_store) = setup_stores().await;
-        let bob_device = ReadOnlyDevice::from_account(&bob);
+        let bob_device = DeviceData::from_account(&bob);
 
         // Set up the pair of verification requests
         let bob_request = build_test_request(&bob_store, alice_id(), None);

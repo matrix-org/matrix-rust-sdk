@@ -24,8 +24,8 @@ use tracing::{debug, instrument, trace};
 
 use super::OutboundGroupSession;
 use crate::{
-    error::OlmResult, store::Store, types::events::room_key_withheld::WithheldCode,
-    EncryptionSettings, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
+    error::OlmResult, store::Store, types::events::room_key_withheld::WithheldCode, DeviceData,
+    EncryptionSettings, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
 };
 
 /// Strategy to collect the devices that should receive room keys for the
@@ -78,10 +78,10 @@ pub(crate) struct CollectRecipientsResult {
     /// If true the outbound group session should be rotated
     pub should_rotate: bool,
     /// The map of user|device that should receive the session
-    pub devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>>,
+    pub devices: BTreeMap<OwnedUserId, Vec<DeviceData>>,
     /// The map of user|device that won't receive the key with the withheld
     /// code.
-    pub withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)>,
+    pub withheld_devices: Vec<(DeviceData, WithheldCode)>,
 }
 
 /// Given a list of user and an outbound session, return the list of users
@@ -98,8 +98,8 @@ pub(crate) async fn collect_session_recipients(
     outbound: &OutboundGroupSession,
 ) -> OlmResult<CollectRecipientsResult> {
     let users: BTreeSet<&UserId> = users.collect();
-    let mut devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>> = Default::default();
-    let mut withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)> = Default::default();
+    let mut devices: BTreeMap<OwnedUserId, Vec<DeviceData>> = Default::default();
+    let mut withheld_devices: Vec<(DeviceData, WithheldCode)> = Default::default();
 
     trace!(?users, ?settings, "Calculating group session recipients");
 
@@ -210,12 +210,12 @@ pub(crate) async fn collect_session_recipients(
 }
 
 struct RecipientDevices {
-    allowed_devices: Vec<ReadOnlyDevice>,
-    denied_devices_with_code: Vec<(ReadOnlyDevice, WithheldCode)>,
+    allowed_devices: Vec<DeviceData>,
+    denied_devices_with_code: Vec<(DeviceData, WithheldCode)>,
 }
 
 fn split_recipients_withhelds_for_user(
-    user_devices: HashMap<OwnedDeviceId, ReadOnlyDevice>,
+    user_devices: HashMap<OwnedDeviceId, DeviceData>,
     own_identity: &Option<ReadOnlyOwnUserIdentity>,
     device_owner_identity: &Option<ReadOnlyUserIdentities>,
     only_allow_trusted_devices: bool,
@@ -224,25 +224,24 @@ fn split_recipients_withhelds_for_user(
     // buckets, a bucket of devices that should receive the
     // room key and a bucket of devices that should receive
     // a withheld code.
-    let (recipients, withheld_recipients): (
-        Vec<ReadOnlyDevice>,
-        Vec<(ReadOnlyDevice, WithheldCode)>,
-    ) = user_devices.into_values().partition_map(|d| {
-        if d.is_blacklisted() {
-            Either::Right((d, WithheldCode::Blacklisted))
-        } else if only_allow_trusted_devices && !d.is_verified(own_identity, device_owner_identity)
-        {
-            Either::Right((d, WithheldCode::Unverified))
-        } else {
-            Either::Left(d)
-        }
-    });
+    let (recipients, withheld_recipients): (Vec<DeviceData>, Vec<(DeviceData, WithheldCode)>) =
+        user_devices.into_values().partition_map(|d| {
+            if d.is_blacklisted() {
+                Either::Right((d, WithheldCode::Blacklisted))
+            } else if only_allow_trusted_devices
+                && !d.is_verified(own_identity, device_owner_identity)
+            {
+                Either::Right((d, WithheldCode::Unverified))
+            } else {
+                Either::Left(d)
+            }
+        });
 
     RecipientDevices { allowed_devices: recipients, denied_devices_with_code: withheld_recipients }
 }
 
 fn split_recipients_withhelds_for_user_based_on_identity(
-    user_devices: HashMap<OwnedDeviceId, ReadOnlyDevice>,
+    user_devices: HashMap<OwnedDeviceId, DeviceData>,
     device_owner_identity: &Option<ReadOnlyUserIdentities>,
 ) -> RecipientDevices {
     match device_owner_identity {
@@ -260,8 +259,8 @@ fn split_recipients_withhelds_for_user_based_on_identity(
         Some(device_owner_identity) => {
             // Only accept devices signed by the current identity
             let (recipients, withheld_recipients): (
-                Vec<ReadOnlyDevice>,
-                Vec<(ReadOnlyDevice, WithheldCode)>,
+                Vec<DeviceData>,
+                Vec<(DeviceData, WithheldCode)>,
             ) = user_devices.into_values().partition_map(|d| {
                 if d.is_cross_signed_by_owner(device_owner_identity) {
                     Either::Left(d)

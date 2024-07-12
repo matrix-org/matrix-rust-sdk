@@ -35,7 +35,7 @@ use crate::{
     requests::UploadSigningKeysRequest,
     store::SecretImportError,
     types::{DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
-    Account, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity,
+    Account, DeviceData, OwnUserIdentity, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity,
 };
 
 /// Private cross signing identity.
@@ -455,7 +455,7 @@ impl PrivateCrossSigningIdentity {
     /// Sign the given device keys with this identity.
     pub(crate) async fn sign_device(
         &self,
-        device: &ReadOnlyDevice,
+        device: &DeviceData,
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let mut device_keys = device.as_device_keys().to_owned();
         device_keys.signatures.clear();
@@ -642,7 +642,7 @@ mod tests {
 
     use super::{pk_signing::Signing, PrivateCrossSigningIdentity};
     use crate::{
-        identities::{ReadOnlyDevice, ReadOnlyUserIdentity},
+        identities::{DeviceData, ReadOnlyUserIdentity},
         olm::{Account, SignedJsonObject, VerifyJson},
         types::Signatures,
     };
@@ -751,7 +751,7 @@ mod tests {
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
-        let mut device = ReadOnlyDevice::from_account(&account);
+        let mut device = DeviceData::from_account(&account);
         let self_signing = identity.self_signing_key.lock().await;
         let self_signing = self_signing.as_ref().unwrap();
 

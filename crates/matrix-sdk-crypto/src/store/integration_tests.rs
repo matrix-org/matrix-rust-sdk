@@ -70,7 +70,7 @@ macro_rules! cryptostore_integration_tests {
                     DeviceKeys,
                     EventEncryptionAlgorithm,
                 },
-                GossippedSecret, LocalTrust, ReadOnlyDevice, SecretInfo, ToDeviceRequest, TrackedUser,
+                GossippedSecret, LocalTrust, DeviceData, SecretInfo, ToDeviceRequest, TrackedUser,
             };
 
             use super::get_store;
@@ -251,7 +251,7 @@ macro_rules! cryptostore_integration_tests {
                     store
                         .save_changes(Changes {
                             devices: DeviceChanges {
-                                new: vec![ReadOnlyDevice::from_account(&account)],
+                                new: vec![DeviceData::from_account(&account)],
                                 ..Default::default()
                             },
                             ..Default::default()
@@ -605,12 +605,12 @@ macro_rules! cryptostore_integration_tests {
                 let dir = "device_saving";
                 let (_account, store) = get_loaded_store(dir.clone()).await;
 
-                let alice_device_1 = ReadOnlyDevice::from_account(&Account::with_device_id(
+                let alice_device_1 = DeviceData::from_account(&Account::with_device_id(
                     "@alice:localhost".try_into().unwrap(),
                     "FIRSTDEVICE".into(),
                 ));
 
-                let alice_device_2 = ReadOnlyDevice::from_account(&Account::with_device_id(
+                let alice_device_2 = DeviceData::from_account(&Account::with_device_id(
                     "@alice:localhost".try_into().unwrap(),
                     "SECONDDEVICE".into(),
                 ));
@@ -632,7 +632,7 @@ macro_rules! cryptostore_integration_tests {
                 });
 
                 let bob_device_1_keys: DeviceKeys = serde_json::from_value(json).unwrap();
-                let bob_device_1 = ReadOnlyDevice::new(bob_device_1_keys, LocalTrust::Unset);
+                let bob_device_1 = DeviceData::new(bob_device_1_keys, LocalTrust::Unset);
 
                 let changes = Changes {
                     devices: DeviceChanges {
@@ -673,7 +673,7 @@ macro_rules! cryptostore_integration_tests {
                     .unwrap();
 
                 let bob_device_json = serde_json::to_value(bob_device).unwrap();
-                assert_eq!(bob_device_json["inner"]["extra_property"], json!("somevalue"));
+                assert_eq!(bob_device_json["device_keys"]["extra_property"], json!("somevalue"));
             }
 
             #[async_test]

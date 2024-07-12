@@ -14,7 +14,7 @@
 
 use futures_core::Stream;
 use matrix_sdk_base::crypto::{
-    AcceptSettings, CancelInfo, Emoji, ReadOnlyDevice, Sas as BaseSas, SasState,
+    AcceptSettings, CancelInfo, DeviceData, Emoji, Sas as BaseSas, SasState,
 };
 use ruma::{events::key::verification::cancel::CancelCode, RoomId, UserId};
 
@@ -194,7 +194,7 @@ impl SasVerification {
     }
 
     /// Get the other users device that we're verifying.
-    pub fn other_device(&self) -> &ReadOnlyDevice {
+    pub fn other_device(&self) -> &DeviceData {
         self.inner.other_device()
     }
 

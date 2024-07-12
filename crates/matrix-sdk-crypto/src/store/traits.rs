@@ -30,7 +30,7 @@ use crate::{
         Session,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+    Account, DeviceData, GossipRequest, GossippedSecret, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
 
@@ -191,7 +191,7 @@ pub trait CryptoStore: AsyncTraitDeps {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>, Self::Error>;
+    ) -> Result<Option<DeviceData>, Self::Error>;
 
     /// Get all the devices of the given user.
     ///
@@ -201,13 +201,13 @@ pub trait CryptoStore: AsyncTraitDeps {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>, Self::Error>;
+    ) -> Result<HashMap<OwnedDeviceId, DeviceData>, Self::Error>;
 
     /// Get the device for the current client.
     ///
     /// Since our own device is set when the store is created, this will always
     /// return a device (unless there is an error).
-    async fn get_own_device(&self) -> Result<ReadOnlyDevice, Self::Error>;
+    async fn get_own_device(&self) -> Result<DeviceData, Self::Error>;
 
     /// Get the user identity that is attached to the given user id.
     ///
@@ -445,18 +445,18 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>> {
+    ) -> Result<Option<DeviceData>> {
         self.0.get_device(user_id, device_id).await.map_err(Into::into)
     }
 
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
         self.0.get_user_devices(user_id).await.map_err(Into::into)
     }
 
-    async fn get_own_device(&self) -> Result<ReadOnlyDevice> {
+    async fn get_own_device(&self) -> Result<DeviceData> {
         self.0.get_own_device().await.map_err(Into::into)
     }
 

@@ -32,7 +32,7 @@ use matrix_sdk_crypto::{
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     vodozemac::base64_encode,
-    Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+    Account, DeviceData, GossipRequest, GossippedSecret, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -1101,7 +1101,7 @@ impl_crypto_store! {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>> {
+    ) -> Result<Option<DeviceData>> {
         let key = self.serializer.encode_key(keys::DEVICES, (user_id, device_id));
         self
             .inner
@@ -1116,7 +1116,7 @@ impl_crypto_store! {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
         let range = self.serializer.encode_to_range(keys::DEVICES, user_id)?;
         Ok(self
             .inner
@@ -1126,13 +1126,13 @@ impl_crypto_store! {
             .await?
             .iter()
             .filter_map(|d| {
-                let d: ReadOnlyDevice = self.serializer.deserialize_value(d).ok()?;
+                let d: DeviceData = self.serializer.deserialize_value(d).ok()?;
                 Some((d.device_id().to_owned(), d))
             })
             .collect::<HashMap<_, _>>())
     }
 
-    async fn get_own_device(&self) -> Result<ReadOnlyDevice> {
+    async fn get_own_device(&self) -> Result<DeviceData> {
         let account_info = self.get_static_account().ok_or(CryptoStoreError::AccountUnset)?;
         Ok(self.get_device(&account_info.user_id, &account_info.device_id)
            .await?
@@ -1740,7 +1740,7 @@ mod tests {
     use matrix_sdk_crypto::{
         cryptostore_integration_tests,
         store::{Changes, CryptoStore as _, DeviceChanges, PendingChanges},
-        ReadOnlyDevice,
+        DeviceData,
     };
     use matrix_sdk_test::async_test;
 
@@ -1787,7 +1787,7 @@ mod tests {
         store
             .save_changes(Changes {
                 devices: DeviceChanges {
-                    new: vec![ReadOnlyDevice::from_account(&account)],
+                    new: vec![DeviceData::from_account(&account)],
                     ..Default::default()
                 },
                 ..Default::default()

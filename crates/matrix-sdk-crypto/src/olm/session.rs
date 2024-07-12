@@ -32,7 +32,7 @@ use crate::{
         events::room::encrypted::{OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent},
         DeviceKeys, EventEncryptionAlgorithm,
     },
-    ReadOnlyDevice,
+    DeviceData,
 };
 
 /// Cryptographic session that enables secure communication between two
@@ -141,7 +141,7 @@ impl Session {
     /// * `content` - The content of the event.
     pub async fn encrypt(
         &mut self,
-        recipient_device: &ReadOnlyDevice,
+        recipient_device: &DeviceData,
         event_type: &str,
         content: impl Serialize,
         message_id: Option<String>,
@@ -293,7 +293,7 @@ mod tests {
     use vodozemac::olm::{OlmMessage, SessionConfig};
 
     use crate::{
-        identities::ReadOnlyDevice,
+        identities::DeviceData,
         olm::Account,
         types::events::{
             dummy::DummyEventContent, olm_v1::DecryptedOlmV1Event,
@@ -322,7 +322,7 @@ mod tests {
             alice.device_keys(),
         );
 
-        let alice_device = ReadOnlyDevice::from_account(&alice);
+        let alice_device = DeviceData::from_account(&alice);
 
         // and encrypts a message
         let message = alice_session

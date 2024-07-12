@@ -31,7 +31,7 @@ use super::{
     FlowId,
 };
 use crate::{
-    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
+    identities::{DeviceData, ReadOnlyUserIdentities},
     olm::StaticAccountData,
     verification::{
         cache::RequestInfo,
@@ -60,7 +60,7 @@ pub enum InnerSas {
 impl InnerSas {
     pub fn start(
         account: StaticAccountData,
-        other_device: ReadOnlyDevice,
+        other_device: DeviceData,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         transaction_id: FlowId,
@@ -159,7 +159,7 @@ impl InnerSas {
 
     pub fn from_start_event(
         account: StaticAccountData,
-        other_device: ReadOnlyDevice,
+        other_device: DeviceData,
         flow_id: FlowId,
         content: &StartContent<'_>,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
@@ -444,7 +444,7 @@ impl InnerSas {
         }
     }
 
-    pub fn verified_devices(&self) -> Option<Arc<[ReadOnlyDevice]>> {
+    pub fn verified_devices(&self) -> Option<Arc<[DeviceData]>> {
         as_variant!(self, InnerSas::Done).map(|s| s.verified_devices())
     }
 

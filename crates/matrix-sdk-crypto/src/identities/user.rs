@@ -38,7 +38,7 @@ use crate::{
     store::{Changes, IdentityChanges, Store},
     types::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     verification::VerificationMachine,
-    CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequest,
+    CryptoStoreError, DeviceData, OutgoingVerificationRequest, VerificationRequest,
 };
 
 /// Enum over the different user identity types we can have.
@@ -484,7 +484,7 @@ impl ReadOnlyUserIdentity {
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
-    pub(crate) fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
+    pub(crate) fn is_device_signed(&self, device: &DeviceData) -> Result<(), SignatureError> {
         if self.user_id() != device.user_id() {
             return Err(SignatureError::UserIdMismatch);
         }
@@ -632,7 +632,7 @@ impl ReadOnlyOwnUserIdentity {
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
-    pub(crate) fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
+    pub(crate) fn is_device_signed(&self, device: &DeviceData) -> Result<(), SignatureError> {
         if self.user_id() != device.user_id() {
             return Err(SignatureError::UserIdMismatch);
         }
@@ -695,7 +695,7 @@ impl ReadOnlyOwnUserIdentity {
 
     fn filter_devices_to_request(
         &self,
-        devices: HashMap<OwnedDeviceId, ReadOnlyDevice>,
+        devices: HashMap<OwnedDeviceId, DeviceData>,
         own_device_id: &DeviceId,
     ) -> Vec<OwnedDeviceId> {
         devices
@@ -720,18 +720,18 @@ pub(crate) mod testing {
     use crate::{
         identities::{
             manager::testing::{other_key_query, own_key_query},
-            ReadOnlyDevice,
+            DeviceData,
         },
         types::CrossSigningKey,
     };
 
     /// Generate test devices from KeyQueryResponse
-    pub fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
+    pub fn device(response: &KeyQueryResponse) -> (DeviceData, DeviceData) {
         let mut devices = response.device_keys.values().next().unwrap().values();
         let first =
-            ReadOnlyDevice::try_from(&devices.next().unwrap().deserialize_as().unwrap()).unwrap();
+            DeviceData::try_from(&devices.next().unwrap().deserialize_as().unwrap()).unwrap();
         let second =
-            ReadOnlyDevice::try_from(&devices.next().unwrap().deserialize_as().unwrap()).unwrap();
+            DeviceData::try_from(&devices.next().unwrap().deserialize_as().unwrap()).unwrap();
         (first, second)
     }
 
