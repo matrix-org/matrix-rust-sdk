@@ -742,7 +742,7 @@ mod tests {
         }
 
         fn sender_device_curve_key(&self) -> Curve25519PublicKey {
-            self.sender_device.curve25519_key().unwrap().clone()
+            self.sender_device.curve25519_key().unwrap()
         }
 
         fn sender_master_key(&self) -> Ed25519PublicKey {
