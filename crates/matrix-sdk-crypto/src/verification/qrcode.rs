@@ -51,8 +51,8 @@ use super::{
     VerificationStore,
 };
 use crate::{
-    CryptoStoreError, DeviceData, OutgoingVerificationRequest, ReadOnlyUserIdentities,
-    RoomMessageRequest, ToDeviceRequest,
+    CryptoStoreError, DeviceData, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+    UserIdentityData,
 };
 
 const SECRET_SIZE: usize = 16;
@@ -122,7 +122,7 @@ pub enum QrVerificationState {
         /// The list of devices that has been verified.
         verified_devices: Vec<DeviceData>,
         /// The list of user identities that has been verified.
-        verified_identities: Vec<ReadOnlyUserIdentities>,
+        verified_identities: Vec<UserIdentityData>,
     },
     /// The verification process has been cancelled.
     Cancelled(CancelInfo),
@@ -596,7 +596,7 @@ impl QrVerification {
             .as_ref()
             .ok_or_else(|| ScanError::MissingCrossSigningIdentity(other_user_id.clone()))?;
 
-        let check_master_key = |key, identity: &ReadOnlyUserIdentities| {
+        let check_master_key = |key, identity: &UserIdentityData| {
             let master_key = identity.master_key().get_first_key().ok_or_else(|| {
                 ScanError::MissingCrossSigningIdentity(identity.user_id().to_owned())
             })?;
@@ -822,7 +822,7 @@ impl QrState<Done> {
         self.state.as_content(flow_id)
     }
 
-    fn verified_identities(&self) -> (Arc<[DeviceData]>, Arc<[ReadOnlyUserIdentities]>) {
+    fn verified_identities(&self) -> (Arc<[DeviceData]>, Arc<[UserIdentityData]>) {
         (self.state.verified_devices.clone(), self.state.verified_master_keys.clone())
     }
 }
@@ -832,7 +832,7 @@ impl QrState<Confirmed> {
         self,
         _: &DoneContent<'_>,
         verified_device: Option<&DeviceData>,
-        verified_identity: Option<&ReadOnlyUserIdentities>,
+        verified_identity: Option<&UserIdentityData>,
     ) -> QrState<Done> {
         let devices: Vec<_> = verified_device.into_iter().cloned().collect();
         let identities: Vec<_> = verified_identity.into_iter().cloned().collect();
@@ -871,7 +871,7 @@ impl QrState<Reciprocated> {
         self,
         _: &DoneContent<'_>,
         verified_device: Option<&DeviceData>,
-        verified_identity: Option<&ReadOnlyUserIdentities>,
+        verified_identity: Option<&UserIdentityData>,
     ) -> QrState<Done> {
         let devices: Vec<_> = verified_device.into_iter().cloned().collect();
         let identities: Vec<_> = verified_identity.into_iter().cloned().collect();

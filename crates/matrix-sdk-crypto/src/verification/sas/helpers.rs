@@ -32,18 +32,18 @@ use vodozemac::{sas::EstablishedSas, Curve25519PublicKey};
 
 use super::{sas_state::SupportedMacMethod, FlowId, OutgoingContent};
 use crate::{
-    identities::{DeviceData, ReadOnlyUserIdentities},
+    identities::{DeviceData, UserIdentityData},
     olm::StaticAccountData,
     verification::event_enums::{MacContent, StartContent},
-    Emoji, ReadOnlyOwnUserIdentity,
+    Emoji, OwnUserIdentityData,
 };
 
 #[derive(Clone, Debug)]
 pub struct SasIds {
     pub account: StaticAccountData,
-    pub own_identity: Option<ReadOnlyOwnUserIdentity>,
+    pub own_identity: Option<OwnUserIdentityData>,
     pub other_device: DeviceData,
-    pub other_identity: Option<ReadOnlyUserIdentities>,
+    pub other_identity: Option<UserIdentityData>,
 }
 
 /// Calculate the commitment for a accept event from the public key and the
@@ -199,7 +199,7 @@ pub fn receive_mac_event(
     sender: &UserId,
     mac_method: SupportedMacMethod,
     content: &MacContent<'_>,
-) -> Result<(Vec<DeviceData>, Vec<ReadOnlyUserIdentities>), CancelCode> {
+) -> Result<(Vec<DeviceData>, Vec<UserIdentityData>), CancelCode> {
     let mut verified_devices = Vec::new();
     let mut verified_identities = Vec::new();
 

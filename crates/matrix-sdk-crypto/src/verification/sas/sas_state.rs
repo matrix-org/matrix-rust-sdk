@@ -57,7 +57,7 @@ use super::{
     OutgoingContent,
 };
 use crate::{
-    identities::{DeviceData, ReadOnlyUserIdentities},
+    identities::{DeviceData, UserIdentityData},
     olm::StaticAccountData,
     verification::{
         cache::RequestInfo,
@@ -67,7 +67,7 @@ use crate::{
         },
         Cancelled, Emoji, FlowId,
     },
-    ReadOnlyOwnUserIdentity,
+    OwnUserIdentityData,
 };
 
 const KEY_AGREEMENT_PROTOCOLS: &[KeyAgreementProtocol] =
@@ -452,7 +452,7 @@ pub struct MacReceived {
     sas: Arc<Mutex<EstablishedSas>>,
     we_started: bool,
     verified_devices: Arc<[DeviceData]>,
-    verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
+    verified_master_keys: Arc<[UserIdentityData]>,
     pub accepted_protocols: AcceptedProtocols,
 }
 
@@ -463,7 +463,7 @@ pub struct MacReceived {
 pub struct WaitingForDone {
     sas: Arc<Mutex<EstablishedSas>>,
     verified_devices: Arc<[DeviceData]>,
-    verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
+    verified_master_keys: Arc<[UserIdentityData]>,
     pub accepted_protocols: AcceptedProtocols,
 }
 
@@ -476,7 +476,7 @@ pub struct WaitingForDone {
 pub struct Done {
     sas: Arc<Mutex<EstablishedSas>>,
     verified_devices: Arc<[DeviceData]>,
-    verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
+    verified_master_keys: Arc<[UserIdentityData]>,
     pub accepted_protocols: AcceptedProtocols,
 }
 
@@ -553,8 +553,8 @@ impl SasState<Created> {
     pub fn new(
         account: StaticAccountData,
         other_device: DeviceData,
-        own_identity: Option<ReadOnlyOwnUserIdentity>,
-        other_identity: Option<ReadOnlyUserIdentities>,
+        own_identity: Option<OwnUserIdentityData>,
+        other_identity: Option<UserIdentityData>,
         flow_id: FlowId,
         started_from_request: bool,
         short_auth_strings: Option<Vec<ShortAuthenticationString>>,
@@ -574,8 +574,8 @@ impl SasState<Created> {
         flow_id: FlowId,
         account: StaticAccountData,
         other_device: DeviceData,
-        own_identity: Option<ReadOnlyOwnUserIdentity>,
-        other_identity: Option<ReadOnlyUserIdentities>,
+        own_identity: Option<OwnUserIdentityData>,
+        other_identity: Option<UserIdentityData>,
         started_from_request: bool,
         short_auth_strings: Option<Vec<ShortAuthenticationString>>,
     ) -> SasState<Created> {
@@ -676,8 +676,8 @@ impl SasState<Started> {
     pub fn from_start_event(
         account: StaticAccountData,
         other_device: DeviceData,
-        own_identity: Option<ReadOnlyOwnUserIdentity>,
-        other_identity: Option<ReadOnlyUserIdentities>,
+        own_identity: Option<OwnUserIdentityData>,
+        other_identity: Option<UserIdentityData>,
         flow_id: FlowId,
         content: &StartContent<'_>,
         started_from_request: bool,
@@ -1493,7 +1493,7 @@ impl SasState<Done> {
     }
 
     /// Get the list of verified identities.
-    pub fn verified_identities(&self) -> Arc<[ReadOnlyUserIdentities]> {
+    pub fn verified_identities(&self) -> Arc<[UserIdentityData]> {
         self.state.verified_master_keys.clone()
     }
 }

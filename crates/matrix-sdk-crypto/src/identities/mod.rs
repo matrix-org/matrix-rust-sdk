@@ -53,8 +53,8 @@ pub use device::{Device, DeviceData, LocalTrust, UserDevices};
 pub(crate) use manager::IdentityManager;
 use serde::{Deserialize, Deserializer, Serializer};
 pub use user::{
-    OwnUserIdentity, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity,
-    UserIdentities, UserIdentity,
+    OtherUserIdentityData, OwnUserIdentity, OwnUserIdentityData, UserIdentities, UserIdentity,
+    UserIdentityData,
 };
 
 // These methods are only here because Serialize and Deserialize don't seem to

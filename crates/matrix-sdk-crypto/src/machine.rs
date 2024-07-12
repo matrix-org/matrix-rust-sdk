@@ -4236,7 +4236,7 @@ pub(crate) mod tests {
 
             let mut changes = Changes::default();
             identity.mark_as_unverified();
-            changes.identities.new.push(crate::ReadOnlyUserIdentities::Own(identity.inner));
+            changes.identities.new.push(crate::UserIdentityData::Own(identity.inner));
 
             second_machine.store().save_changes(changes).await.unwrap();
 

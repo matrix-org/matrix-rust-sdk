@@ -1197,7 +1197,7 @@ async fn generate_qr_code<T: Clone>(
     we_started: bool,
     request_handle: RequestHandle,
 ) -> Result<Option<(RequestState<Transitioned>, QrVerification)>, CryptoStoreError> {
-    use crate::ReadOnlyUserIdentities;
+    use crate::UserIdentityData;
 
     // If we didn't state that we support showing QR codes or if the other
     // side doesn't support scanning QR codes bail early.
@@ -1225,7 +1225,7 @@ async fn generate_qr_code<T: Clone>(
 
     let verification = if let Some(identity) = &identities.identity_being_verified {
         match &identity {
-            ReadOnlyUserIdentities::Own(i) => {
+            UserIdentityData::Own(i) => {
                 if let Some(master_key) = i.master_key().get_first_key() {
                     if identities.can_sign_devices().await {
                         if let Some(device_key) = identities.other_device().ed25519_key() {
@@ -1266,7 +1266,7 @@ async fn generate_qr_code<T: Clone>(
                     None
                 }
             }
-            ReadOnlyUserIdentities::Other(i) => {
+            UserIdentityData::Other(i) => {
                 if let Some(other_master) = i.master_key().get_first_key() {
                     // TODO we can get the master key from the public
                     // identity if we don't have the private one and we

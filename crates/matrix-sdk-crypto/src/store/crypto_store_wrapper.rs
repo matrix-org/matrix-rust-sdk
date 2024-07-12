@@ -13,7 +13,7 @@ use crate::{
     olm::InboundGroupSession,
     store,
     store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
-    GossippedSecret, ReadOnlyOwnUserIdentity,
+    GossippedSecret, OwnUserIdentityData,
 };
 
 /// A wrapper for crypto store implementations that adds update notifiers.
@@ -40,7 +40,7 @@ pub(crate) struct CryptoStoreWrapper {
     /// The sender side of a broadcast channel which sends out devices and user
     /// identities which got updated or newly created.
     identities_broadcaster:
-        broadcast::Sender<(Option<ReadOnlyOwnUserIdentity>, IdentityChanges, DeviceChanges)>,
+        broadcast::Sender<(Option<OwnUserIdentityData>, IdentityChanges, DeviceChanges)>,
 }
 
 impl CryptoStoreWrapper {
@@ -184,7 +184,7 @@ impl CryptoStoreWrapper {
     /// device and user identity streams.
     pub(super) fn identities_stream(
         &self,
-    ) -> impl Stream<Item = (Option<ReadOnlyOwnUserIdentity>, IdentityChanges, DeviceChanges)> {
+    ) -> impl Stream<Item = (Option<OwnUserIdentityData>, IdentityChanges, DeviceChanges)> {
         let stream = BroadcastStream::new(self.identities_broadcaster.subscribe());
         Self::filter_errors_out_of_stream(stream, "identities_stream")
     }

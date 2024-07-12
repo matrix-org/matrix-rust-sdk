@@ -30,8 +30,7 @@ use crate::{
         Session,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    Account, DeviceData, GossipRequest, GossippedSecret, ReadOnlyUserIdentities, SecretInfo,
-    TrackedUser,
+    Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
 };
 
 /// Represents a store that the `OlmMachine` uses to store E2EE data (such as
@@ -217,7 +216,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     async fn get_user_identity(
         &self,
         user_id: &UserId,
-    ) -> Result<Option<ReadOnlyUserIdentities>, Self::Error>;
+    ) -> Result<Option<UserIdentityData>, Self::Error>;
 
     /// Check if a hash for an Olm message stored in the database.
     async fn is_message_known(&self, message_hash: &OlmMessageHash) -> Result<bool, Self::Error>;
@@ -460,7 +459,7 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         self.0.get_own_device().await.map_err(Into::into)
     }
 
-    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
+    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentityData>> {
         self.0.get_user_identity(user_id).await.map_err(Into::into)
     }
 

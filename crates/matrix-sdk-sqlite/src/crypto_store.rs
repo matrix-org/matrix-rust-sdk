@@ -32,8 +32,7 @@ use matrix_sdk_crypto::{
         RoomSettings,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    Account, DeviceData, GossipRequest, GossippedSecret, ReadOnlyUserIdentities, SecretInfo,
-    TrackedUser,
+    Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
@@ -1126,7 +1125,7 @@ impl CryptoStore for SqliteCryptoStore {
         Ok(self.get_device(&account_info.user_id, &account_info.device_id).await?.unwrap())
     }
 
-    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
+    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentityData>> {
         let user_id = self.encode_key("identity", user_id.as_bytes());
         Ok(self
             .acquire()
