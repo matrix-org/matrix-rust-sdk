@@ -73,15 +73,15 @@ impl UserIdentities {
 
     pub(crate) fn new(
         store: Store,
-        identity: ReadOnlyUserIdentities,
+        identity: UserIdentityData,
         verification_machine: VerificationMachine,
-        own_identity: Option<ReadOnlyOwnUserIdentity>,
+        own_identity: Option<OwnUserIdentityData>,
     ) -> Self {
         match identity {
-            ReadOnlyUserIdentities::Own(i) => {
+            UserIdentityData::Own(i) => {
                 Self::Own(OwnUserIdentity { inner: i, verification_machine, store })
             }
-            ReadOnlyUserIdentities::Other(i) => {
+            UserIdentityData::Other(i) => {
                 Self::Other(UserIdentity { inner: i, own_identity, verification_machine })
             }
         }
@@ -106,17 +106,17 @@ impl From<UserIdentity> for UserIdentities {
 /// only contain a master key and a self signing key, meaning that only device
 /// signatures can be checked with this identity.
 ///
-/// This struct wraps a read-only version of the struct and allows verifications
+/// This struct wraps the [`OwnUserIdentityData`] type and allows a verification
 /// to be requested to verify our own device with the user identity.
 #[derive(Debug, Clone)]
 pub struct OwnUserIdentity {
-    pub(crate) inner: ReadOnlyOwnUserIdentity,
+    pub(crate) inner: OwnUserIdentityData,
     pub(crate) verification_machine: VerificationMachine,
     store: Store,
 }
 
 impl Deref for OwnUserIdentity {
-    type Target = ReadOnlyOwnUserIdentity;
+    type Target = OwnUserIdentityData;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -211,13 +211,13 @@ impl OwnUserIdentity {
 /// to be requested to verify our own device with the user identity.
 #[derive(Debug, Clone)]
 pub struct UserIdentity {
-    pub(crate) inner: ReadOnlyUserIdentity,
-    pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
+    pub(crate) inner: OtherUserIdentityData,
+    pub(crate) own_identity: Option<OwnUserIdentityData>,
     pub(crate) verification_machine: VerificationMachine,
 }
 
 impl Deref for UserIdentity {
-    type Target = ReadOnlyUserIdentity;
+    type Target = OtherUserIdentityData;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -295,47 +295,47 @@ impl UserIdentity {
 
 /// Enum over the different user identity types we can have.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ReadOnlyUserIdentities {
+pub enum UserIdentityData {
     /// Our own user identity.
-    Own(ReadOnlyOwnUserIdentity),
+    Own(OwnUserIdentityData),
     /// Identities of other users.
-    Other(ReadOnlyUserIdentity),
+    Other(OtherUserIdentityData),
 }
 
-impl From<ReadOnlyOwnUserIdentity> for ReadOnlyUserIdentities {
-    fn from(identity: ReadOnlyOwnUserIdentity) -> Self {
-        ReadOnlyUserIdentities::Own(identity)
+impl From<OwnUserIdentityData> for UserIdentityData {
+    fn from(identity: OwnUserIdentityData) -> Self {
+        UserIdentityData::Own(identity)
     }
 }
 
-impl From<ReadOnlyUserIdentity> for ReadOnlyUserIdentities {
-    fn from(identity: ReadOnlyUserIdentity) -> Self {
-        ReadOnlyUserIdentities::Other(identity)
+impl From<OtherUserIdentityData> for UserIdentityData {
+    fn from(identity: OtherUserIdentityData) -> Self {
+        UserIdentityData::Other(identity)
     }
 }
 
-impl ReadOnlyUserIdentities {
+impl UserIdentityData {
     /// The unique user id of this identity.
     pub fn user_id(&self) -> &UserId {
         match self {
-            ReadOnlyUserIdentities::Own(i) => i.user_id(),
-            ReadOnlyUserIdentities::Other(i) => i.user_id(),
+            UserIdentityData::Own(i) => i.user_id(),
+            UserIdentityData::Other(i) => i.user_id(),
         }
     }
 
     /// Get the master key of the identity.
     pub fn master_key(&self) -> &MasterPubkey {
         match self {
-            ReadOnlyUserIdentities::Own(i) => i.master_key(),
-            ReadOnlyUserIdentities::Other(i) => i.master_key(),
+            UserIdentityData::Own(i) => i.master_key(),
+            UserIdentityData::Other(i) => i.master_key(),
         }
     }
 
-    /// Get the self-signing key of the identity.
+    /// Get the [`SelfSigningPubkey`] key of the identity.
     pub fn self_signing_key(&self) -> &SelfSigningPubkey {
         match self {
-            ReadOnlyUserIdentities::Own(i) => &i.self_signing_key,
-            ReadOnlyUserIdentities::Other(i) => &i.self_signing_key,
+            UserIdentityData::Own(i) => &i.self_signing_key,
+            UserIdentityData::Other(i) => &i.self_signing_key,
         }
     }
 
@@ -343,24 +343,26 @@ impl ReadOnlyUserIdentities {
     /// own user identity..
     pub fn user_signing_key(&self) -> Option<&UserSigningPubkey> {
         match self {
-            ReadOnlyUserIdentities::Own(i) => Some(&i.user_signing_key),
-            ReadOnlyUserIdentities::Other(_) => None,
+            UserIdentityData::Own(i) => Some(&i.user_signing_key),
+            UserIdentityData::Other(_) => None,
         }
     }
 
-    /// Destructure the enum into an `ReadOnlyOwnUserIdentity` if it's of the
-    /// correct type.
-    pub fn own(&self) -> Option<&ReadOnlyOwnUserIdentity> {
+    /// Convert the enum into a reference [`OwnUserIdentityData`] if it's of
+    /// the correct type.
+    pub fn own(&self) -> Option<&OwnUserIdentityData> {
         as_variant!(self, Self::Own)
     }
 
-    pub(crate) fn into_own(self) -> Option<ReadOnlyOwnUserIdentity> {
-        as_variant!(self, Self::Own)
-    }
-
-    /// Destructure the enum into an `UserIdentity` if it's of the correct
+    /// Convert the enum into an [`OwnUserIdentityData`] if it's of the correct
     /// type.
-    pub fn other(&self) -> Option<&ReadOnlyUserIdentity> {
+    pub(crate) fn into_own(self) -> Option<OwnUserIdentityData> {
+        as_variant!(self, Self::Own)
+    }
+
+    /// Convert the enum into a reference to [`OtherUserIdentityData`] if
+    /// it's of the correct type.
+    pub fn other(&self) -> Option<&OtherUserIdentityData> {
         as_variant!(self, Self::Other)
     }
 }
@@ -371,13 +373,13 @@ impl ReadOnlyUserIdentities {
 /// only contain a master key and a self signing key, meaning that only device
 /// signatures can be checked with this identity.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ReadOnlyUserIdentity {
+pub struct OtherUserIdentityData {
     user_id: OwnedUserId,
     pub(crate) master_key: Arc<MasterPubkey>,
     self_signing_key: Arc<SelfSigningPubkey>,
 }
 
-impl PartialEq for ReadOnlyUserIdentity {
+impl PartialEq for OtherUserIdentityData {
     /// The `PartialEq` implementation compares several attributes, including
     /// the user ID, key material, usage, and, notably, the signatures of
     /// the master key.
@@ -398,7 +400,7 @@ impl PartialEq for ReadOnlyUserIdentity {
     }
 }
 
-impl ReadOnlyUserIdentity {
+impl OtherUserIdentityData {
     /// Create a new user identity with the given master and self signing key.
     ///
     /// # Arguments
@@ -501,7 +503,7 @@ impl ReadOnlyUserIdentity {
 /// This identity can verify other identities as well as devices belonging to
 /// the identity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReadOnlyOwnUserIdentity {
+pub struct OwnUserIdentityData {
     user_id: OwnedUserId,
     master_key: Arc<MasterPubkey>,
     self_signing_key: Arc<SelfSigningPubkey>,
@@ -513,7 +515,7 @@ pub struct ReadOnlyOwnUserIdentity {
     verified: Arc<AtomicBool>,
 }
 
-impl PartialEq for ReadOnlyOwnUserIdentity {
+impl PartialEq for OwnUserIdentityData {
     /// The `PartialEq` implementation compares several attributes, including
     /// the user ID, key material, usage, and, notably, the signatures of
     /// the master key.
@@ -536,7 +538,7 @@ impl PartialEq for ReadOnlyOwnUserIdentity {
     }
 }
 
-impl ReadOnlyOwnUserIdentity {
+impl OwnUserIdentityData {
     /// Create a new own user identity with the given master, self signing, and
     /// user signing key.
     ///
@@ -615,7 +617,7 @@ impl ReadOnlyOwnUserIdentity {
     /// SignatureError indicating why the check failed.
     pub(crate) fn is_identity_signed(
         &self,
-        identity: &ReadOnlyUserIdentity,
+        identity: &OtherUserIdentityData,
     ) -> Result<(), SignatureError> {
         self.user_signing_key.verify_master_key(&identity.master_key)
     }
@@ -714,7 +716,7 @@ impl ReadOnlyOwnUserIdentity {
 pub(crate) mod testing {
     use ruma::{api::client::keys::get_keys::v3::Response as KeyQueryResponse, user_id};
 
-    use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity};
+    use super::{OtherUserIdentityData, OwnUserIdentityData};
     #[cfg(test)]
     use crate::{identities::manager::testing::other_user_id, olm::PrivateCrossSigningIdentity};
     use crate::{
@@ -735,8 +737,8 @@ pub(crate) mod testing {
         (first, second)
     }
 
-    /// Generate ReadOnlyOwnUserIdentity from KeyQueryResponse for testing
-    pub fn own_identity(response: &KeyQueryResponse) -> ReadOnlyOwnUserIdentity {
+    /// Generate [`OwnUserIdentityData`] from a [`KeyQueryResponse`] for testing
+    pub fn own_identity(response: &KeyQueryResponse) -> OwnUserIdentityData {
         let user_id = user_id!("@example:localhost");
 
         let master_key: CrossSigningKey =
@@ -746,7 +748,7 @@ pub(crate) mod testing {
         let self_signing: CrossSigningKey =
             response.self_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
 
-        ReadOnlyOwnUserIdentity::new(
+        OwnUserIdentityData::new(
             master_key.try_into().unwrap(),
             self_signing.try_into().unwrap(),
             user_signing.try_into().unwrap(),
@@ -755,19 +757,19 @@ pub(crate) mod testing {
     }
 
     /// Generate default own identity for tests
-    pub fn get_own_identity() -> ReadOnlyOwnUserIdentity {
+    pub fn get_own_identity() -> OwnUserIdentityData {
         own_identity(&own_key_query())
     }
 
     /// Generate default other "own" identity for tests
     #[cfg(test)]
-    pub async fn get_other_own_identity() -> ReadOnlyOwnUserIdentity {
+    pub async fn get_other_own_identity() -> OwnUserIdentityData {
         let private_identity = PrivateCrossSigningIdentity::new(other_user_id().into());
-        ReadOnlyOwnUserIdentity::from_private(&private_identity).await
+        OwnUserIdentityData::from_private(&private_identity).await
     }
 
     /// Generate default other identify for tests
-    pub fn get_other_identity() -> ReadOnlyUserIdentity {
+    pub fn get_other_identity() -> OtherUserIdentityData {
         let user_id = user_id!("@example2:localhost");
         let response = other_key_query();
 
@@ -776,7 +778,7 @@ pub(crate) mod testing {
         let self_signing: CrossSigningKey =
             response.self_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
 
-        ReadOnlyUserIdentity::new(master_key.try_into().unwrap(), self_signing.try_into().unwrap())
+        OtherUserIdentityData::new(master_key.try_into().unwrap(), self_signing.try_into().unwrap())
             .unwrap()
     }
 }
@@ -793,7 +795,7 @@ pub(crate) mod tests {
 
     use super::{
         testing::{device, get_other_identity, get_own_identity},
-        ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
+        OwnUserIdentityData, UserIdentityData,
     };
     use crate::{
         identities::{manager::testing::own_key_query, Device},
@@ -815,7 +817,7 @@ pub(crate) mod tests {
         let self_signing: CrossSigningKey =
             response.self_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
 
-        ReadOnlyOwnUserIdentity::new(
+        OwnUserIdentityData::new(
             master_key.try_into().unwrap(),
             self_signing.try_into().unwrap(),
             user_signing.try_into().unwrap(),
@@ -835,7 +837,7 @@ pub(crate) mod tests {
         let self_signing: CrossSigningKey =
             response.self_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
 
-        let identity = ReadOnlyOwnUserIdentity::new(
+        let identity = OwnUserIdentityData::new(
             master_key.clone().try_into().unwrap(),
             self_signing.clone().try_into().unwrap(),
             user_signing.clone().try_into().unwrap(),
@@ -845,7 +847,7 @@ pub(crate) mod tests {
         let mut master_key_updated_signature = master_key;
         master_key_updated_signature.signatures = Signatures::new();
 
-        let updated_identity = ReadOnlyOwnUserIdentity::new(
+        let updated_identity = OwnUserIdentityData::new(
             master_key_updated_signature.try_into().unwrap(),
             self_signing.try_into().unwrap(),
             user_signing.try_into().unwrap(),
@@ -882,14 +884,14 @@ pub(crate) mod tests {
             inner: first,
             verification_machine: verification_machine.clone(),
             own_identity: Some(identity.clone()),
-            device_owner_identity: Some(ReadOnlyUserIdentities::Own(identity.clone())),
+            device_owner_identity: Some(UserIdentityData::Own(identity.clone())),
         };
 
         let second = Device {
             inner: second,
             verification_machine,
             own_identity: Some(identity.clone()),
-            device_owner_identity: Some(ReadOnlyUserIdentities::Own(identity.clone())),
+            device_owner_identity: Some(UserIdentityData::Own(identity.clone())),
         };
 
         assert!(!second.is_locally_trusted());

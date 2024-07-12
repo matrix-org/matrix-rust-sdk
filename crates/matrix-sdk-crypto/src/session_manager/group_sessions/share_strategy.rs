@@ -25,7 +25,7 @@ use tracing::{debug, instrument, trace};
 use super::OutboundGroupSession;
 use crate::{
     error::OlmResult, store::Store, types::events::room_key_withheld::WithheldCode, DeviceData,
-    EncryptionSettings, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
+    EncryptionSettings, OwnUserIdentityData, UserIdentityData,
 };
 
 /// Strategy to collect the devices that should receive room keys for the
@@ -216,8 +216,8 @@ struct RecipientDevices {
 
 fn split_recipients_withhelds_for_user(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
-    own_identity: &Option<ReadOnlyOwnUserIdentity>,
-    device_owner_identity: &Option<ReadOnlyUserIdentities>,
+    own_identity: &Option<OwnUserIdentityData>,
+    device_owner_identity: &Option<UserIdentityData>,
     only_allow_trusted_devices: bool,
 ) -> RecipientDevices {
     // From all the devices a user has, we're splitting them into two
@@ -242,7 +242,7 @@ fn split_recipients_withhelds_for_user(
 
 fn split_recipients_withhelds_for_user_based_on_identity(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
-    device_owner_identity: &Option<ReadOnlyUserIdentities>,
+    device_owner_identity: &Option<UserIdentityData>,
 ) -> RecipientDevices {
     match device_owner_identity {
         None => {

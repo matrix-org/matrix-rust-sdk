@@ -65,7 +65,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::{backups::BackupMachine, identities::OwnUserIdentity};
 use crate::{
     gossiping::GossippedSecret,
-    identities::{user::UserIdentities, Device, DeviceData, ReadOnlyUserIdentities, UserDevices},
+    identities::{user::UserIdentities, Device, DeviceData, UserDevices, UserIdentityData},
     olm::{
         Account, ExportedRoomKey, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
         PrivateCrossSigningIdentity, Session, StaticAccountData,
@@ -75,7 +75,7 @@ use crate::{
         EventEncryptionAlgorithm, MegolmBackupV1Curve25519AesSha2Secrets, SecretsBundle,
     },
     verification::VerificationMachine,
-    CrossSigningStatus, ReadOnlyOwnUserIdentity, RoomKeyImportResult,
+    CrossSigningStatus, OwnUserIdentityData, RoomKeyImportResult,
 };
 
 pub mod caches;
@@ -574,9 +574,9 @@ impl Changes {
 #[derive(Debug, Clone, Default)]
 #[allow(missing_docs)]
 pub struct IdentityChanges {
-    pub new: Vec<ReadOnlyUserIdentities>,
-    pub changed: Vec<ReadOnlyUserIdentities>,
-    pub unchanged: Vec<ReadOnlyUserIdentities>,
+    pub new: Vec<UserIdentityData>,
+    pub changed: Vec<UserIdentityData>,
+    pub unchanged: Vec<UserIdentityData>,
 }
 
 impl IdentityChanges {
@@ -589,9 +589,9 @@ impl IdentityChanges {
     fn into_maps(
         self,
     ) -> (
-        BTreeMap<OwnedUserId, ReadOnlyUserIdentities>,
-        BTreeMap<OwnedUserId, ReadOnlyUserIdentities>,
-        BTreeMap<OwnedUserId, ReadOnlyUserIdentities>,
+        BTreeMap<OwnedUserId, UserIdentityData>,
+        BTreeMap<OwnedUserId, UserIdentityData>,
+        BTreeMap<OwnedUserId, UserIdentityData>,
     ) {
         let new: BTreeMap<_, _> = self
             .new
@@ -630,7 +630,7 @@ pub struct DeviceChanges {
 /// we want to convert to a [`Device`].
 fn collect_device_updates(
     verification_machine: VerificationMachine,
-    own_identity: Option<ReadOnlyOwnUserIdentity>,
+    own_identity: Option<OwnUserIdentityData>,
     identities: IdentityChanges,
     devices: DeviceChanges,
 ) -> DeviceUpdates {
@@ -1166,7 +1166,7 @@ impl Store {
             .store
             .get_user_identity(self.user_id())
             .await?
-            .and_then(as_variant!(ReadOnlyUserIdentities::Own));
+            .and_then(as_variant!(UserIdentityData::Own));
 
         Ok(self.inner.store.get_user_identity(user_id).await?.map(|i| {
             UserIdentities::new(
@@ -1263,7 +1263,7 @@ impl Store {
 
             if diff.none_differ() {
                 public_identity.mark_as_verified();
-                changes.identities.changed.push(ReadOnlyUserIdentities::Own(public_identity.inner));
+                changes.identities.changed.push(UserIdentityData::Own(public_identity.inner));
             }
 
             info!(?status, "Successfully imported the private cross-signing keys");
@@ -1367,7 +1367,7 @@ impl Store {
         );
 
         changes.private_identity = Some(identity.clone());
-        changes.identities.new.push(ReadOnlyUserIdentities::Own(public_identity));
+        changes.identities.new.push(UserIdentityData::Own(public_identity));
 
         Ok(self.save_changes(changes).await?)
     }

@@ -40,7 +40,7 @@ use crate::{
     olm::{PrivateCrossSigningIdentity, StaticAccountData},
     requests::OutgoingRequest,
     store::{CryptoStoreError, CryptoStoreWrapper},
-    DeviceData, OutgoingVerificationRequest, ReadOnlyUserIdentity, RoomMessageRequest,
+    DeviceData, OtherUserIdentityData, OutgoingVerificationRequest, RoomMessageRequest,
     ToDeviceRequest,
 };
 
@@ -98,7 +98,7 @@ impl VerificationMachine {
 
     pub fn request_verification(
         &self,
-        identity: &ReadOnlyUserIdentity,
+        identity: &OtherUserIdentityData,
         room_id: &RoomId,
         request_event_id: &EventId,
         methods: Option<Vec<VerificationMethod>>,

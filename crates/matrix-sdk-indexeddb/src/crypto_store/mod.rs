@@ -32,8 +32,7 @@ use matrix_sdk_crypto::{
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     vodozemac::base64_encode,
-    Account, DeviceData, GossipRequest, GossippedSecret, ReadOnlyUserIdentities, SecretInfo,
-    TrackedUser,
+    Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
@@ -1139,7 +1138,7 @@ impl_crypto_store! {
            .unwrap())
     }
 
-    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
+    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentityData>> {
         self
             .inner
             .transaction_on_one_with_mode(keys::IDENTITIES, IdbTransactionMode::Readonly)?

@@ -41,7 +41,7 @@ use super::{
     CancelInfo, FlowId, IdentitiesBeingVerified, VerificationResult,
 };
 use crate::{
-    identities::{DeviceData, ReadOnlyUserIdentities},
+    identities::{DeviceData, UserIdentityData},
     olm::StaticAccountData,
     requests::{OutgoingVerificationRequest, RoomMessageRequest},
     store::CryptoStoreError,
@@ -154,7 +154,7 @@ pub enum SasState {
         /// The list of devices that has been verified.
         verified_devices: Vec<DeviceData>,
         /// The list of user identities that has been verified.
-        verified_identities: Vec<ReadOnlyUserIdentities>,
+        verified_identities: Vec<UserIdentityData>,
     },
     /// The verification process has been cancelled.
     Cancelled(CancelInfo),
@@ -818,7 +818,7 @@ impl Sas {
         self.inner.read().verified_devices()
     }
 
-    pub(crate) fn verified_identities(&self) -> Option<Arc<[ReadOnlyUserIdentities]>> {
+    pub(crate) fn verified_identities(&self) -> Option<Arc<[UserIdentityData]>> {
         self.inner.read().verified_identities()
     }
 

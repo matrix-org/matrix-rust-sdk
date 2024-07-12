@@ -35,7 +35,7 @@ use crate::{
     requests::UploadSigningKeysRequest,
     store::SecretImportError,
     types::{DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
-    Account, DeviceData, OwnUserIdentity, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity,
+    Account, DeviceData, OtherUserIdentityData, OwnUserIdentity, OwnUserIdentityData,
 };
 
 /// Private cross signing identity.
@@ -315,10 +315,10 @@ impl PrivateCrossSigningIdentity {
     }
 
     /// Remove our private cross signing key if the public keys differ from
-    /// what's found in the `ReadOnlyOwnUserIdentity`.
+    /// what's found in the [`OwnUserIdentityData`].
     pub(crate) async fn clear_if_differs(
         &self,
-        public_identity: &ReadOnlyOwnUserIdentity,
+        public_identity: &OwnUserIdentityData,
     ) -> DiffResult {
         let result = self.get_public_identity_diff(public_identity).await;
 
@@ -339,7 +339,7 @@ impl PrivateCrossSigningIdentity {
 
     pub(crate) async fn get_public_identity_diff(
         &self,
-        public_identity: &ReadOnlyOwnUserIdentity,
+        public_identity: &OwnUserIdentityData,
     ) -> DiffResult {
         let master_differs = self
             .master_public_key()
@@ -413,12 +413,10 @@ impl PrivateCrossSigningIdentity {
         Ok((master, self_signing, user_signing))
     }
 
-    pub(crate) async fn to_public_identity(
-        &self,
-    ) -> Result<ReadOnlyOwnUserIdentity, SignatureError> {
+    pub(crate) async fn to_public_identity(&self) -> Result<OwnUserIdentityData, SignatureError> {
         let (master, self_signing, user_signing) = self.public_keys().await?;
 
-        let identity = ReadOnlyOwnUserIdentity::new(master, self_signing, user_signing)?;
+        let identity = OwnUserIdentityData::new(master, self_signing, user_signing)?;
         identity.mark_as_verified();
 
         Ok(identity)
@@ -427,7 +425,7 @@ impl PrivateCrossSigningIdentity {
     /// Sign the given public user identity with this private identity.
     pub(crate) async fn sign_user(
         &self,
-        user_identity: &ReadOnlyUserIdentity,
+        user_identity: &OtherUserIdentityData,
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let master_key = self
             .user_signing_key
@@ -642,7 +640,7 @@ mod tests {
 
     use super::{pk_signing::Signing, PrivateCrossSigningIdentity};
     use crate::{
-        identities::{DeviceData, ReadOnlyUserIdentity},
+        identities::{DeviceData, OtherUserIdentityData},
         olm::{Account, SignedJsonObject, VerifyJson},
         types::Signatures,
     };
@@ -771,7 +769,7 @@ mod tests {
         let bob_account =
             Account::with_device_id(user_id!("@bob:localhost"), device_id!("DEVICEID"));
         let (bob_private, _, _) = PrivateCrossSigningIdentity::with_account(&bob_account).await;
-        let mut bob_public = ReadOnlyUserIdentity::from_private(&bob_private).await;
+        let mut bob_public = OtherUserIdentityData::from_private(&bob_private).await;
 
         let user_signing = identity.user_signing_key.lock().await;
         let user_signing = user_signing.as_ref().unwrap();

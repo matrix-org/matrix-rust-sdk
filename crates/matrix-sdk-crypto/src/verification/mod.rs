@@ -55,8 +55,8 @@ use crate::{
     olm::{PrivateCrossSigningIdentity, Session, StaticAccountData},
     store::{Changes, CryptoStoreWrapper},
     types::Signatures,
-    CryptoStoreError, DeviceData, LocalTrust, OutgoingVerificationRequest, ReadOnlyOwnUserIdentity,
-    ReadOnlyUserIdentities,
+    CryptoStoreError, DeviceData, LocalTrust, OutgoingVerificationRequest, OwnUserIdentityData,
+    UserIdentityData,
 };
 
 #[derive(Clone, Debug)]
@@ -132,7 +132,7 @@ impl VerificationStore {
     pub async fn get_user_identity(
         &self,
         user_id: &UserId,
-    ) -> Result<Option<ReadOnlyUserIdentities>, CryptoStoreError> {
+    ) -> Result<Option<UserIdentityData>, CryptoStoreError> {
         self.inner.get_user_identity(user_id).await
     }
 
@@ -295,7 +295,7 @@ impl From<QrVerification> for Verification {
 #[derive(Clone, Debug)]
 pub struct Done {
     verified_devices: Arc<[DeviceData]>,
-    verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
+    verified_master_keys: Arc<[UserIdentityData]>,
 }
 
 #[cfg(feature = "qrcode")]
@@ -469,8 +469,8 @@ pub struct IdentitiesBeingVerified {
     private_identity: PrivateCrossSigningIdentity,
     store: VerificationStore,
     device_being_verified: DeviceData,
-    own_identity: Option<ReadOnlyOwnUserIdentity>,
-    identity_being_verified: Option<ReadOnlyUserIdentities>,
+    own_identity: Option<OwnUserIdentityData>,
+    identity_being_verified: Option<UserIdentityData>,
 }
 
 impl IdentitiesBeingVerified {
@@ -502,7 +502,7 @@ impl IdentitiesBeingVerified {
     pub async fn mark_as_done(
         &self,
         verified_devices: Option<&[DeviceData]>,
-        verified_identities: Option<&[ReadOnlyUserIdentities]>,
+        verified_identities: Option<&[UserIdentityData]>,
     ) -> Result<VerificationResult, CryptoStoreError> {
         let device = self.mark_device_as_verified(verified_devices).await?;
         let (identity, should_request_secrets) =
@@ -622,8 +622,8 @@ impl IdentitiesBeingVerified {
 
     async fn mark_identity_as_verified(
         &self,
-        verified_identities: Option<&[ReadOnlyUserIdentities]>,
-    ) -> Result<(Option<ReadOnlyUserIdentities>, bool), CryptoStoreError> {
+        verified_identities: Option<&[UserIdentityData]>,
+    ) -> Result<(Option<UserIdentityData>, bool), CryptoStoreError> {
         // If there wasn't an identity available during the verification flow
         // return early as there's nothing to do.
         if self.identity_being_verified.is_none() {
@@ -646,7 +646,7 @@ impl IdentitiesBeingVerified {
                         "Marking the user identity of as verified."
                     );
 
-                    let should_request_secrets = if let ReadOnlyUserIdentities::Own(i) = &identity {
+                    let should_request_secrets = if let UserIdentityData::Own(i) = &identity {
                         i.mark_as_verified();
                         true
                     } else {
@@ -748,8 +748,8 @@ pub(crate) mod tests {
         requests::{OutgoingRequest, OutgoingRequests},
         store::{Changes, CryptoStore, CryptoStoreWrapper, IdentityChanges, MemoryStore},
         types::events::ToDeviceEvents,
-        Account, DeviceData, OutgoingVerificationRequest, ReadOnlyOwnUserIdentity,
-        ReadOnlyUserIdentity,
+        Account, DeviceData, OtherUserIdentityData, OutgoingVerificationRequest,
+        OwnUserIdentityData,
     };
 
     pub(crate) fn request_to_event(
@@ -834,13 +834,13 @@ pub(crate) mod tests {
         let bob_private_identity = Mutex::new(bob_private_identity);
 
         let alice_public_identity =
-            ReadOnlyUserIdentity::from_private(&*alice_private_identity.lock().await).await;
+            OtherUserIdentityData::from_private(&*alice_private_identity.lock().await).await;
         let alice_readonly_identity =
-            ReadOnlyOwnUserIdentity::from_private(&*alice_private_identity.lock().await).await;
+            OwnUserIdentityData::from_private(&*alice_private_identity.lock().await).await;
         let bob_public_identity =
-            ReadOnlyUserIdentity::from_private(&*bob_private_identity.lock().await).await;
+            OtherUserIdentityData::from_private(&*bob_private_identity.lock().await).await;
         let bob_readonly_identity =
-            ReadOnlyOwnUserIdentity::from_private(&*bob_private_identity.lock().await).await;
+            OwnUserIdentityData::from_private(&*bob_private_identity.lock().await).await;
 
         let alice_device = DeviceData::from_account(&alice);
         let bob_device = DeviceData::from_account(&bob);

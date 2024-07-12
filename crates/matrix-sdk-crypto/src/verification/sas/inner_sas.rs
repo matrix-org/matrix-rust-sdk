@@ -31,14 +31,14 @@ use super::{
     FlowId,
 };
 use crate::{
-    identities::{DeviceData, ReadOnlyUserIdentities},
+    identities::{DeviceData, UserIdentityData},
     olm::StaticAccountData,
     verification::{
         cache::RequestInfo,
         event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
         Cancelled, Emoji,
     },
-    ReadOnlyOwnUserIdentity,
+    OwnUserIdentityData,
 };
 
 #[derive(Clone, Debug)]
@@ -61,8 +61,8 @@ impl InnerSas {
     pub fn start(
         account: StaticAccountData,
         other_device: DeviceData,
-        own_identity: Option<ReadOnlyOwnUserIdentity>,
-        other_identity: Option<ReadOnlyUserIdentities>,
+        own_identity: Option<OwnUserIdentityData>,
+        other_identity: Option<UserIdentityData>,
         transaction_id: FlowId,
         started_from_request: bool,
         short_auth_string: Option<Vec<ShortAuthenticationString>>,
@@ -162,8 +162,8 @@ impl InnerSas {
         other_device: DeviceData,
         flow_id: FlowId,
         content: &StartContent<'_>,
-        own_identity: Option<ReadOnlyOwnUserIdentity>,
-        other_identity: Option<ReadOnlyUserIdentities>,
+        own_identity: Option<OwnUserIdentityData>,
+        other_identity: Option<UserIdentityData>,
         started_from_request: bool,
     ) -> Result<InnerSas, OutgoingContent> {
         match SasState::<Started>::from_start_event(
@@ -448,7 +448,7 @@ impl InnerSas {
         as_variant!(self, InnerSas::Done).map(|s| s.verified_devices())
     }
 
-    pub fn verified_identities(&self) -> Option<Arc<[ReadOnlyUserIdentities]>> {
+    pub fn verified_identities(&self) -> Option<Arc<[UserIdentityData]>> {
         as_variant!(self, InnerSas::Done).map(|s| s.verified_identities())
     }
 }

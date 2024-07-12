@@ -39,7 +39,7 @@ use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::OlmMachine;
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
-    identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
+    identities::{OwnUserIdentityData, UserIdentityData},
     olm::{
         InboundGroupSession, OutboundGroupSession, Session, ShareInfo, SignedJsonObject, VerifyJson,
     },
@@ -122,8 +122,8 @@ impl std::fmt::Debug for DeviceData {
 pub struct Device {
     pub(crate) inner: DeviceData,
     pub(crate) verification_machine: VerificationMachine,
-    pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
-    pub(crate) device_owner_identity: Option<ReadOnlyUserIdentities>,
+    pub(crate) own_identity: Option<OwnUserIdentityData>,
+    pub(crate) device_owner_identity: Option<UserIdentityData>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -288,8 +288,8 @@ impl Device {
     /// Is the device owner verified by us?
     pub fn is_device_owner_verified(&self) -> bool {
         self.device_owner_identity.as_ref().is_some_and(|id| match id {
-            ReadOnlyUserIdentities::Own(own_identity) => own_identity.is_verified(),
-            ReadOnlyUserIdentities::Other(other_identity) => {
+            UserIdentityData::Own(own_identity) => own_identity.is_verified(),
+            UserIdentityData::Other(other_identity) => {
                 self.own_identity.as_ref().is_some_and(|oi| {
                     oi.is_verified() && oi.is_identity_signed(other_identity).is_ok()
                 })
@@ -490,8 +490,8 @@ impl Device {
 pub struct UserDevices {
     pub(crate) inner: HashMap<OwnedDeviceId, DeviceData>,
     pub(crate) verification_machine: VerificationMachine,
-    pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
-    pub(crate) device_owner_identity: Option<ReadOnlyUserIdentities>,
+    pub(crate) own_identity: Option<OwnUserIdentityData>,
+    pub(crate) device_owner_identity: Option<UserIdentityData>,
 }
 
 impl UserDevices {
@@ -731,16 +731,16 @@ impl DeviceData {
 
     pub(crate) fn is_verified(
         &self,
-        own_identity: &Option<ReadOnlyOwnUserIdentity>,
-        device_owner: &Option<ReadOnlyUserIdentities>,
+        own_identity: &Option<OwnUserIdentityData>,
+        device_owner: &Option<UserIdentityData>,
     ) -> bool {
         self.is_locally_trusted() || self.is_cross_signing_trusted(own_identity, device_owner)
     }
 
     pub(crate) fn is_cross_signing_trusted(
         &self,
-        own_identity: &Option<ReadOnlyOwnUserIdentity>,
-        device_owner: &Option<ReadOnlyUserIdentities>,
+        own_identity: &Option<OwnUserIdentityData>,
+        device_owner: &Option<UserIdentityData>,
     ) -> bool {
         own_identity.as_ref().zip(device_owner.as_ref()).is_some_and(
             |(own_identity, device_identity)| {
@@ -749,14 +749,12 @@ impl DeviceData {
                     && match device_identity {
                         // If it's one of our own devices, just check that
                         // we signed the device.
-                        ReadOnlyUserIdentities::Own(_) => {
-                            own_identity.is_device_signed(self).is_ok()
-                        }
+                        UserIdentityData::Own(_) => own_identity.is_device_signed(self).is_ok(),
 
                         // If it's a device from someone else, first check
                         // that our user has signed the other user and then
                         // check if the other user has signed this device.
-                        ReadOnlyUserIdentities::Other(device_identity) => {
+                        UserIdentityData::Other(device_identity) => {
                             own_identity.is_identity_signed(device_identity).is_ok()
                                 && device_identity.is_device_signed(self).is_ok()
                         }
@@ -767,15 +765,15 @@ impl DeviceData {
 
     pub(crate) fn is_cross_signed_by_owner(
         &self,
-        device_owner_identity: &ReadOnlyUserIdentities,
+        device_owner_identity: &UserIdentityData,
     ) -> bool {
         match device_owner_identity {
             // If it's one of our own devices, just check that
             // we signed the device.
-            ReadOnlyUserIdentities::Own(identity) => identity.is_device_signed(self).is_ok(),
+            UserIdentityData::Own(identity) => identity.is_device_signed(self).is_ok(),
             // If it's a device from someone else, check
             // if the other user has signed this device.
-            ReadOnlyUserIdentities::Other(device_identity) => {
+            UserIdentityData::Other(device_identity) => {
                 device_identity.is_device_signed(self).is_ok()
             }
         }
