@@ -10,6 +10,9 @@ members = [
     "uniffi-bindgen",
     "xtask",
 ]
+exclude = [
+    "testing/data",
+]
 # xtask, testing and the bindings should only be built when invoked explicitly.
 default-members = ["benchmarks", "crates/*", "labs/*"]
 resolver = "2"
