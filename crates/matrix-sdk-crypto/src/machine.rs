@@ -817,7 +817,8 @@ impl OlmMachine {
         event: &DecryptedRoomKeyEvent,
         content: &MegolmV1AesSha2Content,
     ) -> OlmResult<Option<InboundGroupSession>> {
-        let sender_data = SenderDataFinder::find_using_event(self, sender_key, event).await?;
+        let sender_data =
+            SenderDataFinder::find_using_event(self.store(), sender_key, event).await?;
 
         let session = InboundGroupSession::new(
             sender_key,
@@ -1032,8 +1033,11 @@ impl OlmMachine {
         let device = self.store().get_device(account.user_id(), account.device_id()).await;
         let own_sender_data = match device {
             Ok(Some(device)) => {
-                SenderDataFinder::find_using_device_keys(self, device.as_device_keys().clone())
-                    .await?
+                SenderDataFinder::find_using_device_keys(
+                    self.store(),
+                    device.as_device_keys().clone(),
+                )
+                .await?
             }
             _ => {
                 error!("Unable to find our own device!");

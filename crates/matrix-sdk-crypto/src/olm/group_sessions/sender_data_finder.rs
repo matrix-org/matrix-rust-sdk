@@ -20,8 +20,7 @@ use crate::{
     error::OlmResult,
     store::Store,
     types::{events::olm_v1::DecryptedRoomKeyEvent, DeviceKeys, MasterPubkey},
-    EventError, OlmError, OlmMachine, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
-    ReadOnlyUserIdentities,
+    EventError, OlmError, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
 };
 
 /// Temporary struct that is used to look up [`SenderData`] based on the
@@ -41,11 +40,11 @@ impl<'a> SenderDataFinder<'a> {
     /// create the InboundGroupSession we are about to create, and decide
     /// whether we trust the sender.
     pub(crate) async fn find_using_event(
-        own_olm_machine: &'a OlmMachine,
+        store: &'a Store,
         sender_curve_key: Curve25519PublicKey,
         room_key_event: &'a DecryptedRoomKeyEvent,
     ) -> OlmResult<SenderData> {
-        let finder = Self { store: own_olm_machine.store() };
+        let finder = Self { store };
         finder.have_event(sender_curve_key, room_key_event).await
     }
 
@@ -53,10 +52,10 @@ impl<'a> SenderDataFinder<'a> {
     /// and https://github.com/matrix-org/matrix-rust-sdk/issues/3544
     /// use the supplied device info to decide whether we trust the sender.
     pub(crate) async fn find_using_device_keys(
-        own_olm_machine: &'a OlmMachine,
+        store: &'a Store,
         device_keys: DeviceKeys,
     ) -> OlmResult<SenderData> {
-        let finder = Self { store: own_olm_machine.store() };
+        let finder = Self { store };
         finder.have_device_keys(&device_keys).await
     }
 
