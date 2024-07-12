@@ -817,14 +817,12 @@ mod tests {
             Arc::clone(&store_wrapper),
         );
 
-        let store = Store::new(
+        Store::new(
             me.account.static_data.clone(),
             Arc::clone(&me.private_identity),
             store_wrapper,
             verification_machine,
-        );
-
-        store
+        )
     }
 
     async fn save_to_store(
