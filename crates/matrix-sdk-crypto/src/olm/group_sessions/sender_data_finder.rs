@@ -27,8 +27,124 @@ use crate::{
 /// information supplied in
 /// [`crate::types::events::olm_v1::DecryptedRoomKeyEvent`].
 ///
-/// The letters A, B etc. in the documentation refer to the algorithm described
-/// in https://github.com/matrix-org/matrix-rust-sdk/issues/3543
+/// # Algorithm
+///
+/// When we receive a to-device message establishing a megolm session (i.e. when
+/// [`crate::machine::OlmMachine::add_room_key`] is called):
+///
+/// ┌───────────────────────────────────────────────────────────────────┐
+/// │ A (start - we have a to-device message containing a room key)     │
+/// └───────────────────────────────────────────────────────────────────┘
+///                                     │
+///   __________________________________▼______________________________
+///  ╱                                                                 ╲
+/// ╱ Does the to-device message contain the device_keys property from  ╲yes
+/// ╲ MSC4147?                                                          ╱ │
+///  ╲_________________________________________________________________╱  │
+///                                     │ no                              │
+///                                     ▼                                 │
+/// ┌───────────────────────────────────────────────────────────────────┐ │
+/// │ B (there is no device info in the to-device message)              │ │
+/// │                                                                   │ │
+/// │ We need to find the device details.                               │ │
+/// └───────────────────────────────────────────────────────────────────┘ │
+///                                     │                                 │
+///   __________________________________▼______________________________   │
+///  ╱                                                                 ╲  │
+/// ╱ Does the store contain a device whose curve key matches the       ╲ ▼
+/// ╲ sender of the to-device message?                                  ╱yes
+///  ╲_________________________________________________________________╱  │
+///                                     │ no                              │
+///                                     ▼                                 │
+/// ╭───────────────────────────────────────────────────────────────────╮ │
+/// │ C (there is no device info locally)                               │ │
+/// │                                                                   │ │
+/// │ Give up: we have no sender info for this room key.                │ │
+/// ╰───────────────────────────────────────────────────────────────────╯ │
+///                                     ┌─────────────────────────────────┘
+///                                     ▼
+/// ┌───────────────────────────────────────────────────────────────────┐
+/// │ D (we have device info)                                           │
+/// └───────────────────────────────────────────────────────────────────┘
+///                                     │
+///   __________________________________▼______________________________
+///  ╱                                                                 ╲
+/// ╱ Is the device info cross-signed?                                  ╲yes
+/// ╲___________________________________________________________________╱ │
+///                                     │ no                              │
+///                                     ▼                                 │
+/// ╭───────────────────────────────────────────────────────────────────╮ │
+/// │ Give up: unsigned device info is useless.                         │ │
+/// ╰───────────────────────────────────────────────────────────────────╯ │
+///                                     ┌─────────────────────────────────┘
+///                                     ▼
+/// ┌───────────────────────────────────────────────────────────────────┐
+/// │ E (we have cross-signed device info)                              │
+/// └───────────────────────────────────────────────────────────────────┘
+///                                     │
+///   __________________________________▼______________________________
+///  ╱                                                                 ╲
+/// ╱ Do we have the cross-signing key for this user?                   ╲yes
+/// ╲___________________________________________________________________╱ │
+///                                     │ no                              │
+///                                     ▼                                 │
+/// ┌───────────────────────────────────────────────────────────────────┐ │
+/// │ F (we have cross-signed device info, but no cross-signing keys)   │ │
+/// └───────────────────────────────────────────────────────────────────┘ │
+///                                     │                                 │
+///                                     ▼                                 │
+/// ╭───────────────────────────────────────────────────────────────────╮ │
+/// │ Store the device info with the session, in case we can            │ │
+/// │ confirm it later.                                                 │ │
+/// ╰───────────────────────────────────────────────────────────────────╯ │
+///                                     ┌─────────────────────────────────┘
+///                                     ▼
+/// ┌───────────────────────────────────────────────────────────────────┐
+/// │ G (we have a cross-signing key for the sender)                    │
+/// └───────────────────────────────────────────────────────────────────┘
+///                                     │
+///   __________________________________▼______________________________
+///  ╱                                                                 ╲
+/// ╱ Does the cross-signing key match that used                        ╲yes
+/// ╲ to sign the device info?                                          ╱ │
+///  ╲_________________________________________________________________╱  │
+///                                     │ no                              │
+///                                     ▼                                 │
+/// ╭───────────────────────────────────────────────────────────────────╮ │
+/// │ Store the device info with the session, in case we get the        │ │
+/// │ right cross-signing key later.                                    │ │
+/// ╰───────────────────────────────────────────────────────────────────╯ │
+///                                     ┌─────────────────────────────────┘
+///                                     ▼
+/// ┌───────────────────────────────────────────────────────────────────┐
+/// │ H (cross-signing key matches that used to sign the device info!)  │
+/// └───────────────────────────────────────────────────────────────────┘
+///                                     │
+///   __________________________________▼______________________________
+///  ╱                                                                 ╲
+/// ╱ Is the signature in the device info valid?                        ╲yes
+/// ╲___________________________________________________________________╱ │
+///                                     │ no                              │
+///                                     ▼                                 │
+/// ╭───────────────────────────────────────────────────────────────────╮ │
+/// │ !Session is invalid: drop it from the store and forget it.        │ │
+/// ╰───────────────────────────────────────────────────────────────────╯ │
+///                                     ┌─────────────────────────────────┘
+///                                     ▼
+/// ╭───────────────────────────────────────────────────────────────────╮
+/// │ J (device info is verified by matching cross-signing key)         │
+/// │                                                                   │
+/// │ Look up the user_id and master_key for the user sending the       │
+/// │ to-device message.                                                │
+/// │                                                                   │
+/// │ Decide the master_key trust level based on whether we have        │
+/// │ verified this user.                                               │
+/// │                                                                   │
+/// │ Store this information with the session.                          │
+/// ╰───────────────────────────────────────────────────────────────────╯
+///
+/// Note: the sender data may become out-of-date if we later verify the user. We
+/// have no plans to update it if so.
 pub(crate) struct SenderDataFinder<'a> {
     store: &'a Store,
 }
@@ -64,12 +180,7 @@ impl<'a> SenderDataFinder<'a> {
         sender_curve_key: Curve25519PublicKey,
         room_key_event: &'a DecryptedRoomKeyEvent,
     ) -> OlmResult<SenderData> {
-        // A (start)
-        //
-        // TODO: take the session lock for session_id
-        // TODO: if we fail to get the lock, we bail out immediately. Does this open an
-        // attack vector for someone to use someone else's session ID and send
-        // invalid sessions?
+        // A (start - we have a to-device message containing a room key)
         //
         // Does the to-device message contain the device_keys property from MSC4147?
         if let Some(sender_device_keys) = &room_key_event.device_keys {
@@ -109,22 +220,6 @@ impl<'a> SenderDataFinder<'a> {
                 // we may not have had a proper chance to look up the sender data.
                 legacy_session: true,
             };
-            // sender_data will be persisted to the store when this function returns to
-            // `handle_key`, meaning that if our process is killed, we will still retry it
-            // later.
-            //
-            // Switch to the "slow lane" (don't block sync, but retry after /keys/query
-            // returns).
-            //
-            // TODO: kick off an async task [keep the lock]: run
-            // OlmMachine::get_user_devices (which waits for /keys/query to complete, then
-            // repeats the lookup we did above for the device that matches this session.
-            //
-            // If the device is there, -> D
-            //
-            // If we still don’t have the device info, -> Wait to see whether we get device
-            // info later. Increment retry_count and set next_retry_time_ms per backoff
-            // algorithm; let the background job pick it up [drop the lock]
             Ok(sender_data)
         }
     }
@@ -177,11 +272,6 @@ impl<'a> SenderDataFinder<'a> {
             // We will need new, cross-signed device info for this to work, so there is no
             // point storing the device info we have in the session.
             Ok(SenderData::unknown())
-
-            // TODO: Wait to see if the device becomes cross-signed soon.
-            // Increment retry_count and set next_retry_time_ms per
-            // backoff algorithm; let the background job pick it up [drop
-            // the lock]
         }
     }
 
@@ -198,21 +288,11 @@ impl<'a> SenderDataFinder<'a> {
             self.have_user_cross_signing_keys(sender_device, sender_user_identity).await
         } else {
             // No: F (we have cross-signed device info, but no cross-signing keys)
-
-            // TODO: bump the retry count + time
-
             Ok(SenderData::DeviceInfo {
                 device_keys: sender_device.as_device_keys().clone(),
                 retry_details: SenderDataRetryDetails::retry_soon(),
                 legacy_session: true, // TODO: change to false when we have all the retry code
             })
-
-            // TODO: Return, and kick off an async task
-            // [keep the lock]: run OlmMachine::get_identity (which waits for
-            // /keys/query to complete, then fetches this user's cross-signing
-            // key from the store.) If we still don’t have a cross-signing key
-            // ->  Wait to see if we get one soon. Do nothing; let the
-            // background job pick it up [drop the lock]
         }
     }
 
@@ -235,17 +315,15 @@ impl<'a> SenderDataFinder<'a> {
 
             // Find the actual key within the MasterPubkey struct
             if let Some(master_key) = master_key.get_first_key() {
-                // We have MXID and master_key for the user sending the to-device message.
+                // We have user_id and master_key for the user sending the to-device message.
                 // Decide the master_key trust level based on whether we have verified this
-                // user. Set the MXID, master_key and trust level in the
-                // session. Remove the device info and retries since we don't
-                // need them.
+                // user. Set the user_id, master_key and trust level in the
+                // session.
                 Ok(SenderData::SenderKnown {
                     user_id: sender_device.user_id().to_owned(),
                     master_key,
                     master_key_verified,
                 })
-                // TODO: [drop the lock]
             } else {
                 // Surprisingly, there was no key in the MasterPubkey. We did not expect this:
                 // treat it as if the device was not signed by this master key.
@@ -260,7 +338,6 @@ impl<'a> SenderDataFinder<'a> {
                     retry_details: SenderDataRetryDetails::retry_soon(),
                     legacy_session: true, // TODO: change to false when retries etc. are done
                 })
-                // TODO: [drop the lock]
             }
         } else {
             // No: Device was not signed by the known identity of the sender.
@@ -276,10 +353,6 @@ impl<'a> SenderDataFinder<'a> {
                 retry_details: SenderDataRetryDetails::retry_soon(),
                 legacy_session: true, // TODO: change to false when retries etc. are done
             })
-
-            // TODO: Increment retry_count and set
-            // next_retry_time_ms per backoff algorithm; let the background job
-            // pick it up [drop the lock]
         }
     }
 
