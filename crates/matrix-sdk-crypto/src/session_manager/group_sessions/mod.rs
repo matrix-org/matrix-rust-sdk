@@ -36,7 +36,10 @@ use tracing::{debug, error, info, instrument, trace};
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
     identities::device::MaybeEncryptedRoomKey,
-    olm::{InboundGroupSession, OutboundGroupSession, SenderData, Session, ShareInfo, ShareState},
+    olm::{
+        InboundGroupSession, OutboundGroupSession, SenderData, SenderDataFinder, Session,
+        ShareInfo, ShareState,
+    },
     store::{Changes, CryptoStoreWrapper, Result as StoreResult, Store},
     types::events::{room::encrypted::RoomEncryptedEventContent, room_key_withheld::WithheldCode},
     EncryptionSettings, OlmError, ReadOnlyDevice, ToDeviceRequest,
@@ -638,12 +641,30 @@ impl GroupSessionManager {
         room_id: &RoomId,
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
-        own_sender_data: SenderData,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
         trace!("Checking if a room key needs to be shared");
 
         let encryption_settings = encryption_settings.into();
         let mut changes = Changes::default();
+
+        // Use our own device info to populate the SenderData that validates the
+        // InboundGroupSession that we create as a pair to the OutboundGroupSession we
+        // are sending out.
+        let account = self.store.static_account();
+        let device = self.store.get_device(account.user_id(), account.device_id()).await;
+        let own_sender_data = match device {
+            Ok(Some(device)) => {
+                SenderDataFinder::find_using_device_keys(
+                    &self.store,
+                    device.as_device_keys().clone(),
+                )
+                .await?
+            }
+            _ => {
+                error!("Unable to find our own device!");
+                SenderData::unknown()
+            }
+        };
 
         // Try to get an existing session or create a new one.
         let (outbound, inbound) = self

@@ -66,7 +66,7 @@ use crate::{
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
-        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData, SenderDataFinder, SessionType,
+        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderDataFinder, SessionType,
         StaticAccountData,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
@@ -899,6 +899,8 @@ impl OlmMachine {
         &self,
         room_id: &RoomId,
     ) -> OlmResult<()> {
+        use crate::olm::SenderData;
+
         let (_, session) = self
             .inner
             .group_session_manager
@@ -920,6 +922,8 @@ impl OlmMachine {
         &self,
         room_id: &RoomId,
     ) -> OlmResult<InboundGroupSession> {
+        use crate::olm::SenderData;
+
         let (_, session) = self
             .inner
             .group_session_manager
@@ -1026,29 +1030,7 @@ impl OlmMachine {
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
-        // Use our own device info to populate the SenderData that validates the
-        // InboundGroupSession that we create as a pair to the OutboundGroupSession we
-        // are sending out.
-        let account = self.store().static_account();
-        let device = self.store().get_device(account.user_id(), account.device_id()).await;
-        let own_sender_data = match device {
-            Ok(Some(device)) => {
-                SenderDataFinder::find_using_device_keys(
-                    self.store(),
-                    device.as_device_keys().clone(),
-                )
-                .await?
-            }
-            _ => {
-                error!("Unable to find our own device!");
-                SenderData::unknown()
-            }
-        };
-
-        self.inner
-            .group_session_manager
-            .share_room_key(room_id, users, encryption_settings, own_sender_data)
-            .await
+        self.inner.group_session_manager.share_room_key(room_id, users, encryption_settings).await
     }
 
     /// Receive an unencrypted verification event.
