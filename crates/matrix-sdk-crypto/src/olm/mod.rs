@@ -152,7 +152,7 @@ pub(crate) mod tests {
 
         let message = bob_session.encrypt_helper(plaintext).await;
 
-        let prekey_message = match message.clone() {
+        let prekey_message = match message {
             OlmMessage::PreKey(m) => m,
             OlmMessage::Normal(_) => panic!("Incorrect message type"),
         };

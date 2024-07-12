@@ -31,9 +31,7 @@ use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     error::OlmResult,
-    identities::{
-        ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity,
-    },
+    identities::{DeviceData, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData},
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{
@@ -45,8 +43,8 @@ use crate::{
 };
 
 enum DeviceChange {
-    New(ReadOnlyDevice),
-    Updated(ReadOnlyDevice),
+    New(DeviceData),
+    Updated(DeviceData),
     None,
 }
 
@@ -55,8 +53,8 @@ enum DeviceChange {
 /// An unchanged identity means same cross signing keys as well as same
 /// set of signatures on the master key.
 enum IdentityUpdateResult {
-    Updated(ReadOnlyUserIdentities),
-    Unchanged(ReadOnlyUserIdentities),
+    Updated(UserIdentityData),
+    Unchanged(UserIdentityData),
 }
 
 #[derive(Debug, Clone)]
@@ -241,7 +239,7 @@ impl IdentityManager {
                 Ok(false) => Ok(DeviceChange::None),
             }
         } else {
-            match ReadOnlyDevice::try_from(&device_keys) {
+            match DeviceData::try_from(&device_keys) {
                 Ok(d) => {
                     // If this is our own device, check that the server isn't
                     // lying about our keys, also mark the device as locally
@@ -416,7 +414,7 @@ impl IdentityManager {
     /// Otherwise, `None`.
     async fn check_private_identity(
         &self,
-        identity: &ReadOnlyOwnUserIdentity,
+        identity: &OwnUserIdentityData,
     ) -> Option<PrivateCrossSigningIdentity> {
         let private_identity = self.store.private_identity();
         let private_identity = private_identity.lock().await;
@@ -476,11 +474,11 @@ impl IdentityManager {
         response: &KeysQueryResponse,
         master_key: MasterPubkey,
         self_signing: SelfSigningPubkey,
-        i: ReadOnlyUserIdentities,
+        i: UserIdentityData,
         changed_private_identity: &mut Option<PrivateCrossSigningIdentity>,
     ) -> Result<IdentityUpdateResult, SignatureError> {
         match i {
-            ReadOnlyUserIdentities::Own(mut identity) => {
+            UserIdentityData::Own(mut identity) => {
                 let user_signing = self.get_user_signing_key_from_response(response)?;
                 let has_changed = identity.update(master_key, self_signing, user_signing)?;
                 *changed_private_identity = self.check_private_identity(&identity).await;
@@ -490,7 +488,7 @@ impl IdentityManager {
                     Ok(IdentityUpdateResult::Unchanged(identity.into()))
                 }
             }
-            ReadOnlyUserIdentities::Other(mut identity) => {
+            UserIdentityData::Other(mut identity) => {
                 let has_changed = identity.update(master_key, self_signing)?;
                 if has_changed {
                     Ok(IdentityUpdateResult::Updated(identity.into()))
@@ -535,14 +533,14 @@ impl IdentityManager {
         master_key: MasterPubkey,
         self_signing: SelfSigningPubkey,
         changed_private_identity: &mut Option<PrivateCrossSigningIdentity>,
-    ) -> Result<ReadOnlyUserIdentities, SignatureError> {
+    ) -> Result<UserIdentityData, SignatureError> {
         if master_key.user_id() == self.user_id() {
             let user_signing = self.get_user_signing_key_from_response(response)?;
-            let identity = ReadOnlyOwnUserIdentity::new(master_key, self_signing, user_signing)?;
+            let identity = OwnUserIdentityData::new(master_key, self_signing, user_signing)?;
             *changed_private_identity = self.check_private_identity(&identity).await;
             Ok(identity.into())
         } else {
-            let identity = ReadOnlyUserIdentity::new(master_key, self_signing)?;
+            let identity = OtherUserIdentityData::new(master_key, self_signing)?;
             Ok(identity.into())
         }
     }
@@ -892,7 +890,7 @@ impl IdentityManager {
     pub async fn get_user_devices_for_encryption(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<HashMap<OwnedUserId, HashMap<OwnedDeviceId, ReadOnlyDevice>>> {
+    ) -> StoreResult<HashMap<OwnedUserId, HashMap<OwnedDeviceId, DeviceData>>> {
         // How long we wait for /keys/query to complete.
         const KEYS_QUERY_WAIT_TIME: Duration = Duration::from_secs(5);
 
@@ -998,8 +996,7 @@ impl IdentityManager {
         &self,
         timeout_duration: Duration,
         user_id: &'a UserId,
-    ) -> Result<Option<(&'a UserId, HashMap<OwnedDeviceId, ReadOnlyDevice>)>, CryptoStoreError>
-    {
+    ) -> Result<Option<(&'a UserId, HashMap<OwnedDeviceId, DeviceData>)>, CryptoStoreError> {
         let cache = self.store.cache().await?;
         match self
             .key_query_manager

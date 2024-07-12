@@ -58,7 +58,7 @@ use crate::{
         },
         EventEncryptionAlgorithm,
     },
-    ReadOnlyDevice, ToDeviceRequest,
+    DeviceData, ToDeviceRequest,
 };
 
 const ONE_HOUR: Duration = Duration::from_secs(60 * 60);
@@ -77,7 +77,7 @@ pub(crate) enum ShareState {
     SharedButChangedSenderKey,
     /// The session was shared with the device, at the given message index. The
     /// `olm_wedging_index` is the value of the `olm_wedging_index` from the
-    /// `ReadOnlyDevice` at the time that we last shared the session with the
+    /// [`DeviceData`] at the time that we last shared the session with the
     /// device, and indicates whether we need to re-share the session with the
     /// device.
     Shared { message_index: u32, olm_wedging_index: SequenceNumber },
@@ -537,7 +537,7 @@ impl OutboundGroupSession {
     }
 
     /// Has or will the session be shared with the given user/device pair.
-    pub(crate) fn is_shared_with(&self, device: &ReadOnlyDevice) -> ShareState {
+    pub(crate) fn is_shared_with(&self, device: &DeviceData) -> ShareState {
         // Check if we shared the session.
         let shared_state =
             self.shared_with_set.read().unwrap().get(device.user_id()).and_then(|d| {
@@ -587,7 +587,7 @@ impl OutboundGroupSession {
         }
     }
 
-    pub(crate) fn is_withheld_to(&self, device: &ReadOnlyDevice, code: &WithheldCode) -> bool {
+    pub(crate) fn is_withheld_to(&self, device: &DeviceData, code: &WithheldCode) -> bool {
         self.shared_with_set
             .read()
             .unwrap()

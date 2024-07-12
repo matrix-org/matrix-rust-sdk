@@ -287,7 +287,7 @@ pub fn get_element_call_required_permissions(own_user_id: String) -> WidgetCapab
         send: vec![
             WidgetEventFilter::StateWithTypeAndStateKey {
                 event_type: StateEventType::CallMember.to_string(),
-                state_key: own_user_id.clone(),
+                state_key: own_user_id,
             },
             WidgetEventFilter::MessageLikeWithType {
                 event_type: "org.matrix.rageshake_request".to_owned(),

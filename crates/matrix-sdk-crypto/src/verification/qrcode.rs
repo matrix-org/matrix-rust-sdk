@@ -51,8 +51,8 @@ use super::{
     VerificationStore,
 };
 use crate::{
-    CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, ReadOnlyUserIdentities,
-    RoomMessageRequest, ToDeviceRequest,
+    CryptoStoreError, DeviceData, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+    UserIdentityData,
 };
 
 const SECRET_SIZE: usize = 16;
@@ -120,9 +120,9 @@ pub enum QrVerificationState {
     /// The verification process has been successfully concluded.
     Done {
         /// The list of devices that has been verified.
-        verified_devices: Vec<ReadOnlyDevice>,
+        verified_devices: Vec<DeviceData>,
         /// The list of user identities that has been verified.
-        verified_identities: Vec<ReadOnlyUserIdentities>,
+        verified_identities: Vec<UserIdentityData>,
     },
     /// The verification process has been cancelled.
     Cancelled(CancelInfo),
@@ -197,7 +197,7 @@ impl QrVerification {
     }
 
     /// Get the device of the other user.
-    pub fn other_device(&self) -> &ReadOnlyDevice {
+    pub fn other_device(&self) -> &DeviceData {
         self.identities.other_device()
     }
 
@@ -596,7 +596,7 @@ impl QrVerification {
             .as_ref()
             .ok_or_else(|| ScanError::MissingCrossSigningIdentity(other_user_id.clone()))?;
 
-        let check_master_key = |key, identity: &ReadOnlyUserIdentities| {
+        let check_master_key = |key, identity: &UserIdentityData| {
             let master_key = identity.master_key().get_first_key().ok_or_else(|| {
                 ScanError::MissingCrossSigningIdentity(identity.user_id().to_owned())
             })?;
@@ -822,7 +822,7 @@ impl QrState<Done> {
         self.state.as_content(flow_id)
     }
 
-    fn verified_identities(&self) -> (Arc<[ReadOnlyDevice]>, Arc<[ReadOnlyUserIdentities]>) {
+    fn verified_identities(&self) -> (Arc<[DeviceData]>, Arc<[UserIdentityData]>) {
         (self.state.verified_devices.clone(), self.state.verified_master_keys.clone())
     }
 }
@@ -831,8 +831,8 @@ impl QrState<Confirmed> {
     fn into_done(
         self,
         _: &DoneContent<'_>,
-        verified_device: Option<&ReadOnlyDevice>,
-        verified_identity: Option<&ReadOnlyUserIdentities>,
+        verified_device: Option<&DeviceData>,
+        verified_identity: Option<&UserIdentityData>,
     ) -> QrState<Done> {
         let devices: Vec<_> = verified_device.into_iter().cloned().collect();
         let identities: Vec<_> = verified_identity.into_iter().cloned().collect();
@@ -870,8 +870,8 @@ impl QrState<Reciprocated> {
     fn into_done(
         self,
         _: &DoneContent<'_>,
-        verified_device: Option<&ReadOnlyDevice>,
-        verified_identity: Option<&ReadOnlyUserIdentities>,
+        verified_device: Option<&DeviceData>,
+        verified_identity: Option<&UserIdentityData>,
     ) -> QrState<Done> {
         let devices: Vec<_> = verified_device.into_iter().cloned().collect();
         let identities: Vec<_> = verified_identity.into_iter().cloned().collect();
@@ -902,7 +902,7 @@ mod tests {
             event_enums::{DoneContent, OutgoingContent, StartContent},
             FlowId, VerificationStore,
         },
-        QrVerification, QrVerificationState, ReadOnlyDevice,
+        DeviceData, QrVerification, QrVerificationState,
     };
 
     fn user_id() -> &'static UserId {
@@ -935,7 +935,7 @@ mod tests {
         let flow_id = FlowId::ToDevice("test_transaction".into());
 
         let device_key = account.static_data.identity_keys.ed25519;
-        let alice_device = ReadOnlyDevice::from_account(&account);
+        let alice_device = DeviceData::from_account(&account);
 
         let identities = store.get_identities(alice_device).await.unwrap();
 
@@ -1003,8 +1003,8 @@ mod tests {
             let master_key = private_identity.master_public_key().await.unwrap();
             let master_key = master_key.get_first_key().unwrap().to_owned();
 
-            let alice_device = ReadOnlyDevice::from_account(&alice_account);
-            let bob_device = ReadOnlyDevice::from_account(&bob_account);
+            let alice_device = DeviceData::from_account(&alice_account);
+            let bob_device = DeviceData::from_account(&bob_account);
 
             let mut changes = Changes::default();
             changes.identities.new.push(identity.clone().into());

@@ -96,6 +96,9 @@ bitflags! {
 
         /// The latest event of the `Room` has changed.
         const LATEST_EVENT = 0b0000_0010;
+
+        /// A read receipt has changed.
+        const READ_RECEIPT = 0b0000_0100;
     }
 }
 

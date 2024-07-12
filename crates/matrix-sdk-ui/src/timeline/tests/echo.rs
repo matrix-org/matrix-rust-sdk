@@ -16,16 +16,21 @@ use std::{io, sync::Arc};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use matrix_sdk::Error;
+use matrix_sdk::{test_utils::events::EventFactory, Error};
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
 use ruma::{
     event_id,
     events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
+    user_id, MilliSecondsSinceUnixEpoch,
 };
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
-use crate::timeline::event_item::EventSendState;
+use crate::timeline::{
+    event_item::{EventSendState, RemoteEventOrigin},
+    inner::TimelineInnerSettings,
+    tests::TestRoomDataProvider,
+};
 
 #[async_test]
 async fn test_remote_echo_full_trip() {
@@ -221,4 +226,116 @@ async fn test_day_divider_duplication() {
     assert!(items[2].is_remote_event());
     assert!(items[3].is_day_divider());
     assert!(items[4].is_local_echo());
+}
+
+#[async_test]
+async fn test_day_divider_removed_after_local_echo_disappeared() {
+    let timeline = TestTimeline::new();
+
+    let f = EventFactory::new();
+
+    timeline
+        .handle_live_event(
+            f.text_msg("remote echo")
+                .sender(user_id!("@a:b.c"))
+                .server_ts(MilliSecondsSinceUnixEpoch(0.try_into().unwrap())),
+        )
+        .await;
+
+    let items = timeline.inner.items().await;
+
+    assert_eq!(items.len(), 2);
+    assert!(items[0].is_day_divider());
+    assert!(items[1].is_remote_event());
+
+    // Add a local echo.
+    // It's not possible to synthesize `LocalEcho`s because they require forging a
+    // `SendHandle`, which is a bit involved. Instead, use handle_local_event.
+    let txn_id =
+        timeline.handle_local_event(RoomMessageEventContent::text_plain("local echo").into()).await;
+
+    let items = timeline.inner.items().await;
+
+    assert_eq!(items.len(), 4);
+    assert!(items[0].is_day_divider());
+    assert!(items[1].is_remote_event());
+    assert!(items[2].is_day_divider());
+    assert!(items[3].is_local_echo());
+
+    // Cancel the local echo.
+    timeline
+        .handle_room_send_queue_update(
+            matrix_sdk::send_queue::RoomSendQueueUpdate::CancelledLocalEvent {
+                transaction_id: txn_id,
+            },
+        )
+        .await;
+
+    let items = timeline.inner.items().await;
+
+    assert_eq!(items.len(), 2);
+    assert!(items[0].is_day_divider());
+    assert!(items[1].is_remote_event());
+}
+
+#[async_test]
+async fn test_read_marker_removed_after_local_echo_disappeared() {
+    let f = EventFactory::new();
+
+    let event_id = event_id!("$1");
+
+    let timeline = TestTimeline::with_room_data_provider(
+        TestRoomDataProvider::default().with_fully_read_marker(event_id.to_owned()),
+    )
+    .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
+
+    // Use `replace_with_initial_remote_events` which initializes the read marker;
+    // other methods don't, by default.
+    timeline
+        .inner
+        .replace_with_initial_remote_events(
+            vec![f
+                .text_msg("msg1")
+                .sender(user_id!("@a:b.c"))
+                .event_id(event_id)
+                .server_ts(MilliSecondsSinceUnixEpoch::now())
+                .into_sync()],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+
+    let items = timeline.inner.items().await;
+
+    assert_eq!(items.len(), 2);
+    assert!(items[0].is_day_divider());
+    assert!(items[1].is_remote_event());
+
+    // Add a local echo.
+    // It's not possible to synthesize `LocalEcho`s because they require forging a
+    // `SendHandle`, which is a bit involved. Instead, use handle_local_event.
+    let txn_id =
+        timeline.handle_local_event(RoomMessageEventContent::text_plain("local echo").into()).await;
+
+    let items = timeline.inner.items().await;
+
+    assert_eq!(items.len(), 4);
+    assert!(items[0].is_day_divider());
+    assert!(items[1].is_remote_event());
+    assert!(items[2].is_read_marker());
+    assert!(items[3].is_local_echo());
+
+    // Cancel the local echo.
+    timeline
+        .handle_room_send_queue_update(
+            matrix_sdk::send_queue::RoomSendQueueUpdate::CancelledLocalEvent {
+                transaction_id: txn_id,
+            },
+        )
+        .await;
+
+    let items = timeline.inner.items().await;
+
+    assert_eq!(items.len(), 2);
+    assert!(items[0].is_day_divider());
+    assert!(items[1].is_remote_event());
 }

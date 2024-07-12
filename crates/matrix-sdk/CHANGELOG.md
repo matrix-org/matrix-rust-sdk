@@ -35,6 +35,8 @@ Additions:
 - Add `send_call_notification` and `send_call_notification_if_needed` methods. This allows to implement sending ring events on call start.
 - The `get_media_content`, `get_media_file` and `get_file` methods of the
   `Media` api now support the new authenticated media endpoints.
+- WidgetDriver: Support the `"future_timeout"` and `"future_group_id"` fields in the `send_event` widget actions.
+This allows to send future events, as defined in [MSC4157](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
 
 # 0.7.0
 

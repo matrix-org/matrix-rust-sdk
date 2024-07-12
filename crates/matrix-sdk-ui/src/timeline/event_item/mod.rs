@@ -16,7 +16,10 @@ use std::sync::Arc;
 
 use as_variant::as_variant;
 use indexmap::IndexMap;
-use matrix_sdk::{deserialized_responses::EncryptionInfo, Client, Error};
+use matrix_sdk::{
+    deserialized_responses::{EncryptionInfo, ShieldState},
+    Client, Error,
+};
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent};
 use once_cell::sync::Lazy;
 use ruma::{
@@ -333,6 +336,18 @@ impl EventTimelineItem {
             EventTimelineItemKind::Local(_) => None,
             EventTimelineItemKind::Remote(remote_event) => remote_event.encryption_info.as_ref(),
         }
+    }
+
+    /// Gets the [`ShieldState`] which can be used to decorate messages in the
+    /// recommended way.
+    pub fn get_shield(&self, strict: bool) -> Option<ShieldState> {
+        self.encryption_info().map(|info| {
+            if strict {
+                info.verification_state.to_shield_state_strict()
+            } else {
+                info.verification_state.to_shield_state_lax()
+            }
+        })
     }
 
     /// Check whether this item can be replied to.

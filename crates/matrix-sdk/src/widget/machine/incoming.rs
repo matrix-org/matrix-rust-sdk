@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{
-    api::client::account::request_openid_token, events::AnyTimelineEvent, serde::Raw, OwnedEventId,
-};
+use ruma::{api::client::account::request_openid_token, events::AnyTimelineEvent, serde::Raw};
 use serde::{de, Deserialize, Deserializer};
 use serde_json::value::RawValue as RawJsonValue;
 use uuid::Uuid;
 
-use super::{from_widget::FromWidgetRequest, to_widget::ToWidgetResponse};
+use super::{
+    from_widget::{FromWidgetRequest, SendEventResponse},
+    to_widget::ToWidgetResponse,
+};
 use crate::widget::Capabilities;
 
 /// Incoming event that the client API must process.
@@ -56,7 +57,7 @@ pub(crate) enum MatrixDriverResponse {
     MatrixEventRead(Vec<Raw<AnyTimelineEvent>>),
     /// Client sent some matrix event. The response contains the event ID.
     /// A response to an `Action::SendMatrixEvent` command.
-    MatrixEventSent(OwnedEventId),
+    MatrixEventSent(SendEventResponse),
 }
 
 pub(super) struct IncomingWidgetMessage {
@@ -65,6 +66,7 @@ pub(super) struct IncomingWidgetMessage {
     pub(super) kind: IncomingWidgetMessageKind,
 }
 
+#[derive(Debug)]
 pub(super) enum IncomingWidgetMessageKind {
     Request(Raw<FromWidgetRequest>),
     Response(ToWidgetResponse),

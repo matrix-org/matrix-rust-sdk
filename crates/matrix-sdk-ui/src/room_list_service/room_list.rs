@@ -190,6 +190,8 @@ fn merge_stream_and_receiver(
     raw_stream: impl Stream<Item = Vec<VectorDiff<Room>>>,
     mut room_info_notable_update_receiver: broadcast::Receiver<RoomInfoNotableUpdate>,
 ) -> impl Stream<Item = Vec<VectorDiff<Room>>> {
+    use RoomInfoNotableUpdateReasons as NotableUpdate;
+
     stream! {
         pin_mut!(raw_stream);
 
@@ -215,8 +217,9 @@ fn merge_stream_and_receiver(
                     let reasons = &update.reasons;
 
                     // We are interested by these _reasons_.
-                    if reasons.contains(RoomInfoNotableUpdateReasons::LATEST_EVENT) ||
-                        reasons.contains(RoomInfoNotableUpdateReasons::RECENCY_TIMESTAMP) {
+                    if reasons.contains(NotableUpdate::LATEST_EVENT) ||
+                        reasons.contains(NotableUpdate::RECENCY_TIMESTAMP) ||
+                        reasons.contains(NotableUpdate::READ_RECEIPT) {
                         // Emit a `VectorDiff::Set` for the specific rooms.
                         if let Some(index) = raw_current_values.iter().position(|room| room.room_id() == update.room_id) {
                             let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };

@@ -18,7 +18,6 @@ use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     event_cache::{EventsOrigin, RoomEventCacheUpdate},
     executor::spawn,
-    send_queue::{LocalEcho, RoomSendQueueUpdate},
     Room,
 };
 use ruma::{events::AnySyncTimelineEvent, RoomVersionId};
@@ -32,10 +31,7 @@ use super::{
     Error, Timeline, TimelineDropHandle, TimelineFocus,
 };
 use crate::{
-    timeline::{
-        event_handler::TimelineEventKind, event_item::RemoteEventOrigin, inner::TimelineEnd,
-        EventSendState,
-    },
+    timeline::{event_item::RemoteEventOrigin, inner::TimelineEnd},
     unable_to_decrypt_hook::UtdHookManager,
 };
 
@@ -273,7 +269,7 @@ impl TimelineBuilder {
             Some(spawn({
                 // Handles existing local echoes first.
                 for echo in local_echoes {
-                    handle_local_echo(echo, &timeline).await;
+                    timeline.handle_local_echo(echo).await;
                 }
 
                 let span = info_span!(parent: Span::none(), "local_echo_handler", room_id = ?room.room_id());
@@ -285,59 +281,7 @@ impl TimelineBuilder {
 
                     loop {
                         match listener.recv().await {
-                            Ok(update) => match update {
-                                RoomSendQueueUpdate::NewLocalEvent(echo) => {
-                                    handle_local_echo(echo, &timeline).await;
-                                }
-
-                                RoomSendQueueUpdate::CancelledLocalEvent { transaction_id } => {
-                                    if !timeline.discard_local_echo(&transaction_id).await {
-                                        warn!("couldn't find the local echo to discard");
-                                    }
-                                }
-
-                                RoomSendQueueUpdate::ReplacedLocalEvent {
-                                    transaction_id,
-                                    new_content,
-                                } => {
-                                    let content = match new_content.deserialize() {
-                                        Ok(d) => d,
-                                        Err(err) => {
-                                            warn!(
-                                                "error deserializing local echo (upon edit): {err}"
-                                            );
-                                            return;
-                                        }
-                                    };
-
-                                    if !timeline.replace_local_echo(&transaction_id, content).await
-                                    {
-                                        warn!("couldn't find the local echo to replace");
-                                    }
-                                }
-
-                                RoomSendQueueUpdate::SendError {
-                                    transaction_id,
-                                    error,
-                                    is_recoverable,
-                                } => {
-                                    timeline
-                                        .update_event_send_state(
-                                            &transaction_id,
-                                            EventSendState::SendingFailed { error, is_recoverable },
-                                        )
-                                        .await;
-                                }
-
-                                RoomSendQueueUpdate::SentEvent { transaction_id, event_id } => {
-                                    timeline
-                                        .update_event_send_state(
-                                            &transaction_id,
-                                            EventSendState::Sent { event_id },
-                                        )
-                                        .await;
-                                }
-                            },
+                            Ok(update) => timeline.handle_room_send_queue_update(update).await,
 
                             Err(RecvError::Lagged(num_missed)) => {
                                 warn!("missed {num_missed} local echoes, ignoring those missed");
@@ -426,43 +370,5 @@ impl TimelineBuilder {
         }
 
         Ok(timeline)
-    }
-}
-
-#[derive(Debug, Error)]
-#[error("local echo failed to send in a previous session")]
-struct MissingLocalEchoFailError;
-
-async fn handle_local_echo(echo: LocalEcho, timeline: &TimelineInner) {
-    let content = match echo.serialized_event.deserialize() {
-        Ok(d) => d,
-        Err(err) => {
-            warn!("error deserializing local echo: {err}");
-            return;
-        }
-    };
-
-    timeline
-        .handle_local_event(
-            echo.transaction_id.clone(),
-            TimelineEventKind::Message { content, relations: Default::default() },
-            Some(echo.send_handle),
-        )
-        .await;
-
-    if echo.is_wedged {
-        timeline
-            .update_event_send_state(
-                &echo.transaction_id,
-                EventSendState::SendingFailed {
-                    // Put a dummy error in this case, since we're not persisting the errors that
-                    // occurred in previous sessions.
-                    error: Arc::new(matrix_sdk::Error::UnknownError(Box::new(
-                        MissingLocalEchoFailError,
-                    ))),
-                    is_recoverable: false,
-                },
-            )
-            .await;
     }
 }

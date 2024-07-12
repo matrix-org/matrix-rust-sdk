@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, iter::once};
+use std::fmt;
 
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 
-use super::linked_chunk::{
-    Chunk, ChunkIdentifier, Error, Iter, IterBackward, LinkedChunk, Position,
-};
+use super::linked_chunk::{Chunk, ChunkIdentifier, Error, Iter, LinkedChunk, Position};
 
 #[derive(Clone, Debug)]
 pub struct Gap {
@@ -39,7 +37,6 @@ impl Default for RoomEvents {
     }
 }
 
-#[allow(dead_code)]
 impl RoomEvents {
     pub fn new() -> Self {
         Self { chunks: LinkedChunk::new() }
@@ -48,16 +45,6 @@ impl RoomEvents {
     /// Clear all events.
     pub fn reset(&mut self) {
         self.chunks = LinkedChunk::new();
-    }
-
-    /// Return the number of events.
-    pub fn len(&self) -> usize {
-        self.chunks.len()
-    }
-
-    /// Push one event after existing events.
-    pub fn push_event(&mut self, event: SyncTimelineEvent) {
-        self.push_events(once(event))
     }
 
     /// Push events after all events or gaps.
@@ -117,43 +104,11 @@ impl RoomEvents {
         self.chunks.chunk_identifier(predicate)
     }
 
-    /// Search for an item, and return its position.
-    pub fn event_position<'a, P>(&'a self, predicate: P) -> Option<Position>
-    where
-        P: FnMut(&'a SyncTimelineEvent) -> bool,
-    {
-        self.chunks.item_position(predicate)
-    }
-
-    /// Iterate over the chunks, backward.
-    ///
-    /// The most recent chunk comes first.
-    pub fn rchunks(&self) -> IterBackward<'_, DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap> {
-        self.chunks.rchunks()
-    }
-
     /// Iterate over the chunks, forward.
     ///
     /// The oldest chunk comes first.
     pub fn chunks(&self) -> Iter<'_, DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap> {
         self.chunks.chunks()
-    }
-
-    /// Iterate over the chunks, starting from `identifier`, backward.
-    pub fn rchunks_from(
-        &self,
-        identifier: ChunkIdentifier,
-    ) -> Result<IterBackward<'_, DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap>, Error> {
-        self.chunks.rchunks_from(identifier)
-    }
-
-    /// Iterate over the chunks, starting from `identifier`, forward — i.e.
-    /// to the latest chunk.
-    pub fn chunks_from(
-        &self,
-        identifier: ChunkIdentifier,
-    ) -> Result<Iter<'_, DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap>, Error> {
-        self.chunks.chunks_from(identifier)
     }
 
     /// Iterate over the events, backward.
@@ -168,23 +123,6 @@ impl RoomEvents {
     /// The oldest event comes first.
     pub fn events(&self) -> impl Iterator<Item = (Position, &SyncTimelineEvent)> {
         self.chunks.items()
-    }
-
-    /// Iterate over the events, starting from `position`, backward.
-    pub fn revents_from(
-        &self,
-        position: Position,
-    ) -> Result<impl Iterator<Item = (Position, &SyncTimelineEvent)>, Error> {
-        self.chunks.ritems_from(position)
-    }
-
-    /// Iterate over the events, starting from `position`, forward — i.e.
-    /// to the latest event.
-    pub fn events_from(
-        &self,
-        position: Position,
-    ) -> Result<impl Iterator<Item = (Position, &SyncTimelineEvent)>, Error> {
-        self.chunks.items_from(position)
     }
 }
 
