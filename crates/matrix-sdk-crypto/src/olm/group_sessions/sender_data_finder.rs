@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
-
-use async_trait::async_trait;
 use ruma::UserId;
 use tracing::error;
 use vodozemac::Curve25519PublicKey;
@@ -22,8 +19,7 @@ use vodozemac::Curve25519PublicKey;
 use super::{SenderData, SenderDataRetryDetails};
 use crate::{
     error::OlmResult,
-    identities::Device,
-    store::{self, Store},
+    store::Store,
     types::{events::olm_v1::DecryptedRoomKeyEvent, DeviceKeys, MasterPubkey},
     EventError, OlmError, OlmMachine, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
     ReadOnlyUserIdentities,
@@ -34,12 +30,12 @@ use crate::{
 ///
 /// The letters A, B etc. in the documentation refer to the algorithm described
 /// in https://github.com/matrix-org/matrix-rust-sdk/issues/3543
-pub(crate) struct SenderDataFinder<'a, S: FinderCryptoStore> {
-    own_crypto_store: &'a S,
+pub(crate) struct SenderDataFinder<'a> {
+    own_crypto_store: &'a Store,
     own_user_id: &'a UserId,
 }
 
-impl<'a> SenderDataFinder<'a, Store> {
+impl<'a> SenderDataFinder<'a> {
     /// As described in https://github.com/matrix-org/matrix-rust-sdk/issues/3543
     /// and https://github.com/matrix-org/matrix-rust-sdk/issues/3544
     /// find the device info associated with the to-device message used to
@@ -70,9 +66,7 @@ impl<'a> SenderDataFinder<'a, Store> {
         };
         finder.have_device_keys(&device_keys).await
     }
-}
 
-impl<'a, S: FinderCryptoStore> SenderDataFinder<'a, S> {
     async fn have_event(
         &self,
         sender_curve_key: Curve25519PublicKey,
@@ -347,56 +341,20 @@ impl<'a, S: FinderCryptoStore> SenderDataFinder<'a, S> {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub(crate) trait FinderCryptoStore {
-    async fn get_device_from_curve_key(
-        &self,
-        user_id: &UserId,
-        curve_key: Curve25519PublicKey,
-    ) -> store::Result<Option<Device>>;
-
-    async fn get_user_identity(
-        &self,
-        user_id: &UserId,
-    ) -> OlmResult<Option<ReadOnlyUserIdentities>>;
-}
-
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl FinderCryptoStore for Store {
-    async fn get_device_from_curve_key(
-        &self,
-        user_id: &UserId,
-        curve_key: Curve25519PublicKey,
-    ) -> store::Result<Option<Device>> {
-        self.get_device_from_curve_key(user_id, curve_key).await
-    }
-
-    async fn get_user_identity(
-        &self,
-        user_id: &UserId,
-    ) -> OlmResult<Option<ReadOnlyUserIdentities>> {
-        Ok(self.deref().get_user_identity(user_id).await?)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{ops::Deref as _, sync::Arc};
 
     use assert_matches2::assert_let;
-    use async_trait::async_trait;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, owned_room_id, user_id, DeviceId, OwnedUserId, UserId};
     use tokio::sync::Mutex;
     use vodozemac::{megolm::SessionKey, Curve25519PublicKey, Ed25519PublicKey};
 
-    use super::{FinderCryptoStore, SenderDataFinder};
+    use super::SenderDataFinder;
     use crate::{
-        error::OlmResult,
         olm::{PrivateCrossSigningIdentity, SenderData},
-        store::{self, Changes, CryptoStoreWrapper, MemoryStore, Store},
+        store::{Changes, CryptoStoreWrapper, MemoryStore, Store},
         types::events::{
             olm_v1::DecryptedRoomKeyEvent,
             room_key::{MegolmV1AesSha2Content, RoomKeyContent},
@@ -406,7 +364,7 @@ mod tests {
         ReadOnlyUserIdentity,
     };
 
-    impl<'a> SenderDataFinder<'a, Store> {
+    impl<'a> SenderDataFinder<'a> {
         fn new(own_crypto_store: &'a Store, own_user_id: &'a UserId) -> Self {
             Self { own_crypto_store, own_user_id }
         }
@@ -1000,36 +958,5 @@ mod tests {
             )
             .unwrap(),
         )
-    }
-
-    struct FakeCryptoStore {
-        device: Option<Device>,
-        user_identities: Option<ReadOnlyUserIdentities>,
-        own_user_identities: Option<ReadOnlyUserIdentities>,
-    }
-
-    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-    impl FinderCryptoStore for FakeCryptoStore {
-        async fn get_device_from_curve_key(
-            &self,
-            _user_id: &UserId,
-            _curve_key: Curve25519PublicKey,
-        ) -> store::Result<Option<Device>> {
-            Ok(self.device.clone())
-        }
-
-        async fn get_user_identity(
-            &self,
-            user_id: &UserId,
-        ) -> OlmResult<Option<ReadOnlyUserIdentities>> {
-            if user_id == user_id!("@myself:s.co") {
-                // We are being asked for our own user identity, different from
-                // self.user_identities because that one was of Other type.
-                Ok(self.own_user_identities.clone())
-            } else {
-                Ok(self.user_identities.clone())
-            }
-        }
     }
 }
