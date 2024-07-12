@@ -32,7 +32,7 @@ use matrix_sdk_crypto::{
         RoomSettings,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+    Account, DeviceData, GossipRequest, GossippedSecret, ReadOnlyUserIdentities, SecretInfo,
     TrackedUser,
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -1092,7 +1092,7 @@ impl CryptoStore for SqliteCryptoStore {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>> {
+    ) -> Result<Option<DeviceData>> {
         let user_id = self.encode_key("device", user_id.as_bytes());
         let device_id = self.encode_key("device", device_id.as_bytes());
         Ok(self
@@ -1107,7 +1107,7 @@ impl CryptoStore for SqliteCryptoStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
         let user_id = self.encode_key("device", user_id.as_bytes());
         self.acquire()
             .await?
@@ -1115,13 +1115,13 @@ impl CryptoStore for SqliteCryptoStore {
             .await?
             .into_iter()
             .map(|value| {
-                let device: ReadOnlyDevice = self.deserialize_value(&value)?;
+                let device: DeviceData = self.deserialize_value(&value)?;
                 Ok((device.device_id().to_owned(), device))
             })
             .collect()
     }
 
-    async fn get_own_device(&self) -> Result<ReadOnlyDevice> {
+    async fn get_own_device(&self) -> Result<DeviceData> {
         let account_info = self.get_static_account().ok_or(Error::AccountUnset)?;
         Ok(self.get_device(&account_info.user_id, &account_info.device_id).await?.unwrap())
     }
@@ -1455,7 +1455,7 @@ mod encrypted_tests {
     use matrix_sdk_crypto::{
         cryptostore_integration_tests, cryptostore_integration_tests_time,
         store::{Changes, CryptoStore as _, DeviceChanges, PendingChanges},
-        ReadOnlyDevice,
+        DeviceData,
     };
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
@@ -1531,7 +1531,7 @@ mod encrypted_tests {
         store
             .save_changes(Changes {
                 devices: DeviceChanges {
-                    new: vec![ReadOnlyDevice::from_account(&account)],
+                    new: vec![DeviceData::from_account(&account)],
                     ..Default::default()
                 },
                 ..Default::default()

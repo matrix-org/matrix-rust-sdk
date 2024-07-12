@@ -71,8 +71,9 @@ pub enum MaybeEncryptedRoomKey {
 
 /// A read-only version of a `Device`.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct ReadOnlyDevice {
-    pub(crate) inner: Arc<DeviceKeys>,
+pub struct DeviceData {
+    #[serde(alias = "inner")]
+    pub(crate) device_keys: Arc<DeviceKeys>,
     #[serde(
         serialize_with = "atomic_bool_serializer",
         deserialize_with = "atomic_bool_deserializer"
@@ -102,9 +103,9 @@ fn default_timestamp() -> MilliSecondsSinceUnixEpoch {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for ReadOnlyDevice {
+impl std::fmt::Debug for DeviceData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ReadOnlyDevice")
+        f.debug_struct("DeviceData")
             .field("user_id", &self.user_id())
             .field("device_id", &self.device_id())
             .field("display_name", &self.display_name())
@@ -119,7 +120,7 @@ impl std::fmt::Debug for ReadOnlyDevice {
 /// A device represents a E2EE capable client of an user.
 #[derive(Clone)]
 pub struct Device {
-    pub(crate) inner: ReadOnlyDevice,
+    pub(crate) inner: DeviceData,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
     pub(crate) device_owner_identity: Option<ReadOnlyUserIdentities>,
@@ -133,7 +134,7 @@ impl std::fmt::Debug for Device {
 }
 
 impl Deref for Device {
-    type Target = ReadOnlyDevice;
+    type Target = DeviceData;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -480,14 +481,14 @@ impl Device {
 
     /// Whether or not the device is a dehydrated device.
     pub fn is_dehydrated(&self) -> bool {
-        self.inner.inner.dehydrated.unwrap_or(false)
+        self.inner.device_keys.dehydrated.unwrap_or(false)
     }
 }
 
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
 pub struct UserDevices {
-    pub(crate) inner: HashMap<OwnedDeviceId, ReadOnlyDevice>,
+    pub(crate) inner: HashMap<OwnedDeviceId, DeviceData>,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
     pub(crate) device_owner_identity: Option<ReadOnlyUserIdentities>,
@@ -568,13 +569,13 @@ impl From<i64> for LocalTrust {
     }
 }
 
-impl ReadOnlyDevice {
+impl DeviceData {
     /// Create a new Device, this constructor skips signature verification of
     /// the keys, `TryFrom` should be used for completely new devices we
     /// receive.
     pub fn new(device_keys: DeviceKeys, trust_state: LocalTrust) -> Self {
         Self {
-            inner: device_keys.into(),
+            device_keys: device_keys.into(),
             trust_state: Arc::new(RwLock::new(trust_state)),
             deleted: Arc::new(AtomicBool::new(false)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
@@ -585,42 +586,42 @@ impl ReadOnlyDevice {
 
     /// The user id of the device owner.
     pub fn user_id(&self) -> &UserId {
-        &self.inner.user_id
+        &self.device_keys.user_id
     }
 
     /// The unique ID of the device.
     pub fn device_id(&self) -> &DeviceId {
-        &self.inner.device_id
+        &self.device_keys.device_id
     }
 
     /// Get the human readable name of the device.
     pub fn display_name(&self) -> Option<&str> {
-        self.inner.unsigned.device_display_name.as_deref()
+        self.device_keys.unsigned.device_display_name.as_deref()
     }
 
     /// Get the key of the given key algorithm belonging to this device.
     pub fn get_key(&self, algorithm: DeviceKeyAlgorithm) -> Option<&DeviceKey> {
-        self.inner.get_key(algorithm)
+        self.device_keys.get_key(algorithm)
     }
 
     /// Get the Curve25519 key of the given device.
     pub fn curve25519_key(&self) -> Option<Curve25519PublicKey> {
-        self.inner.curve25519_key()
+        self.device_keys.curve25519_key()
     }
 
     /// Get the Ed25519 key of the given device.
     pub fn ed25519_key(&self) -> Option<Ed25519PublicKey> {
-        self.inner.ed25519_key()
+        self.device_keys.ed25519_key()
     }
 
     /// Get a map containing all the device keys.
     pub fn keys(&self) -> &BTreeMap<OwnedDeviceKeyId, DeviceKey> {
-        &self.inner.keys
+        &self.device_keys.keys
     }
 
     /// Get a map containing all the device signatures.
     pub fn signatures(&self) -> &Signatures {
-        &self.inner.signatures
+        &self.device_keys.signatures
     }
 
     /// Get the trust state of the device.
@@ -660,7 +661,7 @@ impl ReadOnlyDevice {
 
     /// Get the list of algorithms this device supports.
     pub fn algorithms(&self) -> &[EventEncryptionAlgorithm] {
-        &self.inner.algorithms
+        &self.device_keys.algorithms
     }
 
     /// Does this device support any of our known Olm encryption algorithms.
@@ -881,8 +882,8 @@ impl ReadOnlyDevice {
                 self.ed25519_key().map(Box::new),
                 device_keys.ed25519_key().map(Box::new),
             ))
-        } else if self.inner.as_ref() != device_keys {
-            self.inner = device_keys.clone().into();
+        } else if self.device_keys.as_ref() != device_keys {
+            self.device_keys = device_keys.clone().into();
 
             Ok(true)
         } else {
@@ -893,7 +894,7 @@ impl ReadOnlyDevice {
 
     /// Return the device keys
     pub fn as_device_keys(&self) -> &DeviceKeys {
-        &self.inner
+        &self.device_keys
     }
 
     /// Check if the given JSON is signed by this device key.
@@ -949,15 +950,15 @@ impl ReadOnlyDevice {
     /// Generate the Device from a reference of an OlmMachine.
     pub async fn from_machine_test_helper(
         machine: &OlmMachine,
-    ) -> Result<ReadOnlyDevice, crate::CryptoStoreError> {
-        Ok(ReadOnlyDevice::from_account(&*machine.store().cache().await?.account().await?))
+    ) -> Result<DeviceData, crate::CryptoStoreError> {
+        Ok(DeviceData::from_account(&*machine.store().cache().await?.account().await?))
     }
 
-    /// Create a `ReadOnlyDevice` from an `Account`
+    /// Create [`DeviceData`] from an [`Account`].
     ///
-    /// We will have our own device in the store once we receive a `/keys/query`
-    /// response, but this is useful to create it before we receive such a
-    /// response.
+    /// We will have our own device data in the store once we receive a
+    /// `/keys/query` response, but this is useful to create it before we
+    /// receive such a response.
     ///
     /// It also makes it easier to check that the server doesn't lie about our
     /// own device.
@@ -965,9 +966,9 @@ impl ReadOnlyDevice {
     /// *Don't* use this after we received a `/keys/query` response, other
     /// users/devices might add signatures to our own device, which can't be
     /// replicated locally.
-    pub fn from_account(account: &Account) -> ReadOnlyDevice {
+    pub fn from_account(account: &Account) -> DeviceData {
         let device_keys = account.device_keys();
-        let mut device = ReadOnlyDevice::try_from(&device_keys)
+        let mut device = DeviceData::try_from(&device_keys)
             .expect("Creating a device from our own account should always succeed");
         device.first_time_seen_ts = account.creation_local_time();
 
@@ -981,12 +982,12 @@ impl ReadOnlyDevice {
     }
 }
 
-impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
+impl TryFrom<&DeviceKeys> for DeviceData {
     type Error = SignatureError;
 
     fn try_from(device_keys: &DeviceKeys) -> Result<Self, Self::Error> {
         let device = Self {
-            inner: device_keys.clone().into(),
+            device_keys: device_keys.clone().into(),
             deleted: Arc::new(AtomicBool::new(false)),
             trust_state: Arc::new(RwLock::new(LocalTrust::Unset)),
             withheld_code_sent: Arc::new(AtomicBool::new(false)),
@@ -999,7 +1000,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
     }
 }
 
-impl PartialEq for ReadOnlyDevice {
+impl PartialEq for DeviceData {
     fn eq(&self, other: &Self) -> bool {
         self.user_id() == other.user_id() && self.device_id() == other.device_id()
     }
@@ -1011,7 +1012,7 @@ impl PartialEq for ReadOnlyDevice {
 pub(crate) mod testing {
     use serde_json::json;
 
-    use crate::{identities::ReadOnlyDevice, types::DeviceKeys};
+    use crate::{identities::DeviceData, types::DeviceKeys};
 
     /// Generate default DeviceKeys for tests
     pub fn device_keys() -> DeviceKeys {
@@ -1039,10 +1040,10 @@ pub(crate) mod testing {
         serde_json::from_value(device_keys).unwrap()
     }
 
-    /// Generate default ReadOnlyDevice for tests
-    pub fn get_device() -> ReadOnlyDevice {
+    /// Generate default [`DeviceData`] for tests
+    pub fn get_device() -> DeviceData {
         let device_keys = device_keys();
-        ReadOnlyDevice::try_from(&device_keys).unwrap()
+        DeviceData::try_from(&device_keys).unwrap()
     }
 }
 
@@ -1053,7 +1054,7 @@ pub(crate) mod tests {
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
     use super::testing::{device_keys, get_device};
-    use crate::{identities::LocalTrust, ReadOnlyDevice};
+    use crate::{identities::LocalTrust, DeviceData};
 
     #[test]
     fn create_a_device() {
@@ -1143,7 +1144,7 @@ pub(crate) mod tests {
             "first_time_seen_ts": 1696931068314u64
         });
 
-        let device: ReadOnlyDevice =
+        let device: DeviceData =
             serde_json::from_value(device).expect("We should be able to deserialize our device");
 
         assert_eq!(user_id, device.user_id());

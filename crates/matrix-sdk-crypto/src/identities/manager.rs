@@ -32,7 +32,7 @@ use tracing::{debug, info, instrument, trace, warn};
 use crate::{
     error::OlmResult,
     identities::{
-        ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity,
+        DeviceData, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity,
     },
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
@@ -45,8 +45,8 @@ use crate::{
 };
 
 enum DeviceChange {
-    New(ReadOnlyDevice),
-    Updated(ReadOnlyDevice),
+    New(DeviceData),
+    Updated(DeviceData),
     None,
 }
 
@@ -241,7 +241,7 @@ impl IdentityManager {
                 Ok(false) => Ok(DeviceChange::None),
             }
         } else {
-            match ReadOnlyDevice::try_from(&device_keys) {
+            match DeviceData::try_from(&device_keys) {
                 Ok(d) => {
                     // If this is our own device, check that the server isn't
                     // lying about our keys, also mark the device as locally
@@ -892,7 +892,7 @@ impl IdentityManager {
     pub async fn get_user_devices_for_encryption(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<HashMap<OwnedUserId, HashMap<OwnedDeviceId, ReadOnlyDevice>>> {
+    ) -> StoreResult<HashMap<OwnedUserId, HashMap<OwnedDeviceId, DeviceData>>> {
         // How long we wait for /keys/query to complete.
         const KEYS_QUERY_WAIT_TIME: Duration = Duration::from_secs(5);
 
@@ -998,8 +998,7 @@ impl IdentityManager {
         &self,
         timeout_duration: Duration,
         user_id: &'a UserId,
-    ) -> Result<Option<(&'a UserId, HashMap<OwnedDeviceId, ReadOnlyDevice>)>, CryptoStoreError>
-    {
+    ) -> Result<Option<(&'a UserId, HashMap<OwnedDeviceId, DeviceData>)>, CryptoStoreError> {
         let cache = self.store.cache().await?;
         match self
             .key_query_manager

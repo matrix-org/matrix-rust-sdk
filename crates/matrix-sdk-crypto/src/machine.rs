@@ -92,7 +92,7 @@ use crate::{
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, CryptoStoreError, KeysQueryRequest, LocalTrust, ReadOnlyDevice,
+    CrossSigningKeyExport, CryptoStoreError, DeviceData, KeysQueryRequest, LocalTrust,
     SignatureError, ToDeviceRequest,
 };
 
@@ -173,7 +173,7 @@ impl OlmMachine {
         let static_account = account.static_data().clone();
 
         let store = Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()));
-        let device = ReadOnlyDevice::from_account(&account);
+        let device = DeviceData::from_account(&account);
         store.save_pending_changes(PendingChanges { account: Some(account) }).await?;
         store
             .save_changes(Changes {
@@ -304,7 +304,7 @@ impl OlmMachine {
                     .record("ed25519_key", display(account.identity_keys().ed25519))
                     .record("curve25519_key", display(account.identity_keys().curve25519));
 
-                let device = ReadOnlyDevice::from_account(&account);
+                let device = DeviceData::from_account(&account);
 
                 // We just created this device from our own Olm `Account`. Since we are the
                 // owners of the private keys of this device we can safely mark
@@ -2437,8 +2437,8 @@ pub(crate) mod tests {
         },
         utilities::json_convert,
         verification::tests::{bob_id, outgoing_request_to_event, request_to_event},
-        Account, EncryptionSettings, LocalTrust, MegolmError, OlmError, OutgoingRequests,
-        ReadOnlyDevice, ToDeviceRequest, UserIdentities,
+        Account, DeviceData, EncryptionSettings, LocalTrust, MegolmError, OlmError,
+        OutgoingRequests, ToDeviceRequest, UserIdentities,
     };
 
     /// These keys need to be periodically uploaded to the server.
@@ -2539,8 +2539,8 @@ pub(crate) mod tests {
         let alice_device = alice_device_id();
         let alice = OlmMachine::new(alice, alice_device).await;
 
-        let alice_device = ReadOnlyDevice::from_machine_test_helper(&alice).await.unwrap();
-        let bob_device = ReadOnlyDevice::from_machine_test_helper(&bob).await.unwrap();
+        let alice_device = DeviceData::from_machine_test_helper(&alice).await.unwrap();
+        let bob_device = DeviceData::from_machine_test_helper(&bob).await.unwrap();
         alice.store().save_devices(&[bob_device]).await.unwrap();
         bob.store().save_devices(&[alice_device]).await.unwrap();
 
@@ -3781,7 +3781,7 @@ pub(crate) mod tests {
         let bob_other_device = device_id!("OTHERBOB");
         let bob_other_machine = OlmMachine::new(bob_id, bob_other_device).await;
         let bob_other_device =
-            ReadOnlyDevice::from_machine_test_helper(&bob_other_machine).await.unwrap();
+            DeviceData::from_machine_test_helper(&bob_other_machine).await.unwrap();
         bob.store().save_devices(&[bob_other_device]).await.unwrap();
         bob.get_device(bob_id, device_id!("OTHERBOB"), None)
             .await
@@ -4185,7 +4185,7 @@ pub(crate) mod tests {
         let room_id = room_id!("!test:localhost");
         let (alice, _) =
             get_machine_pair_with_setup_sessions_test_helper(alice_id(), user_id(), false).await;
-        let device = ReadOnlyDevice::from_machine_test_helper(&alice).await.unwrap();
+        let device = DeviceData::from_machine_test_helper(&alice).await.unwrap();
         alice.store().save_devices(&[device]).await.unwrap();
 
         let (outbound, mut inbound) = alice

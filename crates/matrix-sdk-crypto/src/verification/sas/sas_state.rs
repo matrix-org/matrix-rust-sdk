@@ -57,7 +57,7 @@ use super::{
     OutgoingContent,
 };
 use crate::{
-    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
+    identities::{DeviceData, ReadOnlyUserIdentities},
     olm::StaticAccountData,
     verification::{
         cache::RequestInfo,
@@ -451,7 +451,7 @@ pub struct Confirmed {
 pub struct MacReceived {
     sas: Arc<Mutex<EstablishedSas>>,
     we_started: bool,
-    verified_devices: Arc<[ReadOnlyDevice]>,
+    verified_devices: Arc<[DeviceData]>,
     verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
     pub accepted_protocols: AcceptedProtocols,
 }
@@ -462,7 +462,7 @@ pub struct MacReceived {
 #[derive(Clone, Debug)]
 pub struct WaitingForDone {
     sas: Arc<Mutex<EstablishedSas>>,
-    verified_devices: Arc<[ReadOnlyDevice]>,
+    verified_devices: Arc<[DeviceData]>,
     verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
     pub accepted_protocols: AcceptedProtocols,
 }
@@ -475,7 +475,7 @@ pub struct WaitingForDone {
 #[derive(Clone, Debug)]
 pub struct Done {
     sas: Arc<Mutex<EstablishedSas>>,
-    verified_devices: Arc<[ReadOnlyDevice]>,
+    verified_devices: Arc<[DeviceData]>,
     verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
     pub accepted_protocols: AcceptedProtocols,
 }
@@ -493,7 +493,7 @@ impl<S: Clone> SasState<S> {
     }
 
     #[cfg(test)]
-    pub fn other_device(&self) -> ReadOnlyDevice {
+    pub fn other_device(&self) -> DeviceData {
         self.ids.other_device.clone()
     }
 
@@ -552,7 +552,7 @@ impl SasState<Created> {
     /// * `other_identity` - The identity of the other user if one exists.
     pub fn new(
         account: StaticAccountData,
-        other_device: ReadOnlyDevice,
+        other_device: DeviceData,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         flow_id: FlowId,
@@ -573,7 +573,7 @@ impl SasState<Created> {
     fn new_helper(
         flow_id: FlowId,
         account: StaticAccountData,
-        other_device: ReadOnlyDevice,
+        other_device: DeviceData,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         started_from_request: bool,
@@ -675,7 +675,7 @@ impl SasState<Started> {
     ///   the other side.
     pub fn from_start_event(
         account: StaticAccountData,
-        other_device: ReadOnlyDevice,
+        other_device: DeviceData,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         flow_id: FlowId,
@@ -1488,7 +1488,7 @@ impl SasState<Done> {
     }
 
     /// Get the list of verified devices.
-    pub fn verified_devices(&self) -> Arc<[ReadOnlyDevice]> {
+    pub fn verified_devices(&self) -> Arc<[DeviceData]> {
         self.state.verified_devices.clone()
     }
 
@@ -1529,7 +1529,7 @@ mod tests {
             event_enums::{AcceptContent, KeyContent, MacContent, StartContent},
             FlowId,
         },
-        AcceptedProtocols, Account, ReadOnlyDevice,
+        AcceptedProtocols, Account, DeviceData,
     };
 
     fn alice_id() -> &'static UserId {
@@ -1552,10 +1552,10 @@ mod tests {
         mac_method: Option<SupportedMacMethod>,
     ) -> (SasState<Created>, SasState<WeAccepted>) {
         let alice = Account::with_device_id(alice_id(), alice_device_id());
-        let alice_device = ReadOnlyDevice::from_account(&alice);
+        let alice_device = DeviceData::from_account(&alice);
 
         let bob = Account::with_device_id(bob_id(), bob_device_id());
-        let bob_device = ReadOnlyDevice::from_account(&bob);
+        let bob_device = DeviceData::from_account(&bob);
 
         let flow_id = TransactionId::new().into();
         let alice_sas = SasState::<Created>::new(
@@ -1825,10 +1825,10 @@ mod tests {
     #[async_test]
     async fn test_sas_from_start_unknown_method() {
         let alice = Account::with_device_id(alice_id(), alice_device_id());
-        let alice_device = ReadOnlyDevice::from_account(&alice);
+        let alice_device = DeviceData::from_account(&alice);
 
         let bob = Account::with_device_id(bob_id(), bob_device_id());
-        let bob_device = ReadOnlyDevice::from_account(&bob);
+        let bob_device = DeviceData::from_account(&bob);
 
         let flow_id = TransactionId::new().into();
         let alice_sas = SasState::<Created>::new(

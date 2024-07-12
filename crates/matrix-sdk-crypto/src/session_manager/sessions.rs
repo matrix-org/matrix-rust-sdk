@@ -37,7 +37,7 @@ use crate::{
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store},
     types::{events::EventType, EventEncryptionAlgorithm},
-    ReadOnlyDevice,
+    DeviceData,
 };
 
 #[derive(Debug, Clone)]
@@ -145,7 +145,7 @@ impl SessionManager {
     }
 
     #[allow(dead_code)]
-    pub fn is_device_wedged(&self, device: &ReadOnlyDevice) -> bool {
+    pub fn is_device_wedged(&self, device: &DeviceData) -> bool {
         self.wedged_devices
             .read()
             .unwrap()
@@ -629,7 +629,7 @@ mod tests {
     use super::SessionManager;
     use crate::{
         gossiping::GossipMachine,
-        identities::{IdentityManager, ReadOnlyDevice},
+        identities::{DeviceData, IdentityManager},
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
         store::{Changes, CryptoStoreWrapper, DeviceChanges, MemoryStore, PendingChanges, Store},
@@ -689,7 +689,7 @@ mod tests {
         );
 
         let store = Store::new(account.static_data().clone(), identity, store, verification);
-        let device = ReadOnlyDevice::from_account(&account);
+        let device = DeviceData::from_account(&account);
         store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
         store
             .save_changes(Changes {
@@ -718,7 +718,7 @@ mod tests {
         let (manager, _identity_manager) = session_manager_test_helper().await;
         let mut bob = bob_account();
 
-        let bob_device = ReadOnlyDevice::from_account(&bob);
+        let bob_device = DeviceData::from_account(&bob);
 
         manager.store.save_devices(&[bob_device]).await.unwrap();
 
@@ -757,7 +757,7 @@ mod tests {
 
         // now bob turns up, and we start tracking his devices...
         let bob = bob_account();
-        let bob_device = ReadOnlyDevice::from_account(&bob);
+        let bob_device = DeviceData::from_account(&bob);
         {
             let cache = manager.store.cache().await.unwrap();
             identity_manager
@@ -869,7 +869,7 @@ mod tests {
             .await
             .unwrap();
 
-        let bob_device = ReadOnlyDevice::from_account(&bob);
+        let bob_device = DeviceData::from_account(&bob);
         let time = SystemTime::now() - Duration::from_secs(3601);
         session.creation_time = SecondsSinceUnixEpoch::from_system_time(time).unwrap();
 
@@ -917,7 +917,7 @@ mod tests {
     async fn failure_handling() {
         let alice = user_id!("@alice:example.org");
         let alice_account = Account::with_device_id(alice, "DEVICEID".into());
-        let alice_device = ReadOnlyDevice::from_account(&alice_account);
+        let alice_device = DeviceData::from_account(&alice_account);
 
         let (manager, _identity_manager) = session_manager_test_helper().await;
 
@@ -1001,7 +1001,7 @@ mod tests {
 
         let alice = user_id!("@alice:example.org");
         let mut alice_account = Account::with_device_id(alice, "DEVICEID".into());
-        let alice_device = ReadOnlyDevice::from_account(&alice_account);
+        let alice_device = DeviceData::from_account(&alice_account);
 
         let (manager, _identity_manager) = session_manager_test_helper().await;
         manager.store.save_devices(&[alice_device]).await.unwrap();

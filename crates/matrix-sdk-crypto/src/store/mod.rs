@@ -65,9 +65,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::{backups::BackupMachine, identities::OwnUserIdentity};
 use crate::{
     gossiping::GossippedSecret,
-    identities::{
-        user::UserIdentities, Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
-    },
+    identities::{user::UserIdentities, Device, DeviceData, ReadOnlyUserIdentities, UserDevices},
     olm::{
         Account, ExportedRoomKey, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
         PrivateCrossSigningIdentity, Session, StaticAccountData,
@@ -620,15 +618,15 @@ impl IdentityChanges {
 #[derive(Debug, Clone, Default)]
 #[allow(missing_docs)]
 pub struct DeviceChanges {
-    pub new: Vec<ReadOnlyDevice>,
-    pub changed: Vec<ReadOnlyDevice>,
-    pub deleted: Vec<ReadOnlyDevice>,
+    pub new: Vec<DeviceData>,
+    pub changed: Vec<DeviceData>,
+    pub deleted: Vec<DeviceData>,
 }
 
 /// Convert the devices and vectors contained in the [`DeviceChanges`] into
 /// a [`DeviceUpdates`] struct.
 ///
-/// The [`DeviceChanges`] will contain vectors of [`ReadOnlyDevice`]s which
+/// The [`DeviceChanges`] will contain vectors of [`DeviceData`]s which
 /// we want to convert to a [`Device`].
 fn collect_device_updates(
     verification_machine: VerificationMachine,
@@ -641,7 +639,7 @@ fn collect_device_updates(
 
     let (new_identities, changed_identities, unchanged_identities) = identities.into_maps();
 
-    let map_device = |device: ReadOnlyDevice| {
+    let map_device = |device: DeviceData| {
         let device_owner_identity = new_identities
             .get(device.user_id())
             .or_else(|| changed_identities.get(device.user_id()))
@@ -1041,7 +1039,7 @@ impl Store {
 
     #[cfg(test)]
     /// Testing helper to allow to save only a set of devices
-    pub(crate) async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
+    pub(crate) async fn save_devices(&self, devices: &[DeviceData]) -> Result<()> {
         let changes = Changes {
             devices: DeviceChanges { changed: devices.to_vec(), ..Default::default() },
             ..Default::default()
@@ -1075,7 +1073,7 @@ impl Store {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>> {
+    ) -> Result<Option<DeviceData>> {
         self.inner.store.get_device(user_id, device_id).await
     }
 
@@ -1085,7 +1083,7 @@ impl Store {
     pub(crate) async fn get_readonly_devices_filtered(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
         self.inner.store.get_user_devices(user_id).await.map(|mut d| {
             if user_id == self.user_id() {
                 d.remove(self.device_id());
@@ -1100,7 +1098,7 @@ impl Store {
     pub(crate) async fn get_readonly_devices_unfiltered(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
         self.inner.store.get_user_devices(user_id).await
     }
 

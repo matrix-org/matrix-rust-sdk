@@ -55,8 +55,8 @@ use crate::{
     olm::{PrivateCrossSigningIdentity, Session, StaticAccountData},
     store::{Changes, CryptoStoreWrapper},
     types::Signatures,
-    CryptoStoreError, LocalTrust, OutgoingVerificationRequest, ReadOnlyDevice,
-    ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
+    CryptoStoreError, DeviceData, LocalTrust, OutgoingVerificationRequest, ReadOnlyOwnUserIdentity,
+    ReadOnlyUserIdentities,
 };
 
 #[derive(Clone, Debug)]
@@ -123,7 +123,7 @@ impl VerificationStore {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>, CryptoStoreError> {
+    ) -> Result<Option<DeviceData>, CryptoStoreError> {
         Ok(self.inner.get_device(user_id, device_id).await?.filter(|d| {
             !(d.user_id() == self.account.user_id && d.device_id() == self.account.device_id)
         }))
@@ -138,7 +138,7 @@ impl VerificationStore {
 
     pub async fn get_identities(
         &self,
-        device_being_verified: ReadOnlyDevice,
+        device_being_verified: DeviceData,
     ) -> Result<IdentitiesBeingVerified, CryptoStoreError> {
         let identity_being_verified =
             self.get_user_identity(device_being_verified.user_id()).await?;
@@ -162,7 +162,7 @@ impl VerificationStore {
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>, CryptoStoreError> {
+    ) -> Result<HashMap<OwnedDeviceId, DeviceData>, CryptoStoreError> {
         self.inner.get_user_devices(user_id).await
     }
 
@@ -294,7 +294,7 @@ impl From<QrVerification> for Verification {
 #[cfg(feature = "qrcode")]
 #[derive(Clone, Debug)]
 pub struct Done {
-    verified_devices: Arc<[ReadOnlyDevice]>,
+    verified_devices: Arc<[DeviceData]>,
     verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
 }
 
@@ -468,7 +468,7 @@ pub enum VerificationResult {
 pub struct IdentitiesBeingVerified {
     private_identity: PrivateCrossSigningIdentity,
     store: VerificationStore,
-    device_being_verified: ReadOnlyDevice,
+    device_being_verified: DeviceData,
     own_identity: Option<ReadOnlyOwnUserIdentity>,
     identity_being_verified: Option<ReadOnlyUserIdentities>,
 }
@@ -495,13 +495,13 @@ impl IdentitiesBeingVerified {
         self.device_being_verified.device_id()
     }
 
-    fn other_device(&self) -> &ReadOnlyDevice {
+    fn other_device(&self) -> &DeviceData {
         &self.device_being_verified
     }
 
     pub async fn mark_as_done(
         &self,
-        verified_devices: Option<&[ReadOnlyDevice]>,
+        verified_devices: Option<&[DeviceData]>,
         verified_identities: Option<&[ReadOnlyUserIdentities]>,
     ) -> Result<VerificationResult, CryptoStoreError> {
         let device = self.mark_device_as_verified(verified_devices).await?;
@@ -685,8 +685,8 @@ impl IdentitiesBeingVerified {
 
     async fn mark_device_as_verified(
         &self,
-        verified_devices: Option<&[ReadOnlyDevice]>,
-    ) -> Result<Option<ReadOnlyDevice>, CryptoStoreError> {
+        verified_devices: Option<&[DeviceData]>,
+    ) -> Result<Option<DeviceData>, CryptoStoreError> {
         let device = self.store.get_device(self.other_user_id(), self.other_device_id()).await?;
 
         let Some(device) = device else {
@@ -748,7 +748,7 @@ pub(crate) mod tests {
         requests::{OutgoingRequest, OutgoingRequests},
         store::{Changes, CryptoStore, CryptoStoreWrapper, IdentityChanges, MemoryStore},
         types::events::ToDeviceEvents,
-        Account, OutgoingVerificationRequest, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
+        Account, DeviceData, OutgoingVerificationRequest, ReadOnlyOwnUserIdentity,
         ReadOnlyUserIdentity,
     };
 
@@ -842,8 +842,8 @@ pub(crate) mod tests {
         let bob_readonly_identity =
             ReadOnlyOwnUserIdentity::from_private(&*bob_private_identity.lock().await).await;
 
-        let alice_device = ReadOnlyDevice::from_account(&alice);
-        let bob_device = ReadOnlyDevice::from_account(&bob);
+        let alice_device = DeviceData::from_account(&alice);
+        let bob_device = DeviceData::from_account(&bob);
 
         let alice_changes = Changes {
             identities: IdentityChanges {

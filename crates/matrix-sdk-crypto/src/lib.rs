@@ -79,7 +79,7 @@ pub use file_encryption::{
 };
 pub use gossiping::{GossipRequest, GossippedSecret};
 pub use identities::{
-    Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
+    Device, DeviceData, LocalTrust, OwnUserIdentity, ReadOnlyOwnUserIdentity,
     ReadOnlyUserIdentities, ReadOnlyUserIdentity, UserDevices, UserIdentities, UserIdentity,
 };
 pub use machine::{CrossSigningBootstrapRequests, EncryptionSyncChanges, OlmMachine};
