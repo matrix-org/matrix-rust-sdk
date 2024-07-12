@@ -15,7 +15,7 @@
 use std::{
     collections::{hash_map::Entry, BTreeMap, HashMap, HashSet},
     convert::Infallible,
-    sync::{Arc, RwLock as StdRwLock},
+    sync::RwLock as StdRwLock,
     time::{Duration, Instant},
 };
 
@@ -24,11 +24,11 @@ use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId,
     OwnedUserId, RoomId, TransactionId, UserId,
 };
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tracing::warn;
 
 use super::{
-    caches::{DeviceStore, GroupSessionStore, SessionStore},
+    caches::{DeviceStore, GroupSessionStore},
     Account, BackupKeys, Changes, CryptoStore, InboundGroupSession, PendingChanges, RoomKeyCounts,
     RoomSettings, Session,
 };
@@ -69,7 +69,7 @@ impl BackupVersion {
 #[derive(Debug)]
 pub struct MemoryStore {
     account: StdRwLock<Option<Account>>,
-    sessions: SessionStore,
+    sessions: StdRwLock<BTreeMap<String, Vec<Session>>>,
     inbound_group_sessions: GroupSessionStore,
 
     /// Map room id -> session id -> backup order number
@@ -99,7 +99,7 @@ impl Default for MemoryStore {
     fn default() -> Self {
         MemoryStore {
             account: Default::default(),
-            sessions: SessionStore::new(),
+            sessions: Default::default(),
             inbound_group_sessions: GroupSessionStore::new(),
             inbound_group_sessions_backed_up_to: Default::default(),
             outbound_group_sessions: Default::default(),
@@ -139,9 +139,17 @@ impl MemoryStore {
         }
     }
 
-    async fn save_sessions(&self, sessions: Vec<Session>) {
+    fn save_sessions(&self, sessions: Vec<Session>) {
+        let mut session_store = self.sessions.write().unwrap();
+
         for session in sessions {
-            let _ = self.sessions.add(session.clone()).await;
+            let entry = session_store.entry(session.sender_key().to_base64()).or_default();
+
+            if let Some(old_entry) = entry.iter_mut().find(|entry| &session == *entry) {
+                *old_entry = session;
+            } else {
+                entry.push(session);
+            }
         }
     }
 
@@ -190,14 +198,6 @@ type Result<T> = std::result::Result<T, Infallible>;
 impl CryptoStore for MemoryStore {
     type Error = Infallible;
 
-    async fn clear_caches(&self) {
-        // no-op: it makes no sense to delete fields here as we would forget our
-        // identity, etc Effectively we have no caches as the fields
-        // *are* the underlying store. Calling this method only makes
-        // sense if there is some other layer (e.g disk) persistence
-        // happening.
-    }
-
     async fn load_account(&self) -> Result<Option<Account>> {
         Ok(self.account.read().unwrap().as_ref().map(|acc| acc.deep_clone()))
     }
@@ -219,7 +219,7 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
-        self.save_sessions(changes.sessions).await;
+        self.save_sessions(changes.sessions);
         self.save_inbound_group_sessions(changes.inbound_group_sessions, None).await?;
         self.save_outbound_group_sessions(changes.outbound_group_sessions);
         self.save_private_identity(changes.private_identity);
@@ -327,8 +327,8 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        Ok(self.sessions.get(sender_key))
+    async fn get_sessions(&self, sender_key: &str) -> Result<Option<Vec<Session>>> {
+        Ok(self.sessions.read().unwrap().get(sender_key).cloned())
     }
 
     async fn get_inbound_group_session(
@@ -638,10 +638,9 @@ mod tests {
         assert!(store.load_account().await.unwrap().is_none());
         store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
 
-        store.save_sessions(vec![session.clone()]).await;
+        store.save_sessions(vec![session.clone()]);
 
         let sessions = store.get_sessions(&session.sender_key.to_base64()).await.unwrap().unwrap();
-        let sessions = sessions.lock().await;
 
         let loaded_session = &sessions[0];
 
@@ -1161,10 +1160,6 @@ mod integration_tests {
     impl CryptoStore for PersistentMemoryStore {
         type Error = <MemoryStore as CryptoStore>::Error;
 
-        async fn clear_caches(&self) {
-            self.0.clear_caches().await
-        }
-
         async fn load_account(&self) -> Result<Option<Account>, Self::Error> {
             self.0.load_account().await
         }
@@ -1192,7 +1187,7 @@ mod integration_tests {
         async fn get_sessions(
             &self,
             sender_key: &str,
-        ) -> Result<Option<Arc<tokio::sync::Mutex<Vec<Session>>>>, Self::Error> {
+        ) -> Result<Option<Vec<Session>>, Self::Error> {
             self.0.get_sessions(sender_key).await
         }
 

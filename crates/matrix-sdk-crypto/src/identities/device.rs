@@ -30,7 +30,6 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::Mutex;
 use tracing::{instrument, trace, warn};
 use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
 
@@ -339,13 +338,7 @@ impl Device {
         )
     }
 
-    /// Get the Olm sessions that belong to this device.
-    pub(crate) async fn get_sessions(&self) -> StoreResult<Option<Arc<Mutex<Vec<Session>>>>> {
-        let Some(k) = self.curve25519_key() else { return Ok(None) };
-        self.verification_machine.store.get_sessions(&k.to_base64()).await
-    }
-
-    #[cfg(test)]
+    /// Get the most recently created session that belongs to this device.
     pub(crate) async fn get_most_recent_session(&self) -> OlmResult<Option<Session>> {
         self.inner.get_most_recent_session(self.verification_machine.store.inner()).await
     }
@@ -693,9 +686,7 @@ impl DeviceData {
         store: &CryptoStoreWrapper,
     ) -> OlmResult<Option<Session>> {
         if let Some(sender_key) = self.curve25519_key() {
-            if let Some(s) = store.get_sessions(&sender_key.to_base64()).await? {
-                let mut sessions = s.lock().await;
-
+            if let Some(mut sessions) = store.get_sessions(&sender_key.to_base64()).await? {
                 sessions.sort_by_key(|s| s.creation_time);
 
                 Ok(sessions.last().cloned())

@@ -217,7 +217,11 @@ macro_rules! cryptostore_integration_tests {
                     .await
                     .expect("Can't save account");
 
-                let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
+                let changes = Changes {
+                    sessions: vec![session.clone()],
+                    devices: DeviceChanges { new: vec![DeviceData::from_account(&account)], ..Default::default() },
+                    ..Default::default()
+                };
 
                 store.save_changes(changes).await.unwrap();
 
@@ -226,9 +230,9 @@ macro_rules! cryptostore_integration_tests {
                     .await
                     .expect("Can't load sessions")
                     .unwrap();
-                let loaded_session = sessions.lock().await.get(0).cloned().unwrap();
+                let loaded_session = sessions.get(0).cloned().expect("We should find the session in the store.");
 
-                assert_eq!(&session, &loaded_session);
+                assert_eq!(&session, &loaded_session, "The loaded session should be the same one we put into the store.");
             }
 
             #[async_test]
@@ -263,8 +267,7 @@ macro_rules! cryptostore_integration_tests {
                     store.save_changes(changes).await.unwrap();
 
                     let sessions = store.get_sessions(&sender_key).await.unwrap().unwrap();
-                    let sessions_lock = sessions.lock().await;
-                    let session = &sessions_lock[0];
+                    let session = &sessions[0];
 
                     assert_eq!(session_id, session.session_id());
 
@@ -279,8 +282,7 @@ macro_rules! cryptostore_integration_tests {
                 assert_eq!(account, loaded_account);
 
                 let sessions = store.get_sessions(&sender_key).await.unwrap().unwrap();
-                let sessions_lock = sessions.lock().await;
-                let session = &sessions_lock[0];
+                let session = &sessions[0];
 
                 assert_eq!(session_id, session.session_id());
             }

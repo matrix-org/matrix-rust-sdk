@@ -2300,13 +2300,6 @@ impl OlmMachine {
         let account = cache.account().await?;
         Ok(account.uploaded_key_count())
     }
-
-    /// Clear any in-memory caches because they may be out of sync with the
-    /// underlying data store.
-    pub async fn clear_crypto_cache(&self) {
-        let crypto_store = self.store().crypto_store();
-        crypto_store.as_ref().clear_caches().await;
-    }
 }
 
 fn sender_data_to_verification_state(
@@ -2937,7 +2930,7 @@ pub(crate) mod tests {
             .unwrap()
             .unwrap();
 
-        assert!(!session.lock().await.is_empty())
+        assert!(!session.is_empty())
     }
 
     #[async_test]
@@ -2976,11 +2969,13 @@ pub(crate) mod tests {
             .await;
         }
 
+        let mut changes = Changes::default();
+
         // Since the sessions are created quickly in succession and our timestamps have
         // a resolution in seconds, it's very likely that we're going to end up
         // with the same timestamps, so we manually masage them to be 10s apart.
         let session_id = {
-            let sessions = alice_machine
+            let mut sessions = alice_machine
                 .store()
                 .get_sessions(&bob_machine.identity_keys().curve25519.to_base64())
                 .await
@@ -2988,7 +2983,6 @@ pub(crate) mod tests {
                 .unwrap();
 
             let mut use_time = SystemTime::now();
-            let mut sessions = sessions.lock().await;
 
             let mut session_id = None;
 
@@ -3001,10 +2995,13 @@ pub(crate) mod tests {
                 use_time += Duration::from_secs(10);
 
                 session_id = Some(session.session_id().to_owned());
+                changes.sessions.push(session.clone());
             }
 
             session_id.unwrap()
         };
+
+        alice_machine.store().save_changes(changes).await.unwrap();
 
         let newest_session = device.get_most_recent_session().await.unwrap().unwrap();
 

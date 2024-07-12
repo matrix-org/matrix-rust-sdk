@@ -102,41 +102,32 @@ impl SessionManager {
         &self,
         sender: &UserId,
         curve_key: Curve25519PublicKey,
-    ) -> StoreResult<()> {
+    ) -> OlmResult<()> {
         if let Some(device) = self.store.get_device_from_curve_key(sender, curve_key).await? {
-            let sessions = device.get_sessions().await?;
+            if let Some(session) = device.get_most_recent_session().await? {
+                info!(sender_key = ?curve_key, "Marking session to be unwedged");
 
-            if let Some(sessions) = sessions {
-                let mut sessions = sessions.lock().await;
-                sessions.sort_by_key(|s| s.creation_time);
+                let creation_time = Duration::from_secs(session.creation_time.get().into());
+                let now = Duration::from_secs(SecondsSinceUnixEpoch::now().get().into());
 
-                let session = sessions.first();
+                let should_unwedge = now
+                    .checked_sub(creation_time)
+                    .map(|elapsed| elapsed > Self::UNWEDGING_INTERVAL)
+                    .unwrap_or(true);
 
-                if let Some(session) = session {
-                    info!(sender_key = ?curve_key, "Marking session to be unwedged");
-
-                    let creation_time = Duration::from_secs(session.creation_time.get().into());
-                    let now = Duration::from_secs(SecondsSinceUnixEpoch::now().get().into());
-
-                    let should_unwedge = now
-                        .checked_sub(creation_time)
-                        .map(|elapsed| elapsed > Self::UNWEDGING_INTERVAL)
-                        .unwrap_or(true);
-
-                    if should_unwedge {
-                        self.users_for_key_claim
-                            .write()
-                            .unwrap()
-                            .entry(device.user_id().to_owned())
-                            .or_default()
-                            .insert(device.device_id().into());
-                        self.wedged_devices
-                            .write()
-                            .unwrap()
-                            .entry(device.user_id().to_owned())
-                            .or_default()
-                            .insert(device.device_id().into());
-                    }
+                if should_unwedge {
+                    self.users_for_key_claim
+                        .write()
+                        .unwrap()
+                        .entry(device.user_id().to_owned())
+                        .or_default()
+                        .insert(device.device_id().into());
+                    self.wedged_devices
+                        .write()
+                        .unwrap()
+                        .entry(device.user_id().to_owned())
+                        .or_default()
+                        .insert(device.device_id().into());
                 }
             }
         }
@@ -253,11 +244,8 @@ impl SessionManager {
                 } else if let Some(sender_key) = device.curve25519_key() {
                     let sessions = self.store.get_sessions(&sender_key.to_base64()).await?;
 
-                    let is_missing = if let Some(sessions) = sessions {
-                        sessions.lock().await.is_empty()
-                    } else {
-                        true
-                    };
+                    let is_missing =
+                        if let Some(sessions) = sessions { sessions.is_empty() } else { true };
 
                     let is_timed_out = self.is_user_timed_out(&user_id, &device_id);
 

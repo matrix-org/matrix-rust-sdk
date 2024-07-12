@@ -345,7 +345,6 @@ impl<'a> SyncedKeyQueryManager<'a> {
 #[derive(Debug)]
 pub(crate) struct StoreCache {
     store: Arc<CryptoStoreWrapper>,
-
     tracked_users: StdRwLock<BTreeSet<OwnedUserId>>,
     loaded_tracked_users: RwLock<bool>,
     account: Mutex<Option<Account>>,
