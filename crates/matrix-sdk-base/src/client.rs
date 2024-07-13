@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt, iter,
 };
 #[cfg(feature = "e2e-encryption")]
@@ -659,21 +659,54 @@ impl BaseClient {
             };
 
             if let AnyGlobalAccountDataEvent::Direct(e) = &event {
+                let mut new_dms = HashMap::<&RoomId, HashSet<OwnedUserId>>::new();
                 for (user_id, rooms) in e.content.iter() {
                     for room_id in rooms {
-                        trace!(
-                            ?room_id, target = ?user_id,
-                            "Marking room as direct room"
-                        );
+                        new_dms.entry(room_id).or_default().insert(user_id.clone());
+                    }
+                }
 
-                        if let Some(room) = changes.room_infos.get_mut(room_id) {
-                            room.base_info.dm_targets.insert(user_id.clone());
-                        } else if let Some(room) = self.store.room(room_id) {
-                            let mut info = room.clone_info();
-                            if info.base_info.dm_targets.insert(user_id.clone()) {
-                                changes.add_room(info);
-                            }
+                let rooms = self.store.rooms();
+                let mut old_dms = rooms
+                    .iter()
+                    .filter_map(|r| {
+                        let direct_targets = r.direct_targets();
+                        (!direct_targets.is_empty()).then(|| (r.room_id(), direct_targets))
+                    })
+                    .collect::<HashMap<_, _>>();
+
+                // Update the direct targets of rooms if they changed.
+                for (room_id, new_direct_targets) in new_dms {
+                    if let Some(old_direct_targets) = old_dms.remove(&room_id) {
+                        if old_direct_targets == new_direct_targets {
+                            continue;
                         }
+                    }
+
+                    trace!(
+                        ?room_id, targets = ?new_direct_targets,
+                        "Marking room as direct room"
+                    );
+
+                    if let Some(info) = changes.room_infos.get_mut(room_id) {
+                        info.base_info.dm_targets = new_direct_targets;
+                    } else if let Some(room) = self.store.room(room_id) {
+                        let mut info = room.clone_info();
+                        info.base_info.dm_targets = new_direct_targets;
+                        changes.add_room(info);
+                    }
+                }
+
+                // Remove the targets of old direct chats.
+                for room_id in old_dms.keys() {
+                    trace!(?room_id, "Unmarking room as direct room");
+
+                    if let Some(info) = changes.room_infos.get_mut(*room_id) {
+                        info.base_info.dm_targets.clear();
+                    } else if let Some(room) = self.store.room(room_id) {
+                        let mut info = room.clone_info();
+                        info.base_info.dm_targets.clear();
+                        changes.add_room(info);
                     }
                 }
             }
