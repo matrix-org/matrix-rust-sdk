@@ -4,7 +4,8 @@ use assert_matches2::assert_let;
 use matrix_sdk::{config::SyncSettings, room::RoomMember, DisplayName, RoomMemberships};
 use matrix_sdk_test::{
     async_test, bulk_room_members, sync_state_event, sync_timeline_event, test_json,
-    JoinedRoomBuilder, LeftRoomBuilder, StateTestEvent, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+    GlobalAccountDataTestEvent, JoinedRoomBuilder, LeftRoomBuilder, StateTestEvent,
+    SyncResponseBuilder, BOB, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     event_id,
@@ -16,7 +17,7 @@ use ruma::{
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{header, method, path_regex},
+    matchers::{body_json, header, method, path_regex},
     Mock, ResponseTemplate,
 };
 
@@ -667,4 +668,116 @@ async fn test_event() {
     let push_actions = timeline_event.push_actions.unwrap();
     assert!(push_actions.iter().any(|a| a.is_highlight()));
     assert!(push_actions.iter().any(|a| a.should_notify()));
+}
+
+#[async_test]
+async fn test_is_direct() {
+    let (client, server) = logged_in_client_with_server().await;
+    let own_user_id = client.user_id().unwrap();
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let bob_member_event = json!({
+        "content": {
+            "membership": "join",
+        },
+        "event_id": "$747273582443PhrSn:localhost",
+        "origin_server_ts": 1472735824,
+        "sender": *BOB,
+        "state_key": *BOB,
+        "type": "m.room.member",
+        "unsigned": {
+            "age": 1234
+        }
+    });
+
+    // Initialize the room with 2 members, including ourself.
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+            .add_state_event(StateTestEvent::Member)
+            .add_state_event(StateTestEvent::Custom(bob_member_event.clone())),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+
+    // The room is not direct.
+    assert!(room.direct_targets().is_empty());
+    assert!(!room.is_direct().await.unwrap());
+
+    // Set the room as direct.
+    let direct_content = json!({
+        *BOB: [*DEFAULT_TEST_ROOM_ID],
+    });
+
+    // Setting the room as direct will request the members of the room.
+    Mock::given(method("GET"))
+        .and(path_regex(format!("^/_matrix/client/r0/rooms/{}/members$", *DEFAULT_TEST_ROOM_ID)))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chunk": [
+                *test_json::MEMBER,
+                bob_member_event,
+            ],
+        })))
+        .expect(1)
+        .named("members")
+        .mount(&server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(format!("^/_matrix/client/r0/user/{own_user_id}/account_data/m.direct$")))
+        .and(header("authorization", "Bearer 1234"))
+        .and(body_json(&direct_content))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .named("set_direct")
+        .mount(&server)
+        .await;
+
+    room.set_is_direct(true).await.unwrap();
+
+    // Mock the sync response we should get from the homeserver.
+    sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+        "type": "m.direct",
+        "content": direct_content,
+    })));
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // The room is direct now.
+    let direct_targets = room.direct_targets();
+    assert_eq!(direct_targets.len(), 1);
+    assert!(direct_targets.contains(*BOB));
+    assert!(room.is_direct().await.unwrap());
+
+    // Unset the room as direct.
+    let direct_content = json!({});
+
+    Mock::given(method("PUT"))
+        .and(path_regex(format!("^/_matrix/client/r0/user/{own_user_id}/account_data/m.direct$")))
+        .and(header("authorization", "Bearer 1234"))
+        .and(body_json(&direct_content))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .named("unset_direct")
+        .mount(&server)
+        .await;
+
+    // Mock the sync response we should get from the homeserver.
+    sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+        "type": "m.direct",
+        "content": direct_content,
+    })));
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // The room is not direct anymore.
+    assert!(room.direct_targets().is_empty());
+    assert!(!room.is_direct().await.unwrap());
 }
