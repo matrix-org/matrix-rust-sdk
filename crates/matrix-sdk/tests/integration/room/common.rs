@@ -132,6 +132,54 @@ async fn test_room_names() {
         ),
         room.compute_display_name().await.unwrap()
     );
+
+    // Room with joined and invited members.
+    let room_id = room_id!("!joined_invited_members:localhost");
+    sync_builder.add_left_room(LeftRoomBuilder::new(room_id).add_state_bulk([
+        sync_state_event!({
+            "content": {
+                "membership": "join",
+            },
+            "event_id": "$example1_join",
+            "origin_server_ts": 151800140,
+            "sender": "@example1:localhost",
+            "state_key": "@example1:localhost",
+            "type": "m.room.member",
+        }),
+        sync_state_event!({
+            "content": {
+                "displayname": "Bob",
+                "membership": "invite",
+            },
+            "event_id": "$bob_invite",
+            "origin_server_ts": 151800140,
+            "sender": "@example1:localhost",
+            "state_key": "@bob:localhost",
+            "type": "m.room.member",
+        }),
+        sync_state_event!({
+            "content": {
+                "membership": "leave",
+            },
+            "event_id": "$example3_leave",
+            "origin_server_ts": 151800140,
+            "sender": "@example3:localhost",
+            "state_key": "@example3:localhost",
+            "type": "m.room.member",
+        }),
+        own_left_member_event.clone(),
+    ]));
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+
+    client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+
+    assert_eq!(
+        DisplayName::Calculated("Bob, example1".to_owned()),
+        room.compute_display_name().await.unwrap()
+    );
 }
 
 #[async_test]
