@@ -1,10 +1,10 @@
-use std::time::Duration;
+use std::{iter, time::Duration};
 
 use assert_matches2::assert_let;
 use matrix_sdk::{config::SyncSettings, room::RoomMember, DisplayName, RoomMemberships};
 use matrix_sdk_test::{
-    async_test, bulk_room_members, sync_timeline_event, test_json, JoinedRoomBuilder,
-    StateTestEvent, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+    async_test, bulk_room_members, sync_state_event, sync_timeline_event, test_json,
+    JoinedRoomBuilder, LeftRoomBuilder, StateTestEvent, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     event_id,
@@ -65,12 +65,13 @@ async fn test_calculate_room_names_from_summary() {
 #[async_test]
 async fn test_room_names() {
     let (client, server) = logged_in_client_with_server().await;
+    let own_user_id = client.user_id().unwrap();
 
+    // Room with a canonical alias.
     mock_sync(&server, &*test_json::SYNC, None).await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let sync_token = client.sync_once(sync_settings).await.unwrap().next_batch;
+    client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
 
     assert_eq!(client.rooms().len(), 1);
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
@@ -80,9 +81,11 @@ async fn test_room_names() {
         room.compute_display_name().await.unwrap()
     );
 
-    mock_sync(&server, &*test_json::INVITE_SYNC, Some(sync_token.clone())).await;
+    // Room with a name.
+    mock_sync(&server, &*test_json::INVITE_SYNC, None).await;
 
-    let _response = client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
+    client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
 
     assert_eq!(client.rooms().len(), 2);
     let invited_room = client.get_room(room_id!("!696r7674:example.com")).unwrap();
@@ -90,6 +93,44 @@ async fn test_room_names() {
     assert_eq!(
         DisplayName::Named("My Room Name".to_owned()),
         invited_room.compute_display_name().await.unwrap()
+    );
+
+    let mut sync_builder = SyncResponseBuilder::new();
+
+    let own_left_member_event = sync_state_event!({
+        "content": {
+            "membership": "leave",
+        },
+        "event_id": "$747273582443PhrS9:localhost",
+        "origin_server_ts": 1472735820,
+        "sender": own_user_id,
+        "state_key": own_user_id,
+        "type": "m.room.member",
+        "unsigned": {
+            "age": 1234
+        }
+    });
+
+    // Left room with a lot of members.
+    let room_id = room_id!("!plenty_of_members:localhost");
+    sync_builder.add_left_room(
+        LeftRoomBuilder::new(room_id).add_state_bulk(
+            bulk_room_members(0, 0..15, "localhost", &MembershipState::Join)
+                .chain(iter::once(own_left_member_event.clone())),
+        ),
+    );
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+
+    client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+
+    assert_eq!(
+        DisplayName::Calculated(
+            "user_0, user_1, user_10, user_11, user_12, and 10 others".to_owned()
+        ),
+        room.compute_display_name().await.unwrap()
     );
 }
 
