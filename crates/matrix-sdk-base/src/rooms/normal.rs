@@ -599,24 +599,20 @@ impl Room {
             )
         };
 
-        let (num_joined, num_invited) = match self.state() {
-            RoomState::Invited => {
-                // when we were invited we don't have a proper summary, we have to do best
-                // guessing
-                (heroes.len() as u64, 1u64)
-            }
+        let (num_joined, num_invited) = if self.state() == RoomState::Invited {
+            // when we were invited we don't have a proper summary, we have to do best
+            // guessing
+            (heroes.len() as u64, 1u64)
+        } else if summary.joined_member_count == 0 {
+            let num_joined = if let Some(num_joined) = num_joined_guess {
+                num_joined
+            } else {
+                self.joined_user_ids().await?.len()
+            };
 
-            RoomState::Joined if summary.joined_member_count == 0 => {
-                let num_joined = if let Some(num_joined) = num_joined_guess {
-                    num_joined
-                } else {
-                    self.joined_user_ids().await?.len()
-                };
-
-                (num_joined as u64, summary.invited_member_count)
-            }
-
-            _ => (summary.joined_member_count, summary.invited_member_count),
+            (num_joined as u64, summary.invited_member_count)
+        } else {
+            (summary.joined_member_count, summary.invited_member_count)
         };
 
         debug!(
