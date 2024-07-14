@@ -955,8 +955,8 @@ mod tests {
         let client_room = client.get_room(room_id).expect("No room found");
         assert!(client_room.name().is_none());
 
-        // No m.room.name event, no heroes, no members => considered an empty room!
-        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "Empty Room");
+        // No m.room.name event, no heroes => using the invited member.
+        assert_eq!(client_room.compute_display_name().await.unwrap().to_string(), "w");
 
         assert_eq!(client_room.state(), RoomState::Invited);
 

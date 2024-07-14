@@ -555,7 +555,7 @@ impl Room {
         // From here, use some heroes to compute the room's name.
         let own_user_id = self.own_user_id().as_str();
 
-        let (heroes, num_joined_guess): (Vec<String>, _) = if !summary.room_heroes.is_empty() {
+        let (heroes, num_joined_guess, num_invited_guess) = if !summary.room_heroes.is_empty() {
             let mut names = Vec::with_capacity(summary.room_heroes.len());
             for hero in &summary.room_heroes {
                 if hero.user_id == own_user_id {
@@ -578,39 +578,55 @@ impl Room {
                 }
             }
 
-            (names, None)
+            (names, None, None)
         } else {
             let mut joined_members = self.members(RoomMemberships::JOIN).await?;
 
             // Make the ordering deterministic.
             joined_members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
 
-            // We can make a good prediction of the total number of members here. This might
-            // be incorrect if the database info is outdated.
+            // We can make a good prediction of the total number of joined members here.
+            // This might be incorrect if the database info is outdated.
             let num_joined = Some(joined_members.len());
 
-            (
-                joined_members
-                    .into_iter()
-                    .take(NUM_HEROES)
-                    .filter_map(|u| (u.user_id() != own_user_id).then(|| u.name().to_owned()))
-                    .collect(),
-                num_joined,
-            )
+            let mut invited_members = self.members(RoomMemberships::INVITE).await?;
+
+            // Make the ordering deterministic.
+            invited_members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
+
+            // We can make a good prediction of the total number of invited members here.
+            // This might be incorrect if the database info is outdated.
+            let num_invited = Some(invited_members.len());
+
+            let heroes = joined_members
+                .into_iter()
+                .chain(invited_members)
+                .filter(|u| u.user_id() != own_user_id)
+                .take(NUM_HEROES)
+                .map(|u| u.name().to_owned())
+                .collect();
+
+            (heroes, num_joined, num_invited)
         };
 
         let (num_joined, num_invited) = if self.state() == RoomState::Invited {
             // when we were invited we don't have a proper summary, we have to do best
             // guessing
             (heroes.len() as u64, 1u64)
-        } else if summary.joined_member_count == 0 {
+        } else if summary.joined_member_count == 0 && summary.invited_member_count == 0 {
             let num_joined = if let Some(num_joined) = num_joined_guess {
                 num_joined
             } else {
                 self.joined_user_ids().await?.len()
             };
 
-            (num_joined as u64, summary.invited_member_count)
+            let num_invited = if let Some(num_invited) = num_invited_guess {
+                num_invited
+            } else {
+                self.store.get_user_ids(self.room_id(), RoomMemberships::INVITE).await?.len()
+            };
+
+            (num_joined as u64, num_invited as u64)
         } else {
             (summary.joined_member_count, summary.invited_member_count)
         };
