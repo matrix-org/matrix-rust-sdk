@@ -180,6 +180,26 @@ async fn test_room_names() {
         DisplayName::Calculated("Bob, example1".to_owned()),
         room.compute_display_name().await.unwrap()
     );
+
+    // Room with only left members.
+    let room_id = room_id!("!left_members:localhost");
+    sync_builder.add_left_room(
+        LeftRoomBuilder::new(room_id).add_state_bulk(
+            bulk_room_members(0, 0..3, "localhost", &MembershipState::Leave)
+                .chain(iter::once(own_left_member_event)),
+        ),
+    );
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+
+    client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+
+    assert_eq!(
+        DisplayName::EmptyWas("user_0, user_1, user_2".to_owned()),
+        room.compute_display_name().await.unwrap()
+    );
 }
 
 #[async_test]
