@@ -598,7 +598,7 @@ impl Room {
             // This might be incorrect if the database info is outdated.
             let num_invited = Some(invited_members.len());
 
-            let heroes = joined_members
+            let heroes: Vec<String> = joined_members
                 .into_iter()
                 .chain(invited_members)
                 .filter(|u| u.user_id() != own_user_id)
@@ -606,7 +606,26 @@ impl Room {
                 .map(|u| u.name().to_owned())
                 .collect();
 
-            (heroes, num_joined, num_invited)
+            if !heroes.is_empty() {
+                (heroes, num_joined, num_invited)
+            } else {
+                // If there are no joined or invited members, heroes should be banned and left
+                // members.
+                let mut left_banned_members =
+                    self.members(RoomMemberships::LEAVE | RoomMemberships::BAN).await?;
+
+                // Make the ordering deterministic.
+                left_banned_members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
+
+                let heroes = left_banned_members
+                    .into_iter()
+                    .filter(|u| u.user_id() != own_user_id)
+                    .take(NUM_HEROES)
+                    .map(|u| u.name().to_owned())
+                    .collect();
+
+                (heroes, Some(0), Some(0))
+            }
         };
 
         let (num_joined, num_invited) = if self.state() == RoomState::Invited {
