@@ -71,6 +71,7 @@ pub enum TrustRequirement {
 /// Settings for decrypting messages
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DecryptionSettings {
+    /// The trust level required to decrypt the event
     pub trust_requirement: TrustRequirement,
 }
 

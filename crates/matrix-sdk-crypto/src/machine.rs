@@ -2504,7 +2504,7 @@ pub(crate) mod tests {
         machine::{EncryptionSyncChanges, OlmMachine},
         olm::{
             BackedUpRoomKey, DecryptionSettings, ExportedRoomKey, InboundGroupSession,
-            OutboundGroupSession, SenderData, TrustRequirement, VerifyJson,
+            OutboundGroupSession, SenderData, SenderDataRetryDetails, TrustRequirement, VerifyJson,
         },
         session_manager::CollectStrategy,
         store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore, RoomSettings},
@@ -5031,5 +5031,132 @@ pub(crate) mod tests {
             .get(&UnsignedEventLocation::RelationsThreadLatestEvent)
             .unwrap();
         assert_matches!(thread_encryption_result, UnsignedDecryptionResult::Decrypted(_));
+    }
+
+    #[async_test]
+    async fn test_decryption_trust_requirement() {
+        let (alice, bob) =
+            get_machine_pair_with_setup_sessions_test_helper(alice_id(), user_id(), false).await;
+        let room_id = room_id!("!test:example.org");
+
+        let to_device_requests = alice
+            .share_room_key(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
+            .await
+            .unwrap();
+
+        let event = ToDeviceEvent::new(
+            alice.user_id().to_owned(),
+            to_device_requests_to_content(to_device_requests),
+        );
+
+        let group_session = bob
+            .store()
+            .with_transaction(|mut tr| async {
+                let res =
+                    bob.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
+                Ok((tr, res))
+            })
+            .await
+            .unwrap()
+            .inbound_group_session
+            .unwrap();
+        bob.store().save_inbound_group_sessions(&[group_session.clone()]).await.unwrap();
+
+        let plaintext = "It is a secret to everybody";
+
+        let content = RoomMessageEventContent::text_plain(plaintext);
+
+        let encrypted_content = alice
+            .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
+            .await
+            .unwrap();
+
+        let event = json!({
+            "event_id": "$xxxxx:example.org",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "sender": alice.user_id(),
+            "type": "m.room.encrypted",
+            "content": encrypted_content,
+        });
+        let event = json_convert(&event).unwrap();
+
+        // Set the sender data to various values, and test that we can or can't
+        // decrypt, depending on what the trust requirement is.
+
+        // An unknown non-legacy session should be decryptable only when the trust
+        // requirement allows untrusted sessions
+        let bob_store = bob.store();
+        let mut session = bob_store
+            .get_inbound_group_session(&room_id, group_session.session_id())
+            .await
+            .unwrap()
+            .unwrap();
+        session.sender_data = SenderData::UnknownDevice {
+            retry_details: SenderDataRetryDetails::retry_soon(),
+            legacy_session: false,
+        };
+        bob_store.save_inbound_group_sessions(&[session.clone()]).await.unwrap();
+
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::Untrusted };
+        assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_ok());
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::CrossSignedOrLegacy };
+        assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::CrossSigned };
+        assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUser };
+        assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
+
+        // An unknown legacy session should be decryptable only when the trust
+        // requirement allows untrusted or legacy sessions
+        session.sender_data = SenderData::UnknownDevice {
+            retry_details: SenderDataRetryDetails::retry_soon(),
+            legacy_session: true,
+        };
+        bob_store.save_inbound_group_sessions(&[session.clone()]).await.unwrap();
+
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::Untrusted };
+        assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_ok());
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::CrossSignedOrLegacy };
+        assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_ok());
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::CrossSigned };
+        assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUser };
+        assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
+
+        // A session where we have the device keys but no cross-signing
+        // information should be just like an unknown device
+        session.sender_data = SenderData::DeviceInfo {
+            device_keys: alice
+                .get_device(alice.user_id(), alice.device_id(), None)
+                .await
+                .unwrap()
+                .unwrap()
+                .as_device_keys()
+                .clone(),
+            retry_details: SenderDataRetryDetails::retry_soon(),
+            legacy_session: false,
+        };
+        bob_store.save_inbound_group_sessions(&[session.clone()]).await.unwrap();
+
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::Untrusted };
+        assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_ok());
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::CrossSignedOrLegacy };
+        assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::CrossSigned };
+        assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUser };
+        assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
     }
 }
