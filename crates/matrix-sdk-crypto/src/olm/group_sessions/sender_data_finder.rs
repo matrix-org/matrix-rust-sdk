@@ -150,9 +150,7 @@ pub(crate) struct SenderDataFinder<'a> {
 }
 
 impl<'a> SenderDataFinder<'a> {
-    /// As described in https://github.com/matrix-org/matrix-rust-sdk/issues/3543
-    /// and https://github.com/matrix-org/matrix-rust-sdk/issues/3544
-    /// find the device info associated with the to-device message used to
+    /// Find the device info associated with the to-device message used to
     /// create the InboundGroupSession we are about to create, and decide
     /// whether we trust the sender.
     pub(crate) async fn find_using_event(
@@ -164,9 +162,7 @@ impl<'a> SenderDataFinder<'a> {
         finder.have_event(sender_curve_key, room_key_event).await
     }
 
-    /// As described in https://github.com/matrix-org/matrix-rust-sdk/issues/3543
-    /// and https://github.com/matrix-org/matrix-rust-sdk/issues/3544
-    /// use the supplied device info to decide whether we trust the sender.
+    /// Use the supplied device info to decide whether we trust the sender.
     pub(crate) async fn find_using_device_keys(
         store: &'a Store,
         device_keys: DeviceKeys,
@@ -175,13 +171,12 @@ impl<'a> SenderDataFinder<'a> {
         finder.have_device_keys(&device_keys).await
     }
 
+    /// Step A (start - we have a to-device message containing a room key)
     async fn have_event(
         &self,
         sender_curve_key: Curve25519PublicKey,
         room_key_event: &'a DecryptedRoomKeyEvent,
     ) -> OlmResult<SenderData> {
-        // A (start - we have a to-device message containing a room key)
-        //
         // Does the to-device message contain the device_keys property from MSC4147?
         if let Some(sender_device_keys) = &room_key_event.device_keys {
             // Yes: use the device info to continue
@@ -192,13 +187,12 @@ impl<'a> SenderDataFinder<'a> {
         }
     }
 
+    /// Step B (there is no device info in the to-device message)
     async fn search_for_device(
         &self,
         sender_curve_key: Curve25519PublicKey,
         room_key_event: &'a DecryptedRoomKeyEvent,
     ) -> OlmResult<SenderData> {
-        // B (no device info in to-device message)
-        //
         // Does the locally-cached (in the store) devices list contain a device with the
         // curve key of the sender of the to-device message?
         if let Some(sender_device) =
@@ -207,7 +201,7 @@ impl<'a> SenderDataFinder<'a> {
             // Yes: use the device info to continue
             self.have_device(sender_device).await
         } else {
-            // C (no device info locally)
+            // Step C (no device info locally)
             //
             // We have no device data for this session so we can't continue in the "fast
             // lane" (blocking sync).
@@ -238,12 +232,8 @@ impl<'a> SenderDataFinder<'a> {
         }
     }
 
-    /// Step D from https://github.com/matrix-org/matrix-rust-sdk/issues/3543
-    /// We have device info for the sender of this to-device message. Look up
-    /// whether it's cross-signed.
+    /// Step D (we have device info)
     async fn have_device(&self, sender_device: Device) -> OlmResult<SenderData> {
-        // D (we have device info)
-        //
         // Is the device info cross-signed?
 
         let user_id = sender_device.user_id();
@@ -277,9 +267,8 @@ impl<'a> SenderDataFinder<'a> {
         }
     }
 
+    /// E (we have cross-signed device info)
     async fn device_is_cross_signed(&self, sender_device: Device) -> OlmResult<SenderData> {
-        // E (we have cross-signed device info)
-        //
         // Do we have the cross-signing key for this user?
 
         let sender_user_id = sender_device.user_id();
@@ -298,13 +287,12 @@ impl<'a> SenderDataFinder<'a> {
         }
     }
 
+    /// Step G (we have a cross-signing key for the sender)
     async fn have_user_cross_signing_keys(
         &self,
         sender_device: Device,
         sender_user_identity: UserIdentityData,
     ) -> OlmResult<SenderData> {
-        // G (we have cross-signing key)
-        //
         // Does the cross-signing key match that used to sign the device info?
         // And is the signature in the device info valid?
         let maybe_master_key_info = self
