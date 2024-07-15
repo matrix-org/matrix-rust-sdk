@@ -28,13 +28,13 @@ use ruma::{
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
         SyncStateEvent,
     },
-    mxc_uri, owned_mxc_uri, room_id,
+    mxc_uri, owned_event_id, owned_mxc_uri, room_id,
     serde::Raw,
     uint, user_id, EventId, OwnedEventId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use serde_json::{json, value::Value as JsonValue};
 
-use super::{DynStateStore, ServerCapabilities};
+use super::{DependentQueuedEventKind, DynStateStore, ServerCapabilities};
 use crate::{
     deserialized_responses::MemberEvent,
     media::{MediaFormat, MediaRequest, MediaThumbnailSettings},
@@ -89,6 +89,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_display_names_saving(&self);
     /// Test operations with the send queue.
     async fn test_send_queue(&self);
+    /// Test operations related to send queue dependents.
+    async fn test_send_queue_dependents(&self);
     /// Test saving/restoring server capabilities.
     async fn test_server_capabilities_saving(&self);
 }
@@ -1481,6 +1483,88 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert!(outstanding_rooms.iter().any(|room| room == room_id));
         assert!(outstanding_rooms.iter().any(|room| room == room_id2));
     }
+
+    async fn test_send_queue_dependents(&self) {
+        let room_id = room_id!("!test_send_queue_dependents:localhost");
+
+        // Save one send queue event to start with.
+        let txn0 = TransactionId::new();
+        let event0 =
+            SerializableEventContent::new(&RoomMessageEventContent::text_plain("hey").into())
+                .unwrap();
+        self.save_send_queue_event(room_id, txn0.clone(), event0).await.unwrap();
+
+        // No dependents, to start with.
+        assert!(self.list_dependent_send_queue_events(room_id).await.unwrap().is_empty());
+
+        // Save a redaction for that event.
+        self.save_dependent_send_queue_event(room_id, &txn0, DependentQueuedEventKind::Redact)
+            .await
+            .unwrap();
+
+        // It worked.
+        let dependents = self.list_dependent_send_queue_events(room_id).await.unwrap();
+        assert_eq!(dependents.len(), 1);
+        assert_eq!(dependents[0].transaction_id, txn0);
+        assert!(dependents[0].event_id.is_none());
+        assert_matches!(dependents[0].kind, DependentQueuedEventKind::Redact);
+
+        // Update the event id.
+        let event_id = owned_event_id!("$1");
+        let num_updated =
+            self.update_dependent_send_queue_event(room_id, &txn0, event_id.clone()).await.unwrap();
+        assert_eq!(num_updated, 1);
+
+        // It worked.
+        let dependents = self.list_dependent_send_queue_events(room_id).await.unwrap();
+        assert_eq!(dependents.len(), 1);
+        assert_eq!(dependents[0].transaction_id, txn0);
+        assert_eq!(dependents[0].event_id.as_ref(), Some(&event_id));
+        assert_matches!(dependents[0].kind, DependentQueuedEventKind::Redact);
+
+        // Now remove it.
+        let removed =
+            self.remove_dependent_send_queue_event(room_id, dependents[0].id).await.unwrap();
+        assert!(removed);
+
+        // It worked.
+        assert!(self.list_dependent_send_queue_events(room_id).await.unwrap().is_empty());
+
+        // Now, inserting a dependent event and removing the original send queue event
+        // will NOT remove the dependent event.
+        let txn1 = TransactionId::new();
+        let event1 =
+            SerializableEventContent::new(&RoomMessageEventContent::text_plain("hey2").into())
+                .unwrap();
+        self.save_send_queue_event(room_id, txn1.clone(), event1).await.unwrap();
+
+        self.save_dependent_send_queue_event(room_id, &txn0, DependentQueuedEventKind::Redact)
+            .await
+            .unwrap();
+        assert_eq!(self.list_dependent_send_queue_events(room_id).await.unwrap().len(), 1);
+
+        self.save_dependent_send_queue_event(
+            room_id,
+            &txn1,
+            DependentQueuedEventKind::Edit {
+                new_content: SerializableEventContent::new(
+                    &RoomMessageEventContent::text_plain("edit").into(),
+                )
+                .unwrap(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(self.list_dependent_send_queue_events(room_id).await.unwrap().len(), 2);
+
+        // Remove event0 / txn0.
+        let removed = self.remove_send_queue_event(room_id, &txn0).await.unwrap();
+        assert!(removed);
+
+        // This has removed none of the dependent events.
+        let dependents = self.list_dependent_send_queue_events(room_id).await.unwrap();
+        assert_eq!(dependents.len(), 2);
+    }
 }
 
 /// Macro building to allow your StateStore implementation to run the entire
@@ -1648,6 +1732,12 @@ macro_rules! statestore_integration_tests {
         async fn test_send_queue() {
             let store = get_store().await.expect("creating store failed").into_state_store();
             store.test_send_queue().await;
+        }
+
+        #[async_test]
+        async fn test_send_queue_dependents() {
+            let store = get_store().await.expect("creating store failed").into_state_store();
+            store.test_send_queue_dependents().await;
         }
     };
 }

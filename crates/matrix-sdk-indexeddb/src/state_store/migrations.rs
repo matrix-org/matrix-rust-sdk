@@ -46,7 +46,7 @@ use super::{
 };
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: u32 = 9;
+const CURRENT_DB_VERSION: u32 = 10;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
@@ -227,6 +227,9 @@ pub async fn upgrade_inner_db(
             }
             if old_version < 9 {
                 db = migrate_to_v9(db).await?;
+            }
+            if old_version < 10 {
+                db = migrate_to_v10(db).await?;
             }
         }
 
@@ -742,6 +745,16 @@ async fn migrate_to_v9(db: IdbDatabase) -> Result<IdbDatabase> {
         data: Default::default(),
     };
     apply_migration(db, 9, migration).await
+}
+
+/// Add the new [`keys::DEPENDENT_SEND_QUEUE`] table.
+async fn migrate_to_v10(db: IdbDatabase) -> Result<IdbDatabase> {
+    let migration = OngoingMigration {
+        drop_stores: [].into(),
+        create_stores: [keys::DEPENDENT_SEND_QUEUE].into_iter().collect(),
+        data: Default::default(),
+    };
+    apply_migration(db, 10, migration).await
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
