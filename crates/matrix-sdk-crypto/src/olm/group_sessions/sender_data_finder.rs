@@ -274,7 +274,7 @@ impl<'a> SenderDataFinder<'a> {
 
         if sender_device.is_cross_signed_by_owner() {
             // Yes: check the device is signed by the sender
-            self.device_is_cross_signed_by_sender(sender_device).await
+            self.device_is_cross_signed_by_sender(sender_device)
         } else {
             // No: F (we have cross-signed device info, but no cross-signing keys)
             Ok(SenderData::DeviceInfo {
@@ -286,10 +286,7 @@ impl<'a> SenderDataFinder<'a> {
     }
 
     /// Step G (device is cross-signed by the sender)
-    async fn device_is_cross_signed_by_sender(
-        &self,
-        sender_device: Device,
-    ) -> OlmResult<SenderData> {
+    fn device_is_cross_signed_by_sender(&self, sender_device: Device) -> OlmResult<SenderData> {
         // H (cross-signing key matches that used to sign the device info!)
         // And: J (device info is verified by matching cross-signing key)
         let user_id = sender_device.user_id().to_owned();
