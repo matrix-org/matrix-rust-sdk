@@ -52,7 +52,9 @@ use std::{
 };
 
 use matrix_sdk_base::{
-    store::{QueuedEvent, SerializableEventContent},
+    store::{
+        DependentQueuedEvent, DependentQueuedEventKind, QueuedEvent, SerializableEventContent,
+    },
     RoomState, StoreError,
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
@@ -950,13 +952,45 @@ impl SendHandle {
     }
 }
 
+/// From a given source of [`DependentQueuedEvent`], return only the most
+/// meaningful, i.e. the ones that wouldn't be overridden after applying the
+/// others.
+fn canonicalize_dependent_events(dependent: &[DependentQueuedEvent]) -> Vec<DependentQueuedEvent> {
+    let mut latest_edit = None;
+
+    for d in dependent {
+        match &d.kind {
+            DependentQueuedEventKind::Edit { .. } => latest_edit = Some(d),
+            DependentQueuedEventKind::Redact => {
+                // Shortcut and return the redaction; any other action would be meaningless,
+                // since it'll end up with a redact.
+                return vec![d.clone()];
+            }
+        }
+    }
+
+    if let Some(d) = latest_edit {
+        vec![d.clone()]
+    } else {
+        Vec::new()
+    }
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use std::{sync::Arc, time::Duration};
 
+    use assert_matches2::{assert_let, assert_matches};
+    use matrix_sdk_base::store::{
+        DependentQueuedEvent, DependentQueuedEventKind, SerializableEventContent,
+    };
     use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
-    use ruma::room_id;
+    use ruma::{
+        events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
+        room_id, TransactionId,
+    };
 
+    use super::canonicalize_dependent_events;
     use crate::{client::WeakClient, test_utils::logged_in_client};
 
     #[async_test]
@@ -1002,5 +1036,106 @@ mod tests {
                 Arc::strong_count(&client.unwrap().inner)
             );
         }
+    }
+
+    #[test]
+    fn test_canonicalize_dependent_events_smoke_test() {
+        // Smoke test: canonicalizing a single dependent event returns it.
+        let txn = TransactionId::new();
+
+        let edit = DependentQueuedEvent {
+            id: 0,
+            kind: DependentQueuedEventKind::Edit {
+                new_content: SerializableEventContent::new(
+                    &RoomMessageEventContent::text_plain("edit").into(),
+                )
+                .unwrap(),
+            },
+            transaction_id: txn.clone(),
+            event_id: None,
+        };
+        let res = canonicalize_dependent_events(&[edit]);
+
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].id, 0);
+        assert_matches!(&res[0].kind, DependentQueuedEventKind::Edit { .. });
+        assert_eq!(res[0].transaction_id, txn);
+        assert!(res[0].event_id.is_none());
+    }
+
+    #[test]
+    fn test_canonicalize_dependent_events_redaction_preferred() {
+        // A redaction is preferred over any other kind of dependent event.
+        let txn = TransactionId::new();
+
+        let mut inputs = Vec::with_capacity(100);
+        let redact = DependentQueuedEvent {
+            id: 0,
+            kind: DependentQueuedEventKind::Redact,
+            transaction_id: txn.clone(),
+            event_id: None,
+        };
+
+        let edit = DependentQueuedEvent {
+            id: 0,
+            kind: DependentQueuedEventKind::Edit {
+                new_content: SerializableEventContent::new(
+                    &RoomMessageEventContent::text_plain("edit").into(),
+                )
+                .unwrap(),
+            },
+            transaction_id: TransactionId::new(),
+            event_id: None,
+        };
+
+        inputs.push({
+            let mut edit = edit.clone();
+            edit.id = 1;
+            edit
+        });
+
+        inputs.push(redact);
+
+        for i in 0..98 {
+            let mut edit = edit.clone();
+            edit.id = 2 + i;
+            inputs.push(edit);
+        }
+
+        let res = canonicalize_dependent_events(&inputs);
+
+        assert_eq!(res.len(), 1);
+        assert_matches!(&res[0].kind, DependentQueuedEventKind::Redact);
+        assert_eq!(res[0].transaction_id, txn);
+    }
+
+    #[test]
+    fn test_canonicalize_dependent_events_last_edit_preferred() {
+        // The latest edit of a list is always preferred.
+        let inputs = (0..10)
+            .map(|i| DependentQueuedEvent {
+                id: i,
+                kind: DependentQueuedEventKind::Edit {
+                    new_content: SerializableEventContent::new(
+                        &RoomMessageEventContent::text_plain(format!("edit{i}")).into(),
+                    )
+                    .unwrap(),
+                },
+                transaction_id: TransactionId::new(),
+                event_id: None,
+            })
+            .collect::<Vec<_>>();
+
+        let txn = inputs[9].transaction_id.clone();
+
+        let res = canonicalize_dependent_events(&inputs);
+
+        assert_eq!(res.len(), 1);
+        assert_let!(DependentQueuedEventKind::Edit { new_content } = &res[0].kind);
+        assert_let!(
+            AnyMessageLikeEventContent::RoomMessage(msg) = new_content.deserialize().unwrap()
+        );
+        assert_eq!(msg.body(), "edit9");
+        assert_eq!(res[0].transaction_id, txn);
     }
 }
