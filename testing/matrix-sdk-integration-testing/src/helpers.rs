@@ -88,8 +88,8 @@ impl TestClientBuilder {
             .user_agent("matrix-sdk-integration-tests")
             .homeserver_url(homeserver_url)
             .sliding_sync_proxy(sliding_sync_proxy_url)
-            // Disable Simplified MSC3575 for the integration tests as, at the time of writing, we
-            // use a Synapse version that doesn't support Simplified MSC3575.
+            // Disable Simplified MSC3575 for the integration tests as, at the time of writing
+            // (2024-07-15), we use a Synapse version that doesn't support Simplified MSC3575.
             .simplified_sliding_sync(false)
             .with_encryption_settings(self.encryption_settings)
             .request_config(RequestConfig::short_retry());

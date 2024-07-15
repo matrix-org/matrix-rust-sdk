@@ -64,8 +64,10 @@ where
 }
 
 /// Create a new sorter that will sort two [`Room`] by recency, i.e. by
-/// comparing their [`matrix_sdk_base::RoomInfo::recency_stamp`] value. The
-/// `Room` with the newest recency stamp comes first, i.e. newest < oldest.
+/// comparing their [`RoomInfo::recency_stamp`] value. The `Room` with the
+/// newest recency stamp comes first, i.e. newest < oldest.
+///
+/// [`RoomInfo::recency_stamp`]: matrix_sdk_base::RoomInfo::recency_stamp
 pub fn new_sorter() -> impl Sorter {
     let matcher = RecencyMatcher {
         recency_stamps: move |left, right| (left.recency_stamp(), right.recency_stamp()),
