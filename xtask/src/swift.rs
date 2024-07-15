@@ -5,9 +5,7 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand};
-use uniffi_bindgen::{
-    bindings::swift::gen_swift::SwiftBindingGenerator, library_mode::generate_bindings,
-};
+use uniffi_bindgen::{bindings::SwiftBindingGenerator, library_mode::generate_bindings};
 use xshell::{cmd, pushd};
 
 use crate::{workspace, Result};
