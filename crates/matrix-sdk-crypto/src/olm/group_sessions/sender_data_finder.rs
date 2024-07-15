@@ -20,7 +20,7 @@ use crate::{
     error::OlmResult,
     store::Store,
     types::{events::olm_v1::DecryptedRoomKeyEvent, DeviceKeys, MasterPubkey},
-    DeviceData, EventError, OlmError, OwnUserIdentityData, UserIdentityData,
+    Device, DeviceData, EventError, OlmError, OwnUserIdentityData, UserIdentityData,
 };
 
 /// Temporary struct that is used to look up [`SenderData`] based on the
@@ -205,7 +205,7 @@ impl<'a> SenderDataFinder<'a> {
             self.store.get_device_from_curve_key(&room_key_event.sender, sender_curve_key).await?
         {
             // Yes: use the device info to continue
-            self.have_device(sender_device.inner).await
+            self.have_device(sender_device).await
         } else {
             // C (no device info locally)
             //
@@ -226,7 +226,9 @@ impl<'a> SenderDataFinder<'a> {
 
     async fn have_device_keys(&self, sender_device_keys: &DeviceKeys) -> OlmResult<SenderData> {
         // Validate the signature of the DeviceKeys supplied.
-        if let Ok(sender_device) = DeviceData::try_from(sender_device_keys) {
+        if let Ok(sender_device_data) = DeviceData::try_from(sender_device_keys) {
+            let sender_device = self.store.create_device(sender_device_data).await?;
+
             self.have_device(sender_device).await
         } else {
             // The device keys supplied did not validate.
@@ -239,14 +241,14 @@ impl<'a> SenderDataFinder<'a> {
     /// Step D from https://github.com/matrix-org/matrix-rust-sdk/issues/3543
     /// We have device info for the sender of this to-device message. Look up
     /// whether it's cross-signed.
-    async fn have_device(&self, sender_device: DeviceData) -> OlmResult<SenderData> {
+    async fn have_device(&self, sender_device: Device) -> OlmResult<SenderData> {
         // D (we have device info)
         //
         // Is the device info cross-signed?
 
         let user_id = sender_device.user_id();
         let Some(signatures) = sender_device.signatures().get(user_id) else {
-            // This should never happen: we would not have managed to get a DeviceData
+            // This should never happen: we would not have managed to get a Device
             // if it did not contain a signature.
             error!(
                 "Found a device for user_id {user_id} but it has no signatures for that user id!"
@@ -257,7 +259,7 @@ impl<'a> SenderDataFinder<'a> {
         };
 
         // Count number of signatures - we know there is 1, because we would not have
-        // been able to construct a DeviceData without a signature.
+        // been able to construct a Device without a signature.
         // If there are more than 1, we assume this device was cross-signed by some
         // identity.
         if signatures.len() > 1 {
@@ -275,7 +277,7 @@ impl<'a> SenderDataFinder<'a> {
         }
     }
 
-    async fn device_is_cross_signed(&self, sender_device: DeviceData) -> OlmResult<SenderData> {
+    async fn device_is_cross_signed(&self, sender_device: Device) -> OlmResult<SenderData> {
         // E (we have cross-signed device info)
         //
         // Do we have the cross-signing key for this user?
@@ -298,7 +300,7 @@ impl<'a> SenderDataFinder<'a> {
 
     async fn have_user_cross_signing_keys(
         &self,
-        sender_device: DeviceData,
+        sender_device: Device,
         sender_user_identity: UserIdentityData,
     ) -> OlmResult<SenderData> {
         // G (we have cross-signing key)
@@ -361,7 +363,7 @@ impl<'a> SenderDataFinder<'a> {
     /// Otherwise, return None.
     async fn master_key_if_device_is_signed_by_user<'i>(
         &self,
-        sender_device: &'_ DeviceData,
+        sender_device: &'_ Device,
         sender_user_identity: &'i UserIdentityData,
     ) -> OlmResult<Option<(&'i MasterPubkey, bool)>> {
         Ok(match sender_user_identity {
