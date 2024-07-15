@@ -1144,7 +1144,7 @@ impl Store {
         device_id: &DeviceId,
     ) -> Result<Option<Device>> {
         if let Some(device_data) = self.inner.store.get_device(user_id, device_id).await? {
-            Ok(Some(self.create_device(device_data).await?))
+            Ok(Some(self.wrap_device_data(device_data).await?))
         } else {
             Ok(None)
         }
@@ -1154,7 +1154,7 @@ impl Store {
     /// call [`Self::get_device`] to find an existing device inside this
     /// store. Only call this if you have some existing DeviceData and want
     /// to wrap it with the extra information provided by a [`Device`].
-    pub(crate) async fn create_device(&self, device_data: DeviceData) -> Result<Device> {
+    pub(crate) async fn wrap_device_data(&self, device_data: DeviceData) -> Result<Device> {
         let own_identity = self
             .inner
             .store

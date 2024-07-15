@@ -227,7 +227,7 @@ impl<'a> SenderDataFinder<'a> {
     async fn have_device_keys(&self, sender_device_keys: &DeviceKeys) -> OlmResult<SenderData> {
         // Validate the signature of the DeviceKeys supplied.
         if let Ok(sender_device_data) = DeviceData::try_from(sender_device_keys) {
-            let sender_device = self.store.create_device(sender_device_data).await?;
+            let sender_device = self.store.wrap_device_data(sender_device_data).await?;
 
             self.have_device(sender_device).await
         } else {
