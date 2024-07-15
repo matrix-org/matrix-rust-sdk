@@ -26,8 +26,8 @@ use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey},
     store::{
-        ComposerDraft, QueuedEvent, SerializableEventContent, ServerCapabilities, StateChanges,
-        StateStore, StoreError,
+        ComposerDraft, DependentQueuedEvent, DependentQueuedEventKind, QueuedEvent,
+        SerializableEventContent, ServerCapabilities, StateChanges, StateStore, StoreError,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateStoreDataKey,
     StateStoreDataValue,
@@ -108,7 +108,10 @@ mod keys {
     pub const ROOM_INFOS: &str = "room_infos";
     pub const PRESENCE: &str = "presence";
     pub const ROOM_ACCOUNT_DATA: &str = "room_account_data";
+    /// Table used to save send queue events.
     pub const ROOM_SEND_QUEUE: &str = "room_send_queue";
+    /// Table used to save dependent send queue events.
+    pub const DEPENDENT_SEND_QUEUE: &str = "room_dependent_send_queue";
 
     pub const STRIPPED_ROOM_STATE: &str = "stripped_room_state";
     pub const STRIPPED_USER_IDS: &str = "stripped_user_ids";
@@ -136,6 +139,7 @@ mod keys {
         ROOM_USER_RECEIPTS,
         ROOM_EVENT_RECEIPTS,
         ROOM_SEND_QUEUE,
+        DEPENDENT_SEND_QUEUE,
         MEDIA,
         CUSTOM,
         KV,
@@ -1316,7 +1320,7 @@ impl_state_store!({
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
         // All the stores which use a RoomId as their key (and nothing additional).
-        let direct_stores = [keys::ROOM_INFOS, keys::ROOM_SEND_QUEUE];
+        let direct_stores = [keys::ROOM_INFOS, keys::ROOM_SEND_QUEUE, keys::DEPENDENT_SEND_QUEUE];
 
         // All the stores which use a RoomId as the first part of their key, but may
         // have some additional data in the key.
@@ -1464,9 +1468,10 @@ impl_state_store!({
     ) -> Result<bool> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
-        let tx = self
-            .inner
-            .transaction_on_one_with_mode(keys::ROOM_SEND_QUEUE, IdbTransactionMode::Readwrite)?;
+        let tx = self.inner.transaction_on_multi_with_mode(
+            &[keys::ROOM_SEND_QUEUE, keys::DEPENDENT_SEND_QUEUE],
+            IdbTransactionMode::Readwrite,
+        )?;
 
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
 
@@ -1565,6 +1570,142 @@ impl_state_store!({
             .collect::<BTreeSet<_>>();
 
         Ok(all_entries.into_iter().collect())
+    }
+
+    async fn save_dependent_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+        content: DependentQueuedEventKind,
+    ) -> Result<()> {
+        let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
+
+        let tx = self.inner.transaction_on_one_with_mode(
+            keys::DEPENDENT_SEND_QUEUE,
+            IdbTransactionMode::Readwrite,
+        )?;
+
+        let obj = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
+
+        // We store an encoded vector of the dependent events.
+        // Reload the previous vector for this room, or create an empty one.
+        let prev = obj.get(&encoded_key)?.await?;
+
+        let mut prev = prev.map_or_else(
+            || Ok(Vec::new()),
+            |val| self.deserialize_value::<Vec<DependentQueuedEvent>>(&val),
+        )?;
+
+        // Find the next id by taking the biggest ID we had before, and add 1.
+        let next_id = prev.iter().fold(0, |max, item| item.id.max(max)) + 1;
+
+        // Push the new event.
+        prev.push(DependentQueuedEvent {
+            id: next_id,
+            kind: content,
+            transaction_id: transaction_id.to_owned(),
+            event_id: None,
+        });
+
+        // Save the new vector into db.
+        obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
+
+        tx.await.into_result()?;
+
+        Ok(())
+    }
+
+    async fn update_dependent_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        transaction_id: &TransactionId,
+        event_id: OwnedEventId,
+    ) -> Result<usize> {
+        let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
+
+        let tx = self.inner.transaction_on_one_with_mode(
+            keys::DEPENDENT_SEND_QUEUE,
+            IdbTransactionMode::Readwrite,
+        )?;
+
+        let obj = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
+
+        // We store an encoded vector of the dependent events.
+        // Reload the previous vector for this room, or create an empty one.
+        let prev = obj.get(&encoded_key)?.await?;
+
+        let mut prev = prev.map_or_else(
+            || Ok(Vec::new()),
+            |val| self.deserialize_value::<Vec<DependentQueuedEvent>>(&val),
+        )?;
+
+        // Modify all events that match.
+        let mut num_updated = 0;
+        for entry in prev.iter_mut().filter(|entry| entry.transaction_id == transaction_id) {
+            entry.event_id = Some(event_id.clone());
+            num_updated += 1;
+        }
+
+        if num_updated > 0 {
+            obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
+            tx.await.into_result()?;
+        }
+
+        Ok(num_updated)
+    }
+
+    async fn remove_dependent_send_queue_event(&self, room_id: &RoomId, id: usize) -> Result<bool> {
+        let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
+
+        let tx = self.inner.transaction_on_one_with_mode(
+            keys::DEPENDENT_SEND_QUEUE,
+            IdbTransactionMode::Readwrite,
+        )?;
+
+        let obj = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
+
+        // We store an encoded vector of the dependent events.
+        // Reload the previous vector for this room.
+        if let Some(val) = obj.get(&encoded_key)?.await? {
+            let mut prev = self.deserialize_value::<Vec<DependentQueuedEvent>>(&val)?;
+            if let Some(pos) = prev.iter().position(|item| item.id == id) {
+                prev.remove(pos);
+
+                if prev.is_empty() {
+                    obj.delete(&encoded_key)?;
+                } else {
+                    obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
+                }
+
+                tx.await.into_result()?;
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    async fn list_dependent_send_queue_events(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<DependentQueuedEvent>> {
+        let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
+
+        // We store an encoded vector of the dependent events.
+        let prev = self
+            .inner
+            .transaction_on_one_with_mode(
+                keys::DEPENDENT_SEND_QUEUE,
+                IdbTransactionMode::Readwrite,
+            )?
+            .object_store(keys::DEPENDENT_SEND_QUEUE)?
+            .get(&encoded_key)?
+            .await?;
+
+        prev.map_or_else(
+            || Ok(Vec::new()),
+            |val| self.deserialize_value::<Vec<DependentQueuedEvent>>(&val),
+        )
     }
 });
 

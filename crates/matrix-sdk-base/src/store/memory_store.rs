@@ -15,7 +15,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     num::NonZeroUsize,
-    sync::RwLock as StdRwLock,
+    sync::{Mutex, RwLock as StdRwLock},
 };
 
 use async_trait::async_trait;
@@ -38,7 +38,8 @@ use tracing::{debug, instrument, trace, warn};
 
 use super::{
     traits::{ComposerDraft, QueuedEvent, SerializableEventContent, ServerCapabilities},
-    Result, RoomInfo, StateChanges, StateStore, StoreError,
+    DependentQueuedEvent, DependentQueuedEventKind, Result, RoomInfo, StateChanges, StateStore,
+    StoreError,
 };
 use crate::{
     deserialized_responses::RawAnySyncOrStrippedState,
@@ -46,7 +47,7 @@ use crate::{
     MinimalRoomMemberEvent, RoomMemberships, RoomState, StateStoreDataKey, StateStoreDataValue,
 };
 
-/// In-Memory, non-persistent implementation of the `StateStore`
+/// In-memory, non-persistent implementation of the `StateStore`.
 ///
 /// Default if no other is configured at startup.
 #[allow(clippy::type_complexity)]
@@ -90,6 +91,8 @@ pub struct MemoryStore {
     media: StdRwLock<RingBuffer<(OwnedMxcUri, String /* unique key */, Vec<u8>)>>,
     custom: StdRwLock<HashMap<Vec<u8>, Vec<u8>>>,
     send_queue_events: StdRwLock<BTreeMap<OwnedRoomId, Vec<QueuedEvent>>>,
+    dependent_send_queue_events: StdRwLock<BTreeMap<OwnedRoomId, Vec<DependentQueuedEvent>>>,
+    dependent_send_queue_event_next_id: Mutex<usize>,
 }
 
 // SAFETY: `new_unchecked` is safe because 20 is not zero.
@@ -120,6 +123,8 @@ impl Default for MemoryStore {
             media: StdRwLock::new(RingBuffer::new(NUMBER_OF_MEDIAS)),
             custom: Default::default(),
             send_queue_events: Default::default(),
+            dependent_send_queue_events: Default::default(),
+            dependent_send_queue_event_next_id: Mutex::new(0),
         }
     }
 }
@@ -995,6 +1000,74 @@ impl StateStore for MemoryStore {
 
     async fn load_rooms_with_unsent_events(&self) -> Result<Vec<OwnedRoomId>, Self::Error> {
         Ok(self.send_queue_events.read().unwrap().keys().cloned().collect())
+    }
+
+    async fn save_dependent_send_queue_event(
+        &self,
+        room: &RoomId,
+        transaction_id: &TransactionId,
+        content: DependentQueuedEventKind,
+    ) -> Result<(), Self::Error> {
+        let id = {
+            let mut next_id = self.dependent_send_queue_event_next_id.lock().unwrap();
+            // Don't tell anyone, but sometimes I miss C++'s `x++` operator.
+            let id = *next_id;
+            *next_id += 1;
+            id
+        };
+
+        self.dependent_send_queue_events.write().unwrap().entry(room.to_owned()).or_default().push(
+            DependentQueuedEvent {
+                id,
+                kind: content,
+                transaction_id: transaction_id.to_owned(),
+                event_id: None,
+            },
+        );
+
+        Ok(())
+    }
+
+    async fn update_dependent_send_queue_event(
+        &self,
+        room: &RoomId,
+        transaction_id: &TransactionId,
+        event_id: OwnedEventId,
+    ) -> Result<usize, Self::Error> {
+        let mut dependent_send_queue_events = self.dependent_send_queue_events.write().unwrap();
+        let dependents = dependent_send_queue_events.entry(room.to_owned()).or_default();
+        let mut num_updated = 0;
+        for d in dependents.iter_mut().filter(|item| item.transaction_id == transaction_id) {
+            d.event_id = Some(event_id.clone());
+            num_updated += 1;
+        }
+        Ok(num_updated)
+    }
+
+    async fn remove_dependent_send_queue_event(
+        &self,
+        room: &RoomId,
+        id: usize,
+    ) -> Result<bool, Self::Error> {
+        let mut dependent_send_queue_events = self.dependent_send_queue_events.write().unwrap();
+        let dependents = dependent_send_queue_events.entry(room.to_owned()).or_default();
+        if let Some(pos) = dependents.iter().position(|item| item.id == id) {
+            dependents.remove(pos);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// List all the dependent send queue events.
+    ///
+    /// This returns absolutely all the dependent send queue events, whether
+    /// they have an event id or not.
+    async fn list_dependent_send_queue_events(
+        &self,
+        room: &RoomId,
+    ) -> Result<Vec<DependentQueuedEvent>, Self::Error> {
+        Ok(self.dependent_send_queue_events.read().unwrap().get(room).cloned().unwrap_or_default())
     }
 }
 
