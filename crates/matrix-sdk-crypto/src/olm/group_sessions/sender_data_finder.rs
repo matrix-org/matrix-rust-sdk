@@ -199,7 +199,7 @@ impl<'a> SenderDataFinder<'a> {
             self.store.get_device_from_curve_key(&room_key_event.sender, sender_curve_key).await?
         {
             // Yes: use the device info to continue
-            self.have_device(sender_device).await
+            self.have_device(sender_device)
         } else {
             // Step C (no device info locally)
             //
@@ -223,7 +223,7 @@ impl<'a> SenderDataFinder<'a> {
         if let Ok(sender_device_data) = DeviceData::try_from(sender_device_keys) {
             let sender_device = self.store.wrap_device_data(sender_device_data).await?;
 
-            self.have_device(sender_device).await
+            self.have_device(sender_device)
         } else {
             // The device keys supplied did not validate.
             // TODO: log an error
@@ -233,7 +233,7 @@ impl<'a> SenderDataFinder<'a> {
     }
 
     /// Step D (we have device info)
-    async fn have_device(&self, sender_device: Device) -> OlmResult<SenderData> {
+    fn have_device(&self, sender_device: Device) -> OlmResult<SenderData> {
         // Is the device info cross-signed?
 
         let user_id = sender_device.user_id();
@@ -254,7 +254,7 @@ impl<'a> SenderDataFinder<'a> {
         // identity.
         if signatures.len() > 1 {
             // Yes, the device info is cross-signed by someone
-            self.device_is_cross_signed(sender_device).await
+            self.device_is_cross_signed(sender_device)
         } else {
             // No, the device info is not cross-signed.
             // Wait to see whether the device becomes cross-signed later. Drop
@@ -268,7 +268,7 @@ impl<'a> SenderDataFinder<'a> {
     }
 
     /// E (we have cross-signed device info)
-    async fn device_is_cross_signed(&self, sender_device: Device) -> OlmResult<SenderData> {
+    fn device_is_cross_signed(&self, sender_device: Device) -> OlmResult<SenderData> {
         // Does the cross-signing key match that used to sign the device info?
         // And is the signature in the device info valid?
 
