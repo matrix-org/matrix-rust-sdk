@@ -19,8 +19,8 @@ use super::{SenderData, SenderDataRetryDetails};
 use crate::{
     error::OlmResult,
     store::Store,
-    types::{events::olm_v1::DecryptedRoomKeyEvent, DeviceKeys, MasterPubkey},
-    Device, DeviceData, EventError, OlmError, OwnUserIdentityData, UserIdentityData,
+    types::{events::olm_v1::DecryptedRoomKeyEvent, DeviceKeys},
+    Device, DeviceData, EventError, OlmError,
 };
 
 /// Temporary struct that is used to look up [`SenderData`] based on the
@@ -84,7 +84,7 @@ use crate::{
 ///                                     │
 ///   __________________________________▼______________________________
 ///  ╱                                                                 ╲
-/// ╱ Do we have the cross-signing key for this user?                   ╲yes
+/// ╱ Is the device cross-signed by the sender?                         ╲yes
 /// ╲___________________________________________________________________╱ │
 ///                                     │ no                              │
 ///                                     ▼                                 │
@@ -100,7 +100,7 @@ use crate::{
 ///                                     ┌─────────────────────────────────┘
 ///                                     ▼
 /// ┌───────────────────────────────────────────────────────────────────┐
-/// │ G (we have a cross-signing key for the sender)                    │
+/// │ G (device is cross-signed by the sender)                          │
 /// └───────────────────────────────────────────────────────────────────┘
 ///                                     │
 ///   __________________________________▼______________________________
@@ -253,7 +253,7 @@ impl<'a> SenderDataFinder<'a> {
         // If there are more than 1, we assume this device was cross-signed by some
         // identity.
         if signatures.len() > 1 {
-            // Yes, the device info is cross-signed
+            // Yes, the device info is cross-signed by someone
             self.device_is_cross_signed(sender_device).await
         } else {
             // No, the device info is not cross-signed.
@@ -269,14 +269,12 @@ impl<'a> SenderDataFinder<'a> {
 
     /// E (we have cross-signed device info)
     async fn device_is_cross_signed(&self, sender_device: Device) -> OlmResult<SenderData> {
-        // Do we have the cross-signing key for this user?
+        // Does the cross-signing key match that used to sign the device info?
+        // And is the signature in the device info valid?
 
-        let sender_user_id = sender_device.user_id();
-        let sender_user_identity = self.store.get_user_identity(sender_user_id).await?;
-
-        if let Some(sender_user_identity) = sender_user_identity {
-            // Yes: check the device is signed by the identity
-            self.have_user_cross_signing_keys(sender_device, sender_user_identity).await
+        if sender_device.is_cross_signed_by_owner() {
+            // Yes: check the device is signed by the sender
+            self.device_is_cross_signed_by_sender(sender_device).await
         } else {
             // No: F (we have cross-signed device info, but no cross-signing keys)
             Ok(SenderData::DeviceInfo {
@@ -287,106 +285,40 @@ impl<'a> SenderDataFinder<'a> {
         }
     }
 
-    /// Step G (we have a cross-signing key for the sender)
-    async fn have_user_cross_signing_keys(
+    /// Step G (device is cross-signed by the sender)
+    async fn device_is_cross_signed_by_sender(
         &self,
         sender_device: Device,
-        sender_user_identity: UserIdentityData,
     ) -> OlmResult<SenderData> {
-        // Does the cross-signing key match that used to sign the device info?
-        // And is the signature in the device info valid?
-        let maybe_master_key_info = self
-            .master_key_if_device_is_signed_by_user(&sender_device, &sender_user_identity)
-            .await?;
+        // H (cross-signing key matches that used to sign the device info!)
+        // And: J (device info is verified by matching cross-signing key)
+        let user_id = sender_device.user_id().to_owned();
 
-        if let Some((master_key, master_key_verified)) = maybe_master_key_info {
-            // Yes: H (cross-signing key matches that used to sign the device info!)
-            // and: J (device info is verified by matching cross-signing key)
+        let master_key = sender_device
+            .device_owner_identity
+            .as_ref()
+            .expect(
+                "device_owner_identity must exist because this device is cross-signing trusted!",
+            )
+            .master_key()
+            .clone();
 
-            // Find the actual key within the MasterPubkey struct
-            if let Some(master_key) = master_key.get_first_key() {
-                // We have user_id and master_key for the user sending the to-device message.
-                // Decide the master_key trust level based on whether we have verified this
-                // user. Set the user_id, master_key and trust level in the
-                // session.
-                Ok(SenderData::SenderKnown {
-                    user_id: sender_device.user_id().to_owned(),
-                    master_key,
-                    master_key_verified,
-                })
-            } else {
-                // Surprisingly, there was no key in the MasterPubkey. We did not expect this:
-                // treat it as if the device was not signed by this master key.
-                //
-                tracing::error!(
-                    "MasterPubkey for user {} does not contain any keys!",
-                    master_key.user_id()
-                );
-
-                Ok(SenderData::DeviceInfo {
-                    device_keys: sender_device.as_device_keys().clone(),
-                    retry_details: SenderDataRetryDetails::retry_soon(),
-                    legacy_session: true, // TODO: change to false when retries etc. are done
-                })
-            }
+        if let Some(master_key) = master_key.get_first_key() {
+            // We have user_id and master_key for the user sending the to-device message.
+            let master_key_verified = sender_device.is_cross_signing_trusted();
+            Ok(SenderData::SenderKnown { user_id, master_key, master_key_verified })
         } else {
-            // No: Device was not signed by the known identity of the sender.
-            // (Or the signature was invalid. We don't know which unfortunately, so we can't
-            // bail out completely if the signature was invalid, as we'd like
-            // to.)
+            // Surprisingly, there was no key in the MasterPubkey. We did not expect this:
+            // treat it as if the device was not signed by this master key.
             //
-            // Since we've already checked there are >1 signatures, we guess
-            // it was signed by a different identity of this user, so we should retry
-            // later, in case either the device info or the user's identity changes.
+            tracing::error!("MasterPubkey for user {user_id} does not contain any keys!",);
+
             Ok(SenderData::DeviceInfo {
                 device_keys: sender_device.as_device_keys().clone(),
                 retry_details: SenderDataRetryDetails::retry_soon(),
                 legacy_session: true, // TODO: change to false when retries etc. are done
             })
         }
-    }
-
-    /// If `sender_device` is correctly cross-signed by `sender_user_identity`,
-    /// return user_identity's master key and whether it is verified.
-    /// Otherwise, return None.
-    async fn master_key_if_device_is_signed_by_user<'i>(
-        &self,
-        sender_device: &'_ Device,
-        sender_user_identity: &'i UserIdentityData,
-    ) -> OlmResult<Option<(&'i MasterPubkey, bool)>> {
-        Ok(match sender_user_identity {
-            UserIdentityData::Own(own_identity) => {
-                if own_identity.is_device_signed(sender_device).is_ok() {
-                    Some((own_identity.master_key(), own_identity.is_verified()))
-                } else {
-                    None
-                }
-            }
-            UserIdentityData::Other(other_identity) => {
-                if other_identity.is_device_signed(sender_device).is_ok() {
-                    let master_key = other_identity.master_key();
-
-                    // Use our own identity to determine whether this other identity is signed
-                    let master_key_verified =
-                        if let Some(own_identity) = self.own_identity().await? {
-                            own_identity.is_identity_signed(other_identity).is_ok()
-                        } else {
-                            // Couldn't get own identity! Assume master_key is not verified.
-                            false
-                        };
-
-                    Some((master_key, master_key_verified))
-                } else {
-                    None
-                }
-            }
-        })
-    }
-
-    /// Return the user identity of the current user, or None if we failed to
-    /// find it (which is unexpected)
-    async fn own_identity(&self) -> OlmResult<Option<OwnUserIdentityData>> {
-        Ok(self.store.get_user_identity(self.store.user_id()).await?.and_then(|i| i.into_own()))
     }
 }
 
@@ -868,7 +800,7 @@ mod tests {
         }
 
         async fn own() -> Self {
-            Self::new(user_id!("@myself:s.co"), device_id!("OWNDEVICEID"), true, false, None).await
+            Self::new(user_id!("@myself:s.co"), device_id!("OWNDEVICEID"), true, true, None).await
         }
 
         async fn other(me: &TestUser, options: &TestOptions) -> Self {
