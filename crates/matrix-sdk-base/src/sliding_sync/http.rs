@@ -1,4 +1,4 @@
-// Copyright 2023 The Matrix.org Foundation C.I.C.
+// Copyright 2024 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 //! HTTP types for (Simplified) MSC3575.
 //!
-//! This module provides a unified namings for types from MSC3575 and
+//! This module provides unified namings for types from MSC3575 and
 //! Simplified MSC3575, in addition to provide conversion from one
 //! format to another.
 

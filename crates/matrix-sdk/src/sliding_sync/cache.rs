@@ -522,7 +522,7 @@ mod tests {
             .await?
             .expect("must have restored sliding sync fields");
 
-        // After restoring, the delta token and to-device token could be read.
+        // After restoring, to-device token could be read.
         assert_eq!(restored_fields.pos.unwrap(), pos);
 
         // Test the "migration" path: assume a missing to-device token in crypto store,
@@ -557,8 +557,8 @@ mod tests {
             .await?
             .expect("must have restored fields");
 
-        // After restoring, the delta token, the to-device since token, stream
-        // position and rooms could be read from the state store.
+        // After restoring, the to-device since token, stream position and rooms could
+        // be read from the state store.
         assert_eq!(restored_fields.to_device_token.unwrap(), to_device_token);
         assert_eq!(restored_fields.pos.unwrap(), pos);
         assert_eq!(restored_fields.rooms.len(), 1);
