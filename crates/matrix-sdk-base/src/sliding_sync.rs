@@ -766,16 +766,18 @@ fn process_room_properties(
     }
 
     if let Some(recency_timestamp) = &room_data.timestamp {
-        room_info.update_recency_timestamp(*recency_timestamp);
+        if room_info.recency_timestamp.as_ref() != Some(recency_timestamp) {
+            room_info.update_recency_timestamp(*recency_timestamp);
 
-        // If it's not a new room, let's emit a `RECENCY_TIMESTAMP` update.
-        // For a new room, the room will appear as new, so we don't care about this
-        // update.
-        if !is_new_room {
-            room_info_notable_updates
-                .entry(room_id.to_owned())
-                .or_default()
-                .insert(RoomInfoNotableUpdateReasons::RECENCY_TIMESTAMP);
+            // If it's not a new room, let's emit a `RECENCY_TIMESTAMP` update.
+            // For a new room, the room will appear as new, so we don't care about this
+            // update.
+            if !is_new_room {
+                room_info_notable_updates
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .insert(RoomInfoNotableUpdateReasons::RECENCY_TIMESTAMP);
+            }
         }
     }
 }
