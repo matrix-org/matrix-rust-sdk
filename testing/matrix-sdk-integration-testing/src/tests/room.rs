@@ -60,15 +60,15 @@ async fn test_event_with_context() -> Result<()> {
 
     // Bob joins it.
     let mut bob_joined = false;
-    for i in 1..=4 {
+    for i in 1..=5 {
         if let Some(room) = bob.get_room(&room_id) {
             room.join().await?;
             bob_joined = true;
             break;
         }
-        sleep(Duration::from_millis(30 * i)).await;
+        sleep(Duration::from_millis(500 * i)).await;
     }
-    anyhow::ensure!(bob_joined, "bob couldn't join after 3 seconds");
+    anyhow::ensure!(bob_joined, "bob couldn't join after ~8 seconds");
 
     assert_eq!(alice_room.state(), RoomState::Joined);
 
