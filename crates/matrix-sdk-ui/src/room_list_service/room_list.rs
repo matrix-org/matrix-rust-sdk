@@ -219,7 +219,8 @@ fn merge_stream_and_receiver(
                     // We are interested by these _reasons_.
                     if reasons.contains(NotableUpdate::LATEST_EVENT) ||
                         reasons.contains(NotableUpdate::RECENCY_TIMESTAMP) ||
-                        reasons.contains(NotableUpdate::READ_RECEIPT) {
+                        reasons.contains(NotableUpdate::READ_RECEIPT) ||
+                        reasons.contains(NotableUpdate::UNREAD_MARKER) {
                         // Emit a `VectorDiff::Set` for the specific rooms.
                         if let Some(index) = raw_current_values.iter().position(|room| room.room_id() == update.room_id) {
                             let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };

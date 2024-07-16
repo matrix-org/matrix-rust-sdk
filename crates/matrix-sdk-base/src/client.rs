@@ -568,6 +568,7 @@ impl BaseClient {
         room_id: &RoomId,
         events: &[Raw<AnyRoomAccountDataEvent>],
         changes: &mut StateChanges,
+        room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
     ) {
         // Small helper to make the code easier to read.
         //
@@ -577,9 +578,9 @@ impl BaseClient {
             room_id: &RoomId,
             changes: &mut StateChanges,
             client: &BaseClient,
-            on_room_info: F,
+            mut on_room_info: F,
         ) where
-            F: Fn(&mut RoomInfo),
+            F: FnMut(&mut RoomInfo),
         {
             // `StateChanges` has the `RoomInfo`.
             if let Some(room_info) = changes.room_infos.get_mut(room_id) {
@@ -601,24 +602,39 @@ impl BaseClient {
 
         // Handle new events.
         for raw_event in events {
-            if let Ok(event) = raw_event.deserialize() {
-                changes.add_room_account_data(room_id, event.clone(), raw_event.clone());
+            match raw_event.deserialize() {
+                Ok(event) => {
+                    changes.add_room_account_data(room_id, event.clone(), raw_event.clone());
 
-                match event {
-                    AnyRoomAccountDataEvent::MarkedUnread(event) => {
-                        on_room_info(room_id, changes, self, |room_info| {
-                            room_info.base_info.is_marked_unread = event.content.unread;
-                        });
+                    match event {
+                        AnyRoomAccountDataEvent::MarkedUnread(event) => {
+                            on_room_info(room_id, changes, self, |room_info| {
+                                if room_info.base_info.is_marked_unread != event.content.unread {
+                                    // Notify the room list about a manual read marker change if the
+                                    // value's changed.
+                                    room_info_notable_updates
+                                        .entry(room_id.to_owned())
+                                        .or_default()
+                                        .insert(RoomInfoNotableUpdateReasons::UNREAD_MARKER);
+                                }
+
+                                room_info.base_info.is_marked_unread = event.content.unread;
+                            });
+                        }
+
+                        AnyRoomAccountDataEvent::Tag(event) => {
+                            on_room_info(room_id, changes, self, |room_info| {
+                                room_info.base_info.handle_notable_tags(&event.content.tags);
+                            });
+                        }
+
+                        // Nothing.
+                        _ => {}
                     }
+                }
 
-                    AnyRoomAccountDataEvent::Tag(event) => {
-                        on_room_info(room_id, changes, self, |room_info| {
-                            room_info.base_info.handle_notable_tags(&event.content.tags);
-                        });
-                    }
-
-                    // Nothing.
-                    _ => {}
+                Err(err) => {
+                    warn!("unable to deserialize account data event: {err}");
                 }
             }
         }
@@ -947,8 +963,13 @@ impl BaseClient {
             // Save the new `RoomInfo`.
             changes.add_room(room_info);
 
-            self.handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
-                .await;
+            self.handle_room_account_data(
+                &room_id,
+                &new_info.account_data.events,
+                &mut changes,
+                &mut Default::default(),
+            )
+            .await;
 
             // `Self::handle_room_account_data` might have updated the `RoomInfo`. Let's
             // fetch it again.
@@ -1036,8 +1057,13 @@ impl BaseClient {
             // Save the new `RoomInfo`.
             changes.add_room(room_info);
 
-            self.handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
-                .await;
+            self.handle_room_account_data(
+                &room_id,
+                &new_info.account_data.events,
+                &mut changes,
+                &mut Default::default(),
+            )
+            .await;
 
             let ambiguity_changes = ambiguity_cache.changes.remove(&room_id).unwrap_or_default();
 
