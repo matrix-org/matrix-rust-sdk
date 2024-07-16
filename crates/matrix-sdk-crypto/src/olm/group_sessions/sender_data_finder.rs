@@ -69,31 +69,13 @@ use crate::{
 ///                                     │
 ///   __________________________________▼______________________________
 ///  ╱                                                                 ╲
-/// ╱ Is the device cross-signed?                                       ╲yes
-/// ╲___________________________________________________________________╱ │
-///                                     │ no                              │
-///                                     ▼                                 │
-/// ╭───────────────────────────────────────────────────────────────────╮ │
-/// │ Give up: an unsigned device is useless.                           │ │
-/// ╰───────────────────────────────────────────────────────────────────╯ │
-///                                     ┌─────────────────────────────────┘
-///                                     ▼
-/// ┌───────────────────────────────────────────────────────────────────┐
-/// │ E (we have a cross-signed device)                                 │
-/// └───────────────────────────────────────────────────────────────────┘
-///                                     │
-///   __________________________________▼______________________________
-///  ╱                                                                 ╲
 /// ╱ Is the device cross-signed by the sender?                         ╲yes
 /// ╲___________________________________________________________________╱ │
 ///                                     │ no                              │
 ///                                     ▼                                 │
 /// ┌───────────────────────────────────────────────────────────────────┐ │
-/// │ F (we have a cross-signed device, but no cross-signing keys)      │ │
-/// └───────────────────────────────────────────────────────────────────┘ │
-///                                     │                                 │
-///                                     ▼                                 │
-/// ╭───────────────────────────────────────────────────────────────────╮ │
+/// │ F (we have device keys, but they are not signed by the sender)    │ │
+/// │                                                                   │ │
 /// │ Store the device with the session, in case we can confirm it      │ │
 /// │ later.                                                            │ │
 /// ╰───────────────────────────────────────────────────────────────────╯ │
@@ -118,21 +100,6 @@ use crate::{
 ///                                     ▼
 /// ┌───────────────────────────────────────────────────────────────────┐
 /// │ H (cross-signing key matches that used to sign the device!)       │
-/// └───────────────────────────────────────────────────────────────────┘
-///                                     │
-///   __________________________________▼______________________________
-///  ╱                                                                 ╲
-/// ╱ Is the signature in the device valid?                             ╲yes
-/// ╲___________________________________________________________________╱ │
-///                                     │ no                              │
-///                                     ▼                                 │
-/// ╭───────────────────────────────────────────────────────────────────╮ │
-/// │ !Session is invalid: drop it from the store and forget it.        │ │
-/// ╰───────────────────────────────────────────────────────────────────╯ │
-///                                     ┌─────────────────────────────────┘
-///                                     ▼
-/// ╭───────────────────────────────────────────────────────────────────╮
-/// │ J (device is verified by matching cross-signing key)              │
 /// │                                                                   │
 /// │ Look up the user_id and master_key for the user sending the       │
 /// │ to-device message.                                                │
@@ -236,40 +203,6 @@ impl<'a> SenderDataFinder<'a> {
     /// Step D (we have a device)
     fn have_device(&self, sender_device: Device) -> OlmResult<SenderData> {
         // Is the device cross-signed?
-
-        let user_id = sender_device.user_id();
-        let Some(signatures) = sender_device.signatures().get(user_id) else {
-            // This should never happen: we would not have managed to get a Device
-            // if it did not contain a signature.
-            error!(
-                "Found a device for user_id {user_id} but it has no signatures for that user id!"
-            );
-
-            // Return the same result as if the device is not cross-signed.
-            return Ok(SenderData::unknown());
-        };
-
-        // Count number of signatures - we know there is 1, because we would not have
-        // been able to construct a Device without a signature.
-        // If there are more than 1, we assume this device was cross-signed by some
-        // identity.
-        if signatures.len() > 1 {
-            // Yes, the device is cross-signed by someone
-            self.device_is_cross_signed(sender_device)
-        } else {
-            // No, the device is not cross-signed.
-            // Wait to see whether the device becomes cross-signed later. Drop
-            // out of both the "fast lane" and the "slow lane" and let the
-            // background retry task try this later.
-            //
-            // We will need a new, cross-signed device for this to work, so there is no
-            // point storing the device we have in the session.
-            Ok(SenderData::unknown())
-        }
-    }
-
-    /// E (we have a cross-signed device)
-    fn device_is_cross_signed(&self, sender_device: Device) -> OlmResult<SenderData> {
         // Does the cross-signing key match that used to sign the device?
         // And is the signature in the device valid?
 
@@ -277,7 +210,7 @@ impl<'a> SenderDataFinder<'a> {
             // Yes: check the device is signed by the sender
             self.device_is_cross_signed_by_sender(sender_device)
         } else {
-            // No: F (we have a cross-signed device, but no cross-signing keys)
+            // No: F (we have device keys, but they are not signed by the sender)
             Ok(SenderData::DeviceInfo {
                 device_keys: sender_device.as_device_keys().clone(),
                 retry_details: SenderDataRetryDetails::retry_soon(),
@@ -289,7 +222,6 @@ impl<'a> SenderDataFinder<'a> {
     /// Step G (device is cross-signed by the sender)
     fn device_is_cross_signed_by_sender(&self, sender_device: Device) -> OlmResult<SenderData> {
         // H (cross-signing key matches that used to sign the device!)
-        // And: J (device is verified by matching cross-signing key)
         let user_id = sender_device.user_id().to_owned();
 
         let master_key = sender_device
@@ -305,7 +237,7 @@ impl<'a> SenderDataFinder<'a> {
             // Surprisingly, there was no key in the MasterPubkey. We did not expect this:
             // treat it as if the device was not signed by this master key.
             //
-            tracing::error!("MasterPubkey for user {user_id} does not contain any keys!",);
+            error!("MasterPubkey for user {user_id} does not contain any keys!",);
 
             Ok(SenderData::DeviceInfo {
                 device_keys: sender_device.as_device_keys().clone(),
@@ -443,7 +375,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_does_not_add_sender_data_if_device_is_not_signed() {
+    async fn test_adds_device_info_even_if_it_is_not_signed() {
         // Given that the the device is in the store
         // But it is not signed
         let setup = TestSetup::new(TestOptions {
@@ -463,8 +395,12 @@ mod tests {
             .await
             .unwrap();
 
-        // Then we treat it as if there is no device at all
-        assert_let!(SenderData::UnknownDevice { retry_details, legacy_session } = sender_data);
+        // Then we store the device info even though it is useless, in case we want to
+        // check it matches up later.
+        assert_let!(
+            SenderData::DeviceInfo { device_keys, retry_details, legacy_session } = sender_data
+        );
+        assert_eq!(&device_keys, setup.sender_device.as_device_keys());
         assert_eq!(retry_details.retry_count, 0);
 
         // TODO: This should not be marked as a legacy session, but for now it is
