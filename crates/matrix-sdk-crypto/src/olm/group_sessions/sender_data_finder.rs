@@ -17,10 +17,10 @@ use vodozemac::Curve25519PublicKey;
 
 use super::{SenderData, SenderDataRetryDetails};
 use crate::{
-    error::OlmResult,
+    error::{OlmResult, SessionCreationError},
     store::Store,
     types::{events::olm_v1::DecryptedRoomKeyEvent, DeviceKeys},
-    Device, DeviceData, EventError, OlmError,
+    Device, DeviceData, OlmError,
 };
 
 /// Temporary struct that is used to look up [`SenderData`] based on the
@@ -220,15 +220,16 @@ impl<'a> SenderDataFinder<'a> {
 
     async fn have_device_keys(&self, sender_device_keys: &DeviceKeys) -> OlmResult<SenderData> {
         // Validate the signature of the DeviceKeys supplied.
-        if let Ok(sender_device_data) = DeviceData::try_from(sender_device_keys) {
-            let sender_device = self.store.wrap_device_data(sender_device_data).await?;
+        match DeviceData::try_from(sender_device_keys) {
+            Ok(sender_device_data) => {
+                let sender_device = self.store.wrap_device_data(sender_device_data).await?;
 
-            self.have_device(sender_device)
-        } else {
-            // The device keys supplied did not validate.
-            // TODO: log an error
-            // TODO: Err(OlmError::SessionCreation(SessionCreationError::InvalidDeviceKeys))
-            Err(OlmError::EventError(EventError::UnsupportedAlgorithm))
+                self.have_device(sender_device)
+            }
+            Err(e) => {
+                // The device keys supplied did not validate.
+                Err(OlmError::SessionCreation(SessionCreationError::InvalidDeviceKeys(e)))
+            }
         }
     }
 

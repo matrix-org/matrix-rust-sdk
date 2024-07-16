@@ -297,6 +297,10 @@ pub enum SessionCreationError {
     /// Error when creating an Olm Session from an incoming Olm message.
     #[error(transparent)]
     InboundCreation(#[from] vodozemac::olm::SessionCreationError),
+
+    /// The given device keys are invalid.
+    #[error("The given device keys are invalid")]
+    InvalidDeviceKeys(#[from] SignatureError),
 }
 
 /// Errors that can be returned by
