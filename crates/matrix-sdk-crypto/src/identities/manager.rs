@@ -27,7 +27,7 @@ use ruma::{
     OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId, UserId,
 };
 use tokio::sync::Mutex;
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, enabled, info, instrument, trace, warn, Level};
 
 use crate::{
     error::OlmResult,
@@ -182,37 +182,9 @@ impl IdentityManager {
                 .await?;
         }
 
-        #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
-        let changed_devices = devices.changed.iter().fold(BTreeMap::new(), |mut acc, d| {
-            acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
-            acc
-        });
-
-        #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
-        let new_devices = devices.new.iter().fold(BTreeMap::new(), |mut acc, d| {
-            acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
-            acc
-        });
-
-        #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
-        let deleted_devices = devices.deleted.iter().fold(BTreeMap::new(), |mut acc, d| {
-            acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
-            acc
-        });
-
-        let new_identities = identities.new.iter().map(|i| i.user_id()).collect::<BTreeSet<_>>();
-        let changed_identities =
-            identities.changed.iter().map(|i| i.user_id()).collect::<BTreeSet<_>>();
-
-        debug!(
-            ?request_id,
-            ?new_devices,
-            ?changed_devices,
-            ?deleted_devices,
-            ?new_identities,
-            ?changed_identities,
-            "Finished handling of the `/keys/query` response"
-        );
+        if enabled!(Level::DEBUG) {
+            debug_log_keys_query_response(&devices, &identities, request_id);
+        }
 
         Ok((devices, identities))
     }
@@ -1009,6 +981,46 @@ impl IdentityManager {
             _ => Ok(None),
         }
     }
+}
+
+/// Log information about what changed after processing a /keys/query response.
+/// Only does anything if the DEBUG log level is enabled.
+fn debug_log_keys_query_response(
+    devices: &DeviceChanges,
+    identities: &IdentityChanges,
+    request_id: &TransactionId,
+) {
+    #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
+    let changed_devices = devices.changed.iter().fold(BTreeMap::new(), |mut acc, d| {
+        acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
+        acc
+    });
+
+    #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
+    let new_devices = devices.new.iter().fold(BTreeMap::new(), |mut acc, d| {
+        acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
+        acc
+    });
+
+    #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
+    let deleted_devices = devices.deleted.iter().fold(BTreeMap::new(), |mut acc, d| {
+        acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
+        acc
+    });
+
+    let new_identities = identities.new.iter().map(|i| i.user_id()).collect::<BTreeSet<_>>();
+    let changed_identities =
+        identities.changed.iter().map(|i| i.user_id()).collect::<BTreeSet<_>>();
+
+    debug!(
+        ?request_id,
+        ?new_devices,
+        ?changed_devices,
+        ?deleted_devices,
+        ?new_identities,
+        ?changed_identities,
+        "Finished handling of the `/keys/query` response"
+    );
 }
 
 #[cfg(any(test, feature = "testing"))]
