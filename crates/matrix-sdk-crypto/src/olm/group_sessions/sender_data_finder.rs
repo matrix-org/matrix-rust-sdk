@@ -294,13 +294,10 @@ impl<'a> SenderDataFinder<'a> {
         let master_key = sender_device
             .device_owner_identity
             .as_ref()
-            .expect(
-                "device_owner_identity must exist because this device is cross-signing trusted!",
-            )
-            .master_key()
-            .clone();
+            .map(|i| i.master_key().get_first_key())
+            .flatten();
 
-        if let Some(master_key) = master_key.get_first_key() {
+        if let Some(master_key) = master_key {
             // We have user_id and master_key for the user sending the to-device message.
             let master_key_verified = sender_device.is_cross_signing_trusted();
             Ok(SenderData::SenderKnown { user_id, master_key, master_key_verified })
