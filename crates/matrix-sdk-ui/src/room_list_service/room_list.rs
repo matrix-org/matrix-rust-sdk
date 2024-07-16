@@ -27,6 +27,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons};
 use tokio::{select, sync::broadcast};
+use tracing::trace;
 
 use super::{
     filters::BoxedFilterFn,
@@ -203,7 +204,10 @@ fn merge_stream_and_receiver(
                 diffs = raw_stream.next() => {
                     if let Some(diffs) = diffs {
                         for diff in &diffs {
-                            diff.clone().apply(&mut raw_current_values);
+                            diff.clone().map(|room| {
+                                trace!(room = %room.room_id(), "updated in response");
+                                room
+                            }).apply(&mut raw_current_values);
                         }
 
                         yield diffs;
@@ -223,7 +227,9 @@ fn merge_stream_and_receiver(
                         reasons.contains(NotableUpdate::UNREAD_MARKER) {
                         // Emit a `VectorDiff::Set` for the specific rooms.
                         if let Some(index) = raw_current_values.iter().position(|room| room.room_id() == update.room_id) {
-                            let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
+                            let room = &raw_current_values[index];
+                            let update = VectorDiff::Set { index, value: room.clone() };
+                            trace!(room = %room.room_id(), "updated because of notable reason: {reasons:?}");
                             yield vec![update];
                         }
                     }
