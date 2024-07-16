@@ -312,7 +312,7 @@ pub fn get_element_call_required_permissions(
             WidgetEventFilter::MessageLikeWithType {
                 event_type: "org.matrix.rageshake_request".to_owned(),
             },
-            // To send this users encryption keys
+            // To send this user's encryption keys
             WidgetEventFilter::MessageLikeWithType {
                 event_type: "io.element.call.encryption_keys".to_owned(),
             },
