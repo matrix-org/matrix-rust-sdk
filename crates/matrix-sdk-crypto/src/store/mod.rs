@@ -1039,7 +1039,7 @@ impl Store {
 
     #[cfg(test)]
     /// Testing helper to allow to save only a set of devices
-    pub(crate) async fn save_devices(&self, devices: &[DeviceData]) -> Result<()> {
+    pub(crate) async fn save_device_data(&self, devices: &[DeviceData]) -> Result<()> {
         let changes = Changes {
             devices: DeviceChanges { changed: devices.to_vec(), ..Default::default() },
             ..Default::default()
@@ -1068,8 +1068,11 @@ impl Store {
             .and_then(|d| d.display_name().map(|d| d.to_owned())))
     }
 
-    /// Get the read-only device associated with `device_id` for `user_id`
-    pub(crate) async fn get_readonly_device(
+    /// Get the device data for the given [`UserId`] and [`DeviceId`].
+    ///
+    /// *Note*: This method will include our own device which is always present
+    /// in the store.
+    pub(crate) async fn get_device_data(
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
@@ -1077,10 +1080,14 @@ impl Store {
         self.inner.store.get_device(user_id, device_id).await
     }
 
-    /// Get the read-only version of all the devices that the given user has.
+    /// Get the device data for the given [`UserId`] and [`DeviceId`].
     ///
-    /// *Note*: This doesn't return our own device.
-    pub(crate) async fn get_readonly_devices_filtered(
+    /// *Note*: This method will **not** include our own device.
+    ///
+    /// Use this method if you need a list of recipients for a given user, since
+    /// we don't want to encrypt for our own device, otherwise take a look at
+    /// the [`Store::get_device_data_for_user`] method.
+    pub(crate) async fn get_device_data_for_user_filtered(
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
@@ -1092,19 +1099,26 @@ impl Store {
         })
     }
 
-    /// Get the read-only version of all the devices that the given user has.
+    /// Get the [`DeviceData`] for all the devices a user has.
     ///
-    /// *Note*: This does also return our own device.
-    pub(crate) async fn get_readonly_devices_unfiltered(
+    /// *Note*: This method will include our own device which is always present
+    /// in the store.
+    ///
+    /// Use this method if you need to operate on or update all devices of a
+    /// user, otherwise take a look at the
+    /// [`Store::get_device_data_for_user_filtered`] method.
+    pub(crate) async fn get_device_data_for_user(
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
         self.inner.store.get_user_devices(user_id).await
     }
 
-    /// Get a device for the given user with the given curve25519 key.
+    /// Get a [`Device`] for the given user with the given
+    /// [`Curve25519PublicKey`] key.
     ///
-    /// *Note*: This doesn't return our own device.
+    /// *Note*: This method will include our own device which is always present
+    /// in the store.
     pub(crate) async fn get_device_from_curve_key(
         &self,
         user_id: &UserId,
@@ -1115,11 +1129,17 @@ impl Store {
             .map(|d| d.devices().find(|d| d.curve25519_key() == Some(curve_key)))
     }
 
-    /// Get all devices associated with the given `user_id`
+    /// Get all devices associated with the given [`UserId`].
     ///
-    /// *Note*: This does also return our own device.
+    /// This method is more expensive than the
+    /// [`Store::get_device_data_for_user`] method, since a [`Device`]
+    /// requires the [`OwnUserIdentityData`] and the [`UserIdentityData`] of the
+    /// device owner to be fetched from the store as well.
+    ///
+    /// *Note*: This method will include our own device which is always present
+    /// in the store.
     pub(crate) async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
-        let devices = self.get_readonly_devices_unfiltered(user_id).await?;
+        let devices = self.get_device_data_for_user(user_id).await?;
 
         let own_identity = self
             .inner
@@ -1137,7 +1157,15 @@ impl Store {
         })
     }
 
-    /// Get a Device copy associated with `device_id` for `user_id`
+    /// Get a [`Device`] for the given user with the given [`DeviceId`].
+    ///
+    /// This method is more expensive than the [`Store::get_device_data`] method
+    /// since a [`Device`] requires the [`OwnUserIdentityData`] and the
+    /// [`UserIdentityData`] of the device owner to be fetched from the
+    /// store as well.
+    ///
+    /// *Note*: This method will include our own device which is always present
+    /// in the store.
     pub(crate) async fn get_device(
         &self,
         user_id: &UserId,

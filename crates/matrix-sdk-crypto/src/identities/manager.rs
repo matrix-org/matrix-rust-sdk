@@ -222,7 +222,7 @@ impl IdentityManager {
         device_keys: DeviceKeys,
     ) -> StoreResult<DeviceChange> {
         let old_device =
-            store.get_readonly_device(&device_keys.user_id, &device_keys.device_id).await?;
+            store.get_device_data(&device_keys.user_id, &device_keys.device_id).await?;
 
         if let Some(mut device) = old_device {
             match device.update_device(&device_keys) {
@@ -337,7 +337,7 @@ impl IdentityManager {
         }
 
         let current_devices: HashSet<&OwnedDeviceId> = current_devices.iter().collect();
-        let stored_devices = store.get_readonly_devices_unfiltered(&user_id).await?;
+        let stored_devices = store.get_device_data_for_user(&user_id).await?;
         let stored_devices_set: HashSet<&OwnedDeviceId> = stored_devices.keys().collect();
         let deleted_devices_set = stored_devices_set.difference(&current_devices);
 
@@ -900,7 +900,7 @@ impl IdentityManager {
 
         for user_id in users {
             // First of all, check the store for this user.
-            let devices = self.store.get_readonly_devices_filtered(user_id).await?;
+            let devices = self.store.get_device_data_for_user_filtered(user_id).await?;
 
             // Now, look for users who have no devices at all.
             //
@@ -1004,7 +1004,7 @@ impl IdentityManager {
             .await?
         {
             UserKeyQueryResult::WasPending => {
-                Ok(Some((user_id, self.store.get_readonly_devices_filtered(user_id).await?)))
+                Ok(Some((user_id, self.store.get_device_data_for_user_filtered(user_id).await?)))
             }
             _ => Ok(None),
         }
@@ -1406,7 +1406,7 @@ pub(crate) mod tests {
 
         let device = manager
             .store
-            .get_readonly_device(other_user, device_id!("SKISMLNIMH"))
+            .get_device_data(other_user, device_id!("SKISMLNIMH"))
             .await
             .unwrap()
             .unwrap();
@@ -1451,7 +1451,7 @@ pub(crate) mod tests {
         assert_eq!(devices.devices().count(), 1);
 
         let device =
-            manager.store.get_readonly_device(our_user, device_id!(device_id())).await.unwrap();
+            manager.store.get_device_data(our_user, device_id!(device_id())).await.unwrap();
 
         assert!(device.is_some());
     }
@@ -1883,11 +1883,6 @@ pub(crate) mod tests {
         let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
 
-        manager
-            .store
-            .get_readonly_device(other_user, device_id!("OBEBOSKTBE"))
-            .await
-            .unwrap()
-            .unwrap();
+        manager.store.get_device_data(other_user, device_id!("OBEBOSKTBE")).await.unwrap().unwrap();
     }
 }
