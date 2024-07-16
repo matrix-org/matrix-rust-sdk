@@ -262,36 +262,57 @@ pub fn new_virtual_element_call_widget(
 /// but should only be done as temporal workarounds until this function is
 /// adjusted
 #[uniffi::export]
-pub fn get_element_call_required_permissions(own_user_id: String) -> WidgetCapabilities {
+pub fn get_element_call_required_permissions(
+    own_user_id: String,
+    own_device_id: String,
+) -> WidgetCapabilities {
     use ruma::events::StateEventType;
 
     WidgetCapabilities {
         read: vec![
-            // TODO: we really should not have this permission in here, since it is not used
-            // anymore. The only reason `org.matrix.msc3401.call` is still here is to
-            // not break current EC deployments. (EC still expects to get this
-            // permission even though its not using it.) https://github.com/element-hq/element-call/pull/2399 needs to be merged and deployed
-            WidgetEventFilter::StateWithType { event_type: "org.matrix.msc3401.call".to_owned() },
+            // This is required for legacy state events (using one event and a membership array)
+            // TODO: remove once legacy call members are sunset
             WidgetEventFilter::StateWithType { event_type: StateEventType::CallMember.to_string() },
+            // [MSC3779](https://github.com/matrix-org/matrix-spec-proposals/pull/3779) version, with no leading underscore
+            WidgetEventFilter::StateWithTypeAndStateKey {
+                event_type: StateEventType::CallMember.to_string(),
+                state_key: format!("@{}_{}", own_user_id, own_device_id),
+            },
+            // The same as above but with an underscore
+            WidgetEventFilter::StateWithTypeAndStateKey {
+                event_type: StateEventType::CallMember.to_string(),
+                state_key: format!("_@{}_{}", own_user_id, own_device_id),
+            },
+            // To detect leaving/kicked room members during a call.
             WidgetEventFilter::StateWithType { event_type: StateEventType::RoomMember.to_string() },
+            // To decide whether to encrypt the call streams based on the room encryption setting.
             WidgetEventFilter::StateWithType {
                 event_type: StateEventType::RoomEncryption.to_string(),
             },
+            // To read rageshake requests from other room members
             WidgetEventFilter::MessageLikeWithType {
                 event_type: "org.matrix.rageshake_request".to_owned(),
             },
+            // To read encryption keys
+            // TODO change this to the appropriate to-device version once ready
             WidgetEventFilter::MessageLikeWithType {
                 event_type: "io.element.call.encryption_keys".to_owned(),
             },
+            // This allows the widget to check the room version, so it can know about
+            // version-specific auth rules (namely MSC3779).
+            WidgetEventFilter::StateWithType { event_type: StateEventType::RoomCreate.to_string() },
         ],
         send: vec![
+            // To send the call participation state event (main MatrixRTC event)
             WidgetEventFilter::StateWithTypeAndStateKey {
                 event_type: StateEventType::CallMember.to_string(),
                 state_key: own_user_id,
             },
+            // To request other room members to send rageshakes
             WidgetEventFilter::MessageLikeWithType {
                 event_type: "org.matrix.rageshake_request".to_owned(),
             },
+            // To send this user's encryption keys
             WidgetEventFilter::MessageLikeWithType {
                 event_type: "io.element.call.encryption_keys".to_owned(),
             },
