@@ -295,13 +295,14 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
+    use ruma::owned_room_id;
 
     use super::{
         super::FrozenSlidingSyncRoom, clean_storage, format_storage_key_for_sliding_sync,
         format_storage_key_for_sliding_sync_list, format_storage_key_prefix,
         restore_sliding_sync_state, store_sliding_sync_state, SlidingSyncList,
     };
-    use crate::{test_utils::logged_in_client, Result};
+    use crate::{test_utils::logged_in_client, Result, SlidingSyncRoom};
 
     #[allow(clippy::await_holding_lock)]
     #[async_test]
@@ -330,6 +331,9 @@ mod tests {
             .await?
             .is_none());
 
+        let room_id1 = owned_room_id!("!r1:matrix.org");
+        let room_id2 = owned_room_id!("!r2:matrix.org");
+
         // Create a new `SlidingSync` instance, and store it.
         let storage_key = {
             let sync_id = "test-sync-id";
@@ -351,6 +355,20 @@ mod tests {
 
                 let list_bar = lists.get("list_bar").unwrap();
                 list_bar.set_maximum_number_of_rooms(Some(1337));
+            }
+
+            // Add some rooms.
+            {
+                let mut rooms = sliding_sync.inner.rooms.write().await;
+
+                rooms.insert(
+                    room_id1.clone(),
+                    SlidingSyncRoom::new(client.clone(), room_id1.clone(), None, Vec::new()),
+                );
+                rooms.insert(
+                    room_id2.clone(),
+                    SlidingSyncRoom::new(client.clone(), room_id2.clone(), None, Vec::new()),
+                );
             }
 
             let position_guard = sliding_sync.inner.position.lock().await;
@@ -403,7 +421,7 @@ mod tests {
 
             // Check the list' state.
             {
-                let lists = sliding_sync.inner.lists.write().await;
+                let lists = sliding_sync.inner.lists.read().await;
 
                 // This one was cached.
                 let list_foo = lists.get("list_foo").unwrap();
@@ -412,6 +430,15 @@ mod tests {
                 // This one wasn't.
                 let list_bar = lists.get("list_bar").unwrap();
                 assert_eq!(list_bar.maximum_number_of_rooms(), None);
+            }
+
+            // Check the rooms.
+            {
+                let rooms = sliding_sync.inner.rooms.read().await;
+
+                // Rooms were cached.
+                assert!(rooms.contains_key(&room_id1));
+                assert!(rooms.contains_key(&room_id2));
             }
 
             // The maximum number of rooms reloaded from the cache should have been
