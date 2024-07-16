@@ -284,7 +284,14 @@ async fn test_stale_local_echo_time_abort_edit() {
     timeline.send(RoomMessageEventContent::text_plain("hi!").into()).await.unwrap();
 
     // Receiving the local echo for the message.
-    let vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
+    let mut vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
+
+    // The event cache may decide to clear the timeline because it was a limited
+    // sync, so account for that.
+    while let VectorDiff::Clear = &vector_diff {
+        vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
+    }
+
     let local_echo = assert_matches!(vector_diff, VectorDiff::PushBack { value } => value);
 
     if !local_echo.is_local_echo() {
