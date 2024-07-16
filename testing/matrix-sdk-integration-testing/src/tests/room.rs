@@ -16,7 +16,7 @@ use matrix_sdk::{
 use tokio::{spawn, time::sleep};
 use tracing::error;
 
-use crate::helpers::TestClientBuilder;
+use crate::helpers::{wait_for_room, TestClientBuilder};
 
 #[tokio::test]
 async fn test_event_with_context() -> Result<()> {
@@ -56,14 +56,7 @@ async fn test_event_with_context() -> Result<()> {
         .room_id()
         .to_owned();
 
-    let mut alice_room = None;
-    for i in 1..=4 {
-        alice_room = alice.get_room(&room_id);
-        if alice_room.is_some() {
-            break;
-        }
-        sleep(Duration::from_millis(30 * i)).await;
-    }
+    let alice_room = wait_for_room(&alice, &room_id).await;
 
     // Bob joins it.
     let mut bob_joined = false;
@@ -77,7 +70,6 @@ async fn test_event_with_context() -> Result<()> {
     }
     anyhow::ensure!(bob_joined, "bob couldn't join after 3 seconds");
 
-    let alice_room = alice_room.unwrap();
     assert_eq!(alice_room.state(), RoomState::Joined);
 
     alice_room.enable_encryption().await?;

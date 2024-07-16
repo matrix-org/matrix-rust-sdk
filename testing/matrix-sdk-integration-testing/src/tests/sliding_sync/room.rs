@@ -52,7 +52,7 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 use wiremock::{matchers::AnyMatcher, Mock, MockServer};
 
-use crate::helpers::TestClientBuilder;
+use crate::helpers::{wait_for_room, TestClientBuilder};
 
 #[tokio::test]
 async fn test_left_room() -> Result<()> {
@@ -741,36 +741,10 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     room.enable_encryption().await.unwrap();
 
     // Wait for Alice to see its new room…
-    let mut i = 1;
-    let alice_room = loop {
-        // Linear backoff: wait at most (1+2+3+4)*200ms = 2s for the response to come
-        // back from the server.
-        if let Some(room) = alice.get_room(room.room_id()) {
-            break room;
-        };
-        if i == 4 {
-            panic!("alice can't see the room");
-        }
-        warn!("attempt #{i}, alice couldn't see the room, retrying in a few…");
-        i += 1;
-        sleep(Duration::from_millis(i * 200)).await;
-    };
+    let alice_room = wait_for_room(&alice, room.room_id()).await;
 
     // …and for Bob to receive the invitation.
-    let mut i = 1;
-    let bob_room = loop {
-        // Linear backoff: wait at most (1+2+3+4)*200ms = 2s for the response to come
-        // back from the server.
-        if let Some(room) = bob.get_room(room.room_id()) {
-            break room;
-        };
-        if i == 4 {
-            panic!("boob can't see the room");
-        }
-        warn!("attempt #{i}, bob couldn't see the room, retrying in a few…");
-        i += 1;
-        sleep(Duration::from_millis(i * 200)).await;
-    };
+    let bob_room = wait_for_room(&bob, room.room_id()).await;
 
     // Bob accepts the invitation by joining the room.
     bob_room.join().await.unwrap();
@@ -967,13 +941,14 @@ async fn test_room_info_notable_update_deduplication() -> Result<()> {
     assert_pending!(alice_rooms);
 
     // Alice sees the room.
-    let alice_room = alice.get_room(alice_room.room_id()).unwrap();
+    let alice_room = wait_for_room(&alice, alice_room.room_id()).await;
     assert_eq!(alice_room.state(), RoomState::Joined);
 
     assert!(alice_room.is_encrypted().await.unwrap());
 
     // Bob sees and joins the room.
-    let bob_room = bob.get_room(alice_room.room_id()).unwrap();
+    let bob_room = wait_for_room(&bob, alice_room.room_id()).await;
+
     bob_room.join().await.unwrap();
 
     // Wait Bob to be in the room.

@@ -11,13 +11,16 @@ use assign::assign;
 use matrix_sdk::{
     config::{RequestConfig, SyncSettings},
     encryption::EncryptionSettings,
-    ruma::api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
-    Client, ClientBuilder,
+    ruma::{
+        api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
+        RoomId,
+    },
+    Client, ClientBuilder, Room,
 };
 use once_cell::sync::Lazy;
 use rand::Rng as _;
 use tempfile::{tempdir, TempDir};
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, time::sleep};
 
 /// This global maintains temp directories alive for the whole lifetime of the
 /// process.
@@ -195,4 +198,21 @@ impl Deref for SyncTokenAwareClient {
     fn deref(&self) -> &Self::Target {
         &self.client
     }
+}
+
+/// Waits for a room to arrive from a sync, for ~2 seconds.
+///
+/// Note: this doesn't run any sync, it assumes a sync has been running in the
+/// background.
+pub async fn wait_for_room(client: &Client, room_id: &RoomId) -> Room {
+    for i in 1..5 {
+        // Linear backoff: wait at most (1+2+3+4+5)*150ms > 2s for the response to come
+        // back from the server.
+        if let Some(room) = client.get_room(room_id) {
+            return room;
+        };
+        tracing::warn!("attempt #{i}, alice couldn't see the room, retrying in a few…");
+        sleep(Duration::from_millis(i * 150)).await;
+    }
+    panic!("room couldn't be fetched after all attempts");
 }
