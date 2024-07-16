@@ -1344,11 +1344,11 @@ impl Account {
                 // that we haven't tried to send them any Megolm sessions yet,
                 // so we don't need to worry about it.
                 if let Some(device) = store.get_device_from_curve_key(sender, sender_key).await? {
-                    let mut read_only_device = device.inner;
-                    read_only_device.olm_wedging_index.increment();
+                    let mut device_data = device.inner;
+                    device_data.olm_wedging_index.increment();
 
                     changes.devices =
-                        DeviceChanges { changed: vec![read_only_device], ..Default::default() };
+                        DeviceChanges { changed: vec![device_data], ..Default::default() };
                 }
 
                 store.save_changes(changes).await?;

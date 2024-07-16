@@ -2555,8 +2555,8 @@ pub(crate) mod tests {
 
         let alice_device = DeviceData::from_machine_test_helper(&alice).await.unwrap();
         let bob_device = DeviceData::from_machine_test_helper(&bob).await.unwrap();
-        alice.store().save_devices(&[bob_device]).await.unwrap();
-        bob.store().save_devices(&[alice_device]).await.unwrap();
+        alice.store().save_device_data(&[bob_device]).await.unwrap();
+        bob.store().save_device_data(&[alice_device]).await.unwrap();
 
         (alice, bob, otk)
     }
@@ -3796,7 +3796,7 @@ pub(crate) mod tests {
         let bob_other_machine = OlmMachine::new(bob_id, bob_other_device).await;
         let bob_other_device =
             DeviceData::from_machine_test_helper(&bob_other_machine).await.unwrap();
-        bob.store().save_devices(&[bob_other_device]).await.unwrap();
+        bob.store().save_device_data(&[bob_other_device]).await.unwrap();
         bob.get_device(bob_id, device_id!("OTHERBOB"), None)
             .await
             .unwrap()
@@ -4200,7 +4200,7 @@ pub(crate) mod tests {
         let (alice, _) =
             get_machine_pair_with_setup_sessions_test_helper(alice_id(), user_id(), false).await;
         let device = DeviceData::from_machine_test_helper(&alice).await.unwrap();
-        alice.store().save_devices(&[device]).await.unwrap();
+        alice.store().save_device_data(&[device]).await.unwrap();
 
         let (outbound, mut inbound) = alice
             .store()

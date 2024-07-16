@@ -835,11 +835,11 @@ pub(crate) mod tests {
 
         let alice_public_identity =
             OtherUserIdentityData::from_private(&*alice_private_identity.lock().await).await;
-        let alice_readonly_identity =
+        let alice_identity_data =
             OwnUserIdentityData::from_private(&*alice_private_identity.lock().await).await;
         let bob_public_identity =
             OtherUserIdentityData::from_private(&*bob_private_identity.lock().await).await;
-        let bob_readonly_identity =
+        let bob_identity_data =
             OwnUserIdentityData::from_private(&*bob_private_identity.lock().await).await;
 
         let alice_device = DeviceData::from_account(&alice);
@@ -847,7 +847,7 @@ pub(crate) mod tests {
 
         let alice_changes = Changes {
             identities: IdentityChanges {
-                new: vec![alice_readonly_identity.into(), bob_public_identity.into()],
+                new: vec![alice_identity_data.into(), bob_public_identity.into()],
                 changed: vec![],
                 unchanged: vec![],
             },
@@ -858,7 +858,7 @@ pub(crate) mod tests {
 
         let bob_changes = Changes {
             identities: IdentityChanges {
-                new: vec![bob_readonly_identity.into(), alice_public_identity.into()],
+                new: vec![bob_identity_data.into(), alice_public_identity.into()],
                 changed: vec![],
                 unchanged: vec![],
             },

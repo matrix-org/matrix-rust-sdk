@@ -128,7 +128,7 @@ pub(crate) async fn collect_session_recipients(
     let own_identity = store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
 
     for user_id in users {
-        let user_devices = store.get_readonly_devices_filtered(user_id).await?;
+        let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
 
         let recipient_devices = match settings.sharing_strategy {
             CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices } => {

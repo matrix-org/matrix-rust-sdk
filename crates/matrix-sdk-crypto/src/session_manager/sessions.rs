@@ -516,7 +516,7 @@ impl SessionManager {
 
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
-                let device = match self.store.get_readonly_device(user_id, device_id).await {
+                let device = match self.store.get_device_data(user_id, device_id).await {
                     Ok(Some(d)) => d,
                     Ok(None) => {
                         warn!(
@@ -720,7 +720,7 @@ mod tests {
 
         let bob_device = DeviceData::from_account(&bob);
 
-        manager.store.save_devices(&[bob_device]).await.unwrap();
+        manager.store.save_device_data(&[bob_device]).await.unwrap();
 
         let (txn_id, request) =
             manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().unwrap();
@@ -873,7 +873,7 @@ mod tests {
         let time = SystemTime::now() - Duration::from_secs(3601);
         session.creation_time = SecondsSinceUnixEpoch::from_system_time(time).unwrap();
 
-        manager.store.save_devices(&[bob_device.clone()]).await.unwrap();
+        manager.store.save_device_data(&[bob_device.clone()]).await.unwrap();
         manager.store.save_sessions(&[session]).await.unwrap();
 
         assert!(manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().is_none());
@@ -921,7 +921,7 @@ mod tests {
 
         let (manager, _identity_manager) = session_manager_test_helper().await;
 
-        manager.store.save_devices(&[alice_device]).await.unwrap();
+        manager.store.save_device_data(&[alice_device]).await.unwrap();
 
         let (txn_id, users_for_key_claim) =
             manager.get_missing_sessions(iter::once(alice)).await.unwrap().unwrap();
@@ -1004,7 +1004,7 @@ mod tests {
         let alice_device = DeviceData::from_account(&alice_account);
 
         let (manager, _identity_manager) = session_manager_test_helper().await;
-        manager.store.save_devices(&[alice_device]).await.unwrap();
+        manager.store.save_device_data(&[alice_device]).await.unwrap();
 
         // Since we don't have a session with Alice yet, the machine will try to claim
         // some keys for alice.
