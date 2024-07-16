@@ -674,7 +674,7 @@ impl Account {
         self.inner.sign(string)
     }
 
-    /// Get a serializeable version of the `Account` so it can be persisted.
+    /// Get a serializable version of the `Account` so it can be persisted.
     pub fn pickle(&self) -> PickledAccount {
         let pickle = self.inner.pickle();
 
