@@ -740,15 +740,40 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     // Room is created by Alice. Let's enable encryption.
     room.enable_encryption().await.unwrap();
 
-    // Wait for Alice to see its new room, and for Bob to receive the invitation.
-    sleep(Duration::from_secs(2)).await;
+    // Wait for Alice to see its new room…
+    let mut i = 1;
+    let alice_room = loop {
+        // Linear backoff: wait at most (1+2+3+4)*200ms = 2s for the response to come
+        // back from the server.
+        if let Some(room) = alice.get_room(room.room_id()) {
+            break room;
+        };
+        if i == 4 {
+            panic!("alice can't see the room");
+        }
+        warn!("attempt #{i}, alice couldn't see the room, retrying in a few…");
+        i += 1;
+        sleep(Duration::from_millis(i * 200)).await;
+    };
 
-    let alice_room = alice.get_room(room.room_id()).unwrap();
-    let bob_room = bob.get_room(alice_room.room_id()).unwrap();
+    // …and for Bob to receive the invitation.
+    let mut i = 1;
+    let bob_room = loop {
+        // Linear backoff: wait at most (1+2+3+4)*200ms = 2s for the response to come
+        // back from the server.
+        if let Some(room) = bob.get_room(room.room_id()) {
+            break room;
+        };
+        if i == 4 {
+            panic!("boob can't see the room");
+        }
+        warn!("attempt #{i}, bob couldn't see the room, retrying in a few…");
+        i += 1;
+        sleep(Duration::from_millis(i * 200)).await;
+    };
+
+    // Bob accepts the invitation by joining the room.
     bob_room.join().await.unwrap();
-
-    // Wait for Alice to see Bob in the room.
-    sleep(Duration::from_secs(2)).await;
 
     assert_eq!(alice_room.state(), RoomState::Joined);
     assert!(alice_room.is_encrypted().await.unwrap());
@@ -764,7 +789,9 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     pin_mut!(alice_room_list_stream);
 
     // The room list receives its initial rooms.
-    assert_let!(Some(diffs) = alice_room_list_stream.next().await);
+    assert_let!(
+        Ok(Some(diffs)) = timeout(Duration::from_secs(5), alice_room_list_stream.next()).await
+    );
     assert_eq!(diffs.len(), 1);
     assert_matches!(
         &diffs[0],
@@ -779,7 +806,9 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     let event = bob_room.send(RoomMessageEventContent::text_plain("hello world")).await?;
 
     // Wait the message to be received by Alice.
-    assert_let!(Some(diffs) = alice_room_list_stream.next().await);
+    assert_let!(
+        Ok(Some(diffs)) = timeout(Duration::from_secs(5), alice_room_list_stream.next()).await
+    );
     assert_eq!(diffs.len(), 1);
     assert_matches!(
         &diffs[0],
@@ -792,7 +821,9 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
     // Now we allow the key to come through
     *CUSTOM_RESPONDER.drop_todevice.lock().unwrap() = false;
 
-    assert_let!(Some(diffs) = alice_room_list_stream.next().await);
+    assert_let!(
+        Ok(Some(diffs)) = timeout(Duration::from_secs(5), alice_room_list_stream.next()).await
+    );
     assert_eq!(diffs.len(), 1);
     assert_matches!(
         &diffs[0],
@@ -802,6 +833,7 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
         }
     );
 
+    sleep(Duration::from_secs(2)).await;
     assert_pending!(alice_room_list_stream);
 
     Ok(())
