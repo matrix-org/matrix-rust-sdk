@@ -295,8 +295,7 @@ impl<'a> SenderDataFinder<'a> {
         let master_key = sender_device
             .device_owner_identity
             .as_ref()
-            .map(|i| i.master_key().get_first_key())
-            .flatten();
+            .and_then(|i| i.master_key().get_first_key());
 
         if let Some(master_key) = master_key {
             // We have user_id and master_key for the user sending the to-device message.
