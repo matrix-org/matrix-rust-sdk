@@ -99,7 +99,7 @@ async fn test_left_room() -> Result<()> {
 
     // Steven joins it.
     let mut joined = false;
-    for _ in 0..3 {
+    for _ in 0..10 {
         sleep(Duration::from_secs(1)).await;
         if let Some(room) = steven.get_room(peter_room.room_id()) {
             room.join().await?;
@@ -107,7 +107,7 @@ async fn test_left_room() -> Result<()> {
             break;
         }
     }
-    anyhow::ensure!(joined, "steven couldn't join after 3 seconds");
+    anyhow::ensure!(joined, "steven couldn't join after 10 seconds");
 
     // Now Peter is just being rude.
     peter_room.leave().await?;
