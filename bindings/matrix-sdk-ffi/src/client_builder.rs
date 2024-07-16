@@ -258,6 +258,7 @@ pub struct ClientBuilder {
     cross_process_refresh_lock_id: Option<String>,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     additional_root_certificates: Vec<Vec<u8>>,
+    disable_built_in_root_certificates: bool,
     encryption_settings: EncryptionSettings,
 }
 
@@ -281,6 +282,7 @@ impl ClientBuilder {
             cross_process_refresh_lock_id: None,
             session_delegate: None,
             additional_root_certificates: Default::default(),
+            disable_built_in_root_certificates: false,
             encryption_settings: EncryptionSettings {
                 auto_enable_cross_signing: false,
                 backup_download_strategy:
@@ -403,6 +405,15 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    /// Don't trust any system root certificates, only trust the certificates
+    /// provided through
+    /// [`add_root_certificates`][ClientBuilder::add_root_certificates].
+    pub fn disable_built_in_root_certificates(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.disable_built_in_root_certificates = true;
+        Arc::new(builder)
+    }
+
     pub fn auto_enable_cross_signing(
         self: Arc<Self>,
         auto_enable_cross_signing: bool,
@@ -477,18 +488,26 @@ impl ClientBuilder {
         for certificate in builder.additional_root_certificates {
             // We don't really know what type of certificate we may get here, so let's try
             // first one type, then the other.
-            if let Ok(cert) = Certificate::from_der(&certificate) {
-                certificates.push(cert);
-            } else {
-                let cert =
-                    Certificate::from_pem(&certificate).map_err(|e| ClientBuildError::Generic {
-                        message: format!("Failed to add a root certificate {e:?}"),
+            match Certificate::from_der(&certificate) {
+                Ok(cert) => {
+                    certificates.push(cert);
+                }
+                Err(der_error) => {
+                    let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
+                        ClientBuildError::Generic {
+                            message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
+                        }
                     })?;
-                certificates.push(cert);
+                    certificates.push(cert);
+                }
             }
         }
 
         inner_builder = inner_builder.add_root_certificates(certificates);
+
+        if builder.disable_built_in_root_certificates {
+            inner_builder = inner_builder.disable_built_in_root_certificates();
+        }
 
         if let Some(proxy) = builder.proxy {
             inner_builder = inner_builder.proxy(proxy);
