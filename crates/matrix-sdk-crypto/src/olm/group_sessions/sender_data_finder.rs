@@ -44,7 +44,7 @@ use crate::{
 ///                                     │ no                              │
 ///                                     ▼                                 │
 /// ┌───────────────────────────────────────────────────────────────────┐ │
-/// │ B (there is no device info in the to-device message)              │ │
+/// │ B (there are no device keys in the to-device message)             │ │
 /// │                                                                   │ │
 /// │ We need to find the device details.                               │ │
 /// └───────────────────────────────────────────────────────────────────┘ │
@@ -57,29 +57,29 @@ use crate::{
 ///                                     │ no                              │
 ///                                     ▼                                 │
 /// ╭───────────────────────────────────────────────────────────────────╮ │
-/// │ C (there is no device info locally)                               │ │
+/// │ C (we don't know the sending device)                              │ │
 /// │                                                                   │ │
 /// │ Give up: we have no sender info for this room key.                │ │
 /// ╰───────────────────────────────────────────────────────────────────╯ │
 ///                                     ┌─────────────────────────────────┘
 ///                                     ▼
 /// ┌───────────────────────────────────────────────────────────────────┐
-/// │ D (we have device info)                                           │
+/// │ D (we have the device)                                            │
 /// └───────────────────────────────────────────────────────────────────┘
 ///                                     │
 ///   __________________________________▼______________________________
 ///  ╱                                                                 ╲
-/// ╱ Is the device info cross-signed?                                  ╲yes
+/// ╱ Is the device cross-signed?                                       ╲yes
 /// ╲___________________________________________________________________╱ │
 ///                                     │ no                              │
 ///                                     ▼                                 │
 /// ╭───────────────────────────────────────────────────────────────────╮ │
-/// │ Give up: unsigned device info is useless.                         │ │
+/// │ Give up: an unsigned device is useless.                           │ │
 /// ╰───────────────────────────────────────────────────────────────────╯ │
 ///                                     ┌─────────────────────────────────┘
 ///                                     ▼
 /// ┌───────────────────────────────────────────────────────────────────┐
-/// │ E (we have cross-signed device info)                              │
+/// │ E (we have a cross-signed device)                                 │
 /// └───────────────────────────────────────────────────────────────────┘
 ///                                     │
 ///   __________________________________▼______________________________
@@ -89,13 +89,13 @@ use crate::{
 ///                                     │ no                              │
 ///                                     ▼                                 │
 /// ┌───────────────────────────────────────────────────────────────────┐ │
-/// │ F (we have cross-signed device info, but no cross-signing keys)   │ │
+/// │ F (we have a cross-signed device, but no cross-signing keys)      │ │
 /// └───────────────────────────────────────────────────────────────────┘ │
 ///                                     │                                 │
 ///                                     ▼                                 │
 /// ╭───────────────────────────────────────────────────────────────────╮ │
-/// │ Store the device info with the session, in case we can            │ │
-/// │ confirm it later.                                                 │ │
+/// │ Store the device with the session, in case we can confirm it      │ │
+/// │ later.                                                            │ │
 /// ╰───────────────────────────────────────────────────────────────────╯ │
 ///                                     ┌─────────────────────────────────┘
 ///                                     ▼
@@ -106,23 +106,23 @@ use crate::{
 ///   __________________________________▼______________________________
 ///  ╱                                                                 ╲
 /// ╱ Does the cross-signing key match that used                        ╲yes
-/// ╲ to sign the device info?                                          ╱ │
+/// ╲ to sign the device?                                               ╱ │
 ///  ╲_________________________________________________________________╱  │
 ///                                     │ no                              │
 ///                                     ▼                                 │
 /// ╭───────────────────────────────────────────────────────────────────╮ │
-/// │ Store the device info with the session, in case we get the        │ │
+/// │ Store the device with the session, in case we get the             │ │
 /// │ right cross-signing key later.                                    │ │
 /// ╰───────────────────────────────────────────────────────────────────╯ │
 ///                                     ┌─────────────────────────────────┘
 ///                                     ▼
 /// ┌───────────────────────────────────────────────────────────────────┐
-/// │ H (cross-signing key matches that used to sign the device info!)  │
+/// │ H (cross-signing key matches that used to sign the device!)       │
 /// └───────────────────────────────────────────────────────────────────┘
 ///                                     │
 ///   __________________________________▼______________________________
 ///  ╱                                                                 ╲
-/// ╱ Is the signature in the device info valid?                        ╲yes
+/// ╱ Is the signature in the device valid?                             ╲yes
 /// ╲___________________________________________________________________╱ │
 ///                                     │ no                              │
 ///                                     ▼                                 │
@@ -132,7 +132,7 @@ use crate::{
 ///                                     ┌─────────────────────────────────┘
 ///                                     ▼
 /// ╭───────────────────────────────────────────────────────────────────╮
-/// │ J (device info is verified by matching cross-signing key)         │
+/// │ J (device is verified by matching cross-signing key)              │
 /// │                                                                   │
 /// │ Look up the user_id and master_key for the user sending the       │
 /// │ to-device message.                                                │
@@ -150,7 +150,7 @@ pub(crate) struct SenderDataFinder<'a> {
 }
 
 impl<'a> SenderDataFinder<'a> {
-    /// Find the device info associated with the to-device message used to
+    /// Find the device associated with the to-device message used to
     /// create the InboundGroupSession we are about to create, and decide
     /// whether we trust the sender.
     pub(crate) async fn find_using_event(
@@ -162,7 +162,7 @@ impl<'a> SenderDataFinder<'a> {
         finder.have_event(sender_curve_key, room_key_event).await
     }
 
-    /// Use the supplied device info to decide whether we trust the sender.
+    /// Use the supplied device keys to decide whether we trust the sender.
     pub(crate) async fn find_using_device_keys(
         store: &'a Store,
         device_keys: DeviceKeys,
@@ -179,7 +179,7 @@ impl<'a> SenderDataFinder<'a> {
     ) -> OlmResult<SenderData> {
         // Does the to-device message contain the device_keys property from MSC4147?
         if let Some(sender_device_keys) = &room_key_event.device_keys {
-            // Yes: use the device info to continue
+            // Yes: use the device keys to continue
             self.have_device_keys(sender_device_keys).await
         } else {
             // No: look for the device in the store
@@ -187,7 +187,7 @@ impl<'a> SenderDataFinder<'a> {
         }
     }
 
-    /// Step B (there is no device info in the to-device message)
+    /// Step B (there are no device keys in the to-device message)
     async fn search_for_device(
         &self,
         sender_curve_key: Curve25519PublicKey,
@@ -198,10 +198,10 @@ impl<'a> SenderDataFinder<'a> {
         if let Some(sender_device) =
             self.store.get_device_from_curve_key(&room_key_event.sender, sender_curve_key).await?
         {
-            // Yes: use the device info to continue
+            // Yes: use the device to continue
             self.have_device(sender_device)
         } else {
-            // Step C (no device info locally)
+            // Step C (we don't know the sending device)
             //
             // We have no device data for this session so we can't continue in the "fast
             // lane" (blocking sync).
@@ -232,9 +232,9 @@ impl<'a> SenderDataFinder<'a> {
         }
     }
 
-    /// Step D (we have device info)
+    /// Step D (we have a device)
     fn have_device(&self, sender_device: Device) -> OlmResult<SenderData> {
-        // Is the device info cross-signed?
+        // Is the device cross-signed?
 
         let user_id = sender_device.user_id();
         let Some(signatures) = sender_device.signatures().get(user_id) else {
@@ -253,30 +253,30 @@ impl<'a> SenderDataFinder<'a> {
         // If there are more than 1, we assume this device was cross-signed by some
         // identity.
         if signatures.len() > 1 {
-            // Yes, the device info is cross-signed by someone
+            // Yes, the device is cross-signed by someone
             self.device_is_cross_signed(sender_device)
         } else {
-            // No, the device info is not cross-signed.
+            // No, the device is not cross-signed.
             // Wait to see whether the device becomes cross-signed later. Drop
             // out of both the "fast lane" and the "slow lane" and let the
             // background retry task try this later.
             //
-            // We will need new, cross-signed device info for this to work, so there is no
-            // point storing the device info we have in the session.
+            // We will need a new, cross-signed device for this to work, so there is no
+            // point storing the device we have in the session.
             Ok(SenderData::unknown())
         }
     }
 
-    /// E (we have cross-signed device info)
+    /// E (we have a cross-signed device)
     fn device_is_cross_signed(&self, sender_device: Device) -> OlmResult<SenderData> {
-        // Does the cross-signing key match that used to sign the device info?
-        // And is the signature in the device info valid?
+        // Does the cross-signing key match that used to sign the device?
+        // And is the signature in the device valid?
 
         if sender_device.is_cross_signed_by_owner() {
             // Yes: check the device is signed by the sender
             self.device_is_cross_signed_by_sender(sender_device)
         } else {
-            // No: F (we have cross-signed device info, but no cross-signing keys)
+            // No: F (we have a cross-signed device, but no cross-signing keys)
             Ok(SenderData::DeviceInfo {
                 device_keys: sender_device.as_device_keys().clone(),
                 retry_details: SenderDataRetryDetails::retry_soon(),
@@ -287,8 +287,8 @@ impl<'a> SenderDataFinder<'a> {
 
     /// Step G (device is cross-signed by the sender)
     fn device_is_cross_signed_by_sender(&self, sender_device: Device) -> OlmResult<SenderData> {
-        // H (cross-signing key matches that used to sign the device info!)
-        // And: J (device info is verified by matching cross-signing key)
+        // H (cross-signing key matches that used to sign the device!)
+        // And: J (device is verified by matching cross-signing key)
         let user_id = sender_device.user_id().to_owned();
 
         let master_key = sender_device
@@ -466,7 +466,7 @@ mod tests {
             .await
             .unwrap();
 
-        // Then we treat it as if there is no device info at all
+        // Then we treat it as if there is no device at all
         assert_let!(SenderData::UnknownDevice { retry_details, legacy_session } = sender_data);
         assert_eq!(retry_details.retry_count, 0);
 
@@ -594,7 +594,7 @@ mod tests {
 
     #[async_test]
     async fn test_notes_master_key_is_verified_for_own_identity() {
-        // Given we can find the device info, and we sent the event, and we are verified
+        // Given we can find the device, and we sent the event, and we are verified
         let setup = TestSetup::new(TestOptions {
             store_contains_device: true,
             store_contains_sender_identity: true,
@@ -624,7 +624,7 @@ mod tests {
 
     #[async_test]
     async fn test_notes_master_key_is_verified_for_other_identity() {
-        // Given we can find the device info, and someone else sent the event
+        // Given we can find the device, and someone else sent the event
         // And the sender is verified
         let setup = TestSetup::new(TestOptions {
             store_contains_device: true,
