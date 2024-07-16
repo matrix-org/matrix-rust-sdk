@@ -8,7 +8,9 @@ use std::{
 
 use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
-    media::{MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSize},
+    media::{
+        MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSettings,
+    },
     oidc::{
         registrations::{ClientId, OidcRegistrations},
         requests::account_management::AccountManagementActionFull,
@@ -657,11 +659,11 @@ impl Client {
             .get_media_content(
                 &MediaRequest {
                     source,
-                    format: MediaFormat::Thumbnail(MediaThumbnailSize {
-                        method: Method::Scale,
-                        width: UInt::new(width).unwrap(),
-                        height: UInt::new(height).unwrap(),
-                    }),
+                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                        Method::Scale,
+                        UInt::new(width).unwrap(),
+                        UInt::new(height).unwrap(),
+                    )),
                 },
                 true,
             )
