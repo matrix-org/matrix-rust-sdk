@@ -21,7 +21,6 @@ use super::{
     cache::{format_storage_key_prefix, restore_sliding_sync_state},
     sticky_parameters::SlidingSyncStickyManager,
     Error, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
-    SlidingSyncRoom,
 };
 use crate::{sliding_sync::SlidingSyncStickyParameters, Client, Result};
 
@@ -38,7 +37,6 @@ pub struct SlidingSyncBuilder {
     lists: Vec<SlidingSyncListBuilder>,
     extensions: Option<ExtensionsConfig>,
     subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
-    rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
     poll_timeout: Duration,
     network_timeout: Duration,
     #[cfg(feature = "e2e-encryption")]
@@ -60,7 +58,6 @@ impl SlidingSyncBuilder {
                 lists: Vec::new(),
                 extensions: None,
                 subscriptions: BTreeMap::new(),
-                rooms: BTreeMap::new(),
                 poll_timeout: Duration::from_secs(30),
                 network_timeout: Duration::from_secs(30),
                 #[cfg(feature = "e2e-encryption")]
@@ -254,15 +251,15 @@ impl SlidingSyncBuilder {
         let restored_fields =
             restore_sliding_sync_state(&client, &self.storage_key, &lists).await?;
 
-        let (delta_token, pos) = if let Some(fields) = restored_fields {
+        let (delta_token, pos, rooms) = if let Some(fields) = restored_fields {
             #[cfg(feature = "e2e-encryption")]
             let pos = if self.share_pos { fields.pos } else { None };
             #[cfg(not(feature = "e2e-encryption"))]
             let pos = None;
 
-            (fields.delta_token, pos)
+            (fields.delta_token, pos, fields.rooms)
         } else {
-            (None, None)
+            (None, None, BTreeMap::new())
         };
 
         #[cfg(feature = "e2e-encryption")]
@@ -270,7 +267,7 @@ impl SlidingSyncBuilder {
         #[cfg(not(feature = "e2e-encryption"))]
         let share_pos = false;
 
-        let rooms = AsyncRwLock::new(self.rooms);
+        let rooms = AsyncRwLock::new(rooms);
         let lists = AsyncRwLock::new(lists);
 
         // Use the configured sliding sync proxy, or if not set, try to use the one
