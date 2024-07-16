@@ -227,7 +227,11 @@ impl Deref for UserIdentity {
 impl UserIdentity {
     /// Is this user identity verified.
     pub fn is_verified(&self) -> bool {
-        self.own_identity.as_ref().is_some_and(|o| o.is_identity_signed(&self.inner).is_ok())
+        self.own_identity.as_ref().is_some_and(|own_identity| {
+            // The identity of another user is verified iff our own identity is verified and
+            // if our own identity has signed the other user's identity.
+            own_identity.is_verified() && own_identity.is_identity_signed(&self.inner).is_ok()
+        })
     }
 
     /// Manually verify this user.
@@ -789,7 +793,7 @@ pub(crate) mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id};
+    use ruma::{device_id, user_id, UserId};
     use serde_json::{json, Value};
     use tokio::sync::Mutex;
 
@@ -799,10 +803,15 @@ pub(crate) mod tests {
     };
     use crate::{
         identities::{manager::testing::own_key_query, Device},
+        machine::tests::{
+            get_machine_pair, mark_alice_identity_as_verified_test_helper,
+            setup_cross_signing_for_machine_test_helper,
+        },
         olm::{Account, PrivateCrossSigningIdentity},
-        store::{CryptoStoreWrapper, MemoryStore},
+        store::{Changes, CryptoStoreWrapper, MemoryStore},
         types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, Signatures, UserSigningPubkey},
         verification::VerificationMachine,
+        OlmMachine,
     };
 
     #[test]
@@ -1015,6 +1024,86 @@ pub(crate) mod tests {
         assert_eq!(
             identity.filter_devices_to_request(devices, unknown_device_id),
             [second_device_id]
+        );
+    }
+
+    async fn get_machine_pair_with_signed_identities(
+        alice: &UserId,
+        bob: &UserId,
+    ) -> (OlmMachine, OlmMachine) {
+        let (alice, bob, _) = get_machine_pair(alice, bob, false).await;
+        setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
+        mark_alice_identity_as_verified_test_helper(&alice, &bob).await;
+
+        (alice, bob)
+    }
+
+    #[async_test]
+    async fn test_other_user_is_verified_if_my_identity_is_verified_and_they_are_cross_signed() {
+        let alice_user_id = user_id!("@alice:localhost");
+        let bob_user_id = user_id!("@bob:localhost");
+        let (alice, bob) =
+            get_machine_pair_with_signed_identities(alice_user_id, bob_user_id).await;
+
+        let bobs_own_identity =
+            bob.get_identity(bob.user_id(), None).await.unwrap().unwrap().own().unwrap();
+        let bobs_alice_identity =
+            bob.get_identity(alice.user_id(), None).await.unwrap().unwrap().other().unwrap();
+
+        assert!(bobs_own_identity.is_verified(), "Bob's identity should be verified.");
+        assert!(bobs_alice_identity.is_verified(), "Alice's identity should be verified as well.");
+    }
+
+    #[async_test]
+    async fn test_other_user_is_not_verified_if_they_are_not_cross_signed() {
+        let alice_user_id = user_id!("@alice:localhost");
+        let bob_user_id = user_id!("@bob:localhost");
+        let (alice, bob, _) = get_machine_pair(alice_user_id, bob_user_id, false).await;
+        setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
+
+        let bobs_own_identity =
+            bob.get_identity(bob.user_id(), None).await.unwrap().unwrap().own().unwrap();
+        let bobs_alice_identity =
+            bob.get_identity(alice.user_id(), None).await.unwrap().unwrap().other().unwrap();
+
+        assert!(bobs_own_identity.is_verified(), "Bob's identity should be verified.");
+        assert!(!bobs_alice_identity.is_verified(), "Alice's identity should not be considered verified since Bob has not signed it.");
+    }
+
+    #[async_test]
+    async fn test_other_user_is_not_verified_if_my_identity_is_not_verified() {
+        let alice_user_id = user_id!("@alice:localhost");
+        let bob_user_id = user_id!("@bob:localhost");
+
+        let (alice, bob, _) = get_machine_pair(alice_user_id, bob_user_id, false).await;
+        setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
+        mark_alice_identity_as_verified_test_helper(&alice, &bob).await;
+
+        let bobs_own_identity =
+            bob.get_identity(bob.user_id(), None).await.unwrap().unwrap().own().unwrap();
+        let bobs_alice_identity =
+            bob.get_identity(alice.user_id(), None).await.unwrap().unwrap().other().unwrap();
+
+        assert!(bobs_own_identity.is_verified(), "Bob's identity should be verified.");
+        assert!(bobs_alice_identity.is_verified(), "Alice's identity should be verified as well.");
+
+        bobs_own_identity.mark_as_unverified();
+
+        bob.store()
+            .save_changes(Changes {
+                identities: crate::store::IdentityChanges {
+                    changed: vec![bobs_own_identity.inner.clone().into()],
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        assert!(!bobs_own_identity.is_verified(), "Bob's identity should not be verified anymore.");
+        assert!(
+            !bobs_alice_identity.is_verified(),
+            "Alice's identity should not be verified either."
         );
     }
 }
