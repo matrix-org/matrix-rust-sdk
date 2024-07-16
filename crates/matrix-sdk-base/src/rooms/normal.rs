@@ -555,7 +555,7 @@ impl Room {
         // From here, use some heroes to compute the room's name.
         let own_user_id = self.own_user_id().as_str();
 
-        let (heroes, num_joined_guess, num_invited_guess) = if !summary.room_heroes.is_empty() {
+        let (heroes, num_joined_invited_guess) = if !summary.room_heroes.is_empty() {
             let mut names = Vec::with_capacity(summary.room_heroes.len());
             for hero in &summary.room_heroes {
                 if hero.user_id == own_user_id {
@@ -578,91 +578,74 @@ impl Room {
                 }
             }
 
-            (names, None, None)
+            (names, None)
         } else {
-            let mut joined_members = self.members(RoomMemberships::JOIN).await?;
-
-            // Make the ordering deterministic.
-            joined_members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
-
-            // We can make a good prediction of the total number of joined members here.
-            // This might be incorrect if the database info is outdated.
-            let num_joined = Some(joined_members.len());
-
-            let mut invited_members = self.members(RoomMemberships::INVITE).await?;
-
-            // Make the ordering deterministic.
-            invited_members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
-
-            // We can make a good prediction of the total number of invited members here.
-            // This might be incorrect if the database info is outdated.
-            let num_invited = Some(invited_members.len());
-
-            let heroes: Vec<String> = joined_members
-                .into_iter()
-                .chain(invited_members)
-                .filter(|u| u.user_id() != own_user_id)
-                .take(NUM_HEROES)
-                .map(|u| u.name().to_owned())
-                .collect();
-
-            if !heroes.is_empty() {
-                (heroes, num_joined, num_invited)
-            } else {
-                // If there are no joined or invited members, heroes should be banned and left
-                // members.
-                let mut left_banned_members =
-                    self.members(RoomMemberships::LEAVE | RoomMemberships::BAN).await?;
-
-                // Make the ordering deterministic.
-                left_banned_members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
-
-                let heroes = left_banned_members
-                    .into_iter()
-                    .filter(|u| u.user_id() != own_user_id)
-                    .take(NUM_HEROES)
-                    .map(|u| u.name().to_owned())
-                    .collect();
-
-                (heroes, Some(0), Some(0))
-            }
+            let (heroes, num_joined_invited) = self.compute_summary().await?;
+            (heroes, Some(num_joined_invited))
         };
 
-        let (num_joined, num_invited) = if self.state() == RoomState::Invited {
+        let num_joined_invited = if self.state() == RoomState::Invited {
             // when we were invited we don't have a proper summary, we have to do best
             // guessing
-            (heroes.len() as u64, 1u64)
+            heroes.len() as u64 + 1
         } else if summary.joined_member_count == 0 && summary.invited_member_count == 0 {
-            let num_joined = if let Some(num_joined) = num_joined_guess {
-                num_joined
+            if let Some(num_joined_invited) = num_joined_invited_guess {
+                num_joined_invited
             } else {
-                self.joined_user_ids().await?.len()
-            };
-
-            let num_invited = if let Some(num_invited) = num_invited_guess {
-                num_invited
-            } else {
-                self.store.get_user_ids(self.room_id(), RoomMemberships::INVITE).await?.len()
-            };
-
-            (num_joined as u64, num_invited as u64)
+                self.store
+                    .get_user_ids(self.room_id(), RoomMemberships::JOIN | RoomMemberships::INVITE)
+                    .await?
+                    .len() as u64
+            }
         } else {
-            (summary.joined_member_count, summary.invited_member_count)
+            summary.joined_member_count + summary.invited_member_count
         };
 
         debug!(
             room_id = ?self.room_id(),
             own_user = ?self.own_user_id,
-            num_joined, num_invited,
+            num_joined_invited,
             heroes = ?heroes,
             "Calculating name for a room based on heroes",
         );
 
         Ok(update_cache(compute_display_name_from_heroes(
-            num_joined,
-            num_invited,
+            num_joined_invited,
             heroes.iter().map(|hero| hero.as_str()).collect(),
         )))
+    }
+
+    /// Compute the room summary with the data present in the store.
+    ///
+    /// The summary might be incorrect if the database info is outdated.
+    ///
+    /// Returns a `(heroes_names, num_joined_invited)` tuple.
+    async fn compute_summary(&self) -> StoreResult<(Vec<String>, u64)> {
+        let mut members = self.members(RoomMemberships::JOIN | RoomMemberships::INVITE).await?;
+
+        // We can make a good prediction of the total number of joined and invited
+        // members here. This might be incorrect if the database info is
+        // outdated.
+        let num_joined_invited = members.len() as u64;
+
+        if num_joined_invited == 0
+            || (num_joined_invited == 1 && members[0].user_id() == self.own_user_id)
+        {
+            // No joined or invited members, heroes should be banned and left members.
+            members = self.members(RoomMemberships::LEAVE | RoomMemberships::BAN).await?;
+        }
+
+        // Make the ordering deterministic.
+        members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
+
+        let heroes = members
+            .into_iter()
+            .filter(|u| u.user_id() != self.own_user_id)
+            .take(NUM_HEROES)
+            .map(|u| u.name().to_owned())
+            .collect();
+
+        Ok((heroes, num_joined_invited))
     }
 
     /// Returns the cached computed display name, if available.
@@ -1573,32 +1556,27 @@ impl RoomStateFilter {
 /// Calculate room name according to step 3 of the [naming algorithm].
 ///
 /// [naming algorithm]: https://spec.matrix.org/latest/client-server-api/#calculating-the-display-name-for-a-room
-fn compute_display_name_from_heroes(
-    joined_member_count: u64,
-    invited_member_count: u64,
-    mut heroes: Vec<&str>,
-) -> DisplayName {
+fn compute_display_name_from_heroes(num_joined_invited: u64, mut heroes: Vec<&str>) -> DisplayName {
     let num_heroes = heroes.len() as u64;
-    let invited_joined = invited_member_count + joined_member_count;
-    let invited_joined_minus_one = invited_joined.saturating_sub(1);
+    let num_joined_invited_except_self = num_joined_invited.saturating_sub(1);
 
     // Stabilize ordering.
     heroes.sort_unstable();
 
-    let names = if num_heroes == 0 && invited_joined > 1 {
-        format!("{} people", invited_joined)
-    } else if num_heroes >= invited_joined_minus_one {
+    let names = if num_heroes == 0 && num_joined_invited > 1 {
+        format!("{} people", num_joined_invited)
+    } else if num_heroes >= num_joined_invited_except_self {
         heroes.join(", ")
-    } else if num_heroes < invited_joined_minus_one && invited_joined > 1 {
+    } else if num_heroes < num_joined_invited_except_self && num_joined_invited > 1 {
         // TODO: What length does the spec want us to use here and in
         // the `else`?
-        format!("{}, and {} others", heroes.join(", "), (invited_joined - num_heroes))
+        format!("{}, and {} others", heroes.join(", "), (num_joined_invited - num_heroes))
     } else {
         "".to_owned()
     };
 
     // User is alone.
-    if invited_joined <= 1 {
+    if num_joined_invited <= 1 {
         if names.is_empty() {
             DisplayName::Empty
         } else {
@@ -2703,37 +2681,34 @@ mod tests {
 
     #[test]
     fn test_calculate_room_name() {
-        let mut actual = compute_display_name_from_heroes(2, 0, vec!["a"]);
+        let mut actual = compute_display_name_from_heroes(2, vec!["a"]);
         assert_eq!(DisplayName::Calculated("a".to_owned()), actual);
 
-        actual = compute_display_name_from_heroes(3, 0, vec!["a", "b"]);
+        actual = compute_display_name_from_heroes(3, vec!["a", "b"]);
         assert_eq!(DisplayName::Calculated("a, b".to_owned()), actual);
 
-        actual = compute_display_name_from_heroes(4, 0, vec!["a", "b", "c"]);
+        actual = compute_display_name_from_heroes(4, vec!["a", "b", "c"]);
         assert_eq!(DisplayName::Calculated("a, b, c".to_owned()), actual);
 
-        actual = compute_display_name_from_heroes(5, 0, vec!["a", "b", "c"]);
+        actual = compute_display_name_from_heroes(5, vec!["a", "b", "c"]);
         assert_eq!(DisplayName::Calculated("a, b, c, and 2 others".to_owned()), actual);
 
-        actual = compute_display_name_from_heroes(5, 0, vec![]);
+        actual = compute_display_name_from_heroes(5, vec![]);
         assert_eq!(DisplayName::Calculated("5 people".to_owned()), actual);
 
-        actual = compute_display_name_from_heroes(0, 0, vec![]);
+        actual = compute_display_name_from_heroes(0, vec![]);
         assert_eq!(DisplayName::Empty, actual);
 
-        actual = compute_display_name_from_heroes(1, 0, vec![]);
+        actual = compute_display_name_from_heroes(1, vec![]);
         assert_eq!(DisplayName::Empty, actual);
 
-        actual = compute_display_name_from_heroes(0, 1, vec![]);
-        assert_eq!(DisplayName::Empty, actual);
-
-        actual = compute_display_name_from_heroes(1, 0, vec!["a"]);
+        actual = compute_display_name_from_heroes(1, vec!["a"]);
         assert_eq!(DisplayName::EmptyWas("a".to_owned()), actual);
 
-        actual = compute_display_name_from_heroes(1, 0, vec!["a", "b"]);
+        actual = compute_display_name_from_heroes(1, vec!["a", "b"]);
         assert_eq!(DisplayName::EmptyWas("a, b".to_owned()), actual);
 
-        actual = compute_display_name_from_heroes(1, 0, vec!["a", "b", "c"]);
+        actual = compute_display_name_from_heroes(1, vec!["a", "b", "c"]);
         assert_eq!(DisplayName::EmptyWas("a, b, c".to_owned()), actual);
     }
 
