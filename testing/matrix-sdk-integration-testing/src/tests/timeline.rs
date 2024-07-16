@@ -287,7 +287,12 @@ async fn test_stale_local_echo_time_abort_edit() {
     let vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
     let local_echo = assert_matches!(vector_diff, VectorDiff::PushBack { value } => value);
 
-    assert!(local_echo.is_local_echo());
+    if !local_echo.is_local_echo() {
+        // If the server raced and we've already received the remote echo, then this
+        // test is meaningless, so short-circuit and leave it.
+        return;
+    }
+
     assert!(local_echo.is_editable());
     assert_matches!(local_echo.send_state(), Some(EventSendState::NotSentYet));
     assert_eq!(local_echo.content().as_message().unwrap().body(), "hi!");
