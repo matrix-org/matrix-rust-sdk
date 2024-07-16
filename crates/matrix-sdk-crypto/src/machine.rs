@@ -722,8 +722,7 @@ impl OlmMachine {
 
     /// Receive a successful `/keys/query` response.
     ///
-    /// Returns a list of devices newly discovered devices and devices that
-    /// changed.
+    /// Returns a list of newly discovered devices and devices that changed.
     ///
     /// # Arguments
     ///
