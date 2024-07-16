@@ -66,7 +66,8 @@ use crate::{
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
-        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData, SessionType, StaticAccountData,
+        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderDataFinder, SessionType,
+        StaticAccountData,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -816,7 +817,8 @@ impl OlmMachine {
         event: &DecryptedRoomKeyEvent,
         content: &MegolmV1AesSha2Content,
     ) -> OlmResult<Option<InboundGroupSession>> {
-        let sender_data = SenderData::unknown();
+        let sender_data =
+            SenderDataFinder::find_using_event(self.store(), sender_key, event).await?;
 
         let session = InboundGroupSession::new(
             sender_key,
@@ -897,10 +899,16 @@ impl OlmMachine {
         &self,
         room_id: &RoomId,
     ) -> OlmResult<()> {
+        use crate::olm::SenderData;
+
         let (_, session) = self
             .inner
             .group_session_manager
-            .create_outbound_group_session(room_id, EncryptionSettings::default())
+            .create_outbound_group_session(
+                room_id,
+                EncryptionSettings::default(),
+                SenderData::unknown(),
+            )
             .await?;
 
         self.store().save_inbound_group_sessions(&[session]).await?;
@@ -914,10 +922,16 @@ impl OlmMachine {
         &self,
         room_id: &RoomId,
     ) -> OlmResult<InboundGroupSession> {
+        use crate::olm::SenderData;
+
         let (_, session) = self
             .inner
             .group_session_manager
-            .create_outbound_group_session(room_id, EncryptionSettings::default())
+            .create_outbound_group_session(
+                room_id,
+                EncryptionSettings::default(),
+                SenderData::unknown(),
+            )
             .await?;
 
         Ok(session)
@@ -4191,7 +4205,7 @@ pub(crate) mod tests {
         let (outbound, mut inbound) = alice
             .store()
             .static_account()
-            .create_group_session_pair(room_id, Default::default())
+            .create_group_session_pair(room_id, Default::default(), SenderData::unknown())
             .await
             .unwrap();
 

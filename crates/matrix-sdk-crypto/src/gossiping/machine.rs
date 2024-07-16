@@ -1218,6 +1218,8 @@ mod tests {
         create_sessions: bool,
         algorithm: EventEncryptionAlgorithm,
     ) -> (GossipMachine, OutboundGroupSession, GossipMachine) {
+        use crate::olm::SenderData;
+
         let alice_machine = get_machine_test_helper().await;
         let alice_device = DeviceData::from_account(
             &alice_machine.inner.store.cache().await.unwrap().account().await.unwrap(),
@@ -1270,7 +1272,7 @@ mod tests {
             .inner
             .store
             .static_account()
-            .create_group_session_pair(room_id(), settings)
+            .create_group_session_pair(room_id(), settings, SenderData::unknown())
             .await
             .unwrap();
 

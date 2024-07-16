@@ -36,7 +36,10 @@ use tracing::{debug, error, info, instrument, trace};
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
     identities::device::MaybeEncryptedRoomKey,
-    olm::{InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
+    olm::{
+        InboundGroupSession, OutboundGroupSession, SenderData, SenderDataFinder, Session,
+        ShareInfo, ShareState,
+    },
     store::{Changes, CryptoStoreWrapper, Result as StoreResult, Store},
     types::events::{room::encrypted::RoomEncryptedEventContent, room_key_withheld::WithheldCode},
     DeviceData, EncryptionSettings, OlmError, ToDeviceRequest,
@@ -211,11 +214,12 @@ impl GroupSessionManager {
         &self,
         room_id: &RoomId,
         settings: EncryptionSettings,
+        own_sender_data: SenderData,
     ) -> OlmResult<(OutboundGroupSession, InboundGroupSession)> {
         let (outbound, inbound) = self
             .store
             .static_account()
-            .create_group_session_pair(room_id, settings)
+            .create_group_session_pair(room_id, settings, own_sender_data)
             .await
             .map_err(|_| EventError::UnsupportedAlgorithm)?;
 
@@ -227,6 +231,7 @@ impl GroupSessionManager {
         &self,
         room_id: &RoomId,
         settings: EncryptionSettings,
+        own_sender_data: SenderData,
     ) -> OlmResult<(OutboundGroupSession, Option<InboundGroupSession>)> {
         let outbound_session = self.sessions.get_or_load(room_id).await;
 
@@ -234,14 +239,16 @@ impl GroupSessionManager {
         // create a new one.
         if let Some(s) = outbound_session {
             if s.expired() || s.invalidated() {
-                self.create_outbound_group_session(room_id, settings)
+                self.create_outbound_group_session(room_id, settings, own_sender_data)
                     .await
                     .map(|(o, i)| (o, i.into()))
             } else {
                 Ok((s, None))
             }
         } else {
-            self.create_outbound_group_session(room_id, settings).await.map(|(o, i)| (o, i.into()))
+            self.create_outbound_group_session(room_id, settings, own_sender_data)
+                .await
+                .map(|(o, i)| (o, i.into()))
         }
     }
 
@@ -372,12 +379,14 @@ impl GroupSessionManager {
         outbound: OutboundGroupSession,
         encryption_settings: EncryptionSettings,
         changes: &mut Changes,
+        sender_data: SenderData,
     ) -> OlmResult<OutboundGroupSession> {
         Ok(if should_rotate {
             let old_session_id = outbound.session_id();
 
-            let (outbound, inbound) =
-                self.create_outbound_group_session(room_id, encryption_settings).await?;
+            let (outbound, inbound) = self
+                .create_outbound_group_session(room_id, encryption_settings, sender_data)
+                .await?;
             changes.outbound_group_sessions.push(outbound.clone());
             changes.inbound_group_sessions.push(inbound);
 
@@ -638,9 +647,33 @@ impl GroupSessionManager {
         let encryption_settings = encryption_settings.into();
         let mut changes = Changes::default();
 
+        // Use our own device info to populate the SenderData that validates the
+        // InboundGroupSession that we create as a pair to the OutboundGroupSession we
+        // are sending out.
+        let account = self.store.static_account();
+        let device = self.store.get_device(account.user_id(), account.device_id()).await;
+        let own_sender_data = match device {
+            Ok(Some(device)) => {
+                SenderDataFinder::find_using_device_keys(
+                    &self.store,
+                    device.as_device_keys().clone(),
+                )
+                .await?
+            }
+            _ => {
+                error!("Unable to find our own device!");
+                SenderData::unknown()
+            }
+        };
+
         // Try to get an existing session or create a new one.
-        let (outbound, inbound) =
-            self.get_or_create_outbound_session(room_id, encryption_settings.clone()).await?;
+        let (outbound, inbound) = self
+            .get_or_create_outbound_session(
+                room_id,
+                encryption_settings.clone(),
+                own_sender_data.clone(),
+            )
+            .await?;
         tracing::Span::current().record("session_id", outbound.session_id());
 
         // Having an inbound group session here means that we created a new
@@ -663,6 +696,7 @@ impl GroupSessionManager {
                 outbound,
                 encryption_settings,
                 &mut changes,
+                own_sender_data,
             )
             .await?;
 
@@ -764,7 +798,7 @@ mod tests {
     use crate::{
         identities::DeviceData,
         machine::EncryptionSyncChanges,
-        olm::Account,
+        olm::{Account, SenderData},
         session_manager::{group_sessions::CollectRecipientsResult, CollectStrategy},
         types::{
             events::{
@@ -1113,7 +1147,11 @@ mod tests {
         let (outbound, _) = machine
             .inner
             .group_session_manager
-            .get_or_create_outbound_session(room_id, EncryptionSettings::default())
+            .get_or_create_outbound_session(
+                room_id,
+                EncryptionSettings::default(),
+                SenderData::unknown(),
+            )
             .await
             .expect("We should be able to create a new session");
         let history_visibility = HistoryVisibility::Joined;

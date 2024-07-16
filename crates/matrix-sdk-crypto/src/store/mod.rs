@@ -1143,20 +1143,34 @@ impl Store {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<Device>> {
+        if let Some(device_data) = self.inner.store.get_device(user_id, device_id).await? {
+            Ok(Some(self.wrap_device_data(device_data).await?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Create a new device using the supplied [`DeviceData`]. Normally we would
+    /// call [`Self::get_device`] to find an existing device inside this
+    /// store. Only call this if you have some existing DeviceData and want
+    /// to wrap it with the extra information provided by a [`Device`].
+    pub(crate) async fn wrap_device_data(&self, device_data: DeviceData) -> Result<Device> {
         let own_identity = self
             .inner
             .store
             .get_user_identity(self.user_id())
             .await?
             .and_then(|i| i.own().cloned());
-        let device_owner_identity = self.inner.store.get_user_identity(user_id).await?;
 
-        Ok(self.inner.store.get_device(user_id, device_id).await?.map(|d| Device {
-            inner: d,
+        let device_owner_identity =
+            self.inner.store.get_user_identity(device_data.user_id()).await?;
+
+        Ok(Device {
+            inner: device_data,
             verification_machine: self.inner.verification_machine.clone(),
             own_identity,
             device_owner_identity,
-        }))
+        })
     }
 
     ///  Get the Identity of `user_id`
