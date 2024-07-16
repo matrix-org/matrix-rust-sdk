@@ -47,7 +47,7 @@ use ruma::{
             topic::RoomTopicEventContent,
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
-        sticker::StickerEventContent,
+        sticker::{StickerEventContent, SyncStickerEvent},
         AnyFullStateEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType, StateEventType,
     },
@@ -127,6 +127,9 @@ impl TimelineItemContent {
             PossibleLatestEvent::YesRoomMessage(m) => {
                 Some(Self::from_suitable_latest_event_content(m))
             }
+            PossibleLatestEvent::YesSticker(s) => {
+                Some(Self::from_suitable_latest_sticker_content(s))
+            }
             PossibleLatestEvent::YesPoll(poll) => {
                 Some(Self::from_suitable_latest_poll_event_content(poll))
             }
@@ -185,6 +188,20 @@ impl TimelineItemContent {
                 ))
             }
             SyncRoomMessageEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+        }
+    }
+
+    /// Given some sticker content that is from an event that we have already
+    /// determined is suitable for use as a latest event in a message preview,
+    /// extract its contents and wrap it as a `TimelineItemContent`.
+    fn from_suitable_latest_sticker_content(event: &SyncStickerEvent) -> TimelineItemContent {
+        match event {
+            SyncStickerEvent::Original(event) => {
+                // Grab the content of this event
+                let event_content = event.content.clone();
+                TimelineItemContent::Sticker(Sticker { content: event_content })
+            }
+            SyncStickerEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
         }
     }
 

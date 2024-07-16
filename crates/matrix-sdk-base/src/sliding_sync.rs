@@ -621,7 +621,8 @@ async fn cache_latest_events(
                 PossibleLatestEvent::YesRoomMessage(_)
                 | PossibleLatestEvent::YesPoll(_)
                 | PossibleLatestEvent::YesCallInvite(_)
-                | PossibleLatestEvent::YesCallNotify(_) => {
+                | PossibleLatestEvent::YesCallNotify(_)
+                | PossibleLatestEvent::YesSticker(_) => {
                     // We found a suitable latest event. Store it.
 
                     // In order to make the latest event fast to read, we want to keep the
