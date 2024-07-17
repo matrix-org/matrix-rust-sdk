@@ -88,10 +88,7 @@ pub(super) async fn store_sliding_sync_state(
     storage
         .set_custom_value(
             instance_storage_key.as_bytes(),
-            serde_json::to_vec(&FrozenSlidingSync::new(
-                position,
-                &*sliding_sync.inner.rooms.read().await,
-            ))?,
+            serde_json::to_vec(&FrozenSlidingSync::new(&*sliding_sync.inner.rooms.read().await))?,
         )
         .await?;
 
@@ -184,7 +181,6 @@ pub(super) async fn restore_sliding_sync_list(
 /// Fields restored during `restore_sliding_sync_state`.
 #[derive(Default)]
 pub(super) struct RestoredFields {
-    pub delta_token: Option<String>,
     pub to_device_token: Option<String>,
     pub pos: Option<String>,
     pub rooms: BTreeMap<OwnedRoomId, SlidingSyncRoom>,
@@ -223,19 +219,13 @@ pub(super) async fn restore_sliding_sync_state(
         .map(|custom_value| serde_json::from_slice::<FrozenSlidingSync>(&custom_value))
     {
         // `SlidingSync` has been found and successfully deserialized.
-        Some(Ok(FrozenSlidingSync {
-            to_device_since,
-            delta_token: frozen_delta_token,
-            rooms: frozen_rooms,
-        })) => {
+        Some(Ok(FrozenSlidingSync { to_device_since, rooms: frozen_rooms })) => {
             trace!("Successfully read the `SlidingSync` from the cache");
             // Only update the to-device token if we failed to read it from the crypto store
             // above.
             if restored_fields.to_device_token.is_none() {
                 restored_fields.to_device_token = to_device_since;
             }
-
-            restored_fields.delta_token = frozen_delta_token;
 
             #[cfg(feature = "e2e-encryption")]
             {
@@ -505,11 +495,9 @@ mod tests {
         assert!(state_store.get_custom_value(full_storage_key.as_bytes()).await?.is_none());
 
         // Emulate some data to be cached.
-        let delta_token = "delta_token".to_owned();
         let pos = "pos".to_owned();
         {
             let mut position_guard = sliding_sync.inner.position.lock().await;
-            position_guard.delta_token = Some(delta_token.clone());
             position_guard.pos = Some(pos.clone());
 
             // Then, we can correctly cache the sliding sync instance.
@@ -523,7 +511,6 @@ mod tests {
             state_store.get_custom_value(full_storage_key.as_bytes()).await?,
             Some(bytes) => {
                 let deserialized: FrozenSlidingSync = serde_json::from_slice(&bytes)?;
-                assert_eq!(deserialized.delta_token, Some(delta_token.clone()));
                 assert!(deserialized.to_device_since.is_none());
             }
         );
@@ -536,7 +523,6 @@ mod tests {
             .expect("must have restored sliding sync fields");
 
         // After restoring, the delta token and to-device token could be read.
-        assert_eq!(restored_fields.delta_token.unwrap(), delta_token);
         assert_eq!(restored_fields.pos.unwrap(), pos);
 
         // Test the "migration" path: assume a missing to-device token in crypto store,
@@ -558,7 +544,6 @@ mod tests {
                 full_storage_key.as_bytes(),
                 serde_json::to_vec(&FrozenSlidingSync {
                     to_device_since: Some(to_device_token.clone()),
-                    delta_token: Some(delta_token.clone()),
                     rooms: vec![FrozenSlidingSyncRoom {
                         room_id: owned_room_id!("!r0:matrix.org"),
                         prev_batch: Some("t0ken".to_owned()),
@@ -574,7 +559,6 @@ mod tests {
 
         // After restoring, the delta token, the to-device since token, stream
         // position and rooms could be read from the state store.
-        assert_eq!(restored_fields.delta_token.unwrap(), delta_token);
         assert_eq!(restored_fields.to_device_token.unwrap(), to_device_token);
         assert_eq!(restored_fields.pos.unwrap(), pos);
         assert_eq!(restored_fields.rooms.len(), 1);
