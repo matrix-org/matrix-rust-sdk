@@ -360,7 +360,6 @@ impl NotificationClient {
             .required_state(required_state.clone())
             .filters(Some(assign!(SyncRequestListFilters::default(), {
                 is_invite: Some(true),
-                is_tombstoned: Some(false),
                 not_room_types: vec!["m.space".to_owned()],
             })))
             .sort(vec!["by_recency".to_owned(), "by_name".to_owned()]);
