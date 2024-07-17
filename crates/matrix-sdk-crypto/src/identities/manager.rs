@@ -1969,7 +1969,7 @@ pub(crate) mod tests {
         assert!(!first_device.is_cross_signed_by_owner(&identity));
 
         let remember_previous_identity = other_identity.clone();
-        // We receive a new keys update for that user, with no identity anymore
+        // We receive updated keys for that user, with no identity anymore.
         // Notice that there is no server API to delete identity, but we want to test
         // here that a home server cannot clear the identity and serve a new one
         // after that would get automatically approved.

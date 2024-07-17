@@ -612,7 +612,10 @@ impl OtherUserIdentityData {
     ) -> Result<bool, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
-        // The pin is maintained.
+        // We update the identity with the new master and self signing key, but we keep
+        // the previous pinned master key.
+        // This identity will have a pin violation until the new master key is pinned
+        // (see [`has_pin_violation`]).
         let pinned_master_key = self.pinned_master_key.read().unwrap().clone();
 
         let new = Self {
