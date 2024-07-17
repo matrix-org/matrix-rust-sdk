@@ -416,7 +416,7 @@ impl UserIdentityData {
 /// In case of identity change, it will be possible to pin the new identity
 /// is the user wants.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(from = "ReadOnlyUserIdentitySerializer", into = "ReadOnlyUserIdentitySerializer")]
+#[serde(try_from = "ReadOnlyUserIdentitySerializer", into = "ReadOnlyUserIdentitySerializer")]
 pub struct OtherUserIdentityData {
     user_id: OwnedUserId,
     pub(crate) master_key: Arc<MasterPubkey>,
@@ -450,30 +450,33 @@ struct ReadOnlyUserIdentityV1 {
     pinned_master_key: MasterPubkey,
 }
 
-impl From<ReadOnlyUserIdentitySerializer> for OtherUserIdentityData {
-    fn from(value: ReadOnlyUserIdentitySerializer) -> Self {
+impl TryFrom<ReadOnlyUserIdentitySerializer> for OtherUserIdentityData {
+    type Error = serde_json::Error;
+    fn try_from(
+        value: ReadOnlyUserIdentitySerializer,
+    ) -> Result<OtherUserIdentityData, Self::Error> {
         match value.version {
             None => {
                 // Old format, migrate the pinned identity
-                let v0: ReadOnlyUserIdentityV0 = serde_json::from_value(value.other).unwrap();
-                OtherUserIdentityData {
+                let v0: ReadOnlyUserIdentityV0 = serde_json::from_value(value.other)?;
+                Ok(OtherUserIdentityData {
                     user_id: v0.user_id,
                     master_key: Arc::new(v0.master_key.clone()),
                     self_signing_key: Arc::new(v0.self_signing_key),
                     // We migrate by pinning the current master key
                     pinned_master_key: Arc::new(RwLock::new(v0.master_key.clone())),
-                }
+                })
             }
-            _ => {
-                // v1 format
-                let v1: ReadOnlyUserIdentityV1 = serde_json::from_value(value.other).unwrap();
-                OtherUserIdentityData {
+            Some(v) if v == "1" => {
+                let v1: ReadOnlyUserIdentityV1 = serde_json::from_value(value.other)?;
+                Ok(OtherUserIdentityData {
                     user_id: v1.user_id,
                     master_key: Arc::new(v1.master_key.clone()),
                     self_signing_key: Arc::new(v1.self_signing_key),
                     pinned_master_key: Arc::new(RwLock::new(v1.pinned_master_key)),
-                }
+                })
             }
+            _ => Err(serde::de::Error::custom(format!("Unsupported Version {:?}", value.version))),
         }
     }
 }
