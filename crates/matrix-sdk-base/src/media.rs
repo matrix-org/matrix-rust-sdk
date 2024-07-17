@@ -72,18 +72,18 @@ pub struct MediaThumbnailSettings {
 
     /// If we want to request an animated thumbnail from the homeserver.
     ///
-    /// If it is `Some(true)`, the server should return an animated thumbnail if
-    /// the media supports it. If it is `Some(false)`, the server must never
-    /// return an animated thumbnail. If it is `None`, the server should not
-    /// return an animated thumbnail.
-    pub animated: Option<bool>,
+    /// If it is `true`, the server should return an animated thumbnail if
+    /// the media supports it.
+    ///
+    /// Defaults to `false`.
+    pub animated: bool,
 }
 
 impl MediaThumbnailSettings {
     /// Constructs a new `MediaThumbnailSettings` with the given method, width
     /// and height.
     pub fn new(method: Method, width: UInt, height: UInt) -> Self {
-        Self { size: MediaThumbnailSize { method, width, height }, animated: None }
+        Self { size: MediaThumbnailSize { method, width, height }, animated: false }
     }
 }
 
@@ -91,13 +91,9 @@ impl UniqueKey for MediaThumbnailSettings {
     fn unique_key(&self) -> String {
         let mut key = self.size.unique_key();
 
-        if let Some(animated) = self.animated {
+        if self.animated {
             key.push_str(UNIQUE_SEPARATOR);
-
-            match animated {
-                true => key.push_str("animated"),
-                false => key.push_str("not-animated"),
-            }
+            key.push_str("animated");
         }
 
         key

@@ -317,7 +317,7 @@ impl Media {
                                 settings.size.height,
                             )?;
                         request.method = Some(settings.size.method.clone());
-                        request.animated = settings.animated;
+                        request.animated = Some(settings.animated);
 
                         self.client.send(request, None).await?.file
                     } else {
@@ -329,7 +329,7 @@ impl Media {
                                 settings.size.height,
                             )?;
                             request.method = Some(settings.size.method.clone());
-                            request.animated = settings.animated;
+                            request.animated = Some(settings.animated);
                             request
                         };
 
