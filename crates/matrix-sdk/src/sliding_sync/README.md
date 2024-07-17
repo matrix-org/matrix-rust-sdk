@@ -145,12 +145,6 @@ visible in any list. The most common case for using this API is when the user
 enters a room - as we want to receive the incoming new messages regardless of
 whether the room is pushed out of the lists room list.
 
-### Unsubscribe
-
-Don't forget to [unsubscribe](`SlidingSync::unsubscribe_from_room`) when the
-data isn't needed to be updated anymore, e.g. when the user leaves the room, to
-reduce the bandwidth back down to what is really needed.
-
 ## Extensions
 
 Additionally to the room list and rooms with their state and latest

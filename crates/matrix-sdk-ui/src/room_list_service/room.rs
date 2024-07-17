@@ -109,13 +109,6 @@ impl Room {
             .subscribe_to_room(self.inner.room.room_id().to_owned(), Some(settings))
     }
 
-    /// Unsubscribe to this room.
-    ///
-    /// It's the opposite method of [Self::subscribe`].
-    pub fn unsubscribe(&self) {
-        self.inner.sliding_sync.unsubscribe_from_room(self.inner.room.room_id().to_owned())
-    }
-
     /// Get the timeline of the room if one exists.
     pub fn timeline(&self) -> Option<Arc<Timeline>> {
         self.inner.timeline.get().cloned()

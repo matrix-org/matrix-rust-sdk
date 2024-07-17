@@ -390,10 +390,8 @@ impl App {
     }
 
     fn subscribe_to_selected_room(&mut self, selected: usize) {
-        // Delete the subscription to the previous room, if any.
-        if let Some(room) = self.current_room_subscription.take() {
-            room.unsubscribe();
-        }
+        // Cancel the subscription to the previous room, if any.
+        self.current_room_subscription.take();
 
         // Subscribe to the new room.
         if let Some(room) = self

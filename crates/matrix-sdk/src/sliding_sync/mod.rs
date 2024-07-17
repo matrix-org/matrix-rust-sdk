@@ -25,7 +25,7 @@ mod sticky_parameters;
 mod utils;
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, HashSet},
     fmt::Debug,
     future::Future,
     sync::{Arc, RwLock as StdRwLock},
@@ -127,9 +127,6 @@ pub(super) struct SlidingSyncInner {
     /// Request parameters that are sticky.
     sticky: StdRwLock<SlidingSyncStickyManager<SlidingSyncStickyParameters>>,
 
-    /// Rooms to unsubscribe, see [`Self::room_subscriptions`].
-    room_unsubscriptions: StdRwLock<BTreeSet<OwnedRoomId>>,
-
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
     internal_channel: Sender<SlidingSyncInternalMessage>,
@@ -169,26 +166,6 @@ impl SlidingSync {
         self.inner.internal_channel_send_if_possible(
             SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
         );
-    }
-
-    /// Unsubscribe from a given room.
-    pub fn unsubscribe_from_room(&self, room_id: OwnedRoomId) {
-        // Note: we don't use `BTreeMap::remove` here, because that would require
-        // mutable access thus calling `data_mut()`, which in turn would
-        // invalidate the sticky parameters even if the `room_id` wasn't in the
-        // mapping.
-
-        // If there's a subscription…
-        if self.inner.sticky.read().unwrap().data().room_subscriptions.contains_key(&room_id) {
-            // Remove it…
-            self.inner.sticky.write().unwrap().data_mut().room_subscriptions.remove(&room_id);
-            // … then keep the unsubscription for the next request.
-            self.inner.room_unsubscriptions.write().unwrap().insert(room_id);
-
-            self.inner.internal_channel_send_if_possible(
-                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
-            );
-        }
     }
 
     /// Lookup a specific room
@@ -459,12 +436,7 @@ impl SlidingSync {
     async fn generate_sync_request(
         &self,
         txn_id: &mut LazyTransactionId,
-    ) -> Result<(
-        v4::Request,
-        RequestConfig,
-        BTreeSet<OwnedRoomId>,
-        OwnedMutexGuard<SlidingSyncPositionMarkers>,
-    )> {
+    ) -> Result<(v4::Request, RequestConfig, OwnedMutexGuard<SlidingSyncPositionMarkers>)> {
         // Collect requests for lists.
         let mut requests_lists = BTreeMap::new();
 
@@ -519,16 +491,12 @@ impl SlidingSync {
 
         Span::current().record("pos", &pos);
 
-        // Collect other data.
-        let room_unsubscriptions = self.inner.room_unsubscriptions.read().unwrap().clone();
-
         let mut request = assign!(v4::Request::new(), {
             conn_id: Some(self.inner.id.clone()),
             delta_token,
             pos,
             timeout: Some(self.inner.poll_timeout),
             lists: requests_lists,
-            unsubscribe_rooms: room_unsubscriptions.iter().cloned().collect(),
         });
 
         // Apply sticky parameters, if needs be.
@@ -551,7 +519,6 @@ impl SlidingSync {
             // Configure long-polling. We need some time for the long-poll itself,
             // and extra time for the network delays.
             RequestConfig::default().timeout(self.inner.poll_timeout + self.inner.network_timeout),
-            room_unsubscriptions,
             position_guard,
         ))
     }
@@ -668,17 +635,6 @@ impl SlidingSync {
             // In case the task running this future is detached, we must
             // ensure responses are handled one at a time. At this point we still own
             // `position_guard`, so we're fine.
-
-            // Room unsubscriptions have been received by the server. We can update the
-            // unsubscriptions buffer. However, it would be an error to empty it entirely as
-            // more unsubscriptions could have been inserted during the request/response
-            // dance. So let's cherry-pick which unsubscriptions to remove.
-            if !requested_room_unsubscriptions.is_empty() {
-                let room_unsubscriptions = &mut *this.inner.room_unsubscriptions.write().unwrap();
-
-                room_unsubscriptions
-                    .retain(|room_id| !requested_room_unsubscriptions.contains(room_id));
-            }
 
             // Handle the response.
             let updates = this.handle_response(response, &mut position_guard).await?;
@@ -1233,27 +1189,6 @@ mod tests {
             assert!(!room_subscriptions.contains_key(&room_id_2.to_owned()));
         }
 
-        sliding_sync.unsubscribe_from_room(room_id_0.to_owned());
-        sliding_sync.unsubscribe_from_room(room_id_2.to_owned());
-
-        {
-            let sticky = sliding_sync.inner.sticky.read().unwrap();
-            let room_subscriptions = &sticky.data().room_subscriptions;
-
-            assert!(!room_subscriptions.contains_key(&room_id_0.to_owned()));
-            assert!(room_subscriptions.contains_key(&room_id_1.to_owned()));
-            assert!(!room_subscriptions.contains_key(&room_id_2.to_owned()));
-
-            let room_unsubscriptions = sliding_sync.inner.room_unsubscriptions.read().unwrap();
-
-            assert!(room_unsubscriptions.contains(&room_id_0.to_owned()));
-            assert!(!room_unsubscriptions.contains(&room_id_1.to_owned()));
-            assert!(!room_unsubscriptions.contains(&room_id_2.to_owned()));
-        }
-
-        // this test also ensures that Tokio is not panicking when calling
-        // `subscribe_to_room` and `unsubscribe_from_room`.
-
         Ok(())
     }
 
@@ -1429,7 +1364,7 @@ mod tests {
         // Even without a since token, the first request will contain the extensions
         // configuration, at least.
         let txn_id = TransactionId::new();
-        let (request, _, _, _) = sync
+        let (request, _, _) = sync
             .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id.to_owned()))
             .await?;
 
@@ -1449,7 +1384,7 @@ mod tests {
 
         // Regenerating a request will yield the same one.
         let txn_id2 = TransactionId::new();
-        let (request, _, _, _) = sync
+        let (request, _, _) = sync
             .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id2.to_owned()))
             .await?;
 
@@ -1469,7 +1404,7 @@ mod tests {
 
         // The next request should contain no sticky parameters.
         let txn_id = TransactionId::new();
-        let (request, _, _, _) = sync
+        let (request, _, _) = sync
             .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id.to_owned()))
             .await?;
         assert!(request.extensions.e2ee.enabled.is_none());
@@ -1496,7 +1431,7 @@ mod tests {
         }
 
         let txn_id = TransactionId::new();
-        let (request, _, _, _) = sync
+        let (request, _, _) = sync
             .generate_sync_request(&mut LazyTransactionId::from_owned(txn_id.to_owned()))
             .await?;
 
@@ -1521,7 +1456,7 @@ mod tests {
             .await?;
 
         // First request asks to enable the extension.
-        let (request, _, _, _) =
+        let (request, _, _) =
             sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
         assert!(request.extensions.to_device.enabled.is_some());
 
@@ -1563,7 +1498,7 @@ mod tests {
         }
 
         // Next request doesn't ask to enable the extension.
-        let (request, _, _, _) =
+        let (request, _, _) =
             sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
         assert!(request.extensions.to_device.enabled.is_none());
 
@@ -1666,7 +1601,7 @@ mod tests {
             assert!(sliding_sync.inner.past_positions.read().unwrap().is_empty());
 
             // Next request asks to enable the extension again.
-            let (request, _, _, _) =
+            let (request, _, _) =
                 sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
 
             assert!(request.extensions.to_device.enabled.is_some());
@@ -1716,7 +1651,7 @@ mod tests {
         {
             assert!(sliding_sync.inner.position.lock().await.pos.is_none());
 
-            let (request, _, _, _) =
+            let (request, _, _) =
                 sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
             assert!(request.pos.is_none());
         }
@@ -1758,7 +1693,7 @@ mod tests {
         // It's still 0, not "yolo".
         {
             assert_eq!(sliding_sync.inner.position.lock().await.pos.as_deref(), Some("0"));
-            let (request, _, _, _) =
+            let (request, _, _) =
                 sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
             assert_eq!(request.pos.as_deref(), Some("0"));
         }
@@ -1809,7 +1744,7 @@ mod tests {
 
         // `pos` is `None` to start with.
         {
-            let (request, _, _, _) =
+            let (request, _, _) =
                 sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
 
             assert!(request.pos.is_none());
@@ -1850,7 +1785,7 @@ mod tests {
 
         // It's alright, the next request will load it from the database.
         {
-            let (request, _, _, _) =
+            let (request, _, _) =
                 sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
             assert_eq!(request.pos.as_deref(), Some("42"));
             assert_eq!(sliding_sync.inner.position.lock().await.pos.as_deref(), Some("42"));
@@ -1861,7 +1796,7 @@ mod tests {
             let sliding_sync = client.sliding_sync("elephant-sync")?.share_pos().build().await?;
             assert_eq!(sliding_sync.inner.position.lock().await.pos.as_deref(), Some("42"));
 
-            let (request, _, _, _) =
+            let (request, _, _) =
                 sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
             assert_eq!(request.pos.as_deref(), Some("42"));
         }
@@ -1873,7 +1808,7 @@ mod tests {
         {
             assert!(sliding_sync.inner.position.lock().await.pos.is_none());
 
-            let (request, _, _, _) =
+            let (request, _, _) =
                 sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
             assert!(request.pos.is_none());
         }
@@ -1883,7 +1818,7 @@ mod tests {
             let sliding_sync = client.sliding_sync("elephant-sync")?.share_pos().build().await?;
             assert!(sliding_sync.inner.position.lock().await.pos.is_none());
 
-            let (request, _, _, _) =
+            let (request, _, _) =
                 sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
             assert!(request.pos.is_none());
         }
