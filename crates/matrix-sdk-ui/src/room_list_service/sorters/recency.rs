@@ -14,20 +14,18 @@
 
 use std::cmp::Ordering;
 
-use ruma::MilliSecondsSinceUnixEpoch;
-
 use super::{Room, Sorter};
 
 struct RecencyMatcher<F>
 where
-    F: Fn(&Room, &Room) -> (Option<MilliSecondsSinceUnixEpoch>, Option<MilliSecondsSinceUnixEpoch>),
+    F: Fn(&Room, &Room) -> (Option<u64>, Option<u64>),
 {
-    timestamps: F,
+    recency_stamps: F,
 }
 
 impl<F> RecencyMatcher<F>
 where
-    F: Fn(&Room, &Room) -> (Option<MilliSecondsSinceUnixEpoch>, Option<MilliSecondsSinceUnixEpoch>),
+    F: Fn(&Room, &Room) -> (Option<u64>, Option<u64>),
 {
     fn matches(&self, left: &Room, right: &Room) -> Ordering {
         if left.id() == right.id() {
@@ -51,7 +49,7 @@ where
             return Ordering::Greater;
         }
 
-        match (self.timestamps)(left, right) {
+        match (self.recency_stamps)(left, right) {
             (Some(left_timestamp), Some(right_timestamp)) => {
                 left_timestamp.cmp(&right_timestamp).reverse()
             }
@@ -66,11 +64,11 @@ where
 }
 
 /// Create a new sorter that will sort two [`Room`] by recency, i.e. by
-/// comparing their [`matrix_sdk_base::RoomInfo::recency_timestamp`] value. The
-/// `Room` with the newest recency timestamp comes first, i.e. newest < oldest.
+/// comparing their [`matrix_sdk_base::RoomInfo::recency_stamp`] value. The
+/// `Room` with the newest recency stamp comes first, i.e. newest < oldest.
 pub fn new_sorter() -> impl Sorter {
     let matcher = RecencyMatcher {
-        timestamps: move |left, right| (left.recency_timestamp(), right.recency_timestamp()),
+        recency_stamps: move |left, right| (left.recency_stamp(), right.recency_stamp()),
     };
 
     move |left, right| -> Ordering { matcher.matches(left, right) }
@@ -79,85 +77,76 @@ pub fn new_sorter() -> impl Sorter {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
-    use ruma::{room_id, MilliSecondsSinceUnixEpoch, UInt};
+    use ruma::room_id;
 
     use super::{
         super::super::filters::{client_and_server_prelude, new_rooms},
         *,
     };
 
-    macro_rules! ms {
-        ($value:literal) => {
-            MilliSecondsSinceUnixEpoch(UInt::new_wrapping($value))
-        };
-    }
-
     #[async_test]
-    async fn test_with_two_recency_timestamps() {
+    async fn test_with_two_recency_stamps() {
         let (client, server, sliding_sync) = client_and_server_prelude().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server, &sliding_sync)
                 .await;
 
-        // `room_a` has an older recency timestamp than `room_b`.
+        // `room_a` has an older recency stamp than `room_b`.
         {
-            let matcher =
-                RecencyMatcher { timestamps: |_left, _right| (Some(ms!(1)), Some(ms!(2))) };
+            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (Some(1), Some(2)) };
 
             // `room_a` is greater than `room_b`, i.e. it must come after `room_b`.
             assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Greater);
         }
 
-        // `room_b` has an older recency timestamp than `room_a`.
+        // `room_b` has an older recency stamp than `room_a`.
         {
-            let matcher =
-                RecencyMatcher { timestamps: |_left, _right| (Some(ms!(2)), Some(ms!(1))) };
+            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (Some(2), Some(1)) };
 
             // `room_a` is less than `room_b`, i.e. it must come before `room_b`.
             assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Less);
         }
 
-        // `room_a` has an equally old recency timestamp than `room_b`.
+        // `room_a` has an equally old recency stamp than `room_b`.
         {
-            let matcher =
-                RecencyMatcher { timestamps: |_left, _right| (Some(ms!(1)), Some(ms!(1))) };
+            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (Some(1), Some(1)) };
 
             assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
         }
     }
 
     #[async_test]
-    async fn test_with_one_recency_timestamp() {
+    async fn test_with_one_recency_stamp() {
         let (client, server, sliding_sync) = client_and_server_prelude().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server, &sliding_sync)
                 .await;
 
-        // `room_a` has a recency timestamp, `room_b` has no recency timestamp.
+        // `room_a` has a recency stamp, `room_b` has no recency stamp.
         {
-            let matcher = RecencyMatcher { timestamps: |_left, _right| (Some(ms!(1)), None) };
+            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (Some(1), None) };
 
             assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Less);
         }
 
-        // `room_a` has no recency timestamp, `room_b` has a recency timestamp.
+        // `room_a` has no recency stamp, `room_b` has a recency stamp.
         {
-            let matcher = RecencyMatcher { timestamps: |_left, _right| (None, Some(ms!(1))) };
+            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (None, Some(1)) };
 
             assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Greater);
         }
     }
 
     #[async_test]
-    async fn test_with_zero_recency_timestamp() {
+    async fn test_with_zero_recency_stamp() {
         let (client, server, sliding_sync) = client_and_server_prelude().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server, &sliding_sync)
                 .await;
 
-        // `room_a` and `room_b` has no recency timestamp.
+        // `room_a` and `room_b` has no recency stamp.
         {
-            let matcher = RecencyMatcher { timestamps: |_left, _right| (None, None) };
+            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (None, None) };
 
             assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
         }
