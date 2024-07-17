@@ -91,8 +91,8 @@ bitflags! {
     /// The reason why a [`RoomInfoNotableUpdate`] is emitted.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub struct RoomInfoNotableUpdateReasons: u8 {
-        /// The recency timestamp of the `Room` has changed.
-        const RECENCY_TIMESTAMP = 0b0000_0001;
+        /// The recency stamp of the `Room` has changed.
+        const RECENCY_STAMP = 0b0000_0001;
 
         /// The latest event of the `Room` has changed.
         const LATEST_EVENT = 0b0000_0010;
@@ -940,12 +940,12 @@ impl Room {
         self.inner.read().base_info.is_marked_unread
     }
 
-    /// Returns the recency timestamp of the room.
+    /// Returns the recency stamp of the room.
     ///
-    /// Please read `RoomInfo::recency_timestamp` to learn more.
+    /// Please read `RoomInfo::recency_stamp` to learn more.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub fn recency_timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
-        self.inner.read().recency_timestamp
+    pub fn recency_stamp(&self) -> Option<u64> {
+        self.inner.read().recency_stamp
     }
 }
 
@@ -1006,15 +1006,15 @@ pub struct RoomInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) cached_display_name: Option<DisplayName>,
 
-    /// The recency timestamp of this room.
+    /// The recency stamp of this room.
     ///
     /// It's not to be confused with `origin_server_ts` of the latest event.
     /// Sliding Sync might "ignore” some events when computing the recency
-    /// timestamp of the room. Thus, using this `recency_timestamp` value is
+    /// stamp of the room. Thus, using this `recency_stamp` value is
     /// more accurate than relying on the latest event.
     #[cfg(feature = "experimental-sliding-sync")]
     #[serde(default)]
-    pub(crate) recency_timestamp: Option<MilliSecondsSinceUnixEpoch>,
+    pub(crate) recency_stamp: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -1053,7 +1053,7 @@ impl RoomInfo {
             warned_about_unknown_room_version: Arc::new(false.into()),
             cached_display_name: None,
             #[cfg(feature = "experimental-sliding-sync")]
-            recency_timestamp: None,
+            recency_stamp: None,
         }
     }
 
@@ -1459,12 +1459,12 @@ impl RoomInfo {
         self.latest_event.as_deref()
     }
 
-    /// Updates the recency timestamp of this room.
+    /// Updates the recency stamp of this room.
     ///
-    /// Please read [`Self::recency_timestamp`] to learn more.
+    /// Please read [`Self::recency_stamp`] to learn more.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub(crate) fn update_recency_timestamp(&mut self, timestamp: MilliSecondsSinceUnixEpoch) {
-        self.recency_timestamp = Some(timestamp);
+    pub(crate) fn update_recency_stamp(&mut self, stamp: u64) {
+        self.recency_stamp = Some(stamp);
     }
 }
 
@@ -1675,7 +1675,7 @@ mod tests {
             read_receipts: Default::default(),
             warned_about_unknown_room_version: Arc::new(false.into()),
             cached_display_name: None,
-            recency_timestamp: Some(MilliSecondsSinceUnixEpoch(42u32.into())),
+            recency_stamp: Some(42),
         };
 
         let info_json = json!({
@@ -1728,7 +1728,7 @@ mod tests {
                 "latest_active": null,
                 "pending": []
             },
-            "recency_timestamp": 42,
+            "recency_stamp": 42,
         });
 
         assert_eq!(serde_json::to_value(info).unwrap(), info_json);
