@@ -534,6 +534,10 @@ impl Room {
         self.inner.own_user_id().to_string()
     }
 
+    pub fn own_device_id(&self) -> String {
+        self.inner.own_device_id().to_string()
+    }
+
     pub async fn typing_notice(&self, is_typing: bool) -> Result<(), ClientError> {
         Ok(self.inner.typing_notice(is_typing).await?)
     }
