@@ -309,14 +309,17 @@ impl UserIdentity {
         Ok(())
     }
 
+    /// Returns true if the identity is not verified and did change since the
+    /// last time we pinned it.
+    ///
     /// An identity mismatch is detected when there is a trust problem with the
     /// user identity. There is an identity mismatch if the current identity
     /// is not verified and there is a pinning violation. An identity
     /// mismatch must be reported to the user, and can be resolved by:
     /// - Verifying the new identity (see
     ///   [`UserIdentity::request_verification`])
-    /// - Or by updating the pinned key
-    ///   ([`UserIdentity::pin_current_master_key`]).
+    /// - Or by updating the pinned key (see
+    ///   [`UserIdentity::pin_current_master_key`]).
     pub fn has_identity_mismatch(&self) -> bool {
         // First check if the current identity is verified.
         if self.is_verified() {
@@ -577,6 +580,8 @@ impl OtherUserIdentityData {
         *m = self.master_key.as_ref().clone()
     }
 
+    /// Returns true if the identity has changed since we last pinned it.
+    ///
     /// Key pinning acts as a trust on first use mechanism, the first time an
     /// identity is known for a user it will be pinned.
     /// For future interaction with a user, the identity is expected to be the
