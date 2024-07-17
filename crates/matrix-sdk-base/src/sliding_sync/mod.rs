@@ -2121,6 +2121,9 @@ mod tests {
         let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
+        // Discard first room info update
+        let _ = room_info_notable_update_stream.recv().await;
+
         // Send sliding sync response containing a membership event with 'join' value.
         let room_id = room_id!("!r:e.uk");
         let events = vec![Raw::from_json_string(
@@ -2130,7 +2133,7 @@ mod tests {
                 "content": { "membership": "join" },
                 "sender": "@u:h.uk",
                 "origin_server_ts": 12344445,
-                "state_key": "@alice:example.org",
+                "state_key": "@u:e.uk",
             })
             .to_string(),
         )
@@ -2141,12 +2144,12 @@ mod tests {
         let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
-        // Then a room info notable update is received.
+        // Room was already joined, no MEMBERSHIP update should be triggered here
         assert_matches!(
             room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
                 assert_eq!(received_room_id, room_id);
-                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP));
+                assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP));
             }
         );
 
@@ -2157,7 +2160,7 @@ mod tests {
                 "content": { "membership": "leave" },
                 "sender": "@u:h.uk",
                 "origin_server_ts": 12344445,
-                "state_key": "@alice:example.org",
+                "state_key": "@u:e.uk",
             })
             .to_string(),
         )
@@ -2169,8 +2172,9 @@ mod tests {
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
         // Then a room info notable update is received.
+        let update = room_info_notable_update_stream.recv().await;
         assert_matches!(
-            room_info_notable_update_stream.recv().await,
+            update,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
                 assert_eq!(received_room_id, room_id);
                 assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP));
