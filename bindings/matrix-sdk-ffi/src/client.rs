@@ -388,11 +388,13 @@ impl Client {
 
         self.restore_session_inner(auth_session).await?;
 
-        if let Some(sliding_sync_proxy) = sliding_sync_proxy {
-            let sliding_sync_proxy = Url::parse(&sliding_sync_proxy)
-                .map_err(|error| ClientError::Generic { msg: error.to_string() })?;
+        if !self.inner.is_simplified_sliding_sync_enabled() {
+            if let Some(sliding_sync_proxy) = sliding_sync_proxy {
+                let sliding_sync_proxy = Url::parse(&sliding_sync_proxy)
+                    .map_err(|error| ClientError::Generic { msg: error.to_string() })?;
 
-            self.inner.set_sliding_sync_proxy(Some(sliding_sync_proxy));
+                self.inner.set_sliding_sync_proxy(Some(sliding_sync_proxy));
+            }
         }
 
         Ok(())
