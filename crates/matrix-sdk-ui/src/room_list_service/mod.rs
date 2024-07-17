@@ -156,7 +156,6 @@ impl RoomListService {
                         (StateEventType::RoomName, "".to_owned()),
                         (StateEventType::RoomPowerLevels, "".to_owned()),
                     ])
-                    .sort(vec!["by_recency".to_owned(), "by_name".to_owned()])
                     .include_heroes(Some(true))
                     .filters(Some(assign!(SyncRequestListFilters::default(), {
                         // As defined in the [SlidingSync MSC](https://github.com/matrix-org/matrix-spec-proposals/blob/9450ced7fb9cf5ea9077d029b3adf36aebfa8709/proposals/3575-sync.md?plain=1#L444)
@@ -164,12 +163,7 @@ impl RoomListService {
                         // returned. If true, only invited rooms are returned.
                         is_invite: None,
                         not_room_types: vec!["m.space".to_owned()],
-                    })))
-                    .bump_event_types(&[
-                        TimelineEventType::RoomMessage,
-                        TimelineEventType::RoomEncrypted,
-                        TimelineEventType::Sticker,
-                    ]),
+                    }))),
             )
             .await
             .map_err(Error::SlidingSync)?

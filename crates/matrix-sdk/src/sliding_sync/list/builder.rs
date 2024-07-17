@@ -36,7 +36,6 @@ struct SlidingSyncListCachedData {
 #[derive(Clone)]
 pub struct SlidingSyncListBuilder {
     sync_mode: SlidingSyncMode,
-    sort: Vec<String>,
     required_state: Vec<(StateEventType, String)>,
     include_heroes: Option<bool>,
     filters: Option<v4::SyncRequestListFilters>,
@@ -51,8 +50,6 @@ pub struct SlidingSyncListBuilder {
     reloaded_cached_data: Option<SlidingSyncListCachedData>,
 
     once_built: Arc<Box<dyn Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync>>,
-
-    bump_event_types: Vec<TimelineEventType>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -62,13 +59,11 @@ impl fmt::Debug for SlidingSyncListBuilder {
         formatter
             .debug_struct("SlidingSyncListBuilder")
             .field("sync_mode", &self.sync_mode)
-            .field("sort", &self.sort)
             .field("required_state", &self.required_state)
             .field("include_heroes", &self.include_heroes)
             .field("filters", &self.filters)
             .field("timeline_limit", &self.timeline_limit)
             .field("name", &self.name)
-            .field("bump_event_types", &self.bump_event_types)
             .finish_non_exhaustive()
     }
 }
@@ -77,7 +72,6 @@ impl SlidingSyncListBuilder {
     pub(super) fn new(name: impl Into<String>) -> Self {
         Self {
             sync_mode: SlidingSyncMode::default(),
-            sort: vec!["by_recency".to_owned(), "by_name".to_owned()],
             required_state: vec![
                 (StateEventType::RoomEncryption, "".to_owned()),
                 (StateEventType::RoomTombstone, "".to_owned()),
@@ -89,7 +83,6 @@ impl SlidingSyncListBuilder {
             reloaded_cached_data: None,
             cache_policy: SlidingSyncListCachePolicy::Disabled,
             once_built: Arc::new(Box::new(identity)),
-            bump_event_types: Vec::new(),
         }
     }
 
@@ -109,12 +102,6 @@ impl SlidingSyncListBuilder {
     /// Which SlidingSyncMode to start this list under.
     pub fn sync_mode(mut self, value: impl Into<SlidingSyncMode>) -> Self {
         self.sync_mode = value.into();
-        self
-    }
-
-    /// Sort the room list by this.
-    pub fn sort(mut self, value: Vec<String>) -> Self {
-        self.sort = value;
         self
     }
 
@@ -177,19 +164,6 @@ impl SlidingSyncListBuilder {
         }
     }
 
-    /// Allowlist of event types which should be considered recent activity
-    /// when sorting `by_recency`.
-    ///
-    /// By omitting event types, clients can ensure
-    /// that uninteresting events (e.g. a profile rename) do not cause a
-    /// room to jump to the top of its list(s). Empty or
-    /// omitted `bump_event_types` have no effect: all events in a room will
-    /// be considered recent activity.
-    pub fn bump_event_types(mut self, bump_event_types: &[TimelineEventType]) -> Self {
-        self.bump_event_types = bump_event_types.to_vec();
-        self
-    }
-
     /// Build the list.
     pub(in super::super) fn build(
         self,
@@ -203,12 +177,10 @@ impl SlidingSyncListBuilder {
                 // From the builder
                 sticky: StdRwLock::new(SlidingSyncStickyManager::new(
                     SlidingSyncListStickyParameters::new(
-                        self.sort,
                         self.required_state,
                         self.include_heroes,
                         self.filters,
                         self.timeline_limit,
-                        self.bump_event_types,
                     ),
                 )),
                 name: self.name,

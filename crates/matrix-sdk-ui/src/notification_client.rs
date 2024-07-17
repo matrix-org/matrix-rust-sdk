@@ -361,8 +361,7 @@ impl NotificationClient {
             .filters(Some(assign!(SyncRequestListFilters::default(), {
                 is_invite: Some(true),
                 not_room_types: vec!["m.space".to_owned()],
-            })))
-            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()]);
+            })));
 
         let sync = self
             .client

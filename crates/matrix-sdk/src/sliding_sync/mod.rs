@@ -2565,7 +2565,6 @@ mod tests {
                                 ["m.room.encryption", ""],
                                 ["m.room.tombstone", ""]
                             ],
-                            "sort": ["by_recency", "by_name"]
                         },
                         "another-list": {
                             "ranges": another_list_ranges,
@@ -2573,7 +2572,6 @@ mod tests {
                                 ["m.room.encryption", ""],
                                 ["m.room.tombstone", ""]
                             ],
-                            "sort": ["by_recency", "by_name"]
                         },
                     }
                 }),

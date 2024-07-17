@@ -10,9 +10,6 @@ use crate::sliding_sync::sticky_parameters::StickyData;
 /// defined by the [Sliding Sync MSC](https://github.com/matrix-org/matrix-spec-proposals/blob/kegan/sync-v3/proposals/3575-sync.md).
 #[derive(Debug)]
 pub(super) struct SlidingSyncListStickyParameters {
-    /// Sort the room list by this.
-    sort: Vec<String>,
-
     /// Required states to return per room.
     required_state: Vec<(StateEventType, String)>,
 
@@ -25,24 +22,18 @@ pub(super) struct SlidingSyncListStickyParameters {
 
     /// The maximum number of timeline events to query for.
     timeline_limit: Option<Bound>,
-
-    /// The `bump_event_types` field. See
-    /// [`SlidingSyncListBuilder::bump_event_types`] to learn more.
-    bump_event_types: Vec<TimelineEventType>,
 }
 
 impl SlidingSyncListStickyParameters {
     pub fn new(
-        sort: Vec<String>,
         required_state: Vec<(StateEventType, String)>,
         include_heroes: Option<bool>,
         filters: Option<v4::SyncRequestListFilters>,
         timeline_limit: Option<Bound>,
-        bump_event_types: Vec<TimelineEventType>,
     ) -> Self {
         // Consider that each list will have at least one parameter set, so invalidate
         // it by default.
-        Self { sort, required_state, include_heroes, filters, timeline_limit, bump_event_types }
+        Self { required_state, include_heroes, filters, timeline_limit }
     }
 }
 
@@ -65,6 +56,5 @@ impl StickyData for SlidingSyncListStickyParameters {
         request.room_details.timeline_limit = self.timeline_limit.map(Into::into);
         request.include_heroes = self.include_heroes;
         request.filters = self.filters.clone();
-        request.bump_event_types = self.bump_event_types.clone();
     }
 }

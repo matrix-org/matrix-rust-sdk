@@ -266,7 +266,6 @@ async fn test_notification_client_sliding_sync() {
                         "is_invite": true,
                         "not_room_types": ["m.space"],
                     },
-                    "sort": ["by_recency", "by_name"],
                     "timeline_limit": 8,
                 }
             },
