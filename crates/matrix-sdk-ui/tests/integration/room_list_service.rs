@@ -331,7 +331,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                     ],
                     "include_heroes": true,
                     "filters": {
-                        "is_tombstoned": false,
                         "not_room_types": ["m.space"],
                     },
                     "bump_event_types": [

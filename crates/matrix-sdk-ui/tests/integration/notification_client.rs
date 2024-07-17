@@ -264,7 +264,6 @@ async fn test_notification_client_sliding_sync() {
                     ],
                     "filters": {
                         "is_invite": true,
-                        "is_tombstoned": false,
                         "not_room_types": ["m.space"],
                     },
                     "sort": ["by_recency", "by_name"],

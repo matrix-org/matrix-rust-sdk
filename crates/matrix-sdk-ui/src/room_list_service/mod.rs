@@ -163,7 +163,6 @@ impl RoomListService {
                         // If unset, both invited and joined rooms are returned. If false, no invited rooms are
                         // returned. If true, only invited rooms are returned.
                         is_invite: None,
-                        is_tombstoned: Some(false),
                         not_room_types: vec!["m.space".to_owned()],
                     })))
                     .bump_event_types(&[
