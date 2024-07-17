@@ -424,7 +424,6 @@ impl SlidingSync {
         //
         // Save the new position markers.
         position.pos = pos;
-        position.delta_token = sliding_sync_response.delta_token.clone();
 
         // Keep this position markers in memory, in case it pops from the server.
         let mut past_positions = self.inner.past_positions.write().unwrap();
@@ -448,7 +447,7 @@ impl SlidingSync {
             }
         }
 
-        // Collect the `pos` and `delta_token`.
+        // Collect the `pos`.
         //
         // Wait on the `position` mutex to be available. It means no request nor
         // response is running. The `position` mutex is released whether the response
@@ -456,7 +455,6 @@ impl SlidingSync {
         // the response handling has failed, in this case the `pos` hasn't been updated
         // and the same `pos` will be used for this new request.
         let mut position_guard = self.inner.position.clone().lock_owned().await;
-        let delta_token = position_guard.delta_token.clone();
 
         let to_device_enabled =
             self.inner.sticky.read().unwrap().data().extensions.to_device.enabled == Some(true);
@@ -493,7 +491,6 @@ impl SlidingSync {
 
         let mut request = assign!(v4::Request::new(), {
             conn_id: Some(self.inner.id.clone()),
-            delta_token,
             pos,
             timeout: Some(self.inner.poll_timeout),
             lists: requests_lists,
@@ -874,13 +871,6 @@ pub(super) struct SlidingSyncPositionMarkers {
     ///
     /// Should not be persisted.
     pos: Option<String>,
-
-    /// Server-provided opaque token that remembers what the last timeline and
-    /// state events stored by the client were.
-    ///
-    /// If `None`, the server will send the full information for all the lists
-    /// present in the request.
-    delta_token: Option<String>,
 }
 
 /// Frozen bits of a Sliding Sync that are stored in the *state* store.
@@ -889,20 +879,14 @@ struct FrozenSlidingSync {
     /// Deprecated: prefer storing in the crypto store.
     #[serde(skip_serializing_if = "Option::is_none")]
     to_device_since: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    delta_token: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     rooms: Vec<FrozenSlidingSyncRoom>,
 }
 
 impl FrozenSlidingSync {
-    fn new(
-        position: &SlidingSyncPositionMarkers,
-        rooms: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
-    ) -> Self {
+    fn new(rooms: &BTreeMap<OwnedRoomId, SlidingSyncRoom>) -> Self {
         // The to-device token must be saved in the `FrozenCryptoSlidingSync` now.
         Self {
-            delta_token: position.delta_token.clone(),
             to_device_since: None,
             rooms: rooms
                 .iter()
@@ -1200,8 +1184,7 @@ mod tests {
 
         // FrozenSlidingSync doesn't contain the to_device_token anymore, as it's saved
         // in the crypto store since PR #2323.
-        let position_guard = sliding_sync.inner.position.lock().await;
-        let frozen = FrozenSlidingSync::new(&position_guard, &Default::default());
+        let frozen = FrozenSlidingSync::new(&*sliding_sync.inner.rooms.read().await);
         assert!(frozen.to_device_since.is_none());
 
         Ok(())

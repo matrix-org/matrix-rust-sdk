@@ -252,15 +252,15 @@ impl SlidingSyncBuilder {
         let restored_fields =
             restore_sliding_sync_state(&client, &self.storage_key, &lists).await?;
 
-        let (delta_token, pos, rooms) = if let Some(fields) = restored_fields {
+        let (pos, rooms) = if let Some(fields) = restored_fields {
             #[cfg(feature = "e2e-encryption")]
             let pos = if self.share_pos { fields.pos } else { None };
             #[cfg(not(feature = "e2e-encryption"))]
             let pos = None;
 
-            (fields.delta_token, pos, fields.rooms)
+            (pos, fields.rooms)
         } else {
-            (None, None, BTreeMap::new())
+            (None, BTreeMap::new())
         };
 
         #[cfg(feature = "e2e-encryption")]
@@ -286,7 +286,7 @@ impl SlidingSyncBuilder {
             lists,
             rooms,
 
-            position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers { pos, delta_token })),
+            position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers { pos })),
             // SAFETY: `unwrap` is safe because 20 is not zero.
             past_positions: StdRwLock::new(RingBuffer::new(NonZeroUsize::new(20).unwrap())),
 
