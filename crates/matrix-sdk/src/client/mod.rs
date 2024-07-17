@@ -482,7 +482,7 @@ impl Client {
 
     /// Check whether Simplified MSC3575 must be used.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub(crate) fn is_simplified_sliding_sync_enabled(&self) -> bool {
+    pub fn is_simplified_sliding_sync_enabled(&self) -> bool {
         self.inner.is_simplified_sliding_sync_enabled
     }
 
