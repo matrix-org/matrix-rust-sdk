@@ -444,6 +444,7 @@ mod tests {
             PossibleLatestEvent::NoUnsupportedMessageLikeType
         );
     }
+
     #[test]
     fn test_redacted_messages_are_suitable() {
         // Ruma does not allow constructing UnsignedRoomRedactionEvent instances.
