@@ -623,14 +623,18 @@ impl BaseClient {
                 // If this event updates the current user's membership, record that in the
                 // room_info.
                 if member.state_key() == meta.user_id.as_str() {
-                    room_info.set_state(member.membership().into());
+                    let new_state: RoomState = member.membership().into();
+                    if new_state != room_info.state() {
+                        room_info.set_state(new_state);
+                        room_info_notable_updates.insert(
+                            room_info.room_id.to_owned(),
+                            RoomInfoNotableUpdateReasons::MEMBERSHIP,
+                        );
+                    }
                     break;
                 }
             }
         }
-
-        room_info_notable_updates
-            .insert(room_info.room_id.to_owned(), RoomInfoNotableUpdateReasons::MEMBERSHIP);
     }
 
     pub(crate) fn deserialize_state_events_from_timeline(
