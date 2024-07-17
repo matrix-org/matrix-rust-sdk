@@ -2140,28 +2140,6 @@ async fn test_room_subscription() -> Result<(), Error> {
         },
     };
 
-    // Unsubscribe.
-
-    room1.unsubscribe();
-    room_list.room(room_id_2)?.unsubscribe(); // unsubscribe from a room that has no subscription.
-
-    sync_then_assert_request_and_fake_response! {
-        [server, room_list, sync]
-        assert request >= {
-            "lists": {
-                ALL_ROOMS: {
-                    "ranges": [[0, 2]],
-                },
-            },
-            "unsubscribe_rooms": [room_id_1, /* `room_id_2` is absent */],
-        },
-        respond with = {
-            "pos": "2",
-            "lists": {},
-            "rooms": {},
-        },
-    };
-
     Ok(())
 }
 

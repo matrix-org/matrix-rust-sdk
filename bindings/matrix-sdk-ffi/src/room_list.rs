@@ -653,10 +653,6 @@ impl RoomListItem {
         self.inner.subscribe(settings.map(Into::into));
     }
 
-    fn unsubscribe(&self) {
-        self.inner.unsubscribe();
-    }
-
     async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
         self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new)
     }

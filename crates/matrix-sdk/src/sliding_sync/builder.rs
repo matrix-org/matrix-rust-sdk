@@ -296,7 +296,6 @@ impl SlidingSyncBuilder {
                     self.extensions.unwrap_or_default(),
                 ),
             )),
-            room_unsubscriptions: Default::default(),
 
             internal_channel: internal_channel_sender,
 
