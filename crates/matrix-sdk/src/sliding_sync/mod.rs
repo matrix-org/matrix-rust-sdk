@@ -39,6 +39,7 @@ use ruma::{
     api::client::{
         error::ErrorKind,
         sync::sync_events::v4::{self, ExtensionsConfig},
+        OutgoingRequest,
     },
     assign, OwnedEventId, OwnedRoomId, RoomId,
 };
@@ -58,7 +59,7 @@ use self::{
     client::SlidingSyncResponseProcessor,
     sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData},
 };
-use crate::{config::RequestConfig, Client, Result};
+use crate::{config::RequestConfig, Client, HttpError, Result};
 
 /// The Sliding Sync instance.
 ///
@@ -555,30 +556,26 @@ impl SlidingSync {
         ))
     }
 
-    /// Is the e2ee extension enabled for this sliding sync instance?
-    #[cfg(feature = "e2e-encryption")]
-    fn is_e2ee_enabled(&self) -> bool {
-        self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true)
-    }
-
-    #[cfg(not(feature = "e2e-encryption"))]
-    fn is_e2ee_enabled(&self) -> bool {
-        false
-    }
-
-    /// Should we process the room's subpart of a response?
-    async fn must_process_rooms_response(&self) -> bool {
-        // We consider that we must, if there's any room subscription or there's any
-        // list.
-        !self.inner.sticky.read().unwrap().data().room_subscriptions.is_empty()
-            || !self.inner.lists.read().await.is_empty()
-    }
-
-    #[instrument(skip_all, fields(pos))]
-    async fn sync_once(&self) -> Result<UpdateSummary> {
-        let (request, request_config, requested_room_unsubscriptions, mut position_guard) =
-            self.generate_sync_request(&mut LazyTransactionId::new()).await?;
-
+    /// Send a sliding sync request.
+    ///
+    /// This method contains the sending logic. It takes a generic `Request`
+    /// because it can be a Simplified MSC3575 or a MSC3575 `Request`.
+    async fn send_sync_request<Request>(
+        &self,
+        request: Request,
+        request_config: RequestConfig,
+        mut position_guard: OwnedMutexGuard<SlidingSyncPositionMarkers>,
+    ) -> Result<UpdateSummary>
+    where
+        Request: OutgoingRequest + Clone + Debug + Send + Sync + 'static,
+        Request::IncomingResponse: Send
+            + Sync
+            +
+            // This is required to get back a Simplified MSC3575 `Response` whatever the
+            // `Request` type.
+            Into<http::Response>,
+        HttpError: From<ruma::api::error::FromHttpResponseError<Request::EndpointError>>,
+    {
         debug!("Sending request");
 
         // Prepare the request.
@@ -644,6 +641,12 @@ impl SlidingSync {
         #[cfg(not(feature = "e2e-encryption"))]
         let response = request.await?;
 
+        // The code manipulates `Request` and `Response` from Simplified MSC3575 because
+        // it's the future standard. But this function may have received a `Request`
+        // from Simplified MSC3575 or MSC3575. We need to get back a
+        // Simplified MSC3575 `Response`.
+        let response = Into::<http::simplified_msc3575::Response>::into(response);
+
         debug!("Received response");
 
         // At this point, the request has been sent, and a response has been received.
@@ -692,6 +695,46 @@ impl SlidingSync {
         };
 
         spawn(future.instrument(Span::current())).await.unwrap()
+    }
+
+    /// Is the e2ee extension enabled for this sliding sync instance?
+    #[cfg(feature = "e2e-encryption")]
+    fn is_e2ee_enabled(&self) -> bool {
+        self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true)
+    }
+
+    #[cfg(not(feature = "e2e-encryption"))]
+    fn is_e2ee_enabled(&self) -> bool {
+        false
+    }
+
+    /// Should we process the room's subpart of a response?
+    async fn must_process_rooms_response(&self) -> bool {
+        // We consider that we must, if there's any room subscription or there's any
+        // list.
+        !self.inner.sticky.read().unwrap().data().room_subscriptions.is_empty()
+            || !self.inner.lists.read().await.is_empty()
+    }
+
+    #[instrument(skip_all, fields(pos))]
+    async fn sync_once(&self) -> Result<UpdateSummary> {
+        let (request, request_config, position_guard) =
+            self.generate_sync_request(&mut LazyTransactionId::new()).await?;
+
+        // The code manipulates `Request` and `Response` from Simplified MSC3575
+        // because it's the future standard. If
+        // `Client::is_simplified_sliding_sync_enabled` is turned off, the
+        // Simplified MSC3575 `Request` must be transformed into a MSC3575 `Request`.
+        if !self.inner.client.is_simplified_sliding_sync_enabled() {
+            self.send_sync_request(
+                Into::<http::msc3575::Request>::into(request),
+                request_config,
+                position_guard,
+            )
+            .await
+        } else {
+            self.send_sync_request(request, request_config, position_guard).await
+        }
     }
 
     /// Create a _new_ Sliding Sync sync loop.
