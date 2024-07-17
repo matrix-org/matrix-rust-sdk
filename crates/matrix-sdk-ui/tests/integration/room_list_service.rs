@@ -333,12 +333,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                     "filters": {
                         "not_room_types": ["m.space"],
                     },
-                    "bump_event_types": [
-                        "m.room.message",
-                        "m.room.encrypted",
-                        "m.sticker",
-                    ],
-                    "sort": ["by_recency", "by_name"],
                     "timeline_limit": 1,
                 },
             },
