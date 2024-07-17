@@ -407,25 +407,27 @@ impl UserIdentityData {
 /// This is the user identity of a user that isn't our own. Other users will
 /// only contain a master key and a self signing key, meaning that only device
 /// signatures can be checked with this identity.
+///
+/// This struct also contains the currently pinned master key for that user.
+/// The first time a cryptographic identity is seen for a given user, it
+/// will be associated to that user (i.e. pinned). Future interactions
+/// will expect this user crypto identity to stay the same,
+/// this will help prevent some MITM attacks.
+/// In case of identity change, it will be possible to pin the new identity
+/// is the user wants.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(from = "ReadOnlyUserIdentitySerializer", into = "ReadOnlyUserIdentitySerializer")]
 pub struct OtherUserIdentityData {
     user_id: OwnedUserId,
     pub(crate) master_key: Arc<MasterPubkey>,
     self_signing_key: Arc<SelfSigningPubkey>,
-    /// The first time a cryptographic identity is seen for a given user, it
-    /// will be associated to that user (i.e pinned). Future interaction
-    /// will expect this user crypto identity to stay the same,
-    /// this will help prevent some MITM attacks.
-    /// In case of identity change, it will be possible to pin the new identity
-    /// is the user wants.
-    pinned_msk: Arc<RwLock<MasterPubkey>>,
+    pinned_master_key: Arc<RwLock<MasterPubkey>>,
 }
 
 /// Intermediate struct to help serialize ReadOnlyUserIdentity and support
 /// versioning and migration.
-/// Version v1 is adding support for identity pinning (`pinned_msk`), as part
-/// of migration we just pin the currently known msk.
+/// Version v1 is adding support for identity pinning (`pinned_master_key`), as
+/// part of migration we just pin the currently known master key.
 #[derive(Deserialize, Serialize)]
 struct ReadOnlyUserIdentitySerializer {
     version: Option<String>,
@@ -445,7 +447,7 @@ struct ReadOnlyUserIdentityV1 {
     user_id: OwnedUserId,
     master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
-    pinned_msk: MasterPubkey,
+    pinned_master_key: MasterPubkey,
 }
 
 impl From<ReadOnlyUserIdentitySerializer> for OtherUserIdentityData {
@@ -458,8 +460,8 @@ impl From<ReadOnlyUserIdentitySerializer> for OtherUserIdentityData {
                     user_id: v0.user_id,
                     master_key: Arc::new(v0.master_key.clone()),
                     self_signing_key: Arc::new(v0.self_signing_key),
-                    // We migrate by pinning the current msk
-                    pinned_msk: Arc::new(RwLock::new(v0.master_key.clone())),
+                    // We migrate by pinning the current master key
+                    pinned_master_key: Arc::new(RwLock::new(v0.master_key.clone())),
                 }
             }
             _ => {
@@ -469,7 +471,7 @@ impl From<ReadOnlyUserIdentitySerializer> for OtherUserIdentityData {
                     user_id: v1.user_id,
                     master_key: Arc::new(v1.master_key.clone()),
                     self_signing_key: Arc::new(v1.self_signing_key),
-                    pinned_msk: Arc::new(RwLock::new(v1.pinned_msk)),
+                    pinned_master_key: Arc::new(RwLock::new(v1.pinned_master_key)),
                 }
             }
         }
@@ -482,7 +484,7 @@ impl From<OtherUserIdentityData> for ReadOnlyUserIdentitySerializer {
             user_id: value.user_id.clone(),
             master_key: value.master_key().to_owned(),
             self_signing_key: value.self_signing_key().to_owned(),
-            pinned_msk: value.pinned_msk.read().unwrap().clone(),
+            pinned_master_key: value.pinned_master_key.read().unwrap().clone(),
         };
         ReadOnlyUserIdentitySerializer {
             version: Some("1".to_owned()),
@@ -533,7 +535,7 @@ impl OtherUserIdentityData {
             user_id: master_key.user_id().into(),
             master_key: master_key.clone().into(),
             self_signing_key: self_signing_key.into(),
-            pinned_msk: RwLock::new(master_key).into(),
+            pinned_master_key: RwLock::new(master_key).into(),
         })
     }
 
@@ -547,7 +549,7 @@ impl OtherUserIdentityData {
             user_id: identity.user_id().into(),
             master_key: Arc::new(master_key.clone()),
             self_signing_key,
-            pinned_msk: Arc::new(RwLock::new(master_key.clone())),
+            pinned_master_key: Arc::new(RwLock::new(master_key.clone())),
         }
     }
 
@@ -568,7 +570,7 @@ impl OtherUserIdentityData {
 
     /// Pin the current identity
     pub(crate) fn pin(&self) {
-        let mut m = self.pinned_msk.write().unwrap();
+        let mut m = self.pinned_master_key.write().unwrap();
         *m = self.master_key.as_ref().clone()
     }
 
@@ -580,8 +582,8 @@ impl OtherUserIdentityData {
     /// that is accept and pin the new identity, perform a verification or
     /// stop communications.
     pub(crate) fn has_pin_violation(&self) -> bool {
-        let pinned_msk = self.pinned_msk.read().unwrap();
-        pinned_msk.get_first_key() != self.master_key().get_first_key()
+        let pinned_master_key = self.pinned_master_key.read().unwrap();
+        pinned_master_key.get_first_key() != self.master_key().get_first_key()
     }
 
     /// Update the identity with a new master key and self signing key.
@@ -603,13 +605,13 @@ impl OtherUserIdentityData {
         master_key.verify_subkey(&self_signing_key)?;
 
         // The pin is maintained.
-        let pinned_msk = self.pinned_msk.read().unwrap().clone();
+        let pinned_master_key = self.pinned_master_key.read().unwrap().clone();
 
         let new = Self {
             user_id: master_key.user_id().into(),
             master_key: master_key.clone().into(),
             self_signing_key: self_signing_key.into(),
-            pinned_msk: RwLock::new(pinned_msk).into(),
+            pinned_master_key: RwLock::new(pinned_master_key).into(),
         };
         let changed = new != *self;
 
@@ -1049,8 +1051,8 @@ pub(crate) mod tests {
         });
         let migrated: OtherUserIdentityData = serde_json::from_value(serialized_value).unwrap();
 
-        let pinned_msk = migrated.pinned_msk.read().unwrap();
-        assert_eq!(*pinned_msk, migrated.master_key().clone());
+        let pinned_master_key = migrated.pinned_master_key.read().unwrap();
+        assert_eq!(*pinned_master_key, migrated.master_key().clone());
 
         // Serialize back
         let value = serde_json::to_value(migrated.clone()).unwrap();
