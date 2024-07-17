@@ -1225,7 +1225,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn resolve_identity_mismacth_with_verification() {
+    async fn resolve_identity_mismatch_with_verification() {
         use test_json::keys_query_sets::IdentityChangeDataSet as DataSet;
 
         let my_user_id = user_id!("@me:localhost");
