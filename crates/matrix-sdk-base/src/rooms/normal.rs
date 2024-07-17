@@ -46,8 +46,8 @@ use ruma::{
     },
     room::RoomType,
     serde::Raw,
-    EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId,
-    RoomAliasId, RoomId, RoomVersionId, UserId,
+    DeviceId, EventId, MxcUri, OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId,
+    OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, RoomVersionId, UserId,
 };
 #[cfg(feature = "experimental-sliding-sync")]
 use ruma::{events::AnySyncTimelineEvent, MilliSecondsSinceUnixEpoch};
@@ -117,6 +117,7 @@ impl Default for RoomInfoNotableUpdateReasons {
 pub struct Room {
     room_id: OwnedRoomId,
     own_user_id: OwnedUserId,
+    own_device_id: OwnedDeviceId,
     inner: SharedObservable<RoomInfo>,
     room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     store: Arc<DynStateStore>,
@@ -215,23 +216,26 @@ impl Room {
 
     pub(crate) fn new(
         own_user_id: &UserId,
+        own_device_id: &DeviceId,
         store: Arc<DynStateStore>,
         room_id: &RoomId,
         room_state: RoomState,
         room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Self {
         let room_info = RoomInfo::new(room_id, room_state);
-        Self::restore(own_user_id, store, room_info, room_info_notable_update_sender)
+        Self::restore(own_user_id, own_device_id, store, room_info, room_info_notable_update_sender)
     }
 
     pub(crate) fn restore(
         own_user_id: &UserId,
+        own_device_id: &DeviceId,
         store: Arc<DynStateStore>,
         room_info: RoomInfo,
         room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Self {
         Self {
             own_user_id: own_user_id.into(),
+            own_device_id: own_device_id.into(),
             room_id: room_info.room_id.clone(),
             store,
             inner: SharedObservable::new(room_info),
@@ -251,6 +255,11 @@ impl Room {
     /// Get our own user id.
     pub fn own_user_id(&self) -> &UserId {
         &self.own_user_id
+    }
+
+    /// Get our own device id.
+    pub fn own_device_id(&self) -> &DeviceId {
+        &self.own_device_id
     }
 
     /// Get the state of the room.
@@ -1592,6 +1601,7 @@ mod tests {
     use matrix_sdk_test::{async_test, ALICE, BOB, CAROL};
     use ruma::{
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
+        device_id,
         events::{
             call::member::{
                 Application, CallApplicationContent, CallMemberEventContent, Focus,
@@ -2005,10 +2015,11 @@ mod tests {
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());
         let user_id = user_id!("@me:example.org");
+        let device_id = device_id!("D3V1C31D");
         let room_id = room_id!("!test:localhost");
         let (sender, _receiver) = tokio::sync::broadcast::channel(1);
 
-        (store.clone(), Room::new(user_id, store, room_id, room_type, sender))
+        (store.clone(), Room::new(user_id, device_id, store, room_id, room_type, sender))
     }
 
     fn make_stripped_member_event(user_id: &UserId, name: &str) -> Raw<StrippedRoomMemberEvent> {

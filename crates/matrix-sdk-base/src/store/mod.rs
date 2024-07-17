@@ -188,6 +188,7 @@ impl Store {
             for room_info in room_infos {
                 let new_room = Room::restore(
                     &session_meta.user_id,
+                    &session_meta.device_id,
                     self.inner.clone(),
                     room_info,
                     room_info_notable_update_sender.clone(),
@@ -254,8 +255,9 @@ impl Store {
         room_type: RoomState,
         room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Room {
-        let user_id =
-            &self.session_meta.get().expect("Creating room while not being logged in").user_id;
+        let session = self.session_meta.get().expect("Creating room while not being logged in");
+        let user_id = &session.user_id;
+        let device_id = &session.device_id;
 
         self.rooms
             .write()
@@ -263,6 +265,7 @@ impl Store {
             .get_or_create(room_id, || {
                 Room::new(
                     user_id,
+                    device_id,
                     self.inner.clone(),
                     room_id,
                     room_type,

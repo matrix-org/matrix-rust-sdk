@@ -794,7 +794,7 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::sync::sync_events::{v4, UnreadNotificationsCount},
-        assign, event_id,
+        assign, device_id, event_id,
         events::{
             direct::DirectEventContent,
             room::{
@@ -2059,6 +2059,7 @@ mod tests {
 
         Room::new(
             user_id!("@u:e.co"),
+            device_id!("D3V1C31D"),
             Arc::new(MemoryStore::new()),
             room_id!("!r:e.co"),
             RoomState::Joined,
