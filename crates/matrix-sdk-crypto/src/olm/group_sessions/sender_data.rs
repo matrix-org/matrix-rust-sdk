@@ -100,6 +100,19 @@ impl SenderData {
     pub(crate) fn unknown_retry_at(retry_details: SenderDataRetryDetails) -> Self {
         Self::UnknownDevice { retry_details, legacy_session: false }
     }
+
+    /// Provide the time when we should retry fetching sender data for this
+    /// session, or None if there is no need to retry because the sender is
+    /// already known.
+    pub fn next_retry_time_ms(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        match self {
+            SenderData::UnknownDevice { retry_details, .. } => {
+                Some(retry_details.next_retry_time_ms)
+            }
+            SenderData::DeviceInfo { retry_details, .. } => Some(retry_details.next_retry_time_ms),
+            SenderData::SenderKnown { .. } => None,
+        }
+    }
 }
 
 /// Used when deserialising and the sender_data property is missing.
@@ -133,8 +146,9 @@ impl SenderDataRetryDetails {
         Self { retry_count: 0, next_retry_time_ms: MilliSecondsSinceUnixEpoch::now() }
     }
 
-    #[cfg(test)]
-    pub(crate) fn new(retry_count: u8, next_retry_time_ms: u64) -> Self {
+    /// Create new details about when to retry, with the supplied count and next
+    /// retry time in milliseconds since the epoch.
+    pub fn new(retry_count: u8, next_retry_time_ms: u64) -> Self {
         use ruma::UInt;
 
         Self {
@@ -143,5 +157,75 @@ impl SenderDataRetryDetails {
                 UInt::try_from(next_retry_time_ms).unwrap_or(UInt::from(0u8)),
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use ruma::{owned_device_id, owned_user_id, MilliSecondsSinceUnixEpoch, UInt};
+    use vodozemac::Ed25519PublicKey;
+
+    use super::SenderData;
+    use crate::{
+        olm::SenderDataRetryDetails,
+        types::{DeviceKeys, Signatures},
+    };
+
+    #[test]
+    fn next_retry_time_for_known_sender_is_none() {
+        // Given a SenderUnknown
+        let sender_data = SenderData::SenderKnown {
+            user_id: owned_user_id!("@u:s.co"),
+            master_key: Ed25519PublicKey::from_base64(
+                "ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE",
+            )
+            .unwrap(),
+            master_key_verified: false,
+        };
+
+        // When we ask for the retry time, it is None because there is no need to retry.
+        assert!(
+            sender_data.next_retry_time_ms().is_none(),
+            "next_retry_time_ms for a SenderKnown should be None"
+        );
+    }
+
+    #[test]
+    fn next_retry_time_for_device_info_is_found() {
+        // Given a DeviceInfo, with retry details
+        let sender_data = SenderData::DeviceInfo {
+            device_keys: DeviceKeys::new(
+                owned_user_id!("@u:s.co"),
+                owned_device_id!("DEV"),
+                vec![],
+                BTreeMap::new(),
+                Signatures::new(),
+            ),
+            retry_details: SenderDataRetryDetails::new(0, 13_000),
+            legacy_session: false,
+        };
+
+        // When we ask for retry time, the provided value is returned
+        assert_eq!(
+            sender_data.next_retry_time_ms(),
+            Some(MilliSecondsSinceUnixEpoch(UInt::new_saturating(13_000)))
+        );
+    }
+
+    #[test]
+    fn next_retry_time_for_unknown_device_is_found() {
+        // Given an UnknownDevice, with retry details
+        let sender_data = SenderData::UnknownDevice {
+            retry_details: SenderDataRetryDetails::new(0, 93_000),
+            legacy_session: false,
+        };
+
+        // When we ask for retry time, the provided value is returned
+        assert_eq!(
+            sender_data.next_retry_time_ms(),
+            Some(MilliSecondsSinceUnixEpoch(UInt::new_saturating(93_000)))
+        );
     }
 }
