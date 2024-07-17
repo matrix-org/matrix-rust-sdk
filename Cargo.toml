@@ -75,7 +75,7 @@ tracing-subscriber = "0.3.18"
 uniffi = { version = "0.28.0" }
 uniffi_bindgen = { version = "0.28.0" }
 url = "2.5.0"
-vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "4ef989c6a8eba0bc809e285a081c56320a9bbf1e" }
+vodozemac = { version = "0.7.0" }
 wiremock = "0.6.0"
 zeroize = "1.6.0"
 
