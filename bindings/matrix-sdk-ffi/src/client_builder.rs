@@ -549,8 +549,10 @@ impl ClientBuilder {
         // `Some(_)` value in `builder.sliding_sync_proxy`. That's really important: It
         // might not break an existing app session, but it is likely to break a new
         // session, which not immediate to detect if there is no test.
-        if let Some(sliding_sync_proxy) = builder.sliding_sync_proxy {
-            sdk_client.set_sliding_sync_proxy(Some(Url::parse(&sliding_sync_proxy)?));
+        if !builder.is_simplified_sliding_sync_enabled {
+            if let Some(sliding_sync_proxy) = builder.sliding_sync_proxy {
+                sdk_client.set_sliding_sync_proxy(Some(Url::parse(&sliding_sync_proxy)?));
+            }
         }
 
         Ok(Arc::new(
