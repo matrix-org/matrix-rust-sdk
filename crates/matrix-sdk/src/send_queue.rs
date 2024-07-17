@@ -604,6 +604,11 @@ impl QueueStorage {
         Self { room_id: room, being_sent: Default::default(), client }
     }
 
+    /// Small helper to get a strong Client from the weak one.
+    fn client(&self) -> Result<Client, RoomSendQueueStorageError> {
+        self.client.get().ok_or(RoomSendQueueStorageError::ClientShuttingDown)
+    }
+
     /// Push a new event to be sent in the queue.
     ///
     /// Returns the transaction id chosen to identify the request.
@@ -613,9 +618,7 @@ impl QueueStorage {
     ) -> Result<OwnedTransactionId, RoomSendQueueStorageError> {
         let transaction_id = TransactionId::new();
 
-        self.client
-            .get()
-            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
+        self.client()?
             .store()
             .save_send_queue_event(&self.room_id, transaction_id.clone(), serializable)
             .await?;
@@ -631,13 +634,7 @@ impl QueueStorage {
         // Keep the lock until we're done touching the storage.
         let mut being_sent = self.being_sent.write().await;
 
-        let queued_events = self
-            .client
-            .get()
-            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
-            .store()
-            .load_send_queue_events(&self.room_id)
-            .await?;
+        let queued_events = self.client()?.store().load_send_queue_events(&self.room_id).await?;
 
         if let Some(event) = queued_events.iter().find(|queued| !queued.is_wedged) {
             being_sent.insert(event.transaction_id.clone());
@@ -667,9 +664,7 @@ impl QueueStorage {
         being_sent.remove(transaction_id);
 
         Ok(self
-            .client
-            .get()
-            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
+            .client()?
             .store()
             .update_send_queue_event_status(&self.room_id, transaction_id, true)
             .await?)
@@ -685,13 +680,8 @@ impl QueueStorage {
         let mut being_sent = self.being_sent.write().await;
         being_sent.remove(transaction_id);
 
-        let removed = self
-            .client
-            .get()
-            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
-            .store()
-            .remove_send_queue_event(&self.room_id, transaction_id)
-            .await?;
+        let removed =
+            self.client()?.store().remove_send_queue_event(&self.room_id, transaction_id).await?;
 
         if !removed {
             warn!(txn_id = %transaction_id, "event marked as sent was missing from storage");
@@ -717,13 +707,8 @@ impl QueueStorage {
             return Ok(false);
         }
 
-        let removed = self
-            .client
-            .get()
-            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
-            .store()
-            .remove_send_queue_event(&self.room_id, transaction_id)
-            .await?;
+        let removed =
+            self.client()?.store().remove_send_queue_event(&self.room_id, transaction_id).await?;
 
         Ok(removed)
     }
@@ -748,9 +733,7 @@ impl QueueStorage {
         }
 
         let edited = self
-            .client
-            .get()
-            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
+            .client()?
             .store()
             .update_send_queue_event(&self.room_id, transaction_id, serializable)
             .await?;
@@ -761,13 +744,7 @@ impl QueueStorage {
     /// Returns a list of the local echoes, that is, all the events that we're
     /// about to send but that haven't been sent yet (or are being sent).
     async fn local_echoes(&self) -> Result<Vec<QueuedEvent>, RoomSendQueueStorageError> {
-        Ok(self
-            .client
-            .get()
-            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
-            .store()
-            .load_send_queue_events(&self.room_id)
-            .await?)
+        Ok(self.client()?.store().load_send_queue_events(&self.room_id).await?)
     }
 }
 
