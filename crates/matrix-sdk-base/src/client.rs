@@ -775,7 +775,8 @@ impl BaseClient {
                         PossibleLatestEvent::YesRoomMessage(_)
                         | PossibleLatestEvent::YesPoll(_)
                         | PossibleLatestEvent::YesCallInvite(_)
-                        | PossibleLatestEvent::YesCallNotify(_) => {
+                        | PossibleLatestEvent::YesCallNotify(_)
+                        | PossibleLatestEvent::YesSticker(_) => {
                             // The event is the right type for us to use as latest_event
                             return Some((Box::new(LatestEvent::new(decrypted)), i));
                         }
