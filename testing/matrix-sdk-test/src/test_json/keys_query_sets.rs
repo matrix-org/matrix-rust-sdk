@@ -616,7 +616,8 @@ impl IdentityChangeDataSet {
         })
     }
     /// A key query with a new identity (Ib) and a new device `ATWKQFSFRN`.
-    /// `ATWKQFSFRN` is signed with the new identity but
+    /// `ATWKQFSFRN` is signed with the new identity but `GYKSNAWLVK` is still
+    /// signed by the old identity (Ia).
     pub fn key_query_with_identity_b() -> KeyQueryResponse {
         let data = response_from_file(&json!({
             "device_keys": {
@@ -633,8 +634,8 @@ impl IdentityChangeDataSet {
             .expect("Can't parse the `/keys/upload` response")
     }
 
-    /// A key query with a new identity (Ib) and a new device `ATWKQFSFRN`.
-    /// `ATWKQFSFRN` is signed with the new identity but
+    /// A key query with no identity and a new device `OPABMDDXGX` (not
+    /// cross-signed).
     pub fn key_query_with_identity_no_identity() -> KeyQueryResponse {
         let data = response_from_file(&json!({
             "device_keys": {
@@ -657,9 +658,6 @@ impl IdentityChangeDataSet {
                             }
                         },
                         "user_id": "@bob:localhost",
-                        "unsigned": {
-                            "device_display_name": "develop.element.io: Chrome on macOS"
-                        }
                     }
                 }
             },
