@@ -37,7 +37,7 @@ use serde_json::{json, value::Value as JsonValue};
 use super::{DynStateStore, ServerCapabilities};
 use crate::{
     deserialized_responses::MemberEvent,
-    media::{MediaFormat, MediaRequest, MediaThumbnailSize},
+    media::{MediaFormat, MediaRequest, MediaThumbnailSettings},
     store::{Result, SerializableEventContent, StateStoreExt},
     RoomInfo, RoomMemberships, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
@@ -217,11 +217,11 @@ impl StateStoreIntegrationTests for DynStateStore {
             MediaRequest { source: MediaSource::Plain(uri.to_owned()), format: MediaFormat::File };
         let request_thumbnail = MediaRequest {
             source: MediaSource::Plain(uri.to_owned()),
-            format: MediaFormat::Thumbnail(MediaThumbnailSize {
-                method: Method::Crop,
-                width: uint!(100),
-                height: uint!(100),
-            }),
+            format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                Method::Crop,
+                uint!(100),
+                uint!(100),
+            )),
         };
 
         let other_uri = mxc_uri!("mxc://localhost/media-other");

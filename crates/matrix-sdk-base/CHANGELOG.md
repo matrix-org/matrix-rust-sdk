@@ -10,6 +10,8 @@
 - `Client::get_rooms` and `Client::get_rooms_filtered` are renamed
   `Client::rooms` and `Client::rooms_filtered`.
 - `Client::get_stripped_rooms` has finally been removed.
+- `Media::get_thumbnail` and `MediaFormat::Thumbnail` allow to request an animated thumbnail
+  - They both take a `MediaThumbnailSettings` instead of `MediaThumbnailSize`.
 
 # 0.7.0
 

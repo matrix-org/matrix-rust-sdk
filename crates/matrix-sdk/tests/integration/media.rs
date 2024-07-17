@@ -1,7 +1,7 @@
 use matrix_sdk::{
     config::RequestConfig,
     matrix_auth::{MatrixSession, MatrixSessionTokens},
-    media::{MediaFormat, MediaRequest, MediaThumbnailSize},
+    media::{MediaFormat, MediaRequest, MediaThumbnailSettings, MediaThumbnailSize},
     test_utils::logged_in_client_with_server,
     Client, SessionMeta,
 };
@@ -14,7 +14,7 @@ use ruma::{
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{header, method, path},
+    matchers::{header, method, path, query_param},
     Mock, ResponseTemplate,
 };
 
@@ -35,6 +35,8 @@ async fn test_get_media_content_no_auth() {
         let _mock_guard = Mock::given(method("GET"))
             .and(path("/_matrix/media/r0/download/localhost/textfile"))
             .respond_with(ResponseTemplate::new(200).set_body_string(expected_content))
+            .named("get_file_no_cache")
+            .expect(1)
             .mount_as_scoped(&server)
             .await;
 
@@ -49,6 +51,8 @@ async fn test_get_media_content_no_auth() {
         let _mock_guard = Mock::given(method("GET"))
             .and(path("/_matrix/media/r0/download/localhost/textfile"))
             .respond_with(ResponseTemplate::new(500))
+            .named("get_file_no_cache_error")
+            .expect(1)
             .mount_as_scoped(&server)
             .await;
 
@@ -62,6 +66,8 @@ async fn test_get_media_content_no_auth() {
         let _mock_guard = Mock::given(method("GET"))
             .and(path("/_matrix/media/r0/download/localhost/textfile"))
             .respond_with(ResponseTemplate::new(200).set_body_string(expected_content))
+            .named("get_file_with_cache")
+            .expect(1)
             .mount_as_scoped(&server)
             .await;
 
@@ -76,6 +82,8 @@ async fn test_get_media_content_no_auth() {
         let _mock_guard = Mock::given(method("GET"))
             .and(path("/_matrix/media/r0/download/localhost/textfile"))
             .respond_with(ResponseTemplate::new(500))
+            .named("get_file_with_cache_error")
+            .expect(0)
             .mount_as_scoped(&server)
             .await;
 
@@ -101,22 +109,29 @@ async fn test_get_media_file_no_auth() {
         size: Some(uint!(31037)),
     })));
 
+    // Get the file.
     Mock::given(method("GET"))
         .and(path("/_matrix/media/r0/download/example.org/image"))
         .respond_with(ResponseTemplate::new(200).set_body_raw("binaryjpegdata", "image/jpeg"))
         .named("get_file")
+        .expect(1)
         .mount(&server)
         .await;
 
     client.media().get_file(&event_content, false).await.unwrap();
 
+    // Get a thumbnail, not animated.
     Mock::given(method("GET"))
         .and(path("/_matrix/media/r0/thumbnail/example.org/image"))
+        .and(query_param("method", "scale"))
+        .and(query_param("width", "100"))
+        .and(query_param("height", "100"))
+        .and(query_param("animated", "false"))
         .respond_with(
             ResponseTemplate::new(200).set_body_raw("smallerbinaryjpegdata", "image/jpeg"),
         )
         .expect(1)
-        .named("get_thumbnail")
+        .named("get_thumbnail_no_animated")
         .mount(&server)
         .await;
 
@@ -124,11 +139,32 @@ async fn test_get_media_file_no_auth() {
         .media()
         .get_thumbnail(
             &event_content,
-            MediaThumbnailSize { method: Method::Scale, width: uint!(100), height: uint!(100) },
-            false,
+            MediaThumbnailSettings::new(Method::Scale, uint!(100), uint!(100)),
+            true,
         )
         .await
         .unwrap();
+
+    // Get a thumbnail, animated.
+    Mock::given(method("GET"))
+        .and(path("/_matrix/media/r0/thumbnail/example.org/image"))
+        .and(query_param("method", "crop"))
+        .and(query_param("width", "100"))
+        .and(query_param("height", "100"))
+        .and(query_param("animated", "true"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw("smallerbinaryjpegdata", "image/jpeg"),
+        )
+        .expect(1)
+        .named("get_thumbnail_animated_true")
+        .mount(&server)
+        .await;
+
+    let settings = MediaThumbnailSettings {
+        size: MediaThumbnailSize { method: Method::Crop, width: uint!(100), height: uint!(100) },
+        animated: true,
+    };
+    client.media().get_thumbnail(&event_content, settings, true).await.unwrap();
 }
 
 #[async_test]
@@ -192,15 +228,19 @@ async fn test_get_media_file_with_auth() {
 
     client.media().get_file(&event_content, false).await.unwrap();
 
-    // Get a thumbnail of the file.
+    // Get a thumbnail, not animated.
     Mock::given(method("GET"))
         .and(path("/_matrix/client/v1/media/thumbnail/example.org/image"))
+        .and(query_param("method", "scale"))
+        .and(query_param("width", "100"))
+        .and(query_param("height", "100"))
+        .and(query_param("animated", "false"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(
             ResponseTemplate::new(200).set_body_raw("smallerbinaryjpegdata", "image/jpeg"),
         )
-        .named("get_thumbnail")
         .expect(1)
+        .named("get_thumbnail_no_animated")
         .mount(&server)
         .await;
 
@@ -208,9 +248,31 @@ async fn test_get_media_file_with_auth() {
         .media()
         .get_thumbnail(
             &event_content,
-            MediaThumbnailSize { method: Method::Scale, width: uint!(100), height: uint!(100) },
-            false,
+            MediaThumbnailSettings::new(Method::Scale, uint!(100), uint!(100)),
+            true,
         )
         .await
         .unwrap();
+
+    // Get a thumbnail, animated.
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/v1/media/thumbnail/example.org/image"))
+        .and(query_param("method", "crop"))
+        .and(query_param("width", "100"))
+        .and(query_param("height", "100"))
+        .and(query_param("animated", "true"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw("smallerbinaryjpegdata", "image/jpeg"),
+        )
+        .expect(1)
+        .named("get_thumbnail_animated_true")
+        .mount(&server)
+        .await;
+
+    let settings = MediaThumbnailSettings {
+        size: MediaThumbnailSize { method: Method::Crop, width: uint!(100), height: uint!(100) },
+        animated: true,
+    };
+    client.media().get_thumbnail(&event_content, settings, true).await.unwrap();
 }

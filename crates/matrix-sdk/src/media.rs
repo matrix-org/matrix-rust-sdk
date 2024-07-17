@@ -308,22 +308,31 @@ impl Media {
                 content
             }
             MediaSource::Plain(uri) => {
-                if let MediaFormat::Thumbnail(size) = &request.format {
+                if let MediaFormat::Thumbnail(settings) = &request.format {
                     if use_auth {
-                        let request =
+                        let mut request =
                             authenticated_media::get_content_thumbnail::v1::Request::from_uri(
                                 uri,
-                                size.width,
-                                size.height,
+                                settings.size.width,
+                                settings.size.height,
                             )?;
+                        request.method = Some(settings.size.method.clone());
+                        request.animated = Some(settings.animated);
+
                         self.client.send(request, None).await?.file
                     } else {
                         #[allow(deprecated)]
-                        let request = media::get_content_thumbnail::v3::Request::from_url(
-                            uri,
-                            size.width,
-                            size.height,
-                        )?;
+                        let request = {
+                            let mut request = media::get_content_thumbnail::v3::Request::from_url(
+                                uri,
+                                settings.size.width,
+                                settings.size.height,
+                            )?;
+                            request.method = Some(settings.size.method.clone());
+                            request.animated = Some(settings.animated);
+                            request
+                        };
+
                         self.client.send(request, None).await?.file
                     }
                 } else if use_auth {
@@ -420,20 +429,20 @@ impl Media {
     ///
     /// * `event_content` - The media event content.
     ///
-    /// * `size` - The _desired_ size of the thumbnail. The actual thumbnail may
-    ///   not match the size specified.
+    /// * `settings` - The _desired_ settings of the thumbnail. The actual
+    ///   thumbnail may not match the settings specified.
     ///
     /// * `use_cache` - If we should use the media cache for this thumbnail.
     pub async fn get_thumbnail(
         &self,
         event_content: &impl MediaEventContent,
-        size: MediaThumbnailSize,
+        settings: MediaThumbnailSettings,
         use_cache: bool,
     ) -> Result<Option<Vec<u8>>> {
         let Some(source) = event_content.thumbnail_source() else { return Ok(None) };
         let thumbnail = self
             .get_media_content(
-                &MediaRequest { source, format: MediaFormat::Thumbnail(size) },
+                &MediaRequest { source, format: MediaFormat::Thumbnail(settings) },
                 use_cache,
             )
             .await?;
@@ -449,17 +458,17 @@ impl Media {
     ///
     /// * `event_content` - The media event content.
     ///
-    /// * `size` - The _desired_ size of the thumbnail. Must match the size
-    ///   requested with [`get_thumbnail`](#method.get_thumbnail).
+    /// * `size` - The _desired_ settings of the thumbnail. Must match the
+    ///   settings requested with [`get_thumbnail`](#method.get_thumbnail).
     pub async fn remove_thumbnail(
         &self,
         event_content: &impl MediaEventContent,
-        size: MediaThumbnailSize,
+        settings: MediaThumbnailSettings,
     ) -> Result<()> {
         if let Some(source) = event_content.source() {
             self.remove_media_content(&MediaRequest {
                 source,
-                format: MediaFormat::Thumbnail(size),
+                format: MediaFormat::Thumbnail(settings),
             })
             .await?
         }
