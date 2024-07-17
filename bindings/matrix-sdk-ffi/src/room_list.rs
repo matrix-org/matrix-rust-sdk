@@ -2,12 +2,12 @@ use std::{fmt::Debug, mem::MaybeUninit, ptr::addr_of_mut, sync::Arc, time::Durat
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt, TryFutureExt};
-use matrix_sdk::ruma::{
-    api::client::sync::sync_events::{
-        v4::RoomSubscription as RumaRoomSubscription,
-        UnreadNotificationsCount as RumaUnreadNotificationsCount,
+use matrix_sdk::{
+    ruma::{
+        api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
+        assign, RoomId,
     },
-    assign, RoomId,
+    sliding_sync::http,
 };
 use matrix_sdk_ui::{
     room_list_service::filters::{
@@ -671,9 +671,9 @@ pub struct RoomSubscription {
     pub include_heroes: Option<bool>,
 }
 
-impl From<RoomSubscription> for RumaRoomSubscription {
+impl From<RoomSubscription> for http::request::RoomSubscription {
     fn from(val: RoomSubscription) -> Self {
-        assign!(RumaRoomSubscription::default(), {
+        assign!(http::request::RoomSubscription::default(), {
             required_state: val.required_state.map(|r|
                 r.into_iter().map(|s| (s.key.into(), s.value)).collect()
             ).unwrap_or_default(),

@@ -11,7 +11,8 @@ use std::{
 
 use eyeball::{Observable, SharedObservable, Subscriber};
 use futures_core::Stream;
-use ruma::{api::client::sync::sync_events::v4, assign, TransactionId};
+use matrix_sdk_base::sliding_sync::http;
+use ruma::{assign, TransactionId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
 use tracing::{instrument, warn};
@@ -147,7 +148,7 @@ impl SlidingSyncList {
     pub(super) fn next_request(
         &self,
         txn_id: &mut LazyTransactionId,
-    ) -> Result<v4::SyncRequestList, Error> {
+    ) -> Result<http::request::List, Error> {
         self.inner.next_request(txn_id)
     }
 
@@ -274,7 +275,7 @@ impl SlidingSyncListInner {
     }
 
     /// Update the state to the next request, and return it.
-    fn next_request(&self, txn_id: &mut LazyTransactionId) -> Result<v4::SyncRequestList, Error> {
+    fn next_request(&self, txn_id: &mut LazyTransactionId) -> Result<http::request::List, Error> {
         let ranges = {
             // Use a dedicated scope to ensure the lock is released before continuing.
             let mut request_generator = self.request_generator.write().unwrap();
@@ -285,16 +286,16 @@ impl SlidingSyncListInner {
         Ok(self.request(ranges, txn_id))
     }
 
-    /// Build a [`SyncRequestList`][v4::SyncRequestList] based on the current
-    /// state of the request generator.
+    /// Build a [`http::request::List`] based on the current state of the
+    /// request generator.
     #[instrument(skip(self), fields(name = self.name))]
-    fn request(&self, ranges: Ranges, txn_id: &mut LazyTransactionId) -> v4::SyncRequestList {
+    fn request(&self, ranges: Ranges, txn_id: &mut LazyTransactionId) -> http::request::List {
         use ruma::UInt;
 
         let ranges =
             ranges.into_iter().map(|r| (UInt::from(*r.start()), UInt::from(*r.end()))).collect();
 
-        let mut request = assign!(v4::SyncRequestList::default(), { ranges });
+        let mut request = assign!(http::request::List::default(), { ranges });
         {
             let mut sticky = self.sticky.write().unwrap();
             sticky.maybe_apply(&mut request, txn_id);

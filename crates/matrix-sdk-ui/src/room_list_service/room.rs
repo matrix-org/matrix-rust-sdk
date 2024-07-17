@@ -19,7 +19,8 @@ use std::{ops::Deref, sync::Arc};
 
 use async_once_cell::OnceCell as AsyncOnceCell;
 use matrix_sdk::SlidingSync;
-use ruma::{api::client::sync::sync_events::v4::RoomSubscription, events::StateEventType, RoomId};
+use matrix_sdk_base::sliding_sync::http;
+use ruma::{events::StateEventType, RoomId};
 
 use super::Error;
 use crate::{
@@ -91,7 +92,7 @@ impl Room {
     ///
     /// It means that all events from this room will be received every time, no
     /// matter how the `RoomList` is configured.
-    pub fn subscribe(&self, settings: Option<RoomSubscription>) {
+    pub fn subscribe(&self, settings: Option<http::request::RoomSubscription>) {
         let mut settings = settings.unwrap_or_default();
 
         // Make sure to always include the room creation event in the required state

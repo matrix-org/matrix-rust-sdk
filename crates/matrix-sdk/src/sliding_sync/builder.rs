@@ -6,14 +6,9 @@ use std::{
     time::Duration,
 };
 
+use matrix_sdk_base::sliding_sync::http;
 use matrix_sdk_common::{ring_buffer::RingBuffer, timer};
-use ruma::{
-    api::client::sync::sync_events::v4::{
-        self, AccountDataConfig, E2EEConfig, ExtensionsConfig, ReceiptsConfig, ToDeviceConfig,
-        TypingConfig,
-    },
-    OwnedRoomId,
-};
+use ruma::OwnedRoomId;
 use tokio::sync::{broadcast::channel, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use url::Url;
 
@@ -35,8 +30,8 @@ pub struct SlidingSyncBuilder {
     sliding_sync_proxy: Option<Url>,
     client: Client,
     lists: Vec<SlidingSyncListBuilder>,
-    extensions: Option<ExtensionsConfig>,
-    subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+    extensions: Option<http::request::Extensions>,
+    subscriptions: BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
     poll_timeout: Duration,
     network_timeout: Duration,
     #[cfg(feature = "e2e-encryption")]
@@ -133,31 +128,32 @@ impl SlidingSyncBuilder {
     }
 
     /// Set the E2EE extension configuration.
-    pub fn with_e2ee_extension(mut self, e2ee: E2EEConfig) -> Self {
+    pub fn with_e2ee_extension(mut self, e2ee: http::request::E2EE) -> Self {
         self.extensions.get_or_insert_with(Default::default).e2ee = e2ee;
         self
     }
 
     /// Unset the E2EE extension configuration.
     pub fn without_e2ee_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).e2ee = E2EEConfig::default();
+        self.extensions.get_or_insert_with(Default::default).e2ee = http::request::E2EE::default();
         self
     }
 
     /// Set the ToDevice extension configuration.
-    pub fn with_to_device_extension(mut self, to_device: ToDeviceConfig) -> Self {
+    pub fn with_to_device_extension(mut self, to_device: http::request::ToDevice) -> Self {
         self.extensions.get_or_insert_with(Default::default).to_device = to_device;
         self
     }
 
     /// Unset the ToDevice extension configuration.
     pub fn without_to_device_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).to_device = ToDeviceConfig::default();
+        self.extensions.get_or_insert_with(Default::default).to_device =
+            http::request::ToDevice::default();
         self
     }
 
     /// Set the account data extension configuration.
-    pub fn with_account_data_extension(mut self, account_data: AccountDataConfig) -> Self {
+    pub fn with_account_data_extension(mut self, account_data: http::request::AccountData) -> Self {
         self.extensions.get_or_insert_with(Default::default).account_data = account_data;
         self
     }
@@ -165,31 +161,33 @@ impl SlidingSyncBuilder {
     /// Unset the account data extension configuration.
     pub fn without_account_data_extension(mut self) -> Self {
         self.extensions.get_or_insert_with(Default::default).account_data =
-            AccountDataConfig::default();
+            http::request::AccountData::default();
         self
     }
 
     /// Set the Typing extension configuration.
-    pub fn with_typing_extension(mut self, typing: TypingConfig) -> Self {
+    pub fn with_typing_extension(mut self, typing: http::request::Typing) -> Self {
         self.extensions.get_or_insert_with(Default::default).typing = typing;
         self
     }
 
     /// Unset the Typing extension configuration.
     pub fn without_typing_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).typing = TypingConfig::default();
+        self.extensions.get_or_insert_with(Default::default).typing =
+            http::request::Typing::default();
         self
     }
 
     /// Set the Receipt extension configuration.
-    pub fn with_receipt_extension(mut self, receipt: ReceiptsConfig) -> Self {
+    pub fn with_receipt_extension(mut self, receipt: http::request::Receipts) -> Self {
         self.extensions.get_or_insert_with(Default::default).receipts = receipt;
         self
     }
 
     /// Unset the Receipt extension configuration.
     pub fn without_receipt_extension(mut self) -> Self {
-        self.extensions.get_or_insert_with(Default::default).receipts = ReceiptsConfig::default();
+        self.extensions.get_or_insert_with(Default::default).receipts =
+            http::request::Receipts::default();
         self
     }
 

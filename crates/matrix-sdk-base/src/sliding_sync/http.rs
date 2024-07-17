@@ -42,6 +42,7 @@ pub mod msc3575 {
     }
 }
 
+/// HTTP types from Simplified MSC3575.
 pub mod simplified_msc3575 {
     pub use ruma::api::client::sync::sync_events::v5::*;
 }

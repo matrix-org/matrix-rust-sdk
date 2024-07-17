@@ -559,12 +559,11 @@ mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk::test_utils::logged_in_client;
     use matrix_sdk_base::{
-        deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent, MinimalStateEvent,
-        OriginalMinimalStateEvent,
+        deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent, sliding_sync::http,
+        MinimalStateEvent, OriginalMinimalStateEvent,
     };
     use matrix_sdk_test::{async_test, sync_timeline_event};
     use ruma::{
-        api::client::sync::sync_events::v4,
         events::{
             room::{
                 member::RoomMemberEventContent,
@@ -620,7 +619,7 @@ mod tests {
         let user_id = user_id!("@t:o.uk");
         let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
         let client = logged_in_client(None).await;
-        let mut room = v4::SlidingSyncRoom::new();
+        let mut room = http::response::Room::new();
         room.timeline.push(member_event(room_id, user_id, "Alice Margatroid", "mxc://e.org/SEs"));
 
         // And the room is stored in the client so it can be extracted when needed
@@ -663,7 +662,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let room = v4::SlidingSyncRoom::new();
+        let room = http::response::Room::new();
         // Do not push the `member_event` inside the room. Let's say it's flying in the
         // `StateChanges`.
 
@@ -718,8 +717,8 @@ mod tests {
         })
     }
 
-    fn response_with_room(room_id: &RoomId, room: v4::SlidingSyncRoom) -> v4::Response {
-        let mut response = v4::Response::new("6".to_owned());
+    fn response_with_room(room_id: &RoomId, room: http::response::Room) -> http::Response {
+        let mut response = http::Response::new("6".to_owned());
         response.rooms.insert(room_id.to_owned(), room);
         response
     }

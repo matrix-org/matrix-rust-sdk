@@ -298,7 +298,7 @@ struct SlidingSyncMatcher;
 
 impl Match for SlidingSyncMatcher {
     fn matches(&self, request: &Request) -> bool {
-        request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
+        request.url.path() == "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"
             && request.method == Method::POST
     }
 }

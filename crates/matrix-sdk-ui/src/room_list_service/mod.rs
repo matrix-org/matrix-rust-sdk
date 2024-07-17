@@ -66,17 +66,10 @@ use matrix_sdk::{
     event_cache::EventCacheError, Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList,
     SlidingSyncMode,
 };
+use matrix_sdk_base::sliding_sync::http;
 pub use room::*;
 pub use room_list::*;
-use ruma::{
-    api::client::sync::sync_events::v4::{
-        AccountDataConfig, E2EEConfig, ReceiptsConfig, RoomReceiptConfig, SyncRequestListFilters,
-        ToDeviceConfig, TypingConfig,
-    },
-    assign,
-    events::{StateEventType, TimelineEventType},
-    OwnedRoomId, RoomId,
-};
+use ruma::{assign, events::StateEventType, OwnedRoomId, RoomId};
 pub use state::*;
 use thiserror::Error;
 use tokio::time::timeout;
@@ -123,21 +116,23 @@ impl RoomListService {
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
             .with_account_data_extension(
-                assign!(AccountDataConfig::default(), { enabled: Some(true) }),
+                assign!(http::request::AccountData::default(), { enabled: Some(true) }),
             )
-            .with_receipt_extension(assign!(ReceiptsConfig::default(), {
+            .with_receipt_extension(assign!(http::request::Receipts::default(), {
                 enabled: Some(true),
-                rooms: Some(vec![RoomReceiptConfig::AllSubscribed])
+                rooms: Some(vec![http::request::ReceiptsRoom::AllSubscribed])
             }))
-            .with_typing_extension(assign!(TypingConfig::default(), {
+            .with_typing_extension(assign!(http::request::Typing::default(), {
                 enabled: Some(true),
             }));
 
         if with_encryption {
             builder = builder
-                .with_e2ee_extension(assign!(E2EEConfig::default(), { enabled: Some(true) }))
+                .with_e2ee_extension(
+                    assign!(http::request::E2EE::default(), { enabled: Some(true) }),
+                )
                 .with_to_device_extension(
-                    assign!(ToDeviceConfig::default(), { enabled: Some(true) }),
+                    assign!(http::request::ToDevice::default(), { enabled: Some(true) }),
                 );
         }
 
@@ -157,7 +152,7 @@ impl RoomListService {
                         (StateEventType::RoomPowerLevels, "".to_owned()),
                     ])
                     .include_heroes(Some(true))
-                    .filters(Some(assign!(SyncRequestListFilters::default(), {
+                    .filters(Some(assign!(http::request::ListFilters::default(), {
                         // As defined in the [SlidingSync MSC](https://github.com/matrix-org/matrix-spec-proposals/blob/9450ced7fb9cf5ea9077d029b3adf36aebfa8709/proposals/3575-sync.md?plain=1#L444)
                         // If unset, both invited and joined rooms are returned. If false, no invited rooms are
                         // returned. If true, only invited rooms are returned.
@@ -474,7 +469,7 @@ mod tests {
 
     impl Match for SlidingSyncMatcher {
         fn matches(&self, request: &Request) -> bool {
-            request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
+            request.url.path() == "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"
                 && request.method == Method::POST
         }
     }

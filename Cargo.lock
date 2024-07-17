@@ -3465,6 +3465,7 @@ dependencies = [
  "http 1.1.0",
  "json-structural-diff",
  "matrix-sdk",
+ "matrix-sdk-base",
  "matrix-sdk-test",
  "matrix-sdk-ui",
  "once_cell",

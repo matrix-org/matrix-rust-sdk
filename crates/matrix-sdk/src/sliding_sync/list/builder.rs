@@ -7,10 +7,8 @@ use std::{
 };
 
 use eyeball::{Observable, SharedObservable};
-use ruma::{
-    api::client::sync::sync_events::v4,
-    events::{StateEventType, TimelineEventType},
-};
+use matrix_sdk_base::sliding_sync::http;
+use ruma::events::StateEventType;
 use tokio::sync::broadcast::Sender;
 
 use super::{
@@ -38,7 +36,7 @@ pub struct SlidingSyncListBuilder {
     sync_mode: SlidingSyncMode,
     required_state: Vec<(StateEventType, String)>,
     include_heroes: Option<bool>,
-    filters: Option<v4::SyncRequestListFilters>,
+    filters: Option<http::request::ListFilters>,
     timeline_limit: Option<Bound>,
     pub(crate) name: String,
 
@@ -118,7 +116,7 @@ impl SlidingSyncListBuilder {
     }
 
     /// Any filters to apply to the query.
-    pub fn filters(mut self, value: Option<v4::SyncRequestListFilters>) -> Self {
+    pub fn filters(mut self, value: Option<http::request::ListFilters>) -> Self {
         self.filters = value;
         self
     }
