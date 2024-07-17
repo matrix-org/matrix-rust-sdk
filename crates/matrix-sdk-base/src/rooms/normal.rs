@@ -24,6 +24,8 @@ use bitflags::bitflags;
 use eyeball::{SharedObservable, Subscriber};
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use matrix_sdk_common::ring_buffer::RingBuffer;
+#[cfg(feature = "experimental-sliding-sync")]
+use ruma::events::AnySyncTimelineEvent;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
@@ -49,8 +51,6 @@ use ruma::{
     EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId,
     RoomAliasId, RoomId, RoomVersionId, UserId,
 };
-#[cfg(feature = "experimental-sliding-sync")]
-use ruma::{events::AnySyncTimelineEvent, MilliSecondsSinceUnixEpoch};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tracing::{debug, field::debug, info, instrument, warn};

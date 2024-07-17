@@ -763,7 +763,7 @@ async fn incremental_upload_of_keys_sliding_sync() -> Result<()> {
     });
 
     Mock::given(method("POST"))
-        .and(path("_matrix/client/unstable/org.matrix.msc3575/sync"))
+        .and(path("_matrix/client/unstable/org.matrix.simplified_msc3575/sync"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "pos": "5",

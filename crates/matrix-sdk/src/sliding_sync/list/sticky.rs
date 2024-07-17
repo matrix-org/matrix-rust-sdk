@@ -1,7 +1,5 @@
-use ruma::{
-    api::client::sync::sync_events::v4,
-    events::{StateEventType, TimelineEventType},
-};
+use matrix_sdk_base::sliding_sync::http;
+use ruma::events::StateEventType;
 
 use super::Bound;
 use crate::sliding_sync::sticky_parameters::StickyData;
@@ -18,7 +16,7 @@ pub(super) struct SlidingSyncListStickyParameters {
     include_heroes: Option<bool>,
 
     /// Any filters to apply to the query.
-    filters: Option<v4::SyncRequestListFilters>,
+    filters: Option<http::request::ListFilters>,
 
     /// The maximum number of timeline events to query for.
     timeline_limit: Option<Bound>,
@@ -28,7 +26,7 @@ impl SlidingSyncListStickyParameters {
     pub fn new(
         required_state: Vec<(StateEventType, String)>,
         include_heroes: Option<bool>,
-        filters: Option<v4::SyncRequestListFilters>,
+        filters: Option<http::request::ListFilters>,
         timeline_limit: Option<Bound>,
     ) -> Self {
         // Consider that each list will have at least one parameter set, so invalidate
@@ -48,10 +46,9 @@ impl SlidingSyncListStickyParameters {
 }
 
 impl StickyData for SlidingSyncListStickyParameters {
-    type Request = v4::SyncRequestList;
+    type Request = http::request::List;
 
-    fn apply(&self, request: &mut v4::SyncRequestList) {
-        request.sort = self.sort.to_vec();
+    fn apply(&self, request: &mut Self::Request) {
         request.room_details.required_state = self.required_state.to_vec();
         request.room_details.timeline_limit = self.timeline_limit.map(Into::into);
         request.include_heroes = self.include_heroes;

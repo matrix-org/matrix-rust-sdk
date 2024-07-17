@@ -34,13 +34,10 @@ use std::{
 
 use async_stream::stream;
 use futures_core::stream::Stream;
+pub use matrix_sdk_base::sliding_sync::http;
 use matrix_sdk_common::{ring_buffer::RingBuffer, timer};
 use ruma::{
-    api::client::{
-        error::ErrorKind,
-        sync::sync_events::v4::{self, ExtensionsConfig},
-        OutgoingRequest,
-    },
+    api::{client::error::ErrorKind, OutgoingRequest},
     assign, OwnedEventId, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
@@ -150,7 +147,11 @@ impl SlidingSync {
     ///
     /// If the associated `Room` exists, it will be marked as
     /// members are missing, so that it ensures to re-fetch all members.
-    pub fn subscribe_to_room(&self, room_id: OwnedRoomId, settings: Option<v4::RoomSubscription>) {
+    pub fn subscribe_to_room(
+        &self,
+        room_id: OwnedRoomId,
+        settings: Option<http::request::RoomSubscription>,
+    ) {
         if let Some(room) = self.inner.client.get_room(&room_id) {
             room.mark_members_missing();
         }
@@ -252,16 +253,13 @@ impl SlidingSync {
     #[instrument(skip_all)]
     async fn handle_response(
         &self,
-        mut sliding_sync_response: v4::Response,
+        mut sliding_sync_response: http::Response,
         position: &mut SlidingSyncPositionMarkers,
     ) -> Result<UpdateSummary, crate::Error> {
         let pos = Some(sliding_sync_response.pos.clone());
 
         {
-            debug!(
-                delta_token = ?sliding_sync_response.delta_token,
-                "Update position markers"
-            );
+            debug!("Update position markers");
 
             // Look up for this new `pos` in the past position markers.
             let past_positions = self.inner.past_positions.read().unwrap();
@@ -288,7 +286,7 @@ impl SlidingSync {
         // Transform a Sliding Sync Response to a `SyncResponse`.
         //
         // We may not need the `sync_response` in the future (once `SyncResponse` will
-        // move to Sliding Sync, i.e. to `v4::Response`), but processing the
+        // move to Sliding Sync, i.e. to `http::Response`), but processing the
         // `sliding_sync_response` is vital, so it must be done somewhere; for now it
         // happens here.
 
@@ -435,7 +433,7 @@ impl SlidingSync {
     async fn generate_sync_request(
         &self,
         txn_id: &mut LazyTransactionId,
-    ) -> Result<(v4::Request, RequestConfig, OwnedMutexGuard<SlidingSyncPositionMarkers>)> {
+    ) -> Result<(http::Request, RequestConfig, OwnedMutexGuard<SlidingSyncPositionMarkers>)> {
         // Collect requests for lists.
         let mut requests_lists = BTreeMap::new();
 
@@ -489,7 +487,7 @@ impl SlidingSync {
 
         Span::current().record("pos", &pos);
 
-        let mut request = assign!(v4::Request::new(), {
+        let mut request = assign!(http::Request::new(), {
             conn_id: Some(self.inner.id.clone()),
             pos,
             timeout: Some(self.inner.poll_timeout),
@@ -858,7 +856,7 @@ impl SlidingSync {
     /// Note: this is not the next content of the sticky parameters, but rightly
     /// the static configuration that was set during creation of this
     /// Sliding Sync.
-    pub fn extensions_config(&self) -> ExtensionsConfig {
+    pub fn extensions_config(&self) -> http::request::Extensions {
         let sticky = self.inner.sticky.read().unwrap();
         sticky.data().extensions.clone()
     }
@@ -918,25 +916,25 @@ pub struct UpdateSummary {
 pub(super) struct SlidingSyncStickyParameters {
     /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists
     /// but one wants to receive updates.
-    room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
+    room_subscriptions: BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
 
     /// The intended state of the extensions being supplied to sliding /sync
     /// calls.
-    extensions: ExtensionsConfig,
+    extensions: http::request::Extensions,
 }
 
 impl SlidingSyncStickyParameters {
     /// Create a new set of sticky parameters.
     pub fn new(
-        room_subscriptions: BTreeMap<OwnedRoomId, v4::RoomSubscription>,
-        extensions: ExtensionsConfig,
+        room_subscriptions: BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
+        extensions: http::request::Extensions,
     ) -> Self {
         Self { room_subscriptions, extensions }
     }
 }
 
 impl StickyData for SlidingSyncStickyParameters {
-    type Request = v4::Request;
+    type Request = http::Request;
 
     fn apply(&self, request: &mut Self::Request) {
         request.room_subscriptions = self.room_subscriptions.clone();
@@ -951,7 +949,7 @@ impl StickyData for SlidingSyncStickyParameters {
 // NOTE: SS proxy workaround.
 fn compute_limited(
     local_rooms: &BTreeMap<OwnedRoomId, SlidingSyncRoom>,
-    remote_rooms: &mut BTreeMap<OwnedRoomId, v4::SlidingSyncRoom>,
+    remote_rooms: &mut BTreeMap<OwnedRoomId, http::response::Room>,
 ) {
     for (room_id, remote_room) in remote_rooms {
         // Only rooms marked as initially loaded are subject to the fixup.
@@ -1037,13 +1035,8 @@ mod tests {
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
-        api::client::{
-            error::ErrorKind,
-            sync::sync_events::v4::{self, ExtensionsConfig, ToDeviceConfig},
-        },
-        assign, owned_room_id, room_id,
-        serde::Raw,
-        uint, DeviceKeyAlgorithm, OwnedRoomId, TransactionId,
+        api::client::error::ErrorKind, assign, owned_room_id, room_id, serde::Raw, uint,
+        DeviceKeyAlgorithm, OwnedRoomId, TransactionId,
     };
     use serde::Deserialize;
     use serde_json::json;
@@ -1051,7 +1044,7 @@ mod tests {
     use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
 
     use super::{
-        compute_limited,
+        compute_limited, http,
         sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager},
         FrozenSlidingSync, SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
         SlidingSyncRoom, SlidingSyncStickyParameters,
@@ -1065,7 +1058,7 @@ mod tests {
 
     impl Match for SlidingSyncMatcher {
         fn matches(&self, request: &Request) -> bool {
-            request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
+            request.url.path() == "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"
                 && request.method == Method::POST
         }
     }
@@ -1233,7 +1226,7 @@ mod tests {
         // Then when we create a request, the sticky parameters are applied.
         let txn_id: &TransactionId = "tid123".into();
 
-        let mut request = v4::Request::default();
+        let mut request = http::Request::default();
         request.txn_id = Some(txn_id.to_string());
 
         sticky.maybe_apply(&mut request, &mut LazyTransactionId::from_owned(txn_id.to_owned()));
@@ -1260,7 +1253,7 @@ mod tests {
 
         // Restarting a request will only remember the last generated transaction id.
         let txn_id1: &TransactionId = "tid456".into();
-        let mut request1 = v4::Request::default();
+        let mut request1 = http::Request::default();
         request1.txn_id = Some(txn_id1.to_string());
         sticky.maybe_apply(&mut request1, &mut LazyTransactionId::from_owned(txn_id1.to_owned()));
 
@@ -1268,7 +1261,7 @@ mod tests {
         assert_eq!(request1.room_subscriptions.len(), 2);
 
         let txn_id2: &TransactionId = "tid789".into();
-        let mut request2 = v4::Request::default();
+        let mut request2 = http::Request::default();
         request2.txn_id = Some(txn_id2.to_string());
 
         sticky.maybe_apply(&mut request2, &mut LazyTransactionId::from_owned(txn_id2.to_owned()));
@@ -1287,7 +1280,7 @@ mod tests {
 
     #[test]
     fn test_extensions_are_sticky() {
-        let mut extensions = ExtensionsConfig::default();
+        let mut extensions = http::request::Extensions::default();
         extensions.account_data.enabled = Some(true);
 
         // At first it's invalidated.
@@ -1309,7 +1302,7 @@ mod tests {
         assert_eq!(extensions.account_data.enabled, Some(true),);
 
         let txn_id: &TransactionId = "tid123".into();
-        let mut request = v4::Request::default();
+        let mut request = http::Request::default();
         request.txn_id = Some(txn_id.to_string());
         sticky.maybe_apply(&mut request, &mut LazyTransactionId::from_owned(txn_id.to_owned()));
         assert!(sticky.is_invalidated());
@@ -1339,8 +1332,10 @@ mod tests {
         let sync = client
             .sliding_sync("test-slidingsync")?
             .add_list(SlidingSyncList::builder("new_list"))
-            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true)}))
-            .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
+            .with_to_device_extension(
+                assign!(http::request::ToDevice::default(), { enabled: Some(true)}),
+            )
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true)}))
             .build()
             .await?;
 
@@ -1434,7 +1429,9 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test-slidingsync")?
-            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true) }))
+            .with_to_device_extension(
+                assign!(http::request::ToDevice::default(), { enabled: Some(true) }),
+            )
             .build()
             .await?;
 
@@ -1995,46 +1992,46 @@ mod tests {
         let mut remote_rooms = BTreeMap::from_iter([
             (
                 not_initial.to_owned(),
-                assign!(v4::SlidingSyncRoom::default(), { timeline: response_timeline }),
+                assign!(http::response::Room::default(), { timeline: response_timeline }),
             ),
             (
                 no_overlap.to_owned(),
-                assign!(v4::SlidingSyncRoom::default(), {
+                assign!(http::response::Room::default(), {
                     initial: Some(true),
                     timeline: vec![event_c.event.clone(), event_d.event.clone()],
                 }),
             ),
             (
                 partial_overlap.to_owned(),
-                assign!(v4::SlidingSyncRoom::default(), {
+                assign!(http::response::Room::default(), {
                     initial: Some(true),
                     timeline: vec![event_c.event.clone(), event_d.event.clone()],
                 }),
             ),
             (
                 complete_overlap.to_owned(),
-                assign!(v4::SlidingSyncRoom::default(), {
+                assign!(http::response::Room::default(), {
                     initial: Some(true),
                     timeline: vec![event_c.event.clone(), event_d.event.clone()],
                 }),
             ),
             (
                 no_remote_events.to_owned(),
-                assign!(v4::SlidingSyncRoom::default(), {
+                assign!(http::response::Room::default(), {
                     initial: Some(true),
                     timeline: vec![],
                 }),
             ),
             (
                 no_local_events.to_owned(),
-                assign!(v4::SlidingSyncRoom::default(), {
+                assign!(http::response::Room::default(), {
                     initial: Some(true),
                     timeline: vec![event_c.event.clone(), event_d.event.clone()],
                 }),
             ),
             (
                 already_limited.to_owned(),
-                assign!(v4::SlidingSyncRoom::default(), {
+                assign!(http::response::Room::default(), {
                     initial: Some(true),
                     limited: true,
                     timeline: vec![event_c.event, event_d.event],
@@ -2062,7 +2059,9 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_receipt_extension(assign!(v4::ReceiptsConfig::default(), { enabled: Some(true) }))
+            .with_receipt_extension(
+                assign!(http::request::Receipts::default(), { enabled: Some(true) }),
+            )
             .add_list(
                 SlidingSyncList::builder("all")
                     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=100)),
@@ -2072,10 +2071,10 @@ mod tests {
 
         // Initial state.
         {
-            let server_response = assign!(v4::Response::new("0".to_owned()), {
+            let server_response = assign!(http::Response::new("0".to_owned()), {
                 rooms: BTreeMap::from([(
                     room.clone(),
-                    v4::SlidingSyncRoom::default(),
+                    http::response::Room::default(),
                 )])
             });
 
@@ -2085,9 +2084,9 @@ mod tests {
             };
         }
 
-        let server_response = assign!(v4::Response::new("1".to_owned()), {
-            extensions: assign!(v4::Extensions::default(), {
-                receipts: assign!(v4::Receipts::default(), {
+        let server_response = assign!(http::Response::new("1".to_owned()), {
+            extensions: assign!(http::response::Extensions::default(), {
+                receipts: assign!(http::response::Receipts::default(), {
                     rooms: BTreeMap::from([
                         (
                             room.clone(),
@@ -2135,7 +2134,7 @@ mod tests {
         let sliding_sync = client
             .sliding_sync("test")?
             .with_account_data_extension(
-                assign!(v4::AccountDataConfig::default(), { enabled: Some(true) }),
+                assign!(http::request::AccountData::default(), { enabled: Some(true) }),
             )
             .add_list(
                 SlidingSyncList::builder("all")
@@ -2146,10 +2145,10 @@ mod tests {
 
         // Initial state.
         {
-            let server_response = assign!(v4::Response::new("0".to_owned()), {
+            let server_response = assign!(http::Response::new("0".to_owned()), {
                 rooms: BTreeMap::from([(
                     room_id.clone(),
-                    v4::SlidingSyncRoom::default(),
+                    http::response::Room::default(),
                 )])
             });
 
@@ -2198,15 +2197,15 @@ mod tests {
         room_id: OwnedRoomId,
         unread: bool,
         add_rooms_section: bool,
-    ) -> v4::Response {
+    ) -> http::Response {
         let rooms = if add_rooms_section {
-            BTreeMap::from([(room_id.clone(), v4::SlidingSyncRoom::default())])
+            BTreeMap::from([(room_id.clone(), http::response::Room::default())])
         } else {
             BTreeMap::new()
         };
 
-        let extensions = assign!(v4::Extensions::default(), {
-            account_data: assign!(v4::AccountData::default(), {
+        let extensions = assign!(http::response::Extensions::default(), {
+            account_data: assign!(http::response::AccountData::default(), {
                 rooms: BTreeMap::from([
                     (
                         room_id,
@@ -2226,7 +2225,7 @@ mod tests {
             })
         });
 
-        assign!(v4::Response::new(response_number.to_owned()), { rooms: rooms, extensions: extensions })
+        assign!(http::Response::new(response_number.to_owned()), { rooms: rooms, extensions: extensions })
     }
 
     #[async_test]
@@ -2239,7 +2238,7 @@ mod tests {
         let sliding_sync = client
             .sliding_sync("test")?
             .with_account_data_extension(
-                assign!(v4::AccountDataConfig::default(), { enabled: Some(true) }),
+                assign!(http::request::AccountData::default(), { enabled: Some(true) }),
             )
             .add_list(
                 SlidingSyncList::builder("all")
@@ -2250,10 +2249,10 @@ mod tests {
 
         // Initial state.
         {
-            let server_response = assign!(v4::Response::new("0".to_owned()), {
+            let server_response = assign!(http::Response::new("0".to_owned()), {
                 rooms: BTreeMap::from([(
                     room.clone(),
-                    v4::SlidingSyncRoom::default(),
+                    http::response::Room::default(),
                 )])
             });
 
@@ -2263,9 +2262,9 @@ mod tests {
             };
         }
 
-        let server_response = assign!(v4::Response::new("1".to_owned()), {
-            extensions: assign!(v4::Extensions::default(), {
-                account_data: assign!(v4::AccountData::default(), {
+        let server_response = assign!(http::Response::new("1".to_owned()), {
+            extensions: assign!(http::response::Extensions::default(), {
+                account_data: assign!(http::response::AccountData::default(), {
                     rooms: BTreeMap::from([
                         (
                             room.clone(),
@@ -2307,20 +2306,20 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let server_response = assign!(v4::Response::new("0".to_owned()), {
+        let server_response = assign!(http::Response::new("0".to_owned()), {
             rooms: BTreeMap::from([(
                 room.clone(),
-                assign!(v4::SlidingSyncRoom::default(), {
+                assign!(http::response::Room::default(), {
                     name: Some("Croissants lovers".to_owned()),
                     timeline: Vec::new(),
                 }),
             )]),
 
-            extensions: assign!(v4::Extensions::default(), {
-                e2ee: assign!(v4::E2EE::default(), {
+            extensions: assign!(http::response::Extensions::default(), {
+                e2ee: assign!(http::response::E2EE::default(), {
                     device_one_time_keys_count: BTreeMap::from([(DeviceKeyAlgorithm::SignedCurve25519, uint!(42))])
                 }),
-                to_device: Some(assign!(v4::ToDevice::default(), {
+                to_device: Some(assign!(http::response::ToDevice::default(), {
                     next_batch: "to-device-token".to_owned(),
                 })),
             })
@@ -2331,8 +2330,10 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true)}))
-            .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
+            .with_to_device_extension(
+                assign!(http::request::ToDevice::default(), { enabled: Some(true)}),
+            )
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true)}))
             .build()
             .await?;
 
@@ -2394,8 +2395,10 @@ mod tests {
         let sliding_sync = client
             .sliding_sync("test")?
             .add_list(SlidingSyncList::builder("thelist"))
-            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true)}))
-            .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
+            .with_to_device_extension(
+                assign!(http::request::ToDevice::default(), { enabled: Some(true)}),
+            )
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true)}))
             .build()
             .await?;
 
@@ -2444,8 +2447,10 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_to_device_extension(assign!(ToDeviceConfig::default(), { enabled: Some(true)}))
-            .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}))
+            .with_to_device_extension(
+                assign!(http::request::ToDevice::default(), { enabled: Some(true)}),
+            )
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true)}))
             .build()
             .await?;
 
