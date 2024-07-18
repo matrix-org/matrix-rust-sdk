@@ -34,8 +34,8 @@ async fn test_must_explicitly_subscribe() {
 
     let room_id = room_id!("!omelette:fromage.fr");
 
-    // Make sure the client is aware of the room.
     {
+        // Make sure the client is aware of the room.
         let mut sync_builder = SyncResponseBuilder::new();
         sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
         let response_body = sync_builder.build_json_sync_response();

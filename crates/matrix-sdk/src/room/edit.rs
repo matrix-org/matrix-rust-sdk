@@ -24,7 +24,7 @@ use ruma::{
     EventId, RoomId, UserId,
 };
 use thiserror::Error;
-use tracing::{instrument, warn};
+use tracing::{debug, instrument, trace, warn};
 
 use crate::Room;
 
@@ -98,17 +98,21 @@ trait EventSource {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<'a> EventSource for &'a Room {
     async fn get_event(&self, event_id: &EventId) -> Result<SyncTimelineEvent, EditError> {
-        let (event_cache, _drop_handles) =
-            self.event_cache().await.map_err(|err| EditError::Fetch(Box::new(err.into())))?;
+        match self.event_cache().await {
+            Ok((event_cache, _drop_handles)) => {
+                if let Some(event) = event_cache.event(event_id).await {
+                    return Ok(event);
+                }
+                // Fallthrough: try with /event.
+            }
 
-        match event_cache.event(event_id).await {
-            Some(ev) => Ok(ev),
-            None => self
-                .event(event_id)
-                .await
-                .map(Into::into)
-                .map_err(|err| EditError::Fetch(Box::new(err))),
+            Err(err) => {
+                debug!("error when getting the event cache: {err}");
+            }
         }
+
+        trace!("trying with /event now");
+        self.event(event_id).await.map(Into::into).map_err(|err| EditError::Fetch(Box::new(err)))
     }
 }
 
