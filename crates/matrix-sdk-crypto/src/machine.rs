@@ -4102,7 +4102,7 @@ pub(crate) mod tests {
            "sender_claimed_keys": {
                "ed25519": "F4P7f1Z0RjbiZMgHk1xBCG3KC4/Ng9PmxLJ4hQ13sHA"
            },
-           "forwarding_curve25519_key_chain": ["DBPC2zr6c9qimo9YRFK3RVr0Two/I6ODb9mbsToZN3Q", "bBc/qzZFOOKshMMT+i4gjS/gWPDoKfGmETs9yfw9430"]
+           "forwarding_curve25519_key_chain": []
         });
 
         let backed_up_room_key: BackedUpRoomKey = serde_json::from_value(data).unwrap();
