@@ -25,7 +25,7 @@ use matrix_sdk::{
     executor::{spawn, JoinHandle},
     Client, SlidingSync, SlidingSyncList,
 };
-use matrix_sdk_base::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons};
+use matrix_sdk_base::RoomInfoNotableUpdate;
 use tokio::{select, sync::broadcast};
 use tracing::trace;
 
@@ -191,8 +191,6 @@ fn merge_stream_and_receiver(
     raw_stream: impl Stream<Item = Vec<VectorDiff<Room>>>,
     mut room_info_notable_update_receiver: broadcast::Receiver<RoomInfoNotableUpdate>,
 ) -> impl Stream<Item = Vec<VectorDiff<Room>>> {
-    use RoomInfoNotableUpdateReasons as NotableUpdate;
-
     stream! {
         pin_mut!(raw_stream);
 
@@ -218,6 +216,10 @@ fn merge_stream_and_receiver(
                 }
 
                 Ok(update) = room_info_notable_update_receiver.recv() => {
+                    // We are temporarily listening to all updates.
+                    /*
+                    use RoomInfoNotableUpdateReasons as NotableUpdate;
+
                     let reasons = &update.reasons;
 
                     // We are interested by these _reasons_.
@@ -225,14 +227,19 @@ fn merge_stream_and_receiver(
                         reasons.contains(NotableUpdate::RECENCY_STAMP) ||
                         reasons.contains(NotableUpdate::READ_RECEIPT) ||
                         reasons.contains(NotableUpdate::UNREAD_MARKER) {
+                    */
                         // Emit a `VectorDiff::Set` for the specific rooms.
                         if let Some(index) = raw_current_values.iter().position(|room| room.room_id() == update.room_id) {
                             let room = &raw_current_values[index];
                             let update = VectorDiff::Set { index, value: room.clone() };
+                    /*
                             trace!(room = %room.room_id(), "updated because of notable reason: {reasons:?}");
+                    */
                             yield vec![update];
                         }
+                    /*
                     }
+                    */
                 }
             }
         }
