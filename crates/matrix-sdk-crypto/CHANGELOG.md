@@ -1,3 +1,9 @@
+# 0.7.2
+### Security Fixes
+
+- Fix UserIdentity::is_verified to take into account our own identity
+  [#d8d9dae](https://github.com/matrix-org/matrix-rust-sdk/commit/d8d9dae9d77bee48a2591b9aad9bd2fa466354cc) (Moderate, [GHSA-4qg4-cvh2-crgg](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-4qg4-cvh2-crgg)).
+
 # 0.7.1
 ### Security Fixes
 
