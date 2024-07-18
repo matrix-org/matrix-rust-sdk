@@ -15,7 +15,8 @@
 use matrix_sdk::{
     event_cache::{paginator::PaginatorError, EventCacheError},
     room::edit::EditError,
-    send_queue::{RoomSendQueueError, RoomSendQueueStorageError},
+    send_queue::RoomSendQueueError,
+    HttpError,
 };
 use thiserror::Error;
 
@@ -62,6 +63,10 @@ pub enum Error {
     /// An error happened while attempting to edit an event.
     #[error(transparent)]
     EditError(#[from] EditError),
+
+    /// An error happened while attempting to redact an event.
+    #[error(transparent)]
+    RedactError(HttpError),
 }
 
 #[derive(Error, Debug)]
@@ -106,13 +111,4 @@ pub enum SendEventError {
 
     #[error(transparent)]
     RoomQueueError(#[from] RoomSendQueueError),
-}
-
-#[derive(Debug, Error)]
-pub enum RedactEventError {
-    #[error(transparent)]
-    SdkError(#[from] matrix_sdk::Error),
-
-    #[error("an error happened while interacting with the room queue")]
-    RoomQueueError(#[source] RoomSendQueueStorageError),
 }

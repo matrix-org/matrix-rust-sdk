@@ -667,19 +667,20 @@ impl Timeline {
         SendAttachment::new(self, path.into(), mime_type, config)
     }
 
-    /// Redacts an event from the timeline.
+    /// Redact an event.
     ///
-    /// If it was a local event, this will *try* to cancel it, if it was not
-    /// being sent already. If the event was a remote event, then it will be
-    /// redacted by sending a redaction request to the server.
+    /// # Returns
     ///
-    /// Returns whether the redaction did happen. It can only return false for
-    /// local events that are being processed.
+    /// - Returns `Ok(true)` if the redact happened.
+    /// - Returns `Ok(false)` if the redact targets an item that has no local
+    ///   nor matching remote item.
+    /// - Returns an error if there was an issue sending the redaction event, or
+    ///   interacting with the sending queue.
     pub async fn redact(
         &self,
         event: &EventTimelineItem,
         reason: Option<&str>,
-    ) -> Result<bool, RedactEventError> {
+    ) -> Result<bool, Error> {
         let event_id = match event.identifier() {
             TimelineEventItemId::TransactionId(txn_id) => {
                 // See if we have an up-to-date timeline item with that transaction id.
@@ -690,7 +691,7 @@ impl Timeline {
                             return Ok(handle
                                 .abort()
                                 .await
-                                .map_err(RedactEventError::RoomQueueError)?);
+                                .map_err(RoomSendQueueError::StorageError)?);
                         }
                     }
                 } else {
@@ -702,10 +703,7 @@ impl Timeline {
             TimelineEventItemId::EventId(event_id) => event_id,
         };
 
-        self.room()
-            .redact(&event_id, reason, None)
-            .await
-            .map_err(|err| RedactEventError::SdkError(err.into()))?;
+        self.room().redact(&event_id, reason, None).await.map_err(Error::RedactError)?;
 
         Ok(true)
     }
