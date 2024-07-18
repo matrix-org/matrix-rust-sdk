@@ -213,6 +213,7 @@ impl BaseRoomInfoV1 {
             rtc_member: BTreeMap::new(),
             is_marked_unread: false,
             notable_tags: RoomNotableTags::empty(),
+            pinned_events: None,
         })
     }
 }

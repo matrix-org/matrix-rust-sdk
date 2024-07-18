@@ -860,11 +860,12 @@ mod tests {
                 member::{MembershipState, RoomMemberEventContent},
                 message::SyncRoomMessageEvent,
                 name::RoomNameEventContent,
+                pinned_events::RoomPinnedEventsEventContent,
             },
             AnySyncMessageLikeEvent, AnySyncTimelineEvent, GlobalAccountDataEventContent,
             StateEventContent,
         },
-        mxc_uri, owned_mxc_uri, owned_user_id, room_alias_id, room_id,
+        mxc_uri, owned_event_id, owned_mxc_uri, owned_user_id, room_alias_id, room_id,
         serde::Raw,
         uint, user_id, JsOption, MxcUri, OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, UserId,
     };
@@ -2176,6 +2177,53 @@ mod tests {
                 assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::UNREAD_MARKER));
             }
         );
+    }
+
+    #[async_test]
+    async fn test_pinned_events_are_updated_on_sync() {
+        let user_a_id = user_id!("@a:e.uk");
+        let client = logged_in_base_client(Some(user_a_id)).await;
+        let room_id = room_id!("!r:e.uk");
+        let pinned_event_id = owned_event_id!("$an-id:e.uk");
+
+        // Create room
+        let mut room_response = http::response::Room::new();
+        set_room_joined(&mut room_response, user_a_id);
+        let response = response_with_room(room_id, room_response);
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
+
+        // The newly created room has no pinned event ids
+        let room = client.get_room(room_id).unwrap();
+        let pinned_event_ids = room.pinned_events();
+        assert!(pinned_event_ids.is_empty());
+
+        // Load new pinned event id
+        let mut room_response = http::response::Room::new();
+        room_response.required_state.push(make_state_event(
+            user_a_id,
+            "",
+            RoomPinnedEventsEventContent::new(vec![pinned_event_id.clone()]),
+            None,
+        ));
+        let response = response_with_room(room_id, room_response);
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
+
+        let pinned_event_ids = room.pinned_events();
+        assert_eq!(pinned_event_ids.len(), 1);
+        assert_eq!(pinned_event_ids[0], pinned_event_id);
+
+        // Pinned event ids are now empty
+        let mut room_response = http::response::Room::new();
+        room_response.required_state.push(make_state_event(
+            user_a_id,
+            "",
+            RoomPinnedEventsEventContent::new(Vec::new()),
+            None,
+        ));
+        let response = response_with_room(room_id, room_response);
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
+        let pinned_event_ids = room.pinned_events();
+        assert!(pinned_event_ids.is_empty());
     }
 
     async fn choose_event_to_cache(events: &[SyncTimelineEvent]) -> Option<SyncTimelineEvent> {
