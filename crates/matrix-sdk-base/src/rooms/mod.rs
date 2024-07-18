@@ -30,6 +30,7 @@ use ruma::{
             join_rules::RoomJoinRulesEventContent,
             member::MembershipState,
             name::RoomNameEventContent,
+            pinned_events::RoomPinnedEventsEventContent,
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
@@ -117,6 +118,8 @@ pub struct BaseRoomInfo {
     /// others, and this field collects them.
     #[serde(skip_serializing_if = "RoomNotableTags::is_empty", default)]
     pub(crate) notable_tags: RoomNotableTags,
+    /// The `m.room.pinned_events` of this room.
+    pub(crate) pinned_events: Option<RoomPinnedEventsEventContent>,
 }
 
 impl BaseRoomInfo {
@@ -194,6 +197,9 @@ impl BaseRoomInfo {
                     ev.as_original().is_some_and(|o| !o.content.active_memberships(None).is_empty())
                 });
             }
+            AnySyncStateEvent::RoomPinnedEvents(p) => {
+                self.pinned_events = p.as_original().map(|p| p.content.clone());
+            }
             _ => return false,
         }
 
@@ -252,6 +258,11 @@ impl BaseRoomInfo {
                 // Ignore stripped call state events. Rooms that are not in Joined or Left state
                 // wont have call information.
                 return false;
+            }
+            AnyStrippedStateEvent::RoomPinnedEvents(p) => {
+                if let Some(pinned) = p.content.pinned.clone() {
+                    self.pinned_events = Some(RoomPinnedEventsEventContent::new(pinned));
+                }
             }
             _ => return false,
         }
@@ -349,6 +360,7 @@ impl Default for BaseRoomInfo {
             rtc_member: BTreeMap::new(),
             is_marked_unread: false,
             notable_tags: RoomNotableTags::empty(),
+            pinned_events: None,
         }
     }
 }

@@ -947,6 +947,11 @@ impl Room {
     pub fn recency_stamp(&self) -> Option<u64> {
         self.inner.read().recency_stamp
     }
+
+    /// Get the list of event ids for pinned events in this room.
+    pub fn pinned_events(&self) -> Vec<OwnedEventId> {
+        self.inner.get().base_info.pinned_events.map(|content| content.pinned).unwrap_or_default()
+    }
 }
 
 /// The underlying pure data structure for joined and left rooms.
@@ -1615,10 +1620,11 @@ mod tests {
                     SyncRoomMemberEvent,
                 },
                 name::RoomNameEventContent,
+                pinned_events::RoomPinnedEventsEventContent,
             },
             AnySyncStateEvent, EmptyStateKey, StateEventType, StateUnsigned, SyncStateEvent,
         },
-        room_alias_id, room_id,
+        owned_event_id, room_alias_id, room_id,
         serde::Raw,
         user_id, EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
         UserId,
@@ -1671,7 +1677,9 @@ mod tests {
             latest_event: Some(Box::new(LatestEvent::new(
                 Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap().into(),
             ))),
-            base_info: Box::new(BaseRoomInfo::new()),
+            base_info: Box::new(
+                assign!(BaseRoomInfo::new(), { pinned_events: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$a")])) }),
+            ),
             read_receipts: Default::default(),
             warned_about_unknown_room_version: Arc::new(false.into()),
             cached_display_name: None,
@@ -1720,6 +1728,9 @@ mod tests {
                 "name": null,
                 "tombstone": null,
                 "topic": null,
+                "pinned_events": {
+                    "pinned": ["$a"]
+                },
             },
             "read_receipts": {
                 "num_unread": 0,
