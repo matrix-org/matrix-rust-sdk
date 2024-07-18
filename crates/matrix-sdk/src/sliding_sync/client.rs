@@ -27,7 +27,10 @@ impl Client {
         &self,
         response: &http::Response,
     ) -> Result<SyncResponse> {
-        let response = self.base_client().process_sliding_sync(response, &()).await?;
+        let response = self
+            .base_client()
+            .process_sliding_sync(response, &(), self.is_simplified_sliding_sync_enabled())
+            .await?;
 
         tracing::debug!("done processing on base_client");
         self.call_sync_response_handlers(&response).await?;
@@ -87,7 +90,11 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
         self.response = Some(
             self.client
                 .base_client()
-                .process_sliding_sync(response, &SlidingSyncPreviousEventsProvider(self.rooms))
+                .process_sliding_sync(
+                    response,
+                    &SlidingSyncPreviousEventsProvider(self.rooms),
+                    self.client.is_simplified_sliding_sync_enabled(),
+                )
                 .await?,
         );
         Ok(())
