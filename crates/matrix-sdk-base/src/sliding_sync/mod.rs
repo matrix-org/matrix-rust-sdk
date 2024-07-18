@@ -2117,7 +2117,7 @@ mod tests {
 
         // When I send sliding sync response containing a new room.
         let room_id = room_id!("!r:e.uk");
-        let room = v4::SlidingSyncRoom::new();
+        let room = http::response::Room::new();
         let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
 
@@ -2138,7 +2138,7 @@ mod tests {
             .to_string(),
         )
         .unwrap()];
-        let room = assign!(v4::SlidingSyncRoom::new(), {
+        let room = assign!(http::response::Room::new(), {
             required_state: events,
         });
         let response = response_with_room(room_id, room);
@@ -2165,7 +2165,7 @@ mod tests {
             .to_string(),
         )
         .unwrap()];
-        let room = assign!(v4::SlidingSyncRoom::new(), {
+        let room = assign!(http::response::Room::new(), {
             required_state: events,
         });
         let response = response_with_room(room_id, room);
