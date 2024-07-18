@@ -1067,7 +1067,10 @@ pub(crate) mod tests {
             bob.get_identity(alice.user_id(), None).await.unwrap().unwrap().other().unwrap();
 
         assert!(bobs_own_identity.is_verified(), "Bob's identity should be verified.");
-        assert!(!bobs_alice_identity.is_verified(), "Alice's identity should not be considered verified since Bob has not signed it.");
+        assert!(
+            !bobs_alice_identity.is_verified(),
+            "Alice's identity should not be considered verified since Bob has not signed it."
+        );
     }
 
     #[async_test]
