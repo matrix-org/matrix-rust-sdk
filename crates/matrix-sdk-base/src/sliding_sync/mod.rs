@@ -16,9 +16,9 @@
 
 pub mod http;
 
-use std::collections::BTreeMap;
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
+use std::{borrow::Cow, collections::BTreeMap};
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
@@ -28,9 +28,9 @@ use ruma::{
     api::client::sync::sync_events::v3::{self, InvitedRoom},
     events::{AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent},
     serde::Raw,
-    JsOption, OwnedRoomId, RoomId,
+    JsOption, OwnedRoomId, RoomId, UInt,
 };
-use tracing::{instrument, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 
 use super::BaseClient;
 #[cfg(feature = "e2e-encryption")]
@@ -356,6 +356,11 @@ impl BaseClient {
         from_simplified_sliding_sync: bool,
     ) -> Result<(RoomInfo, Option<JoinedRoomUpdate>, Option<LeftRoomUpdate>, Option<InvitedRoom>)>
     {
+        // This method may change `room_data` (see the terrible hack describes below)
+        // with `timestamp` and `invite_state. We don't want to change the `room_data`
+        // from outside this method, hence `Cow` is perfectly suited here.
+        let mut room_data = Cow::Borrowed(room_data);
+
         let (raw_state_events, state_events): (Vec<_>, Vec<_>) = {
             let mut state_events = Vec::new();
 
@@ -371,9 +376,48 @@ impl BaseClient {
         // Find or create the room in the store
         let is_new_room = !store.room_exists(room_id);
 
+        // Terrible hack I (Ivan) am ashamed to write, but there is a bug in the sliding
+        // sync proxy… When a user receive an invite to a room, the room has no
+        // `timestamp` despites having `m.room.create` in `bump_event_types`. The result
+        // of this is that an invite cannot be sorted. This horrible hack will fix that.
+        //
+        // The SDK manipulates Simplified MSC3575 `Request` and `Response` though. In
+        // Simplified MSC3575, `bump_stamp` replaces `timestamp`, which does NOT
+        // represent a time! This hack must really, only, apply to the proxy, so to
+        // MSC3575 strictly (hence the `from_simplified_sliding_sync` argument).
+        //
+        // The proxy uses the `origin_server_ts` event's value to fill the `timestamp`
+        // room's value (which is a bad idea[^1]). If `timestamp` is `None`, let's find
+        // out which event in `invite_state` can be a candidate: we take the latest one.
+        //
+        // [^1]: using `origin_server_ts` for `timestamp` is a bad idea because
+        // this value can be forged by a malicious user. Anyway, that's how it works
+        // in the proxy. Simplified MSC3575 has another mechanism which fixes the
+        // problem.
+        if !from_simplified_sliding_sync && room_data.bump_stamp.is_none() {
+            if let Some(invite_state) = &room_data.invite_state {
+                room_data.to_mut().bump_stamp =
+                    invite_state.iter().rev().find_map(|invite_state| {
+                        invite_state.get_field::<UInt>("origin_server_ts").ok().flatten()
+                    });
+
+                debug!(
+                    ?room_id,
+                    timestamp = ?room_data.bump_stamp,
+                    "Received a room with no `timestamp`; looked for a replacement value"
+                );
+            } else {
+                error!(?room_id, "Received a room with no `timestamp` and no `invite_state`");
+            }
+        }
+
         #[allow(unused_mut)] // Required for some feature flag combinations
-        let (mut room, mut room_info, invited_room) =
-            self.process_sliding_sync_room_membership(room_data, &state_events, store, room_id);
+        let (mut room, mut room_info, invited_room) = self.process_sliding_sync_room_membership(
+            room_data.as_ref(),
+            &state_events,
+            store,
+            room_id,
+        );
 
         room_info.mark_state_partially_synced();
 
@@ -406,7 +450,7 @@ impl BaseClient {
 
         process_room_properties(
             room_id,
-            room_data,
+            room_data.as_ref(),
             &mut room_info,
             is_new_room,
             room_info_notable_updates,
@@ -1371,6 +1415,76 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_invitation_room_receive_a_default_timestamp_on_not_simplified_sliding_sync() {
+        const NOT_SIMPLIFIED_SLIDING_SYNC: bool = false;
+
+        // Given a logged-in client
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
+
+        // When I send sliding sync response containing an invited room with no
+        // `origin_server_ts` from any events in `invite_state`
+        let mut room = http::response::Room::new();
+        set_room_invited(&mut room, user_id, user_id);
+        let response = response_with_room(room_id, room);
+        let _sync_resp = client
+            .process_sliding_sync(&response, &(), NOT_SIMPLIFIED_SLIDING_SYNC)
+            .await
+            .expect("Failed to process sync");
+
+        // Then the room has no recency stamp
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert!(client_room.recency_stamp().is_none());
+
+        // When I send sliding sync response containing an invited room with an
+        // `origin_server_ts` from an event in `invite_state`
+        let mut room = http::response::Room::new();
+        set_room_invited(&mut room, user_id, user_id);
+
+        if let Some(invite_state) = room.invite_state.as_mut() {
+            invite_state.push(
+                Raw::new(&json!({
+                    "type": "m.room.member",
+                    "sender": user_id,
+                    "content": {
+                        "is_direct": true,
+                        "membership": "invite",
+                    },
+                    "state_key": user_id,
+                    // The `origin_server_ts` is in the middle of other events.
+                    "origin_server_ts": 123456789,
+                }))
+                .expect("Failed to make raw event")
+                .cast(),
+            );
+            invite_state.push(
+                Raw::new(&json!({
+                    "type": "m.room.member",
+                    "sender": user_id,
+                    "content": {
+                        "is_direct": true,
+                        "membership": "invite",
+                    },
+                    "state_key": user_id,
+                }))
+                .expect("Failed to make raw event")
+                .cast(),
+            );
+        }
+
+        let response = response_with_room(room_id, room);
+        let _sync_resp = client
+            .process_sliding_sync(&response, &(), NOT_SIMPLIFIED_SLIDING_SYNC)
+            .await
+            .expect("Failed to process sync");
+
+        // Then the room has a recency stamp!
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(client_room.recency_stamp(), Some(123456789));
+    }
+
+    #[async_test]
     async fn test_avatar_is_found_in_invitation_room_when_processing_sliding_sync_response() {
         // Given a logged-in client
         let client = logged_in_base_client(None).await;
@@ -2280,6 +2394,12 @@ mod tests {
 
         let evt = Raw::new(&json!({
             "type": "m.room.member",
+            "sender": inviter,
+            "content": {
+                "is_direct": true,
+                "membership": "invite",
+            },
+            "state_key": invitee,
         }))
         .expect("Failed to make raw event")
         .cast();
