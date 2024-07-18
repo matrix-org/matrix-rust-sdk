@@ -18,6 +18,7 @@ use as_variant::as_variant;
 use indexmap::IndexMap;
 use matrix_sdk::{
     deserialized_responses::{EncryptionInfo, ShieldState},
+    send_queue::SendHandle,
     Client, Error,
 };
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent};
@@ -85,6 +86,16 @@ pub enum TimelineEventItemId {
     TransactionId(OwnedTransactionId),
     /// The item is remote, identified by its event id.
     EventId(OwnedEventId),
+}
+
+/// An handle that usually allows to perform an action on a timeline event.
+///
+/// If the item represents a remote item, then the event id is usually
+/// sufficient to perform an action on it. Otherwise, the send queue handle is
+/// returned, if available.
+pub(crate) enum TimelineItemHandle<'a> {
+    Remote(&'a EventId),
+    Local(&'a SendHandle),
 }
 
 impl EventTimelineItem {
@@ -473,6 +484,22 @@ impl EventTimelineItem {
             timestamp: self.timestamp(),
             content: reply_content,
         })
+    }
+
+    pub(super) fn handle(&self) -> TimelineItemHandle<'_> {
+        match &self.kind {
+            EventTimelineItemKind::Local(local) => {
+                if let Some(event_id) = local.event_id() {
+                    TimelineItemHandle::Remote(event_id)
+                } else {
+                    TimelineItemHandle::Local(
+                        // The send_handle must always be present, except in tests.
+                        local.send_handle.as_ref().expect("Unexpected missing send_handle"),
+                    )
+                }
+            }
+            EventTimelineItemKind::Remote(remote) => TimelineItemHandle::Remote(&remote.event_id),
+        }
     }
 }
 

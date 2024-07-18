@@ -18,6 +18,7 @@
 
 use std::{path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
+use event_item::{EventTimelineItemKind, TimelineItemHandle};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::Vector;
@@ -455,20 +456,22 @@ impl Timeline {
         })
     }
 
-    /// Given a transaction id, try to find a remote echo that used this
-    /// transaction id upon sending.
-    async fn find_remote_by_transaction_id(&self, txn_id: &TransactionId) -> Option<OwnedEventId> {
+    /// Returns a local or remote timeline item identified by this transaction
+    /// id.
+    async fn any_timeline_item_by_txn_id(
+        &self,
+        txn_id: &TransactionId,
+    ) -> Option<EventTimelineItem> {
         let items = self.inner.items().await;
 
-        let (_, found) = rfind_event_item(&items, |item| {
-            if let Some(remote) = item.as_remote() {
+        let (_, found) = rfind_event_item(&items, |item| match &item.kind {
+            EventTimelineItemKind::Local(local) => local.transaction_id == txn_id,
+            EventTimelineItemKind::Remote(remote) => {
                 remote.transaction_id.as_deref() == Some(txn_id)
-            } else {
-                false
             }
         })?;
 
-        Some(found.event_id().expect("remote echoes have event id").to_owned())
+        Some(found.clone())
     }
 
     /// Edit an event.
@@ -497,38 +500,19 @@ impl Timeline {
     ) -> Result<bool, Error> {
         let event_id = match item.identifier() {
             TimelineEventItemId::TransactionId(txn_id) => {
-                if let Some(item) = self.item_by_transaction_id(&txn_id).await {
-                    let Some(handle) = item.as_local().and_then(|item| item.send_handle.clone())
-                    else {
-                        warn!("No handle for a local echo; is this a test?");
-                        return Ok(false);
-                    };
-
-                    // Assume no relations, since it's not been sent yet.
-                    let new_content: RoomMessageEventContent = new_content.clone().into();
-
-                    if handle
-                        .edit(new_content.into())
-                        .await
-                        .map_err(RoomSendQueueError::StorageError)?
-                    {
-                        return Ok(true);
+                // See if we have an up-to-date timeline item with that transaction id.
+                if let Some(item) = self.any_timeline_item_by_txn_id(&txn_id).await {
+                    match item.handle() {
+                        TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
+                        TimelineItemHandle::Local(handle) => {
+                            // Relations are filled by the editing code itself.
+                            let new_content: RoomMessageEventContent = new_content.clone().into();
+                            return Ok(handle
+                                .edit(new_content.into())
+                                .await
+                                .map_err(RoomSendQueueError::StorageError)?);
+                        }
                     }
-                }
-
-                // We end up here in two cases: either there wasn't a local echo with this
-                // transaction id, or the send queue refused to edit the local echo (likely
-                // because it's sent).
-                //
-                // Try to find a matching local echo that now has an event id (it's been sent),
-                // or a remote echo with a matching transaction id, so as to
-                // send an actual edit.
-                if let Some(TimelineEventItemId::EventId(event_id)) =
-                    self.item_by_transaction_id(&txn_id).await.map(|item| item.identifier())
-                {
-                    event_id
-                } else if let Some(event_id) = self.find_remote_by_transaction_id(&txn_id).await {
-                    event_id
                 } else {
                     warn!("Couldn't find the local echo anymore, nor a matching remote echo");
                     return Ok(false);
@@ -704,25 +688,20 @@ impl Timeline {
     ) -> Result<bool, RedactEventError> {
         let event_id = match event.identifier() {
             TimelineEventItemId::TransactionId(txn_id) => {
-                let local = event.as_local().unwrap();
-
-                if let Some(handle) = local.send_handle.clone() {
-                    if handle.abort().await.map_err(RedactEventError::RoomQueueError)? {
-                        return Ok(true);
-                    }
-
-                    if let Some(event_id) = self.find_remote_by_transaction_id(&txn_id).await {
-                        event_id
-                    } else {
-                        warn!("Couldn't find the local echo anymore, nor a matching remote echo");
-                        return Ok(false);
+                // See if we have an up-to-date timeline item with that transaction id.
+                if let Some(item) = self.any_timeline_item_by_txn_id(&txn_id).await {
+                    match item.handle() {
+                        TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
+                        TimelineItemHandle::Local(handle) => {
+                            return Ok(handle
+                                .abort()
+                                .await
+                                .map_err(RedactEventError::RoomQueueError)?);
+                        }
                     }
                 } else {
-                    // No abort handle; theoretically unreachable for regular usage of the
-                    // timeline, but this may happen in testing contexts.
-                    return Err(RedactEventError::UnsupportedRedactLocal(
-                        local.transaction_id.clone(),
-                    ));
+                    warn!("Couldn't find the local echo anymore, nor a matching remote echo");
+                    return Ok(false);
                 }
             }
 
