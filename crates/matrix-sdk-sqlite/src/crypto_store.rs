@@ -487,6 +487,26 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
             .await?)
     }
 
+    async fn get_inbound_group_sessions_with_retry_time_before(
+        &self,
+        max_retry_time_ms: u64,
+        limit: usize,
+    ) -> Result<Vec<(Vec<u8>, bool)>> {
+        Ok(self
+            .prepare(
+                "SELECT data, backed_up FROM inbound_group_session
+                WHERE next_retry_time_ms < ?1
+                ORDER BY next_retry_time_ms
+                LIMIT ?2",
+                move |mut stmt| {
+                    stmt.query((max_retry_time_ms, limit))?
+                        .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                        .collect()
+                },
+            )
+            .await?)
+    }
+
     async fn get_inbound_group_session_counts(
         &self,
         _backup_version: Option<&str>,
@@ -1033,6 +1053,23 @@ impl CryptoStore for SqliteCryptoStore {
 
     async fn reset_backup_state(&self) -> Result<()> {
         Ok(self.acquire().await?.reset_inbound_group_session_backup_state().await?)
+    }
+
+    async fn inbound_group_sessions_with_retry_time_before(
+        &self,
+        max_retry_time_ms: u64,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>> {
+        self.acquire()
+            .await?
+            .get_inbound_group_sessions_with_retry_time_before(max_retry_time_ms, limit)
+            .await?
+            .into_iter()
+            .map(|(value, backed_up)| {
+                let pickle = self.deserialize_pickled_inbound_group_session(&value, backed_up)?;
+                Ok(InboundGroupSession::from_pickle(pickle)?)
+            })
+            .collect()
     }
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {

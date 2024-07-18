@@ -1084,6 +1084,62 @@ impl_crypto_store! {
         Ok(tx.await.into_result()?)
     }
 
+    async fn inbound_group_sessions_with_retry_time_before(
+        &self,
+        max_retry_time_ms: u64,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>> {
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(
+                keys::INBOUND_GROUP_SESSIONS_V3,
+                IdbTransactionMode::Readonly,
+            )?;
+
+        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+        let idx = store.index(keys::INBOUND_GROUP_SESSIONS_NEXT_RETRY_TIME_MS_INDEX)?;
+
+        // Casting from an integer to float will produce the closest possible
+        // float, which is fine for us here as this represents a time, so
+        // approximate values are OK, and we won't hit inexact conversions
+        // for another 285K years.
+        // https://doc.rust-lang.org/1.49.0/reference/expressions/operator-expr.html#type-cast-expressions
+        let max_retry_time_ms = max_retry_time_ms as f64;
+
+        let before_max_time = IdbKeyRange::upper_bound_with_open(&max_retry_time_ms.into(), true)
+            .expect("max_retry_time_ms was not a valid key!");
+
+        // XXX ideally we would use `get_all_with_key_and_limit`, but that doesn't appear to be
+        //   exposed (https://github.com/Alorel/rust-indexed-db/issues/31). Instead we replicate
+        //   the behaviour with a cursor.
+        let Some(cursor) = idx.open_cursor_with_range(&before_max_time)?.await? else {
+            return Ok(vec![]);
+        };
+
+        let mut serialized_sessions = Vec::with_capacity(limit);
+        for _ in 0..limit {
+            serialized_sessions.push(cursor.value());
+            if !cursor.continue_cursor()?.await? {
+                break;
+            }
+        }
+
+        tx.await.into_result()?;
+
+        // Deserialize and decrypt after the transaction is complete.
+        let result = serialized_sessions.into_iter()
+            .filter_map(|v| match self.deserialize_inbound_group_session(v) {
+                Ok(session) => Some(session),
+                Err(e) => {
+                    warn!("Failed to deserialize inbound group session: {e}");
+                    None
+                }
+            })
+            .collect::<Vec<InboundGroupSession>>();
+
+        Ok(result)
+    }
+
     async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<()> {
         let tx = self
             .inner

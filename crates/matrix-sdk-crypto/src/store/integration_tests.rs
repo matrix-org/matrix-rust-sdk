@@ -38,17 +38,20 @@ macro_rules! cryptostore_integration_tests {
             use std::time::Duration;
 
             use assert_matches::assert_matches;
+            use vodozemac::Ed25519PublicKey;
             use matrix_sdk_test::async_test;
             use ruma::{
                 device_id, events::secret::request::SecretName, room_id, serde::Raw,
-                to_device::DeviceIdOrAllDevices, user_id, DeviceId, RoomId, TransactionId, UserId,
+                to_device::DeviceIdOrAllDevices, user_id, owned_user_id, DeviceId,
+                RoomId, TransactionId, UserId,
             };
             use serde_json::value::to_raw_value;
             use serde_json::json;
             use $crate::{
                 olm::{
-                    Account, Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
-                    PrivateCrossSigningIdentity, Session,
+                    Account, Curve25519PublicKey, EncryptionSettings, InboundGroupSession,
+                    OlmMessageHash, PrivateCrossSigningIdentity, SenderData, SenderDataRetryDetails,
+                    Session
                 },
                 store::{
                     BackupDecryptionKey, Changes, CryptoStore, DeviceChanges, GossipRequest,
@@ -521,6 +524,67 @@ macro_rules! cryptostore_integration_tests {
                 assert!(needs_backing_up(8));
                 assert!(needs_backing_up(9));
                 assert_eq!(to_back_up.len(), 10);
+            }
+
+            #[async_test]
+            async fn fetch_inbound_group_sessions_for_sender_data_retry() {
+                // Given a store exists, containing inbound group sessions with different retry
+                // settings
+                let (account, store) =
+                    get_loaded_store("fetch_inbound_group_sessions_for_sender_data_retry").await;
+
+                const NOW: u64 = 10_000;
+                const EARLIER: u64 = NOW - 4_000;
+                const LATER: u64 = NOW + 10_000;
+
+                let earlier_1 = create_session_unknown_device(&account, EARLIER + 1).await;
+                let earlier_2 = create_session_unknown_device(&account, EARLIER + 2).await;
+                let earlier_3 = create_session_device_info(&account, EARLIER + 3).await;
+                let earlier_4 = create_session_unknown_device(&account, EARLIER + 4).await;
+                let earlier_5 = create_session_unknown_device(&account, EARLIER + 5).await;
+
+                let sessions = vec![
+                    // One session that does not need retrying
+                    create_session_sender_known(&account).await,
+                    // One session that does need retrying, but later
+                    create_session_device_info(&account, LATER).await,
+                    // Five sessions that do need retrying, at different times
+                    earlier_3.clone(),
+                    earlier_1.clone(),
+                    earlier_5.clone(),
+                    earlier_2.clone(),
+                    earlier_4.clone(),
+                ];
+
+                let changes = Changes {
+                    inbound_group_sessions: sessions,
+                    ..Default::default()
+                };
+                store.save_changes(changes).await.expect("Can't save group session");
+
+                // When we fetch the list of sessions due for retry
+                let sessions_to_retry = store
+                    .inbound_group_sessions_with_retry_time_before(NOW, 100)
+                    .await
+                    .unwrap();
+
+                // Then the expected sessions are returned, earliest first
+                assert_eq!(
+                    sessions_to_retry,
+                    vec![earlier_1.clone(), earlier_2.clone(), earlier_3.clone(), earlier_4, earlier_5]
+                );
+
+                // And when we ask for fewer
+                let sessions_to_retry_limited = store
+                    .inbound_group_sessions_with_retry_time_before(NOW, 3)
+                    .await
+                    .unwrap();
+
+                // Then only the first few are returned
+                assert_eq!(
+                    sessions_to_retry_limited,
+                    vec![earlier_1, earlier_2, earlier_3]
+                );
             }
 
             #[async_test]
@@ -1109,6 +1173,49 @@ macro_rules! cryptostore_integration_tests {
 
             fn session_info(session: &InboundGroupSession) -> (&RoomId, &str) {
                 (&session.room_id(), &session.session_id())
+            }
+
+            async fn create_session_sender_known(account: &Account) -> InboundGroupSession {
+                account.create_group_session_pair(
+                    room_id!("!test:localhost"),
+                    EncryptionSettings::default(),
+                    SenderData::SenderKnown {
+                        user_id: owned_user_id!("@u:s.co"),
+                        master_key: Ed25519PublicKey::from_base64(
+                            "loz5i40dP+azDtWvsD0L/xpnCjNkmrcvtXVXzCHX8Vw"
+                        ).unwrap(),
+                        master_key_verified: true,
+                    }
+                ).await.unwrap().1
+            }
+
+            async fn create_session_device_info(
+                account: &Account,
+                next_retry_time_ms: u64
+            ) -> InboundGroupSession {
+                account.create_group_session_pair(
+                    room_id!("!test:localhost"),
+                    EncryptionSettings::default(),
+                    SenderData::DeviceInfo {
+                        device_keys: DeviceData::from_account(&account).as_device_keys().to_owned(),
+                        retry_details: SenderDataRetryDetails::new(1, next_retry_time_ms),
+                        legacy_session: false,
+                    },
+                ).await.unwrap().1
+            }
+
+            async fn create_session_unknown_device(
+                account: &Account,
+                next_retry_time_ms: u64
+            ) -> InboundGroupSession {
+                account.create_group_session_pair(
+                    room_id!("!test:localhost"),
+                    EncryptionSettings::default(),
+                    SenderData::UnknownDevice {
+                        retry_details: SenderDataRetryDetails::new(1, next_retry_time_ms),
+                        legacy_session: false,
+                    },
+                ).await.unwrap().1
             }
         }
     };

@@ -138,6 +138,19 @@ pub trait CryptoStore: AsyncTraitDeps {
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>, Self::Error>;
 
+    /// Return a batch of ['InboundGroupSession'] ("room keys") that are missing
+    /// sender data, and are due for a retry.
+    ///
+    /// Sessions with earlier `next_retry_time_ms` are preferred, and the
+    /// returned `Vec` is sorted, with the earliest retry time first.
+    ///
+    /// The size of the returned `Vec` is <= `limit`.
+    async fn inbound_group_sessions_with_retry_time_before(
+        &self,
+        max_retry_time_ms: u64,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>, Self::Error>;
+
     /// Store the fact that the supplied sessions were backed up into the backup
     /// with version `backup_version`.
     ///
@@ -419,6 +432,17 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn reset_backup_state(&self) -> Result<()> {
         self.0.reset_backup_state().await.map_err(Into::into)
+    }
+
+    async fn inbound_group_sessions_with_retry_time_before(
+        &self,
+        max_retry_time_ms: u64,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>, Self::Error> {
+        self.0
+            .inbound_group_sessions_with_retry_time_before(max_retry_time_ms, limit)
+            .await
+            .map_err(Into::into)
     }
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {

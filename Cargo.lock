@@ -3443,6 +3443,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "vodozemac",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",

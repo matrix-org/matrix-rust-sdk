@@ -436,6 +436,42 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
+    async fn inbound_group_sessions_with_retry_time_before(
+        &self,
+        max_retry_time_ms: u64,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>> {
+        let sessions = self.inbound_group_sessions.get_all();
+
+        // Restrict to only ones that need retrying
+        let mut sessions: Vec<_> = sessions
+            .iter()
+            .filter_map(|s| {
+                // Find retry time or exclude this session if it should not be retried
+                let next_retry_time_ms = s.sender_data.next_retry_time_ms()?;
+
+                // Convert the value encoded in the SenderData to u64 or fall back to retrying
+                // now if the conversion fails.
+                let next_retry_time_ms: i128 = next_retry_time_ms.0.into();
+                let next_retry_time_ms: u64 = next_retry_time_ms.try_into().unwrap_or(0);
+
+                if next_retry_time_ms <= max_retry_time_ms {
+                    Some((next_retry_time_ms, s))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Provide them in order of next_retry_time_ms
+        sessions.sort_by_key(|(next_retry_time_ms, _session)| *next_retry_time_ms);
+
+        // Limit to the number we were asked for
+        let sessions = sessions.iter().take(limit);
+
+        Ok(sessions.map(|(_, session)| (*session).clone()).collect())
+    }
+
     async fn load_backup_keys(&self) -> Result<BackupKeys> {
         Ok(self.backup_keys.read().await.to_owned())
     }
@@ -1245,6 +1281,14 @@ mod integration_tests {
 
         async fn reset_backup_state(&self) -> Result<(), Self::Error> {
             self.0.reset_backup_state().await
+        }
+
+        async fn inbound_group_sessions_with_retry_time_before(
+            &self,
+            max_retry_time_ms: u64,
+            limit: usize,
+        ) -> Result<Vec<InboundGroupSession>, Self::Error> {
+            self.0.inbound_group_sessions_with_retry_time_before(max_retry_time_ms, limit).await
         }
 
         async fn load_backup_keys(&self) -> Result<BackupKeys, Self::Error> {
