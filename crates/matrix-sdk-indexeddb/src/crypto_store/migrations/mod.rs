@@ -25,7 +25,9 @@ use crate::{
 
 mod old_keys;
 mod v0_to_v5;
+mod v10;
 mod v10_to_v11;
+mod v11_to_v12;
 mod v5_to_v7;
 mod v7;
 mod v7_to_v8;
@@ -111,8 +113,12 @@ pub async fn open_and_upgrade_db(
         v10_to_v11::data_migrate(name, serializer).await?;
     }
 
+    if old_version < 12 {
+        v11_to_v12::schema_add(name).await?;
+    }
+
     // Open and return the DB (we know it's at the latest version)
-    Ok(IdbDatabase::open_u32(name, 11)?.await?)
+    Ok(IdbDatabase::open_u32(name, 12)?.await?)
 }
 
 async fn db_version(name: &str) -> Result<u32, IndexeddbCryptoStoreError> {
@@ -126,7 +132,7 @@ type OldVersion = u32;
 
 async fn do_schema_upgrade<F>(name: &str, version: u32, f: F) -> Result<(), DomException>
 where
-    F: Fn(&IdbDatabase, OldVersion) -> Result<(), JsValue> + 'static,
+    F: Fn(&IdbDatabase, IdbTransaction<'_>, OldVersion) -> Result<(), JsValue> + 'static,
 {
     info!("IndexeddbCryptoStore upgrade schema -> v{version} starting");
     let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, version)?;
@@ -138,7 +144,7 @@ where
         let old_version = evt.old_version() as u32;
 
         // Run the upgrade code we were supplied
-        f(evt.db(), old_version)
+        f(evt.db(), evt.transaction(), old_version)
     }));
 
     let db = db_req.await?;
@@ -189,10 +195,7 @@ mod tests {
 
     use super::{v0_to_v5, v7::InboundGroupSessionIndexedDbObject2};
     use crate::{
-        crypto_store::{
-            indexeddb_serializer::MaybeEncrypted, keys, migrations::*,
-            InboundGroupSessionIndexedDbObject,
-        },
+        crypto_store::{keys, migrations::*, InboundGroupSessionIndexedDbObject},
         IndexeddbCryptoStore,
     };
 
@@ -348,6 +351,7 @@ mod tests {
             pickled_session: serializer.maybe_encrypt_value(pickled_session).unwrap(),
             needs_backup: false,
             backed_up_to: -1,
+            next_retry_time_ms: None,
         };
         let session_js: JsValue = serde_wasm_bindgen::to_value(&session_dbo).unwrap();
 
@@ -413,22 +417,25 @@ mod tests {
     /// Test migrating `inbound_group_sessions` data from store v5 to latest,
     /// on a store with encryption disabled.
     #[async_test]
-    async fn test_v8_v10_migration_unencrypted() {
-        test_v8_v10_migration_with_cipher("test_v8_migration_unencrypted", None).await
+    async fn test_v8_v10_v12_migration_unencrypted() {
+        test_v8_v10_v12_migration_with_cipher("test_v8_migration_unencrypted", None).await
     }
 
     /// Test migrating `inbound_group_sessions` data from store v5 to store v8,
     /// on a store with encryption enabled.
     #[async_test]
-    async fn test_v8_v10_migration_encrypted() {
+    async fn test_v8_v10_v12_migration_encrypted() {
         let cipher = StoreCipher::new().unwrap();
-        test_v8_v10_migration_with_cipher("test_v8_migration_encrypted", Some(Arc::new(cipher)))
-            .await;
+        test_v8_v10_v12_migration_with_cipher(
+            "test_v8_migration_encrypted",
+            Some(Arc::new(cipher)),
+        )
+        .await;
     }
 
     /// Helper function for `test_v8_v10_migration_{un,}encrypted`: test
     /// migrating `inbound_group_sessions` data from store v5 to store v10.
-    async fn test_v8_v10_migration_with_cipher(
+    async fn test_v8_v10_v12_migration_with_cipher(
         db_prefix: &str,
         store_cipher: Option<Arc<StoreCipher>>,
     ) {
@@ -472,13 +479,16 @@ mod tests {
         assert!(!fetched_not_backed_up_session.backed_up());
 
         // For v10: they have the backed_up_to property and it is indexed
-        assert_matches_v10_schema(db_name, store, fetched_backed_up_session).await;
+        assert_matches_v10_schema(&db_name, &store, &fetched_backed_up_session).await;
+
+        // For v12: they have the next_retry_time_ms property and it is indexed
+        assert_matches_v12_schema(&db_name, &store, &fetched_backed_up_session).await;
     }
 
     async fn assert_matches_v10_schema(
-        db_name: String,
-        store: IndexeddbCryptoStore,
-        fetched_backed_up_session: InboundGroupSession,
+        db_name: &str,
+        store: &IndexeddbCryptoStore,
+        fetched_backed_up_session: &InboundGroupSession,
     ) {
         let db = IdbDatabase::open(&db_name).unwrap().await.unwrap();
         assert!(db.version() >= 10.0);
@@ -494,6 +504,29 @@ mod tests {
 
         assert_eq!(idb_object.backed_up_to, -1);
         assert!(raw_store.index_names().find(|idx| idx == "backed_up_to").is_some());
+
+        db.close();
+    }
+
+    async fn assert_matches_v12_schema(
+        db_name: &str,
+        store: &IndexeddbCryptoStore,
+        fetched_backed_up_session: &InboundGroupSession,
+    ) {
+        let db = IdbDatabase::open(&db_name).unwrap().await.unwrap();
+        assert!(db.version() >= 10.0);
+        let transaction = db.transaction_on_one("inbound_group_sessions3").unwrap();
+        let raw_store = transaction.object_store("inbound_group_sessions3").unwrap();
+        let key = store.serializer.encode_key(
+            keys::INBOUND_GROUP_SESSIONS_V3,
+            (fetched_backed_up_session.room_id(), fetched_backed_up_session.session_id()),
+        );
+        let idb_object: InboundGroupSessionIndexedDbObject =
+            serde_wasm_bindgen::from_value(raw_store.get(&key).unwrap().await.unwrap().unwrap())
+                .unwrap();
+
+        assert_eq!(idb_object.next_retry_time_ms, None);
+        assert!(raw_store.index_names().find(|idx| idx == "next_retry_time_ms").is_some());
 
         db.close();
     }

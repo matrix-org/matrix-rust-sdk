@@ -62,6 +62,7 @@ mod keys {
     pub const INBOUND_GROUP_SESSIONS_V3: &str = "inbound_group_sessions3";
     pub const INBOUND_GROUP_SESSIONS_BACKUP_INDEX: &str = "backup";
     pub const INBOUND_GROUP_SESSIONS_BACKED_UP_TO_INDEX: &str = "backed_up_to";
+    pub const INBOUND_GROUP_SESSIONS_NEXT_RETRY_TIME_MS_INDEX: &str = "next_retry_time_ms";
 
     pub const OUTBOUND_GROUP_SESSIONS: &str = "outbound_group_sessions";
 
@@ -401,6 +402,7 @@ impl IndexeddbCryptoStore {
         let obj = InboundGroupSessionIndexedDbObject::new(
             self.serializer.maybe_encrypt_value(session.pickle().await)?,
             !session.backed_up(),
+            session.sender_data.next_retry_time_ms().map(|t| t.0.into()),
         );
         Ok(serde_wasm_bindgen::to_value(&obj)?)
     }
@@ -1616,7 +1618,7 @@ struct GossipRequestIndexedDbObject {
     unsent: bool,
 }
 
-/// The objects we store in the inbound_group_sessions2 indexeddb object store
+/// The objects we store in the inbound_group_sessions3 indexeddb object store
 #[derive(serde::Serialize, serde::Deserialize)]
 struct InboundGroupSessionIndexedDbObject {
     /// Possibly encrypted
@@ -1649,11 +1651,21 @@ struct InboundGroupSessionIndexedDbObject {
     /// "refer to the `needs_backup` property". See:
     /// https://github.com/element-hq/element-web/issues/26892#issuecomment-1906336076
     backed_up_to: i32,
+
+    /// The time (in milliseconds since the epoch) after which we should retry
+    /// looking for sender data for this InboundGroupSession. If missing, we
+    /// should not retry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_retry_time_ms: Option<u64>,
 }
 
 impl InboundGroupSessionIndexedDbObject {
-    pub fn new(pickled_session: MaybeEncrypted, needs_backup: bool) -> Self {
-        Self { pickled_session, needs_backup, backed_up_to: -1 }
+    pub fn new(
+        pickled_session: MaybeEncrypted,
+        needs_backup: bool,
+        next_retry_time_ms: Option<u64>,
+    ) -> Self {
+        Self { pickled_session, needs_backup, backed_up_to: -1, next_retry_time_ms }
     }
 }
 
@@ -1669,6 +1681,7 @@ mod unit_tests {
         let session_needs_backup = InboundGroupSessionIndexedDbObject::new(
             MaybeEncrypted::Encrypted(EncryptedValueBase64::new(1, "", "")),
             true,
+            None,
         );
 
         // Testing the exact JSON here is theoretically flaky in the face of
@@ -1684,11 +1697,39 @@ mod unit_tests {
         let session_backed_up = InboundGroupSessionIndexedDbObject::new(
             MaybeEncrypted::Encrypted(EncryptedValueBase64::new(1, "", "")),
             false,
+            None,
         );
 
         assert!(
             !serde_json::to_string(&session_backed_up).unwrap().contains("needs_backup"),
             "The needs_backup field should be missing!"
+        );
+    }
+
+    #[test]
+    fn next_retry_time_ms_is_serialized_as_a_u64_in_json() {
+        let db_object = InboundGroupSessionIndexedDbObject::new(
+            MaybeEncrypted::Encrypted(EncryptedValueBase64::new(1, "", "")),
+            true,
+            Some(14_000),
+        );
+
+        assert!(serde_json::to_string(&db_object)
+            .unwrap()
+            .contains(r#""next_retry_time_ms":14000"#),);
+    }
+
+    #[test]
+    fn none_next_retry_time_ms_is_serialized_with_missing_field_in_json() {
+        let db_object = InboundGroupSessionIndexedDbObject::new(
+            MaybeEncrypted::Encrypted(EncryptedValueBase64::new(1, "", "")),
+            false,
+            None,
+        );
+
+        assert!(
+            !serde_json::to_string(&db_object).unwrap().contains("next_retry_time_ms"),
+            "The next_retry_time_ms field should be missing!"
         );
     }
 }
@@ -1713,6 +1754,7 @@ mod wasm_unit_tests {
         let session_needs_backup = InboundGroupSessionIndexedDbObject::new(
             MaybeEncrypted::Encrypted(EncryptedValueBase64::new(3, "", "")),
             true,
+            None,
         );
 
         let js_value = serde_wasm_bindgen::to_value(&session_needs_backup).unwrap();
@@ -1726,11 +1768,39 @@ mod wasm_unit_tests {
         let session_backed_up = InboundGroupSessionIndexedDbObject::new(
             MaybeEncrypted::Encrypted(EncryptedValueBase64::new(3, "", "")),
             false,
+            None,
         );
 
         let js_value = serde_wasm_bindgen::to_value(&session_backed_up).unwrap();
 
         assert!(!js_sys::Reflect::has(&js_value, &"needs_backup".into()).unwrap());
+    }
+
+    #[test]
+    fn next_retry_time_ms_is_serialized_as_a_u64_in_js() {
+        let db_object = InboundGroupSessionIndexedDbObject::new(
+            MaybeEncrypted::Encrypted(EncryptedValueBase64::new(1, "", "")),
+            true,
+            Some(14_000),
+        );
+
+        let js_value = serde_wasm_bindgen::to_value(&db_object).unwrap();
+
+        assert!(js_value.is_object());
+        assert_field_equals(&js_value, "next_retry_time_ms", 14_000);
+    }
+
+    #[test]
+    fn none_next_retry_time_ms_is_serialized_with_missing_field_in_js() {
+        let db_object = InboundGroupSessionIndexedDbObject::new(
+            MaybeEncrypted::Encrypted(EncryptedValueBase64::new(1, "", "")),
+            false,
+            None,
+        );
+
+        let js_value = serde_wasm_bindgen::to_value(&db_object).unwrap();
+
+        assert!(!js_sys::Reflect::has(&js_value, &"next_retry_time_ms".into()).unwrap());
     }
 }
 
