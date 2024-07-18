@@ -116,9 +116,15 @@ Additions:
   ([#3194](https://github.com/matrix-org/matrix-rust-sdk/pull/3194))
 
 
-## 0.7.1
+# 0.7.2
 
-Security fixes:
+### Security Fixes
+
+- Fix `UserIdentity::is_verified` to take into account our own identity
+  [#d8d9dae](https://github.com/matrix-org/matrix-rust-sdk/commit/d8d9dae9d77bee48a2591b9aad9bd2fa466354cc) (Moderate, [GHSA-4qg4-cvh2-crgg](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-4qg4-cvh2-crgg)).
+
+# 0.7.1
+### Security Fixes
 
 - Don't log the private part of the backup key, introduced in [#71136e4](https://github.com/matrix-org/matrix-rust-sdk/commit/71136e44c03c79f80d6d1a2446673bc4d53a2067).
 
