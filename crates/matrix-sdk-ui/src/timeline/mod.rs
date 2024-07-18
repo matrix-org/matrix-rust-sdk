@@ -479,19 +479,13 @@ impl Timeline {
     /// Only supports events for which [`EventTimelineItem::is_editable()`]
     /// returns `true`.
     ///
-    /// # Arguments
-    ///
-    /// * `new_content` - The new content of the event.
-    ///
-    /// * `edit_info` - A wrapper that contains the event ID and the content of
-    ///  the event to edit.
-    ///
     /// # Returns
     ///
-    /// Returns `Ok(true)` if the edit was added to the send queue. Returns
-    /// `Ok(false)` if the edit targets a local item but the edit could not be
-    /// applied, which could mean that the event was already sent. Returns an
-    /// error if there was an issue adding the edit to the send queue.
+    /// - Returns `Ok(true)` if the edit was added to the send queue.
+    /// - Returns `Ok(false)` if the edit targets an item that has no local nor
+    ///   matching remote item.
+    /// - Returns an error if there was an issue sending the redaction event, or
+    ///   interacting with the sending queue.
     #[instrument(skip(self, new_content))]
     pub async fn edit(
         &self,
