@@ -1413,6 +1413,19 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         push front [ "!r4:bar.org" ];
         end;
     };
+    // TODO (@hywan): Must be removed once we restore `RoomInfoNotableUpdate`
+    // filtering inside `RoomList`.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set [ 1 ] [ "!r1:bar.org" ];
+        end;
+    };
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set [ 0 ] [ "!r4:bar.org" ];
+        end;
+    };
+
     assert_pending!(dynamic_entries_stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1492,6 +1505,19 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         push front [ "!r7:bar.org" ];
         end;
     };
+    // TODO (@hywan): Must be removed once we restore `RoomInfoNotableUpdate`
+    // filtering inside `RoomList`.
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set [ 1 ] [ "!r5:bar.org" ];
+        end;
+    };
+    assert_entries_batch! {
+        [dynamic_entries_stream]
+        set [ 0 ] [ "!r7:bar.org" ];
+        end;
+    };
+
     assert_pending!(dynamic_entries_stream);
 
     // Now, let's change the dynamic entries!
@@ -1503,7 +1529,7 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         // Receive a `reset` again because the filter has been reset.
         reset [ "!r6:bar.org", "!r3:bar.org", "!r2:bar.org" ];
         end;
-    }
+    };
     assert_pending!(dynamic_entries_stream);
 
     // Now, let's change again the dynamic filter!
@@ -1884,6 +1910,14 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 3     | !r0     | 7       | Bbb  |
     // | 4     | !r1     | 6       | Aaa  |
     // | 5     | !r4     | 5       |      |
+
+    // TODO (@hywan): Must be removed once we restore `RoomInfoNotableUpdate`
+    // filtering inside `RoomList`.
+    assert_entries_batch! {
+        [stream]
+        set [ 2 ] [ "!r6:bar.org" ];
+        end;
+    };
 
     assert_pending!(stream);
 
