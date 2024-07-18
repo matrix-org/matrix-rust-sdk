@@ -17,7 +17,6 @@ use matrix_sdk::{
     room::edit::EditError,
     send_queue::{RoomSendQueueError, RoomSendQueueStorageError},
 };
-use ruma::OwnedTransactionId;
 use thiserror::Error;
 
 /// Errors specific to the timeline.
@@ -27,10 +26,6 @@ pub enum Error {
     /// The requested event with a remote echo is not in the timeline.
     #[error("Event with remote echo not found in timeline")]
     RemoteEventNotInTimeline,
-
-    /// Can't find an event with the given transaction ID, can't retry.
-    #[error("Event not found, can't retry sending")]
-    RetryEventNotInTimeline,
 
     /// The event is currently unsupported for this use case..
     #[error("Unsupported event")]
@@ -51,14 +46,6 @@ pub enum Error {
     /// The reaction could not be toggled.
     #[error("Failed toggling reaction")]
     FailedToToggleReaction,
-
-    /// The room is not in a joined state.
-    #[error("Room is not joined")]
-    RoomNotJoined,
-
-    /// Could not get user.
-    #[error("User ID is not available")]
-    UserIdNotAvailable,
 
     /// Something went wrong with the room event cache.
     #[error("Something went wrong with the room event cache.")]
@@ -104,23 +91,16 @@ pub enum UnsupportedReplyItem {
 
 #[derive(Debug, Error)]
 pub enum UnsupportedEditItem {
-    #[error("tried to edit a non-message event")]
-    NotRoomMessage,
     #[error("tried to edit a non-poll event")]
     NotPollEvent,
     #[error("tried to edit another user's event")]
     NotOwnEvent,
     #[error("event to edit not found")]
     MissingEvent,
-    #[error("failed to deserialize event to edit")]
-    FailedToDeserializeEvent,
 }
 
 #[derive(Debug, Error)]
 pub enum SendEventError {
-    #[error(transparent)]
-    UnsupportedReplyItem(#[from] UnsupportedReplyItem),
-
     #[error(transparent)]
     UnsupportedEditItem(#[from] UnsupportedEditItem),
 
@@ -130,9 +110,6 @@ pub enum SendEventError {
 
 #[derive(Debug, Error)]
 pub enum RedactEventError {
-    #[error("the given local event (with transaction id {0}) doesn't support redaction")]
-    UnsupportedRedactLocal(OwnedTransactionId),
-
     #[error(transparent)]
     SdkError(#[from] matrix_sdk::Error),
 
