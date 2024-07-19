@@ -70,11 +70,11 @@ use ruma::{
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         tag::{TagInfo, TagName},
         typing::SyncTypingEvent,
-        AnyRoomAccountDataEvent, AnyTimelineEvent, EmptyStateKey, Mentions,
-        MessageLikeEventContent, MessageLikeEventType, RedactContent, RedactedStateEventContent,
-        RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType,
-        StateEventContent, StateEventType, StaticEventContent, StaticStateEventContent,
-        SyncStateEvent,
+        AnyRoomAccountDataEvent, AnyRoomAccountDataEventContent, AnyTimelineEvent, EmptyStateKey,
+        Mentions, MessageLikeEventContent, MessageLikeEventType, RedactContent,
+        RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
+        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
+        StaticStateEventContent, SyncStateEvent,
     },
     push::{Action, PushConditionRoomCtx},
     serde::Raw,
@@ -950,6 +950,43 @@ impl Room {
         }
 
         Ok(true)
+    }
+
+    /// Set the given account data event for this room.
+    pub async fn set_account_data<T>(
+        &self,
+        content: T,
+    ) -> Result<set_room_account_data::v3::Response>
+    where
+        T: RoomAccountDataEventContent,
+    {
+        let own_user = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+
+        let request = set_room_account_data::v3::Request::new(
+            own_user.to_owned(),
+            self.room_id().to_owned(),
+            &content,
+        )?;
+
+        Ok(self.client.send(request, None).await?)
+    }
+
+    /// Set the given raw account data event in this room.
+    pub async fn set_account_data_raw(
+        &self,
+        event_type: RoomAccountDataEventType,
+        content: Raw<AnyRoomAccountDataEventContent>,
+    ) -> Result<set_room_account_data::v3::Response> {
+        let own_user = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+
+        let request = set_room_account_data::v3::Request::new_raw(
+            own_user.to_owned(),
+            self.room_id().to_owned(),
+            event_type,
+            content,
+        );
+
+        Ok(self.client.send(request, None).await?)
     }
 
     /// Adds a tag to the room, or updates it if it already exists.
