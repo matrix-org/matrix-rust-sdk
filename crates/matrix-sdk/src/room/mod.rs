@@ -953,6 +953,19 @@ impl Room {
     }
 
     /// Set the given account data event for this room.
+    ///
+    /// # Example
+    /// ```
+    /// # async {
+    /// # let room: matrix_sdk::Room = todo!();
+    /// # let event_id: ruma::OwnedEventId = todo!();
+    /// use matrix_sdk::ruma::events::fully_read::FullyReadEventContent;
+    /// let content = FullyReadEventContent::new(event_id);
+    ///
+    /// room.set_account_data(content).await?;
+    /// # anyhow::Ok(())
+    /// # };
+    /// ```
     pub async fn set_account_data<T>(
         &self,
         content: T,
@@ -972,6 +985,29 @@ impl Room {
     }
 
     /// Set the given raw account data event in this room.
+    ///
+    /// # Example
+    /// ```
+    /// # async {
+    /// # let room: matrix_sdk::Room = todo!();
+    /// use matrix_sdk::ruma::{
+    ///     events::{
+    ///         marked_unread::MarkedUnreadEventContent,
+    ///         AnyRoomAccountDataEventContent, EventContent,
+    ///     },
+    ///     serde::Raw,
+    /// };
+    /// let marked_unread_content = MarkedUnreadEventContent::new(true);
+    /// let full_event: AnyRoomAccountDataEventContent =
+    ///     marked_unread_content.clone().into();
+    /// room.set_account_data_raw(
+    ///     marked_unread_content.event_type(),
+    ///     Raw::new(&full_event).unwrap(),
+    /// )
+    /// .await?;
+    /// # anyhow::Ok(())
+    /// # };
+    /// ```
     pub async fn set_account_data_raw(
         &self,
         event_type: RoomAccountDataEventType,
