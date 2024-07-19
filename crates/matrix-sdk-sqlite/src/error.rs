@@ -92,7 +92,7 @@ pub enum Error {
     AccountUnset,
 
     #[error(transparent)]
-    Pickle(#[from] vodozemac::PickleError),
+    Pickle(#[from] matrix_sdk_crypto::vodozemac::PickleError),
 
     #[error("An object failed to be decrypted while unpickling")]
     Unpickle,

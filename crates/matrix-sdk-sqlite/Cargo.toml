@@ -30,7 +30,6 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true }
-vodozemac = { workspace = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
