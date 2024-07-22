@@ -10,7 +10,7 @@ use std::{
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
     config::{RequestConfig, StoreConfig},
-    send_queue::{LocalEcho, RoomSendQueueError, RoomSendQueueUpdate},
+    send_queue::{LocalEcho, LocalEchoContent, RoomSendQueueError, RoomSendQueueUpdate},
     test_utils::{
         events::EventFactory, logged_in_client, logged_in_client_with_server, set_client_session,
     },
@@ -68,11 +68,13 @@ macro_rules! assert_update {
     ($watch:ident => local echo { body = $body:expr }) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
-                serialized_event,
+                content: LocalEchoContent::Event {
+                    serialized_event,
+                    send_handle,
+                    // New local echoes should always start as not wedged.
+                    is_wedged: false,
+                },
                 transaction_id: txn,
-                send_handle,
-                // New local echoes should always start as not wedged.
-                is_wedged: false,
             }))) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
 
@@ -338,9 +340,8 @@ async fn test_smoke_raw() {
 
     assert_let!(
         Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
-            serialized_event,
+            content: LocalEchoContent::Event { serialized_event, .. },
             transaction_id: txn1,
-            ..
         }))) = timeout(Duration::from_secs(1), watch.recv()).await
     );
 
@@ -785,8 +786,7 @@ async fn test_cancellation() {
     let local_echo4 = local_echoes.remove(1);
     assert_eq!(local_echo4.transaction_id, txn4, "local echoes: {local_echoes:?}");
 
-    let handle4 = local_echo4.send_handle;
-
+    let LocalEchoContent::Event { send_handle: handle4, .. } = local_echo4.content;
     assert!(handle4.abort().await.unwrap());
     assert_update!(watch => cancelled { txn = txn4 });
     assert!(watch.is_empty());
@@ -1014,7 +1014,9 @@ async fn test_edit_while_being_sent_and_fails() {
     assert_eq!(local_echoes.len(), 1);
     assert_eq!(local_echoes[0].transaction_id, txn1);
 
-    let event = local_echoes[0].serialized_event.deserialize().unwrap();
+    let LocalEchoContent::Event { serialized_event, .. } = &local_echoes[0].content;
+    let event = serialized_event.deserialize().unwrap();
+
     assert_let!(AnyMessageLikeEventContent::RoomMessage(msg) = event);
     assert_eq!(msg.body(), "it's never too late!");
 }

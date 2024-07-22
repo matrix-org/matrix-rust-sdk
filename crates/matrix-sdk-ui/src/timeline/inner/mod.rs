@@ -26,7 +26,7 @@ use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent,
     event_cache::{paginator::Paginator, RoomEventCache},
-    send_queue::{LocalEcho, RoomSendQueueUpdate, SendHandle},
+    send_queue::{LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle},
     Result, Room,
 };
 #[cfg(test)]
@@ -1147,34 +1147,38 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
     /// Handle a room send update that's a new local echo.
     pub(crate) async fn handle_local_echo(&self, echo: LocalEcho) {
-        let content = match echo.serialized_event.deserialize() {
-            Ok(d) => d,
-            Err(err) => {
-                warn!("error deserializing local echo: {err}");
-                return;
+        match echo.content {
+            LocalEchoContent::Event { serialized_event, send_handle, is_wedged } => {
+                let content = match serialized_event.deserialize() {
+                    Ok(d) => d,
+                    Err(err) => {
+                        warn!("error deserializing local echo: {err}");
+                        return;
+                    }
+                };
+
+                self.handle_local_event(
+                    echo.transaction_id.clone(),
+                    TimelineEventKind::Message { content, relations: Default::default() },
+                    Some(send_handle),
+                )
+                .await;
+
+                if is_wedged {
+                    self.update_event_send_state(
+                        &echo.transaction_id,
+                        EventSendState::SendingFailed {
+                            // Put a dummy error in this case, since we're not persisting the errors
+                            // that occurred in previous sessions.
+                            error: Arc::new(matrix_sdk::Error::UnknownError(Box::new(
+                                MissingLocalEchoFailError,
+                            ))),
+                            is_recoverable: false,
+                        },
+                    )
+                    .await;
+                }
             }
-        };
-
-        self.handle_local_event(
-            echo.transaction_id.clone(),
-            TimelineEventKind::Message { content, relations: Default::default() },
-            Some(echo.send_handle),
-        )
-        .await;
-
-        if echo.is_wedged {
-            self.update_event_send_state(
-                &echo.transaction_id,
-                EventSendState::SendingFailed {
-                    // Put a dummy error in this case, since we're not persisting the errors that
-                    // occurred in previous sessions.
-                    error: Arc::new(matrix_sdk::Error::UnknownError(Box::new(
-                        MissingLocalEchoFailError,
-                    ))),
-                    is_recoverable: false,
-                },
-            )
-            .await;
         }
     }
 

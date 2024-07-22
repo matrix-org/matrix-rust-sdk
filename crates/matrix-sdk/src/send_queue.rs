@@ -265,6 +265,7 @@ pub struct RoomSendQueue {
     inner: Arc<RoomSendQueueInner>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for RoomSendQueue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RoomSendQueue").finish_non_exhaustive()
@@ -343,9 +344,14 @@ impl RoomSendQueue {
 
         let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id: transaction_id.clone(),
-            serialized_event: content,
-            send_handle: SendHandle { room: self.clone(), transaction_id: transaction_id.clone() },
-            is_wedged: false,
+            content: LocalEchoContent::Event {
+                serialized_event: content,
+                send_handle: SendHandle {
+                    room: self.clone(),
+                    transaction_id: transaction_id.clone(),
+                },
+                is_wedged: false,
+            },
         }));
 
         Ok(SendHandle { transaction_id, room: self.clone() })
@@ -389,12 +395,14 @@ impl RoomSendQueue {
             .into_iter()
             .map(|queued| LocalEcho {
                 transaction_id: queued.transaction_id.clone(),
-                serialized_event: queued.event,
-                send_handle: SendHandle {
-                    room: self.clone(),
-                    transaction_id: queued.transaction_id,
+                content: LocalEchoContent::Event {
+                    serialized_event: queued.event,
+                    send_handle: SendHandle {
+                        room: self.clone(),
+                        transaction_id: queued.transaction_id,
+                    },
+                    is_wedged: queued.is_wedged,
                 },
-                is_wedged: queued.is_wedged,
             })
             .collect();
 
@@ -980,19 +988,29 @@ impl QueueStorage {
     }
 }
 
+/// The content of a local echo.
+#[derive(Clone, Debug)]
+pub enum LocalEchoContent {
+    /// The local echo contains an actual event ready to display.
+    Event {
+        /// Content of the event itself (along with its type) that we are about
+        /// to send.
+        serialized_event: SerializableEventContent,
+        /// A handle to manipulate the sending of the associated event.
+        send_handle: SendHandle,
+        /// Whether trying to send this local echo failed in the past with an
+        /// unrecoverable error (see [`SendQueueRoomError::is_recoverable`]).
+        is_wedged: bool,
+    },
+}
+
 /// An event that has been locally queued for sending, but hasn't been sent yet.
 #[derive(Clone, Debug)]
 pub struct LocalEcho {
     /// Transaction id used to identify this event.
     pub transaction_id: OwnedTransactionId,
-    /// Content of the event itself (along with its type) that we are about to
-    /// send.
-    pub serialized_event: SerializableEventContent,
-    /// A handle to manipulate the sending of the associated event.
-    pub send_handle: SendHandle,
-    /// Whether trying to send this local echo failed in the past with an
-    /// unrecoverable error (see [`SendQueueRoomError::is_recoverable`]).
-    pub is_wedged: bool,
+    /// The content for the local echo.
+    pub content: LocalEchoContent,
 }
 
 /// An update to a room send queue, observable with
