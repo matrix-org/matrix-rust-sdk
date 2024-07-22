@@ -459,10 +459,7 @@ impl Timeline {
 
     /// Returns a local or remote timeline item identified by this transaction
     /// id.
-    async fn any_timeline_item_by_txn_id(
-        &self,
-        txn_id: &TransactionId,
-    ) -> Option<EventTimelineItem> {
+    async fn item_by_transaction_id(&self, txn_id: &TransactionId) -> Option<EventTimelineItem> {
         let items = self.inner.items().await;
 
         let (_, found) = rfind_event_item(&items, |item| match &item.kind {
@@ -496,7 +493,7 @@ impl Timeline {
         let event_id = match item.identifier() {
             TimelineEventItemId::TransactionId(txn_id) => {
                 // See if we have an up-to-date timeline item with that transaction id.
-                if let Some(item) = self.any_timeline_item_by_txn_id(&txn_id).await {
+                if let Some(item) = self.item_by_transaction_id(&txn_id).await {
                     match item.handle() {
                         TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
                         TimelineItemHandle::Local(handle) => {
@@ -685,7 +682,7 @@ impl Timeline {
         let event_id = match event.identifier() {
             TimelineEventItemId::TransactionId(txn_id) => {
                 // See if we have an up-to-date timeline item with that transaction id.
-                if let Some(item) = self.any_timeline_item_by_txn_id(&txn_id).await {
+                if let Some(item) = self.item_by_transaction_id(&txn_id).await {
                     match item.handle() {
                         TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
                         TimelineItemHandle::Local(handle) => {
