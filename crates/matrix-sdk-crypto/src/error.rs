@@ -116,6 +116,10 @@ pub enum MegolmError {
     #[error(transparent)]
     Store(#[from] CryptoStoreError),
 
+    /// The sender's cross-signing identity isn't trusted
+    #[error("message quarantined because sender's cross-signing identity is not trusted")]
+    SenderCrossSigningUntrusted,
+
     /// The sender's cross-signing identity has changed, and the change hasn't
     /// been acknowledged
     #[error("message quarantined because sender's cross-signing identity has changed")]
