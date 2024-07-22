@@ -581,7 +581,7 @@ impl Timeline {
         let transaction_id: OwnedTransactionId = transaction_id.into();
         let item = self
             .inner
-            .item_by_transaction_id(&transaction_id)
+            .local_item_by_transaction_id(&transaction_id)
             .await
             .context("Item with given transaction ID not found")?;
         Ok(Arc::new(EventTimelineItem(item)))

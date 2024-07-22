@@ -5,6 +5,8 @@ Breaking changes:
 - `Timeline::edit` now takes a `RoomMessageEventContentWithoutRelation`.
 - `Timeline::send_attachment` now takes an `impl Into<PathBuf>` for the path of
   the file to send.
+- `Timeline::item_by_transaction_id` has been renamed to `Timeline::local_item_by_transaction_id`
+(always returns local echoes).
 
 Bug fixes:
 
