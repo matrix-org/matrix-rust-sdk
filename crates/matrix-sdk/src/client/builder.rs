@@ -450,6 +450,7 @@ impl ClientBuilder {
 
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
+        #[allow(unused_variables)]
         let (homeserver, well_known) = match homeserver_cfg {
             HomeserverConfig::Url(url) => (url, None),
 
@@ -471,9 +472,14 @@ impl ClientBuilder {
         let mut sliding_sync_proxy =
             self.sliding_sync_proxy.as_ref().map(|url| Url::parse(url)).transpose()?;
 
-        #[allow(unused_variables)]
-        if let Some(well_known) = well_known {
-            #[cfg(feature = "experimental-sliding-sync")]
+        #[cfg(feature = "experimental-sliding-sync")]
+        if self.is_simplified_sliding_sync_enabled {
+            // When using Simplified MSC3575, don't use a sliding sync proxy, allow the
+            // requests to be sent directly to the homeserver.
+            tracing::info!("Simplified MSC3575 is enabled, ignoring any sliding sync proxy.");
+            sliding_sync_proxy = None;
+        } else if let Some(well_known) = well_known {
+            // Otherwise, if a proxy wasn't set, use the one discovered from the well-known.
             if sliding_sync_proxy.is_none() {
                 sliding_sync_proxy =
                     well_known.sliding_sync_proxy.and_then(|p| Url::parse(&p.url).ok())
@@ -879,7 +885,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_discovery_invalid_server() {
         // Given a new client builder.
-        let mut builder = ClientBuilder::new();
+        let mut builder = make_non_sss_client_builder();
 
         // When building a client with an invalid server name.
         builder = builder.server_name_or_homeserver_url("⚠️ This won't work 🚫");
@@ -892,7 +898,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_discovery_no_server() {
         // Given a new client builder.
-        let mut builder = ClientBuilder::new();
+        let mut builder = make_non_sss_client_builder();
 
         // When building a client with a valid server name that doesn't exist.
         builder = builder.server_name_or_homeserver_url("localhost:3456");
@@ -908,7 +914,7 @@ pub(crate) mod tests {
         // Given a random web server that isn't a Matrix homeserver or hosting the
         // well-known file for one.
         let server = MockServer::start().await;
-        let mut builder = ClientBuilder::new();
+        let mut builder = make_non_sss_client_builder();
 
         // When building a client with the server's URL.
         builder = builder.server_name_or_homeserver_url(server.uri());
@@ -922,7 +928,7 @@ pub(crate) mod tests {
     async fn test_discovery_direct_legacy() {
         // Given a homeserver without a well-known file.
         let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
+        let mut builder = make_non_sss_client_builder();
 
         // When building a client with the server's URL.
         builder = builder.server_name_or_homeserver_url(homeserver.uri());
@@ -938,7 +944,7 @@ pub(crate) mod tests {
         // Given a homeserver without a well-known file and with a custom sliding sync
         // proxy injected.
         let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
+        let mut builder = make_non_sss_client_builder();
         #[cfg(feature = "experimental-sliding-sync")]
         {
             builder = builder.sliding_sync_proxy("https://localhost:1234");
@@ -958,7 +964,7 @@ pub(crate) mod tests {
         // Given a base server with a well-known file that has errors.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
+        let mut builder = make_non_sss_client_builder();
 
         let well_known = make_well_known_json(&homeserver.uri(), None);
         let bad_json = well_known.to_string().replace(',', "");
@@ -985,7 +991,7 @@ pub(crate) mod tests {
         // doesn't support sliding sync.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
+        let mut builder = make_non_sss_client_builder();
 
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -1011,7 +1017,7 @@ pub(crate) mod tests {
         // sliding sync proxy.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
+        let mut builder = make_non_sss_client_builder();
 
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -1038,7 +1044,7 @@ pub(crate) mod tests {
         // sliding sync proxy.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
+        let mut builder = make_non_sss_client_builder();
 
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -1061,6 +1067,33 @@ pub(crate) mod tests {
         assert_eq!(client.sliding_sync_proxy(), Some("https://localhost:9012".parse().unwrap()));
     }
 
+    #[async_test]
+    #[cfg(feature = "experimental-sliding-sync")]
+    async fn test_discovery_well_known_with_simplified_sliding_sync() {
+        // Given a base server with a well-known file that points to a homeserver with a
+        // sliding sync proxy.
+        let server = MockServer::start().await;
+        let homeserver = make_mock_homeserver().await;
+        let mut builder = make_non_sss_client_builder();
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(make_well_known_json(
+                &homeserver.uri(),
+                Some("https://localhost:1234"),
+            )))
+            .mount(&server)
+            .await;
+
+        // When building a client for simplified sliding sync with the base server.
+        builder = builder.simplified_sliding_sync(true);
+        builder = builder.server_name_or_homeserver_url(server.uri());
+        let client = builder.build().await.unwrap();
+
+        // Then a client should not use the discovered sliding sync proxy.
+        assert!(client.sliding_sync_proxy().is_none());
+    }
+
     /* Requires sliding sync */
 
     #[async_test]
@@ -1070,7 +1103,7 @@ pub(crate) mod tests {
         // doesn't support sliding sync.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
+        let mut builder = make_non_sss_client_builder();
 
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -1096,7 +1129,7 @@ pub(crate) mod tests {
         // sliding sync proxy.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
+        let mut builder = make_non_sss_client_builder();
 
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -1121,7 +1154,7 @@ pub(crate) mod tests {
         // Given a homeserver without a well-known file and with a custom sliding sync
         // proxy injected.
         let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
+        let mut builder = make_non_sss_client_builder();
         builder = builder.sliding_sync_proxy("https://localhost:1234");
 
         // When building a client that requires sliding sync with the server's URL.
@@ -1173,5 +1206,19 @@ pub(crate) mod tests {
 
             object
         })
+    }
+
+    /// These tests were built with regular sliding sync in mind so until
+    /// we remove it and update the tests, this makes a builder with SSS
+    /// disabled.
+    fn make_non_sss_client_builder() -> ClientBuilder {
+        let mut builder = ClientBuilder::new();
+
+        #[cfg(feature = "experimental-sliding-sync")]
+        {
+            builder = builder.simplified_sliding_sync(false);
+        }
+
+        builder
     }
 }
