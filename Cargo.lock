@@ -3482,7 +3482,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-qrcode"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "byteorder",
  "image",
@@ -3494,7 +3494,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-sqlite"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "assert_matches",
  "async-trait",
