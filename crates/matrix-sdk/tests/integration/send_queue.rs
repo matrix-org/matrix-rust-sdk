@@ -786,7 +786,9 @@ async fn test_cancellation() {
     let local_echo4 = local_echoes.remove(1);
     assert_eq!(local_echo4.transaction_id, txn4, "local echoes: {local_echoes:?}");
 
-    let LocalEchoContent::Event { send_handle: handle4, .. } = local_echo4.content;
+    let LocalEchoContent::Event { send_handle: handle4, .. } = local_echo4.content else {
+        panic!("unexpected local echo content");
+    };
     assert!(handle4.abort().await.unwrap());
     assert_update!(watch => cancelled { txn = txn4 });
     assert!(watch.is_empty());
@@ -1014,7 +1016,9 @@ async fn test_edit_while_being_sent_and_fails() {
     assert_eq!(local_echoes.len(), 1);
     assert_eq!(local_echoes[0].transaction_id, txn1);
 
-    let LocalEchoContent::Event { serialized_event, .. } = &local_echoes[0].content;
+    let LocalEchoContent::Event { serialized_event, .. } = &local_echoes[0].content else {
+        panic!("unexpected local echo content")
+    };
     let event = serialized_event.deserialize().unwrap();
 
     assert_let!(AnyMessageLikeEventContent::RoomMessage(msg) = event);

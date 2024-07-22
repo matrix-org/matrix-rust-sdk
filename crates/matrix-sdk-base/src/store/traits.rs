@@ -1201,6 +1201,12 @@ pub enum DependentQueuedEventKind {
 
     /// The event should be redacted/aborted/removed.
     Redact,
+
+    /// The event should be reacted to, with the given key.
+    React {
+        /// Key used for the reaction.
+        key: String,
+    },
 }
 
 /// A transaction id identifying a [`DependentQueuedEvent`] rather than its
