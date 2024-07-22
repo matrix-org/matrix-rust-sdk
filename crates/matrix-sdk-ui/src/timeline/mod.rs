@@ -261,14 +261,15 @@ impl Timeline {
         Some(item.to_owned())
     }
 
-    /// Get the current timeline item for the given transaction ID, if any.
+    /// Get the current local echo timeline item for the given transaction ID,
+    /// if any.
     ///
     /// This will always return a local echo, if found.
     ///
     /// It's preferable to store the timeline items in the model for your UI, if
     /// possible, instead of just storing IDs and coming back to the timeline
     /// object to look up items.
-    pub async fn item_by_transaction_id(
+    pub async fn local_item_by_transaction_id(
         &self,
         target: &TransactionId,
     ) -> Option<EventTimelineItem> {
