@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use ruma::UserId;
 use tracing::error;
 use vodozemac::Curve25519PublicKey;
 
@@ -150,7 +151,7 @@ impl<'a> SenderDataFinder<'a> {
             self.have_device_keys(sender_device_keys).await
         } else {
             // No: look for the device in the store
-            self.search_for_device(sender_curve_key, room_key_event).await
+            self.search_for_device(sender_curve_key, &room_key_event.sender).await
         }
     }
 
@@ -158,12 +159,12 @@ impl<'a> SenderDataFinder<'a> {
     async fn search_for_device(
         &self,
         sender_curve_key: Curve25519PublicKey,
-        room_key_event: &'a DecryptedRoomKeyEvent,
+        sender_user_id: &UserId,
     ) -> OlmResult<SenderData> {
         // Does the locally-cached (in the store) devices list contain a device with the
         // curve key of the sender of the to-device message?
         if let Some(sender_device) =
-            self.store.get_device_from_curve_key(&room_key_event.sender, sender_curve_key).await?
+            self.store.get_device_from_curve_key(sender_user_id, sender_curve_key).await?
         {
             // Yes: use the device to continue
             self.have_device(sender_device)
