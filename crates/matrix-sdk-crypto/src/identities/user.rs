@@ -467,7 +467,7 @@ impl TryFrom<ReadOnlyUserIdentitySerializer> for OtherUserIdentityData {
                     master_key: Arc::new(v0.master_key.clone()),
                     self_signing_key: Arc::new(v0.self_signing_key),
                     // We migrate by pinning the current master key
-                    pinned_master_key: Arc::new(RwLock::new(v0.master_key.clone())),
+                    pinned_master_key: Arc::new(RwLock::new(v0.master_key)),
                 })
             }
             Some(v) if v == "1" => {
