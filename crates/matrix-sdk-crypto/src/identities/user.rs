@@ -419,7 +419,7 @@ impl UserIdentityData {
 /// In case of identity change, it will be possible to pin the new identity
 /// is the user wants.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(try_from = "ReadOnlyUserIdentitySerializer", into = "ReadOnlyUserIdentitySerializer")]
+#[serde(try_from = "OtherUserIdentityDataSerializer", into = "OtherUserIdentityDataSerializer")]
 pub struct OtherUserIdentityData {
     user_id: OwnedUserId,
     pub(crate) master_key: Arc<MasterPubkey>,
@@ -427,41 +427,41 @@ pub struct OtherUserIdentityData {
     pinned_master_key: Arc<RwLock<MasterPubkey>>,
 }
 
-/// Intermediate struct to help serialize ReadOnlyUserIdentity and support
+/// Intermediate struct to help serialize OtherUserIdentityData and support
 /// versioning and migration.
 /// Version v1 is adding support for identity pinning (`pinned_master_key`), as
 /// part of migration we just pin the currently known master key.
 #[derive(Deserialize, Serialize)]
-struct ReadOnlyUserIdentitySerializer {
+struct OtherUserIdentityDataSerializer {
     version: Option<String>,
     #[serde(flatten)]
     other: Value,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct ReadOnlyUserIdentityV0 {
+struct OtherUserIdentityDataSerializerV0 {
     user_id: OwnedUserId,
     master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct ReadOnlyUserIdentityV1 {
+struct OtherUserIdentityDataSerializerV1 {
     user_id: OwnedUserId,
     master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
     pinned_master_key: MasterPubkey,
 }
 
-impl TryFrom<ReadOnlyUserIdentitySerializer> for OtherUserIdentityData {
+impl TryFrom<OtherUserIdentityDataSerializer> for OtherUserIdentityData {
     type Error = serde_json::Error;
     fn try_from(
-        value: ReadOnlyUserIdentitySerializer,
+        value: OtherUserIdentityDataSerializer,
     ) -> Result<OtherUserIdentityData, Self::Error> {
         match value.version {
             None => {
                 // Old format, migrate the pinned identity
-                let v0: ReadOnlyUserIdentityV0 = serde_json::from_value(value.other)?;
+                let v0: OtherUserIdentityDataSerializerV0 = serde_json::from_value(value.other)?;
                 Ok(OtherUserIdentityData {
                     user_id: v0.user_id,
                     master_key: Arc::new(v0.master_key.clone()),
@@ -471,7 +471,7 @@ impl TryFrom<ReadOnlyUserIdentitySerializer> for OtherUserIdentityData {
                 })
             }
             Some(v) if v == "1" => {
-                let v1: ReadOnlyUserIdentityV1 = serde_json::from_value(value.other)?;
+                let v1: OtherUserIdentityDataSerializerV1 = serde_json::from_value(value.other)?;
                 Ok(OtherUserIdentityData {
                     user_id: v1.user_id,
                     master_key: Arc::new(v1.master_key.clone()),
@@ -484,15 +484,15 @@ impl TryFrom<ReadOnlyUserIdentitySerializer> for OtherUserIdentityData {
     }
 }
 
-impl From<OtherUserIdentityData> for ReadOnlyUserIdentitySerializer {
+impl From<OtherUserIdentityData> for OtherUserIdentityDataSerializer {
     fn from(value: OtherUserIdentityData) -> Self {
-        let v1 = ReadOnlyUserIdentityV1 {
+        let v1 = OtherUserIdentityDataSerializerV1 {
             user_id: value.user_id.clone(),
             master_key: value.master_key().to_owned(),
             self_signing_key: value.self_signing_key().to_owned(),
             pinned_master_key: value.pinned_master_key.read().unwrap().clone(),
         };
-        ReadOnlyUserIdentitySerializer {
+        OtherUserIdentityDataSerializer {
             version: Some("1".to_owned()),
             other: serde_json::to_value(v1).unwrap(),
         }
@@ -959,7 +959,7 @@ pub(crate) mod tests {
     use crate::{
         identities::{
             manager::testing::own_key_query,
-            user::{ReadOnlyUserIdentitySerializer, ReadOnlyUserIdentityV1},
+            user::{OtherUserIdentityDataSerializer, OtherUserIdentityDataSerializerV1},
             Device,
         },
         olm::{Account, PrivateCrossSigningIdentity},
@@ -1069,10 +1069,10 @@ pub(crate) mod tests {
         let value = serde_json::to_value(migrated.clone()).unwrap();
 
         // Should be serialized with latest version
-        let _: ReadOnlyUserIdentityV1 =
+        let _: OtherUserIdentityDataSerializerV1 =
             serde_json::from_value(value.clone()).expect("Should deserialize as version 1");
 
-        let with_serializer: ReadOnlyUserIdentitySerializer =
+        let with_serializer: OtherUserIdentityDataSerializer =
             serde_json::from_value(value).unwrap();
         assert_eq!("1", with_serializer.version.unwrap());
     }
