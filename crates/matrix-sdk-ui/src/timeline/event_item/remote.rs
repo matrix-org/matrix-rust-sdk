@@ -44,7 +44,7 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
     /// Note that currently this ignores threads.
     pub read_receipts: IndexMap<OwnedUserId, Receipt>,
 
-    /// Whether the event has been sent by the the logged-in user themselves.
+    /// Whether the event has been sent by the logged-in user themselves.
     pub is_own: bool,
 
     /// Whether the item should be highlighted in the timeline.

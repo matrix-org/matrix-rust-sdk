@@ -170,7 +170,7 @@ impl TimelineInnerState {
             timestamp: MilliSecondsSinceUnixEpoch::now(),
             is_own_event: true,
             read_receipts: Default::default(),
-            // An event sent by ourself is never matched against push rules.
+            // An event sent by ourselves is never matched against push rules.
             is_highlighted: false,
             flow: Flow::Local { txn_id, send_handle },
         };
