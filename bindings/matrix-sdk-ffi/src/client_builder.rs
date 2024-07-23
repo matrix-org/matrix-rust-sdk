@@ -6,10 +6,7 @@ use matrix_sdk::{
     crypto::types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Certificate,
-    ruma::{
-        api::{error::UnknownVersionError, MatrixVersion},
-        ServerName, UserId,
-    },
+    ruma::{ServerName, UserId},
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
     RumaApiError,
 };
@@ -250,17 +247,18 @@ pub struct ClientBuilder {
     session_path: Option<String>,
     username: Option<String>,
     homeserver_cfg: Option<HomeserverConfig>,
-    server_versions: Option<Vec<String>>,
     passphrase: Zeroizing<Option<String>>,
     user_agent: Option<String>,
     requires_sliding_sync: bool,
     sliding_sync_proxy: Option<String>,
+    is_simplified_sliding_sync_enabled: bool,
     proxy: Option<String>,
     disable_ssl_verification: bool,
     disable_automatic_token_refresh: bool,
     cross_process_refresh_lock_id: Option<String>,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     additional_root_certificates: Vec<Vec<u8>>,
+    disable_built_in_root_certificates: bool,
     encryption_settings: EncryptionSettings,
 }
 
@@ -272,17 +270,19 @@ impl ClientBuilder {
             session_path: None,
             username: None,
             homeserver_cfg: None,
-            server_versions: None,
             passphrase: Zeroizing::new(None),
             user_agent: None,
             requires_sliding_sync: false,
             sliding_sync_proxy: None,
+            // By default, Simplified MSC3575 is turned off.
+            is_simplified_sliding_sync_enabled: false,
             proxy: None,
             disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
             cross_process_refresh_lock_id: None,
             session_delegate: None,
             additional_root_certificates: Default::default(),
+            disable_built_in_root_certificates: false,
             encryption_settings: EncryptionSettings {
                 auto_enable_cross_signing: false,
                 backup_download_strategy:
@@ -329,12 +329,6 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn server_versions(self: Arc<Self>, versions: Vec<String>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.server_versions = Some(versions);
-        Arc::new(builder)
-    }
-
     pub fn server_name(self: Arc<Self>, server_name: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.homeserver_cfg = Some(HomeserverConfig::ServerName(server_name));
@@ -377,6 +371,12 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    pub fn simplified_sliding_sync(self: Arc<Self>, enable: bool) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.is_simplified_sliding_sync_enabled = enable;
+        Arc::new(builder)
+    }
+
     pub fn proxy(self: Arc<Self>, url: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.proxy = Some(url);
@@ -402,6 +402,15 @@ impl ClientBuilder {
         let mut builder = unwrap_or_clone_arc(self);
         builder.additional_root_certificates = certificates;
 
+        Arc::new(builder)
+    }
+
+    /// Don't trust any system root certificates, only trust the certificates
+    /// provided through
+    /// [`add_root_certificates`][ClientBuilder::add_root_certificates].
+    pub fn disable_built_in_root_certificates(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.disable_built_in_root_certificates = true;
         Arc::new(builder)
     }
 
@@ -479,18 +488,26 @@ impl ClientBuilder {
         for certificate in builder.additional_root_certificates {
             // We don't really know what type of certificate we may get here, so let's try
             // first one type, then the other.
-            if let Ok(cert) = Certificate::from_der(&certificate) {
-                certificates.push(cert);
-            } else {
-                let cert =
-                    Certificate::from_pem(&certificate).map_err(|e| ClientBuildError::Generic {
-                        message: format!("Failed to add a root certificate {e:?}"),
+            match Certificate::from_der(&certificate) {
+                Ok(cert) => {
+                    certificates.push(cert);
+                }
+                Err(der_error) => {
+                    let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
+                        ClientBuildError::Generic {
+                            message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
+                        }
                     })?;
-                certificates.push(cert);
+                    certificates.push(cert);
+                }
             }
         }
 
         inner_builder = inner_builder.add_root_certificates(certificates);
+
+        if builder.disable_built_in_root_certificates {
+            inner_builder = inner_builder.disable_built_in_root_certificates();
+        }
 
         if let Some(proxy) = builder.proxy {
             inner_builder = inner_builder.proxy(proxy);
@@ -508,17 +525,10 @@ impl ClientBuilder {
             inner_builder = inner_builder.user_agent(user_agent);
         }
 
-        if let Some(server_versions) = builder.server_versions {
-            inner_builder = inner_builder.server_versions(
-                server_versions
-                    .iter()
-                    .map(|s| MatrixVersion::try_from(s.as_str()))
-                    .collect::<Result<Vec<MatrixVersion>, UnknownVersionError>>()
-                    .map_err(|e| ClientBuildError::Generic { message: e.to_string() })?,
-            );
-        }
-
         inner_builder = inner_builder.with_encryption_settings(builder.encryption_settings);
+
+        inner_builder =
+            inner_builder.simplified_sliding_sync(builder.is_simplified_sliding_sync_enabled);
 
         if builder.requires_sliding_sync {
             inner_builder = inner_builder.requires_sliding_sync();
@@ -539,8 +549,10 @@ impl ClientBuilder {
         // `Some(_)` value in `builder.sliding_sync_proxy`. That's really important: It
         // might not break an existing app session, but it is likely to break a new
         // session, which not immediate to detect if there is no test.
-        if let Some(sliding_sync_proxy) = builder.sliding_sync_proxy {
-            sdk_client.set_sliding_sync_proxy(Some(Url::parse(&sliding_sync_proxy)?));
+        if !builder.is_simplified_sliding_sync_enabled {
+            if let Some(sliding_sync_proxy) = builder.sliding_sync_proxy {
+                sdk_client.set_sliding_sync_proxy(Some(Url::parse(&sliding_sync_proxy)?));
+            }
         }
 
         Ok(Arc::new(

@@ -18,6 +18,7 @@
 
 use std::{path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
+use event_item::{EventTimelineItemKind, TimelineItemHandle};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::Vector;
@@ -26,7 +27,7 @@ use matrix_sdk::{
     event_cache::{EventCacheDropHandles, RoomEventCache},
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
-    room::{Receipts, Room},
+    room::{edit::EditedContent, Receipts, Room},
     send_queue::{RoomSendQueueError, SendHandle},
     Client, Result,
 };
@@ -45,8 +46,8 @@ use ruma::{
         relation::Annotation,
         room::{
             message::{
-                AddMentions, ForwardThread, OriginalRoomMessageEvent, ReplacementMetadata,
-                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+                AddMentions, ForwardThread, OriginalRoomMessageEvent, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation,
             },
             redaction::RoomRedactionEventContent,
         },
@@ -54,7 +55,7 @@ use ruma::{
         SyncMessageLikeEvent,
     },
     serde::Raw,
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     RoomVersionId, TransactionId, UserId,
 };
 use thiserror::Error;
@@ -105,27 +106,6 @@ use self::{
     reactions::ReactionToggleResult,
     util::{rfind_event_by_id, rfind_event_item},
 };
-
-/// Information needed to edit an event.
-#[derive(Debug, Clone)]
-pub struct EditInfo {
-    /// The ID of the event that needs editing.
-    id: TimelineEventItemId,
-    /// The original content of the event that needs editing.
-    original_message: Message,
-}
-
-impl EditInfo {
-    /// The ID of the event that needs editing.
-    pub fn id(&self) -> &TimelineEventItemId {
-        &self.id
-    }
-
-    /// The original content of the event that needs editing.
-    pub fn original_message(&self) -> &Message {
-        &self.original_message
-    }
-}
 
 /// Information needed to reply to an event.
 #[derive(Debug, Clone)]
@@ -281,14 +261,15 @@ impl Timeline {
         Some(item.to_owned())
     }
 
-    /// Get the current timeline item for the given transaction ID, if any.
+    /// Get the current local echo timeline item for the given transaction ID,
+    /// if any.
     ///
     /// This will always return a local echo, if found.
     ///
     /// It's preferable to store the timeline items in the model for your UI, if
     /// possible, instead of just storing IDs and coming back to the timeline
     /// object to look up items.
-    pub async fn item_by_transaction_id(
+    pub async fn local_item_by_transaction_id(
         &self,
         target: &TransactionId,
     ) -> Option<EventTimelineItem> {
@@ -476,20 +457,19 @@ impl Timeline {
         })
     }
 
-    /// Given a transaction id, try to find a remote echo that used this
-    /// transaction id upon sending.
-    async fn find_remote_by_transaction_id(&self, txn_id: &TransactionId) -> Option<OwnedEventId> {
+    /// Returns a local or remote timeline item identified by this transaction
+    /// id.
+    async fn item_by_transaction_id(&self, txn_id: &TransactionId) -> Option<EventTimelineItem> {
         let items = self.inner.items().await;
 
-        let (_, found) = rfind_event_item(&items, |item| {
-            if let Some(remote) = item.as_remote() {
+        let (_, found) = rfind_event_item(&items, |item| match &item.kind {
+            EventTimelineItemKind::Local(local) => local.transaction_id == txn_id,
+            EventTimelineItemKind::Remote(remote) => {
                 remote.transaction_id.as_deref() == Some(txn_id)
-            } else {
-                false
             }
         })?;
 
-        Some(found.event_id().expect("remote echoes have event id").to_owned())
+        Some(found.clone())
     }
 
     /// Edit an event.
@@ -497,55 +477,34 @@ impl Timeline {
     /// Only supports events for which [`EventTimelineItem::is_editable()`]
     /// returns `true`.
     ///
-    /// # Arguments
-    ///
-    /// * `new_content` - The new content of the event.
-    ///
-    /// * `edit_info` - A wrapper that contains the event ID and the content of
-    ///  the event to edit.
-    ///
     /// # Returns
     ///
-    /// Returns `Ok(true)` if the edit was added to the send queue. Returns
-    /// `Ok(false)` if the edit targets a local item but the edit could not be
-    /// applied, which could mean that the event was already sent. Returns an
-    /// error if there was an issue adding the edit to the send queue.
+    /// - Returns `Ok(true)` if the edit was added to the send queue.
+    /// - Returns `Ok(false)` if the edit targets an item that has no local nor
+    ///   matching remote item.
+    /// - Returns an error if there was an issue sending the redaction event, or
+    ///   interacting with the sending queue.
     #[instrument(skip(self, new_content))]
     pub async fn edit(
         &self,
+        item: &EventTimelineItem,
         new_content: RoomMessageEventContentWithoutRelation,
-        edit_info: EditInfo,
-    ) -> Result<bool, RoomSendQueueError> {
-        let event_id = match edit_info.id {
+    ) -> Result<bool, Error> {
+        let event_id = match item.identifier() {
             TimelineEventItemId::TransactionId(txn_id) => {
+                // See if we have an up-to-date timeline item with that transaction id.
                 if let Some(item) = self.item_by_transaction_id(&txn_id).await {
-                    let Some(handle) = item.as_local().and_then(|item| item.send_handle.clone())
-                    else {
-                        warn!("No handle for a local echo; is this a test?");
-                        return Ok(false);
-                    };
-
-                    // Assume no relations, since it's not been sent yet.
-                    let new_content: RoomMessageEventContent = new_content.clone().into();
-
-                    if handle.edit(new_content.into()).await? {
-                        return Ok(true);
+                    match item.handle() {
+                        TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
+                        TimelineItemHandle::Local(handle) => {
+                            // Relations are filled by the editing code itself.
+                            let new_content: RoomMessageEventContent = new_content.clone().into();
+                            return Ok(handle
+                                .edit(new_content.into())
+                                .await
+                                .map_err(RoomSendQueueError::StorageError)?);
+                        }
                     }
-                }
-
-                // We end up here in two cases: either there wasn't a local echo with this
-                // transaction id, or the send queue refused to edit the local echo (likely
-                // because it's sent).
-                //
-                // Try to find a matching local echo that now has an event id (it's been sent),
-                // or a remote echo with a matching transaction id, so as to
-                // send an actual edit.
-                if let Some(TimelineEventItemId::EventId(event_id)) =
-                    self.item_by_transaction_id(&txn_id).await.map(|item| item.identifier())
-                {
-                    event_id
-                } else if let Some(event_id) = self.find_remote_by_transaction_id(&txn_id).await {
-                    event_id
                 } else {
                     warn!("Couldn't find the local echo anymore, nor a matching remote echo");
                     return Ok(false);
@@ -555,83 +514,12 @@ impl Timeline {
             TimelineEventItemId::EventId(event_id) => event_id,
         };
 
-        let original_content = edit_info.original_message;
-        let replied_to_message =
-            original_content.in_reply_to().and_then(|details| match &details.event {
-                TimelineDetails::Ready(event) => match event.content() {
-                    TimelineItemContent::Message(msg) => Some(OriginalRoomMessageEvent {
-                        content: msg.to_content(),
-                        event_id: event_id.to_owned(),
-                        sender: event.sender.clone(),
-                        // Dummy value, not used by make_replacement
-                        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
-                        room_id: self.room().room_id().to_owned(),
-                        unsigned: Default::default(),
-                    }),
-                    _ => None,
-                },
-                _ => {
-                    warn!("original event is a reply, but we don't have the replied-to event");
-                    None
-                }
-            });
+        let content =
+            self.room().make_edit_event(&event_id, EditedContent::RoomMessage(new_content)).await?;
 
-        let content = new_content.make_replacement(
-            ReplacementMetadata::new(event_id.to_owned(), original_content.mentions.clone()),
-            replied_to_message.as_ref(),
-        );
-
-        self.send(content.into()).await?;
+        self.send(content).await?;
 
         Ok(true)
-    }
-
-    /// Get the information needed to edit the event with the given ID.
-    pub async fn edit_info_from_event_id(
-        &self,
-        event_id: &EventId,
-    ) -> Result<EditInfo, UnsupportedEditItem> {
-        if let Some(timeline_item) = self.item_by_event_id(event_id).await {
-            return timeline_item.edit_info();
-        }
-
-        let event = self.room().event(event_id).await.map_err(|error| {
-            error!("Failed to fetch event with ID {event_id} with error: {error}");
-            UnsupportedEditItem::MissingEvent
-        })?;
-
-        // We need to get the content and we can do that by casting
-        // the event as a `AnySyncTimelineEvent` which is the same as a
-        // `AnyTimelineEvent`, but without the `room_id` field.
-        // The cast is valid because we are just losing track of such field.
-        let raw_sync_event: Raw<AnySyncTimelineEvent> = event.event.cast();
-        let event = raw_sync_event.deserialize().map_err(|error| {
-            error!("Failed to deserialize event with ID {event_id} with error: {error}");
-            UnsupportedEditItem::FailedToDeserializeEvent
-        })?;
-
-        if event.sender() != self.room().own_user_id() {
-            return Err(UnsupportedEditItem::NotOwnEvent);
-        };
-
-        if let AnySyncTimelineEvent::MessageLike(message_like_event) = &event {
-            if let AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
-                original_message,
-            )) = message_like_event
-            {
-                let message = Message::from_event(
-                    original_message.content.clone(),
-                    message_like_event.relations(),
-                    &self.items().await,
-                );
-                return Ok(EditInfo {
-                    id: TimelineEventItemId::EventId(event_id.to_owned()),
-                    original_message: message,
-                });
-            }
-        }
-
-        Err(UnsupportedEditItem::NotRoomMessage)
     }
 
     pub async fn edit_poll(
@@ -777,50 +665,43 @@ impl Timeline {
         SendAttachment::new(self, path.into(), mime_type, config)
     }
 
-    /// Redacts an event from the timeline.
+    /// Redact an event.
     ///
-    /// If it was a local event, this will *try* to cancel it, if it was not
-    /// being sent already. If the event was a remote event, then it will be
-    /// redacted by sending a redaction request to the server.
+    /// # Returns
     ///
-    /// Returns whether the redaction did happen. It can only return false for
-    /// local events that are being processed.
+    /// - Returns `Ok(true)` if the redact happened.
+    /// - Returns `Ok(false)` if the redact targets an item that has no local
+    ///   nor matching remote item.
+    /// - Returns an error if there was an issue sending the redaction event, or
+    ///   interacting with the sending queue.
     pub async fn redact(
         &self,
         event: &EventTimelineItem,
         reason: Option<&str>,
-    ) -> Result<bool, RedactEventError> {
+    ) -> Result<bool, Error> {
         let event_id = match event.identifier() {
             TimelineEventItemId::TransactionId(txn_id) => {
-                let local = event.as_local().unwrap();
-
-                if let Some(handle) = local.send_handle.clone() {
-                    if handle.abort().await.map_err(RedactEventError::RoomQueueError)? {
-                        return Ok(true);
-                    }
-
-                    if let Some(event_id) = self.find_remote_by_transaction_id(&txn_id).await {
-                        event_id
-                    } else {
-                        warn!("Couldn't find the local echo anymore, nor a matching remote echo");
-                        return Ok(false);
+                // See if we have an up-to-date timeline item with that transaction id.
+                if let Some(item) = self.item_by_transaction_id(&txn_id).await {
+                    match item.handle() {
+                        TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
+                        TimelineItemHandle::Local(handle) => {
+                            return Ok(handle
+                                .abort()
+                                .await
+                                .map_err(RoomSendQueueError::StorageError)?);
+                        }
                     }
                 } else {
-                    // No abort handle; theoretically unreachable for regular usage of the
-                    // timeline, but this may happen in testing contexts.
-                    return Err(RedactEventError::UnsupportedRedactLocal(
-                        local.transaction_id.clone(),
-                    ));
+                    warn!("Couldn't find the local echo anymore, nor a matching remote echo");
+                    return Ok(false);
                 }
             }
 
             TimelineEventItemId::EventId(event_id) => event_id,
         };
 
-        self.room()
-            .redact(&event_id, reason, None)
-            .await
-            .map_err(|err| RedactEventError::SdkError(err.into()))?;
+        self.room().redact(&event_id, reason, None).await.map_err(Error::RedactError)?;
 
         Ok(true)
     }

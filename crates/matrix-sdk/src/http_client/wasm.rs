@@ -33,6 +33,8 @@ impl HttpClient {
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
+        tracing::debug!("Sending request");
+
         let request = reqwest::Request::try_from(request)?;
         let response = response_to_http_response(self.inner.execute(request).await?).await?;
 

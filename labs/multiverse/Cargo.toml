@@ -9,7 +9,7 @@ name = "multiverse"
 test = false
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 color-eyre = "0.6.2"
 crossterm = "0.27.0"
 futures-util = { workspace = true }
@@ -19,10 +19,10 @@ matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
 ratatui = "0.26.1"
 rpassword = "7.3.1"
 serde_json = { workspace = true }
-tokio = { version = "1.24.2", features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing = { workspace = true }
 tracing-appender = { version = "0.2.2" }
-tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [lints]
 workspace = true

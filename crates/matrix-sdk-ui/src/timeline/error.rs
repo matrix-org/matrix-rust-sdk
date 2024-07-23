@@ -14,9 +14,10 @@
 
 use matrix_sdk::{
     event_cache::{paginator::PaginatorError, EventCacheError},
-    send_queue::{RoomSendQueueError, RoomSendQueueStorageError},
+    room::edit::EditError,
+    send_queue::RoomSendQueueError,
+    HttpError,
 };
-use ruma::OwnedTransactionId;
 use thiserror::Error;
 
 /// Errors specific to the timeline.
@@ -26,10 +27,6 @@ pub enum Error {
     /// The requested event with a remote echo is not in the timeline.
     #[error("Event with remote echo not found in timeline")]
     RemoteEventNotInTimeline,
-
-    /// Can't find an event with the given transaction ID, can't retry.
-    #[error("Event not found, can't retry sending")]
-    RetryEventNotInTimeline,
 
     /// The event is currently unsupported for this use case..
     #[error("Unsupported event")]
@@ -51,14 +48,6 @@ pub enum Error {
     #[error("Failed toggling reaction")]
     FailedToToggleReaction,
 
-    /// The room is not in a joined state.
-    #[error("Room is not joined")]
-    RoomNotJoined,
-
-    /// Could not get user.
-    #[error("User ID is not available")]
-    UserIdNotAvailable,
-
     /// Something went wrong with the room event cache.
     #[error("Something went wrong with the room event cache.")]
     EventCacheError(#[from] EventCacheError),
@@ -70,6 +59,14 @@ pub enum Error {
     /// An error happened while operating the room's send queue.
     #[error(transparent)]
     SendQueueError(#[from] RoomSendQueueError),
+
+    /// An error happened while attempting to edit an event.
+    #[error(transparent)]
+    EditError(#[from] EditError),
+
+    /// An error happened while attempting to redact an event.
+    #[error(transparent)]
+    RedactError(HttpError),
 }
 
 #[derive(Error, Debug)]
@@ -99,38 +96,19 @@ pub enum UnsupportedReplyItem {
 
 #[derive(Debug, Error)]
 pub enum UnsupportedEditItem {
-    #[error("tried to edit a non-message event")]
-    NotRoomMessage,
     #[error("tried to edit a non-poll event")]
     NotPollEvent,
     #[error("tried to edit another user's event")]
     NotOwnEvent,
     #[error("event to edit not found")]
     MissingEvent,
-    #[error("failed to deserialize event to edit")]
-    FailedToDeserializeEvent,
 }
 
 #[derive(Debug, Error)]
 pub enum SendEventError {
     #[error(transparent)]
-    UnsupportedReplyItem(#[from] UnsupportedReplyItem),
-
-    #[error(transparent)]
     UnsupportedEditItem(#[from] UnsupportedEditItem),
 
     #[error(transparent)]
     RoomQueueError(#[from] RoomSendQueueError),
-}
-
-#[derive(Debug, Error)]
-pub enum RedactEventError {
-    #[error("the given local event (with transaction id {0}) doesn't support redaction")]
-    UnsupportedRedactLocal(OwnedTransactionId),
-
-    #[error(transparent)]
-    SdkError(#[from] matrix_sdk::Error),
-
-    #[error("an error happened while interacting with the room queue")]
-    RoomQueueError(#[source] RoomSendQueueStorageError),
 }

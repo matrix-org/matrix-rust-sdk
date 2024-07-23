@@ -616,7 +616,8 @@ impl IdentityChangeDataSet {
         })
     }
     /// A key query with a new identity (Ib) and a new device `ATWKQFSFRN`.
-    /// `ATWKQFSFRN` is signed with the new identity but
+    /// `ATWKQFSFRN` is signed with the new identity but `GYKSNAWLVK` is still
+    /// signed by the old identity (Ia).
     pub fn key_query_with_identity_b() -> KeyQueryResponse {
         let data = response_from_file(&json!({
             "device_keys": {
@@ -633,8 +634,8 @@ impl IdentityChangeDataSet {
             .expect("Can't parse the `/keys/upload` response")
     }
 
-    /// A key query with a new identity (Ib) and a new device `ATWKQFSFRN`.
-    /// `ATWKQFSFRN` is signed with the new identity but
+    /// A key query with no identity and a new device `OPABMDDXGX` (not
+    /// cross-signed).
     pub fn key_query_with_identity_no_identity() -> KeyQueryResponse {
         let data = response_from_file(&json!({
             "device_keys": {
@@ -657,13 +658,156 @@ impl IdentityChangeDataSet {
                             }
                         },
                         "user_id": "@bob:localhost",
-                        "unsigned": {
-                            "device_display_name": "develop.element.io: Chrome on macOS"
-                        }
                     }
                 }
             },
             "failures": {},
+        }));
+        KeyQueryResponse::try_from_http_response(data)
+            .expect("Can't parse the `/keys/upload` response")
+    }
+}
+
+/// A set of keys query to test identity changes,
+/// For user @malo, that performed an identity change with the same device.
+pub struct MaloIdentityChangeDataSet {}
+
+#[allow(dead_code)]
+impl MaloIdentityChangeDataSet {
+    pub fn user_id() -> &'static UserId {
+        user_id!("@malo:localhost")
+    }
+
+    pub fn device_id() -> &'static DeviceId {
+        device_id!("NZFSPBRLDO")
+    }
+
+    pub fn initial_key_query() -> KeyQueryResponse {
+        let data = response_from_file(&json!({
+            "device_keys": {
+                "@malo:localhost": {
+                    "NZFSPBRLDO": {
+                        "algorithms": [
+                            "m.olm.v1.curve25519-aes-sha2",
+                            "m.megolm.v1.aes-sha2"
+                        ],
+                        "device_id": "NZFSPBRLDO",
+                        "keys": {
+                            "curve25519:NZFSPBRLDO": "L3jdbw42+9i+K7LPjAY+kmqG9nr2n/U0ow8hEbLCoCs",
+                            "ed25519:NZFSPBRLDO": "VDJt3xI4SzrgQkuE3sEIauluaXawx3wWoWOynPI8Zko"
+                        },
+                        "signatures": {
+                            "@malo:localhost": {
+                                "ed25519:NZFSPBRLDO": "lmtbdrJ5xBweo677Fg2qrSHsRi4R3x2WNlvSNJY6Zbg0R5lJS9syN2HZw/irL9PA644GYm4QM/t+DX0grnn+BQ",
+                                "ed25519:+wbxNfSuDrch1jKuydQmEf4qlA4u4NgwqNXNuLVwug8": "Ql1fq+SvVDx+8mjNMzSaR0hBCEkdPirbs2+BK0gwsIH1zkuMADnBoNWP7LJiKo/EO9gnpiCzyQQgI4e9pIVPDA"
+                            }
+                        },
+                        "user_id": "@malo:localhost",
+                        "unsigned": {}
+                    }
+                }
+            },
+            "failures": {},
+            "master_keys": {
+                "@malo:localhost": {
+                    "keys": {
+                        "ed25519:WBxliSP29guYr4ux0MW6otRe3V/wOLXXElpOcOmpdlE": "WBxliSP29guYr4ux0MW6otRe3V/wOLXXElpOcOmpdlE"
+                    },
+                    "signatures": {
+                        "@malo:localhost": {
+                            "ed25519:NZFSPBRLDO": "crJcXqFpEHRM8KNUw419XrVFaHoM8/kV4ebgpuuIiD9wfX0AhHE2iGRGpKzsrVCqne9k181/uN0sgDMpK2y4Aw",
+                            "ed25519:WBxliSP29guYr4ux0MW6otRe3V/wOLXXElpOcOmpdlE": "/xwFF5AC3GhkpvJ449Srh8kNQS6CXAxQMmBpQvPEHx5BHPXJ08u2ZDd1EPYY4zk4QsePk+tEYu8gDnB0bggHCA"
+                        }
+                    },
+                    "usage": [
+                        "master"
+                    ],
+                    "user_id": "@malo:localhost"
+                }
+            },
+            "self_signing_keys": {
+                "@malo:localhost": {
+                    "keys": {
+                        "ed25519:+wbxNfSuDrch1jKuydQmEf4qlA4u4NgwqNXNuLVwug8": "+wbxNfSuDrch1jKuydQmEf4qlA4u4NgwqNXNuLVwug8"
+                    },
+                    "signatures": {
+                        "@malo:localhost": {
+                            "ed25519:WBxliSP29guYr4ux0MW6otRe3V/wOLXXElpOcOmpdlE": "sSGQ6ny6aXtIvgKPGOYJzcmnNDSkbaJFVRe9wekOry7EaiWf2l28MkGTUBt4cPoRiMkNjuRBupNEARqHF72sAQ"
+                        }
+                    },
+                    "usage": [
+                        "self_signing"
+                    ],
+                    "user_id": "@malo:localhost"
+                }
+            },
+            "user_signing_keys": {},
+        }));
+        KeyQueryResponse::try_from_http_response(data)
+            .expect("Can't parse the `/keys/upload` response")
+    }
+
+    pub fn updated_key_query() -> KeyQueryResponse {
+        let data = response_from_file(&json!({
+            "device_keys": {
+                "@malo:localhost": {
+                    "NZFSPBRLDO": {
+                        "algorithms": [
+                            "m.olm.v1.curve25519-aes-sha2",
+                            "m.megolm.v1.aes-sha2"
+                        ],
+                        "device_id": "NZFSPBRLDO",
+                        "keys": {
+                            "curve25519:NZFSPBRLDO": "L3jdbw42+9i+K7LPjAY+kmqG9nr2n/U0ow8hEbLCoCs",
+                            "ed25519:NZFSPBRLDO": "VDJt3xI4SzrgQkuE3sEIauluaXawx3wWoWOynPI8Zko"
+                        },
+                        "signatures": {
+                            "@malo:localhost": {
+                                "ed25519:NZFSPBRLDO": "lmtbdrJ5xBweo677Fg2qrSHsRi4R3x2WNlvSNJY6Zbg0R5lJS9syN2HZw/irL9PA644GYm4QM/t+DX0grnn+BQ",
+                                "ed25519:+wbxNfSuDrch1jKuydQmEf4qlA4u4NgwqNXNuLVwug8": "Ql1fq+SvVDx+8mjNMzSaR0hBCEkdPirbs2+BK0gwsIH1zkuMADnBoNWP7LJiKo/EO9gnpiCzyQQgI4e9pIVPDA",
+                                "ed25519:8my6+zgnzEP0ZqmQFyvscJh7isHlf8lxBmHg+fzdJkE": "OvqDE7C2mrHxjwNyMIEz+m/AO6I6lM5HoPYY2bvLjrJJDOF5sJOtw4JoYiCWyt90ZIWsbEqmfbazrblLD50tCg"
+                            }
+                        },
+                        "user_id": "@malo:localhost",
+                        "unsigned": {}
+                    }
+                }
+            },
+            "failures": {},
+            "master_keys": {
+                "@malo:localhost": {
+                    "keys": {
+                        "ed25519:dv2Mk7bFlRtP/0oSZpB01Ouc5frCXKfG8Bn9YrFxbxU": "dv2Mk7bFlRtP/0oSZpB01Ouc5frCXKfG8Bn9YrFxbxU"
+                    },
+                    "signatures": {
+                        "@malo:localhost": {
+                            "ed25519:NZFSPBRLDO": "2Ye96l4srBSWskNQszuMpea1r97rFoUyfNqegvu/hGeP47w0OVvqYuNtZRNwqb7TMS7aPEn6l9lhWEk7v06wCg",
+                            "ed25519:dv2Mk7bFlRtP/0oSZpB01Ouc5frCXKfG8Bn9YrFxbxU": "btkxAJpJeVtc9wgBmeHUI9QDpojd6ddLxK11E3403KoTQtP6Mnr5GsVdQr1HJToG7PG4k4eEZGWxVZr1GPndAA"
+                        }
+                    },
+                    "usage": [
+                        "master"
+                    ],
+                    "user_id": "@malo:localhost"
+                }
+            },
+            "self_signing_keys": {
+                "@malo:localhost": {
+                    "keys": {
+                        "ed25519:8my6+zgnzEP0ZqmQFyvscJh7isHlf8lxBmHg+fzdJkE": "8my6+zgnzEP0ZqmQFyvscJh7isHlf8lxBmHg+fzdJkE"
+                    },
+                    "signatures": {
+                        "@malo:localhost": {
+                            "ed25519:dv2Mk7bFlRtP/0oSZpB01Ouc5frCXKfG8Bn9YrFxbxU": "KJt0y1p8v8RGLGk2wUyCMbX1irXJqup/mdRuG/cxJxs24BZhDMyIzyGrGXnWq2gx3I4fKIMtFPi/ecxf92ePAQ"
+                        }
+                    },
+                    "usage": [
+                        "self_signing"
+                    ],
+                    "user_id": "@malo:localhost"
+                }
+            },
+            "user_signing_keys": {}
         }));
         KeyQueryResponse::try_from_http_response(data)
             .expect("Can't parse the `/keys/upload` response")

@@ -6,16 +6,13 @@
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
-    poll::unstable_start::SyncUnstablePollStartEvent, room::message::SyncRoomMessageEvent,
+    call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
+    poll::unstable_start::SyncUnstablePollStartEvent,
+    relation::RelationType,
+    room::message::SyncRoomMessageEvent,
     AnySyncMessageLikeEvent, AnySyncTimelineEvent,
 };
-use ruma::{
-    events::{
-        call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
-        relation::RelationType,
-    },
-    MxcUri, OwnedEventId,
-};
+use ruma::{events::sticker::SyncStickerEvent, MxcUri, OwnedEventId};
 use serde::{Deserialize, Serialize};
 
 use crate::MinimalRoomMemberEvent;
@@ -29,6 +26,8 @@ use crate::MinimalRoomMemberEvent;
 pub enum PossibleLatestEvent<'a> {
     /// This message is suitable - it is an m.room.message
     YesRoomMessage(&'a SyncRoomMessageEvent),
+    /// This message is suitable - it is a sticker
+    YesSticker(&'a SyncStickerEvent),
     /// This message is suitable - it is a poll
     YesPoll(&'a SyncUnstablePollStartEvent),
 
@@ -86,6 +85,10 @@ pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLat
 
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallNotify(notify)) => {
             PossibleLatestEvent::YesCallNotify(notify)
+        }
+
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::Sticker(sticker)) => {
+            PossibleLatestEvent::YesSticker(sticker)
         }
 
         // Encrypted events are not suitable
@@ -271,9 +274,14 @@ mod tests {
                 },
                 SessionDescription,
             },
-            poll::unstable_start::{
-                NewUnstablePollStartEventContent, SyncUnstablePollStartEvent, UnstablePollAnswer,
-                UnstablePollStartContentBlock,
+            poll::{
+                unstable_response::{
+                    SyncUnstablePollResponseEvent, UnstablePollResponseEventContent,
+                },
+                unstable_start::{
+                    NewUnstablePollStartEventContent, SyncUnstablePollStartEvent,
+                    UnstablePollAnswer, UnstablePollStartContentBlock,
+                },
             },
             relation::Replacement,
             room::{
@@ -394,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn test_different_types_of_messagelike_are_unsuitable() {
+    fn test_stickers_are_suitable() {
         let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::Sticker(
             SyncStickerEvent::Original(OriginalSyncMessageLikeEvent {
                 content: StickerEventContent::new(
@@ -408,6 +416,28 @@ mod tests {
                 unsigned: MessageLikeUnsigned::new(),
             }),
         ));
+
+        assert_matches!(
+            is_suitable_for_latest_event(&event),
+            PossibleLatestEvent::YesSticker(SyncStickerEvent::Original(_))
+        );
+    }
+
+    #[test]
+    fn test_different_types_of_messagelike_are_unsuitable() {
+        let event =
+            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::UnstablePollResponse(
+                SyncUnstablePollResponseEvent::Original(OriginalSyncMessageLikeEvent {
+                    content: UnstablePollResponseEventContent::new(
+                        vec![String::from("option1")],
+                        owned_event_id!("$1"),
+                    ),
+                    event_id: owned_event_id!("$2"),
+                    sender: owned_user_id!("@a:b.c"),
+                    origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
+                    unsigned: MessageLikeUnsigned::new(),
+                }),
+            ));
 
         assert_matches!(
             is_suitable_for_latest_event(&event),

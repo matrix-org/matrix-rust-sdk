@@ -26,7 +26,7 @@ use eyeball::SharedObservable;
 use http::header::CONTENT_LENGTH;
 use reqwest::Certificate;
 use ruma::api::{error::FromHttpResponseError, IncomingResponse, OutgoingRequest};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::{response_to_http_response, HttpClient, TransmissionProgress, DEFAULT_REQUEST_TIMEOUT};
 use crate::{
@@ -52,6 +52,8 @@ impl HttpClient {
         let send_request = || {
             let send_progress = send_progress.clone();
             async {
+                debug!(num_attempt = retry_count.load(Ordering::SeqCst), "Sending request");
+
                 let stop = if let Some(retry_limit) = config.retry_limit {
                     retry_count.fetch_add(1, Ordering::Relaxed) >= retry_limit
                 } else {
@@ -110,6 +112,7 @@ pub(crate) struct HttpSettings {
     pub(crate) user_agent: Option<String>,
     pub(crate) timeout: Duration,
     pub(crate) additional_root_certificates: Vec<Certificate>,
+    pub(crate) disable_built_in_root_certificates: bool,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -121,6 +124,7 @@ impl Default for HttpSettings {
             user_agent: None,
             timeout: DEFAULT_REQUEST_TIMEOUT,
             additional_root_certificates: Default::default(),
+            disable_built_in_root_certificates: false,
         }
     }
 }
@@ -147,6 +151,11 @@ impl HttpSettings {
             for cert in &self.additional_root_certificates {
                 http_client = http_client.add_root_certificate(cert.clone());
             }
+        }
+
+        if self.disable_built_in_root_certificates {
+            info!("Built-in root certificates disabled in the HTTP client.");
+            http_client = http_client.tls_built_in_root_certs(false);
         }
 
         if let Some(p) = &self.proxy {

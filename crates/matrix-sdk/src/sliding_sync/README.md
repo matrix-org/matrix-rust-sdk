@@ -58,7 +58,7 @@ After the general configuration, one typically wants to add a list via the
 ## Lists
 
 A list defines a subset of matching rooms one wants to filter for, and be
-kept up about. The [`v4::SyncRequestListFilters`][] allows for a granular
+kept up about. The [`http::request::ListFilters`] allows for a granular
 specification of the exact rooms one wants the server to select and the way
 one wants them to be ordered before receiving. Secondly each list has a set
 of `ranges`: the subset of indexes of the entire list one is interested in
@@ -67,25 +67,25 @@ and a unique name to be identified with.
 For example, a user might be part of thousands of rooms, but if the client
 app always starts by showing the most recent direct message conversations,
 loading all rooms is an inefficient approach. Instead with Sliding Sync one
-defines a list (e.g. named `"main_list"`) filtering for `is_dm`, ordered
+defines a list (e.g. named `"main_list"`) filtering for `is_invite`, ordered
 by recency and select to list the top 10 via `ranges: [ [0,9] ]` (indexes
 are **inclusive**) like so:
 
 ```rust
 # use matrix_sdk::sliding_sync::{SlidingSyncList, SlidingSyncMode};
-use ruma::{assign, api::client::sync::sync_events::v4};
+use matrix_sdk_base::sliding_sync::http;
+use ruma::assign;
 
 let list_builder = SlidingSyncList::builder("main_list")
     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=9))
     .filters(Some(assign!(
-        v4::SyncRequestListFilters::default(), { is_dm: Some(true)}
-    )))
-    .sort(vec!["by_recency".to_owned()]);
+        http::request::ListFilters::default(), { is_invite: Some(true)}
+    )));
 ```
 
 Please refer to the [specification][MSC], the [Ruma types][ruma-types],
 specifically [`SyncRequestListFilter`](https://docs.rs/ruma/latest/ruma/api/client/sync/sync_events/v4/struct.SyncRequestListFilters.html) and the
-[`SlidingSyncListBuilder`] for details on the filters, sort-order and
+[`SlidingSyncListBuilder`] for details on the filters, and
 range-options and data one requests to be sent. Once the list is fully
 configured, `build()` it and add the list to the sliding sync session
 by supplying it to [`add_list`][`SlidingSyncBuilder::add_list`].
@@ -95,15 +95,11 @@ list-object. Once a list has been added to [`SlidingSync`], a cloned shared
 copy can be retrieved by calling `SlidingSync::list()`, providing the name
 of the list. Next to the configuration settings (like name and
 `timeline_limit`), the list provides the stateful
-[`maximum_number_of_rooms`](SlidingSyncList::maximum_number_of_rooms),
-[`room_list`](SlidingSyncList::room_list) and
+[`maximum_number_of_rooms`](SlidingSyncList::maximum_number_of_rooms) and
 [`state`](SlidingSyncList::state):
 
  - `maximum_number_of_rooms` is the number of rooms _total_ there were found
    matching the filters given.
- - `room_list` is a vector of `maximum_number_of_rooms` [`RoomListEntry`]'s
-   at the current state. `RoomListEntry`'s only hold `the room_id` if given,
-   the [Rooms API](#rooms) holds the actual information about each room
  - `state` is a [`SlidingSyncMode`] signalling meta information about the
    list and its stateful data — whether this is the state loaded from local
    cache, whether the [full sync](#helper-lists) is in progress or whether
@@ -149,38 +145,6 @@ visible in any list. The most common case for using this API is when the user
 enters a room - as we want to receive the incoming new messages regardless of
 whether the room is pushed out of the lists room list.
 
-### Room List Entries
-
-As the room list of each list is a vec of the `maximum_number_of_rooms` len
-but a room may only know of a subset of entries for sure at any given time,
-these entries are wrapped in [`RoomListEntry`][]. This type, in close
-proximity to the [specification][MSC], can be either `Empty`, `Filled` or
-`Invalidated`, signaling the state of each entry position.
-- `Empty` we don't know what sits here at this position in the list.
-- `Filled`: there is this `room_id` at this position.
-- `Invalidated` in that sense means that we _knew_ what was here before, but
-  can't be sure anymore this is still accurate. This occurs when we move the
-  sliding window (by changing the ranges) or when a room might drop out of
-  the window we are looking at. For the sake of displaying, this is probably
-  still fine to display to be at this position, but we can't be sure
-  anymore.
-
-Because `Invalidated` occurs whenever a room we knew about before drops out
-of focus, we aren't updated about its changes anymore either, there could be
-duplicates rooms within invalidated rooms as well as in the union of
-invalidated and filled rooms. Keep that in mind, as most UI frameworks don't
-like it when their list entries aren't unique.
-
-When [restoring from cold cache][#caching] the room list also only
-propagated with `Invalidated` rooms. So if you want to be able to display
-data quickly, ensure you are able to render `Invalidated` entries.
-
-### Unsubscribe
-
-Don't forget to [unsubscribe](`SlidingSync::unsubscribe_from_room`) when the
-data isn't needed to be updated anymore, e.g. when the user leaves the room, to
-reduce the bandwidth back down to what is really needed.
-
 ## Extensions
 
 Additionally to the room list and rooms with their state and latest
@@ -191,7 +155,7 @@ typing- and presence-information and account-data, but can be extended by
 any implementation as they please. Handling of the data of the e2ee,
 to-device and typing-extensions takes place transparently within the SDK.
 
-By default [`SlidingSync`][] doesn't activate _any_ extensions to save on
+By default [`SlidingSync`] doesn't activate _any_ extensions to save on
 bandwidth, but we generally recommend to use the `with_XXX_extensions` family
 of methods when building sliding sync to enable e2ee, to-device-messages and
 account-data-extensions.
@@ -199,7 +163,7 @@ account-data-extensions.
 ## Timeline events
 
 Both the list configuration as well as the [room subscription
-settings](`v4::RoomSubscription`) allow to specify a `timeline_limit` to
+settings](`http::request::RoomSubscription`) allow to specify a `timeline_limit` to
 receive timeline events. If that is unset or set to 0, no events are sent by
 the server (which is the default), if multiple limits are found, the highest
 takes precedence. Any positive number indicates that on the first request a
@@ -259,14 +223,8 @@ In full, this typically looks like this:
 
 ```rust,no_run
 # use futures_util::{pin_mut, StreamExt};
-# use matrix_sdk::{
-#    sliding_sync::{SlidingSyncMode, SlidingSyncListBuilder},
-#    Client,
-# };
-# use ruma::{
-#    api::client::sync::sync_events::v4, assign,
-# };
-# use tracing::{debug, error, info, warn};
+# use matrix_sdk::Client;
+# use tracing::{error, info};
 # use url::Url;
 # async {
 # let homeserver = Url::parse("http://example.com")?;
@@ -318,7 +276,7 @@ will return immediately — with a proper response though. One just needs to
 make sure to not call that stream any further. Additionally, as both
 requests are sent with the same positional argument, the server might
 respond with data, the client has already processed. This isn't a problem,
-the [`SlidingSync`][] will only process new data and skip the processing
+the [`SlidingSync`] will only process new data and skip the processing
 even across restarts.
 
 To support this, in practice, one can spawn a `Future` that runs
@@ -345,14 +303,12 @@ subscribing to updates via [`eyeball`].
 
 ## Caching
 
-All room data, for filled but also _invalidated_ rooms, including the entire
-timeline events as well as all list `room_lists` and
-`maximum_number_of_rooms` are held in memory (unless one `pop`s the list
-out).
+All room data, including the entire timeline events as well as all lists and
+`maximum_number_of_rooms` are held in memory (unless one `pop`s the list out).
 
-Sliding Sync instances are also cached on disk, and restored from disk at creation. This ensures
-that we keep track of important position markers, like the `since` tokens used in the sync
-requests.
+Sliding Sync instances are also cached on disk, and restored from disk at
+creation. This ensures that we keep track of important position markers, like
+the `since` tokens used in the sync requests.
 
 Caching for lists can be enabled independently, using the
 [`add_cached_list`][`SlidingSyncBuilder::add_cached_list`] method, assuming
@@ -370,39 +326,15 @@ are stored to storage, but only retrieved upon `build()` of the
 the data from storage (to avoid inconsistencies) and might require more data to
 be sent in their first request than if they were loaded from a cold cache.
 
-When loading from storage `room_list` entries found are set to
-`Invalidated` — the initial setting here is communicated as a single
-`VecDiff::Replace` event through the [reactive API](#reactive-api).
-
 Only the latest 10 timeline items of each room are cached and they are reset
 whenever a new set of timeline items is received by the server.
-
-## Bot mode
-
-_Note_: This is not yet exposed via the API. See [#1475](https://github.com/matrix-org/matrix-rust-sdk/issues/1475)
-
-Sliding Sync is modeled for faster and more efficient user-facing client
-applications, but offers significant speed ups even for bot cases through
-its filtering mechanism. The sort-order and specific subsets, however, are
-usually not of interest for bots. For that use case the
-[`v4::SyncRequestList`][] offers the
-[`slow_get_all_rooms`](`v4::SyncRequestList::slow_get_all_rooms`) flag.
-
-Once switched on, this mode will not trigger any updates on "list
-movements", ranges and sorting are ignored and all rooms matching the filter
-will be returned with the given room details settings. Depending on the data
-that is requested this will still be significantly faster as the response
-only returns the matching rooms and states as per settings.
-
-Think about a bot that only interacts in `is_dm = true` and doesn't need
-room topic, room avatar and all the other state. It will be a lot faster to
-start up and retrieve only the data needed to actually run.
 
 # Full example
 
 ```rust,no_run
 use matrix_sdk::{Client, sliding_sync::{SlidingSyncList, SlidingSyncMode}};
-use ruma::{assign, api::client::sync::sync_events::v4, events::StateEventType};
+use matrix_sdk_base::sliding_sync::http;
+use ruma::{assign, events::StateEventType};
 use tracing::{warn, error, info, debug};
 use futures_util::{pin_mut, StreamExt};
 use url::Url;
@@ -416,23 +348,21 @@ let sliding_sync_builder = client
     .sliding_sync("main-sync")?
     .sliding_sync_proxy(Url::parse("http://sliding-sync.example.org")?) // our proxy server
     .with_account_data_extension(
-        assign!(v4::AccountDataConfig::default(), { enabled: Some(true) }),
+        assign!(http::request::AccountData::default(), { enabled: Some(true) }),
     ) // we enable the account-data extension
-    .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true) })) // and the e2ee extension
+    .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true) })) // and the e2ee extension
     .with_to_device_extension(
-        assign!(v4::ToDeviceConfig::default(), { enabled: Some(true) }),
+        assign!(http::request::ToDevice::default(), { enabled: Some(true) }),
     ); // and the to-device extension
 
 let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
     .sync_mode(SlidingSyncMode::Growing { batch_size: 50, maximum_number_of_rooms_to_fetch: Some(500) }) // sync up by growing the window
-    .sort(vec!["by_recency".to_owned()]) // ordered by most recent
     .required_state(vec![
         (StateEventType::RoomEncryption, "".to_owned())
      ]); // only want to know if the room is encrypted
 
 let active_list = SlidingSyncList::builder(&active_list_name) // the active window
     .sync_mode(SlidingSyncMode::new_selective().add_range(0..=9))  // sync up the specific range only, first 10 items
-    .sort(vec!["by_recency".to_owned()]) // last active
     .timeline_limit(5u32) // add the last 5 timeline items for room preview and faster timeline loading
     .required_state(vec![ // we want to know immediately:
         (StateEventType::RoomEncryption, "".to_owned()), // is it encrypted
@@ -446,30 +376,15 @@ let sliding_sync = sliding_sync_builder
     .build()
     .await?;
 
-// subscribe to the list APIs for updates
-
-let ((_, list_state_stream), list_count_stream, (_, list_stream)) = sliding_sync.on_list(&active_list_name, |list| {
-    ready((list.state_stream(), list.maximum_number_of_rooms_stream(), list.room_list_stream()))
-}).await.unwrap();
 
 tokio::spawn(async move {
-    pin_mut!(list_state_stream);
-    while let Some(new_state) = list_state_stream.next().await {
-        info!("active-list switched state to {new_state:?}");
-    }
-});
+    // subscribe to rooms updates
+    let (_rooms, rooms_stream) = client.rooms_stream();
+    // do something with `_rooms`
 
-tokio::spawn(async move {
-    pin_mut!(list_count_stream);
-    while let Some(new_count) = list_count_stream.next().await {
-        info!("active-list new count: {new_count:?}");
-    }
-});
-
-tokio::spawn(async move {
-    pin_mut!(list_stream);
-    while let Some(v_diff) = list_stream.next().await {
-        info!("active-list room list diff update: {v_diff:?}");
+    pin_mut!(rooms_stream);
+    while let Some(_room) = rooms_stream.next().await {
+        info!("a room has been updated");
     }
 });
 

@@ -27,13 +27,11 @@ use ruma::{
     OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId, UserId,
 };
 use tokio::sync::Mutex;
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, enabled, info, instrument, trace, warn, Level};
 
 use crate::{
     error::OlmResult,
-    identities::{
-        ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity,
-    },
+    identities::{DeviceData, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData},
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{
@@ -45,8 +43,8 @@ use crate::{
 };
 
 enum DeviceChange {
-    New(ReadOnlyDevice),
-    Updated(ReadOnlyDevice),
+    New(DeviceData),
+    Updated(DeviceData),
     None,
 }
 
@@ -55,8 +53,8 @@ enum DeviceChange {
 /// An unchanged identity means same cross signing keys as well as same
 /// set of signatures on the master key.
 enum IdentityUpdateResult {
-    Updated(ReadOnlyUserIdentities),
-    Unchanged(ReadOnlyUserIdentities),
+    Updated(UserIdentityData),
+    Unchanged(UserIdentityData),
 }
 
 #[derive(Debug, Clone)]
@@ -184,37 +182,9 @@ impl IdentityManager {
                 .await?;
         }
 
-        #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
-        let changed_devices = devices.changed.iter().fold(BTreeMap::new(), |mut acc, d| {
-            acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
-            acc
-        });
-
-        #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
-        let new_devices = devices.new.iter().fold(BTreeMap::new(), |mut acc, d| {
-            acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
-            acc
-        });
-
-        #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
-        let deleted_devices = devices.deleted.iter().fold(BTreeMap::new(), |mut acc, d| {
-            acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
-            acc
-        });
-
-        let new_identities = identities.new.iter().map(|i| i.user_id()).collect::<BTreeSet<_>>();
-        let changed_identities =
-            identities.changed.iter().map(|i| i.user_id()).collect::<BTreeSet<_>>();
-
-        debug!(
-            ?request_id,
-            ?new_devices,
-            ?changed_devices,
-            ?deleted_devices,
-            ?new_identities,
-            ?changed_identities,
-            "Finished handling of the `/keys/query` response"
-        );
+        if enabled!(Level::DEBUG) {
+            debug_log_keys_query_response(&devices, &identities, request_id);
+        }
 
         Ok((devices, identities))
     }
@@ -224,7 +194,7 @@ impl IdentityManager {
         device_keys: DeviceKeys,
     ) -> StoreResult<DeviceChange> {
         let old_device =
-            store.get_readonly_device(&device_keys.user_id, &device_keys.device_id).await?;
+            store.get_device_data(&device_keys.user_id, &device_keys.device_id).await?;
 
         if let Some(mut device) = old_device {
             match device.update_device(&device_keys) {
@@ -241,7 +211,7 @@ impl IdentityManager {
                 Ok(false) => Ok(DeviceChange::None),
             }
         } else {
-            match ReadOnlyDevice::try_from(&device_keys) {
+            match DeviceData::try_from(&device_keys) {
                 Ok(d) => {
                     // If this is our own device, check that the server isn't
                     // lying about our keys, also mark the device as locally
@@ -339,7 +309,7 @@ impl IdentityManager {
         }
 
         let current_devices: HashSet<&OwnedDeviceId> = current_devices.iter().collect();
-        let stored_devices = store.get_readonly_devices_unfiltered(&user_id).await?;
+        let stored_devices = store.get_device_data_for_user(&user_id).await?;
         let stored_devices_set: HashSet<&OwnedDeviceId> = stored_devices.keys().collect();
         let deleted_devices_set = stored_devices_set.difference(&current_devices);
 
@@ -416,7 +386,7 @@ impl IdentityManager {
     /// Otherwise, `None`.
     async fn check_private_identity(
         &self,
-        identity: &ReadOnlyOwnUserIdentity,
+        identity: &OwnUserIdentityData,
     ) -> Option<PrivateCrossSigningIdentity> {
         let private_identity = self.store.private_identity();
         let private_identity = private_identity.lock().await;
@@ -476,11 +446,11 @@ impl IdentityManager {
         response: &KeysQueryResponse,
         master_key: MasterPubkey,
         self_signing: SelfSigningPubkey,
-        i: ReadOnlyUserIdentities,
+        i: UserIdentityData,
         changed_private_identity: &mut Option<PrivateCrossSigningIdentity>,
     ) -> Result<IdentityUpdateResult, SignatureError> {
         match i {
-            ReadOnlyUserIdentities::Own(mut identity) => {
+            UserIdentityData::Own(mut identity) => {
                 let user_signing = self.get_user_signing_key_from_response(response)?;
                 let has_changed = identity.update(master_key, self_signing, user_signing)?;
                 *changed_private_identity = self.check_private_identity(&identity).await;
@@ -490,7 +460,7 @@ impl IdentityManager {
                     Ok(IdentityUpdateResult::Unchanged(identity.into()))
                 }
             }
-            ReadOnlyUserIdentities::Other(mut identity) => {
+            UserIdentityData::Other(mut identity) => {
                 let has_changed = identity.update(master_key, self_signing)?;
                 if has_changed {
                     Ok(IdentityUpdateResult::Updated(identity.into()))
@@ -535,15 +505,15 @@ impl IdentityManager {
         master_key: MasterPubkey,
         self_signing: SelfSigningPubkey,
         changed_private_identity: &mut Option<PrivateCrossSigningIdentity>,
-    ) -> Result<ReadOnlyUserIdentities, SignatureError> {
+    ) -> Result<UserIdentityData, SignatureError> {
         if master_key.user_id() == self.user_id() {
             let user_signing = self.get_user_signing_key_from_response(response)?;
-            let identity = ReadOnlyOwnUserIdentity::new(master_key, self_signing, user_signing)?;
+            let identity = OwnUserIdentityData::new(master_key, self_signing, user_signing)?;
             *changed_private_identity = self.check_private_identity(&identity).await;
             Ok(identity.into())
         } else {
             // First time seen, create the identity. The current MSK will be pinned.
-            let identity = ReadOnlyUserIdentity::new(master_key, self_signing)?;
+            let identity = OtherUserIdentityData::new(master_key, self_signing)?;
             Ok(identity.into())
         }
     }
@@ -893,7 +863,7 @@ impl IdentityManager {
     pub async fn get_user_devices_for_encryption(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<HashMap<OwnedUserId, HashMap<OwnedDeviceId, ReadOnlyDevice>>> {
+    ) -> StoreResult<HashMap<OwnedUserId, HashMap<OwnedDeviceId, DeviceData>>> {
         // How long we wait for /keys/query to complete.
         const KEYS_QUERY_WAIT_TIME: Duration = Duration::from_secs(5);
 
@@ -903,7 +873,7 @@ impl IdentityManager {
 
         for user_id in users {
             // First of all, check the store for this user.
-            let devices = self.store.get_readonly_devices_filtered(user_id).await?;
+            let devices = self.store.get_device_data_for_user_filtered(user_id).await?;
 
             // Now, look for users who have no devices at all.
             //
@@ -999,8 +969,7 @@ impl IdentityManager {
         &self,
         timeout_duration: Duration,
         user_id: &'a UserId,
-    ) -> Result<Option<(&'a UserId, HashMap<OwnedDeviceId, ReadOnlyDevice>)>, CryptoStoreError>
-    {
+    ) -> Result<Option<(&'a UserId, HashMap<OwnedDeviceId, DeviceData>)>, CryptoStoreError> {
         let cache = self.store.cache().await?;
         match self
             .key_query_manager
@@ -1008,11 +977,51 @@ impl IdentityManager {
             .await?
         {
             UserKeyQueryResult::WasPending => {
-                Ok(Some((user_id, self.store.get_readonly_devices_filtered(user_id).await?)))
+                Ok(Some((user_id, self.store.get_device_data_for_user_filtered(user_id).await?)))
             }
             _ => Ok(None),
         }
     }
+}
+
+/// Log information about what changed after processing a /keys/query response.
+/// Only does anything if the DEBUG log level is enabled.
+fn debug_log_keys_query_response(
+    devices: &DeviceChanges,
+    identities: &IdentityChanges,
+    request_id: &TransactionId,
+) {
+    #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
+    let changed_devices = devices.changed.iter().fold(BTreeMap::new(), |mut acc, d| {
+        acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
+        acc
+    });
+
+    #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
+    let new_devices = devices.new.iter().fold(BTreeMap::new(), |mut acc, d| {
+        acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
+        acc
+    });
+
+    #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
+    let deleted_devices = devices.deleted.iter().fold(BTreeMap::new(), |mut acc, d| {
+        acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
+        acc
+    });
+
+    let new_identities = identities.new.iter().map(|i| i.user_id()).collect::<BTreeSet<_>>();
+    let changed_identities =
+        identities.changed.iter().map(|i| i.user_id()).collect::<BTreeSet<_>>();
+
+    debug!(
+        ?request_id,
+        ?new_devices,
+        ?changed_devices,
+        ?deleted_devices,
+        ?new_identities,
+        ?changed_identities,
+        "Finished handling of the `/keys/query` response"
+    );
 }
 
 #[cfg(any(test, feature = "testing"))]
@@ -1410,7 +1419,7 @@ pub(crate) mod tests {
 
         let device = manager
             .store
-            .get_readonly_device(other_user, device_id!("SKISMLNIMH"))
+            .get_device_data(other_user, device_id!("SKISMLNIMH"))
             .await
             .unwrap()
             .unwrap();
@@ -1455,7 +1464,7 @@ pub(crate) mod tests {
         assert_eq!(devices.devices().count(), 1);
 
         let device =
-            manager.store.get_readonly_device(our_user, device_id!(device_id())).await.unwrap();
+            manager.store.get_device_data(our_user, device_id!(device_id())).await.unwrap();
 
         assert!(device.is_some());
     }
@@ -1887,12 +1896,7 @@ pub(crate) mod tests {
         let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
 
-        manager
-            .store
-            .get_readonly_device(other_user, device_id!("OBEBOSKTBE"))
-            .await
-            .unwrap()
-            .unwrap();
+        manager.store.get_device_data(other_user, device_id!("OBEBOSKTBE")).await.unwrap().unwrap();
     }
 
     #[async_test]
@@ -1923,7 +1927,7 @@ pub(crate) mod tests {
         assert!(!other_identity.has_pin_violation());
         let first_device = manager
             .store
-            .get_readonly_device(other_user, DataSet::first_device_id())
+            .get_device_data(other_user, DataSet::first_device_id())
             .await
             .unwrap()
             .unwrap();
@@ -1947,7 +1951,7 @@ pub(crate) mod tests {
 
         let second_device = manager
             .store
-            .get_readonly_device(other_user, DataSet::second_device_id())
+            .get_device_data(other_user, DataSet::second_device_id())
             .await
             .unwrap()
             .unwrap();
@@ -1958,14 +1962,14 @@ pub(crate) mod tests {
         // The first device should not be signed by the new identity
         let first_device = manager
             .store
-            .get_readonly_device(other_user, DataSet::first_device_id())
+            .get_device_data(other_user, DataSet::first_device_id())
             .await
             .unwrap()
             .unwrap();
         assert!(!first_device.is_cross_signed_by_owner(&identity));
 
         let remember_previous_identity = other_identity.clone();
-        // We receive a new keys update for that user, with no identity anymore
+        // We receive updated keys for that user, with no identity anymore.
         // Notice that there is no server API to delete identity, but we want to test
         // here that a home server cannot clear the identity and serve a new one
         // after that would get automatically approved.

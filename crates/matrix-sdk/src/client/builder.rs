@@ -37,8 +37,9 @@ use crate::http_client::HttpSettings;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::OidcCtx;
 use crate::{
-    authentication::AuthCtx, config::RequestConfig, error::RumaApiError, http_client::HttpClient,
-    send_queue::SendQueueData, HttpError, IdParseError,
+    authentication::AuthCtx, client::ClientServerCapabilities, config::RequestConfig,
+    error::RumaApiError, http_client::HttpClient, send_queue::SendQueueData, HttpError,
+    IdParseError,
 };
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
@@ -87,6 +88,8 @@ pub struct ClientBuilder {
     requires_sliding_sync: bool,
     #[cfg(feature = "experimental-sliding-sync")]
     sliding_sync_proxy: Option<String>,
+    #[cfg(feature = "experimental-sliding-sync")]
+    is_simplified_sliding_sync_enabled: bool,
     http_cfg: Option<HttpConfig>,
     store_config: BuilderStoreConfig,
     request_config: RequestConfig,
@@ -106,6 +109,9 @@ impl ClientBuilder {
             requires_sliding_sync: false,
             #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_proxy: None,
+            // Simplified MSC3575 is turned on by default for the SDK.
+            #[cfg(feature = "experimental-sliding-sync")]
+            is_simplified_sliding_sync_enabled: true,
             http_cfg: None,
             store_config: BuilderStoreConfig::Custom(StoreConfig::default()),
             request_config: Default::default(),
@@ -153,6 +159,13 @@ impl ClientBuilder {
     #[cfg(feature = "experimental-sliding-sync")]
     pub fn sliding_sync_proxy(mut self, url: impl AsRef<str>) -> Self {
         self.sliding_sync_proxy = Some(url.as_ref().to_owned());
+        self
+    }
+
+    /// Enable or disable Simplified MSC3575.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub fn simplified_sliding_sync(mut self, enable: bool) -> Self {
+        self.is_simplified_sliding_sync_enabled = enable;
         self
     }
 
@@ -322,12 +335,24 @@ impl ClientBuilder {
         self
     }
 
+    /// Don't trust any system root certificates, only trust the certificates
+    /// provided through
+    /// [`add_root_certificates`][ClientBuilder::add_root_certificates].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn disable_built_in_root_certificates(mut self) -> Self {
+        self.http_settings().disable_built_in_root_certificates = true;
+        self
+    }
+
     /// Specify a [`reqwest::Client`] instance to handle sending requests and
     /// receiving responses.
     ///
-    /// This method is mutually exclusive with [`proxy()`][Self::proxy],
-    /// [`disable_ssl_verification`][Self::disable_ssl_verification] and
-    /// [`user_agent()`][Self::user_agent].
+    /// This method is mutually exclusive with
+    /// [`proxy()`][ClientBuilder::proxy],
+    /// [`disable_ssl_verification`][ClientBuilder::disable_ssl_verification],
+    /// [`add_root_certificates`][ClientBuilder::add_root_certificates],
+    /// [`disable_built_in_root_certificates`][ClientBuilder::disable_built_in_root_certificates],
+    /// and [`user_agent()`][ClientBuilder::user_agent].
     pub fn http_client(mut self, client: reqwest::Client) -> Self {
         self.http_cfg = Some(HttpConfig::Custom(client));
         self
@@ -477,16 +502,22 @@ impl ClientBuilder {
         // Enable the send queue by default.
         let send_queue = Arc::new(SendQueueData::new(true));
 
+        let server_capabilities = ClientServerCapabilities {
+            server_versions: self.server_versions,
+            unstable_features: None,
+        };
+
         let event_cache = OnceCell::new();
         let inner = ClientInner::new(
             auth_ctx,
             homeserver,
             #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_proxy,
+            #[cfg(feature = "experimental-sliding-sync")]
+            self.is_simplified_sliding_sync_enabled,
             http_client,
             base_client,
-            self.server_versions,
-            None,
+            server_capabilities,
             self.respect_login_well_known,
             event_cache,
             send_queue,

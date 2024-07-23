@@ -171,8 +171,6 @@ impl TimelineInnerState {
             sender_profile: own_profile,
             timestamp: MilliSecondsSinceUnixEpoch::now(),
             is_own_event: true,
-            // FIXME: Should we supply something here for encrypted rooms?
-            encryption_info: None,
             read_receipts: Default::default(),
             // An event sent by ourself is never matched against push rules.
             is_highlighted: false,
@@ -345,12 +343,6 @@ impl TimelineInnerState {
         self.items.set(idx, item);
 
         Ok(())
-    }
-
-    pub(super) fn set_fully_read_event(&mut self, fully_read_event_id: OwnedEventId) {
-        let mut txn = self.transaction();
-        txn.set_fully_read_event(fully_read_event_id);
-        txn.commit();
     }
 
     #[cfg(test)]
@@ -563,7 +555,6 @@ impl TimelineInnerStateTransaction<'_> {
             sender_profile,
             timestamp,
             is_own_event,
-            encryption_info: event.encryption_info,
             read_receipts: if settings.track_read_receipts && should_add {
                 self.meta.read_receipts.compute_event_receipts(
                     &event_id,
@@ -577,6 +568,7 @@ impl TimelineInnerStateTransaction<'_> {
             flow: Flow::Remote {
                 event_id: event_id.clone(),
                 raw_event: raw.clone(),
+                encryption_info: event.encryption_info,
                 txn_id,
                 position,
                 should_add,
@@ -876,7 +868,11 @@ impl TimelineInnerMetadata {
 
             (Some(from), Some(to)) => {
                 if from >= to {
-                    // The read marker can't move backwards. Keep the current one.
+                    // The read marker can't move backwards.
+                    if from + 1 == items.len() {
+                        // The read marker has nothing after it. An item disappeared; remove it.
+                        items.remove(from);
+                    }
                     self.has_up_to_date_read_marker_item = true;
                     return;
                 }

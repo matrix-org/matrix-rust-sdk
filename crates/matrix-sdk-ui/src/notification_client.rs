@@ -22,12 +22,10 @@ use matrix_sdk::{room::Room, Client, ClientBuildError, SlidingSyncList, SlidingS
 use matrix_sdk_base::{
     crypto::{vodozemac, MegolmError},
     deserialized_responses::TimelineEvent,
+    sliding_sync::http,
     RoomState, StoreError,
 };
 use ruma::{
-    api::client::sync::sync_events::v4::{
-        AccountDataConfig, RoomSubscription, SyncRequestListFilters,
-    },
     assign,
     events::{
         room::{member::StrippedRoomMemberEvent, message::SyncRoomMessageEvent},
@@ -358,12 +356,10 @@ impl NotificationClient {
             .sync_mode(SlidingSyncMode::new_selective().add_range(0..=16))
             .timeline_limit(8)
             .required_state(required_state.clone())
-            .filters(Some(assign!(SyncRequestListFilters::default(), {
+            .filters(Some(assign!(http::request::ListFilters::default(), {
                 is_invite: Some(true),
-                is_tombstoned: Some(false),
                 not_room_types: vec!["m.space".to_owned()],
-            })))
-            .sort(vec!["by_recency".to_owned(), "by_name".to_owned()]);
+            })));
 
         let sync = self
             .client
@@ -371,7 +367,7 @@ impl NotificationClient {
             .poll_timeout(Duration::from_secs(1))
             .network_timeout(Duration::from_secs(3))
             .with_account_data_extension(
-                assign!(AccountDataConfig::default(), { enabled: Some(true) }),
+                assign!(http::request::AccountData::default(), { enabled: Some(true) }),
             )
             .add_list(invites)
             .build()
@@ -379,7 +375,7 @@ impl NotificationClient {
 
         sync.subscribe_to_room(
             room_id.to_owned(),
-            Some(assign!(RoomSubscription::default(), {
+            Some(assign!(http::request::RoomSubscription::default(), {
                 required_state,
                 timeline_limit: Some(uint!(16))
             })),

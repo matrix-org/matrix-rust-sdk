@@ -434,7 +434,7 @@ fn collect_sessions(
     // the session cache after migration) so we don't need to worry about
     // signatures.
     let device_keys = DeviceKeys::new(
-        user_id.clone(),
+        user_id,
         device_id.clone(),
         Default::default(),
         BTreeMap::from([

@@ -5,9 +5,7 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand};
-use uniffi_bindgen::{
-    bindings::swift::gen_swift::SwiftBindingGenerator, library_mode::generate_bindings,
-};
+use uniffi_bindgen::{bindings::SwiftBindingGenerator, library_mode::generate_bindings};
 use xshell::{cmd, pushd};
 
 use crate::{workspace, Result};
@@ -183,9 +181,11 @@ fn build_xcframework(
     let _ = remove_dir_all(&generated_dir);
     create_dir_all(&generated_dir)?;
 
-    let headers_dir = generated_dir.join("ls");
+    let headers_dir = generated_dir.join("headers");
+    // Use a subdirectory to fix conflicts with other UniFFI libraries.
+    let headers_module_dir = headers_dir.join("MatrixSDKFFI");
     let swift_dir = generated_dir.join("swift");
-    create_dir_all(headers_dir.clone())?;
+    create_dir_all(headers_module_dir.clone())?;
     create_dir_all(swift_dir.clone())?;
 
     let targets = if let Some(triples) = targets {
@@ -206,8 +206,8 @@ fn build_xcframework(
     let uniffi_lib_path = platform_build_paths.values().next().unwrap().first().unwrap().clone();
     generate_uniffi(&uniffi_lib_path, &generated_dir)?;
 
-    move_files("h", &generated_dir, &headers_dir)?;
-    consolidate_modulemap_files(&generated_dir, &headers_dir)?;
+    move_files("h", &generated_dir, &headers_module_dir)?;
+    consolidate_modulemap_files(&generated_dir, &headers_module_dir)?;
 
     move_files("swift", &generated_dir, &swift_dir)?;
 

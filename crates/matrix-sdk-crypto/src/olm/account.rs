@@ -60,7 +60,7 @@ use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
     dehydrated_devices::DehydrationError,
     error::{EventError, OlmResult, SessionCreationError},
-    identities::ReadOnlyDevice,
+    identities::DeviceData,
     olm::SenderData,
     requests::UploadSigningKeysRequest,
     store::{Changes, DeviceChanges, Store},
@@ -198,6 +198,7 @@ impl StaticAccountData {
         &self,
         room_id: &RoomId,
         settings: EncryptionSettings,
+        own_sender_data: SenderData,
     ) -> Result<(OutboundGroupSession, InboundGroupSession), MegolmSessionCreationError> {
         trace!(?room_id, algorithm = settings.algorithm.as_str(), "Creating a new room key");
 
@@ -221,7 +222,7 @@ impl StaticAccountData {
             signing_key,
             room_id,
             &outbound.session_key().await,
-            SenderData::unknown(),
+            own_sender_data,
             algorithm,
             Some(visibility),
         )?;
@@ -237,9 +238,13 @@ impl StaticAccountData {
         &self,
         room_id: &RoomId,
     ) -> (OutboundGroupSession, InboundGroupSession) {
-        self.create_group_session_pair(room_id, EncryptionSettings::default())
-            .await
-            .expect("Can't create default group session pair")
+        self.create_group_session_pair(
+            room_id,
+            EncryptionSettings::default(),
+            SenderData::unknown(),
+        )
+        .await
+        .expect("Can't create default group session pair")
     }
 
     /// Get the key ID of our Ed25519 signing key.
@@ -669,7 +674,7 @@ impl Account {
         self.inner.sign(string)
     }
 
-    /// Get a serializeable version of the `Account` so it can be persisted.
+    /// Get a serializable version of the `Account` so it can be persisted.
     pub fn pickle(&self) -> PickledAccount {
         let pickle = self.inner.pickle();
 
@@ -943,7 +948,7 @@ impl Account {
         )
     )]
     fn find_pre_key_bundle(
-        device: &ReadOnlyDevice,
+        device: &DeviceData,
         key_map: &BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>,
     ) -> Result<PrekeyBundle, SessionCreationError> {
         let mut keys = key_map.iter();
@@ -988,7 +993,7 @@ impl Account {
     #[allow(clippy::result_large_err)]
     pub fn create_outbound_session(
         &self,
-        device: &ReadOnlyDevice,
+        device: &DeviceData,
         key_map: &BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>,
         our_device_keys: DeviceKeys,
     ) -> Result<Session, SessionCreationError> {
@@ -1081,7 +1086,7 @@ impl Account {
 
         other.generate_one_time_keys(1);
         let one_time_map = other.signed_one_time_keys();
-        let device = ReadOnlyDevice::from_account(other);
+        let device = DeviceData::from_account(other);
 
         let mut our_session =
             self.create_outbound_session(&device, &one_time_map, self.device_keys()).unwrap();
@@ -1115,7 +1120,7 @@ impl Account {
             panic!("Wrong Olm message type");
         };
 
-        let our_device = ReadOnlyDevice::from_account(self);
+        let our_device = DeviceData::from_account(self);
         let other_session = other
             .create_inbound_session(
                 our_device.curve25519_key().unwrap(),
@@ -1339,11 +1344,11 @@ impl Account {
                 // that we haven't tried to send them any Megolm sessions yet,
                 // so we don't need to worry about it.
                 if let Some(device) = store.get_device_from_curve_key(sender, sender_key).await? {
-                    let mut read_only_device = device.inner;
-                    read_only_device.olm_wedging_index.increment();
+                    let mut device_data = device.inner;
+                    device_data.olm_wedging_index.increment();
 
                     changes.devices =
-                        DeviceChanges { changed: vec![read_only_device], ..Default::default() };
+                        DeviceChanges { changed: vec![device_data], ..Default::default() };
                 }
 
                 store.save_changes(changes).await?;
@@ -1508,7 +1513,7 @@ mod tests {
     use crate::{
         olm::SignedJsonObject,
         types::{DeviceKeys, SignedKey},
-        ReadOnlyDevice,
+        DeviceData,
     };
 
     fn user_id() -> &'static UserId {
@@ -1642,7 +1647,7 @@ mod tests {
             .has_signed_raw(key.signatures(), &canonical_key)
             .expect("Couldn't verify signature");
 
-        let device = ReadOnlyDevice::from_account(&account);
+        let device = DeviceData::from_account(&account);
         device.verify_one_time_key(&key).expect("The device can verify its own signature");
 
         Ok(())
@@ -1657,7 +1662,7 @@ mod tests {
         assert!(account.creation_local_time() >= now);
         assert!(account.creation_local_time() <= then);
 
-        let device = ReadOnlyDevice::from_account(&account);
+        let device = DeviceData::from_account(&account);
         assert_eq!(account.creation_local_time(), device.first_time_seen_ts());
 
         Ok(())
@@ -1695,7 +1700,7 @@ mod tests {
         });
 
         let device_keys: DeviceKeys = serde_json::from_value(device_keys).unwrap();
-        let device = ReadOnlyDevice::try_from(&device_keys).unwrap();
+        let device = DeviceData::try_from(&device_keys).unwrap();
         let fallback_key: SignedKey = serde_json::from_value(fallback_key).unwrap();
 
         device

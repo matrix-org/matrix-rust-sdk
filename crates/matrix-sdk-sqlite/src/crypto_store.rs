@@ -32,8 +32,7 @@ use matrix_sdk_crypto::{
         RoomSettings,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    Account, GossipRequest, GossippedSecret, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
-    TrackedUser,
+    Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
@@ -1092,7 +1091,7 @@ impl CryptoStore for SqliteCryptoStore {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>> {
+    ) -> Result<Option<DeviceData>> {
         let user_id = self.encode_key("device", user_id.as_bytes());
         let device_id = self.encode_key("device", device_id.as_bytes());
         Ok(self
@@ -1107,7 +1106,7 @@ impl CryptoStore for SqliteCryptoStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
         let user_id = self.encode_key("device", user_id.as_bytes());
         self.acquire()
             .await?
@@ -1115,18 +1114,18 @@ impl CryptoStore for SqliteCryptoStore {
             .await?
             .into_iter()
             .map(|value| {
-                let device: ReadOnlyDevice = self.deserialize_value(&value)?;
+                let device: DeviceData = self.deserialize_value(&value)?;
                 Ok((device.device_id().to_owned(), device))
             })
             .collect()
     }
 
-    async fn get_own_device(&self) -> Result<ReadOnlyDevice> {
+    async fn get_own_device(&self) -> Result<DeviceData> {
         let account_info = self.get_static_account().ok_or(Error::AccountUnset)?;
         Ok(self.get_device(&account_info.user_id, &account_info.device_id).await?.unwrap())
     }
 
-    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
+    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentityData>> {
         let user_id = self.encode_key("identity", user_id.as_bytes());
         Ok(self
             .acquire()
@@ -1323,14 +1322,112 @@ impl CryptoStore for SqliteCryptoStore {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_crypto::{cryptostore_integration_tests, cryptostore_integration_tests_time};
+    use std::path::PathBuf;
+
+    use matrix_sdk_crypto::{
+        cryptostore_integration_tests, cryptostore_integration_tests_time, store::CryptoStore,
+    };
+    use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
+    use similar_asserts::assert_eq;
     use tempfile::{tempdir, TempDir};
     use tokio::fs;
 
     use super::SqliteCryptoStore;
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
+
+    struct TestDb {
+        // Needs to be kept alive because the Drop implementation for TempDir deletes the
+        // directory.
+        #[allow(dead_code)]
+        dir: TempDir,
+        database: SqliteCryptoStore,
+    }
+
+    async fn get_test_db() -> TestDb {
+        let db_name = "matrix-sdk-crypto.sqlite3";
+
+        let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let database_path = manifest_path.join("testing/data/storage").join(db_name);
+
+        let tmpdir = tempdir().unwrap();
+        let destination = tmpdir.path().join(db_name);
+
+        // Copy the test database to the tempdir so our test runs are idempotent.
+        std::fs::copy(&database_path, destination).unwrap();
+
+        let database =
+            SqliteCryptoStore::open(tmpdir.path(), None).await.expect("Can't open the test store");
+
+        TestDb { dir: tmpdir, database }
+    }
+
+    /// Test that we didn't regress in our storage layer by loading data from a
+    /// pre-filled database, or in other words use a test vector for this.
+    #[async_test]
+    async fn open_test_vector_store() {
+        let TestDb { dir: _, database } = get_test_db().await;
+
+        let account = database
+            .load_account()
+            .await
+            .unwrap()
+            .expect("The test database is prefilled with data, we should find an account");
+
+        let user_id = account.user_id();
+        let device_id = account.device_id();
+
+        assert_eq!(
+            user_id.as_str(),
+            "@pjtest:synapse-oidc.element.dev",
+            "The user ID should match to the one we expect."
+        );
+
+        assert_eq!(
+            device_id.as_str(),
+            "v4TqgcuIH6",
+            "The device ID should match to the one we expect."
+        );
+
+        let device = database
+            .get_device(user_id, device_id)
+            .await
+            .unwrap()
+            .expect("Our own device should be found in the store.");
+
+        assert_eq!(device.device_id(), device_id);
+        assert_eq!(device.user_id(), user_id);
+
+        assert_eq!(
+            device.ed25519_key().expect("The device should have a Ed25519 key.").to_base64(),
+            "+cxl1Gl3du5i7UJwfWnoRDdnafFF+xYdAiTYYhYLr8s"
+        );
+
+        assert_eq!(
+            device.curve25519_key().expect("The device should have a Curve25519 key.").to_base64(),
+            "4SL9eEUlpyWSUvjljC5oMjknHQQJY7WZKo5S1KL/5VU"
+        );
+
+        let identity = database
+            .get_user_identity(user_id)
+            .await
+            .unwrap()
+            .expect("The store should contain an identity.");
+
+        assert_eq!(identity.user_id(), user_id);
+
+        let identity = identity
+            .own()
+            .expect("The identity should be of the correct type, it should be our own identity.");
+
+        let master_key = identity
+            .master_key()
+            .get_first_key()
+            .expect("Our own identity should have a master key");
+
+        assert_eq!(master_key.to_base64(), "iCUEtB1RwANeqRa5epDrblLk4mer/36sylwQ5hYY3oE");
+    }
 
     async fn get_store(
         name: &str,
@@ -1357,7 +1454,7 @@ mod encrypted_tests {
     use matrix_sdk_crypto::{
         cryptostore_integration_tests, cryptostore_integration_tests_time,
         store::{Changes, CryptoStore as _, DeviceChanges, PendingChanges},
-        ReadOnlyDevice,
+        DeviceData,
     };
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
@@ -1433,7 +1530,7 @@ mod encrypted_tests {
         store
             .save_changes(Changes {
                 devices: DeviceChanges {
-                    new: vec![ReadOnlyDevice::from_account(&account)],
+                    new: vec![DeviceData::from_account(&account)],
                     ..Default::default()
                 },
                 ..Default::default()

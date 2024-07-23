@@ -3,7 +3,9 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use matrix_sdk::{
     event_cache::paginator::PaginatorError,
-    room::{power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole},
+    room::{
+        edit::EditedContent, power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole,
+    },
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType,
     RoomHero as SdkRoomHero, RoomMemberships, RoomState,
 };
@@ -16,6 +18,7 @@ use ruma::{
         call::notify,
         room::{
             avatar::ImageInfo as RumaAvatarImageInfo,
+            message::RoomMessageEventContentWithoutRelation,
             power_levels::RoomPowerLevels as RumaPowerLevels, MediaSource,
         },
         TimelineEventType,
@@ -689,6 +692,26 @@ impl Room {
     /// Remove the `ComposerDraft` stored in the state store for this room.
     pub async fn clear_composer_draft(&self) -> Result<(), ClientError> {
         Ok(self.inner.clear_composer_draft().await?)
+    }
+
+    /// Edit an event given its event id.
+    ///
+    /// Useful outside the context of a timeline, or when a timeline doesn't
+    /// have the full content of an event.
+    pub async fn edit(
+        &self,
+        event_id: String,
+        new_content: Arc<RoomMessageEventContentWithoutRelation>,
+    ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+
+        let replacement_event = self
+            .inner
+            .make_edit_event(&event_id, EditedContent::RoomMessage((*new_content).clone()))
+            .await?;
+
+        self.inner.send(replacement_event).await?;
+        Ok(())
     }
 }
 

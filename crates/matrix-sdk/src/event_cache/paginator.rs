@@ -64,7 +64,7 @@ pub enum PaginatorError {
 
     /// There was another SDK error while paginating.
     #[error("an error happened while paginating")]
-    SdkError(#[source] crate::Error),
+    SdkError(#[from] Box<crate::Error>),
 }
 
 /// Pagination token data, indicating in which state is the current pagination.
@@ -484,7 +484,7 @@ impl PaginableRoom for Room {
                 }
 
                 // Otherwise, just return a wrapped error.
-                return Err(PaginatorError::SdkError(err));
+                return Err(PaginatorError::SdkError(Box::new(err)));
             }
         };
 
@@ -492,7 +492,7 @@ impl PaginableRoom for Room {
     }
 
     async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError> {
-        self.messages(opts).await.map_err(PaginatorError::SdkError)
+        self.messages(opts).await.map_err(|err| PaginatorError::SdkError(Box::new(err)))
     }
 }
 
@@ -675,7 +675,7 @@ mod tests {
             };
 
             return Ok(Messages {
-                start: opts.from.unwrap().to_owned(),
+                start: opts.from.unwrap(),
                 end,
                 chunk: events,
                 state: Vec::new(),

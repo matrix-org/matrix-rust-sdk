@@ -25,8 +25,9 @@ use matrix_sdk::{
     executor::{spawn, JoinHandle},
     Client, SlidingSync, SlidingSyncList,
 };
-use matrix_sdk_base::RoomInfoUpdate;
+use matrix_sdk_base::RoomInfoNotableUpdate;
 use tokio::{select, sync::broadcast};
+use tracing::trace;
 
 use super::{
     filters::BoxedFilterFn,
@@ -138,7 +139,7 @@ impl RoomList {
     pub fn entries_with_dynamic_adapters(
         &self,
         page_size: usize,
-        roominfo_update_recv: broadcast::Receiver<RoomInfoUpdate>,
+        room_info_notable_update_receiver: broadcast::Receiver<RoomInfoNotableUpdate>,
     ) -> (impl Stream<Item = Vec<VectorDiff<Room>>> + '_, RoomListDynamicEntriesController) {
         let list = self.sliding_sync_list.clone();
 
@@ -161,7 +162,7 @@ impl RoomList {
                 let (raw_values, raw_stream) = self.entries();
 
                 // Combine normal stream events with other updates from rooms
-                let merged_streams = merge_stream_and_receiver(raw_values.clone(), raw_stream, roominfo_update_recv.resubscribe());
+                let merged_streams = merge_stream_and_receiver(raw_values.clone(), raw_stream, room_info_notable_update_receiver.resubscribe());
 
                 let (values, stream) = (raw_values, merged_streams)
                     .filter(filter_fn)
@@ -188,7 +189,7 @@ impl RoomList {
 fn merge_stream_and_receiver(
     mut raw_current_values: Vector<Room>,
     raw_stream: impl Stream<Item = Vec<VectorDiff<Room>>>,
-    mut roominfo_update_recv: broadcast::Receiver<RoomInfoUpdate>,
+    mut room_info_notable_update_receiver: broadcast::Receiver<RoomInfoNotableUpdate>,
 ) -> impl Stream<Item = Vec<VectorDiff<Room>>> {
     stream! {
         pin_mut!(raw_stream);
@@ -201,7 +202,10 @@ fn merge_stream_and_receiver(
                 diffs = raw_stream.next() => {
                     if let Some(diffs) = diffs {
                         for diff in &diffs {
-                            diff.clone().apply(&mut raw_current_values);
+                            diff.clone().map(|room| {
+                                trace!(room = %room.room_id(), "updated in response");
+                                room
+                            }).apply(&mut raw_current_values);
                         }
 
                         yield diffs;
@@ -211,16 +215,31 @@ fn merge_stream_and_receiver(
                     }
                 }
 
-                Ok(update) = roominfo_update_recv.recv() => {
-                    if !update.trigger_room_list_update {
-                        continue;
-                    }
+                Ok(update) = room_info_notable_update_receiver.recv() => {
+                    // We are temporarily listening to all updates.
+                    /*
+                    use RoomInfoNotableUpdateReasons as NotableUpdate;
 
-                    // Search list for the updated room
-                    if let Some(index) = raw_current_values.iter().position(|room| room.room_id() == update.room_id) {
-                        let update = VectorDiff::Set { index, value: raw_current_values[index].clone() };
-                        yield vec![update];
+                    let reasons = &update.reasons;
+
+                    // We are interested by these _reasons_.
+                    if reasons.contains(NotableUpdate::LATEST_EVENT) ||
+                        reasons.contains(NotableUpdate::RECENCY_STAMP) ||
+                        reasons.contains(NotableUpdate::READ_RECEIPT) ||
+                        reasons.contains(NotableUpdate::UNREAD_MARKER) {
+                    */
+                        // Emit a `VectorDiff::Set` for the specific rooms.
+                        if let Some(index) = raw_current_values.iter().position(|room| room.room_id() == update.room_id) {
+                            let room = &raw_current_values[index];
+                            let update = VectorDiff::Set { index, value: room.clone() };
+                    /*
+                            trace!(room = %room.room_id(), "updated because of notable reason: {reasons:?}");
+                    */
+                            yield vec![update];
+                        }
+                    /*
                     }
+                    */
                 }
             }
         }

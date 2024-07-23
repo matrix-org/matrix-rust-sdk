@@ -31,14 +31,14 @@ pub enum MediaFormat {
     File,
 
     /// A thumbnail of the file that was uploaded.
-    Thumbnail(MediaThumbnailSize),
+    Thumbnail(MediaThumbnailSettings),
 }
 
 impl UniqueKey for MediaFormat {
     fn unique_key(&self) -> String {
         match self {
             Self::File => "file".into(),
-            Self::Thumbnail(size) => size.unique_key(),
+            Self::Thumbnail(settings) => settings.unique_key(),
         }
     }
 }
@@ -61,6 +61,42 @@ pub struct MediaThumbnailSize {
 impl UniqueKey for MediaThumbnailSize {
     fn unique_key(&self) -> String {
         format!("{}{UNIQUE_SEPARATOR}{}x{}", self.method, self.width, self.height)
+    }
+}
+
+/// The desired settings of a media thumbnail.
+#[derive(Clone, Debug)]
+pub struct MediaThumbnailSettings {
+    /// The desired size of the thumbnail.
+    pub size: MediaThumbnailSize,
+
+    /// If we want to request an animated thumbnail from the homeserver.
+    ///
+    /// If it is `true`, the server should return an animated thumbnail if
+    /// the media supports it.
+    ///
+    /// Defaults to `false`.
+    pub animated: bool,
+}
+
+impl MediaThumbnailSettings {
+    /// Constructs a new `MediaThumbnailSettings` with the given method, width
+    /// and height.
+    pub fn new(method: Method, width: UInt, height: UInt) -> Self {
+        Self { size: MediaThumbnailSize { method, width, height }, animated: false }
+    }
+}
+
+impl UniqueKey for MediaThumbnailSettings {
+    fn unique_key(&self) -> String {
+        let mut key = self.size.unique_key();
+
+        if self.animated {
+            key.push_str(UNIQUE_SEPARATOR);
+            key.push_str("animated");
+        }
+
+        key
     }
 }
 

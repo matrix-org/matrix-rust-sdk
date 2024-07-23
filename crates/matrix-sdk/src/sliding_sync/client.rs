@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use imbl::Vector;
-use matrix_sdk_base::{sync::SyncResponse, PreviousEventsProvider};
-use ruma::{api::client::sync::sync_events::v4, events::AnyToDeviceEvent, serde::Raw, OwnedRoomId};
+use matrix_sdk_base::{sliding_sync::http, sync::SyncResponse, PreviousEventsProvider};
+use ruma::{events::AnyToDeviceEvent, serde::Raw, OwnedRoomId};
 
 use super::{SlidingSync, SlidingSyncBuilder};
 use crate::{Client, Result, SlidingSyncRoom};
@@ -25,9 +25,12 @@ impl Client {
     #[tracing::instrument(skip(self, response))]
     pub async fn process_sliding_sync_test_helper(
         &self,
-        response: &v4::Response,
+        response: &http::Response,
     ) -> Result<SyncResponse> {
-        let response = self.base_client().process_sliding_sync(response, &()).await?;
+        let response = self
+            .base_client()
+            .process_sliding_sync(response, &(), self.is_simplified_sliding_sync_enabled())
+            .await?;
 
         tracing::debug!("done processing on base_client");
         self.call_sync_response_handlers(&response).await?;
@@ -66,7 +69,10 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    pub async fn handle_encryption(&mut self, extensions: &v4::Extensions) -> Result<()> {
+    pub async fn handle_encryption(
+        &mut self,
+        extensions: &http::response::Extensions,
+    ) -> Result<()> {
         // This is an internal API misuse if this is triggered (calling
         // handle_room_response before this function), so panic is fine.
         assert!(self.response.is_none());
@@ -80,11 +86,15 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
         Ok(())
     }
 
-    pub async fn handle_room_response(&mut self, response: &v4::Response) -> Result<()> {
+    pub async fn handle_room_response(&mut self, response: &http::Response) -> Result<()> {
         self.response = Some(
             self.client
                 .base_client()
-                .process_sliding_sync(response, &SlidingSyncPreviousEventsProvider(self.rooms))
+                .process_sliding_sync(
+                    response,
+                    &SlidingSyncPreviousEventsProvider(self.rooms),
+                    self.client.is_simplified_sliding_sync_enabled(),
+                )
                 .await?,
         );
         Ok(())

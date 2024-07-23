@@ -15,7 +15,7 @@
 use futures_core::Stream;
 use matrix_sdk_base::crypto::{
     matrix_sdk_qrcode::{qrcode::QrCode, EncodingError},
-    CancelInfo, QrVerification as BaseQrVerification, QrVerificationState, ReadOnlyDevice,
+    CancelInfo, DeviceData, QrVerification as BaseQrVerification, QrVerificationState,
 };
 use ruma::{RoomId, UserId};
 
@@ -67,7 +67,7 @@ impl QrVerification {
     }
 
     /// Get the other user's device that we're verifying.
-    pub fn other_device(&self) -> &ReadOnlyDevice {
+    pub fn other_device(&self) -> &DeviceData {
         self.inner.other_device()
     }
 

@@ -87,6 +87,8 @@ pub(super) enum Flow {
         raw_event: Raw<AnySyncTimelineEvent>,
         /// Where should this be added in the timeline.
         position: TimelineItemPosition,
+        /// Information about the encryption for this event.
+        encryption_info: Option<EncryptionInfo>,
         /// Should this event actually be added, based on the event filters.
         should_add: bool,
     },
@@ -98,7 +100,6 @@ pub(super) struct TimelineEventContext {
     pub(super) sender_profile: Option<Profile>,
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,
     pub(super) is_own_event: bool,
-    pub(super) encryption_info: Option<EncryptionInfo>,
     pub(super) read_receipts: IndexMap<OwnedUserId, Receipt>,
     pub(super) is_highlighted: bool,
     pub(super) flow: Flow,
@@ -553,35 +554,29 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             if let TimelineItemContent::RedactedMessage = event_item.content() {
                 debug!("Ignoring reaction on redacted event");
                 return;
-            } else {
-                let mut reactions = remote_event_item.reactions.clone();
-                let reaction_group = reactions.entry(c.relates_to.key.clone()).or_default();
-
-                if let Some(txn_id) = old_txn_id {
-                    let id = TimelineEventItemId::TransactionId(txn_id.clone());
-                    // Remove the local echo from the related event.
-                    if reaction_group.0.swap_remove(&id).is_none() {
-                        warn!(
-                            "Received reaction with transaction ID, but didn't \
-                             find matching reaction in the related event's reactions"
-                        );
-                    }
-                }
-                reaction_group.0.insert(
-                    reaction_id.clone(),
-                    ReactionSenderData {
-                        sender_id: self.ctx.sender.clone(),
-                        timestamp: self.ctx.timestamp,
-                    },
-                );
-
-                trace!("Adding reaction");
-                self.items.set(
-                    idx,
-                    event_item.with_inner_kind(remote_event_item.with_reactions(reactions)),
-                );
-                self.result.items_updated += 1;
             }
+
+            let mut reactions = remote_event_item.reactions.clone();
+            let reaction_group = reactions.entry(c.relates_to.key.clone()).or_default();
+
+            if let Some(txn_id) = old_txn_id {
+                let id = TimelineEventItemId::TransactionId(txn_id.clone());
+                // Remove the local echo from the related event.
+                reaction_group.0.swap_remove(&id);
+            }
+
+            reaction_group.0.insert(
+                reaction_id.clone(),
+                ReactionSenderData {
+                    sender_id: self.ctx.sender.clone(),
+                    timestamp: self.ctx.timestamp,
+                },
+            );
+
+            trace!("Adding reaction");
+            self.items
+                .set(idx, event_item.with_inner_kind(remote_event_item.with_reactions(reactions)));
+            self.result.items_updated += 1;
         } else {
             trace!("Timeline item not found, adding reaction to the pending list");
             let TimelineEventItemId::EventId(reaction_event_id) = reaction_id.clone() else {
@@ -596,14 +591,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         if let Flow::Remote { txn_id: Some(txn_id), .. } = &self.ctx.flow {
             let id = TimelineEventItemId::TransactionId(txn_id.clone());
-            // Remove the local echo from the reaction map.
-            if self.meta.reactions.map.remove(&id).is_none() {
-                warn!(
-                    "Received reaction with transaction ID, but didn't \
-                     find matching reaction in reaction_map"
-                );
-            }
+            // Remove the local echo from the reaction map. It could be missing, if the
+            // transaction id refers to a reaction sent times ago, so no need to check its
+            // return value to know if the value was missing or not.
+            self.meta.reactions.map.remove(&id);
         }
+
         let reaction_sender_data = ReactionSenderData {
             sender_id: self.ctx.sender.clone(),
             timestamp: self.ctx.timestamp,
@@ -891,7 +884,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
             .into(),
 
-            Flow::Remote { event_id, raw_event, position, txn_id, .. } => {
+            Flow::Remote { event_id, raw_event, position, txn_id, encryption_info, .. } => {
                 // Drop pending reactions if the message is redacted.
                 if let TimelineItemContent::RedactedMessage = content {
                     if !reactions.is_empty() {
@@ -921,7 +914,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     read_receipts: self.ctx.read_receipts.clone(),
                     is_own: self.ctx.is_own_event,
                     is_highlighted: self.ctx.is_highlighted,
-                    encryption_info: self.ctx.encryption_info.clone(),
+                    encryption_info: encryption_info.clone(),
                     original_json: Some(raw_event.clone()),
                     latest_edit_json: None,
                     origin,
@@ -1009,11 +1002,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                     // no return here, below code for adding a new event
                     // will run to re-add the removed item
-                } else if txn_id.is_some() {
-                    warn!(
-                        "Received event with transaction ID, but didn't \
-                         find matching timeline item"
-                    );
                 }
 
                 // Local echoes that are pending should stick to the bottom,

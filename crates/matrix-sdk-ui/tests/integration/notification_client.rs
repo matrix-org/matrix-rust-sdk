@@ -189,7 +189,7 @@ async fn test_notification_client_sliding_sync() {
                             },
 
                             // Power levels.
-                            json!({
+                            {
                                 "content": {
                                     "ban": 50,
                                     "events": {
@@ -198,7 +198,7 @@ async fn test_notification_client_sliding_sync() {
                                         "m.room.history_visibility": 100,
                                         "m.room.name": 50,
                                         "m.room.power_levels": 100,
-                                        "m.room.message": 25
+                                        "m.room.message": 25,
                                     },
                                     "events_default": 0,
                                     "invite": 0,
@@ -207,9 +207,9 @@ async fn test_notification_client_sliding_sync() {
                                     "state_default": 50,
                                     "users": {
                                         "@example:localhost": 100,
-                                        sender: 0
+                                        sender: 0,
                                     },
-                                    "users_default": 0
+                                    "users_default": 0,
                                 },
                                 "event_id": "$15139375512JaHAW:localhost",
                                 "origin_server_ts": 151393755,
@@ -217,9 +217,9 @@ async fn test_notification_client_sliding_sync() {
                                 "state_key": "",
                                 "type": "m.room.power_levels",
                                 "unsigned": {
-                                    "age": 703422
-                                }
-                            })
+                                    "age": 703422,
+                                },
+                            },
                         ],
 
                         "timeline": [
@@ -264,10 +264,8 @@ async fn test_notification_client_sliding_sync() {
                     ],
                     "filters": {
                         "is_invite": true,
-                        "is_tombstoned": false,
                         "not_room_types": ["m.space"],
                     },
-                    "sort": ["by_recency", "by_name"],
                     "timeline_limit": 8,
                 }
             },

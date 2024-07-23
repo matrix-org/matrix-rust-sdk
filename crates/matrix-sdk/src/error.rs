@@ -41,7 +41,7 @@ use serde_json::Error as JsonError;
 use thiserror::Error;
 use url::ParseError as UrlParseError;
 
-use crate::store_locks::LockStoreError;
+use crate::{event_cache::EventCacheError, store_locks::LockStoreError};
 
 /// Result type of the matrix-sdk.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -321,6 +321,10 @@ pub enum Error {
     /// but not here and that raised.
     #[error("unknown error: {0}")]
     UnknownError(Box<dyn std::error::Error + Send + Sync>),
+
+    /// An error coming from the event cache subsystem.
+    #[error(transparent)]
+    EventCache(#[from] EventCacheError),
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines

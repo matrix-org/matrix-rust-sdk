@@ -883,7 +883,7 @@ impl SendHandle {
     /// Returns true if the sending could be aborted, false if not (i.e. the
     /// event had already been sent).
     #[instrument(skip(self), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id))]
-    pub async fn abort(self) -> Result<bool, RoomSendQueueStorageError> {
+    pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
         trace!("received an abort request");
 
         if self.room.inner.queue.cancel(&self.transaction_id).await? {

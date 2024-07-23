@@ -2,12 +2,12 @@ use std::{fmt::Debug, mem::MaybeUninit, ptr::addr_of_mut, sync::Arc, time::Durat
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt, TryFutureExt};
-use matrix_sdk::ruma::{
-    api::client::sync::sync_events::{
-        v4::RoomSubscription as RumaRoomSubscription,
-        UnreadNotificationsCount as RumaUnreadNotificationsCount,
+use matrix_sdk::{
+    ruma::{
+        api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
+        assign, RoomId,
     },
-    assign, RoomId,
+    sliding_sync::http,
 };
 use matrix_sdk_ui::{
     room_list_service::filters::{
@@ -243,7 +243,7 @@ impl RoomList {
         let (entries_stream, dynamic_entries_controller) =
             this.inner.entries_with_dynamic_adapters(
                 page_size.try_into().unwrap(),
-                client.roominfo_update_receiver(),
+                client.room_info_notable_update_receiver(),
             );
 
         // FFI dance to make those values consumable by foreign language, nothing fancy
@@ -653,10 +653,6 @@ impl RoomListItem {
         self.inner.subscribe(settings.map(Into::into));
     }
 
-    fn unsubscribe(&self) {
-        self.inner.unsubscribe();
-    }
-
     async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
         self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new)
     }
@@ -675,9 +671,9 @@ pub struct RoomSubscription {
     pub include_heroes: Option<bool>,
 }
 
-impl From<RoomSubscription> for RumaRoomSubscription {
+impl From<RoomSubscription> for http::request::RoomSubscription {
     fn from(val: RoomSubscription) -> Self {
-        assign!(RumaRoomSubscription::default(), {
+        assign!(http::request::RoomSubscription::default(), {
             required_state: val.required_state.map(|r|
                 r.into_iter().map(|s| (s.key.into(), s.value)).collect()
             ).unwrap_or_default(),

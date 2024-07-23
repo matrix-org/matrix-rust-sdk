@@ -14,11 +14,13 @@
 
 //! The `Room` type.
 
+use core::fmt;
 use std::{ops::Deref, sync::Arc};
 
 use async_once_cell::OnceCell as AsyncOnceCell;
 use matrix_sdk::SlidingSync;
-use ruma::{api::client::sync::sync_events::v4::RoomSubscription, events::StateEventType, RoomId};
+use matrix_sdk_base::sliding_sync::http;
+use ruma::{events::StateEventType, RoomId};
 
 use super::Error;
 use crate::{
@@ -29,12 +31,17 @@ use crate::{
 /// A room in the room list.
 ///
 /// It's cheap to clone this type.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Room {
     inner: Arc<RoomInner>,
 }
 
-#[derive(Debug)]
+impl fmt::Debug for Room {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("Room").field(&self.id().to_owned()).finish()
+    }
+}
+
 struct RoomInner {
     /// The Sliding Sync where everything comes from.
     sliding_sync: Arc<SlidingSync>,
@@ -85,7 +92,7 @@ impl Room {
     ///
     /// It means that all events from this room will be received every time, no
     /// matter how the `RoomList` is configured.
-    pub fn subscribe(&self, settings: Option<RoomSubscription>) {
+    pub fn subscribe(&self, settings: Option<http::request::RoomSubscription>) {
         let mut settings = settings.unwrap_or_default();
 
         // Make sure to always include the room creation event in the required state
@@ -101,13 +108,6 @@ impl Room {
         self.inner
             .sliding_sync
             .subscribe_to_room(self.inner.room.room_id().to_owned(), Some(settings))
-    }
-
-    /// Unsubscribe to this room.
-    ///
-    /// It's the opposite method of [Self::subscribe`].
-    pub fn unsubscribe(&self) {
-        self.inner.sliding_sync.unsubscribe_from_room(self.inner.room.room_id().to_owned())
     }
 
     /// Get the timeline of the room if one exists.

@@ -391,7 +391,7 @@ async fn test_request_encryption_event_before_sending() {
     client
         .sync_once(SyncSettings::default())
         .await
-        .expect("We should be able to performa an initial sync");
+        .expect("We should be able to performs an initial sync");
 
     let room =
         client.get_room(&DEFAULT_TEST_ROOM_ID).expect("We should know about our default room");
@@ -650,7 +650,7 @@ async fn test_encrypt_room_event() {
     client
         .sync_once(SyncSettings::default())
         .await
-        .expect("We should be able to performa an initial sync");
+        .expect("We should be able to performs an initial sync");
 
     let room =
         client.get_room(&DEFAULT_TEST_ROOM_ID).expect("We should know about our default room");

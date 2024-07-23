@@ -24,6 +24,8 @@ use bitflags::bitflags;
 use eyeball::{SharedObservable, Subscriber};
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use matrix_sdk_common::ring_buffer::RingBuffer;
+#[cfg(feature = "experimental-sliding-sync")]
+use ruma::events::AnySyncTimelineEvent;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
@@ -49,8 +51,6 @@ use ruma::{
     EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId,
     RoomAliasId, RoomId, RoomVersionId, UserId,
 };
-#[cfg(feature = "experimental-sliding-sync")]
-use ruma::{events::AnySyncTimelineEvent, MilliSecondsSinceUnixEpoch};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tracing::{debug, field::debug, info, instrument, warn};
@@ -69,18 +69,46 @@ use crate::{
     MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
 };
 
-/// A summary of changes to room information.
+/// Indicates that a notable update of `RoomInfo` has been applied, and why.
 ///
-/// It also indicates whether this update should update the room list.
+/// A room info notable update is an update that can be interested for other
+/// parts of the code. This mechanism is used in coordination with
+/// [`BaseClient::room_info_notable_update_receiver`][baseclient] (and
+/// `Room::inner` plus `Room::room_info_notable_update_sender`) where `RoomInfo`
+/// can be observed and some of its updates can be spread to listeners.
+///
+/// [baseclient]: crate::BaseClient::room_info_notable_update_receiver
 #[derive(Debug, Clone)]
-pub struct RoomInfoUpdate {
+pub struct RoomInfoNotableUpdate {
     /// The room which was updated.
     pub room_id: OwnedRoomId,
-    /// Whether this event should trigger the room list to update.
-    ///
-    /// If the change is minor or if another action already causes the room list
-    /// to update, this should be false to avoid duplicate updates.
-    pub trigger_room_list_update: bool,
+
+    /// The reason for this update.
+    pub reasons: RoomInfoNotableUpdateReasons,
+}
+
+bitflags! {
+    /// The reason why a [`RoomInfoNotableUpdate`] is emitted.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct RoomInfoNotableUpdateReasons: u8 {
+        /// The recency stamp of the `Room` has changed.
+        const RECENCY_STAMP = 0b0000_0001;
+
+        /// The latest event of the `Room` has changed.
+        const LATEST_EVENT = 0b0000_0010;
+
+        /// A read receipt has changed.
+        const READ_RECEIPT = 0b0000_0100;
+
+        /// The user-controlled unread marker value has changed.
+        const UNREAD_MARKER = 0b0000_1000;
+    }
+}
+
+impl Default for RoomInfoNotableUpdateReasons {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 /// The underlying room data structure collecting state for joined, left and
@@ -90,7 +118,7 @@ pub struct Room {
     room_id: OwnedRoomId,
     own_user_id: OwnedUserId,
     inner: SharedObservable<RoomInfo>,
-    roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
+    room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     store: Arc<DynStateStore>,
 
     /// The most recent few encrypted events. When the keys come through to
@@ -190,17 +218,17 @@ impl Room {
         store: Arc<DynStateStore>,
         room_id: &RoomId,
         room_state: RoomState,
-        roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
+        room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Self {
         let room_info = RoomInfo::new(room_id, room_state);
-        Self::restore(own_user_id, store, room_info, roominfo_update_sender)
+        Self::restore(own_user_id, store, room_info, room_info_notable_update_sender)
     }
 
     pub(crate) fn restore(
         own_user_id: &UserId,
         store: Arc<DynStateStore>,
         room_info: RoomInfo,
-        roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
+        room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Self {
         Self {
             own_user_id: own_user_id.into(),
@@ -211,7 +239,7 @@ impl Room {
             latest_encrypted_events: Arc::new(SyncRwLock::new(RingBuffer::new(
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
-            roominfo_update_sender,
+            room_info_notable_update_sender,
         }
     }
 
@@ -527,7 +555,7 @@ impl Room {
         // From here, use some heroes to compute the room's name.
         let own_user_id = self.own_user_id().as_str();
 
-        let (heroes, num_joined_guess): (Vec<String>, _) = if !summary.room_heroes.is_empty() {
+        let (heroes, num_joined_invited_guess) = if !summary.room_heroes.is_empty() {
             let mut names = Vec::with_capacity(summary.room_heroes.len());
             for hero in &summary.room_heroes {
                 if hero.user_id == own_user_id {
@@ -552,58 +580,72 @@ impl Room {
 
             (names, None)
         } else {
-            let mut joined_members = self.members(RoomMemberships::JOIN).await?;
-
-            // Make the ordering deterministic.
-            joined_members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
-
-            // We can make a good prediction of the total number of members here. This might
-            // be incorrect if the database info is outdated.
-            let num_joined = Some(joined_members.len());
-
-            (
-                joined_members
-                    .into_iter()
-                    .take(NUM_HEROES)
-                    .filter_map(|u| (u.user_id() != own_user_id).then(|| u.name().to_owned()))
-                    .collect(),
-                num_joined,
-            )
+            let (heroes, num_joined_invited) = self.compute_summary().await?;
+            (heroes, Some(num_joined_invited))
         };
 
-        let (num_joined, num_invited) = match self.state() {
-            RoomState::Invited => {
-                // when we were invited we don't have a proper summary, we have to do best
-                // guessing
-                (heroes.len() as u64, 1u64)
+        let num_joined_invited = if self.state() == RoomState::Invited {
+            // when we were invited we don't have a proper summary, we have to do best
+            // guessing
+            heroes.len() as u64 + 1
+        } else if summary.joined_member_count == 0 && summary.invited_member_count == 0 {
+            if let Some(num_joined_invited) = num_joined_invited_guess {
+                num_joined_invited
+            } else {
+                self.store
+                    .get_user_ids(self.room_id(), RoomMemberships::JOIN | RoomMemberships::INVITE)
+                    .await?
+                    .len() as u64
             }
-
-            RoomState::Joined if summary.joined_member_count == 0 => {
-                let num_joined = if let Some(num_joined) = num_joined_guess {
-                    num_joined
-                } else {
-                    self.joined_user_ids().await?.len()
-                };
-
-                (num_joined as u64, summary.invited_member_count)
-            }
-
-            _ => (summary.joined_member_count, summary.invited_member_count),
+        } else {
+            summary.joined_member_count + summary.invited_member_count
         };
 
         debug!(
             room_id = ?self.room_id(),
             own_user = ?self.own_user_id,
-            num_joined, num_invited,
+            num_joined_invited,
             heroes = ?heroes,
             "Calculating name for a room based on heroes",
         );
 
         Ok(update_cache(compute_display_name_from_heroes(
-            num_joined,
-            num_invited,
+            num_joined_invited,
             heroes.iter().map(|hero| hero.as_str()).collect(),
         )))
+    }
+
+    /// Compute the room summary with the data present in the store.
+    ///
+    /// The summary might be incorrect if the database info is outdated.
+    ///
+    /// Returns a `(heroes_names, num_joined_invited)` tuple.
+    async fn compute_summary(&self) -> StoreResult<(Vec<String>, u64)> {
+        let mut members = self.members(RoomMemberships::JOIN | RoomMemberships::INVITE).await?;
+
+        // We can make a good prediction of the total number of joined and invited
+        // members here. This might be incorrect if the database info is
+        // outdated.
+        let num_joined_invited = members.len() as u64;
+
+        if num_joined_invited == 0
+            || (num_joined_invited == 1 && members[0].user_id() == self.own_user_id)
+        {
+            // No joined or invited members, heroes should be banned and left members.
+            members = self.members(RoomMemberships::LEAVE | RoomMemberships::BAN).await?;
+        }
+
+        // Make the ordering deterministic.
+        members.sort_unstable_by(|lhs, rhs| lhs.name().cmp(rhs.name()));
+
+        let heroes = members
+            .into_iter()
+            .filter(|u| u.user_id() != self.own_user_id)
+            .take(NUM_HEROES)
+            .map(|u| u.name().to_owned())
+            .collect();
+
+        Ok((heroes, num_joined_invited))
     }
 
     /// Returns the cached computed display name, if available.
@@ -646,6 +688,7 @@ impl Room {
         latest_event: Box<LatestEvent>,
         index: usize,
         changes: &mut crate::StateChanges,
+        room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
     ) {
         self.latest_encrypted_events.write().unwrap().drain(0..=index);
 
@@ -653,7 +696,13 @@ impl Room {
             .room_infos
             .entry(self.room_id().to_owned())
             .or_insert_with(|| self.clone_info());
+
         room_info.latest_event = Some(latest_event);
+
+        room_info_notable_updates
+            .entry(self.room_id().to_owned())
+            .or_default()
+            .insert(RoomInfoNotableUpdateReasons::LATEST_EVENT);
     }
 
     /// Get the list of users ids that are considered to be joined members of
@@ -755,16 +804,18 @@ impl Room {
     }
 
     /// Update the summary with given RoomInfo.
-    ///
-    /// This also triggers an update for room info observers if
-    /// `trigger_room_list_update` is true.
-    pub fn set_room_info(&self, room_info: RoomInfo, trigger_room_list_update: bool) {
+    pub fn set_room_info(
+        &self,
+        room_info: RoomInfo,
+        room_info_notable_update_reasons: RoomInfoNotableUpdateReasons,
+    ) {
         self.inner.set(room_info);
 
         // Ignore error if no receiver exists.
-        let _ = self
-            .roominfo_update_sender
-            .send(RoomInfoUpdate { room_id: self.room_id.clone(), trigger_room_list_update });
+        let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
+            room_id: self.room_id.clone(),
+            reasons: room_info_notable_update_reasons,
+        });
     }
 
     /// Get the `RoomMember` with the given `user_id`.
@@ -889,12 +940,12 @@ impl Room {
         self.inner.read().base_info.is_marked_unread
     }
 
-    /// Returns the recency timestamp of the room.
+    /// Returns the recency stamp of the room.
     ///
-    /// Please read `RoomInfo::recency_timestamp` to learn more.
+    /// Please read `RoomInfo::recency_stamp` to learn more.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub fn recency_timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
-        self.inner.read().recency_timestamp
+    pub fn recency_stamp(&self) -> Option<u64> {
+        self.inner.read().recency_stamp
     }
 }
 
@@ -955,15 +1006,15 @@ pub struct RoomInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) cached_display_name: Option<DisplayName>,
 
-    /// The recency timestamp of this room.
+    /// The recency stamp of this room.
     ///
     /// It's not to be confused with `origin_server_ts` of the latest event.
     /// Sliding Sync might "ignore” some events when computing the recency
-    /// timestamp of the room. Thus, using this `recency_timestamp` value is
+    /// stamp of the room. Thus, using this `recency_stamp` value is
     /// more accurate than relying on the latest event.
     #[cfg(feature = "experimental-sliding-sync")]
     #[serde(default)]
-    pub(crate) recency_timestamp: Option<MilliSecondsSinceUnixEpoch>,
+    pub(crate) recency_stamp: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -1002,7 +1053,7 @@ impl RoomInfo {
             warned_about_unknown_room_version: Arc::new(false.into()),
             cached_display_name: None,
             #[cfg(feature = "experimental-sliding-sync")]
-            recency_timestamp: None,
+            recency_stamp: None,
         }
     }
 
@@ -1408,12 +1459,12 @@ impl RoomInfo {
         self.latest_event.as_deref()
     }
 
-    /// Updates the recency timestamp of this room.
+    /// Updates the recency stamp of this room.
     ///
-    /// Please read [`Self::recency_timestamp`] to learn more.
+    /// Please read [`Self::recency_stamp`] to learn more.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub(crate) fn update_recency_timestamp(&mut self, timestamp: MilliSecondsSinceUnixEpoch) {
-        self.recency_timestamp = Some(timestamp);
+    pub(crate) fn update_recency_stamp(&mut self, stamp: u64) {
+        self.recency_stamp = Some(stamp);
     }
 }
 
@@ -1505,32 +1556,27 @@ impl RoomStateFilter {
 /// Calculate room name according to step 3 of the [naming algorithm].
 ///
 /// [naming algorithm]: https://spec.matrix.org/latest/client-server-api/#calculating-the-display-name-for-a-room
-fn compute_display_name_from_heroes(
-    joined_member_count: u64,
-    invited_member_count: u64,
-    mut heroes: Vec<&str>,
-) -> DisplayName {
+fn compute_display_name_from_heroes(num_joined_invited: u64, mut heroes: Vec<&str>) -> DisplayName {
     let num_heroes = heroes.len() as u64;
-    let invited_joined = invited_member_count + joined_member_count;
-    let invited_joined_minus_one = invited_joined.saturating_sub(1);
+    let num_joined_invited_except_self = num_joined_invited.saturating_sub(1);
 
     // Stabilize ordering.
     heroes.sort_unstable();
 
-    let names = if num_heroes == 0 && invited_joined > 1 {
-        format!("{} people", invited_joined)
-    } else if num_heroes >= invited_joined_minus_one {
+    let names = if num_heroes == 0 && num_joined_invited > 1 {
+        format!("{} people", num_joined_invited)
+    } else if num_heroes >= num_joined_invited_except_self {
         heroes.join(", ")
-    } else if num_heroes < invited_joined_minus_one && invited_joined > 1 {
+    } else if num_heroes < num_joined_invited_except_self && num_joined_invited > 1 {
         // TODO: What length does the spec want us to use here and in
         // the `else`?
-        format!("{}, and {} others", heroes.join(", "), (invited_joined - num_heroes))
+        format!("{}, and {} others", heroes.join(", "), (num_joined_invited - num_heroes))
     } else {
         "".to_owned()
     };
 
     // User is alone.
-    if invited_joined <= 1 {
+    if num_joined_invited <= 1 {
         if names.is_empty() {
             DisplayName::Empty
         } else {
@@ -1629,7 +1675,7 @@ mod tests {
             read_receipts: Default::default(),
             warned_about_unknown_room_version: Arc::new(false.into()),
             cached_display_name: None,
-            recency_timestamp: Some(MilliSecondsSinceUnixEpoch(42u32.into())),
+            recency_stamp: Some(42),
         };
 
         let info_json = json!({
@@ -1682,7 +1728,7 @@ mod tests {
                 "latest_active": null,
                 "pending": []
             },
-            "recency_timestamp": 42,
+            "recency_stamp": 42,
         });
 
         assert_eq!(serde_json::to_value(info).unwrap(), info_json);
@@ -1819,8 +1865,18 @@ mod tests {
 
         // When the new tag is handled and applied.
         let mut changes = StateChanges::default();
-        client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
-        client.apply_changes(&changes, false);
+        let mut notable_reasons_updates = Default::default();
+        client
+            .handle_room_account_data(
+                room_id,
+                &[tag_raw],
+                &mut changes,
+                &mut notable_reasons_updates,
+            )
+            .await;
+
+        assert!(notable_reasons_updates.is_empty());
+        client.apply_changes(&changes, notable_reasons_updates);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -1838,8 +1894,19 @@ mod tests {
         }))
         .unwrap()
         .cast();
-        client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
-        client.apply_changes(&changes, false);
+
+        let mut notable_reasons_updates = Default::default();
+        client
+            .handle_room_account_data(
+                room_id,
+                &[tag_raw],
+                &mut changes,
+                &mut notable_reasons_updates,
+            )
+            .await;
+
+        assert!(notable_reasons_updates.is_empty());
+        client.apply_changes(&changes, Default::default());
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -1893,8 +1960,18 @@ mod tests {
 
         // When the new tag is handled and applied.
         let mut changes = StateChanges::default();
-        client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
-        client.apply_changes(&changes, false);
+        let mut notable_reasons_updates = Default::default();
+        client
+            .handle_room_account_data(
+                room_id,
+                &[tag_raw],
+                &mut changes,
+                &mut notable_reasons_updates,
+            )
+            .await;
+
+        assert!(notable_reasons_updates.is_empty());
+        client.apply_changes(&changes, notable_reasons_updates);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -1912,8 +1989,19 @@ mod tests {
         }))
         .unwrap()
         .cast();
-        client.handle_room_account_data(room_id, &[tag_raw], &mut changes).await;
-        client.apply_changes(&changes, false);
+
+        let mut notable_reasons_updates = Default::default();
+        client
+            .handle_room_account_data(
+                room_id,
+                &[tag_raw],
+                &mut changes,
+                &mut notable_reasons_updates,
+            )
+            .await;
+
+        assert!(notable_reasons_updates.is_empty());
+        client.apply_changes(&changes, notable_reasons_updates);
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2296,9 +2384,14 @@ mod tests {
 
     #[async_test]
     #[cfg(feature = "experimental-sliding-sync")]
-    async fn test_setting_the_latest_event_doesnt_cause_a_room_info_update() {
-        // Given a room,
+    async fn test_setting_the_latest_event_doesnt_cause_a_room_info_notable_update() {
+        use std::collections::BTreeMap;
 
+        use assert_matches::assert_matches;
+
+        use crate::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons};
+
+        // Given a room,
         let client = BaseClient::new();
 
         client
@@ -2322,29 +2415,44 @@ mod tests {
         assert!(room.latest_event().is_none());
 
         // When I set up an observer on the latest_event,
-        let mut room_info_subscriber = room.subscribe_info();
+        let mut room_info_notable_update = client.room_info_notable_update_receiver();
 
         // And I provide a decrypted event to replace the encrypted one,
         let event = make_latest_event("$A");
 
         let mut changes = StateChanges::default();
-        room.on_latest_event_decrypted(event.clone(), 0, &mut changes);
+        let mut room_info_notable_updates = BTreeMap::new();
+        room.on_latest_event_decrypted(
+            event.clone(),
+            0,
+            &mut changes,
+            &mut room_info_notable_updates,
+        );
+
+        assert!(room_info_notable_updates.contains_key(room_id));
 
         // The subscriber isn't notified at this point.
-        assert_pending!(room_info_subscriber);
+        assert!(room_info_notable_update.try_recv().is_err());
 
         // Then updating the room info will store the event,
-        client.apply_changes(&changes, false);
+        client.apply_changes(&changes, room_info_notable_updates);
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
 
         // And wake up the subscriber.
-        assert_ready!(room_info_subscriber);
-        assert_pending!(room_info_subscriber);
+        assert_matches!(
+            room_info_notable_update.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(reasons.contains(RoomInfoNotableUpdateReasons::LATEST_EVENT));
+            }
+        );
     }
 
     #[async_test]
     #[cfg(feature = "experimental-sliding-sync")]
     async fn test_when_we_provide_a_newly_decrypted_event_it_replaces_latest_event() {
+        use std::collections::BTreeMap;
+
         // Given a room with an encrypted event
         let (_store, room) = make_room_test_helper(RoomState::Joined);
         add_encrypted_event(&room, "$A");
@@ -2354,8 +2462,17 @@ mod tests {
         // When I provide a decrypted event to replace the encrypted one
         let event = make_latest_event("$A");
         let mut changes = StateChanges::default();
-        room.on_latest_event_decrypted(event.clone(), 0, &mut changes);
-        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap(), false);
+        let mut room_info_notable_updates = BTreeMap::new();
+        room.on_latest_event_decrypted(
+            event.clone(),
+            0,
+            &mut changes,
+            &mut room_info_notable_updates,
+        );
+        room.set_room_info(
+            changes.room_infos.get(room.room_id()).cloned().unwrap(),
+            room_info_notable_updates.get(room.room_id()).copied().unwrap(),
+        );
 
         // Then is it stored
         assert_eq!(room.latest_event().unwrap().event_id(), event.event_id());
@@ -2364,6 +2481,8 @@ mod tests {
     #[async_test]
     #[cfg(feature = "experimental-sliding-sync")]
     async fn test_when_a_newly_decrypted_event_appears_we_delete_all_older_encrypted_events() {
+        use std::collections::BTreeMap;
+
         // Given a room with some encrypted events and a latest event
         let (_store, room) = make_room_test_helper(RoomState::Joined);
         room.inner.update(|info| info.latest_event = Some(make_latest_event("$A")));
@@ -2376,8 +2495,17 @@ mod tests {
         let new_event = make_latest_event("$1");
         let new_event_index = 1;
         let mut changes = StateChanges::default();
-        room.on_latest_event_decrypted(new_event.clone(), new_event_index, &mut changes);
-        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap(), false);
+        let mut room_info_notable_updates = BTreeMap::new();
+        room.on_latest_event_decrypted(
+            new_event.clone(),
+            new_event_index,
+            &mut changes,
+            &mut room_info_notable_updates,
+        );
+        room.set_room_info(
+            changes.room_infos.get(room.room_id()).cloned().unwrap(),
+            room_info_notable_updates.get(room.room_id()).copied().unwrap(),
+        );
 
         // Then the encrypted events list is shortened to only newer events
         let enc_evs = room.latest_encrypted_events();
@@ -2392,6 +2520,8 @@ mod tests {
     #[async_test]
     #[cfg(feature = "experimental-sliding-sync")]
     async fn test_replacing_the_newest_event_leaves_none_left() {
+        use std::collections::BTreeMap;
+
         // Given a room with some encrypted events
         let (_store, room) = make_room_test_helper(RoomState::Joined);
         add_encrypted_event(&room, "$0");
@@ -2403,8 +2533,17 @@ mod tests {
         let new_event = make_latest_event("$3");
         let new_event_index = 3;
         let mut changes = StateChanges::default();
-        room.on_latest_event_decrypted(new_event, new_event_index, &mut changes);
-        room.set_room_info(changes.room_infos.get(room.room_id()).cloned().unwrap(), false);
+        let mut room_info_notable_updates = BTreeMap::new();
+        room.on_latest_event_decrypted(
+            new_event,
+            new_event_index,
+            &mut changes,
+            &mut room_info_notable_updates,
+        );
+        room.set_room_info(
+            changes.room_infos.get(room.room_id()).cloned().unwrap(),
+            room_info_notable_updates.get(room.room_id()).copied().unwrap(),
+        );
 
         // Then the encrypted events list ie empty
         let enc_evs = room.latest_encrypted_events();
@@ -2542,37 +2681,34 @@ mod tests {
 
     #[test]
     fn test_calculate_room_name() {
-        let mut actual = compute_display_name_from_heroes(2, 0, vec!["a"]);
+        let mut actual = compute_display_name_from_heroes(2, vec!["a"]);
         assert_eq!(DisplayName::Calculated("a".to_owned()), actual);
 
-        actual = compute_display_name_from_heroes(3, 0, vec!["a", "b"]);
+        actual = compute_display_name_from_heroes(3, vec!["a", "b"]);
         assert_eq!(DisplayName::Calculated("a, b".to_owned()), actual);
 
-        actual = compute_display_name_from_heroes(4, 0, vec!["a", "b", "c"]);
+        actual = compute_display_name_from_heroes(4, vec!["a", "b", "c"]);
         assert_eq!(DisplayName::Calculated("a, b, c".to_owned()), actual);
 
-        actual = compute_display_name_from_heroes(5, 0, vec!["a", "b", "c"]);
+        actual = compute_display_name_from_heroes(5, vec!["a", "b", "c"]);
         assert_eq!(DisplayName::Calculated("a, b, c, and 2 others".to_owned()), actual);
 
-        actual = compute_display_name_from_heroes(5, 0, vec![]);
+        actual = compute_display_name_from_heroes(5, vec![]);
         assert_eq!(DisplayName::Calculated("5 people".to_owned()), actual);
 
-        actual = compute_display_name_from_heroes(0, 0, vec![]);
+        actual = compute_display_name_from_heroes(0, vec![]);
         assert_eq!(DisplayName::Empty, actual);
 
-        actual = compute_display_name_from_heroes(1, 0, vec![]);
+        actual = compute_display_name_from_heroes(1, vec![]);
         assert_eq!(DisplayName::Empty, actual);
 
-        actual = compute_display_name_from_heroes(0, 1, vec![]);
-        assert_eq!(DisplayName::Empty, actual);
-
-        actual = compute_display_name_from_heroes(1, 0, vec!["a"]);
+        actual = compute_display_name_from_heroes(1, vec!["a"]);
         assert_eq!(DisplayName::EmptyWas("a".to_owned()), actual);
 
-        actual = compute_display_name_from_heroes(1, 0, vec!["a", "b"]);
+        actual = compute_display_name_from_heroes(1, vec!["a", "b"]);
         assert_eq!(DisplayName::EmptyWas("a, b".to_owned()), actual);
 
-        actual = compute_display_name_from_heroes(1, 0, vec!["a", "b", "c"]);
+        actual = compute_display_name_from_heroes(1, vec!["a", "b", "c"]);
         assert_eq!(DisplayName::EmptyWas("a, b, c".to_owned()), actual);
     }
 

@@ -96,10 +96,8 @@ pub async fn mock_environment(
     };
 
     let oidc = Oidc {
-        client: client.clone(),
-        backend: Arc::new(
-            MockImpl::new().mark_insecure().next_session_tokens(session_tokens.clone()),
-        ),
+        client,
+        backend: Arc::new(MockImpl::new().mark_insecure().next_session_tokens(session_tokens)),
     };
 
     let (client_credentials, client_metadata) = mock_registered_client_data();

@@ -284,10 +284,22 @@ async fn test_stale_local_echo_time_abort_edit() {
     timeline.send(RoomMessageEventContent::text_plain("hi!").into()).await.unwrap();
 
     // Receiving the local echo for the message.
-    let vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
+    let mut vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
+
+    // The event cache may decide to clear the timeline because it was a limited
+    // sync, so account for that.
+    while let VectorDiff::Clear = &vector_diff {
+        vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
+    }
+
     let local_echo = assert_matches!(vector_diff, VectorDiff::PushBack { value } => value);
 
-    assert!(local_echo.is_local_echo());
+    if !local_echo.is_local_echo() {
+        // If the server raced and we've already received the remote echo, then this
+        // test is meaningless, so short-circuit and leave it.
+        return;
+    }
+
     assert!(local_echo.is_editable());
     assert_matches!(local_echo.send_state(), Some(EventSendState::NotSentYet));
     assert_eq!(local_echo.content().as_message().unwrap().body(), "hi!");
@@ -321,9 +333,8 @@ async fn test_stale_local_echo_time_abort_edit() {
     }
 
     // Now do a crime: try to edit the local echo.
-    let edit_info = local_echo.edit_info().unwrap();
     let did_edit = timeline
-        .edit(RoomMessageEventContent::text_plain("bonjour").into(), edit_info)
+        .edit(&local_echo, RoomMessageEventContent::text_plain("bonjour").into())
         .await
         .unwrap();
 

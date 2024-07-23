@@ -342,7 +342,7 @@ impl SecretStorageKey {
     }
 
     pub(crate) fn from_bytes(key_id: String, key: Box<[u8; KEY_SIZE]>) -> Self {
-        let storage_key_info = Self::create_event_content(key_id.to_owned(), &key);
+        let storage_key_info = Self::create_event_content(key_id, &key);
 
         Self { storage_key_info, secret_key: key }
     }
@@ -768,7 +768,7 @@ mod test {
         content.passphrase =
             Some(PassPhrase::new("salty goodness".to_owned(), UInt::new_saturating(100)));
 
-        SecretStorageKey::from_account_data("It's a secret to nobody", content.to_owned())
+        SecretStorageKey::from_account_data("It's a secret to nobody", content)
             .expect("Should accept any passphrase");
     }
 

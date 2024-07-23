@@ -80,7 +80,7 @@ pub async fn logged_in_client(homeserver_url: Option<String>) -> Client {
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn test_client_builder_with_server() -> (ClientBuilder, wiremock::MockServer) {
     let server = wiremock::MockServer::start().await;
-    let builder = test_client_builder(Some(server.uri().to_string()));
+    let builder = test_client_builder(Some(server.uri()));
     (builder, server)
 }
 

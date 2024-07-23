@@ -24,8 +24,10 @@ use tracing::{debug, instrument, trace};
 
 use super::OutboundGroupSession;
 use crate::{
-    error::OlmResult, store::Store, types::events::room_key_withheld::WithheldCode,
-    EncryptionSettings, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
+    error::{OlmResult, RoomKeyDistributionError},
+    store::Store,
+    types::events::room_key_withheld::WithheldCode,
+    DeviceData, EncryptionSettings, OlmError, OwnUserIdentityData, UserIdentityData,
 };
 
 /// Strategy to collect the devices that should receive room keys for the
@@ -78,10 +80,10 @@ pub(crate) struct CollectRecipientsResult {
     /// If true the outbound group session should be rotated
     pub should_rotate: bool,
     /// The map of user|device that should receive the session
-    pub devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>>,
+    pub devices: BTreeMap<OwnedUserId, Vec<DeviceData>>,
     /// The map of user|device that won't receive the key with the withheld
     /// code.
-    pub withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)>,
+    pub withheld_devices: Vec<(DeviceData, WithheldCode)>,
 }
 
 /// Given a list of user and an outbound session, return the list of users
@@ -98,8 +100,6 @@ pub(crate) async fn collect_session_recipients(
     outbound: &OutboundGroupSession,
 ) -> OlmResult<CollectRecipientsResult> {
     let users: BTreeSet<&UserId> = users.collect();
-    let mut devices: BTreeMap<OwnedUserId, Vec<ReadOnlyDevice>> = Default::default();
-    let mut withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)> = Default::default();
 
     trace!(?users, ?settings, "Calculating group session recipients");
 
@@ -125,75 +125,117 @@ pub(crate) async fn collect_session_recipients(
     // This is calculated in the following code and stored in this variable.
     let mut should_rotate = user_left || visibility_changed || algorithm_changed;
 
-    let own_identity = store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
+    let mut devices: BTreeMap<OwnedUserId, Vec<DeviceData>> = Default::default();
+    let mut withheld_devices: Vec<(DeviceData, WithheldCode)> = Default::default();
 
-    for user_id in users {
-        let user_devices = store.get_readonly_devices_filtered(user_id).await?;
+    match settings.sharing_strategy {
+        CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices } => {
+            let own_identity =
+                store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
+            for user_id in users {
+                let user_devices = store.get_device_data_for_user(user_id).await?;
 
-        let recipient_devices = match settings.sharing_strategy {
-            CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices } => {
                 // We only need the user identity if only_allow_trusted_devices is set.
                 let device_owner_identity = if only_allow_trusted_devices {
                     store.get_user_identity(user_id).await?
                 } else {
                     None
                 };
-                split_recipients_withhelds_for_user(
+                let recipient_devices = split_recipients_withhelds_for_user(
                     user_devices,
                     &own_identity,
                     &device_owner_identity,
                     only_allow_trusted_devices,
-                )
-            }
-            CollectStrategy::IdentityBasedStrategy => {
-                let device_owner_identity = store.get_user_identity(user_id).await?;
-                split_recipients_withhelds_for_user_based_on_identity(
-                    user_devices,
-                    &device_owner_identity,
-                )
-            }
-        };
+                );
 
-        let recipients = recipient_devices.allowed_devices;
-        let withheld_recipients = recipient_devices.denied_devices_with_code;
-
-        // If we haven't already concluded that the session should be
-        // rotated for other reasons, we also need to check whether any
-        // of the devices in the session got deleted or blacklisted in the
-        // meantime. If so, we should also rotate the session.
-        if !should_rotate {
-            // Device IDs that should receive this session
-            let recipient_device_ids: BTreeSet<&DeviceId> =
-                recipients.iter().map(|d| d.device_id()).collect();
-
-            if let Some(shared) = outbound.shared_with_set.read().unwrap().get(user_id) {
-                // Devices that received this session
-                let shared: BTreeSet<OwnedDeviceId> = shared.keys().cloned().collect();
-                let shared: BTreeSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
-
-                // The set difference between
-                //
-                // 1. Devices that had previously received the session, and
-                // 2. Devices that would now receive the session
-                //
-                // Represents newly deleted or blacklisted devices. If this
-                // set is non-empty, we must rotate.
-                let newly_deleted_or_blacklisted =
-                    shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
-
-                should_rotate = !newly_deleted_or_blacklisted.is_empty();
-                if should_rotate {
-                    debug!(
-                        "Rotating a room key due to these devices being deleted/blacklisted {:?}",
-                        newly_deleted_or_blacklisted,
+                // If we haven't already concluded that the session should be
+                // rotated for other reasons, we also need to check whether any
+                // of the devices in the session got deleted or blacklisted in the
+                // meantime. If so, we should also rotate the session.
+                if !should_rotate {
+                    should_rotate = should_rotate_due_to_left_device(
+                        user_id,
+                        &recipient_devices.allowed_devices,
+                        outbound,
                     );
                 }
-            };
-        }
 
-        devices.entry(user_id.to_owned()).or_default().extend(recipients);
-        withheld_devices.extend(withheld_recipients);
-    }
+                devices
+                    .entry(user_id.to_owned())
+                    .or_default()
+                    .extend(recipient_devices.allowed_devices);
+                withheld_devices.extend(recipient_devices.denied_devices_with_code);
+            }
+        }
+        CollectStrategy::IdentityBasedStrategy => {
+            let maybe_own_identity =
+                store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
+
+            let own_verified_identity = match maybe_own_identity {
+                None => {
+                    return Err(OlmError::KeyDistributionError(
+                        RoomKeyDistributionError::CrossSigningNotSetup,
+                    ))
+                }
+                Some(identity) if !identity.is_verified() => {
+                    return Err(OlmError::KeyDistributionError(
+                        RoomKeyDistributionError::SendingFromUnverifiedDevice,
+                    ))
+                }
+                Some(identity) => identity,
+            };
+
+            // Collect all potential identity mismatch and report at the end if any.
+            let mut users_with_identity_mismatch: Vec<OwnedUserId> = Vec::default();
+            for user_id in users {
+                let device_owner_identity = store.get_user_identity(user_id).await?;
+                // debug!(?device_owner_identity, "Other Checking identity");
+
+                if let Some(other_identity) = device_owner_identity.as_ref().and_then(|i| i.other())
+                {
+                    if other_identity.has_pin_violation()
+                        && own_verified_identity.is_identity_signed(other_identity).is_err()
+                    {
+                        debug!(?other_identity, "Identity Mismatch detected");
+                        // Identity mismatch
+                        users_with_identity_mismatch.push(other_identity.user_id().to_owned());
+                        continue;
+                    }
+                }
+                let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
+
+                let recipient_devices = split_recipients_withhelds_for_user_based_on_identity(
+                    user_devices,
+                    &device_owner_identity,
+                );
+
+                // If we haven't already concluded that the session should be
+                // rotated for other reasons, we also need to check whether any
+                // of the devices in the session got deleted or blacklisted in the
+                // meantime. If so, we should also rotate the session.
+                if !should_rotate {
+                    should_rotate = should_rotate_due_to_left_device(
+                        user_id,
+                        &recipient_devices.allowed_devices,
+                        outbound,
+                    );
+                }
+
+                devices
+                    .entry(user_id.to_owned())
+                    .or_default()
+                    .extend(recipient_devices.allowed_devices);
+                withheld_devices.extend(recipient_devices.denied_devices_with_code);
+            }
+
+            // Abort sharing and fail when there are identities mismatch.
+            if !users_with_identity_mismatch.is_empty() {
+                return Err(OlmError::KeyDistributionError(
+                    RoomKeyDistributionError::KeyPinningViolation(users_with_identity_mismatch),
+                ));
+            }
+        }
+    };
 
     if should_rotate {
         debug!(
@@ -209,41 +251,79 @@ pub(crate) async fn collect_session_recipients(
     Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
 }
 
+// Check whether any of the devices currently in the discussion (outbound
+// session stores the devices it already got shared with) got deleted or
+// blacklisted in the meantime. If it's the case the session should be rotated.
+fn should_rotate_due_to_left_device(
+    user_id: &UserId,
+    future_recipients: &[DeviceData],
+    outbound: &OutboundGroupSession,
+) -> bool {
+    // Device IDs that should receive this session
+    let recipient_device_ids: BTreeSet<&DeviceId> =
+        future_recipients.iter().map(|d| d.device_id()).collect();
+
+    if let Some(shared) = outbound.shared_with_set.read().unwrap().get(user_id) {
+        // Devices that received this session
+        let shared: BTreeSet<OwnedDeviceId> = shared.keys().cloned().collect();
+        let shared: BTreeSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
+
+        // The set difference between
+        //
+        // 1. Devices that had previously received the session, and
+        // 2. Devices that would now receive the session
+        //
+        // Represents newly deleted or blacklisted devices. If this
+        // set is non-empty, we must rotate.
+        let newly_deleted_or_blacklisted =
+            shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
+
+        let should_rotate = !newly_deleted_or_blacklisted.is_empty();
+        if should_rotate {
+            debug!(
+                "Rotating a room key due to these devices being deleted/blacklisted {:?}",
+                newly_deleted_or_blacklisted,
+            );
+        }
+        return should_rotate;
+    };
+    false
+}
+
 struct RecipientDevices {
-    allowed_devices: Vec<ReadOnlyDevice>,
-    denied_devices_with_code: Vec<(ReadOnlyDevice, WithheldCode)>,
+    allowed_devices: Vec<DeviceData>,
+    denied_devices_with_code: Vec<(DeviceData, WithheldCode)>,
 }
 
 fn split_recipients_withhelds_for_user(
-    user_devices: HashMap<OwnedDeviceId, ReadOnlyDevice>,
-    own_identity: &Option<ReadOnlyOwnUserIdentity>,
-    device_owner_identity: &Option<ReadOnlyUserIdentities>,
+    user_devices: HashMap<OwnedDeviceId, DeviceData>,
+    own_identity: &Option<OwnUserIdentityData>,
+    device_owner_identity: &Option<UserIdentityData>,
     only_allow_trusted_devices: bool,
 ) -> RecipientDevices {
     // From all the devices a user has, we're splitting them into two
     // buckets, a bucket of devices that should receive the
     // room key and a bucket of devices that should receive
     // a withheld code.
-    let (recipients, withheld_recipients): (
-        Vec<ReadOnlyDevice>,
-        Vec<(ReadOnlyDevice, WithheldCode)>,
-    ) = user_devices.into_values().partition_map(|d| {
-        if d.is_blacklisted() {
-            Either::Right((d, WithheldCode::Blacklisted))
-        } else if only_allow_trusted_devices && !d.is_verified(own_identity, device_owner_identity)
-        {
-            Either::Right((d, WithheldCode::Unverified))
-        } else {
-            Either::Left(d)
-        }
-    });
+    let (recipients, withheld_recipients): (Vec<DeviceData>, Vec<(DeviceData, WithheldCode)>) =
+        user_devices.into_values().partition_map(|d| {
+            if d.is_blacklisted() {
+                Either::Right((d, WithheldCode::Blacklisted))
+            } else if only_allow_trusted_devices
+                && !d.is_verified(own_identity, device_owner_identity)
+            {
+                Either::Right((d, WithheldCode::Unverified))
+            } else {
+                Either::Left(d)
+            }
+        });
 
     RecipientDevices { allowed_devices: recipients, denied_devices_with_code: withheld_recipients }
 }
 
 fn split_recipients_withhelds_for_user_based_on_identity(
-    user_devices: HashMap<OwnedDeviceId, ReadOnlyDevice>,
-    device_owner_identity: &Option<ReadOnlyUserIdentities>,
+    user_devices: HashMap<OwnedDeviceId, DeviceData>,
+    device_owner_identity: &Option<UserIdentityData>,
 ) -> RecipientDevices {
     match device_owner_identity {
         None => {
@@ -260,8 +340,8 @@ fn split_recipients_withhelds_for_user_based_on_identity(
         Some(device_owner_identity) => {
             // Only accept devices signed by the current identity
             let (recipients, withheld_recipients): (
-                Vec<ReadOnlyDevice>,
-                Vec<(ReadOnlyDevice, WithheldCode)>,
+                Vec<DeviceData>,
+                Vec<(DeviceData, WithheldCode)>,
             ) = user_devices.into_values().partition_map(|d| {
                 if d.is_cross_signed_by_owner(device_owner_identity) {
                     Either::Left(d)
@@ -282,7 +362,12 @@ mod tests {
 
     use std::sync::Arc;
 
-    use matrix_sdk_test::{async_test, test_json::keys_query_sets::KeyDistributionTestData};
+    use matrix_sdk_test::{
+        async_test,
+        test_json::keys_query_sets::{
+            IdentityChangeDataSet, KeyDistributionTestData, MaloIdentityChangeDataSet,
+        },
+    };
     use ruma::{events::room::history_visibility::HistoryVisibility, room_id, TransactionId};
 
     use crate::{
@@ -291,7 +376,7 @@ mod tests {
             group_sessions::share_strategy::collect_session_recipients, CollectStrategy,
         },
         types::events::room_key_withheld::WithheldCode,
-        CrossSigningKeyExport, EncryptionSettings, OlmMachine,
+        CrossSigningKeyExport, EncryptionSettings, OlmError, OlmMachine,
     };
 
     async fn set_up_test_machine() -> OlmMachine {
@@ -527,6 +612,172 @@ mod tests {
             .expect("This dave device should receive a withheld code");
 
         assert_eq!(code, &WithheldCode::Unauthorised);
+    }
+
+    #[async_test]
+    async fn test_share_identity_strategy_no_cross_signing() {
+        let machine: OlmMachine = OlmMachine::new(
+            KeyDistributionTestData::me_id(),
+            KeyDistributionTestData::me_device_id(),
+        )
+        .await;
+
+        let keys_query = KeyDistributionTestData::dan_keys_query_response();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_identity_based();
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let request_result = machine
+            .share_room_key(
+                fake_room_id,
+                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                encryption_settings.clone(),
+            )
+            .await;
+
+        assert!(request_result.is_err());
+        let err = request_result.unwrap_err();
+        match err {
+            OlmError::KeyDistributionError(
+                crate::error::RoomKeyDistributionError::CrossSigningNotSetup,
+            ) => {
+                // ok
+            }
+            _ => panic!("Unexpected share error"),
+        }
+
+        // Let's now have cross-signing, but the identity is not trusted
+        let keys_query = KeyDistributionTestData::me_keys_query_response();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let request_result = machine
+            .share_room_key(
+                fake_room_id,
+                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                encryption_settings.clone(),
+            )
+            .await;
+
+        assert!(request_result.is_err());
+        let err = request_result.unwrap_err();
+        match err {
+            OlmError::KeyDistributionError(
+                crate::error::RoomKeyDistributionError::SendingFromUnverifiedDevice,
+            ) => {
+                // ok
+            }
+            _ => panic!("Unexpected share error"),
+        }
+
+        // If we are verified it should then work
+        machine
+            .import_cross_signing_keys(CrossSigningKeyExport {
+                master_key: KeyDistributionTestData::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+                self_signing_key: KeyDistributionTestData::SELF_SIGNING_KEY_PRIVATE_EXPORT
+                    .to_owned()
+                    .into(),
+                user_signing_key: KeyDistributionTestData::USER_SIGNING_KEY_PRIVATE_EXPORT
+                    .to_owned()
+                    .into(),
+            })
+            .await
+            .unwrap();
+
+        let request_result = machine
+            .share_room_key(
+                fake_room_id,
+                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                encryption_settings.clone(),
+            )
+            .await;
+
+        assert!(request_result.is_ok());
+    }
+
+    #[async_test]
+    async fn test_share_identity_strategy_report_pinning_violation() {
+        let machine: OlmMachine = OlmMachine::new(
+            KeyDistributionTestData::me_id(),
+            KeyDistributionTestData::me_device_id(),
+        )
+        .await;
+
+        machine.bootstrap_cross_signing(false).await.unwrap();
+
+        let keys_query = IdentityChangeDataSet::key_query_with_identity_a();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let keys_query = MaloIdentityChangeDataSet::initial_key_query();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        // Simulate pinning violation
+        let keys_query = IdentityChangeDataSet::key_query_with_identity_b();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let keys_query = MaloIdentityChangeDataSet::updated_key_query();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let fake_room_id = room_id!("!roomid:localhost");
+        let strategy = CollectStrategy::new_identity_based();
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let request_result = machine
+            .share_room_key(
+                fake_room_id,
+                vec![IdentityChangeDataSet::user_id(), MaloIdentityChangeDataSet::user_id()]
+                    .into_iter(),
+                encryption_settings.clone(),
+            )
+            .await;
+
+        assert!(request_result.is_err());
+        let err = request_result.unwrap_err();
+        match err {
+            OlmError::KeyDistributionError(
+                crate::error::RoomKeyDistributionError::KeyPinningViolation(affected_users),
+            ) => {
+                assert_eq!(2, affected_users.len());
+
+                // resolve by pinning the new identity
+                for user_id in affected_users {
+                    machine
+                        .get_identity(&user_id, None)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .other()
+                        .unwrap()
+                        .pin_current_master_key()
+                        .await
+                        .unwrap()
+                }
+
+                let request_result = machine
+                    .share_room_key(
+                        fake_room_id,
+                        // vec![KeyDistributionTestData::dan_id()].into_iter(),
+                        vec![IdentityChangeDataSet::user_id()].into_iter(),
+                        encryption_settings.clone(),
+                    )
+                    .await;
+
+                assert!(request_result.is_ok());
+            }
+            _ => panic!("Unexpected share error"),
+        }
     }
 
     #[async_test]

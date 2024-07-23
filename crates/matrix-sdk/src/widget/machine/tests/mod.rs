@@ -26,6 +26,7 @@ mod api_versions;
 mod capabilities;
 mod error;
 mod openid;
+mod send_event;
 
 const WIDGET_ID: &str = "test-widget";
 

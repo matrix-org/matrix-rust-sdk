@@ -1,4 +1,8 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    fmt::{self, Debug},
+    sync::Arc,
+};
 
 use matrix_sdk::{
     oidc::{
@@ -14,6 +18,8 @@ use matrix_sdk::{
     Error,
 };
 use url::Url;
+
+use crate::client::Client;
 
 #[derive(uniffi::Object)]
 pub struct HomeserverLoginDetails {
@@ -45,6 +51,54 @@ impl HomeserverLoginDetails {
     pub fn supports_password_login(&self) -> bool {
         self.supports_password_login
     }
+}
+
+/// An object encapsulating the SSO login flow
+#[derive(uniffi::Object)]
+pub struct SsoHandler {
+    /// The wrapped Client.
+    pub(crate) client: Arc<Client>,
+
+    /// The underlying URL for authentication.
+    pub(crate) url: String,
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl SsoHandler {
+    /// Returns the URL for starting SSO authentication. The URL should be
+    /// opened in a web view. Once the web view succeeds, call `finish` with
+    /// the callback URL.
+    pub fn url(&self) -> String {
+        self.url.clone()
+    }
+
+    /// Completes the SSO login process.
+    pub async fn finish(&self, callback_url: String) -> Result<(), SsoError> {
+        let auth = self.client.inner.matrix_auth();
+        let url = Url::parse(&callback_url).map_err(|_| SsoError::CallbackUrlInvalid)?;
+        let builder =
+            auth.login_with_sso_callback(url).map_err(|_| SsoError::CallbackUrlInvalid)?;
+        builder.await.map_err(|_| SsoError::LoginWithTokenFailed)?;
+        Ok(())
+    }
+}
+
+impl Debug for SsoHandler {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        fmt.debug_struct("SsoHandler").field("url", &self.url).finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum SsoError {
+    #[error("The supplied callback URL used to complete SSO is invalid.")]
+    CallbackUrlInvalid,
+    #[error("Logging in with the token from the supplied callback URL failed.")]
+    LoginWithTokenFailed,
+
+    #[error("An error occurred: {message}")]
+    Generic { message: String },
 }
 
 /// The configuration to use when authenticating with OIDC.

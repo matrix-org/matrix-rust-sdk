@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-sqlite"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Sqlite storage backend for matrix-sdk"
@@ -39,6 +39,7 @@ matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-crypto = { workspace = true, features = ["testing"] }
 matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }
+similar-asserts = { workspace = true }
 tempfile = "3.3.0"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 

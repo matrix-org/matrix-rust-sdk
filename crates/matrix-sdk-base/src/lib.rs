@@ -34,7 +34,7 @@ mod rooms;
 pub mod read_receipts;
 pub use read_receipts::PreviousEventsProvider;
 #[cfg(feature = "experimental-sliding-sync")]
-mod sliding_sync;
+pub mod sliding_sync;
 
 pub mod store;
 pub mod sync;
@@ -52,8 +52,9 @@ pub use http;
 pub use matrix_sdk_crypto as crypto;
 pub use once_cell;
 pub use rooms::{
-    DisplayName, Room, RoomCreateWithCreatorEventContent, RoomHero, RoomInfo, RoomInfoUpdate,
-    RoomMember, RoomMemberships, RoomState, RoomStateFilter,
+    DisplayName, Room, RoomCreateWithCreatorEventContent, RoomHero, RoomInfo,
+    RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMember, RoomMemberships, RoomState,
+    RoomStateFilter,
 };
 pub use store::{
     ComposerDraft, ComposerDraftType, StateChanges, StateStore, StateStoreDataKey,

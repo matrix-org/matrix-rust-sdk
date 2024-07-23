@@ -1,7 +1,5 @@
-use ruma::{
-    api::client::sync::sync_events::v4,
-    events::{StateEventType, TimelineEventType},
-};
+use matrix_sdk_base::sliding_sync::http;
+use ruma::events::StateEventType;
 
 use super::Bound;
 use crate::sliding_sync::sticky_parameters::StickyData;
@@ -10,9 +8,6 @@ use crate::sliding_sync::sticky_parameters::StickyData;
 /// defined by the [Sliding Sync MSC](https://github.com/matrix-org/matrix-spec-proposals/blob/kegan/sync-v3/proposals/3575-sync.md).
 #[derive(Debug)]
 pub(super) struct SlidingSyncListStickyParameters {
-    /// Sort the room list by this.
-    sort: Vec<String>,
-
     /// Required states to return per room.
     required_state: Vec<(StateEventType, String)>,
 
@@ -21,28 +16,22 @@ pub(super) struct SlidingSyncListStickyParameters {
     include_heroes: Option<bool>,
 
     /// Any filters to apply to the query.
-    filters: Option<v4::SyncRequestListFilters>,
+    filters: Option<http::request::ListFilters>,
 
     /// The maximum number of timeline events to query for.
     timeline_limit: Option<Bound>,
-
-    /// The `bump_event_types` field. See
-    /// [`SlidingSyncListBuilder::bump_event_types`] to learn more.
-    bump_event_types: Vec<TimelineEventType>,
 }
 
 impl SlidingSyncListStickyParameters {
     pub fn new(
-        sort: Vec<String>,
         required_state: Vec<(StateEventType, String)>,
         include_heroes: Option<bool>,
-        filters: Option<v4::SyncRequestListFilters>,
+        filters: Option<http::request::ListFilters>,
         timeline_limit: Option<Bound>,
-        bump_event_types: Vec<TimelineEventType>,
     ) -> Self {
         // Consider that each list will have at least one parameter set, so invalidate
         // it by default.
-        Self { sort, required_state, include_heroes, filters, timeline_limit, bump_event_types }
+        Self { required_state, include_heroes, filters, timeline_limit }
     }
 }
 
@@ -57,14 +46,12 @@ impl SlidingSyncListStickyParameters {
 }
 
 impl StickyData for SlidingSyncListStickyParameters {
-    type Request = v4::SyncRequestList;
+    type Request = http::request::List;
 
-    fn apply(&self, request: &mut v4::SyncRequestList) {
-        request.sort = self.sort.to_vec();
+    fn apply(&self, request: &mut Self::Request) {
         request.room_details.required_state = self.required_state.to_vec();
         request.room_details.timeline_limit = self.timeline_limit.map(Into::into);
         request.include_heroes = self.include_heroes;
         request.filters = self.filters.clone();
-        request.bump_event_types = self.bump_event_types.clone();
     }
 }

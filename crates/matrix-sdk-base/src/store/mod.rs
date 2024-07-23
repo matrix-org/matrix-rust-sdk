@@ -59,7 +59,7 @@ use ruma::{
 use tokio::sync::{broadcast, Mutex, RwLock};
 
 use crate::{
-    rooms::{normal::RoomInfoUpdate, RoomInfo, RoomState},
+    rooms::{normal::RoomInfoNotableUpdate, RoomInfo, RoomState},
     MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
 };
 
@@ -73,8 +73,8 @@ pub use self::{
     memory_store::MemoryStore,
     traits::{
         ComposerDraft, ComposerDraftType, DynStateStore, IntoStateStore, QueuedEvent,
-        SerializableEventContent, StateStore, StateStoreDataKey, StateStoreDataValue,
-        StateStoreExt,
+        SerializableEventContent, ServerCapabilities, StateStore, StateStoreDataKey,
+        StateStoreDataValue, StateStoreExt,
     },
 };
 
@@ -178,7 +178,7 @@ impl Store {
     pub async fn set_session_meta(
         &self,
         session_meta: SessionMeta,
-        roominfo_update_sender: &broadcast::Sender<RoomInfoUpdate>,
+        room_info_notable_update_sender: &broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Result<()> {
         {
             let room_infos = self.inner.get_room_infos().await?;
@@ -190,7 +190,7 @@ impl Store {
                     &session_meta.user_id,
                     self.inner.clone(),
                     room_info,
-                    roominfo_update_sender.clone(),
+                    room_info_notable_update_sender.clone(),
                 );
                 let new_room_id = new_room.room_id().to_owned();
 
@@ -240,13 +240,19 @@ impl Store {
         self.rooms.read().unwrap().get(room_id).cloned()
     }
 
+    /// Check if a room exists.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub(crate) fn room_exists(&self, room_id: &RoomId) -> bool {
+        self.rooms.read().unwrap().get(room_id).is_some()
+    }
+
     /// Lookup the `Room` for the given `RoomId`, or create one, if it didn't
     /// exist yet in the store
     pub fn get_or_create_room(
         &self,
         room_id: &RoomId,
         room_type: RoomState,
-        roominfo_update_sender: broadcast::Sender<RoomInfoUpdate>,
+        room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Room {
         let user_id =
             &self.session_meta.get().expect("Creating room while not being logged in").user_id;
@@ -255,7 +261,13 @@ impl Store {
             .write()
             .unwrap()
             .get_or_create(room_id, || {
-                Room::new(user_id, self.inner.clone(), room_id, room_type, roominfo_update_sender)
+                Room::new(
+                    user_id,
+                    self.inner.clone(),
+                    room_id,
+                    room_type,
+                    room_info_notable_update_sender,
+                )
             })
             .clone()
     }
@@ -307,8 +319,10 @@ pub struct StateChanges {
     /// A mapping of `RoomId` to a map of event type string to `AnyBasicEvent`.
     pub room_account_data:
         BTreeMap<OwnedRoomId, BTreeMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>,
-    /// A map of `RoomId` to `RoomInfo`.
+
+    /// A map of `OwnedRoomId` to `RoomInfo`.
     pub room_infos: BTreeMap<OwnedRoomId, RoomInfo>,
+
     /// A map of `RoomId` to `ReceiptEventContent`.
     pub receipts: BTreeMap<OwnedRoomId, ReceiptEventContent>,
 

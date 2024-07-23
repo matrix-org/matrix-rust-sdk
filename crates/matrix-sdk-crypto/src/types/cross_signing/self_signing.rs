@@ -7,7 +7,7 @@ use super::{CrossSigningKey, SigningKey};
 use crate::{
     olm::VerifyJson,
     types::{DeviceKeys, SigningKeys},
-    ReadOnlyDevice, SignatureError,
+    DeviceData, SignatureError,
 };
 
 /// Wrapper for a cross signing key marking it as a self signing key.
@@ -51,7 +51,7 @@ impl SelfSigningPubkey {
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
-    pub(crate) fn verify_device(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
+    pub(crate) fn verify_device(&self, device: &DeviceData) -> Result<(), SignatureError> {
         self.verify_device_keys(device.as_device_keys())
     }
 }

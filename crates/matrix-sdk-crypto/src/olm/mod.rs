@@ -25,13 +25,13 @@ mod utility;
 
 pub use account::{Account, OlmMessageHash, PickledAccount, StaticAccountData};
 pub(crate) use account::{OlmDecryptionInfo, SessionType};
-pub(crate) use group_sessions::ShareState;
 pub use group_sessions::{
     BackedUpRoomKey, DecryptionSettings, EncryptionSettings, ExportedRoomKey, InboundGroupSession,
     OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession, SenderData,
     SenderDataRetryDetails, SessionCreationError, SessionExportError, SessionKey, ShareInfo,
     TrustRequirement,
 };
+pub(crate) use group_sessions::{SenderDataFinder, ShareState};
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
 pub(crate) use utility::{SignedJsonObject, VerifyJson};
@@ -153,7 +153,7 @@ pub(crate) mod tests {
 
         let message = bob_session.encrypt_helper(plaintext).await;
 
-        let prekey_message = match message.clone() {
+        let prekey_message = match message {
             OlmMessage::PreKey(m) => m,
             OlmMessage::Normal(_) => panic!("Incorrect message type"),
         };

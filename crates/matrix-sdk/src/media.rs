@@ -273,8 +273,6 @@ impl Media {
         };
 
         // Use the authenticated endpoints when the server supports Matrix 1.11.
-        // TODO: Add an option in ClientBuilder to force the use of the authenticated
-        // endpoints.
         let use_auth = self.client.server_versions().await?.contains(&MatrixVersion::V1_11);
 
         let content: Vec<u8> = match &request.source {
@@ -310,22 +308,31 @@ impl Media {
                 content
             }
             MediaSource::Plain(uri) => {
-                if let MediaFormat::Thumbnail(size) = &request.format {
+                if let MediaFormat::Thumbnail(settings) = &request.format {
                     if use_auth {
-                        let request =
+                        let mut request =
                             authenticated_media::get_content_thumbnail::v1::Request::from_uri(
                                 uri,
-                                size.width,
-                                size.height,
+                                settings.size.width,
+                                settings.size.height,
                             )?;
+                        request.method = Some(settings.size.method.clone());
+                        request.animated = Some(settings.animated);
+
                         self.client.send(request, None).await?.file
                     } else {
                         #[allow(deprecated)]
-                        let request = media::get_content_thumbnail::v3::Request::from_url(
-                            uri,
-                            size.width,
-                            size.height,
-                        )?;
+                        let request = {
+                            let mut request = media::get_content_thumbnail::v3::Request::from_url(
+                                uri,
+                                settings.size.width,
+                                settings.size.height,
+                            )?;
+                            request.method = Some(settings.size.method.clone());
+                            request.animated = Some(settings.animated);
+                            request
+                        };
+
                         self.client.send(request, None).await?.file
                     }
                 } else if use_auth {
@@ -422,20 +429,20 @@ impl Media {
     ///
     /// * `event_content` - The media event content.
     ///
-    /// * `size` - The _desired_ size of the thumbnail. The actual thumbnail may
-    ///   not match the size specified.
+    /// * `settings` - The _desired_ settings of the thumbnail. The actual
+    ///   thumbnail may not match the settings specified.
     ///
     /// * `use_cache` - If we should use the media cache for this thumbnail.
     pub async fn get_thumbnail(
         &self,
         event_content: &impl MediaEventContent,
-        size: MediaThumbnailSize,
+        settings: MediaThumbnailSettings,
         use_cache: bool,
     ) -> Result<Option<Vec<u8>>> {
         let Some(source) = event_content.thumbnail_source() else { return Ok(None) };
         let thumbnail = self
             .get_media_content(
-                &MediaRequest { source, format: MediaFormat::Thumbnail(size) },
+                &MediaRequest { source, format: MediaFormat::Thumbnail(settings) },
                 use_cache,
             )
             .await?;
@@ -451,17 +458,17 @@ impl Media {
     ///
     /// * `event_content` - The media event content.
     ///
-    /// * `size` - The _desired_ size of the thumbnail. Must match the size
-    ///   requested with [`get_thumbnail`](#method.get_thumbnail).
+    /// * `size` - The _desired_ settings of the thumbnail. Must match the
+    ///   settings requested with [`get_thumbnail`](#method.get_thumbnail).
     pub async fn remove_thumbnail(
         &self,
         event_content: &impl MediaEventContent,
-        size: MediaThumbnailSize,
+        settings: MediaThumbnailSettings,
     ) -> Result<()> {
         if let Some(source) = event_content.source() {
             self.remove_media_content(&MediaRequest {
                 source,
-                format: MediaFormat::Thumbnail(size),
+                format: MediaFormat::Thumbnail(settings),
             })
             .await?
         }
@@ -509,14 +516,13 @@ impl Media {
                     thumbnail_info,
                 });
                 let mut image_message_event_content =
-                    ImageMessageEventContent::plain(body.to_owned(), url).info(Box::new(info));
+                    ImageMessageEventContent::plain(body, url).info(Box::new(info));
                 image_message_event_content.filename = filename;
                 image_message_event_content.formatted = config.formatted_caption;
                 MessageType::Image(image_message_event_content)
             }
             mime::AUDIO => {
-                let mut audio_message_event_content =
-                    AudioMessageEventContent::plain(body.to_owned(), url);
+                let mut audio_message_event_content = AudioMessageEventContent::plain(body, url);
                 audio_message_event_content.filename = filename;
                 audio_message_event_content.formatted = config.formatted_caption;
                 MessageType::Audio(update_audio_message_event(
@@ -532,7 +538,7 @@ impl Media {
                     thumbnail_info
                 });
                 let mut video_message_event_content =
-                    VideoMessageEventContent::plain(body.to_owned(), url).info(Box::new(info));
+                    VideoMessageEventContent::plain(body, url).info(Box::new(info));
                 video_message_event_content.filename = filename;
                 video_message_event_content.formatted = config.formatted_caption;
                 MessageType::Video(video_message_event_content)
@@ -544,7 +550,7 @@ impl Media {
                     thumbnail_info
                 });
                 let mut file_message_event_content =
-                    FileMessageEventContent::plain(body.to_owned(), url).info(Box::new(info));
+                    FileMessageEventContent::plain(body, url).info(Box::new(info));
                 file_message_event_content.filename = filename;
                 file_message_event_content.formatted = config.formatted_caption;
                 MessageType::File(file_message_event_content)

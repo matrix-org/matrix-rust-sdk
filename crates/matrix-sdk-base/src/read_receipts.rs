@@ -449,8 +449,6 @@ fn events_intersects<'a>(
 /// that has been just received for an event that came in a previous sync.
 ///
 /// See this module's documentation for more information.
-///
-/// Returns a boolean indicating if a field changed value in the read receipts.
 #[instrument(skip_all, fields(room_id = %room_id))]
 pub(crate) fn compute_unread_counts(
     user_id: &UserId,

@@ -32,7 +32,8 @@ use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{Client, SlidingSync, LEASE_DURATION_MS};
-use ruma::{api::client::sync::sync_events::v4, assign};
+use matrix_sdk_base::sliding_sync::http;
+use ruma::assign;
 use tokio::sync::OwnedMutexGuard;
 use tracing::{debug, instrument, trace, Span};
 
@@ -104,9 +105,9 @@ impl EncryptionSyncService {
             .map_err(Error::SlidingSync)?
             //.share_pos() // TODO(bnjbvr) This is racy, needs cross-process lock :')
             .with_to_device_extension(
-                assign!(v4::ToDeviceConfig::default(), { enabled: Some(true)}),
+                assign!(http::request::ToDevice::default(), { enabled: Some(true)}),
             )
-            .with_e2ee_extension(assign!(v4::E2EEConfig::default(), { enabled: Some(true)}));
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true)}));
 
         if let Some((poll_timeout, network_timeout)) = poll_and_network_timeouts {
             builder = builder.poll_timeout(poll_timeout).network_timeout(network_timeout);

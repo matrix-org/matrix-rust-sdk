@@ -36,10 +36,13 @@ use tracing::{debug, error, info, instrument, trace};
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
     identities::device::MaybeEncryptedRoomKey,
-    olm::{InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
+    olm::{
+        InboundGroupSession, OutboundGroupSession, SenderData, SenderDataFinder, Session,
+        ShareInfo, ShareState,
+    },
     store::{Changes, CryptoStoreWrapper, Result as StoreResult, Store},
     types::events::{room::encrypted::RoomEncryptedEventContent, room_key_withheld::WithheldCode},
-    EncryptionSettings, OlmError, ReadOnlyDevice, ToDeviceRequest,
+    DeviceData, EncryptionSettings, OlmError, ToDeviceRequest,
 };
 
 #[derive(Clone, Debug)]
@@ -105,7 +108,7 @@ impl GroupSessionCache {
     }
 
     /// Returns whether any session is withheld with the given device and code.
-    fn has_session_withheld_to(&self, device: &ReadOnlyDevice, code: &WithheldCode) -> bool {
+    fn has_session_withheld_to(&self, device: &DeviceData, code: &WithheldCode) -> bool {
         self.sessions.read().unwrap().values().any(|s| s.is_withheld_to(device, code))
     }
 
@@ -211,11 +214,12 @@ impl GroupSessionManager {
         &self,
         room_id: &RoomId,
         settings: EncryptionSettings,
+        own_sender_data: SenderData,
     ) -> OlmResult<(OutboundGroupSession, InboundGroupSession)> {
         let (outbound, inbound) = self
             .store
             .static_account()
-            .create_group_session_pair(room_id, settings)
+            .create_group_session_pair(room_id, settings, own_sender_data)
             .await
             .map_err(|_| EventError::UnsupportedAlgorithm)?;
 
@@ -227,6 +231,7 @@ impl GroupSessionManager {
         &self,
         room_id: &RoomId,
         settings: EncryptionSettings,
+        own_sender_data: SenderData,
     ) -> OlmResult<(OutboundGroupSession, Option<InboundGroupSession>)> {
         let outbound_session = self.sessions.get_or_load(room_id).await;
 
@@ -234,14 +239,16 @@ impl GroupSessionManager {
         // create a new one.
         if let Some(s) = outbound_session {
             if s.expired() || s.invalidated() {
-                self.create_outbound_group_session(room_id, settings)
+                self.create_outbound_group_session(room_id, settings, own_sender_data)
                     .await
                     .map(|(o, i)| (o, i.into()))
             } else {
                 Ok((s, None))
             }
         } else {
-            self.create_outbound_group_session(room_id, settings).await.map(|(o, i)| (o, i.into()))
+            self.create_outbound_group_session(room_id, settings, own_sender_data)
+                .await
+                .map(|(o, i)| (o, i.into()))
         }
     }
 
@@ -250,17 +257,17 @@ impl GroupSessionManager {
     async fn encrypt_session_for(
         store: Arc<CryptoStoreWrapper>,
         group_session: OutboundGroupSession,
-        devices: Vec<ReadOnlyDevice>,
+        devices: Vec<DeviceData>,
     ) -> OlmResult<(
         OwnedTransactionId,
         ToDeviceRequest,
         BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
         Vec<Session>,
-        Vec<(ReadOnlyDevice, WithheldCode)>,
+        Vec<(DeviceData, WithheldCode)>,
     )> {
         // Use a named type instead of a tuple with rather long type name
         pub struct DeviceResult {
-            device: ReadOnlyDevice,
+            device: DeviceData,
             maybe_encrypted_room_key: MaybeEncryptedRoomKey,
         }
 
@@ -272,7 +279,7 @@ impl GroupSessionManager {
         // XXX is there a way to do this that doesn't involve cloning the
         // `Arc<CryptoStoreWrapper>` for each device?
         let encrypt = |store: Arc<CryptoStoreWrapper>,
-                       device: ReadOnlyDevice,
+                       device: DeviceData,
                        session: OutboundGroupSession| async move {
             let encryption_result = device.maybe_encrypt_room_key(store.as_ref(), session).await?;
 
@@ -340,10 +347,10 @@ impl GroupSessionManager {
 
     async fn encrypt_request(
         store: Arc<CryptoStoreWrapper>,
-        chunk: Vec<ReadOnlyDevice>,
+        chunk: Vec<DeviceData>,
         outbound: OutboundGroupSession,
         sessions: GroupSessionCache,
-    ) -> OlmResult<(Vec<Session>, Vec<(ReadOnlyDevice, WithheldCode)>)> {
+    ) -> OlmResult<(Vec<Session>, Vec<(DeviceData, WithheldCode)>)> {
         let (id, request, share_infos, used_sessions, no_olm) =
             Self::encrypt_session_for(store, outbound.clone(), chunk).await?;
 
@@ -372,12 +379,14 @@ impl GroupSessionManager {
         outbound: OutboundGroupSession,
         encryption_settings: EncryptionSettings,
         changes: &mut Changes,
+        sender_data: SenderData,
     ) -> OlmResult<OutboundGroupSession> {
         Ok(if should_rotate {
             let old_session_id = outbound.session_id();
 
-            let (outbound, inbound) =
-                self.create_outbound_group_session(room_id, encryption_settings).await?;
+            let (outbound, inbound) = self
+                .create_outbound_group_session(room_id, encryption_settings, sender_data)
+                .await?;
             changes.outbound_group_sessions.push(outbound.clone());
             changes.inbound_group_sessions.push(inbound);
 
@@ -397,10 +406,10 @@ impl GroupSessionManager {
 
     async fn encrypt_for_devices(
         &self,
-        recipient_devices: Vec<ReadOnlyDevice>,
+        recipient_devices: Vec<DeviceData>,
         group_session: &OutboundGroupSession,
         changes: &mut Changes,
-    ) -> OlmResult<Vec<(ReadOnlyDevice, WithheldCode)>> {
+    ) -> OlmResult<Vec<(DeviceData, WithheldCode)>> {
         // If we have some recipients, log them here.
         if !recipient_devices.is_empty() {
             #[allow(unknown_lints, clippy::unwrap_or_default)] // false positive
@@ -461,7 +470,7 @@ impl GroupSessionManager {
     fn is_withheld_to(
         &self,
         group_session: &OutboundGroupSession,
-        device: &ReadOnlyDevice,
+        device: &DeviceData,
         code: &WithheldCode,
     ) -> bool {
         // The `m.no_olm` withheld code is special because it is supposed to be sent
@@ -491,7 +500,7 @@ impl GroupSessionManager {
     fn handle_withheld_devices(
         &self,
         group_session: &OutboundGroupSession,
-        withheld_devices: Vec<(ReadOnlyDevice, WithheldCode)>,
+        withheld_devices: Vec<(DeviceData, WithheldCode)>,
     ) -> OlmResult<()> {
         // Convert a withheld code for the group session into a to-device event content.
         let to_content = |code| {
@@ -506,7 +515,7 @@ impl GroupSessionManager {
             let mut share_infos = BTreeMap::new();
 
             for (device, code) in chunk {
-                let device: ReadOnlyDevice = device;
+                let device: DeviceData = device;
                 let code: WithheldCode = code;
 
                 let user_id = device.user_id().to_owned();
@@ -638,9 +647,33 @@ impl GroupSessionManager {
         let encryption_settings = encryption_settings.into();
         let mut changes = Changes::default();
 
+        // Use our own device info to populate the SenderData that validates the
+        // InboundGroupSession that we create as a pair to the OutboundGroupSession we
+        // are sending out.
+        let account = self.store.static_account();
+        let device = self.store.get_device(account.user_id(), account.device_id()).await;
+        let own_sender_data = match device {
+            Ok(Some(device)) => {
+                SenderDataFinder::find_using_device_keys(
+                    &self.store,
+                    device.as_device_keys().clone(),
+                )
+                .await?
+            }
+            _ => {
+                error!("Unable to find our own device!");
+                SenderData::unknown()
+            }
+        };
+
         // Try to get an existing session or create a new one.
-        let (outbound, inbound) =
-            self.get_or_create_outbound_session(room_id, encryption_settings.clone()).await?;
+        let (outbound, inbound) = self
+            .get_or_create_outbound_session(
+                room_id,
+                encryption_settings.clone(),
+                own_sender_data.clone(),
+            )
+            .await?;
         tracing::Span::current().record("session_id", outbound.session_id());
 
         // Having an inbound group session here means that we created a new
@@ -663,6 +696,7 @@ impl GroupSessionManager {
                 outbound,
                 encryption_settings,
                 &mut changes,
+                own_sender_data,
             )
             .await?;
 
@@ -762,9 +796,9 @@ mod tests {
     use serde_json::{json, Value};
 
     use crate::{
-        identities::ReadOnlyDevice,
+        identities::DeviceData,
         machine::EncryptionSyncChanges,
-        olm::Account,
+        olm::{Account, SenderData},
         session_manager::{group_sessions::CollectRecipientsResult, CollectStrategy},
         types::{
             events::{
@@ -1113,7 +1147,11 @@ mod tests {
         let (outbound, _) = machine
             .inner
             .group_session_manager
-            .get_or_create_outbound_session(room_id, EncryptionSettings::default())
+            .get_or_create_outbound_session(
+                room_id,
+                EncryptionSettings::default(),
+                SenderData::unknown(),
+            )
             .await
             .expect("We should be able to create a new session");
         let history_visibility = HistoryVisibility::Joined;
@@ -1340,7 +1378,7 @@ mod tests {
         let alice_device_keys =
             device_keys_request.device_keys.unwrap().deserialize_as::<DeviceKeys>().unwrap();
         let mut alice_otks = device_keys_request.one_time_keys.iter();
-        let alice_device = ReadOnlyDevice::new(alice_device_keys, LocalTrust::Unset);
+        let alice_device = DeviceData::new(alice_device_keys, LocalTrust::Unset);
 
         {
             // Bob creates an Olm session with Alice and encrypts a message to her

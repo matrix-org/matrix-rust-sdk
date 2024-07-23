@@ -47,7 +47,7 @@ use ruma::{
             topic::RoomTopicEventContent,
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
-        sticker::StickerEventContent,
+        sticker::{StickerEventContent, SyncStickerEvent},
         AnyFullStateEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType, StateEventType,
     },
@@ -127,6 +127,9 @@ impl TimelineItemContent {
             PossibleLatestEvent::YesRoomMessage(m) => {
                 Some(Self::from_suitable_latest_event_content(m))
             }
+            PossibleLatestEvent::YesSticker(s) => {
+                Some(Self::from_suitable_latest_sticker_content(s))
+            }
             PossibleLatestEvent::YesPoll(poll) => {
                 Some(Self::from_suitable_latest_poll_event_content(poll))
             }
@@ -185,6 +188,20 @@ impl TimelineItemContent {
                 ))
             }
             SyncRoomMessageEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+        }
+    }
+
+    /// Given some sticker content that is from an event that we have already
+    /// determined is suitable for use as a latest event in a message preview,
+    /// extract its contents and wrap it as a `TimelineItemContent`.
+    fn from_suitable_latest_sticker_content(event: &SyncStickerEvent) -> TimelineItemContent {
+        match event {
+            SyncStickerEvent::Original(event) => {
+                // Grab the content of this event
+                let event_content = event.content.clone();
+                TimelineItemContent::Sticker(Sticker { content: event_content })
+            }
+            SyncStickerEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
         }
     }
 
@@ -430,6 +447,38 @@ impl RoomMembershipChange {
     /// The full content of the event.
     pub fn content(&self) -> &FullStateEventContent<RoomMemberEventContent> {
         &self.content
+    }
+
+    /// Retrieve the member's display name from the current event, or, if
+    /// missing, from the one it replaced.
+    pub fn display_name(&self) -> Option<String> {
+        if let FullStateEventContent::Original { content, prev_content } = &self.content {
+            content
+                .displayname
+                .as_ref()
+                .or_else(|| {
+                    prev_content.as_ref().and_then(|prev_content| prev_content.displayname.as_ref())
+                })
+                .cloned()
+        } else {
+            None
+        }
+    }
+
+    /// Retrieve the avatar URL from the current event, or, if missing, from the
+    /// one it replaced.
+    pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
+        if let FullStateEventContent::Original { content, prev_content } = &self.content {
+            content
+                .avatar_url
+                .as_ref()
+                .or_else(|| {
+                    prev_content.as_ref().and_then(|prev_content| prev_content.avatar_url.as_ref())
+                })
+                .cloned()
+        } else {
+            None
+        }
     }
 
     /// The membership change induced by this event.

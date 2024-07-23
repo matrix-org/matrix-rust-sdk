@@ -57,23 +57,6 @@ impl EventBuilder {
         self.next_ts.store(value, SeqCst);
     }
 
-    pub fn make_message_event_with_id<C: MessageLikeEventContent>(
-        &self,
-        sender: &UserId,
-        room_id: &RoomId,
-        event_id: &EventId,
-        content: C,
-    ) -> Raw<AnyTimelineEvent> {
-        timeline_event!({
-            "type": content.event_type(),
-            "content": content,
-            "event_id": event_id,
-            "sender": sender,
-            "room_id": room_id,
-            "origin_server_ts": self.next_server_ts(),
-        })
-    }
-
     pub fn make_state_event<C: StateEventContent>(
         &self,
         sender: &UserId,
@@ -233,42 +216,6 @@ impl EventBuilder {
         }
 
         ev_content
-    }
-
-    pub fn make_redaction_event(
-        &self,
-        sender: &UserId,
-        redacts: &EventId,
-    ) -> Raw<AnySyncTimelineEvent> {
-        sync_timeline_event!({
-            "type": "m.room.redaction",
-            "content": {},
-            "redacts": redacts,
-            "event_id": EventId::new(server_name!("dummy.server")),
-            "sender": sender,
-            "origin_server_ts": self.next_server_ts(),
-        })
-    }
-
-    pub fn make_reaction_event(
-        &self,
-        sender: &UserId,
-        event_id: &EventId,
-        annotation: &Annotation,
-    ) -> Raw<AnySyncTimelineEvent> {
-        sync_timeline_event!({
-            "type": "m.reaction",
-            "content": {
-                "m.relates_to": {
-                    "rel_type": "m.annotation",
-                    "event_id": annotation.event_id,
-                    "key": annotation.key,
-                },
-            },
-            "event_id": event_id,
-            "sender": sender,
-            "origin_server_ts": self.next_server_ts(),
-        })
     }
 
     fn make_redacted_unsigned(&self, sender: &UserId) -> JsonValue {

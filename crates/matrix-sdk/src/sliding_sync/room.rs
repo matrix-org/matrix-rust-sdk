@@ -4,8 +4,8 @@ use std::{
 };
 
 use eyeball_im::Vector;
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
-use ruma::{api::client::sync::sync_events::v4, OwnedRoomId, RoomId};
+use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, sliding_sync::http};
+use ruma::{OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
 
 use crate::Client;
@@ -81,10 +81,10 @@ impl SlidingSyncRoom {
 
     pub(super) fn update(
         &mut self,
-        room_data: v4::SlidingSyncRoom,
+        room_data: http::response::Room,
         timeline_updates: Vec<SyncTimelineEvent>,
     ) {
-        let v4::SlidingSyncRoom { prev_batch, limited, .. } = room_data;
+        let http::response::Room { prev_batch, limited, .. } = room_data;
 
         {
             if let Some(prev_batch) = &prev_batch {
@@ -230,14 +230,11 @@ mod tests {
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
-    use ruma::{
-        api::client::sync::sync_events::v4, events::room::message::RoomMessageEventContent,
-        room_id, serde::Raw, RoomId,
-    };
+    use ruma::{events::room::message::RoomMessageEventContent, room_id, serde::Raw, RoomId};
     use serde_json::json;
     use wiremock::MockServer;
 
-    use super::NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE;
+    use super::{http, NUMBER_OF_TIMELINE_EVENTS_TO_KEEP_FOR_THE_CACHE};
     use crate::{
         sliding_sync::{FrozenSlidingSyncRoom, SlidingSyncRoom, SlidingSyncRoomState},
         test_utils::logged_in_client,
@@ -245,19 +242,19 @@ mod tests {
 
     macro_rules! room_response {
         ( $( $json:tt )+ ) => {
-            serde_json::from_value::<v4::SlidingSyncRoom>(
+            serde_json::from_value::<http::response::Room>(
                 json!( $( $json )+ )
             ).unwrap()
         };
     }
 
-    async fn new_room(room_id: &RoomId, inner: v4::SlidingSyncRoom) -> SlidingSyncRoom {
+    async fn new_room(room_id: &RoomId, inner: http::response::Room) -> SlidingSyncRoom {
         new_room_with_timeline(room_id, inner, vec![]).await
     }
 
     async fn new_room_with_timeline(
         room_id: &RoomId,
-        inner: v4::SlidingSyncRoom,
+        inner: http::response::Room,
         timeline: Vec<SyncTimelineEvent>,
     ) -> SlidingSyncRoom {
         let server = MockServer::start().await;

@@ -26,7 +26,7 @@ use crate::{
         CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, Signatures, SigningKeys,
         UserSigningPubkey,
     },
-    ReadOnlyUserIdentity,
+    OtherUserIdentityData,
 };
 
 /// Error type reporting failures in the signing operations.
@@ -227,7 +227,7 @@ impl UserSigning {
 
     pub fn sign_user(
         &self,
-        user: &ReadOnlyUserIdentity,
+        user: &OtherUserIdentityData,
     ) -> Result<CrossSigningKey, SignatureError> {
         let signatures = self.sign_user_helper(user)?;
         let mut master_key = user.master_key().as_ref().clone();
@@ -239,7 +239,7 @@ impl UserSigning {
 
     pub fn sign_user_helper(
         &self,
-        user: &ReadOnlyUserIdentity,
+        user: &OtherUserIdentityData,
     ) -> Result<Signatures, SignatureError> {
         let user_master: &CrossSigningKey = user.master_key().as_ref();
         let signature = self.inner.sign_json(serde_json::to_value(user_master)?)?;

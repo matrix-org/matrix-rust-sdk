@@ -19,9 +19,13 @@ use as_variant::as_variant;
 use content::{InReplyToDetails, RepliedToEventDetails};
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt as _};
-use matrix_sdk::attachment::{
-    AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
-    BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
+use matrix_sdk::{
+    attachment::{
+        AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
+        BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
+    },
+    deserialized_responses::ShieldState as RustShieldState,
+    Error,
 };
 use matrix_sdk_ui::timeline::{
     EventItemOrigin, LiveBackPaginationStatus, Profile, RepliedToEvent, TimelineDetails,
@@ -472,8 +476,6 @@ impl Timeline {
 
     /// Edits an event from the timeline.
     ///
-    /// Only works for events that exist as timeline items.
-    ///
     /// If it was a local event, this will *try* to edit it, if it was not
     /// being sent already. If the event was a remote event, then it will be
     /// redacted by sending an edit request to the server.
@@ -485,24 +487,7 @@ impl Timeline {
         item: Arc<EventTimelineItem>,
         new_content: Arc<RoomMessageEventContentWithoutRelation>,
     ) -> Result<bool, ClientError> {
-        let edit_info = item.0.edit_info().map_err(ClientError::from)?;
-
-        self.inner.edit((*new_content).clone(), edit_info).await.map_err(ClientError::from)
-    }
-
-    /// Edit an event given its event id. Useful when we're not sure a remote
-    /// timeline event has been fetched by the timeline.
-    pub async fn edit_by_event_id(
-        &self,
-        event_id: String,
-        new_content: Arc<RoomMessageEventContentWithoutRelation>,
-    ) -> Result<(), ClientError> {
-        let event_id = EventId::parse(event_id)?;
-        let edit_info =
-            self.inner.edit_info_from_event_id(&event_id).await.map_err(ClientError::from)?;
-
-        self.inner.edit((*new_content).clone(), edit_info).await.map_err(ClientError::from)?;
-        Ok(())
+        self.inner.edit(&item.0, (*new_content).clone()).await.map_err(ClientError::from)
     }
 
     pub async fn edit_poll(
@@ -596,7 +581,7 @@ impl Timeline {
         let transaction_id: OwnedTransactionId = transaction_id.into();
         let item = self
             .inner
-            .item_by_transaction_id(&transaction_id)
+            .local_item_by_transaction_id(&transaction_id)
             .await
             .context("Item with given transaction ID not found")?;
         Ok(Arc::new(EventTimelineItem(item)))
@@ -636,23 +621,29 @@ impl Timeline {
     ) -> Result<InReplyToDetails, ClientError> {
         let event_id = EventId::parse(&event_id_str)?;
 
-        match self.inner.room().event(&event_id).await {
-            Ok(timeline_event) => {
-                let replied_to = RepliedToEvent::try_from_timeline_event_for_room(
-                    timeline_event,
-                    self.inner.room(),
-                )
-                .await?;
+        let replied_to: Result<RepliedToEvent, Error> =
+            if let Some(event) = self.inner.item_by_event_id(&event_id).await {
+                Ok(RepliedToEvent::from_timeline_item(&event))
+            } else {
+                match self.inner.room().event(&event_id).await {
+                    Ok(timeline_event) => Ok(RepliedToEvent::try_from_timeline_event_for_room(
+                        timeline_event,
+                        self.inner.room(),
+                    )
+                    .await?),
+                    Err(e) => Err(e),
+                }
+            };
 
-                Ok(InReplyToDetails::new(
-                    event_id_str,
-                    RepliedToEventDetails::Ready {
-                        content: Arc::new(TimelineItemContent(replied_to.content().clone())),
-                        sender: replied_to.sender().to_string(),
-                        sender_profile: replied_to.sender_profile().into(),
-                    },
-                ))
-            }
+        match replied_to {
+            Ok(replied_to) => Ok(InReplyToDetails::new(
+                event_id_str,
+                RepliedToEventDetails::Ready {
+                    content: Arc::new(TimelineItemContent(replied_to.content().clone())),
+                    sender: replied_to.sender().to_string(),
+                    sender_profile: replied_to.sender_profile().into(),
+                },
+            )),
 
             Err(e) => Ok(InReplyToDetails::new(
                 event_id_str,
@@ -751,7 +742,6 @@ impl TimelineDiff {
             VectorDiff::PopBack => Self::PopBack,
             VectorDiff::PopFront => Self::PopFront,
             VectorDiff::Reset { values } => {
-                warn!("Timeline subscriber lagged behind and was reset");
                 Self::Reset { values: values.into_iter().map(TimelineItem::from_arc).collect() }
             }
         }
@@ -913,6 +903,30 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
     }
 }
 
+/// Recommended decorations for decrypted messages, representing the message's
+/// authenticity properties.
+#[derive(uniffi::Enum)]
+pub enum ShieldState {
+    /// A red shield with a tooltip containing the associated message should be
+    /// presented.
+    Red { message: String },
+    /// A grey shield with a tooltip containing the associated message should be
+    /// presented.
+    Grey { message: String },
+    /// No shield should be presented.
+    None,
+}
+
+impl From<RustShieldState> for ShieldState {
+    fn from(value: RustShieldState) -> Self {
+        match value {
+            RustShieldState::Red { message } => Self::Red { message: message.to_owned() },
+            RustShieldState::Grey { message } => Self::Grey { message: message.to_owned() },
+            RustShieldState::None => Self::None,
+        }
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct EventTimelineItem(pub(crate) matrix_sdk_ui::timeline::EventTimelineItem);
 
@@ -998,6 +1012,12 @@ impl EventTimelineItem {
 
     pub fn can_be_replied_to(&self) -> bool {
         self.0.can_be_replied_to()
+    }
+
+    /// Gets the [`ShieldState`] which can be used to decorate messages in the
+    /// recommended way.
+    pub fn get_shield(&self, strict: bool) -> Option<ShieldState> {
+        self.0.get_shield(strict).map(Into::into)
     }
 }
 

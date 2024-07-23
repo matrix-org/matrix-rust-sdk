@@ -244,8 +244,7 @@ impl ClientWrapper {
             room.send(RoomMessageEventContent::text_plain(message.to_owned()))
                 .await
                 .expect("Sending message failed")
-                .event_id
-                .to_owned(),
+                .event_id,
             message.to_owned(),
         )
     }
