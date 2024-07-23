@@ -651,6 +651,26 @@ impl Timeline {
             )),
         }
     }
+
+    /// Adds a new pinned event by sending an updated `m.room.pinned_events`
+    /// event containing the new event id.
+    ///
+    /// Returns `true` if we sent the request, `false` if the event was already
+    /// pinned.
+    async fn pin_event(&self, event_id: String) -> Result<bool, ClientError> {
+        let event_id = EventId::parse(event_id).map_err(ClientError::from)?;
+        self.inner.pin_event(&event_id).await.map_err(ClientError::from)
+    }
+
+    /// Adds a new pinned event by sending an updated `m.room.pinned_events`
+    /// event without the event id we want to remove.
+    ///
+    /// Returns `true` if we sent the request, `false` if the event wasn't
+    /// pinned
+    async fn unpin_event(&self, event_id: String) -> Result<bool, ClientError> {
+        let event_id = EventId::parse(event_id).map_err(ClientError::from)?;
+        self.inner.unpin_event(&event_id).await.map_err(ClientError::from)
+    }
 }
 
 #[derive(uniffi::Object)]
