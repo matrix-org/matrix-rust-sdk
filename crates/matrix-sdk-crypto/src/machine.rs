@@ -1548,11 +1548,17 @@ impl OlmMachine {
         self.get_encryption_info(&session, &event.sender).await
     }
 
+    /// Check whether the sender of a Megolm session is trusted.
+    ///
+    /// Checks that the device is cross-signed, that the sender's identity is
+    /// cross-signed, and that the sender's identity is pinned.  If
+    /// `require_verified` is `true`, then also checks if we have verified the
+    /// sender's identity
     async fn check_sender_trusted(
         &self,
         sender_key: Curve25519PublicKey,
         sender: &UserId,
-        require_trusted: bool,
+        require_verified: bool,
     ) -> MegolmResult<()> {
         let Some(device) = self.inner.store.get_device_from_curve_key(sender, sender_key).await? else {
             return Err(MegolmError::SenderCrossSigningIdentityUnknown)
@@ -1567,7 +1573,7 @@ impl OlmMachine {
             // if we get here, the device (that claims to be ours) wasn't
             // cross-signed by us, so we reject it
             Err(MegolmError::SenderCrossSigningIdentityUnknown)
-        } else if require_trusted {
+        } else if require_verified {
             Err(MegolmError::SenderCrossSigningUntrusted)
         } else {
             // we don't require the sender to be trusted, but we require that
@@ -1581,6 +1587,8 @@ impl OlmMachine {
         }
     }
 
+    /// Check that the sender of a Megolm session satisfies the trust
+    /// requirement from the decryption settings.
     async fn check_sender_trust_requirement(
         &self,
         session: &InboundGroupSession,
