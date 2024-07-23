@@ -1555,15 +1555,12 @@ impl OlmMachine {
         require_trusted: bool,
     ) -> MegolmResult<()> {
         let Some(device) = self.inner.store.get_device_from_curve_key(sender, sender_key).await? else {
-            debug!("1");
             return Err(MegolmError::SenderCrossSigningIdentityUnknown)
         };
         if !device.is_cross_signed_by_owner() {
-            debug!("2");
             return Err(MegolmError::SenderCrossSigningIdentityUnknown)
         }
         if device.is_cross_signing_trusted() {
-            debug!("3");
             return Ok(())
         }
         if sender == self.inner.user_id {
@@ -1571,10 +1568,8 @@ impl OlmMachine {
             // cross-signed by us, so we reject it
             Err(MegolmError::SenderCrossSigningIdentityUnknown)
         } else if require_trusted {
-            debug!("4");
             Err(MegolmError::SenderCrossSigningUntrusted)
         } else {
-            debug!("5");
             // we don't require the sender to be trusted, but we require that
             // the sender's identity matches their pinned identity
             let identity = device.device_owner_identity.expect("Cross-signed device must have owner identity");
