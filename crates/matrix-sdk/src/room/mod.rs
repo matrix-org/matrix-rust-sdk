@@ -2332,6 +2332,17 @@ impl Room {
         Ok(self.room_power_levels().await?.user_can_send_message(user_id, message))
     }
 
+    /// Returns true if the user with the given user_id is able to pin or unpin
+    /// events in the room.
+    ///
+    /// The call may fail if there is an error in getting the power levels.
+    pub async fn can_user_pin_unpin(&self, user_id: &UserId) -> Result<bool> {
+        Ok(self
+            .room_power_levels()
+            .await?
+            .user_can_send_state(user_id, StateEventType::RoomPinnedEvents))
+    }
+
     /// Returns true if the user with the given user_id is able to trigger a
     /// notification in the room.
     ///
