@@ -522,6 +522,11 @@ impl Room {
         Ok(self.inner.can_user_send_message(&user_id, message.into()).await?)
     }
 
+    pub async fn can_user_pin_unpin(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_pin_unpin(&user_id).await?)
+    }
+
     pub async fn can_user_trigger_room_notification(
         &self,
         user_id: String,
