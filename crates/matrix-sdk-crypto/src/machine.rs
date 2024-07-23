@@ -1394,11 +1394,8 @@ impl OlmMachine {
         session: &InboundGroupSession,
         sender: &UserId,
     ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
-        let claimed_device = self
-            .get_user_devices(sender, None)
-            .await?
-            .devices()
-            .find(|d| d.curve25519_key() == Some(session.sender_key()));
+        let claimed_device =
+            self.store().get_device_from_curve_key(sender, session.sender_key()).await?;
 
         Ok(match claimed_device {
             None => {
