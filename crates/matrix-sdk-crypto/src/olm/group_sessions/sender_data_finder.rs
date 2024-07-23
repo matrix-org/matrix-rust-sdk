@@ -21,7 +21,7 @@ use crate::{
     error::{OlmResult, SessionCreationError},
     store::Store,
     types::{events::olm_v1::DecryptedRoomKeyEvent, DeviceKeys},
-    Device, DeviceData, OlmError,
+    CryptoStoreError, Device, DeviceData, OlmError,
 };
 
 /// Temporary struct that is used to look up [`SenderData`] based on the
@@ -151,7 +151,7 @@ impl<'a> SenderDataFinder<'a> {
             self.have_device_keys(sender_device_keys).await
         } else {
             // No: look for the device in the store
-            self.search_for_device(sender_curve_key, &room_key_event.sender).await
+            Ok(self.search_for_device(sender_curve_key, &room_key_event.sender).await?)
         }
     }
 
@@ -160,14 +160,14 @@ impl<'a> SenderDataFinder<'a> {
         &self,
         sender_curve_key: Curve25519PublicKey,
         sender_user_id: &UserId,
-    ) -> OlmResult<SenderData> {
+    ) -> Result<SenderData, CryptoStoreError> {
         // Does the locally-cached (in the store) devices list contain a device with the
         // curve key of the sender of the to-device message?
         if let Some(sender_device) =
             self.store.get_device_from_curve_key(sender_user_id, sender_curve_key).await?
         {
             // Yes: use the device to continue
-            self.have_device(sender_device)
+            Ok(self.have_device(sender_device))
         } else {
             // Step C (we don't know the sending device)
             //
@@ -192,7 +192,7 @@ impl<'a> SenderDataFinder<'a> {
             Ok(sender_device_data) => {
                 let sender_device = self.store.wrap_device_data(sender_device_data).await?;
 
-                self.have_device(sender_device)
+                Ok(self.have_device(sender_device))
             }
             Err(e) => {
                 // The device keys supplied did not validate.
@@ -202,7 +202,7 @@ impl<'a> SenderDataFinder<'a> {
     }
 
     /// Step D (we have a device)
-    fn have_device(&self, sender_device: Device) -> OlmResult<SenderData> {
+    fn have_device(&self, sender_device: Device) -> SenderData {
         // Is the device cross-signed?
         // Does the cross-signing key match that used to sign the device?
         // And is the signature in the device valid?
@@ -212,16 +212,16 @@ impl<'a> SenderDataFinder<'a> {
             self.device_is_cross_signed_by_sender(sender_device)
         } else {
             // No: F (we have device keys, but they are not signed by the sender)
-            Ok(SenderData::DeviceInfo {
+            SenderData::DeviceInfo {
                 device_keys: sender_device.as_device_keys().clone(),
                 retry_details: SenderDataRetryDetails::retry_soon(),
                 legacy_session: true, // TODO: change to false when we have all the retry code
-            })
+            }
         }
     }
 
     /// Step G (device is cross-signed by the sender)
-    fn device_is_cross_signed_by_sender(&self, sender_device: Device) -> OlmResult<SenderData> {
+    fn device_is_cross_signed_by_sender(&self, sender_device: Device) -> SenderData {
         // H (cross-signing key matches that used to sign the device!)
         let user_id = sender_device.user_id().to_owned();
 
@@ -233,18 +233,18 @@ impl<'a> SenderDataFinder<'a> {
         if let Some(master_key) = master_key {
             // We have user_id and master_key for the user sending the to-device message.
             let master_key_verified = sender_device.is_cross_signing_trusted();
-            Ok(SenderData::SenderKnown { user_id, master_key, master_key_verified })
+            SenderData::SenderKnown { user_id, master_key, master_key_verified }
         } else {
             // Surprisingly, there was no key in the MasterPubkey. We did not expect this:
             // treat it as if the device was not signed by this master key.
             //
             error!("MasterPubkey for user {user_id} does not contain any keys!",);
 
-            Ok(SenderData::DeviceInfo {
+            SenderData::DeviceInfo {
                 device_keys: sender_device.as_device_keys().clone(),
                 retry_details: SenderDataRetryDetails::retry_soon(),
                 legacy_session: true, // TODO: change to false when retries etc. are done
-            })
+            }
         }
     }
 }
