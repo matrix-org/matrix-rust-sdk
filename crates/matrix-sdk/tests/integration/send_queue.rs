@@ -10,8 +10,10 @@ use std::{
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
     config::{RequestConfig, StoreConfig},
-    send_queue::{LocalEcho, RoomSendQueueError, RoomSendQueueUpdate},
-    test_utils::{logged_in_client, logged_in_client_with_server, set_client_session},
+    send_queue::{LocalEcho, LocalEchoContent, RoomSendQueueError, RoomSendQueueUpdate},
+    test_utils::{
+        events::EventFactory, logged_in_client, logged_in_client_with_server, set_client_session,
+    },
     Client, MemoryStore,
 };
 use matrix_sdk_test::{async_test, InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder};
@@ -26,7 +28,10 @@ use ruma::{
     EventId, OwnedEventId,
 };
 use serde_json::json;
-use tokio::{sync::Mutex, time::timeout};
+use tokio::{
+    sync::Mutex,
+    time::{sleep, timeout},
+};
 use wiremock::{
     matchers::{header, method, path_regex},
     Mock, Request, ResponseTemplate,
@@ -59,11 +64,13 @@ macro_rules! assert_update {
     ($watch:ident => local echo { body = $body:expr }) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
-                serialized_event,
+                content: LocalEchoContent::Event {
+                    serialized_event,
+                    send_handle,
+                    // New local echoes should always start as not wedged.
+                    is_wedged: false,
+                },
                 transaction_id: txn,
-                send_handle,
-                // New local echoes should always start as not wedged.
-                is_wedged: false,
             }))) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
 
@@ -329,9 +336,8 @@ async fn test_smoke_raw() {
 
     assert_let!(
         Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
-            serialized_event,
+            content: LocalEchoContent::Event { serialized_event, .. },
             transaction_id: txn1,
-            ..
         }))) = timeout(Duration::from_secs(1), watch.recv()).await
     );
 
@@ -429,7 +435,7 @@ async fn test_error_then_locally_reenabling() {
     let error = error.as_client_api_error().unwrap();
     assert_eq!(error.status_code, 500);
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    sleep(Duration::from_millis(50)).await;
 
     assert!(watch.is_empty());
 
@@ -584,7 +590,7 @@ async fn test_reenabling_queue() {
     assert!(watch.is_empty());
 
     // Messages aren't sent immediately.
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    sleep(Duration::from_millis(500)).await;
 
     assert!(watch.is_empty());
 
@@ -729,6 +735,15 @@ async fn test_cancellation() {
         .mount(&server)
         .await;
 
+    // The redact of txn1 will happen because we asked for it previously.
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"event_id": "$1"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
     let handle1 = q.send(RoomMessageEventContent::text_plain("msg1").into()).await.unwrap();
     let handle2 = q.send(RoomMessageEventContent::text_plain("msg2").into()).await.unwrap();
     q.send(RoomMessageEventContent::text_plain("msg3").into()).await.unwrap();
@@ -746,8 +761,9 @@ async fn test_cancellation() {
     // Let the background task start now.
     tokio::task::yield_now().await;
 
-    // The first item is already being sent, so we can't abort it.
-    assert!(!handle1.abort().await.unwrap());
+    // While the first item is being sent, the system records the intent to edit it.
+    assert!(handle1.abort().await.unwrap());
+    assert_update!(watch => cancelled { txn = txn1 });
     assert!(watch.is_empty());
 
     // The second item is pending, so we can abort it, using the handle returned by
@@ -772,8 +788,9 @@ async fn test_cancellation() {
     let local_echo4 = local_echoes.remove(1);
     assert_eq!(local_echo4.transaction_id, txn4, "local echoes: {local_echoes:?}");
 
-    let handle4 = local_echo4.send_handle;
-
+    let LocalEchoContent::Event { send_handle: handle4, .. } = local_echo4.content else {
+        panic!("unexpected local echo content");
+    };
     assert!(handle4.abort().await.unwrap());
     assert_update!(watch => cancelled { txn = txn4 });
     assert!(watch.is_empty());
@@ -794,6 +811,10 @@ async fn test_edit() {
     // would work here too similarly.
 
     let (client, server) = logged_in_client_with_server().await;
+
+    // TODO: (#3722) if the event cache isn't available, then making the edit event
+    // will fail.
+    client.event_cache().subscribe().unwrap();
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
@@ -846,7 +867,27 @@ async fn test_edit() {
                 "event_id": event_id,
             }))
         })
-        .expect(2)
+        .expect(3)
+        .mount(&server)
+        .await;
+
+    // The /event endpoint is used to retrieve the original event, during creation
+    // of the edit event.
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                EventFactory::new()
+                    .text_msg("msg1")
+                    .sender(client.user_id().unwrap())
+                    .room(room_id)
+                    .into_raw_timeline()
+                    .json(),
+            ),
+        )
+        .expect(1)
+        .named("get_event")
         .mount(&server)
         .await;
 
@@ -861,12 +902,13 @@ async fn test_edit() {
     // Let the background task start now.
     tokio::task::yield_now().await;
 
-    // The first item is already being sent, so we can't edit it.
-    assert!(!handle1
-        .edit(RoomMessageEventContent::text_plain("it's too late!").into())
+    // While the first item is being sent, the system remembers the intent to edit
+    // it, and will send it later.
+    assert!(handle1
+        .edit(RoomMessageEventContent::text_plain("it's never too late!").into())
         .await
         .unwrap());
-    assert!(watch.is_empty());
+    assert_update!(watch => edit { body = "it's never too late!", txn = txn1 });
 
     // The second item is pending, so we can edit it, using the handle returned by
     // `send()`.
@@ -883,7 +925,106 @@ async fn test_edit() {
     // Now the server will process the messages in order.
     assert_update!(watch => sent { txn = txn1, });
     assert_update!(watch => sent { txn = txn2, });
+
+    // Let a bit of time to process the edit event sent to the server for txn1.
+    assert_update!(watch => sent {});
+
     assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_edit_while_being_sent_and_fails() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    // TODO: (#3722) if the event cache isn't available, then making the edit event
+    // will fail.
+    client.event_cache().subscribe().unwrap();
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    let lock = Arc::new(Mutex::new(()));
+    let lock_guard = lock.lock().await;
+
+    let mock_lock = lock.clone();
+
+    mock_encryption_state(&server, false).await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(move |_req: &Request| {
+            // Wait for the signal from the main thread that we can process this query.
+            let mock_lock = mock_lock.clone();
+            std::thread::spawn(move || {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    drop(mock_lock.lock().await);
+                });
+            })
+            .join()
+            .unwrap();
+
+            ResponseTemplate::new(500)
+        })
+        .expect(3) // reattempts, because of short_retry()
+        .mount(&server)
+        .await;
+
+    let handle = q.send(RoomMessageEventContent::text_plain("yo").into()).await.unwrap();
+
+    // Receiving updates for local echoes.
+    let (txn1, _) = assert_update!(watch => local echo { body = "yo" });
+    assert!(watch.is_empty());
+
+    // Let the background task start now.
+    tokio::task::yield_now().await;
+
+    // While the first item is being sent, the system remembers the intent to edit
+    // it, and will send it later.
+    assert!(handle
+        .edit(RoomMessageEventContent::text_plain("it's never too late!").into())
+        .await
+        .unwrap());
+    assert_update!(watch => edit { body = "it's never too late!", txn = txn1 });
+
+    // Let the server process the responses.
+    drop(lock_guard);
+
+    // Now the server will process the messages in order.
+    assert_update!(watch => error { recoverable = true, txn = txn1 });
+
+    assert!(watch.is_empty());
+
+    // Looking back at the local echoes will indicate a local echo for `it's never
+    // too late`.
+    let (local_echoes, _) = q.subscribe().await.unwrap();
+    assert_eq!(local_echoes.len(), 1);
+    assert_eq!(local_echoes[0].transaction_id, txn1);
+
+    let LocalEchoContent::Event { serialized_event, .. } = &local_echoes[0].content else {
+        panic!("unexpected local echo content")
+    };
+    let event = serialized_event.deserialize().unwrap();
+
+    assert_let!(AnyMessageLikeEventContent::RoomMessage(msg) = event);
+    assert_eq!(msg.body(), "it's never too late!");
 }
 
 #[async_test]
@@ -1066,6 +1207,85 @@ async fn test_abort_or_edit_after_send() {
     assert!(handle.abort().await.unwrap().not());
 
     assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_abort_while_being_sent_and_fails() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    let lock = Arc::new(Mutex::new(()));
+    let lock_guard = lock.lock().await;
+
+    let mock_lock = lock.clone();
+
+    mock_encryption_state(&server, false).await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(move |_req: &Request| {
+            // Wait for the signal from the main thread that we can process this query.
+            let mock_lock = mock_lock.clone();
+            std::thread::spawn(move || {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    drop(mock_lock.lock().await);
+                });
+            })
+            .join()
+            .unwrap();
+
+            ResponseTemplate::new(500)
+        })
+        .expect(3) // reattempts, because of short_retry()
+        .mount(&server)
+        .await;
+
+    let handle = q.send(RoomMessageEventContent::text_plain("yo").into()).await.unwrap();
+
+    // Receiving updates for local echoes.
+    let (txn1, _) = assert_update!(watch => local echo { body = "yo" });
+    assert!(watch.is_empty());
+
+    // Let the background task start now.
+    tokio::task::yield_now().await;
+
+    // While the item is being sent, the system remembers the intent to redact it
+    // later.
+    assert!(handle.abort().await.unwrap());
+    assert_update!(watch => cancelled { txn = txn1 });
+
+    // Let the server process the responses.
+    drop(lock_guard);
+
+    // Now the server will process the messages in order.
+    assert_update!(watch => error { recoverable = true, txn = txn1 });
+
+    assert!(watch.is_empty());
+
+    // Looking back at the local echoes will indicate a local echo for `it's never
+    // too late`.
+    let (local_echoes, _) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
 }
 
 #[async_test]
@@ -1271,7 +1491,7 @@ async fn test_reloading_rooms_with_unsent_events() {
         .unwrap();
 
     // No errors, because the queue has been disabled.
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    sleep(Duration::from_millis(300)).await;
     assert!(watch.is_empty());
 
     server.reset().await;
@@ -1281,7 +1501,7 @@ async fn test_reloading_rooms_with_unsent_events() {
         drop(watch);
         drop(q);
         drop(client);
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(1)).await;
     }
 
     // Create a new client with the same memory backend. As the send queues are
@@ -1318,7 +1538,7 @@ async fn test_reloading_rooms_with_unsent_events() {
     client.send_queue().respawn_tasks_for_rooms_with_unsent_events().await;
 
     // Let the sending queues process events.
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    sleep(Duration::from_secs(1)).await;
 
     // The real assertion is on the expect(2) on the above Mock.
     server.verify().await;
