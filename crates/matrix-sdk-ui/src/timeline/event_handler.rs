@@ -62,7 +62,8 @@ use super::{
     TimelineDetails, TimelineItem, TimelineItemContent,
 };
 use crate::{
-    events::SyncTimelineEventWithoutContent, timeline::event_item::ReactionInfo,
+    events::SyncTimelineEventWithoutContent,
+    timeline::{event_item::ReactionInfo, reactions::PendingReaction},
     DEFAULT_SANITIZER_MODE,
 };
 
@@ -547,6 +548,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         };
 
+        let reaction_sender_data = ReactionSenderData {
+            sender_id: self.ctx.sender.clone(),
+            timestamp: self.ctx.timestamp,
+        };
+
         if let Some((idx, event_item)) = rfind_event_by_id(self.items, reacted_to_event_id) {
             let Some(remote_event_item) = event_item.as_remote() else {
                 error!("received reaction to a local echo");
@@ -580,12 +586,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 return;
             };
 
-            self.meta
-                .reactions
-                .pending
-                .entry(reacted_to_event_id.to_owned())
-                .or_default()
-                .insert(reaction_event_id);
+            self.meta.reactions.pending.entry(reacted_to_event_id.to_owned()).or_default().insert(
+                reaction_event_id,
+                PendingReaction {
+                    key: c.relates_to.key.clone(),
+                    sender_data: reaction_sender_data.clone(),
+                },
+            );
         }
 
         if let Some(txn_id) = old_txn_id {
@@ -595,16 +602,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             self.meta.reactions.map.remove(&TimelineEventItemId::TransactionId(txn_id.clone()));
         }
 
-        self.meta.reactions.map.insert(
-            reaction_id,
-            (
-                ReactionSenderData {
-                    sender_id: self.ctx.sender.clone(),
-                    timestamp: self.ctx.timestamp,
-                },
-                c.relates_to,
-            ),
-        );
+        self.meta.reactions.map.insert(reaction_id, (reaction_sender_data, c.relates_to));
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
@@ -1015,23 +1013,16 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let reactions = self.meta.reactions.pending.remove(event_id)?;
                 let mut bundled = IndexMap::new();
 
-                for reaction_event_id in reactions {
-                    let reaction_id = TimelineEventItemId::EventId(reaction_event_id);
-                    let Some((reaction_sender_data, annotation)) =
-                        self.meta.reactions.map.get(&reaction_id)
-                    else {
-                        error!(
-                            "inconsistent state: reaction from pending_reactions not in reaction_map"
-                        );
-                        continue;
-                    };
-
+                for (reaction_event_id, reaction) in reactions {
                     let group: &mut IndexMap<OwnedUserId, ReactionInfo> =
-                        bundled.entry(annotation.key.clone()).or_default();
+                        bundled.entry(reaction.key).or_default();
 
                     group.insert(
-                        reaction_sender_data.sender_id.clone(),
-                        ReactionInfo { timestamp: reaction_sender_data.timestamp, id: reaction_id },
+                        reaction.sender_data.sender_id,
+                        ReactionInfo {
+                            timestamp: reaction.sender_data.timestamp,
+                            id: TimelineEventItemId::EventId(reaction_event_id),
+                        },
                     );
                 }
 
