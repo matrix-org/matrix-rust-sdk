@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 use ruma::{
     events::relation::Annotation, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId,
     OwnedUserId,
@@ -62,7 +62,7 @@ pub(super) enum ReactionState {
 /// Data associated with a reaction sender. It can be used to display
 /// a details UI component for a reaction with both sender
 /// names and the date at which they sent a reaction.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ReactionSenderData {
     /// Sender identifier.
     pub sender_id: OwnedUserId,
@@ -70,13 +70,19 @@ pub struct ReactionSenderData {
     pub timestamp: MilliSecondsSinceUnixEpoch,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct PendingReaction {
+    pub key: String,
+    pub sender_data: ReactionSenderData,
+}
+
 #[derive(Clone, Debug, Default)]
 pub(super) struct Reactions {
     /// Reaction event / txn ID => sender and reaction data.
     pub map: HashMap<TimelineEventItemId, (ReactionSenderData, Annotation)>,
-    /// ID of event that is not in the timeline yet => List of reaction event
-    /// IDs.
-    pub pending: HashMap<OwnedEventId, IndexSet<OwnedEventId>>,
+    /// Mapping of events that are not in the timeline => reaction event id =>
+    /// pending reaction.
+    pub pending: HashMap<OwnedEventId, IndexMap<OwnedEventId, PendingReaction>>,
     /// The local reaction request state that is queued next.
     pub reaction_state: IndexMap<AnnotationKey, ReactionState>,
     /// The in-flight reaction request state that is ongoing.
