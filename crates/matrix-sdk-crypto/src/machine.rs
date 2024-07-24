@@ -66,8 +66,8 @@ use crate::{
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
-        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderDataFinder, SessionType,
-        StaticAccountData,
+        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData, SenderDataFinder,
+        SenderDataRetryDetails, SessionType, StaticAccountData,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -816,22 +816,29 @@ impl OlmMachine {
         event: &DecryptedRoomKeyEvent,
         content: &MegolmV1AesSha2Content,
     ) -> OlmResult<Option<InboundGroupSession>> {
-        let sender_data =
-            SenderDataFinder::find_using_event(self.store(), sender_key, event).await?;
-
         let session = InboundGroupSession::new(
             sender_key,
             event.keys.ed25519,
             &content.room_id,
             &content.session_key,
-            sender_data,
+            // TODO: set legacy_session to false when we have retry logic
+            SenderData::UnknownDevice {
+                retry_details: SenderDataRetryDetails::retry_soon(),
+                legacy_session: true,
+            },
             event.content.algorithm(),
             None,
         );
 
         match session {
-            Ok(session) => {
+            Ok(mut session) => {
                 Span::current().record("session_id", session.session_id());
+
+                let sender_data =
+                    SenderDataFinder::find_using_event(self.store(), sender_key, event, &session)
+                        .await?;
+
+                session.sender_data = sender_data;
 
                 if self.store().compare_group_session(&session).await? == SessionOrdering::Better {
                     info!("Received a new megolm room key");
