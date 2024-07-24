@@ -154,6 +154,18 @@ impl<'a> SenderDataFinder<'a> {
         finder.have_device_keys(&device_keys).await
     }
 
+    /// Find the device using the curve key provided, and decide whether we
+    /// trust the sender.
+    pub(crate) async fn find_using_curve_key(
+        store: &'a Store,
+        sender_curve_key: Curve25519PublicKey,
+        sender_user_id: &'a UserId,
+        session: &'a InboundGroupSession,
+    ) -> Result<SenderData, SessionDeviceCheckError> {
+        let finder = Self { store, session };
+        finder.search_for_device(sender_curve_key, sender_user_id).await
+    }
+
     /// Step A (start - we have a to-device message containing a room key)
     async fn have_event(
         &self,

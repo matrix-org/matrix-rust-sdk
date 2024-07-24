@@ -1397,60 +1397,39 @@ impl OlmMachine {
         session: &InboundGroupSession,
         sender: &UserId,
     ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
-        let claimed_device =
-            self.store().get_device_from_curve_key(sender, session.sender_key()).await?;
+        let sender_data = SenderDataFinder::find_using_curve_key(
+            self.store(),
+            session.sender_key(),
+            sender,
+            session,
+        )
+        .await?;
 
-        Ok(match claimed_device {
-            None => {
-                // We didn't find a device, no way to know if we should trust the
-                // `InboundGroupSession` or not.
-
-                let link_problem = if session.has_been_imported() {
+        Ok(match sender_data {
+            SenderData::UnknownDevice { owner_check_failed: false, .. } => {
+                let device_link_problem = if session.has_been_imported() {
                     DeviceLinkProblem::InsecureSource
                 } else {
                     DeviceLinkProblem::MissingDevice
                 };
 
-                (VerificationState::Unverified(VerificationLevel::None(link_problem)), None)
+                (VerificationState::Unverified(VerificationLevel::None(device_link_problem)), None)
             }
-            Some(device) => {
-                let device_id = device.device_id().to_owned();
-
-                // We found a matching device, let's check if it owns the session.
-                if !(device.is_owner_of_session(session)?) {
-                    // The key cannot be linked to an owning device.
-                    // Refuse to provide the device_id since this device is not the owner of this
-                    // session.
-                    (
-                        VerificationState::Unverified(VerificationLevel::None(
-                            DeviceLinkProblem::InsecureSource,
-                        )),
-                        None,
-                    )
-                } else {
-                    // We only consider cross trust and not local trust. If your own device is not
-                    // signed and send a message, it will be seen as Unverified.
-                    if device.is_cross_signed_by_owner() {
-                        // The device is cross signed by this owner Meaning that the user did self
-                        // verify it properly. Let's check if we trust the identity.
-                        if device.is_device_owner_verified() {
-                            (VerificationState::Verified, Some(device_id))
-                        } else {
-                            (
-                                VerificationState::Unverified(
-                                    VerificationLevel::UnverifiedIdentity,
-                                ),
-                                Some(device_id),
-                            )
-                        }
-                    } else {
-                        // The device owner hasn't self-verified its device.
-                        (
-                            VerificationState::Unverified(VerificationLevel::UnsignedDevice),
-                            Some(device_id),
-                        )
-                    }
-                }
+            SenderData::UnknownDevice { owner_check_failed: true, .. } => (
+                VerificationState::Unverified(VerificationLevel::None(
+                    DeviceLinkProblem::InsecureSource,
+                )),
+                None,
+            ),
+            SenderData::DeviceInfo { device_keys, .. } => (
+                VerificationState::Unverified(VerificationLevel::UnsignedDevice),
+                Some(device_keys.device_id),
+            ),
+            SenderData::SenderKnown { master_key_verified: false, device_id, .. } => {
+                (VerificationState::Unverified(VerificationLevel::UnverifiedIdentity), device_id)
+            }
+            SenderData::SenderKnown { master_key_verified: true, device_id, .. } => {
+                (VerificationState::Verified, device_id)
             }
         })
     }
@@ -3473,8 +3452,8 @@ pub(crate) mod tests {
 
         let encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
 
-        // As soon as the key source is unsafe the verification state (or existence) of
-        // the device is meaningless
+        // As soon as the key source is unsafe the verification state (or
+        // existence) of the device is meaningless
         assert_eq!(
             VerificationState::Unverified(VerificationLevel::None(
                 DeviceLinkProblem::InsecureSource
