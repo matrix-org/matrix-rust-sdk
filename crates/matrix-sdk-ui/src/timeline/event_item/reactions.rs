@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
-
 use indexmap::IndexMap;
 use itertools::Itertools as _;
 use ruma::{OwnedEventId, OwnedTransactionId, UserId};
@@ -37,7 +35,12 @@ pub struct ReactionGroup(pub(in crate::timeline) IndexMap<TimelineEventItemId, R
 impl ReactionGroup {
     /// The (deduplicated) senders of the reactions in this group.
     pub fn senders(&self) -> impl Iterator<Item = &ReactionSenderData> {
-        self.values().unique_by(|v| &v.sender_id)
+        self.0.values().unique_by(|v| &v.sender_id)
+    }
+
+    /// Returns the number of reactions in this group.
+    pub fn len(&self) -> usize {
+        self.0.len()
     }
 
     /// All reactions within this reaction group that were sent by the given
@@ -49,19 +52,11 @@ impl ReactionGroup {
         &'a self,
         user_id: &'a UserId,
     ) -> impl Iterator<Item = (Option<&OwnedTransactionId>, Option<&OwnedEventId>)> + 'a {
-        self.iter().filter_map(move |(k, v)| {
+        self.0.iter().filter_map(move |(k, v)| {
             (v.sender_id == user_id).then_some(match k {
                 TimelineEventItemId::TransactionId(txn_id) => (Some(txn_id), None),
                 TimelineEventItemId::EventId(event_id) => (None, Some(event_id)),
             })
         })
-    }
-}
-
-impl Deref for ReactionGroup {
-    type Target = IndexMap<TimelineEventItemId, ReactionSenderData>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
