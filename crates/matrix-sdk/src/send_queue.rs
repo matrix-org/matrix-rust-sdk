@@ -53,7 +53,8 @@ use std::{
 
 use matrix_sdk_base::{
     store::{
-        DependentQueuedEvent, DependentQueuedEventKind, QueuedEvent, SerializableEventContent,
+        ChildTransactionId, DependentQueuedEvent, DependentQueuedEventKind, QueuedEvent,
+        SerializableEventContent,
     },
     RoomState, StoreError,
 };
@@ -731,7 +732,7 @@ impl QueueStorage {
                 .save_dependent_send_queue_event(
                     &self.room_id,
                     transaction_id,
-                    TransactionId::new(),
+                    ChildTransactionId::new(),
                     DependentQueuedEventKind::Redact,
                 )
                 .await?;
@@ -767,7 +768,7 @@ impl QueueStorage {
                 .save_dependent_send_queue_event(
                     &self.room_id,
                     transaction_id,
-                    TransactionId::new(),
+                    ChildTransactionId::new(),
                     DependentQueuedEventKind::Edit { new_content: serializable },
                 )
                 .await?;
@@ -1170,7 +1171,8 @@ mod tests {
 
     use assert_matches2::{assert_let, assert_matches};
     use matrix_sdk_base::store::{
-        DependentQueuedEvent, DependentQueuedEventKind, SerializableEventContent,
+        ChildTransactionId, DependentQueuedEvent, DependentQueuedEventKind,
+        SerializableEventContent,
     };
     use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
     use ruma::{
@@ -1232,7 +1234,7 @@ mod tests {
         let txn = TransactionId::new();
 
         let edit = DependentQueuedEvent {
-            own_transaction_id: TransactionId::new(),
+            own_transaction_id: ChildTransactionId::new(),
             parent_transaction_id: txn.clone(),
             kind: DependentQueuedEventKind::Edit {
                 new_content: SerializableEventContent::new(
@@ -1257,14 +1259,14 @@ mod tests {
 
         let mut inputs = Vec::with_capacity(100);
         let redact = DependentQueuedEvent {
-            own_transaction_id: TransactionId::new(),
+            own_transaction_id: ChildTransactionId::new(),
             parent_transaction_id: txn.clone(),
             kind: DependentQueuedEventKind::Redact,
             event_id: None,
         };
 
         let edit = DependentQueuedEvent {
-            own_transaction_id: TransactionId::new(),
+            own_transaction_id: ChildTransactionId::new(),
             parent_transaction_id: TransactionId::new(),
             kind: DependentQueuedEventKind::Edit {
                 new_content: SerializableEventContent::new(
@@ -1277,7 +1279,7 @@ mod tests {
 
         inputs.push({
             let mut edit = edit.clone();
-            edit.own_transaction_id = TransactionId::new();
+            edit.own_transaction_id = ChildTransactionId::new();
             edit
         });
 
@@ -1285,7 +1287,7 @@ mod tests {
 
         for _ in 0..98 {
             let mut edit = edit.clone();
-            edit.own_transaction_id = TransactionId::new();
+            edit.own_transaction_id = ChildTransactionId::new();
             inputs.push(edit);
         }
 
@@ -1301,7 +1303,7 @@ mod tests {
         // The latest edit of a list is always preferred.
         let inputs = (0..10)
             .map(|i| DependentQueuedEvent {
-                own_transaction_id: TransactionId::new(),
+                own_transaction_id: ChildTransactionId::new(),
                 parent_transaction_id: TransactionId::new(),
                 kind: DependentQueuedEventKind::Edit {
                     new_content: SerializableEventContent::new(

@@ -37,7 +37,10 @@ use ruma::{
 use tracing::{debug, instrument, trace, warn};
 
 use super::{
-    traits::{ComposerDraft, QueuedEvent, SerializableEventContent, ServerCapabilities},
+    traits::{
+        ChildTransactionId, ComposerDraft, QueuedEvent, SerializableEventContent,
+        ServerCapabilities,
+    },
     DependentQueuedEvent, DependentQueuedEventKind, Result, RoomInfo, StateChanges, StateStore,
     StoreError,
 };
@@ -1004,7 +1007,7 @@ impl StateStore for MemoryStore {
         &self,
         room: &RoomId,
         parent_transaction_id: &TransactionId,
-        own_transaction_id: OwnedTransactionId,
+        own_transaction_id: ChildTransactionId,
         content: DependentQueuedEventKind,
     ) -> Result<(), Self::Error> {
         self.dependent_send_queue_events.write().unwrap().entry(room.to_owned()).or_default().push(
@@ -1037,11 +1040,11 @@ impl StateStore for MemoryStore {
     async fn remove_dependent_send_queue_event(
         &self,
         room: &RoomId,
-        txn_id: &TransactionId,
+        txn_id: &ChildTransactionId,
     ) -> Result<bool, Self::Error> {
         let mut dependent_send_queue_events = self.dependent_send_queue_events.write().unwrap();
         let dependents = dependent_send_queue_events.entry(room.to_owned()).or_default();
-        if let Some(pos) = dependents.iter().position(|item| item.own_transaction_id == txn_id) {
+        if let Some(pos) = dependents.iter().position(|item| item.own_transaction_id == *txn_id) {
             dependents.remove(pos);
             Ok(true)
         } else {

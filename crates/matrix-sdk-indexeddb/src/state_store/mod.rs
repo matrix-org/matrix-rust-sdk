@@ -26,8 +26,9 @@ use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaRequest, UniqueKey},
     store::{
-        ComposerDraft, DependentQueuedEvent, DependentQueuedEventKind, QueuedEvent,
-        SerializableEventContent, ServerCapabilities, StateChanges, StateStore, StoreError,
+        ChildTransactionId, ComposerDraft, DependentQueuedEvent, DependentQueuedEventKind,
+        QueuedEvent, SerializableEventContent, ServerCapabilities, StateChanges, StateStore,
+        StoreError,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateStoreDataKey,
     StateStoreDataValue,
@@ -1576,7 +1577,7 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
-        own_txn_id: OwnedTransactionId,
+        own_txn_id: ChildTransactionId,
         content: DependentQueuedEventKind,
     ) -> Result<()> {
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
@@ -1655,7 +1656,7 @@ impl_state_store!({
     async fn remove_dependent_send_queue_event(
         &self,
         room_id: &RoomId,
-        txn_id: &TransactionId,
+        txn_id: &ChildTransactionId,
     ) -> Result<bool> {
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
 
@@ -1670,7 +1671,7 @@ impl_state_store!({
         // Reload the previous vector for this room.
         if let Some(val) = obj.get(&encoded_key)?.await? {
             let mut prev = self.deserialize_value::<Vec<DependentQueuedEvent>>(&val)?;
-            if let Some(pos) = prev.iter().position(|item| item.own_transaction_id == txn_id) {
+            if let Some(pos) = prev.iter().position(|item| item.own_transaction_id == *txn_id) {
                 prev.remove(pos);
 
                 if prev.is_empty() {
