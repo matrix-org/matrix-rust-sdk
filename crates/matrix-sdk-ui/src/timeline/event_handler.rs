@@ -533,7 +533,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     // Redacted reaction events are no-ops so don't need to be handled
     #[instrument(skip_all, fields(relates_to_event_id = ?c.relates_to.event_id))]
     fn handle_reaction(&mut self, c: ReactionEventContent) {
-        let event_id: &EventId = &c.relates_to.event_id;
+        let reacted_to_event_id = &c.relates_to.event_id;
+
         let (reaction_id, old_txn_id) = match &self.ctx.flow {
             Flow::Local { txn_id, .. } => {
                 (TimelineEventItemId::TransactionId(txn_id.clone()), None)
@@ -543,29 +544,22 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         };
 
-        if let Some((idx, event_item)) = rfind_event_by_id(self.items, event_id) {
+        if let Some((idx, event_item)) = rfind_event_by_id(self.items, reacted_to_event_id) {
             let Some(remote_event_item) = event_item.as_remote() else {
-                error!("inconsistent state: reaction received on a non-remote event item");
+                error!("received reaction to a local echo");
                 return;
             };
 
-            // Handling of reactions on redacted events is an open question.
-            // For now, ignore reactions on redacted events like Element does.
+            // Ignore reactions on redacted events.
             if let TimelineItemContent::RedactedMessage = event_item.content() {
                 debug!("Ignoring reaction on redacted event");
                 return;
             }
 
+            // Add the reaction to event item's bundled reactions.
             let mut reactions = remote_event_item.reactions.clone();
-            let reaction_group = reactions.entry(c.relates_to.key.clone()).or_default();
 
-            if let Some(txn_id) = old_txn_id {
-                let id = TimelineEventItemId::TransactionId(txn_id.clone());
-                // Remove the local echo from the related event.
-                reaction_group.0.swap_remove(&id);
-            }
-
-            reaction_group.0.insert(
+            reactions.entry(c.relates_to.key.clone()).or_default().0.insert(
                 reaction_id.clone(),
                 ReactionSenderData {
                     sender_id: self.ctx.sender.clone(),
@@ -576,32 +570,41 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             trace!("Adding reaction");
             self.items
                 .set(idx, event_item.with_inner_kind(remote_event_item.with_reactions(reactions)));
+
             self.result.items_updated += 1;
         } else {
             trace!("Timeline item not found, adding reaction to the pending list");
+
             let TimelineEventItemId::EventId(reaction_event_id) = reaction_id.clone() else {
                 error!("Adding local reaction echo to event absent from the timeline");
                 return;
             };
 
-            let pending = self.meta.reactions.pending.entry(event_id.to_owned()).or_default();
-
-            pending.insert(reaction_event_id);
+            self.meta
+                .reactions
+                .pending
+                .entry(reacted_to_event_id.to_owned())
+                .or_default()
+                .insert(reaction_event_id);
         }
 
-        if let Flow::Remote { txn_id: Some(txn_id), .. } = &self.ctx.flow {
-            let id = TimelineEventItemId::TransactionId(txn_id.clone());
-            // Remove the local echo from the reaction map. It could be missing, if the
-            // transaction id refers to a reaction sent times ago, so no need to check its
-            // return value to know if the value was missing or not.
-            self.meta.reactions.map.remove(&id);
+        if let Some(txn_id) = old_txn_id {
+            // Try to remove a local echo of that reaction. It might be missing if the
+            // reaction wasn't sent by this device, or was sent in a previous
+            // session.
+            self.meta.reactions.map.remove(&TimelineEventItemId::TransactionId(txn_id.clone()));
         }
 
-        let reaction_sender_data = ReactionSenderData {
-            sender_id: self.ctx.sender.clone(),
-            timestamp: self.ctx.timestamp,
-        };
-        self.meta.reactions.map.insert(reaction_id, (reaction_sender_data, c.relates_to));
+        self.meta.reactions.map.insert(
+            reaction_id,
+            (
+                ReactionSenderData {
+                    sender_id: self.ctx.sender.clone(),
+                    timestamp: self.ctx.timestamp,
+                },
+                c.relates_to,
+            ),
+        );
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
