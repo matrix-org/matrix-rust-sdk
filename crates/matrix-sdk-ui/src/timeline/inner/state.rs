@@ -610,13 +610,7 @@ impl TimelineInnerStateTransaction<'_> {
             self.items.clear();
         }
 
-        self.meta.all_events.clear();
-        self.meta.read_receipts.clear();
-        self.meta.reactions.clear();
-        self.meta.fully_read_event = None;
-        // We forgot about the fully read marker right above, so wait for a new one
-        // before attempting to update it for each new timeline item.
-        self.meta.has_up_to_date_read_marker_item = true;
+        self.meta.clear();
 
         debug!(remaining_items = self.items.len(), "Timeline cleared");
     }
@@ -784,6 +778,16 @@ impl TimelineInnerMetadata {
             unable_to_decrypt_hook,
             internal_id_prefix,
         }
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.all_events.clear();
+        self.read_receipts.clear();
+        self.reactions.clear();
+        self.fully_read_event = None;
+        // We forgot about the fully read marker right above, so wait for a new one
+        // before attempting to update it for each new timeline item.
+        self.has_up_to_date_read_marker_item = true;
     }
 
     /// Get the relative positions of two events in the timeline.
