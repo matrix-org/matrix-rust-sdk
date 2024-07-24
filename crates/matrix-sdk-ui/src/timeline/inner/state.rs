@@ -718,17 +718,31 @@ impl TimelineInnerStateTransaction<'_> {
 
 #[derive(Clone, Debug)]
 pub(in crate::timeline) struct TimelineInnerMetadata {
-    /// List of all the events as received in the timeline, even the ones that
-    /// are discarded in the timeline items.
-    pub all_events: VecDeque<EventMeta>,
+    // **** CONSTANT FIELDS ****
+    /// An optional prefix for internal IDs, defined during construction of the
+    /// timeline.
+    ///
+    /// This value is constant over the lifetime of the metadata.
+    internal_id_prefix: Option<String>,
 
+    /// The hook to call whenever we run into a unable-to-decrypt event.
+    ///
+    /// This value is constant over the lifetime of the metadata.
+    pub(crate) unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
+
+    /// Matrix room version of the timeline's room, or a sensible default.
+    ///
+    /// This value is constant over the lifetime of the metadata.
+    pub room_version: RoomVersionId,
+
+    // **** DYNAMIC FIELDS ****
     /// The next internal identifier for timeline items, used for both local and
     /// remote echoes.
     next_internal_id: u64,
 
-    /// An optional prefix for internal IDs, defined during construction of the
-    /// timeline.
-    internal_id_prefix: Option<String>,
+    /// List of all the events as received in the timeline, even the ones that
+    /// are discarded in the timeline items.
+    pub all_events: VecDeque<EventMeta>,
 
     pub reactions: Reactions,
     pub poll_pending_events: PollPendingEvents,
@@ -748,12 +762,6 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     pub reaction_state: IndexMap<AnnotationKey, ReactionState>,
     /// The in-flight reaction request state that is ongoing.
     pub in_flight_reaction: IndexMap<AnnotationKey, ReactionState>,
-
-    /// The hook to call whenever we run into a unable-to-decrypt event.
-    pub(crate) unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
-
-    /// Matrix room version of the timeline's room, or a sensible default.
-    pub room_version: RoomVersionId,
 }
 
 impl TimelineInnerMetadata {
@@ -781,13 +789,17 @@ impl TimelineInnerMetadata {
     }
 
     pub(crate) fn clear(&mut self) {
+        self.next_internal_id = 0;
         self.all_events.clear();
-        self.read_receipts.clear();
         self.reactions.clear();
+        self.poll_pending_events.clear();
         self.fully_read_event = None;
         // We forgot about the fully read marker right above, so wait for a new one
         // before attempting to update it for each new timeline item.
         self.has_up_to_date_read_marker_item = true;
+        self.read_receipts.clear();
+        self.reaction_state.clear();
+        self.in_flight_reaction.clear();
     }
 
     /// Get the relative positions of two events in the timeline.
