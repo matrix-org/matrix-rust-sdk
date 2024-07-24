@@ -34,6 +34,7 @@ use matrix_sdk::{
 use matrix_sdk_base::RoomState;
 use mime::Mime;
 use pin_project_lite::pin_project;
+use reactions::ReactionAction;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
@@ -102,7 +103,7 @@ pub use self::{
 };
 use self::{
     futures::SendAttachment,
-    inner::{ReactionAction, TimelineInner},
+    inner::TimelineInner,
     reactions::ReactionToggleResult,
     util::{rfind_event_by_id, rfind_event_item},
 };
@@ -162,19 +163,6 @@ pub struct Timeline {
 
     /// References to long-running tasks held by the timeline.
     drop_handle: Arc<TimelineDropHandle>,
-}
-
-// Implements hash etc
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
-struct AnnotationKey {
-    event_id: OwnedEventId,
-    key: String,
-}
-
-impl From<&Annotation> for AnnotationKey {
-    fn from(annotation: &Annotation) -> Self {
-        Self { event_id: annotation.event_id.clone(), key: annotation.key.clone() }
-    }
 }
 
 /// What should the timeline focus on?

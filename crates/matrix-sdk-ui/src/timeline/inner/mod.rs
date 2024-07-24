@@ -58,12 +58,12 @@ use super::traits::Decryptor;
 use super::{
     event_handler::TimelineEventKind,
     event_item::RemoteEventOrigin,
-    reactions::ReactionToggleResult,
+    reactions::{AnnotationKey, ReactionAction, ReactionState, ReactionToggleResult},
     traits::RoomDataProvider,
     util::{rfind_event_by_id, rfind_event_item, RelativePosition},
-    AnnotationKey, Error, EventSendState, EventTimelineItem, InReplyToDetails, Message,
-    PaginationError, Profile, RepliedToEvent, TimelineDetails, TimelineFocus, TimelineItem,
-    TimelineItemContent, TimelineItemKind,
+    Error, EventSendState, EventTimelineItem, InReplyToDetails, Message, PaginationError, Profile,
+    RepliedToEvent, TimelineDetails, TimelineFocus, TimelineItem, TimelineItemContent,
+    TimelineItemKind,
 };
 use crate::{
     timeline::{day_dividers::DayDividerAdjuster, TimelineEventFilterFn},
@@ -110,30 +110,6 @@ pub(super) struct TimelineInner<P: RoomDataProvider = Room> {
 
     /// Settings applied to this timeline.
     settings: TimelineInnerSettings,
-}
-
-#[derive(Debug, Clone)]
-pub(super) enum ReactionAction {
-    /// Request already in progress so allow that one to resolve
-    None,
-
-    /// Send this reaction to the server
-    SendRemote(OwnedTransactionId),
-
-    /// Redact this reaction from the server
-    RedactRemote(OwnedEventId),
-}
-
-#[derive(Debug, Clone)]
-pub(super) enum ReactionState {
-    /// We're redacting a reaction.
-    ///
-    /// The optional event id is defined if, and only if, there already was a
-    /// remote echo for this reaction.
-    Redacting(Option<OwnedEventId>),
-    /// We're sending the reaction with the given transaction id, which we'll
-    /// use to match against the response in the sync event.
-    Sending(OwnedTransactionId),
 }
 
 #[derive(Clone)]
@@ -453,8 +429,11 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let reaction_state = match (local_echo_txn_id, remote_echo_event_id) {
             (None, None) => {
                 // No previous record of the reaction, create a local echo.
-                let in_flight =
-                    state.meta.in_flight_reaction.get::<AnnotationKey>(&annotation.into());
+                let in_flight = state
+                    .meta
+                    .reactions
+                    .in_flight_reaction
+                    .get::<AnnotationKey>(&annotation.into());
                 let txn_id = match in_flight {
                     Some(ReactionState::Sending(txn_id)) => {
                         // Use the transaction ID as the in flight request
@@ -501,10 +480,11 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             }
         };
 
-        state.meta.reaction_state.insert(annotation.into(), reaction_state.clone());
+        state.meta.reactions.reaction_state.insert(annotation.into(), reaction_state.clone());
 
         // Check the action to perform depending on any in flight request
-        let in_flight = state.meta.in_flight_reaction.get::<AnnotationKey>(&annotation.into());
+        let in_flight =
+            state.meta.reactions.in_flight_reaction.get::<AnnotationKey>(&annotation.into());
         let result = match in_flight {
             Some(_) => {
                 // There is an in-flight request
@@ -529,7 +509,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             ReactionAction::None => {}
             ReactionAction::SendRemote(_) | ReactionAction::RedactRemote(_) => {
                 // Remember the new in flight request
-                state.meta.in_flight_reaction.insert(annotation.into(), reaction_state);
+                state.meta.reactions.in_flight_reaction.insert(annotation.into(), reaction_state);
             }
         };
 
@@ -734,6 +714,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let reaction_state = state
             .meta
+            .reactions
             .reaction_state
             .get(&AnnotationKey::from(annotation))
             .expect("Reaction state should be set before sending the reaction");
@@ -743,6 +724,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 // A reaction was added successfully but we've been requested to undo it
                 state
                     .meta
+                    .reactions
                     .in_flight_reaction
                     .insert(annotation_key, ReactionState::Redacting(Some(event_id.to_owned())));
                 ReactionAction::RedactRemote(event_id.to_owned())
@@ -752,14 +734,15 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 let txn_id = txn_id.to_owned();
                 state
                     .meta
+                    .reactions
                     .in_flight_reaction
                     .insert(annotation_key, ReactionState::Sending(txn_id.clone()));
                 ReactionAction::SendRemote(txn_id)
             }
             _ => {
                 // We're done, so also update the timeline
-                state.meta.in_flight_reaction.swap_remove(&annotation_key);
-                state.meta.reaction_state.swap_remove(&annotation_key);
+                state.meta.reactions.in_flight_reaction.swap_remove(&annotation_key);
+                state.meta.reactions.reaction_state.swap_remove(&annotation_key);
                 state.update_timeline_reaction(user_id, annotation, result)?;
 
                 ReactionAction::None

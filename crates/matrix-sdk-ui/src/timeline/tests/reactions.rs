@@ -30,8 +30,8 @@ use stream_assert::assert_next_matches;
 
 use crate::timeline::{
     event_item::RemoteEventOrigin,
-    inner::{ReactionAction, TimelineEnd},
-    reactions::ReactionToggleResult,
+    inner::TimelineEnd,
+    reactions::{ReactionAction, ReactionToggleResult},
     tests::{assert_event_is_updated, assert_no_more_updates, TestTimeline},
     TimelineItem,
 };

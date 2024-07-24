@@ -53,8 +53,8 @@ use ruma::{
 use super::{
     event_handler::TimelineEventKind,
     event_item::RemoteEventOrigin,
-    inner::{ReactionAction, TimelineEnd, TimelineInnerSettings},
-    reactions::ReactionToggleResult,
+    inner::{TimelineEnd, TimelineInnerSettings},
+    reactions::{ReactionAction, ReactionToggleResult},
     traits::RoomDataProvider,
     EventTimelineItem, Profile, TimelineFocus, TimelineInner, TimelineItem,
 };
