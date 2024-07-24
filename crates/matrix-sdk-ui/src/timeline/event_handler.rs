@@ -874,7 +874,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let sender = self.ctx.sender.to_owned();
         let sender_profile = TimelineDetails::from_initial_value(self.ctx.sender_profile.clone());
         let timestamp = self.ctx.timestamp;
-        let mut reactions = self.pending_reactions().unwrap_or_default();
+        let reactions = self.pending_reactions(&content).unwrap_or_default();
 
         let kind: EventTimelineItemKind = match &self.ctx.flow {
             Flow::Local { txn_id, send_handle } => LocalEventTimelineItem {
@@ -885,13 +885,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             .into(),
 
             Flow::Remote { event_id, raw_event, position, txn_id, encryption_info, .. } => {
-                // Drop pending reactions if the message is redacted.
-                if let TimelineItemContent::RedactedMessage = content {
-                    if !reactions.is_empty() {
-                        reactions = BundledReactions::default();
-                    }
-                }
-
                 let origin = match *position {
                     TimelineItemPosition::Start { origin }
                     | TimelineItemPosition::End { origin } => origin,
@@ -1050,7 +1043,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
     }
 
-    fn pending_reactions(&mut self) -> Option<BundledReactions> {
+    fn pending_reactions(&mut self, content: &TimelineItemContent) -> Option<BundledReactions> {
+        // Drop pending reactions if the message is redacted.
+        if let TimelineItemContent::RedactedMessage = content {
+            return None;
+        }
+
         match &self.ctx.flow {
             Flow::Local { .. } => None,
             Flow::Remote { event_id, .. } => {
