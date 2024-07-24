@@ -731,6 +731,7 @@ impl QueueStorage {
                 .save_dependent_send_queue_event(
                     &self.room_id,
                     transaction_id,
+                    TransactionId::new(),
                     DependentQueuedEventKind::Redact,
                 )
                 .await?;
@@ -766,6 +767,7 @@ impl QueueStorage {
                 .save_dependent_send_queue_event(
                     &self.room_id,
                     transaction_id,
+                    TransactionId::new(),
                     DependentQueuedEventKind::Edit { new_content: serializable },
                 )
                 .await?;
@@ -856,7 +858,11 @@ impl QueueStorage {
                     // The parent event is still local (sending must have failed); update the local
                     // echo.
                     let edited = store
-                        .update_send_queue_event(&self.room_id, &de.transaction_id, new_content)
+                        .update_send_queue_event(
+                            &self.room_id,
+                            &de.parent_transaction_id,
+                            new_content,
+                        )
                         .await
                         .map_err(RoomSendQueueStorageError::StorageError)?;
 
@@ -887,7 +893,7 @@ impl QueueStorage {
                     // The parent event is still local (sending must have failed); redact the local
                     // echo.
                     let removed = store
-                        .remove_send_queue_event(&self.room_id, &de.transaction_id)
+                        .remove_send_queue_event(&self.room_id, &de.parent_transaction_id)
                         .await
                         .map_err(RoomSendQueueStorageError::StorageError)?;
 
@@ -925,13 +931,13 @@ impl QueueStorage {
         );
 
         for dependent in canonicalized_dependent_events {
-            let dependent_id = dependent.id;
+            let dependent_id = dependent.own_transaction_id.clone();
 
             match self.try_apply_single_dependent_event(&client, dependent).await {
                 Ok(()) => {
                     // The dependent event has been successfully applied, forget about it.
                     store
-                        .remove_dependent_send_queue_event(&self.room_id, dependent_id)
+                        .remove_dependent_send_queue_event(&self.room_id, &dependent_id)
                         .await
                         .map_err(RoomSendQueueStorageError::StorageError)?;
 
@@ -1226,22 +1232,21 @@ mod tests {
         let txn = TransactionId::new();
 
         let edit = DependentQueuedEvent {
-            id: 0,
+            own_transaction_id: TransactionId::new(),
+            parent_transaction_id: txn.clone(),
             kind: DependentQueuedEventKind::Edit {
                 new_content: SerializableEventContent::new(
                     &RoomMessageEventContent::text_plain("edit").into(),
                 )
                 .unwrap(),
             },
-            transaction_id: txn.clone(),
             event_id: None,
         };
         let res = canonicalize_dependent_events(&[edit]);
 
         assert_eq!(res.len(), 1);
-        assert_eq!(res[0].id, 0);
         assert_matches!(&res[0].kind, DependentQueuedEventKind::Edit { .. });
-        assert_eq!(res[0].transaction_id, txn);
+        assert_eq!(res[0].parent_transaction_id, txn);
         assert!(res[0].event_id.is_none());
     }
 
@@ -1252,35 +1257,35 @@ mod tests {
 
         let mut inputs = Vec::with_capacity(100);
         let redact = DependentQueuedEvent {
-            id: 0,
+            own_transaction_id: TransactionId::new(),
+            parent_transaction_id: txn.clone(),
             kind: DependentQueuedEventKind::Redact,
-            transaction_id: txn.clone(),
             event_id: None,
         };
 
         let edit = DependentQueuedEvent {
-            id: 0,
+            own_transaction_id: TransactionId::new(),
+            parent_transaction_id: TransactionId::new(),
             kind: DependentQueuedEventKind::Edit {
                 new_content: SerializableEventContent::new(
                     &RoomMessageEventContent::text_plain("edit").into(),
                 )
                 .unwrap(),
             },
-            transaction_id: TransactionId::new(),
             event_id: None,
         };
 
         inputs.push({
             let mut edit = edit.clone();
-            edit.id = 1;
+            edit.own_transaction_id = TransactionId::new();
             edit
         });
 
         inputs.push(redact);
 
-        for i in 0..98 {
+        for _ in 0..98 {
             let mut edit = edit.clone();
-            edit.id = 2 + i;
+            edit.own_transaction_id = TransactionId::new();
             inputs.push(edit);
         }
 
@@ -1288,7 +1293,7 @@ mod tests {
 
         assert_eq!(res.len(), 1);
         assert_matches!(&res[0].kind, DependentQueuedEventKind::Redact);
-        assert_eq!(res[0].transaction_id, txn);
+        assert_eq!(res[0].parent_transaction_id, txn);
     }
 
     #[test]
@@ -1296,19 +1301,19 @@ mod tests {
         // The latest edit of a list is always preferred.
         let inputs = (0..10)
             .map(|i| DependentQueuedEvent {
-                id: i,
+                own_transaction_id: TransactionId::new(),
+                parent_transaction_id: TransactionId::new(),
                 kind: DependentQueuedEventKind::Edit {
                     new_content: SerializableEventContent::new(
                         &RoomMessageEventContent::text_plain(format!("edit{i}")).into(),
                     )
                     .unwrap(),
                 },
-                transaction_id: TransactionId::new(),
                 event_id: None,
             })
             .collect::<Vec<_>>();
 
-        let txn = inputs[9].transaction_id.clone();
+        let txn = inputs[9].parent_transaction_id.clone();
 
         let res = canonicalize_dependent_events(&inputs);
 
@@ -1318,6 +1323,6 @@ mod tests {
             AnyMessageLikeEventContent::RoomMessage(msg) = new_content.deserialize().unwrap()
         );
         assert_eq!(msg.body(), "edit9");
-        assert_eq!(res[0].transaction_id, txn);
+        assert_eq!(res[0].parent_transaction_id, txn);
     }
 }

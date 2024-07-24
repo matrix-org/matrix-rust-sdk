@@ -459,7 +459,8 @@ pub trait StateStore: AsyncTraitDeps {
     async fn save_dependent_send_queue_event(
         &self,
         room_id: &RoomId,
-        transaction_id: &TransactionId,
+        parent_txn_id: &TransactionId,
+        own_txn_id: OwnedTransactionId,
         content: DependentQueuedEventKind,
     ) -> Result<(), Self::Error>;
 
@@ -470,7 +471,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn update_dependent_send_queue_event(
         &self,
         room_id: &RoomId,
-        transaction_id: &TransactionId,
+        parent_txn_id: &TransactionId,
         event_id: OwnedEventId,
     ) -> Result<usize, Self::Error>;
 
@@ -480,7 +481,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn remove_dependent_send_queue_event(
         &self,
         room: &RoomId,
-        id: usize,
+        own_txn_id: &TransactionId,
     ) -> Result<bool, Self::Error>;
 
     /// List all the dependent send queue events.
@@ -767,11 +768,12 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
     async fn save_dependent_send_queue_event(
         &self,
         room_id: &RoomId,
-        transaction_id: &TransactionId,
+        parent_txn_id: &TransactionId,
+        own_txn_id: OwnedTransactionId,
         content: DependentQueuedEventKind,
     ) -> Result<(), Self::Error> {
         self.0
-            .save_dependent_send_queue_event(room_id, transaction_id, content)
+            .save_dependent_send_queue_event(room_id, parent_txn_id, own_txn_id, content)
             .await
             .map_err(Into::into)
     }
@@ -779,11 +781,11 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
     async fn update_dependent_send_queue_event(
         &self,
         room_id: &RoomId,
-        transaction_id: &TransactionId,
+        parent_txn_id: &TransactionId,
         event_id: OwnedEventId,
     ) -> Result<usize, Self::Error> {
         self.0
-            .update_dependent_send_queue_event(room_id, transaction_id, event_id)
+            .update_dependent_send_queue_event(room_id, parent_txn_id, event_id)
             .await
             .map_err(Into::into)
     }
@@ -791,9 +793,9 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
     async fn remove_dependent_send_queue_event(
         &self,
         room_id: &RoomId,
-        id: usize,
+        own_txn_id: &TransactionId,
     ) -> Result<bool, Self::Error> {
-        self.0.remove_dependent_send_queue_event(room_id, id).await.map_err(Into::into)
+        self.0.remove_dependent_send_queue_event(room_id, own_txn_id).await.map_err(Into::into)
     }
 
     async fn list_dependent_send_queue_events(
@@ -1262,7 +1264,7 @@ pub struct DependentQueuedEvent {
     /// Unique identifier for this dependent queued event.
     ///
     /// Useful for deletion.
-    pub id: usize,
+    pub own_transaction_id: OwnedTransactionId,
 
     /// The kind of user intent.
     pub kind: DependentQueuedEventKind,
@@ -1272,7 +1274,7 @@ pub struct DependentQueuedEvent {
     /// Note: this is the transaction id used for the depended-on event, i.e.
     /// the one that was originally sent and that's being modified with this
     /// dependent event.
-    pub transaction_id: OwnedTransactionId,
+    pub parent_transaction_id: OwnedTransactionId,
 
     /// If the parent event has been sent, the parent's event identifier
     /// returned by the server once the local echo has been sent out.

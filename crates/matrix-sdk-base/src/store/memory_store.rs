@@ -15,7 +15,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     num::NonZeroUsize,
-    sync::{Mutex, RwLock as StdRwLock},
+    sync::RwLock as StdRwLock,
 };
 
 use async_trait::async_trait;
@@ -92,7 +92,6 @@ pub struct MemoryStore {
     custom: StdRwLock<HashMap<Vec<u8>, Vec<u8>>>,
     send_queue_events: StdRwLock<BTreeMap<OwnedRoomId, Vec<QueuedEvent>>>,
     dependent_send_queue_events: StdRwLock<BTreeMap<OwnedRoomId, Vec<DependentQueuedEvent>>>,
-    dependent_send_queue_event_next_id: Mutex<usize>,
 }
 
 // SAFETY: `new_unchecked` is safe because 20 is not zero.
@@ -124,7 +123,6 @@ impl Default for MemoryStore {
             custom: Default::default(),
             send_queue_events: Default::default(),
             dependent_send_queue_events: Default::default(),
-            dependent_send_queue_event_next_id: Mutex::new(0),
         }
     }
 }
@@ -1005,39 +1003,31 @@ impl StateStore for MemoryStore {
     async fn save_dependent_send_queue_event(
         &self,
         room: &RoomId,
-        transaction_id: &TransactionId,
+        parent_transaction_id: &TransactionId,
+        own_transaction_id: OwnedTransactionId,
         content: DependentQueuedEventKind,
     ) -> Result<(), Self::Error> {
-        let id = {
-            let mut next_id = self.dependent_send_queue_event_next_id.lock().unwrap();
-            // Don't tell anyone, but sometimes I miss C++'s `x++` operator.
-            let id = *next_id;
-            *next_id += 1;
-            id
-        };
-
         self.dependent_send_queue_events.write().unwrap().entry(room.to_owned()).or_default().push(
             DependentQueuedEvent {
-                id,
                 kind: content,
-                transaction_id: transaction_id.to_owned(),
+                parent_transaction_id: parent_transaction_id.to_owned(),
+                own_transaction_id,
                 event_id: None,
             },
         );
-
         Ok(())
     }
 
     async fn update_dependent_send_queue_event(
         &self,
         room: &RoomId,
-        transaction_id: &TransactionId,
+        parent_txn_id: &TransactionId,
         event_id: OwnedEventId,
     ) -> Result<usize, Self::Error> {
         let mut dependent_send_queue_events = self.dependent_send_queue_events.write().unwrap();
         let dependents = dependent_send_queue_events.entry(room.to_owned()).or_default();
         let mut num_updated = 0;
-        for d in dependents.iter_mut().filter(|item| item.transaction_id == transaction_id) {
+        for d in dependents.iter_mut().filter(|item| item.parent_transaction_id == parent_txn_id) {
             d.event_id = Some(event_id.clone());
             num_updated += 1;
         }
@@ -1047,11 +1037,11 @@ impl StateStore for MemoryStore {
     async fn remove_dependent_send_queue_event(
         &self,
         room: &RoomId,
-        id: usize,
+        txn_id: &TransactionId,
     ) -> Result<bool, Self::Error> {
         let mut dependent_send_queue_events = self.dependent_send_queue_events.write().unwrap();
         let dependents = dependent_send_queue_events.entry(room.to_owned()).or_default();
-        if let Some(pos) = dependents.iter().position(|item| item.id == id) {
+        if let Some(pos) = dependents.iter().position(|item| item.own_transaction_id == txn_id) {
             dependents.remove(pos);
             Ok(true)
         } else {

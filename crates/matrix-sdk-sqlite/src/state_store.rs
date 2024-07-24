@@ -1862,19 +1862,26 @@ impl StateStore for SqliteStateStore {
     async fn save_dependent_send_queue_event(
         &self,
         room_id: &RoomId,
-        transaction_id: &TransactionId,
+        parent_txn_id: &TransactionId,
+        own_txn_id: OwnedTransactionId,
         content: DependentQueuedEventKind,
     ) -> Result<()> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
         let content = self.serialize_json(&content)?;
 
         // See comment in `save_send_queue_event`.
-        let transaction_id = transaction_id.to_string();
+        let parent_txn_id = parent_txn_id.to_string();
+        let own_txn_id = own_txn_id.to_string();
 
         self.acquire()
             .await?
             .with_transaction(move |txn| {
-                txn.prepare_cached("INSERT INTO dependent_send_queue_events (room_id, transaction_id, content) VALUES (?, ?, ?)")?.execute((room_id, transaction_id, content))?;
+                txn.prepare_cached(
+                    r#"INSERT INTO dependent_send_queue_events
+                         (room_id, parent_transaction_id, own_transaction_id, content)
+                       VALUES (?, ?, ?, ?)"#,
+                )?
+                .execute((room_id, parent_txn_id, own_txn_id, content))?;
                 Ok(())
             })
             .await
@@ -1883,37 +1890,44 @@ impl StateStore for SqliteStateStore {
     async fn update_dependent_send_queue_event(
         &self,
         room_id: &RoomId,
-        transaction_id: &TransactionId,
+        parent_txn_id: &TransactionId,
         event_id: OwnedEventId,
     ) -> Result<usize> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
         let event_id = self.serialize_value(&event_id)?;
 
         // See comment in `save_send_queue_event`.
-        let transaction_id = transaction_id.to_string();
+        let parent_txn_id = parent_txn_id.to_string();
 
         self.acquire()
             .await?
             .with_transaction(move |txn| {
                 Ok(txn.prepare_cached(
-                    "UPDATE dependent_send_queue_events SET event_id = ? WHERE transaction_id = ? and room_id = ?",
+                    "UPDATE dependent_send_queue_events SET event_id = ? WHERE parent_transaction_id = ? and room_id = ?",
                 )?
-                .execute((event_id, transaction_id, room_id))?)
+                .execute((event_id, parent_txn_id, room_id))?)
             })
             .await
     }
 
-    async fn remove_dependent_send_queue_event(&self, room_id: &RoomId, id: usize) -> Result<bool> {
+    async fn remove_dependent_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        txn_id: &TransactionId,
+    ) -> Result<bool> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
+
+        // See comment in `save_send_queue_event`.
+        let txn_id = txn_id.to_string();
 
         let num_deleted = self
             .acquire()
             .await?
             .with_transaction(move |txn| {
                 txn.prepare_cached(
-                    "DELETE FROM dependent_send_queue_events WHERE ROWID = ? AND room_id = ?",
+                    "DELETE FROM dependent_send_queue_events WHERE own_transaction_id = ? AND room_id = ?",
                 )?
-                .execute((id, room_id))
+                .execute((txn_id, room_id))
             })
             .await?;
 
@@ -1927,11 +1941,11 @@ impl StateStore for SqliteStateStore {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
 
         // Note: transaction_id is not encoded, see why in `save_send_queue_event`.
-        let res: Vec<(usize, String, Option<Vec<u8>>, Vec<u8>)> = self
+        let res: Vec<(String, String, Option<Vec<u8>>, Vec<u8>)> = self
             .acquire()
             .await?
             .prepare(
-                "SELECT ROWID, transaction_id, event_id, content FROM dependent_send_queue_events WHERE room_id = ? ORDER BY ROWID",
+                "SELECT own_transaction_id, parent_transaction_id, event_id, content FROM dependent_send_queue_events WHERE room_id = ? ORDER BY ROWID",
                 |mut stmt| {
                     stmt.query((room_id,))?
                         .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
@@ -1943,8 +1957,8 @@ impl StateStore for SqliteStateStore {
         let mut dependent_events = Vec::with_capacity(res.len());
         for entry in res {
             dependent_events.push(DependentQueuedEvent {
-                id: entry.0,
-                transaction_id: entry.1.into(),
+                own_transaction_id: entry.0.into(),
+                parent_transaction_id: entry.1.into(),
                 event_id: entry.2.map(|bytes| self.deserialize_value(&bytes)).transpose()?,
                 kind: self.deserialize_json(&entry.3)?,
             });

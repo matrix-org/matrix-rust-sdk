@@ -4,7 +4,12 @@ CREATE TABLE "dependent_send_queue_events" (
     "room_id" BLOB NOT NULL,
 
     -- This is used as both a key and a value, thus neither encrypted/decrypted/hashed.
-    "transaction_id" BLOB NOT NULL,
+    -- This is the transaction id for the *parent* transaction, not our own.
+    "parent_transaction_id" BLOB NOT NULL,
+
+    -- This is used as both a key and a value, thus neither encrypted/decrypted/hashed.
+    -- This is a transaction id used for the dependent event itself, not the parent.
+    "own_transaction_id" BLOB NOT NULL,
 
     -- Used as a value (thus encrypted/decrypted), can be null.
     "event_id" BLOB NULL,
