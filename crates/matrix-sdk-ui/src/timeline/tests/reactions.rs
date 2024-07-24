@@ -19,12 +19,11 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use matrix_sdk::test_utils::events::EventFactory;
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     event_id,
     events::{relation::Annotation, room::message::RoomMessageEventContent},
-    server_name, uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId,
+    server_name, uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId, UserId,
 };
 use stream_assert::assert_next_matches;
 
@@ -33,7 +32,7 @@ use crate::timeline::{
     inner::TimelineEnd,
     reactions::{ReactionAction, ReactionToggleResult},
     tests::{assert_event_is_updated, assert_no_more_updates, TestTimeline},
-    TimelineItem,
+    TimelineEventItemId, TimelineItem,
 };
 
 const REACTION_KEY: &str = "👍";
@@ -230,7 +229,7 @@ async fn test_reactions_store_timestamp() {
     let _ = timeline.toggle_reaction_local(&reaction).await.unwrap();
     let event = assert_event_is_updated(&mut stream, &msg_id, msg_pos).await;
     let reactions = event.reactions().get(&REACTION_KEY.to_owned()).unwrap();
-    let timestamp = reactions.senders().next().unwrap().timestamp;
+    let timestamp = reactions.values().next().unwrap().timestamp;
     assert!(timestamp_range_until_now_from(timestamp_before).contains(&timestamp));
 
     // Failing a redaction.
@@ -247,7 +246,7 @@ async fn test_reactions_store_timestamp() {
     // Restores an event with a valid timestamp.
     let event = assert_event_is_updated(&mut stream, &msg_id, msg_pos).await;
     let reactions = event.reactions().get(&REACTION_KEY.to_owned()).unwrap();
-    let new_timestamp = reactions.senders().next().unwrap().timestamp;
+    let new_timestamp = reactions.values().next().unwrap().timestamp;
     assert!(timestamp_range_until_now_from(timestamp_before).contains(&new_timestamp));
 }
 
@@ -255,6 +254,7 @@ async fn test_reactions_store_timestamp() {
 async fn test_initial_reaction_timestamp_is_stored() {
     let timeline = TestTimeline::new();
 
+    let f = EventFactory::new().sender(*ALICE);
     let message_event_id = EventId::new(server_name!("dummy.server"));
     let reaction_timestamp = MilliSecondsSinceUnixEpoch(uint!(39845));
 
@@ -262,16 +262,12 @@ async fn test_initial_reaction_timestamp_is_stored() {
         .inner
         .add_events_at(
             vec![
-                SyncTimelineEvent::new(timeline.event_builder.make_sync_reaction(
-                    *ALICE,
-                    &Annotation::new(message_event_id.clone(), REACTION_KEY.to_owned()),
-                    reaction_timestamp,
-                )),
-                SyncTimelineEvent::new(timeline.event_builder.make_sync_message_event_with_id(
-                    *ALICE,
-                    &message_event_id,
-                    RoomMessageEventContent::text_plain("A"),
-                )),
+                // Reaction comes first.
+                f.reaction(&message_event_id, REACTION_KEY.to_owned())
+                    .server_ts(reaction_timestamp)
+                    .into_sync(),
+                // Event comes next.
+                f.text_msg("A").event_id(&message_event_id).into_sync(),
             ],
             TimelineEnd::Back,
             RemoteEventOrigin::Sync,
@@ -282,7 +278,7 @@ async fn test_initial_reaction_timestamp_is_stored() {
     let reactions = items.last().unwrap().as_event().unwrap().reactions();
     let entry = reactions.get(&REACTION_KEY.to_owned()).unwrap();
 
-    assert_eq!(reaction_timestamp, entry.senders().next().unwrap().timestamp);
+    assert_eq!(reaction_timestamp, entry.values().next().unwrap().timestamp);
 }
 
 fn create_reaction(related_message_id: &EventId) -> Annotation {
@@ -317,12 +313,15 @@ async fn assert_reaction_is_updated(
     expected_event_id: Option<&EventId>,
     expected_txn_id: Option<&TransactionId>,
 ) {
-    let own_user_id = &ALICE;
+    let own_user_id: &UserId = &ALICE;
     let event = assert_event_is_updated(stream, related_to, message_position).await;
     let (reaction_tx_id, reaction_event_id) = {
         let reactions = event.reactions().get(&REACTION_KEY.to_owned()).unwrap();
-        let reaction = reactions.by_sender(own_user_id).next().unwrap();
-        reaction.to_owned()
+        let reaction = reactions.get(own_user_id).unwrap();
+        match &reaction.id {
+            TimelineEventItemId::TransactionId(txn_id) => (Some(txn_id), None),
+            TimelineEventItemId::EventId(event_id) => (None, Some(event_id)),
+        }
     };
     assert_eq!(reaction_tx_id, expected_txn_id.map(|it| it.to_owned()).as_ref());
     assert_eq!(reaction_event_id, expected_event_id.map(|it| it.to_owned()).as_ref());
@@ -333,10 +332,10 @@ async fn assert_reaction_is_added(
     related_to: &EventId,
     message_position: usize,
 ) {
-    let own_user_id = &ALICE;
+    let own_user_id: &UserId = &ALICE;
     let event = assert_event_is_updated(stream, related_to, message_position).await;
     let reactions = event.reactions().get(&REACTION_KEY.to_owned()).unwrap();
-    assert!(reactions.by_sender(own_user_id).next().is_some());
+    assert!(reactions.get(own_user_id).is_some());
 }
 
 async fn assert_reactions_are_removed(

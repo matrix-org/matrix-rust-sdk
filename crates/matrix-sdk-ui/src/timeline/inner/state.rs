@@ -37,7 +37,7 @@ use crate::{
             Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
             TimelineItemPosition,
         },
-        event_item::{RemoteEventOrigin, TimelineEventItemId},
+        event_item::{ReactionInfo, RemoteEventOrigin, TimelineEventItemId},
         polls::PollPendingEvents,
         reactions::{ReactionToggleResult, Reactions},
         read_receipts::ReadReceipts,
@@ -277,42 +277,36 @@ impl TimelineInnerState {
             error!("inconsistent state: reaction received on a non-remote event item");
             return Err(TimelineError::FailedToToggleReaction);
         };
-        // Note: remote event is not synced yet, so we're adding an item
-        // with the local timestamp.
-        let reaction_sender_data = ReactionSenderData {
-            sender_id: own_user_id.to_owned(),
-            timestamp: MilliSecondsSinceUnixEpoch::now(),
-        };
+
+        let now = MilliSecondsSinceUnixEpoch::now();
+        let reaction_sender_data =
+            ReactionSenderData { sender_id: own_user_id.to_owned(), timestamp: now };
 
         let new_reactions = {
             let mut reactions = remote_related.reactions.clone();
-            let reaction_group = reactions.entry(annotation.key.clone()).or_default();
+            let reaction_by_sender = reactions.entry(annotation.key.clone()).or_default();
 
-            // Remove the local echo from the related event.
-            if let Some(txn_id) = local_echo_to_remove {
-                let id = TimelineEventItemId::TransactionId(txn_id.clone());
-                if reaction_group.0.swap_remove(&id).is_none() {
-                    warn!(
-                        "Tried to remove reaction by transaction ID, but didn't \
-                         find matching reaction in the related event's reactions"
-                    );
-                }
-            }
-
-            // Add the remote echo to the related event
             if let Some(event_id) = remote_echo_to_add {
-                reaction_group.0.insert(
-                    TimelineEventItemId::EventId(event_id.clone()),
-                    reaction_sender_data.clone(),
+                reaction_by_sender.insert(
+                    own_user_id.to_owned(),
+                    ReactionInfo {
+                        // Note: remote event is not synced yet, so we're adding an item
+                        // with the local timestamp.
+                        timestamp: now,
+                        id: TimelineEventItemId::EventId(event_id.clone()),
+                    },
                 );
-            };
-
-            if reaction_group.0.is_empty() {
-                reactions.swap_remove(&annotation.key);
+            } else if local_echo_to_remove.is_some() {
+                reaction_by_sender.swap_remove(own_user_id);
+                // Remove the group if we were the last reaction.
+                if reaction_by_sender.is_empty() {
+                    reactions.swap_remove(&annotation.key);
+                }
             }
 
             reactions
         };
+
         let new_related = related.with_kind(remote_related.with_reactions(new_reactions));
 
         // Update the reactions stored in the timeline state

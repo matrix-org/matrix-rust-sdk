@@ -33,7 +33,6 @@ use tracing::warn;
 
 mod content;
 mod local;
-mod reactions;
 mod remote;
 
 pub use self::{
@@ -43,7 +42,6 @@ pub use self::{
         TimelineItemContent,
     },
     local::EventSendState,
-    reactions::{BundledReactions, ReactionGroup},
 };
 pub(super) use self::{
     local::LocalEventTimelineItem,
@@ -269,9 +267,9 @@ impl EventTimelineItem {
     }
 
     /// Get the reactions of this item.
-    pub fn reactions(&self) -> &BundledReactions {
+    pub fn reactions(&self) -> &ReactionsByKeyBySender {
         // There's not much of a point in allowing reactions to local echoes.
-        static EMPTY_REACTIONS: Lazy<BundledReactions> = Lazy::new(Default::default);
+        static EMPTY_REACTIONS: Lazy<ReactionsByKeyBySender> = Lazy::new(Default::default);
         match &self.kind {
             EventTimelineItemKind::Local(_) => &EMPTY_REACTIONS,
             EventTimelineItemKind::Remote(remote_event) => &remote_event.reactions,
@@ -579,6 +577,19 @@ pub enum EventItemOrigin {
     /// The event came from pagination.
     Pagination,
 }
+
+/// Information about a single reaction stored in [`ReactionsByKeyBySender`].
+#[derive(Clone, Debug)]
+pub struct ReactionInfo {
+    pub timestamp: MilliSecondsSinceUnixEpoch,
+    pub id: TimelineEventItemId,
+}
+
+/// Reactions grouped by key first, then by sender.
+///
+/// This representation makes sure that a given sender has sent at most one
+/// reaction for an event.
+pub type ReactionsByKeyBySender = IndexMap<String, IndexMap<OwnedUserId, ReactionInfo>>;
 
 #[cfg(test)]
 mod tests {

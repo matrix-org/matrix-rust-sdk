@@ -22,7 +22,7 @@ use ruma::{
     OwnedEventId, OwnedTransactionId, OwnedUserId,
 };
 
-use super::BundledReactions;
+use super::ReactionsByKeyBySender;
 
 /// An item for an event that was received from the homeserver.
 #[derive(Clone)]
@@ -34,7 +34,7 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
     pub transaction_id: Option<OwnedTransactionId>,
 
     /// All bundled reactions about the event.
-    pub reactions: BundledReactions,
+    pub reactions: ReactionsByKeyBySender,
 
     /// All read receipts for the event.
     ///
@@ -74,7 +74,7 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
 
 impl RemoteEventTimelineItem {
     /// Clone the current event item, and update its `reactions`.
-    pub fn with_reactions(&self, reactions: BundledReactions) -> Self {
+    pub fn with_reactions(&self, reactions: ReactionsByKeyBySender) -> Self {
         Self { reactions, ..self.clone() }
     }
 
@@ -82,7 +82,7 @@ impl RemoteEventTimelineItem {
     /// JSON representation fields.
     pub fn redact(&self) -> Self {
         Self {
-            reactions: BundledReactions::default(),
+            reactions: ReactionsByKeyBySender::default(),
             original_json: None,
             latest_edit_json: None,
             ..self.clone()
