@@ -16,7 +16,7 @@ use ruma::UserId;
 use tracing::error;
 use vodozemac::Curve25519PublicKey;
 
-use super::{SenderData, SenderDataRetryDetails};
+use super::{InboundGroupSession, SenderData, SenderDataRetryDetails};
 use crate::{
     error::{OlmResult, SessionCreationError},
     store::Store,
@@ -115,6 +115,7 @@ use crate::{
 /// have no plans to update it if so.
 pub(crate) struct SenderDataFinder<'a> {
     store: &'a Store,
+    session: &'a InboundGroupSession,
 }
 
 impl<'a> SenderDataFinder<'a> {
@@ -125,8 +126,9 @@ impl<'a> SenderDataFinder<'a> {
         store: &'a Store,
         sender_curve_key: Curve25519PublicKey,
         room_key_event: &'a DecryptedRoomKeyEvent,
+        session: &'a InboundGroupSession,
     ) -> OlmResult<SenderData> {
-        let finder = Self { store };
+        let finder = Self { store, session };
         finder.have_event(sender_curve_key, room_key_event).await
     }
 
@@ -134,8 +136,9 @@ impl<'a> SenderDataFinder<'a> {
     pub(crate) async fn find_using_device_keys(
         store: &'a Store,
         device_keys: DeviceKeys,
+        session: &'a InboundGroupSession,
     ) -> OlmResult<SenderData> {
-        let finder = Self { store };
+        let finder = Self { store, session };
         finder.have_device_keys(&device_keys).await
     }
 
@@ -255,25 +258,28 @@ mod tests {
 
     use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, owned_room_id, user_id, DeviceId, OwnedUserId, UserId};
+    use ruma::{device_id, room_id, user_id, DeviceId, OwnedUserId, RoomId, UserId};
     use tokio::sync::Mutex;
     use vodozemac::{megolm::SessionKey, Curve25519PublicKey, Ed25519PublicKey};
 
     use super::SenderDataFinder;
     use crate::{
-        olm::{PrivateCrossSigningIdentity, SenderData},
+        olm::{InboundGroupSession, PrivateCrossSigningIdentity, SenderData},
         store::{Changes, CryptoStoreWrapper, MemoryStore, Store},
-        types::events::{
-            olm_v1::DecryptedRoomKeyEvent,
-            room_key::{MegolmV1AesSha2Content, RoomKeyContent},
+        types::{
+            events::{
+                olm_v1::DecryptedRoomKeyEvent,
+                room_key::{MegolmV1AesSha2Content, RoomKeyContent},
+            },
+            EventEncryptionAlgorithm,
         },
         verification::VerificationMachine,
         Account, Device, DeviceData, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData,
     };
 
     impl<'a> SenderDataFinder<'a> {
-        fn new(store: &'a Store) -> Self {
-            Self { store }
+        fn new(store: &'a Store, session: &'a InboundGroupSession) -> Self {
+            Self { store, session }
         }
     }
 
@@ -290,7 +296,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store);
+        let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we try to find sender data
         let sender_data = finder
@@ -320,7 +326,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store);
+        let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we try to find sender data
         let sender_data = finder
@@ -354,7 +360,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store);
+        let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we try to find sender data
         let sender_data = finder
@@ -388,7 +394,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store);
+        let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we try to find sender data
         let sender_data = finder
@@ -422,7 +428,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store);
+        let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we try to find sender data
         let sender_data = finder
@@ -451,7 +457,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store);
+        let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we try to find sender data
         let sender_data = finder
@@ -480,7 +486,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store);
+        let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we try to find sender data
         let sender_data = finder
@@ -509,7 +515,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store);
+        let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we try to find sender data
         let sender_data = finder
@@ -538,7 +544,7 @@ mod tests {
             sender_is_verified: true,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store);
+        let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we try to find sender data
         let sender_data = finder
@@ -569,7 +575,7 @@ mod tests {
             sender_is_verified: true,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store);
+        let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we try to find sender data
         let sender_data = finder
@@ -599,7 +605,7 @@ mod tests {
             sender_is_verified: false,
         })
         .await;
-        let finder = SenderDataFinder::new(&setup.store);
+        let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we supply the device keys directly while asking for the sender data
         let sender_data =
@@ -628,6 +634,7 @@ mod tests {
         sender_device: Device,
         store: Store,
         room_key_event: DecryptedRoomKeyEvent,
+        session: InboundGroupSession,
     }
 
     impl TestSetup {
@@ -645,10 +652,30 @@ mod tests {
 
             save_to_store(&store, &me, &sender, &sender_device, &options).await;
 
-            let room_key_event =
-                create_room_key_event(&sender.user_id, &me.user_id, &sender_device, &options);
+            let room_id = room_id!("!r:s.co");
+            let session_key = create_session_key();
 
-            Self { sender, sender_device, store, room_key_event }
+            let room_key_event = create_room_key_event(
+                &sender.user_id,
+                &me.user_id,
+                &sender_device,
+                room_id,
+                &session_key,
+                &options,
+            );
+
+            let session = InboundGroupSession::new(
+                sender_device.inner.curve25519_key().unwrap(),
+                sender_device.inner.ed25519_key().unwrap(),
+                room_id,
+                &session_key,
+                SenderData::unknown(),
+                EventEncryptionAlgorithm::MegolmV1AesSha2,
+                None,
+            )
+            .unwrap();
+
+            Self { sender, sender_device, store, room_key_event, session }
         }
 
         fn sender_device_curve_key(&self) -> Curve25519PublicKey {
@@ -837,6 +864,8 @@ mod tests {
         sender: &UserId,
         receiver: &UserId,
         sender_device: &Device,
+        room_id: &RoomId,
+        session_key: &SessionKey,
         options: &TestOptions,
     ) -> DecryptedRoomKeyEvent {
         let device = if options.event_contains_device_keys {
@@ -850,24 +879,28 @@ mod tests {
             receiver,
             Ed25519PublicKey::from_base64("loz5i40dP+azDtWvsD0L/xpnCjNkmrcvtXVXzCHX8Vw").unwrap(),
             device,
-            RoomKeyContent::MegolmV1AesSha2(Box::new(room_key_content())),
+            RoomKeyContent::MegolmV1AesSha2(Box::new(MegolmV1AesSha2Content::new(
+                room_id.to_owned(),
+                "mysession".to_owned(),
+                clone_session_key(session_key),
+            ))),
         )
     }
 
-    fn room_key_content() -> MegolmV1AesSha2Content {
-        MegolmV1AesSha2Content::new(
-            owned_room_id!("!r:s.co"),
-            "mysession".to_owned(),
-            SessionKey::from_base64(
-                "\
-                    AgAAAADBy9+YIYTIqBjFT67nyi31gIOypZQl8day2hkhRDCZaHoG+cZh4tZLQIAZimJail0\
-                    0zq4DVJVljO6cZ2t8kIto/QVk+7p20Fcf2nvqZyL2ZCda2Ei7VsqWZHTM/gqa2IU9+ktkwz\
-                    +KFhENnHvDhG9f+hjsAPZd5mTTpdO+tVcqtdWhX4dymaJ/2UpAAjuPXQW+nXhQWQhXgXOUa\
-                    JCYurJtvbCbqZGeDMmVIoqukBs2KugNJ6j5WlTPoeFnMl6Guy9uH2iWWxGg8ZgT2xspqVl5\
-                    CwujjC+m7Dh1toVkvu+bAw\
-                    ",
-            )
-            .unwrap(),
+    fn create_session_key() -> SessionKey {
+        SessionKey::from_base64(
+            "\
+            AgAAAADBy9+YIYTIqBjFT67nyi31gIOypZQl8day2hkhRDCZaHoG+cZh4tZLQIAZimJail0\
+            0zq4DVJVljO6cZ2t8kIto/QVk+7p20Fcf2nvqZyL2ZCda2Ei7VsqWZHTM/gqa2IU9+ktkwz\
+            +KFhENnHvDhG9f+hjsAPZd5mTTpdO+tVcqtdWhX4dymaJ/2UpAAjuPXQW+nXhQWQhXgXOUa\
+            JCYurJtvbCbqZGeDMmVIoqukBs2KugNJ6j5WlTPoeFnMl6Guy9uH2iWWxGg8ZgT2xspqVl5\
+            CwujjC+m7Dh1toVkvu+bAw\
+            ",
         )
+        .unwrap()
+    }
+
+    fn clone_session_key(session_key: &SessionKey) -> SessionKey {
+        SessionKey::from_base64(&session_key.to_base64()).unwrap()
     }
 }
