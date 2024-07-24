@@ -21,7 +21,6 @@ use eyeball_im::{ObservableVectorEntry, VectorDiff};
 use eyeball_im_util::vector::VectorObserverExt;
 use futures_core::Stream;
 use imbl::Vector;
-use itertools::Itertools;
 #[cfg(all(test, feature = "e2e-encryption"))]
 use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
@@ -62,8 +61,8 @@ use super::{
     traits::RoomDataProvider,
     util::{rfind_event_by_id, rfind_event_item, RelativePosition},
     Error, EventSendState, EventTimelineItem, InReplyToDetails, Message, PaginationError, Profile,
-    RepliedToEvent, TimelineDetails, TimelineFocus, TimelineItem, TimelineItemContent,
-    TimelineItemKind,
+    RepliedToEvent, TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
+    TimelineItemContent, TimelineItemKind,
 };
 use crate::{
     timeline::{day_dividers::DayDividerAdjuster, TimelineEventFilterFn},
@@ -409,17 +408,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         };
 
         let (local_echo_txn_id, remote_echo_event_id) = {
-            let reactions = related_event.reactions();
-
-            let user_reactions =
-                reactions.get(&annotation.key).map(|group| group.by_sender(user_id));
-
-            user_reactions
-                .map(|reactions| {
-                    let reactions = reactions.collect_vec();
-                    let local = reactions.iter().find_map(|(txid, _event_id)| *txid);
-                    let remote = reactions.iter().find_map(|(_txid, event_id)| *event_id);
-                    (local, remote)
+            related_event
+                .reactions()
+                .get(&annotation.key)
+                .and_then(|group| group.get(user_id))
+                .map(|reaction_info| match &reaction_info.id {
+                    TimelineEventItemId::TransactionId(txn_id) => (Some(txn_id), None),
+                    TimelineEventItemId::EventId(event_id) => (None, Some(event_id)),
                 })
                 .unwrap_or((None, None))
         };

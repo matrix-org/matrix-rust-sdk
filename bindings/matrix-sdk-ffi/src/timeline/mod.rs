@@ -979,10 +979,10 @@ impl EventTimelineItem {
             .map(|(k, v)| Reaction {
                 key: k.to_owned(),
                 senders: v
-                    .senders()
-                    .map(|v| ReactionSenderData {
-                        sender_id: v.sender_id.to_string(),
-                        timestamp: v.timestamp.0.into(),
+                    .iter()
+                    .map(|(sender_id, info)| ReactionSenderData {
+                        sender_id: sender_id.to_string(),
+                        timestamp: info.timestamp.0.into(),
                     })
                     .collect(),
             })
