@@ -978,7 +978,6 @@ impl EventTimelineItem {
             .iter()
             .map(|(k, v)| Reaction {
                 key: k.to_owned(),
-                count: v.len().try_into().unwrap(),
                 senders: v
                     .senders()
                     .map(|v| ReactionSenderData {
