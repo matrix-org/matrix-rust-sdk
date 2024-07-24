@@ -924,6 +924,20 @@ impl QueueStorage {
         let num_initial_dependent_events = dependent_events.len();
 
         let canonicalized_dependent_events = canonicalize_dependent_events(&dependent_events);
+
+        // Get rid of the all non-canonical dependent events.
+        for original in &dependent_events {
+            if !canonicalized_dependent_events
+                .iter()
+                .any(|canonical| canonical.own_transaction_id == original.own_transaction_id)
+            {
+                store
+                    .remove_dependent_send_queue_event(&self.room_id, &original.own_transaction_id)
+                    .await
+                    .map_err(RoomSendQueueStorageError::StorageError)?;
+            }
+        }
+
         let mut num_dependent_events = canonicalized_dependent_events.len();
 
         debug!(
@@ -952,7 +966,7 @@ impl QueueStorage {
         }
 
         debug!(
-            leftovert_dependent_events = num_dependent_events,
+            leftover_dependent_events = num_dependent_events,
             "stopped handling dependent events"
         );
 
