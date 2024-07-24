@@ -72,9 +72,10 @@ pub use self::integration_tests::StateStoreIntegrationTests;
 pub use self::{
     memory_store::MemoryStore,
     traits::{
-        ComposerDraft, ComposerDraftType, DependentQueuedEvent, DependentQueuedEventKind,
-        DynStateStore, IntoStateStore, QueuedEvent, SerializableEventContent, ServerCapabilities,
-        StateStore, StateStoreDataKey, StateStoreDataValue, StateStoreExt,
+        ChildTransactionId, ComposerDraft, ComposerDraftType, DependentQueuedEvent,
+        DependentQueuedEventKind, DynStateStore, IntoStateStore, QueuedEvent,
+        SerializableEventContent, ServerCapabilities, StateStore, StateStoreDataKey,
+        StateStoreDataValue, StateStoreExt,
     },
 };
 

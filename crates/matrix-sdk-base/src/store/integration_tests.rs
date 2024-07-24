@@ -38,7 +38,7 @@ use super::{DependentQueuedEventKind, DynStateStore, ServerCapabilities};
 use crate::{
     deserialized_responses::MemberEvent,
     media::{MediaFormat, MediaRequest, MediaThumbnailSettings},
-    store::{Result, SerializableEventContent, StateStoreExt},
+    store::{traits::ChildTransactionId, Result, SerializableEventContent, StateStoreExt},
     RoomInfo, RoomMemberships, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
 
@@ -1498,7 +1498,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert!(self.list_dependent_send_queue_events(room_id).await.unwrap().is_empty());
 
         // Save a redaction for that event.
-        let child_txn = TransactionId::new();
+        let child_txn = ChildTransactionId::new();
         self.save_dependent_send_queue_event(
             room_id,
             &txn0,
@@ -1551,7 +1551,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         self.save_dependent_send_queue_event(
             room_id,
             &txn0,
-            TransactionId::new(),
+            ChildTransactionId::new(),
             DependentQueuedEventKind::Redact,
         )
         .await
@@ -1561,7 +1561,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         self.save_dependent_send_queue_event(
             room_id,
             &txn1,
-            TransactionId::new(),
+            ChildTransactionId::new(),
             DependentQueuedEventKind::Edit {
                 new_content: SerializableEventContent::new(
                     &RoomMessageEventContent::text_plain("edit").into(),

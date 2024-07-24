@@ -12,8 +12,8 @@ use matrix_sdk_base::{
     deserialized_responses::{RawAnySyncOrStrippedState, SyncOrStrippedState},
     media::{MediaRequest, UniqueKey},
     store::{
-        migration_helpers::RoomInfoV1, DependentQueuedEvent, DependentQueuedEventKind, QueuedEvent,
-        SerializableEventContent,
+        migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedEvent,
+        DependentQueuedEventKind, QueuedEvent, SerializableEventContent,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue,
@@ -1863,7 +1863,7 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
-        own_txn_id: OwnedTransactionId,
+        own_txn_id: ChildTransactionId,
         content: DependentQueuedEventKind,
     ) -> Result<()> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
@@ -1913,7 +1913,7 @@ impl StateStore for SqliteStateStore {
     async fn remove_dependent_send_queue_event(
         &self,
         room_id: &RoomId,
-        txn_id: &TransactionId,
+        txn_id: &ChildTransactionId,
     ) -> Result<bool> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
 

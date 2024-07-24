@@ -16,6 +16,7 @@ use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     fmt,
+    ops::Deref,
     sync::Arc,
 };
 
@@ -460,7 +461,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
-        own_txn_id: OwnedTransactionId,
+        own_txn_id: ChildTransactionId,
         content: DependentQueuedEventKind,
     ) -> Result<(), Self::Error>;
 
@@ -481,7 +482,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn remove_dependent_send_queue_event(
         &self,
         room: &RoomId,
-        own_txn_id: &TransactionId,
+        own_txn_id: &ChildTransactionId,
     ) -> Result<bool, Self::Error>;
 
     /// List all the dependent send queue events.
@@ -769,7 +770,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
-        own_txn_id: OwnedTransactionId,
+        own_txn_id: ChildTransactionId,
         content: DependentQueuedEventKind,
     ) -> Result<(), Self::Error> {
         self.0
@@ -793,7 +794,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
     async fn remove_dependent_send_queue_event(
         &self,
         room_id: &RoomId,
-        own_txn_id: &TransactionId,
+        own_txn_id: &ChildTransactionId,
     ) -> Result<bool, Self::Error> {
         self.0.remove_dependent_send_queue_event(room_id, own_txn_id).await.map_err(Into::into)
     }
@@ -1254,6 +1255,48 @@ pub enum DependentQueuedEventKind {
     Redact,
 }
 
+/// A transaction id identifying a [`DependentQueuedEvent`] rather than its
+/// parent [`QueuedEvent`].
+///
+/// This thin wrapper adds some safety to some APIs, making it possible to
+/// distinguish between the parent's `TransactionId` and the dependent event's
+/// own `TransactionId`.
+#[repr(transparent)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ChildTransactionId(OwnedTransactionId);
+
+impl ChildTransactionId {
+    /// Returns a new [`ChildTransactionId`].
+    #[allow(clippy::new_without_default)]
+    // Should really be ruma/random, but no way to guard against a dependency's feature being
+    // enabled.
+    #[cfg(any(not(target_arch = "wasm32"), feature = "js"))]
+    pub fn new() -> Self {
+        Self(TransactionId::new())
+    }
+}
+
+impl Deref for ChildTransactionId {
+    type Target = TransactionId;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<String> for ChildTransactionId {
+    fn from(val: String) -> Self {
+        Self(val.into())
+    }
+}
+
+impl From<ChildTransactionId> for OwnedTransactionId {
+    fn from(val: ChildTransactionId) -> Self {
+        val.0
+    }
+}
+
 /// An event to be sent, depending on a [`QueuedEvent`] to be sent first.
 ///
 /// Depending on whether the event has been sent or not, this will either update
@@ -1264,7 +1307,7 @@ pub struct DependentQueuedEvent {
     /// Unique identifier for this dependent queued event.
     ///
     /// Useful for deletion.
-    pub own_transaction_id: OwnedTransactionId,
+    pub own_transaction_id: ChildTransactionId,
 
     /// The kind of user intent.
     pub kind: DependentQueuedEventKind,
