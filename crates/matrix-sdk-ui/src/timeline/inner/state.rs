@@ -15,7 +15,6 @@
 use std::{collections::VecDeque, future::Future, sync::Arc};
 
 use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
-use indexmap::IndexMap;
 use matrix_sdk::{deserialized_responses::SyncTimelineEvent, send_queue::SendHandle};
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 #[cfg(test)]
@@ -29,7 +28,7 @@ use ruma::{
 };
 use tracing::{debug, error, instrument, trace, warn};
 
-use super::{HandleManyEventsResult, ReactionState, TimelineInnerSettings};
+use super::{HandleManyEventsResult, TimelineInnerSettings};
 use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
@@ -44,8 +43,7 @@ use crate::{
         read_receipts::ReadReceipts,
         traits::RoomDataProvider,
         util::{rfind_event_by_id, rfind_event_item, RelativePosition},
-        AnnotationKey, Error as TimelineError, Profile, ReactionSenderData, TimelineItem,
-        TimelineItemKind,
+        Error as TimelineError, Profile, ReactionSenderData, TimelineItem, TimelineItemKind,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -757,11 +755,6 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     pub has_up_to_date_read_marker_item: bool,
 
     pub read_receipts: ReadReceipts,
-
-    /// The local reaction request state that is queued next.
-    pub reaction_state: IndexMap<AnnotationKey, ReactionState>,
-    /// The in-flight reaction request state that is ongoing.
-    pub in_flight_reaction: IndexMap<AnnotationKey, ReactionState>,
 }
 
 impl TimelineInnerMetadata {
@@ -780,8 +773,6 @@ impl TimelineInnerMetadata {
             // field, otherwise we'll keep on exiting early in `Self::update_read_marker`.
             has_up_to_date_read_marker_item: true,
             read_receipts: Default::default(),
-            reaction_state: Default::default(),
-            in_flight_reaction: Default::default(),
             room_version,
             unable_to_decrypt_hook,
             internal_id_prefix,
@@ -798,8 +789,6 @@ impl TimelineInnerMetadata {
         // before attempting to update it for each new timeline item.
         self.has_up_to_date_read_marker_item = true;
         self.read_receipts.clear();
-        self.reaction_state.clear();
-        self.in_flight_reaction.clear();
     }
 
     /// Get the relative positions of two events in the timeline.
