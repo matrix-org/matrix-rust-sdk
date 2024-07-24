@@ -269,7 +269,6 @@ impl EncryptedMessage {
 #[derive(Clone, uniffi::Record)]
 pub struct Reaction {
     pub key: String,
-    pub count: u64,
     pub senders: Vec<ReactionSenderData>,
 }
 
