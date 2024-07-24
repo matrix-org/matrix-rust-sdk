@@ -76,10 +76,17 @@ pub(crate) struct PendingReaction {
     pub sender_data: ReactionSenderData,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct FullReactionKey {
+    pub item: TimelineEventItemId,
+    pub key: String,
+    pub sender: OwnedUserId,
+}
+
 #[derive(Clone, Debug, Default)]
 pub(super) struct Reactions {
-    /// Reaction event / txn ID => sender and reaction data.
-    pub map: HashMap<TimelineEventItemId, (ReactionSenderData, Annotation)>,
+    /// Reaction event / txn ID => full path to the reaction in some item.
+    pub map: HashMap<TimelineEventItemId, FullReactionKey>,
     /// Mapping of events that are not in the timeline => reaction event id =>
     /// pending reaction.
     pub pending: HashMap<OwnedEventId, IndexMap<OwnedEventId, PendingReaction>>,

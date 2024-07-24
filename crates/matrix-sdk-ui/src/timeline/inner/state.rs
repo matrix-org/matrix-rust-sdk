@@ -39,11 +39,11 @@ use crate::{
         },
         event_item::{ReactionInfo, RemoteEventOrigin, TimelineEventItemId},
         polls::PollPendingEvents,
-        reactions::{ReactionToggleResult, Reactions},
+        reactions::{FullReactionKey, ReactionToggleResult, Reactions},
         read_receipts::ReadReceipts,
         traits::RoomDataProvider,
         util::{rfind_event_by_id, rfind_event_item, RelativePosition},
-        Error as TimelineError, Profile, ReactionSenderData, TimelineItem, TimelineItemKind,
+        Error as TimelineError, Profile, TimelineItem, TimelineItemKind,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -278,10 +278,6 @@ impl TimelineInnerState {
             return Err(TimelineError::FailedToToggleReaction);
         };
 
-        let now = MilliSecondsSinceUnixEpoch::now();
-        let reaction_sender_data =
-            ReactionSenderData { sender_id: own_user_id.to_owned(), timestamp: now };
-
         let new_reactions = {
             let mut reactions = remote_related.reactions.clone();
             let reaction_by_sender = reactions.entry(annotation.key.clone()).or_default();
@@ -292,7 +288,7 @@ impl TimelineInnerState {
                     ReactionInfo {
                         // Note: remote event is not synced yet, so we're adding an item
                         // with the local timestamp.
-                        timestamp: now,
+                        timestamp: MilliSecondsSinceUnixEpoch::now(),
                         id: TimelineEventItemId::EventId(event_id.clone()),
                     },
                 );
@@ -309,24 +305,29 @@ impl TimelineInnerState {
 
         let new_related = related.with_kind(remote_related.with_reactions(new_reactions));
 
-        // Update the reactions stored in the timeline state
+        // Update the reactions stored in the timeline state.
         {
-            // Remove the local echo from reaction_map
+            // Remove the local echo from reaction_map.
             // (should the local echo already be up-to-date after event handling?)
             if let Some(txn_id) = local_echo_to_remove {
                 let id = TimelineEventItemId::TransactionId(txn_id.clone());
                 if self.meta.reactions.map.remove(&id).is_none() {
                     warn!(
                         "Tried to remove reaction by transaction ID, but didn't \
-                     find matching reaction in the reaction map"
+                         find matching reaction in the reaction map"
                     );
                 }
             }
-            // Add the remote echo to the reaction_map
+
+            // Add the remote echo to the reaction_map.
             if let Some(event_id) = remote_echo_to_add {
                 self.meta.reactions.map.insert(
                     TimelineEventItemId::EventId(event_id.clone()),
-                    (reaction_sender_data, annotation.clone()),
+                    FullReactionKey {
+                        item: TimelineEventItemId::EventId(annotation.event_id.clone()),
+                        key: annotation.key.clone(),
+                        sender: own_user_id.to_owned(),
+                    },
                 );
             }
         }
