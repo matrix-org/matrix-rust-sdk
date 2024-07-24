@@ -1498,14 +1498,21 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert!(self.list_dependent_send_queue_events(room_id).await.unwrap().is_empty());
 
         // Save a redaction for that event.
-        self.save_dependent_send_queue_event(room_id, &txn0, DependentQueuedEventKind::Redact)
-            .await
-            .unwrap();
+        let child_txn = TransactionId::new();
+        self.save_dependent_send_queue_event(
+            room_id,
+            &txn0,
+            child_txn.clone(),
+            DependentQueuedEventKind::Redact,
+        )
+        .await
+        .unwrap();
 
         // It worked.
         let dependents = self.list_dependent_send_queue_events(room_id).await.unwrap();
         assert_eq!(dependents.len(), 1);
-        assert_eq!(dependents[0].transaction_id, txn0);
+        assert_eq!(dependents[0].parent_transaction_id, txn0);
+        assert_eq!(dependents[0].own_transaction_id, child_txn);
         assert!(dependents[0].event_id.is_none());
         assert_matches!(dependents[0].kind, DependentQueuedEventKind::Redact);
 
@@ -1518,13 +1525,16 @@ impl StateStoreIntegrationTests for DynStateStore {
         // It worked.
         let dependents = self.list_dependent_send_queue_events(room_id).await.unwrap();
         assert_eq!(dependents.len(), 1);
-        assert_eq!(dependents[0].transaction_id, txn0);
+        assert_eq!(dependents[0].parent_transaction_id, txn0);
+        assert_eq!(dependents[0].own_transaction_id, child_txn);
         assert_eq!(dependents[0].event_id.as_ref(), Some(&event_id));
         assert_matches!(dependents[0].kind, DependentQueuedEventKind::Redact);
 
         // Now remove it.
-        let removed =
-            self.remove_dependent_send_queue_event(room_id, dependents[0].id).await.unwrap();
+        let removed = self
+            .remove_dependent_send_queue_event(room_id, &dependents[0].own_transaction_id)
+            .await
+            .unwrap();
         assert!(removed);
 
         // It worked.
@@ -1538,14 +1548,20 @@ impl StateStoreIntegrationTests for DynStateStore {
                 .unwrap();
         self.save_send_queue_event(room_id, txn1.clone(), event1).await.unwrap();
 
-        self.save_dependent_send_queue_event(room_id, &txn0, DependentQueuedEventKind::Redact)
-            .await
-            .unwrap();
+        self.save_dependent_send_queue_event(
+            room_id,
+            &txn0,
+            TransactionId::new(),
+            DependentQueuedEventKind::Redact,
+        )
+        .await
+        .unwrap();
         assert_eq!(self.list_dependent_send_queue_events(room_id).await.unwrap().len(), 1);
 
         self.save_dependent_send_queue_event(
             room_id,
             &txn1,
+            TransactionId::new(),
             DependentQueuedEventKind::Edit {
                 new_content: SerializableEventContent::new(
                     &RoomMessageEventContent::text_plain("edit").into(),

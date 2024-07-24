@@ -1575,7 +1575,8 @@ impl_state_store!({
     async fn save_dependent_send_queue_event(
         &self,
         room_id: &RoomId,
-        transaction_id: &TransactionId,
+        parent_txn_id: &TransactionId,
+        own_txn_id: OwnedTransactionId,
         content: DependentQueuedEventKind,
     ) -> Result<()> {
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
@@ -1596,14 +1597,11 @@ impl_state_store!({
             |val| self.deserialize_value::<Vec<DependentQueuedEvent>>(&val),
         )?;
 
-        // Find the next id by taking the biggest ID we had before, and add 1.
-        let next_id = prev.iter().fold(0, |max, item| item.id.max(max)) + 1;
-
         // Push the new event.
         prev.push(DependentQueuedEvent {
-            id: next_id,
             kind: content,
-            transaction_id: transaction_id.to_owned(),
+            parent_transaction_id: parent_txn_id.to_owned(),
+            own_transaction_id: own_txn_id,
             event_id: None,
         });
 
@@ -1618,7 +1616,7 @@ impl_state_store!({
     async fn update_dependent_send_queue_event(
         &self,
         room_id: &RoomId,
-        transaction_id: &TransactionId,
+        parent_txn_id: &TransactionId,
         event_id: OwnedEventId,
     ) -> Result<usize> {
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
@@ -1641,7 +1639,7 @@ impl_state_store!({
 
         // Modify all events that match.
         let mut num_updated = 0;
-        for entry in prev.iter_mut().filter(|entry| entry.transaction_id == transaction_id) {
+        for entry in prev.iter_mut().filter(|entry| entry.parent_transaction_id == parent_txn_id) {
             entry.event_id = Some(event_id.clone());
             num_updated += 1;
         }
@@ -1654,7 +1652,11 @@ impl_state_store!({
         Ok(num_updated)
     }
 
-    async fn remove_dependent_send_queue_event(&self, room_id: &RoomId, id: usize) -> Result<bool> {
+    async fn remove_dependent_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        txn_id: &TransactionId,
+    ) -> Result<bool> {
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
 
         let tx = self.inner.transaction_on_one_with_mode(
@@ -1668,7 +1670,7 @@ impl_state_store!({
         // Reload the previous vector for this room.
         if let Some(val) = obj.get(&encoded_key)?.await? {
             let mut prev = self.deserialize_value::<Vec<DependentQueuedEvent>>(&val)?;
-            if let Some(pos) = prev.iter().position(|item| item.id == id) {
+            if let Some(pos) = prev.iter().position(|item| item.own_transaction_id == txn_id) {
                 prev.remove(pos);
 
                 if prev.is_empty() {
