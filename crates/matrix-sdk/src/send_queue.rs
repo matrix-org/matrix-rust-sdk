@@ -44,7 +44,7 @@
 //!   queue for the given room has been reopened for the first time.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, RwLock as SyncRwLock,
@@ -1145,24 +1145,42 @@ impl SendHandle {
 /// meaningful, i.e. the ones that wouldn't be overridden after applying the
 /// others.
 fn canonicalize_dependent_events(dependent: &[DependentQueuedEvent]) -> Vec<DependentQueuedEvent> {
-    let mut latest_edit = None;
+    let mut by_event_id = HashMap::<OwnedTransactionId, Vec<&DependentQueuedEvent>>::new();
 
     for d in dependent {
+        let prevs = by_event_id.entry(d.parent_transaction_id.clone()).or_default();
+
+        if prevs.iter().any(|prev| matches!(prev.kind, DependentQueuedEventKind::Redact)) {
+            // The event has already been flagged for redaction, don't consider the other
+            // dependent events.
+            continue;
+        }
+
         match &d.kind {
-            DependentQueuedEventKind::Edit { .. } => latest_edit = Some(d),
+            DependentQueuedEventKind::Edit { .. } => {
+                // Replace any previous edit with this one.
+                if let Some(prev_edit) = prevs
+                    .iter_mut()
+                    .find(|prev| matches!(prev.kind, DependentQueuedEventKind::Edit { .. }))
+                {
+                    *prev_edit = d;
+                } else {
+                    prevs.push(d);
+                }
+            }
+
             DependentQueuedEventKind::Redact => {
-                // Shortcut and return the redaction; any other action would be meaningless,
-                // since it'll end up with a redact.
-                return vec![d.clone()];
+                // Remove every other dependent action.
+                prevs.clear();
+                prevs.push(d);
             }
         }
     }
 
-    if let Some(d) = latest_edit {
-        vec![d.clone()]
-    } else {
-        Vec::new()
-    }
+    by_event_id
+        .into_iter()
+        .flat_map(|(_parent_txn_id, entries)| entries.into_iter().cloned())
+        .collect()
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -1267,7 +1285,7 @@ mod tests {
 
         let edit = DependentQueuedEvent {
             own_transaction_id: ChildTransactionId::new(),
-            parent_transaction_id: TransactionId::new(),
+            parent_transaction_id: txn.clone(),
             kind: DependentQueuedEventKind::Edit {
                 new_content: SerializableEventContent::new(
                     &RoomMessageEventContent::text_plain("edit").into(),
@@ -1300,11 +1318,13 @@ mod tests {
 
     #[test]
     fn test_canonicalize_dependent_events_last_edit_preferred() {
+        let parent_txn = TransactionId::new();
+
         // The latest edit of a list is always preferred.
         let inputs = (0..10)
             .map(|i| DependentQueuedEvent {
                 own_transaction_id: ChildTransactionId::new(),
-                parent_transaction_id: TransactionId::new(),
+                parent_transaction_id: parent_txn.clone(),
                 kind: DependentQueuedEventKind::Edit {
                     new_content: SerializableEventContent::new(
                         &RoomMessageEventContent::text_plain(format!("edit{i}")).into(),
@@ -1326,5 +1346,51 @@ mod tests {
         );
         assert_eq!(msg.body(), "edit9");
         assert_eq!(res[0].parent_transaction_id, txn);
+    }
+
+    #[test]
+    fn test_canonicalize_multiple_local_echoes() {
+        let txn1 = TransactionId::new();
+        let txn2 = TransactionId::new();
+
+        let child1 = ChildTransactionId::new();
+        let child2 = ChildTransactionId::new();
+
+        let inputs = vec![
+            // This one pertains to txn1.
+            DependentQueuedEvent {
+                own_transaction_id: child1.clone(),
+                kind: DependentQueuedEventKind::Redact,
+                parent_transaction_id: txn1.clone(),
+                event_id: None,
+            },
+            // This one pertains to txn2.
+            DependentQueuedEvent {
+                own_transaction_id: child2,
+                kind: DependentQueuedEventKind::Edit {
+                    new_content: SerializableEventContent::new(
+                        &RoomMessageEventContent::text_plain("edit").into(),
+                    )
+                    .unwrap(),
+                },
+                parent_transaction_id: txn2.clone(),
+                event_id: None,
+            },
+        ];
+
+        let res = canonicalize_dependent_events(&inputs);
+
+        // The canonicalization shouldn't depend per event id.
+        assert_eq!(res.len(), 2);
+
+        for dependent in res {
+            if dependent.own_transaction_id == child1 {
+                assert_eq!(dependent.parent_transaction_id, txn1);
+                assert_matches!(dependent.kind, DependentQueuedEventKind::Redact);
+            } else {
+                assert_eq!(dependent.parent_transaction_id, txn2);
+                assert_matches!(dependent.kind, DependentQueuedEventKind::Edit { .. });
+            }
+        }
     }
 }
