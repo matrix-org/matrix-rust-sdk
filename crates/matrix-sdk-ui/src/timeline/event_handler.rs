@@ -57,6 +57,7 @@ use super::{
     },
     inner::{TimelineInnerMetadata, TimelineInnerStateTransaction},
     polls::PollState,
+    reactions::FullReactionKey,
     util::{rfind_event_by_id, rfind_event_item},
     EventTimelineItem, InReplyToDetails, Message, OtherState, ReactionSenderData, Sticker,
     TimelineDetails, TimelineItem, TimelineItemContent,
@@ -602,7 +603,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             self.meta.reactions.map.remove(&TimelineEventItemId::TransactionId(txn_id.clone()));
         }
 
-        self.meta.reactions.map.insert(reaction_id, (reaction_sender_data, c.relates_to));
+        self.meta.reactions.map.insert(
+            reaction_id,
+            FullReactionKey {
+                item: TimelineEventItemId::EventId(c.relates_to.event_id),
+                sender: self.ctx.sender.clone(),
+                key: c.relates_to.key,
+            },
+        );
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
@@ -774,38 +782,47 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// Returns true if it's succeeded.
     #[instrument(skip_all, fields(redacts = ?reaction_id))]
     fn handle_reaction_redaction(&mut self, reaction_id: TimelineEventItemId) -> bool {
-        if let Some((_, rel)) = self.meta.reactions.map.remove(&reaction_id) {
-            let updated_event = self.update_timeline_item(&rel.event_id, |this, event_item| {
-                let Some(remote_event_item) = event_item.as_remote() else {
-                    error!("inconsistent state: redaction received on a non-remote event item");
-                    return None;
-                };
+        if let Some(FullReactionKey {
+            item: TimelineEventItemId::EventId(reacted_to_event_id),
+            key,
+            sender,
+        }) = self.meta.reactions.map.remove(&reaction_id)
+        {
+            let updated_event =
+                self.update_timeline_item(&reacted_to_event_id, |_this, event_item| {
+                    let Some(remote_event_item) = event_item.as_remote() else {
+                        error!("inconsistent state: redaction received on a non-remote event item");
+                        return None;
+                    };
 
-                let mut reactions = remote_event_item.reactions.clone();
+                    let mut reactions = remote_event_item.reactions.clone();
 
-                if let Some(by_sender) = reactions.get_mut(&rel.key) {
-                    if let Some(reaction) = by_sender.get(&this.ctx.sender) {
-                        if reaction.id == reaction_id {
-                            by_sender.swap_remove(&this.ctx.sender);
-                            // Remove the reaction group if this was the last reaction.
-                            if by_sender.is_empty() {
-                                reactions.swap_remove(&rel.key);
-                            }
-                        } else {
-                            warn!("Tried to remove a reaction which didn't match the known one.");
+                    if let Some(by_sender) = reactions.get_mut(&key) {
+                        if by_sender.swap_remove(&sender).is_none() {
+                            warn!("Tried to redact a reaction that wasn't sent by this sender");
                         }
-                    }
-                }
 
-                trace!("Removing reaction");
-                Some(event_item.with_kind(remote_event_item.with_reactions(reactions)))
-            });
+                        // Remove the reaction group if this was the last reaction.
+                        if by_sender.is_empty() {
+                            reactions.swap_remove(&key);
+                        }
+                    } else {
+                        warn!(
+                            "Tried to redact a reaction for a key not present in the reaction list"
+                        );
+                    }
+
+                    trace!("Removing reaction");
+                    Some(event_item.with_kind(remote_event_item.with_reactions(reactions)))
+                });
 
             if !updated_event {
                 if let TimelineEventItemId::EventId(event_id) = reaction_id {
                     // If the remote event wasn't in the timeline, remove any possibly pending
                     // reactions to that event, as this redaction would affect them.
-                    if let Some(reactions) = self.meta.reactions.pending.get_mut(&rel.event_id) {
+                    if let Some(reactions) =
+                        self.meta.reactions.pending.get_mut(&reacted_to_event_id)
+                    {
                         reactions.swap_remove(&event_id);
                     }
                 }

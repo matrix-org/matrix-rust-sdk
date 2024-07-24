@@ -582,6 +582,7 @@ pub enum EventItemOrigin {
 #[derive(Clone, Debug)]
 pub struct ReactionInfo {
     pub timestamp: MilliSecondsSinceUnixEpoch,
+    /// Id of the reaction (not the reacted-to event).
     pub id: TimelineEventItemId,
 }
 
