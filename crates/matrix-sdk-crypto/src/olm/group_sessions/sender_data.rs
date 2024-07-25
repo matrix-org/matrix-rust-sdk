@@ -25,7 +25,8 @@ use crate::types::DeviceKeys;
 /// using the device info, the session can be moved into `SenderKnown` state.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum SenderData {
-    /// We have not yet found the (signed) device info for the sending device
+    /// We have not yet found the (signed) device info for the sending device,
+    /// or we did find a device but it does not own the session.
     UnknownDevice {
         /// When we will next try again to find device info for this session,
         /// and how many times we have tried
@@ -35,6 +36,12 @@ pub enum SenderData {
         /// information about sessions? If so, we may choose to display its
         /// messages even though trust info is missing.
         legacy_session: bool,
+
+        /// If true, we found the device but it was not the owner of the
+        /// session. If false, we could not find the device.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        #[serde(default)]
+        owner_check_failed: bool,
     },
 
     /// We have the signed device info for the sending device, but not yet the
@@ -81,6 +88,7 @@ impl SenderData {
             // it as true because we might lose device info while
             // this code is still in transition.
             legacy_session: true,
+            owner_check_failed: false,
         }
     }
 
@@ -93,12 +101,13 @@ impl SenderData {
         Self::UnknownDevice {
             retry_details: SenderDataRetryDetails::retry_soon(),
             legacy_session: true,
+            owner_check_failed: false,
         }
     }
 
     #[cfg(test)]
     pub(crate) fn unknown_retry_at(retry_details: SenderDataRetryDetails) -> Self {
-        Self::UnknownDevice { retry_details, legacy_session: false }
+        Self::UnknownDevice { retry_details, legacy_session: false, owner_check_failed: false }
     }
 }
 
@@ -143,5 +152,53 @@ impl SenderDataRetryDetails {
                 UInt::try_from(next_retry_time_ms).unwrap_or(UInt::from(0u8)),
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches2::assert_let;
+
+    use super::{SenderData, SenderDataRetryDetails};
+
+    #[test]
+    fn serializing_unknown_device_correctly_preserves_owner_check_failed_if_true() {
+        // Given an unknown device SenderData with failed owner check
+        let start = SenderData::UnknownDevice {
+            retry_details: SenderDataRetryDetails::new(3, 10_000),
+            legacy_session: false,
+            owner_check_failed: true,
+        };
+
+        // When we round-trip it to JSON and back
+        let json = serde_json::to_string(&start).unwrap();
+        let end: SenderData = serde_json::from_str(&json).unwrap();
+
+        // Then the failed owner check flag is preserved
+        assert_let!(SenderData::UnknownDevice { owner_check_failed, .. } = &end);
+        assert!(owner_check_failed);
+
+        // And for good measure, everything is preserved
+        assert_eq!(start, end);
+    }
+
+    #[test]
+    fn serializing_unknown_device_without_failed_owner_check_excludes_it() {
+        // Given an unknown device SenderData with owner_check_failed==false
+        let start = SenderData::UnknownDevice {
+            retry_details: SenderDataRetryDetails::new(3, 10_000),
+            legacy_session: false,
+            owner_check_failed: false,
+        };
+
+        // When we write it to JSON
+        let json = serde_json::to_string(&start).unwrap();
+
+        // Then the JSON does not mention `owner_check_failed`
+        assert!(!json.contains("owner_check_failed"), "JSON contains 'owner_check_failed'!");
+
+        // And for good measure, it round-trips fully
+        let end: SenderData = serde_json::from_str(&json).unwrap();
+        assert_eq!(start, end);
     }
 }

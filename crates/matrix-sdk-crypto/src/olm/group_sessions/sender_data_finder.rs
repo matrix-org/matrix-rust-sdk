@@ -70,6 +70,18 @@ use crate::{
 ///                                     │
 ///   __________________________________▼______________________________
 ///  ╱                                                                 ╲
+/// ╱ Is the session owned by the device?                               ╲yes
+/// ╲___________________________________________________________________╱ │
+///                                     │ no                              │
+///                                     ▼                                 │
+/// ╭───────────────────────────────────────────────────────────────────╮ │
+/// │ E (the device does not own the session)                           │ │
+/// │                                                                   │ │
+/// │ Give up: something is wrong with the session.                     │ │
+/// ╰───────────────────────────────────────────────────────────────────╯ │
+///                                     ┌─────────────────────────────────┘
+///   __________________________________▼______________________________
+///  ╱                                                                 ╲
 /// ╱ Is the device cross-signed by the sender?                         ╲yes
 /// ╲___________________________________________________________________╱ │
 ///                                     │ no                              │
@@ -184,6 +196,7 @@ impl<'a> SenderDataFinder<'a> {
                 // TODO: we set legacy to true for now, since our implementation is incomplete, so
                 // we may not have had a proper chance to look up the sender data.
                 legacy_session: true,
+                owner_check_failed: false,
             };
             Ok(sender_data)
         }
@@ -194,7 +207,6 @@ impl<'a> SenderDataFinder<'a> {
         match DeviceData::try_from(sender_device_keys) {
             Ok(sender_device_data) => {
                 let sender_device = self.store.wrap_device_data(sender_device_data).await?;
-
                 Ok(self.have_device(sender_device))
             }
             Err(e) => {
@@ -205,20 +217,38 @@ impl<'a> SenderDataFinder<'a> {
     }
 
     /// Step D (we have a device)
+    ///
+    /// Returns Err if the device does not own the session.
     fn have_device(&self, sender_device: Device) -> SenderData {
+        // Is the session owned by the device?
+        // Note: the only error case from is_owner_of_session would be
+        // MegolmError::MismatchedIdentityKeys, so we can treat this the same as
+        // Ok(false).
+        let device_is_owner = sender_device.is_owner_of_session(self.session).unwrap_or(false);
+
         // Is the device cross-signed?
         // Does the cross-signing key match that used to sign the device?
         // And is the signature in the device valid?
+        let cross_signed = sender_device.is_cross_signed_by_owner();
 
-        if sender_device.is_cross_signed_by_owner() {
-            // Yes: check the device is signed by the sender
-            self.device_is_cross_signed_by_sender(sender_device)
-        } else {
-            // No: F (we have device keys, but they are not signed by the sender)
-            SenderData::DeviceInfo {
-                device_keys: sender_device.as_device_keys().clone(),
-                retry_details: SenderDataRetryDetails::retry_soon(),
-                legacy_session: true, // TODO: change to false when we have all the retry code
+        match (device_is_owner, cross_signed) {
+            (true, true) => self.device_is_cross_signed_by_sender(sender_device),
+            (true, false) => {
+                // F (we have device keys, but they are not signed by the sender)
+                SenderData::DeviceInfo {
+                    device_keys: sender_device.as_device_keys().clone(),
+                    retry_details: SenderDataRetryDetails::retry_soon(),
+                    legacy_session: true, // TODO: change to false when we have all the retry code
+                }
+            }
+            (false, _) => {
+                // Step E (the device does not own the session)
+                // Give up: something is wrong with the session.
+                SenderData::UnknownDevice {
+                    retry_details: SenderDataRetryDetails::retry_soon(),
+                    legacy_session: true, // TODO: change to false when all SenderData work is done
+                    owner_check_failed: true,
+                }
             }
         }
     }
@@ -294,6 +324,7 @@ mod tests {
             event_contains_device_keys: false,
             sender_is_ourself: false,
             sender_is_verified: false,
+            session_is_owned_by_device: true,
         })
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
@@ -305,13 +336,17 @@ mod tests {
             .unwrap();
 
         // Then we get back no useful information at all
-        assert_let!(SenderData::UnknownDevice { retry_details, legacy_session } = sender_data);
+        assert_let!(
+            SenderData::UnknownDevice { retry_details, legacy_session, owner_check_failed } =
+                sender_data
+        );
         assert_eq!(retry_details.retry_count, 0);
 
         // TODO: This should not be marked as a legacy session, but for now it is
         // because we haven't finished implementing the whole sender_data and
         // retry mechanism.
         assert!(legacy_session);
+        assert!(!owner_check_failed);
     }
 
     #[async_test]
@@ -324,6 +359,7 @@ mod tests {
             event_contains_device_keys: true,
             sender_is_ourself: false,
             sender_is_verified: false,
+            session_is_owned_by_device: true,
         })
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
@@ -358,6 +394,7 @@ mod tests {
             event_contains_device_keys: false,
             sender_is_ourself: false,
             sender_is_verified: false,
+            session_is_owned_by_device: true,
         })
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
@@ -392,6 +429,7 @@ mod tests {
             event_contains_device_keys: false,
             sender_is_ourself: false,
             sender_is_verified: false,
+            session_is_owned_by_device: true,
         })
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
@@ -426,6 +464,7 @@ mod tests {
             event_contains_device_keys: false,
             sender_is_ourself: true,
             sender_is_verified: false,
+            session_is_owned_by_device: true,
         })
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
@@ -455,6 +494,7 @@ mod tests {
             event_contains_device_keys: false,
             sender_is_ourself: false,
             sender_is_verified: false,
+            session_is_owned_by_device: true,
         })
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
@@ -484,6 +524,7 @@ mod tests {
             event_contains_device_keys: true,
             sender_is_ourself: true,
             sender_is_verified: false,
+            session_is_owned_by_device: true,
         })
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
@@ -513,6 +554,7 @@ mod tests {
             event_contains_device_keys: true,
             sender_is_ourself: false,
             sender_is_verified: false,
+            session_is_owned_by_device: true,
         })
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
@@ -533,6 +575,44 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_does_not_add_sender_data_for_a_session_not_owned_by_the_device() {
+        // Given everything is the same as the above test
+        let setup = TestSetup::new(TestOptions {
+            store_contains_device: false,
+            store_contains_sender_identity: true,
+            device_is_signed: true,
+            event_contains_device_keys: true,
+            sender_is_ourself: false,
+            sender_is_verified: false,
+            session_is_owned_by_device: false,
+        })
+        .await;
+        let finder = SenderDataFinder::new(&setup.store, &setup.session);
+        // Except the session is not owned by the device
+
+        // When we try to find sender data
+        let sender_data = finder
+            .have_event(setup.sender_device_curve_key(), &setup.room_key_event)
+            .await
+            .unwrap();
+
+        // Then we fail to find useful sender data
+        assert_let!(
+            SenderData::UnknownDevice { retry_details, legacy_session, owner_check_failed } =
+                sender_data
+        );
+        assert_eq!(retry_details.retry_count, 0);
+
+        // TODO: This should not be marked as a legacy session, but for now it is
+        // because we haven't finished implementing the whole sender_data and
+        // retry mechanism.
+        assert!(legacy_session);
+
+        // And report that the owner_check_failed
+        assert!(owner_check_failed);
+    }
+
+    #[async_test]
     async fn test_notes_master_key_is_verified_for_own_identity() {
         // Given we can find the device, and we sent the event, and we are verified
         let setup = TestSetup::new(TestOptions {
@@ -542,6 +622,7 @@ mod tests {
             event_contains_device_keys: true,
             sender_is_ourself: true,
             sender_is_verified: true,
+            session_is_owned_by_device: true,
         })
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
@@ -573,6 +654,7 @@ mod tests {
             event_contains_device_keys: true,
             sender_is_ourself: false,
             sender_is_verified: true,
+            session_is_owned_by_device: true,
         })
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
@@ -603,6 +685,7 @@ mod tests {
             event_contains_device_keys: false,
             sender_is_ourself: false,
             sender_is_verified: false,
+            session_is_owned_by_device: true,
         })
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
@@ -627,6 +710,7 @@ mod tests {
         event_contains_device_keys: bool,
         sender_is_ourself: bool,
         sender_is_verified: bool,
+        session_is_owned_by_device: bool,
     }
 
     struct TestSetup {
@@ -664,9 +748,16 @@ mod tests {
                 &options,
             );
 
+            let signing_key = if options.session_is_owned_by_device {
+                sender_device.inner.ed25519_key().unwrap()
+            } else {
+                Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4")
+                    .unwrap()
+            };
+
             let session = InboundGroupSession::new(
                 sender_device.inner.curve25519_key().unwrap(),
-                sender_device.inner.ed25519_key().unwrap(),
+                signing_key,
                 room_id,
                 &session_key,
                 SenderData::unknown(),
