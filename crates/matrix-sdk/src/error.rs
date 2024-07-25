@@ -502,6 +502,39 @@ pub enum ImageError {
     ThumbnailBiggerThanOriginal,
 }
 
+/// Errors that can happen when interacting with the beacon API.
+#[derive(Debug, Error)]
+pub enum BeaconError {
+    // A network error occurred.
+    #[error("Network error: {0}")]
+    Network(#[from] HttpError),
+
+    // The beacon information is not found.
+    #[error("Existing beacon information not found.")]
+    NotFound,
+
+    // The redacted event is not an error, but it's not useful for the client.
+    #[error("Beacon event is redacted and cannot be processed.")]
+    Redacted,
+
+    // The client must join the room to access the beacon information.
+    #[error("Must join the room to access beacon information.")]
+    Stripped,
+
+    #[error("Deserialization error: {0}")]
+    Deserialization(#[from] serde_json::Error),
+
+    // Allow for other errors to be wrapped.
+    #[error("Other error: {0}")]
+    Other(Box<Error>),
+}
+
+impl From<Error> for BeaconError {
+    fn from(err: Error) -> Self {
+        BeaconError::Other(Box::new(err))
+    }
+}
+
 /// Errors that can happen when refreshing an access token.
 ///
 /// This is usually only returned by [`Client::refresh_access_token()`], unless

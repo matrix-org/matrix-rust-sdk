@@ -52,6 +52,7 @@ use ruma::{
     },
     assign,
     events::{
+        beacon_info::BeaconInfoEventContent,
         call::notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         direct::DirectEventContent,
         marked_unread::MarkedUnreadEventContent,
@@ -97,7 +98,7 @@ use crate::{
     attachment::AttachmentConfig,
     client::WeakClient,
     config::RequestConfig,
-    error::WrongRoomState,
+    error::{BeaconError, WrongRoomState},
     event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
@@ -2739,6 +2740,69 @@ impl Room {
         .await?;
 
         Ok(())
+    }
+
+    /// Start sharing live location in the room.
+    ///
+    /// # Arguments
+    ///
+    /// * `duration_millis` - The duration for which the live location is
+    ///   shared, in milliseconds.
+    /// * `description` - An optional description for the live location share.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the room is not joined or if the state event could
+    /// not be sent.
+    pub async fn start_live_location_share(
+        &self,
+        duration_millis: u64,
+        description: Option<String>,
+    ) -> Result<send_state_event::v3::Response> {
+        self.ensure_room_joined()?;
+
+        self.send_state_event_for_key(
+            self.own_user_id(),
+            BeaconInfoEventContent::new(
+                description,
+                Duration::from_millis(duration_millis),
+                true,
+                None,
+            ),
+        )
+        .await
+    }
+
+    /// Stop sharing live location in the room.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the room is not joined, if the beacon information
+    /// is redacted or stripped, or if the state event is not found.
+    pub async fn stop_live_location_share(
+        &self,
+    ) -> Result<send_state_event::v3::Response, BeaconError> {
+        self.ensure_room_joined()?;
+
+        if let Some(raw_event) = self
+            .get_state_event_static_for_key::<BeaconInfoEventContent, _>(self.own_user_id())
+            .await?
+        {
+            match raw_event.deserialize() {
+                Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(beacon_info))) => {
+                    let mut content = beacon_info.content.clone();
+                    content.stop();
+                    Ok(self.send_state_event_for_key(self.own_user_id(), content).await?)
+                }
+                Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => {
+                    Err(BeaconError::Redacted)
+                }
+                Ok(SyncOrStrippedState::Stripped(_)) => Err(BeaconError::Stripped),
+                Err(e) => Err(BeaconError::Deserialization(e)),
+            }
+        } else {
+            Err(BeaconError::NotFound)
+        }
     }
 
     /// Send a call notification event in the current room.
