@@ -283,7 +283,8 @@ impl Timeline {
     /// Get the latest of the timeline's event items.
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
         if self.inner.is_live().await {
-            self.inner.items().await.last()?.as_event().cloned()
+            // Try to find the latest item that's an event (and skip virtual items).
+            self.inner.items().await.iter().rev().find_map(|item| item.as_event()).cloned()
         } else {
             None
         }
