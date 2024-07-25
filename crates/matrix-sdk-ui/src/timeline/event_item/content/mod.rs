@@ -163,42 +163,33 @@ impl TimelineItemContent {
         event: &SyncRoomMessageEvent,
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
     ) -> TimelineItemContent {
-        match event {
-            SyncRoomMessageEvent::Original(event) => {
-                // Grab the content of this event.
-                let event_content = event.content.clone();
+        let Some(event) = event.as_original() else {
+            return TimelineItemContent::RedactedMessage;
+        };
 
-                // If this message is a reply, we would look up in this list the message it was
-                // replying to. Since we probably won't show this in the message preview,
-                // it's probably OK to supply an empty list here.
-                //
-                // `Message::from_event` marks the original event as `Unavailable` if it can't
-                // be found inside the timeline_items.
-                let timeline_items = Vector::new();
+        // If this message is a reply, we would look up in this list the message it was
+        // replying to. Since we probably won't show this in the message preview,
+        // it's probably OK to supply an empty list here.
+        //
+        // `Message::from_event` marks the original event as `Unavailable` if it can't
+        // be found inside the timeline_items.
+        let timeline_items = Vector::new();
 
-                TimelineItemContent::Message(Message::from_event(
-                    event_content,
-                    relations,
-                    &timeline_items,
-                ))
-            }
-
-            SyncRoomMessageEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
-        }
+        TimelineItemContent::Message(Message::from_event(
+            event.content.clone(),
+            relations,
+            &timeline_items,
+        ))
     }
 
     /// Given some sticker content that is from an event that we have already
     /// determined is suitable for use as a latest event in a message preview,
     /// extract its contents and wrap it as a `TimelineItemContent`.
     fn from_suitable_latest_sticker_content(event: &SyncStickerEvent) -> TimelineItemContent {
-        match event {
-            SyncStickerEvent::Original(event) => {
-                // Grab the content of this event
-                let event_content = event.content.clone();
-                TimelineItemContent::Sticker(Sticker { content: event_content })
-            }
-            SyncStickerEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
-        }
+        let Some(event) = event.as_original() else {
+            return TimelineItemContent::RedactedMessage;
+        };
+        TimelineItemContent::Sticker(Sticker { content: event.content.clone() })
     }
 
     /// Extracts a `TimelineItemContent` from a poll start event for use as a
@@ -206,14 +197,12 @@ impl TimelineItemContent {
     fn from_suitable_latest_poll_event_content(
         event: &SyncUnstablePollStartEvent,
     ) -> TimelineItemContent {
-        match event {
-            SyncUnstablePollStartEvent::Original(event) => {
-                TimelineItemContent::Poll(PollState::new(NewUnstablePollStartEventContent::new(
-                    event.content.poll_start().clone(),
-                )))
-            }
-            SyncUnstablePollStartEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
-        }
+        let Some(event) = event.as_original() else {
+            return TimelineItemContent::RedactedMessage;
+        };
+        TimelineItemContent::Poll(PollState::new(NewUnstablePollStartEventContent::new(
+            event.content.poll_start().clone(),
+        )))
     }
 
     fn from_suitable_latest_call_invite_content(
