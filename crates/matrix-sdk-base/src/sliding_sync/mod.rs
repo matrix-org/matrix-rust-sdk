@@ -669,9 +669,11 @@ async fn cache_latest_events(
     let mut encrypted_events =
         Vec::with_capacity(room.latest_encrypted_events.read().unwrap().capacity());
 
+    let prev_latest = room_info.latest_event.as_ref().and_then(|latest| latest.event_id());
+
     for event in events.iter().rev() {
         if let Ok(timeline_event) = event.event.deserialize() {
-            match is_suitable_for_latest_event(&timeline_event) {
+            match is_suitable_for_latest_event(&timeline_event, prev_latest.as_deref()) {
                 PossibleLatestEvent::YesRoomMessage(_)
                 | PossibleLatestEvent::YesPoll(_)
                 | PossibleLatestEvent::YesCallInvite(_)

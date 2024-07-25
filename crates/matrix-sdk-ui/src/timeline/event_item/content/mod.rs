@@ -50,7 +50,7 @@ use ruma::{
         AnyFullStateEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType, StateEventType,
     },
-    OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
+    EventId, OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
 };
 use tracing::{debug, warn};
 
