@@ -3897,7 +3897,8 @@ dependencies = [
 [[package]]
 name = "oauth2"
 version = "5.0.0-alpha.4"
-source = "git+https://github.com/poljar/oauth2-rs?rev=f8e28ce5a7f3278ac85b8593ecdd86f2cf51fa2e#f8e28ce5a7f3278ac85b8593ecdd86f2cf51fa2e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "098af5a5110b4deacf3200682963713b143ae9d28762b739bdb7b98429dfaf68"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3986,7 +3987,8 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 [[package]]
 name = "openidconnect"
 version = "4.0.0-alpha.2"
-source = "git+https://github.com/poljar/openidconnect-rs?rev=c7e1dc31b83dd7559125984bfd36b9c0f191585e#c7e1dc31b83dd7559125984bfd36b9c0f191585e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd4c74c00c2727896cebfcd04018dea51902881e711c69f76a446314ab5596e2"
 dependencies = [
  "base64 0.21.7",
  "chrono",
