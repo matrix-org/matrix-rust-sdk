@@ -50,7 +50,7 @@ use ruma::{
         AnyFullStateEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType, StateEventType,
     },
-    EventId, OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
+    OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
 };
 use tracing::{debug, warn};
 
@@ -125,7 +125,8 @@ impl TimelineItemContent {
         match event {
             AnySyncTimelineEvent::MessageLike(ref msg_like) => match msg_like {
                 AnySyncMessageLikeEvent::RoomMessage(room_msg) => {
-                    Some(Self::from_suitable_latest_event_content(room_msg))
+                    let bundled_relations = msg_like.relations();
+                    Some(Self::from_suitable_latest_event_content(room_msg, bundled_relations))
                 }
                 AnySyncMessageLikeEvent::Sticker(sticker) => {
                     Some(Self::from_suitable_latest_sticker_content(sticker))
@@ -158,29 +159,30 @@ impl TimelineItemContent {
     /// Given some message content that is from an event that we have already
     /// determined is suitable for use as a latest event in a message preview,
     /// extract its contents and wrap it as a `TimelineItemContent`.
-    fn from_suitable_latest_event_content(event: &SyncRoomMessageEvent) -> TimelineItemContent {
+    fn from_suitable_latest_event_content(
+        event: &SyncRoomMessageEvent,
+        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+    ) -> TimelineItemContent {
         match event {
             SyncRoomMessageEvent::Original(event) => {
-                // Grab the content of this event
+                // Grab the content of this event.
                 let event_content = event.content.clone();
-
-                // We don't have access to any relations via the `AnySyncTimelineEvent` (I think
-                // - andyb) so we pretend there are none. This might be OK for
-                // the message preview use case.
-                let relations = BundledMessageLikeRelations::new();
 
                 // If this message is a reply, we would look up in this list the message it was
                 // replying to. Since we probably won't show this in the message preview,
                 // it's probably OK to supply an empty list here.
+                //
                 // `Message::from_event` marks the original event as `Unavailable` if it can't
                 // be found inside the timeline_items.
                 let timeline_items = Vector::new();
+
                 TimelineItemContent::Message(Message::from_event(
                     event_content,
                     relations,
                     &timeline_items,
                 ))
             }
+
             SyncRoomMessageEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
         }
     }
