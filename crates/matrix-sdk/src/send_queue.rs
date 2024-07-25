@@ -852,7 +852,11 @@ impl QueueStorage {
                     );
 
                     store
-                        .save_send_queue_event(&self.room_id, TransactionId::new(), serializable)
+                        .save_send_queue_event(
+                            &self.room_id,
+                            de.own_transaction_id.into(),
+                            serializable,
+                        )
                         .await
                         .map_err(RoomSendQueueStorageError::StorageError)?;
                 } else {
@@ -887,7 +891,9 @@ impl QueueStorage {
                     // Note: no reason is provided because we materialize the intent of "cancel
                     // sending the parent event".
 
-                    if let Err(err) = room.redact(&event_id, None, None).await {
+                    if let Err(err) =
+                        room.redact(&event_id, None, Some(de.own_transaction_id.into())).await
+                    {
                         warn!("error when sending a redact for {event_id}: {err}");
                     }
                 } else {
