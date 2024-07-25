@@ -17,7 +17,6 @@ use std::sync::Arc;
 use as_variant::as_variant;
 use imbl::Vector;
 use matrix_sdk::crypto::types::events::UtdCause;
-use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 use ruma::{
     events::{
         call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
@@ -53,7 +52,7 @@ use ruma::{
     },
     OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
 };
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::timeline::{polls::PollState, TimelineItem};
 
@@ -123,39 +122,34 @@ impl TimelineItemContent {
     pub(crate) fn from_latest_event_content(
         event: AnySyncTimelineEvent,
     ) -> Option<TimelineItemContent> {
-        match is_suitable_for_latest_event(&event) {
-            PossibleLatestEvent::YesRoomMessage(m) => {
-                Some(Self::from_suitable_latest_event_content(m))
-            }
-            PossibleLatestEvent::YesSticker(s) => {
-                Some(Self::from_suitable_latest_sticker_content(s))
-            }
-            PossibleLatestEvent::YesPoll(poll) => {
-                Some(Self::from_suitable_latest_poll_event_content(poll))
-            }
-            PossibleLatestEvent::YesCallInvite(call_invite) => {
-                Some(Self::from_suitable_latest_call_invite_content(call_invite))
-            }
-            PossibleLatestEvent::YesCallNotify(call_notify) => {
-                Some(Self::from_suitable_latest_call_notify_content(call_notify))
-            }
-            PossibleLatestEvent::NoUnsupportedEventType => {
-                // TODO: when we support state events in message previews, this will need change
-                warn!("Found a state event cached as latest_event! ID={}", event.event_id());
-                None
-            }
-            PossibleLatestEvent::NoUnsupportedMessageLikeType => {
-                // TODO: When we support reactions in message previews, this will need to change
-                warn!(
-                    "Found an event cached as latest_event, but I don't know how \
-                        to wrap it in a TimelineItemContent. type={}, ID={}",
-                    event.event_type().to_string(),
-                    event.event_id()
-                );
-                None
-            }
-            PossibleLatestEvent::NoEncrypted => {
-                warn!("Found an encrypted event cached as latest_event! ID={}", event.event_id());
+        match event {
+            AnySyncTimelineEvent::MessageLike(ref msg_like) => match msg_like {
+                AnySyncMessageLikeEvent::RoomMessage(room_msg) => {
+                    Some(Self::from_suitable_latest_event_content(room_msg))
+                }
+                AnySyncMessageLikeEvent::Sticker(sticker) => {
+                    Some(Self::from_suitable_latest_sticker_content(sticker))
+                }
+                AnySyncMessageLikeEvent::UnstablePollStart(poll_start) => {
+                    Some(Self::from_suitable_latest_poll_event_content(poll_start))
+                }
+                AnySyncMessageLikeEvent::CallInvite(call_invite) => {
+                    Some(Self::from_suitable_latest_call_invite_content(call_invite))
+                }
+                AnySyncMessageLikeEvent::CallNotify(call_notify) => {
+                    Some(Self::from_suitable_latest_call_notify_content(call_notify))
+                }
+                _ => {
+                    warn!(
+                        "Found latest event of type {}, but don't know how to wrap it.",
+                        event.event_type()
+                    );
+                    None
+                }
+            },
+
+            AnySyncTimelineEvent::State(_) => {
+                debug!("State events as latest events not supported yet");
                 None
             }
         }
