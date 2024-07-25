@@ -66,8 +66,8 @@ use crate::{
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
-        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData, SenderDataFinder,
-        SenderDataRetryDetails, SessionType, StaticAccountData,
+        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData, SenderDataFinder, SessionType,
+        StaticAccountData,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -821,11 +821,7 @@ impl OlmMachine {
             event.keys.ed25519,
             &content.room_id,
             &content.session_key,
-            // TODO: set legacy_session to false when we have retry logic
-            SenderData::UnknownDevice {
-                retry_details: SenderDataRetryDetails::retry_soon(),
-                legacy_session: true,
-            },
+            SenderData::unknown(),
             event.content.algorithm(),
             None,
         );
