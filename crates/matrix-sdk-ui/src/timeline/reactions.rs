@@ -59,21 +59,14 @@ pub(super) enum ReactionState {
     Sending(OwnedTransactionId),
 }
 
-/// Data associated with a reaction sender. It can be used to display
-/// a details UI component for a reaction with both sender
-/// names and the date at which they sent a reaction.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct ReactionSenderData {
+#[derive(Clone, Debug)]
+pub(crate) struct PendingReaction {
+    /// The annotation used for the reaction.
+    pub key: String,
     /// Sender identifier.
     pub sender_id: OwnedUserId,
     /// Date at which the sender reacted.
     pub timestamp: MilliSecondsSinceUnixEpoch,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct PendingReaction {
-    pub key: String,
-    pub sender_data: ReactionSenderData,
 }
 
 #[derive(Clone, Debug)]
