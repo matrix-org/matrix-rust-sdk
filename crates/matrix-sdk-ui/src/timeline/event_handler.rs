@@ -59,8 +59,8 @@ use super::{
     polls::PollState,
     reactions::FullReactionKey,
     util::{rfind_event_by_id, rfind_event_item},
-    EventTimelineItem, InReplyToDetails, Message, OtherState, ReactionSenderData, Sticker,
-    TimelineDetails, TimelineItem, TimelineItemContent,
+    EventTimelineItem, InReplyToDetails, Message, OtherState, Sticker, TimelineDetails,
+    TimelineItem, TimelineItemContent,
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
@@ -549,11 +549,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         };
 
-        let reaction_sender_data = ReactionSenderData {
-            sender_id: self.ctx.sender.clone(),
-            timestamp: self.ctx.timestamp,
-        };
-
         if let Some((idx, event_item)) = rfind_event_by_id(self.items, reacted_to_event_id) {
             let Some(remote_event_item) = event_item.as_remote() else {
                 error!("received reaction to a local echo");
@@ -591,7 +586,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 reaction_event_id,
                 PendingReaction {
                     key: c.relates_to.key.clone(),
-                    sender_data: reaction_sender_data.clone(),
+                    sender_id: self.ctx.sender.clone(),
+                    timestamp: self.ctx.timestamp,
                 },
             );
         }
@@ -1035,9 +1031,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         bundled.entry(reaction.key).or_default();
 
                     group.insert(
-                        reaction.sender_data.sender_id,
+                        reaction.sender_id,
                         ReactionInfo {
-                            timestamp: reaction.sender_data.timestamp,
+                            timestamp: reaction.timestamp,
                             id: TimelineEventItemId::EventId(reaction_event_id),
                         },
                     );

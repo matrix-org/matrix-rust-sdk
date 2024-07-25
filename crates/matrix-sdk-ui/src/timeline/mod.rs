@@ -97,7 +97,6 @@ pub use self::{
     item::{TimelineItem, TimelineItemKind},
     pagination::LiveBackPaginationStatus,
     polls::PollResult,
-    reactions::ReactionSenderData,
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
