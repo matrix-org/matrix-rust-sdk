@@ -317,16 +317,7 @@ mod tests {
     async fn test_providing_no_device_data_returns_sender_data_with_no_device_info() {
         // Given that the device is not in the store and the initial event has no device
         // info
-        let setup = TestSetup::new(TestOptions {
-            store_contains_device: false,
-            store_contains_sender_identity: false,
-            device_is_signed: true,
-            event_contains_device_keys: false,
-            sender_is_ourself: false,
-            sender_is_verified: false,
-            session_is_owned_by_device: true,
-        })
-        .await;
+        let setup = TestSetup::new(TestOptions::new()).await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we try to find sender data
@@ -352,16 +343,9 @@ mod tests {
     #[async_test]
     async fn test_if_the_todevice_event_contains_device_info_it_is_captured() {
         // Given that the signed device keys are in the event
-        let setup = TestSetup::new(TestOptions {
-            store_contains_device: false,
-            store_contains_sender_identity: false,
-            device_is_signed: true,
-            event_contains_device_keys: true,
-            sender_is_ourself: false,
-            sender_is_verified: false,
-            session_is_owned_by_device: true,
-        })
-        .await;
+        let setup =
+            TestSetup::new(TestOptions::new().device_is_signed().event_contains_device_keys())
+                .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we try to find sender data
@@ -387,16 +371,8 @@ mod tests {
     async fn test_picks_up_device_info_from_the_store_if_missing_from_the_todevice_event() {
         // Given that the device keys are not in the event but the device is in the
         // store
-        let setup = TestSetup::new(TestOptions {
-            store_contains_device: true,
-            store_contains_sender_identity: false,
-            device_is_signed: true,
-            event_contains_device_keys: false,
-            sender_is_ourself: false,
-            sender_is_verified: false,
-            session_is_owned_by_device: true,
-        })
-        .await;
+        let setup =
+            TestSetup::new(TestOptions::new().store_contains_device().device_is_signed()).await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we try to find sender data
@@ -422,16 +398,7 @@ mod tests {
     async fn test_adds_device_info_even_if_it_is_not_signed() {
         // Given that the the device is in the store
         // But it is not signed
-        let setup = TestSetup::new(TestOptions {
-            store_contains_device: true,
-            store_contains_sender_identity: false,
-            device_is_signed: false,
-            event_contains_device_keys: false,
-            sender_is_ourself: false,
-            sender_is_verified: false,
-            session_is_owned_by_device: true,
-        })
-        .await;
+        let setup = TestSetup::new(TestOptions::new().store_contains_device()).await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we try to find sender data
@@ -457,15 +424,13 @@ mod tests {
     #[async_test]
     async fn test_adds_sender_data_for_own_verified_device_and_user_using_device_from_store() {
         // Given the device is in the store, and we sent the event
-        let setup = TestSetup::new(TestOptions {
-            store_contains_device: true,
-            store_contains_sender_identity: true,
-            device_is_signed: true,
-            event_contains_device_keys: false,
-            sender_is_ourself: true,
-            sender_is_verified: false,
-            session_is_owned_by_device: true,
-        })
+        let setup = TestSetup::new(
+            TestOptions::new()
+                .store_contains_device()
+                .store_contains_sender_identity()
+                .device_is_signed()
+                .sender_is_ourself(),
+        )
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
@@ -487,15 +452,12 @@ mod tests {
     #[async_test]
     async fn test_adds_sender_data_for_other_verified_device_and_user_using_device_from_store() {
         // Given the device is in the store, and someone else sent the event
-        let setup = TestSetup::new(TestOptions {
-            store_contains_device: true,
-            store_contains_sender_identity: true,
-            device_is_signed: true,
-            event_contains_device_keys: false,
-            sender_is_ourself: false,
-            sender_is_verified: false,
-            session_is_owned_by_device: true,
-        })
+        let setup = TestSetup::new(
+            TestOptions::new()
+                .store_contains_device()
+                .store_contains_sender_identity()
+                .device_is_signed(),
+        )
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
@@ -517,15 +479,13 @@ mod tests {
     #[async_test]
     async fn test_adds_sender_data_for_own_device_and_user_using_device_from_event() {
         // Given the device keys are in the event, and we sent the event
-        let setup = TestSetup::new(TestOptions {
-            store_contains_device: false,
-            store_contains_sender_identity: true,
-            device_is_signed: true,
-            event_contains_device_keys: true,
-            sender_is_ourself: true,
-            sender_is_verified: false,
-            session_is_owned_by_device: true,
-        })
+        let setup = TestSetup::new(
+            TestOptions::new()
+                .store_contains_sender_identity()
+                .device_is_signed()
+                .event_contains_device_keys()
+                .sender_is_ourself(),
+        )
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
@@ -547,15 +507,12 @@ mod tests {
     #[async_test]
     async fn test_adds_sender_data_for_other_verified_device_and_user_using_device_from_event() {
         // Given the device keys are in the event, and someone else sent the event
-        let setup = TestSetup::new(TestOptions {
-            store_contains_device: false,
-            store_contains_sender_identity: true,
-            device_is_signed: true,
-            event_contains_device_keys: true,
-            sender_is_ourself: false,
-            sender_is_verified: false,
-            session_is_owned_by_device: true,
-        })
+        let setup = TestSetup::new(
+            TestOptions::new()
+                .store_contains_sender_identity()
+                .device_is_signed()
+                .event_contains_device_keys(),
+        )
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
@@ -577,18 +534,16 @@ mod tests {
     #[async_test]
     async fn test_does_not_add_sender_data_for_a_session_not_owned_by_the_device() {
         // Given everything is the same as the above test
-        let setup = TestSetup::new(TestOptions {
-            store_contains_device: false,
-            store_contains_sender_identity: true,
-            device_is_signed: true,
-            event_contains_device_keys: true,
-            sender_is_ourself: false,
-            sender_is_verified: false,
-            session_is_owned_by_device: false,
-        })
+        // except the session is not owned by the device
+        let setup = TestSetup::new(
+            TestOptions::new()
+                .store_contains_sender_identity()
+                .device_is_signed()
+                .event_contains_device_keys()
+                .session_signing_key_differs_from_device(),
+        )
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
-        // Except the session is not owned by the device
 
         // When we try to find sender data
         let sender_data = finder
@@ -615,15 +570,15 @@ mod tests {
     #[async_test]
     async fn test_notes_master_key_is_verified_for_own_identity() {
         // Given we can find the device, and we sent the event, and we are verified
-        let setup = TestSetup::new(TestOptions {
-            store_contains_device: true,
-            store_contains_sender_identity: true,
-            device_is_signed: true,
-            event_contains_device_keys: true,
-            sender_is_ourself: true,
-            sender_is_verified: true,
-            session_is_owned_by_device: true,
-        })
+        let setup = TestSetup::new(
+            TestOptions::new()
+                .store_contains_device()
+                .store_contains_sender_identity()
+                .device_is_signed()
+                .event_contains_device_keys()
+                .sender_is_ourself()
+                .sender_is_verified(),
+        )
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
@@ -647,15 +602,14 @@ mod tests {
     async fn test_notes_master_key_is_verified_for_other_identity() {
         // Given we can find the device, and someone else sent the event
         // And the sender is verified
-        let setup = TestSetup::new(TestOptions {
-            store_contains_device: true,
-            store_contains_sender_identity: true,
-            device_is_signed: true,
-            event_contains_device_keys: true,
-            sender_is_ourself: false,
-            sender_is_verified: true,
-            session_is_owned_by_device: true,
-        })
+        let setup = TestSetup::new(
+            TestOptions::new()
+                .store_contains_device()
+                .store_contains_sender_identity()
+                .device_is_signed()
+                .event_contains_device_keys()
+                .sender_is_verified(),
+        )
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
@@ -678,16 +632,9 @@ mod tests {
     #[async_test]
     async fn test_can_add_user_sender_data_based_on_a_provided_device() {
         // Given the device is not in the store or the event
-        let setup = TestSetup::new(TestOptions {
-            store_contains_device: false,
-            store_contains_sender_identity: true,
-            device_is_signed: true,
-            event_contains_device_keys: false,
-            sender_is_ourself: false,
-            sender_is_verified: false,
-            session_is_owned_by_device: true,
-        })
-        .await;
+        let setup =
+            TestSetup::new(TestOptions::new().store_contains_sender_identity().device_is_signed())
+                .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we supply the device keys directly while asking for the sender data
@@ -710,7 +657,56 @@ mod tests {
         event_contains_device_keys: bool,
         sender_is_ourself: bool,
         sender_is_verified: bool,
-        session_is_owned_by_device: bool,
+        session_signing_key_differs_from_device: bool,
+    }
+
+    impl TestOptions {
+        fn new() -> Self {
+            Self {
+                store_contains_device: false,
+                store_contains_sender_identity: false,
+                device_is_signed: false,
+                event_contains_device_keys: false,
+                sender_is_ourself: false,
+                sender_is_verified: false,
+                session_signing_key_differs_from_device: false,
+            }
+        }
+
+        fn store_contains_device(mut self) -> Self {
+            self.store_contains_device = true;
+            self
+        }
+
+        fn store_contains_sender_identity(mut self) -> Self {
+            self.store_contains_sender_identity = true;
+            self
+        }
+
+        fn device_is_signed(mut self) -> Self {
+            self.device_is_signed = true;
+            self
+        }
+
+        fn event_contains_device_keys(mut self) -> Self {
+            self.event_contains_device_keys = true;
+            self
+        }
+
+        fn sender_is_ourself(mut self) -> Self {
+            self.sender_is_ourself = true;
+            self
+        }
+
+        fn sender_is_verified(mut self) -> Self {
+            self.sender_is_verified = true;
+            self
+        }
+
+        fn session_signing_key_differs_from_device(mut self) -> Self {
+            self.session_signing_key_differs_from_device = true;
+            self
+        }
     }
 
     struct TestSetup {
@@ -748,11 +744,11 @@ mod tests {
                 &options,
             );
 
-            let signing_key = if options.session_is_owned_by_device {
-                sender_device.inner.ed25519_key().unwrap()
-            } else {
+            let signing_key = if options.session_signing_key_differs_from_device {
                 Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4")
                     .unwrap()
+            } else {
+                sender_device.inner.ed25519_key().unwrap()
             };
 
             let session = InboundGroupSession::new(
