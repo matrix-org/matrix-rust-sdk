@@ -1269,9 +1269,6 @@ pub struct ChildTransactionId(OwnedTransactionId);
 impl ChildTransactionId {
     /// Returns a new [`ChildTransactionId`].
     #[allow(clippy::new_without_default)]
-    // Should really be ruma/random, but no way to guard against a dependency's feature being
-    // enabled.
-    #[cfg(any(not(target_arch = "wasm32"), feature = "js"))]
     pub fn new() -> Self {
         Self(TransactionId::new())
     }
