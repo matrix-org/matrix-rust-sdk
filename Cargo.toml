@@ -56,6 +56,8 @@ ruma = { git = "https://github.com/matrix-org/ruma", rev = "f25b3220d0c3ece77200
     "compat-encrypted-stickers",
     "unstable-msc3401",
     "unstable-msc3266",
+    "unstable-msc3488",
+    "unstable-msc3489",
     "unstable-msc4075",
     "unstable-msc4140",
 ] }

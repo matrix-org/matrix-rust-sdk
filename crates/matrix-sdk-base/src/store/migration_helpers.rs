@@ -199,6 +199,7 @@ impl BaseRoomInfoV1 {
 
         Box::new(BaseRoomInfo {
             avatar,
+            beacons: BTreeMap::new(),
             canonical_alias,
             create,
             dm_targets,
