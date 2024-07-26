@@ -1195,7 +1195,11 @@ impl Encryption {
     ///             handle.auth(Some(uiaa::AuthData::Password(password))).await?;
     ///         }
     ///         CrossSigningResetAuthType::Oidc(o) => {
-    ///             println!("To reset your end-to-end encryption cross-signing identity, you first need to approve it at {}", o.approval_url);
+    ///             println!(
+    ///                 "To reset your end-to-end encryption cross-signing identity, \
+    ///                 you first need to approve it at {}",
+    ///                 o.approval_url
+    ///             );
     ///             handle.auth(None).await?;
     ///         }
     ///     }
