@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{MilliSecondsSinceUnixEpoch, OwnedUserId};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 use vodozemac::Ed25519PublicKey;
 
@@ -66,8 +66,13 @@ pub enum SenderData {
         /// The user ID of the user who established this session.
         user_id: OwnedUserId,
 
+        /// The device ID of the device that send the session.
+        /// This is an `Option` for backwards compatibility, but we should
+        /// always populate it on creation.
+        device_id: Option<OwnedDeviceId>,
+
         /// The cross-signing key of the user who established this session.
-        master_key: Ed25519PublicKey,
+        master_key: Box<Ed25519PublicKey>,
 
         /// Whether, at the time we checked the signature on the device,
         /// we had actively verified that `master_key` belongs to the user.
@@ -200,5 +205,23 @@ mod tests {
         // And for good measure, it round-trips fully
         let end: SenderData = serde_json::from_str(&json).unwrap();
         assert_eq!(start, end);
+    }
+
+    #[test]
+    fn deserializing_senderknown_without_device_id_defaults_to_none() {
+        let json = r#"
+            {
+                "SenderKnown":{
+                    "user_id":"@u:s.co",
+                    "master_key":[
+                        150,140,249,139,141,29,63,230,179,14,213,175,176,61,11,255,
+                        26,103,10,51,100,154,183,47,181,117,87,204,33,215,241,92
+                    ],
+                    "master_key_verified":true
+                }
+            }
+            "#;
+
+        let _end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
     }
 }

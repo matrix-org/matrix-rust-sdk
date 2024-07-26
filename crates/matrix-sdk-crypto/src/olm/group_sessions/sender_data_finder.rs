@@ -257,6 +257,7 @@ impl<'a> SenderDataFinder<'a> {
     fn device_is_cross_signed_by_sender(&self, sender_device: Device) -> SenderData {
         // H (cross-signing key matches that used to sign the device!)
         let user_id = sender_device.user_id().to_owned();
+        let device_id = Some(sender_device.device_id().to_owned());
 
         let master_key = sender_device
             .device_owner_identity
@@ -265,8 +266,9 @@ impl<'a> SenderDataFinder<'a> {
 
         if let Some(master_key) = master_key {
             // We have user_id and master_key for the user sending the to-device message.
+            let master_key = Box::new(master_key);
             let master_key_verified = sender_device.is_cross_signing_trusted();
-            SenderData::SenderKnown { user_id, master_key, master_key_verified }
+            SenderData::SenderKnown { user_id, device_id, master_key, master_key_verified }
         } else {
             // Surprisingly, there was no key in the MasterPubkey. We did not expect this:
             // treat it as if the device was not signed by this master key.
@@ -442,10 +444,12 @@ mod tests {
 
         // Then we get back the information about the sender
         assert_let!(
-            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+            SenderData::SenderKnown { user_id, device_id, master_key, master_key_verified } =
+                sender_data
         );
         assert_eq!(user_id, setup.sender.user_id);
-        assert_eq!(master_key, setup.sender_master_key());
+        assert_eq!(device_id.unwrap(), setup.sender_device.device_id());
+        assert_eq!(*master_key, setup.sender_master_key());
         assert!(!master_key_verified);
     }
 
@@ -469,10 +473,12 @@ mod tests {
 
         // Then we get back the information about the sender
         assert_let!(
-            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+            SenderData::SenderKnown { user_id, device_id, master_key, master_key_verified } =
+                sender_data
         );
         assert_eq!(user_id, setup.sender.user_id);
-        assert_eq!(master_key, setup.sender_master_key());
+        assert_eq!(device_id.unwrap(), setup.sender_device.device_id());
+        assert_eq!(*master_key, setup.sender_master_key());
         assert!(!master_key_verified);
     }
 
@@ -497,10 +503,12 @@ mod tests {
 
         // Then we get back the information about the sender
         assert_let!(
-            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+            SenderData::SenderKnown { user_id, device_id, master_key, master_key_verified } =
+                sender_data
         );
         assert_eq!(user_id, setup.sender.user_id);
-        assert_eq!(master_key, setup.sender_master_key());
+        assert_eq!(device_id.unwrap(), setup.sender_device.device_id());
+        assert_eq!(*master_key, setup.sender_master_key());
         assert!(!master_key_verified);
     }
 
@@ -524,10 +532,12 @@ mod tests {
 
         // Then we get back the information about the sender
         assert_let!(
-            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+            SenderData::SenderKnown { user_id, device_id, master_key, master_key_verified } =
+                sender_data
         );
         assert_eq!(user_id, setup.sender.user_id);
-        assert_eq!(master_key, setup.sender_master_key());
+        assert_eq!(device_id.unwrap(), setup.sender_device.device_id());
+        assert_eq!(*master_key, setup.sender_master_key());
         assert!(!master_key_verified);
     }
 
@@ -590,10 +600,12 @@ mod tests {
 
         // Then we get back the information about the sender
         assert_let!(
-            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+            SenderData::SenderKnown { user_id, device_id, master_key, master_key_verified } =
+                sender_data
         );
         assert_eq!(user_id, setup.sender.user_id);
-        assert_eq!(master_key, setup.sender_master_key());
+        assert_eq!(device_id.unwrap(), setup.sender_device.device_id());
+        assert_eq!(*master_key, setup.sender_master_key());
         // Including the fact that it was verified
         assert!(master_key_verified);
     }
@@ -621,10 +633,12 @@ mod tests {
 
         // Then we get back the information about the sender
         assert_let!(
-            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+            SenderData::SenderKnown { user_id, device_id, master_key, master_key_verified } =
+                sender_data
         );
         assert_eq!(user_id, setup.sender.user_id);
-        assert_eq!(master_key, setup.sender_master_key());
+        assert_eq!(device_id.unwrap(), setup.sender_device.device_id());
+        assert_eq!(*master_key, setup.sender_master_key());
         // Including the fact that it was verified
         assert!(master_key_verified);
     }
@@ -643,10 +657,12 @@ mod tests {
 
         // Then it is found using the device we supplied
         assert_let!(
-            SenderData::SenderKnown { user_id, master_key, master_key_verified } = sender_data
+            SenderData::SenderKnown { user_id, device_id, master_key, master_key_verified } =
+                sender_data
         );
         assert_eq!(user_id, setup.sender.user_id);
-        assert_eq!(master_key, setup.sender_master_key());
+        assert_eq!(device_id.unwrap(), setup.sender_device.device_id());
+        assert_eq!(*master_key, setup.sender_master_key());
         assert!(!master_key_verified);
     }
 
