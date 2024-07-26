@@ -1419,11 +1419,13 @@ impl OlmMachine {
                 // We found a matching device, let's check if it owns the session.
                 if !(device.is_owner_of_session(session)?) {
                     // The key cannot be linked to an owning device.
+                    // Refuse to provide the device_id since this device is not the owner of this
+                    // session.
                     (
                         VerificationState::Unverified(VerificationLevel::None(
                             DeviceLinkProblem::InsecureSource,
                         )),
-                        Some(device_id),
+                        None,
                     )
                 } else {
                     // We only consider cross trust and not local trust. If your own device is not
