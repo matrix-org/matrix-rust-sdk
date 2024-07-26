@@ -417,7 +417,11 @@ impl OidcCli {
                     unimplemented!("This should never happen, this is after all the OIDC example.")
                 }
                 CrossSigningResetAuthType::Oidc(o) => {
-                    println!("To reset your end-to-end encryption cross-signing identity, you first need to approve it at {}", o.approval_url);
+                    println!(
+                        "To reset your end-to-end encryption cross-signing identity, \
+                        you first need to approve it at {}",
+                        o.approval_url
+                    );
                     handle.auth(None).await?;
                 }
             }
