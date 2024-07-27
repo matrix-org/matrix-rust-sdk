@@ -521,8 +521,13 @@ pub enum BeaconError {
     #[error("Must join the room to access beacon information.")]
     Stripped,
 
+    // The beacon event could not be deserialized.
     #[error("Deserialization error: {0}")]
     Deserialization(#[from] serde_json::Error),
+
+    // The beacon event is expired.
+    #[error("The beacon event has expired.")]
+    NotLive,
 
     // Allow for other errors to be wrapped.
     #[error("Other error: {0}")]
