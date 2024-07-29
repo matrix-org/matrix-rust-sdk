@@ -38,7 +38,7 @@ use super::{atomic_bool_deserializer, atomic_bool_serializer};
 #[cfg(any(test, feature = "testing", doc))]
 use crate::OlmMachine;
 use crate::{
-    error::{EventError, OlmError, OlmResult, SignatureError},
+    error::{EventError, MismatchedIdentityKeysError, OlmError, OlmResult, SignatureError},
     identities::{OwnUserIdentityData, UserIdentityData},
     olm::{
         InboundGroupSession, OutboundGroupSession, Session, ShareInfo, SignedJsonObject, VerifyJson,
@@ -261,12 +261,14 @@ impl Device {
             match (ed25519_comparison, curve25519_comparison) {
                 // If we have any of the keys but they don't turn out to match, refuse to decrypt
                 // instead.
-                (_, Some(false)) | (Some(false), _) => Err(MegolmError::MismatchedIdentityKeys {
-                    key_ed25519: key.into(),
-                    device_ed25519: self.ed25519_key().map(Into::into),
-                    key_curve25519: session.sender_key().into(),
-                    device_curve25519: self.curve25519_key().map(Into::into),
-                }),
+                (_, Some(false)) | (Some(false), _) => {
+                    Err(MegolmError::MismatchedIdentityKeys(MismatchedIdentityKeysError {
+                        key_ed25519: key.into(),
+                        device_ed25519: self.ed25519_key().map(Into::into),
+                        key_curve25519: session.sender_key().into(),
+                        device_curve25519: self.curve25519_key().map(Into::into),
+                    }))
+                }
                 // If both keys match, we have ourselves an owner.
                 (Some(true), Some(true)) => Ok(true),
                 // In the remaining cases, the device is missing at least one of the required
