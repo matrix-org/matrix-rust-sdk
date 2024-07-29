@@ -55,7 +55,7 @@ use crate::{
         DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures, SignedKey,
     },
     verification::VerificationMachine,
-    Account, MegolmError, OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
+    Account, OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
 };
 
 pub enum MaybeEncryptedRoomKey {
@@ -177,7 +177,10 @@ impl Device {
     /// An `InboundGroupSession` is exchanged between devices as an Olm
     /// encrypted `m.room_key` event. This method determines if this `Device`
     /// can be confirmed as the creator and owner of the `m.room_key`.
-    pub fn is_owner_of_session(&self, session: &InboundGroupSession) -> Result<bool, MegolmError> {
+    pub fn is_owner_of_session(
+        &self,
+        session: &InboundGroupSession,
+    ) -> Result<bool, MismatchedIdentityKeysError> {
         if session.has_been_imported() {
             // An imported room key means that we did not receive the room key as a
             // `m.room_key` event when the room key was initially exchanged.
@@ -261,14 +264,12 @@ impl Device {
             match (ed25519_comparison, curve25519_comparison) {
                 // If we have any of the keys but they don't turn out to match, refuse to decrypt
                 // instead.
-                (_, Some(false)) | (Some(false), _) => {
-                    Err(MegolmError::MismatchedIdentityKeys(MismatchedIdentityKeysError {
-                        key_ed25519: key.into(),
-                        device_ed25519: self.ed25519_key().map(Into::into),
-                        key_curve25519: session.sender_key().into(),
-                        device_curve25519: self.curve25519_key().map(Into::into),
-                    }))
-                }
+                (_, Some(false)) | (Some(false), _) => Err(MismatchedIdentityKeysError {
+                    key_ed25519: key.into(),
+                    device_ed25519: self.ed25519_key().map(Into::into),
+                    key_curve25519: session.sender_key().into(),
+                    device_curve25519: self.curve25519_key().map(Into::into),
+                }),
                 // If both keys match, we have ourselves an owner.
                 (Some(true), Some(true)) => Ok(true),
                 // In the remaining cases, the device is missing at least one of the required

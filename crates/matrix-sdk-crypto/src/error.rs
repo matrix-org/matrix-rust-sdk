@@ -135,6 +135,12 @@ impl std::fmt::Display for MismatchedIdentityKeysError {
     }
 }
 
+impl From<MismatchedIdentityKeysError> for MegolmError {
+    fn from(value: MismatchedIdentityKeysError) -> Self {
+        MegolmError::MismatchedIdentityKeys(value)
+    }
+}
+
 /// Error that occurs when decrypting an event that is malformed.
 #[derive(Error, Debug)]
 pub enum EventError {
