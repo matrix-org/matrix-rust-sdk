@@ -217,10 +217,7 @@ impl<'a> SenderDataFinder<'a> {
     /// Returns Err if the device does not own the session.
     fn have_device(&self, sender_device: Device) -> Result<SenderData, SessionDeviceCheckError> {
         // Is the session owned by the device?
-        // Note: the only error case from is_owner_of_session would be
-        // MegolmError::MismatchedIdentityKeys, so we can treat this the same as
-        // Ok(false).
-        let device_is_owner = sender_device.is_owner_of_session(self.session).unwrap_or(false);
+        let device_is_owner = sender_device.is_owner_of_session(self.session)?;
 
         // Is the device cross-signed?
         // Does the cross-signing key match that used to sign the device?
@@ -376,7 +373,11 @@ mod tests {
 
     use super::SenderDataFinder;
     use crate::{
-        olm::{InboundGroupSession, PrivateCrossSigningIdentity, SenderData},
+        error::MismatchedIdentityKeysError,
+        olm::{
+            group_sessions::sender_data_finder::SessionDeviceKeysCheckError, InboundGroupSession,
+            PrivateCrossSigningIdentity, SenderData,
+        },
         store::{Changes, CryptoStoreWrapper, MemoryStore, Store},
         types::{
             events::{
@@ -622,7 +623,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_does_not_add_sender_data_for_a_session_not_owned_by_the_device() {
+    async fn test_if_session_signing_does_not_match_device_return_an_error() {
         // Given everything is the same as the above test
         // except the session is not owned by the device
         let setup = TestSetup::new(
@@ -631,6 +632,46 @@ mod tests {
                 .device_is_signed()
                 .event_contains_device_keys()
                 .session_signing_key_differs_from_device(),
+        )
+        .await;
+        let finder = SenderDataFinder::new(&setup.store, &setup.session);
+
+        // When we try to find sender data
+        assert_let!(
+            Err(e) =
+                finder.have_event(setup.sender_device_curve_key(), &setup.room_key_event).await
+        );
+
+        assert_let!(SessionDeviceKeysCheckError::MismatchedIdentityKeys(e) = e);
+
+        let key_ed25519 =
+            Box::new(setup.session.signing_keys().iter().next().unwrap().1.ed25519().unwrap());
+        let key_curve25519 = Box::new(setup.session.sender_key());
+
+        let device_ed25519 = setup.sender_device.ed25519_key().map(Box::new);
+        let device_curve25519 = Some(Box::new(setup.sender_device_curve_key()));
+
+        assert_eq!(
+            e,
+            MismatchedIdentityKeysError {
+                key_ed25519,
+                device_ed25519,
+                key_curve25519,
+                device_curve25519
+            }
+        );
+    }
+
+    #[async_test]
+    async fn test_does_not_add_sender_data_for_a_device_missing_keys() {
+        // Given everything is the same as the successful test
+        // except the device does not own the session because
+        // it is imported.
+        let setup = TestSetup::new(
+            TestOptions::new()
+                .store_contains_sender_identity()
+                .session_is_imported()
+                .event_contains_device_keys(),
         )
         .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
