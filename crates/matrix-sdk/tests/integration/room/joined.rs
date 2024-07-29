@@ -37,7 +37,6 @@ use crate::{
     logged_in_client_with_server, mock_encryption_state, mock_sync, mock_sync_with_new_room,
     synced_client,
 };
-
 #[async_test]
 async fn test_invite_user_by_id() {
     let (client, server) = logged_in_client_with_server().await;
