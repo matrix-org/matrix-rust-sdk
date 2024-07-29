@@ -674,6 +674,7 @@ mod tests {
         sender_is_ourself: bool,
         sender_is_verified: bool,
         session_signing_key_differs_from_device: bool,
+        session_is_imported: bool,
     }
 
     impl TestOptions {
@@ -686,6 +687,7 @@ mod tests {
                 sender_is_ourself: false,
                 sender_is_verified: false,
                 session_signing_key_differs_from_device: false,
+                session_is_imported: false,
             }
         }
 
@@ -721,6 +723,11 @@ mod tests {
 
         fn session_signing_key_differs_from_device(mut self) -> Self {
             self.session_signing_key_differs_from_device = true;
+            self
+        }
+
+        fn session_is_imported(mut self) -> Self {
+            self.session_is_imported = true;
             self
         }
     }
@@ -767,7 +774,7 @@ mod tests {
                 sender_device.inner.ed25519_key().unwrap()
             };
 
-            let session = InboundGroupSession::new(
+            let mut session = InboundGroupSession::new(
                 sender_device.inner.curve25519_key().unwrap(),
                 signing_key,
                 room_id,
@@ -777,6 +784,9 @@ mod tests {
                 None,
             )
             .unwrap();
+            if options.session_is_imported {
+                session.mark_as_imported();
+            }
 
             Self { sender, sender_device, store, room_key_event, session }
         }
