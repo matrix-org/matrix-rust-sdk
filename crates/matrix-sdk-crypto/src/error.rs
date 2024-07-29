@@ -112,7 +112,7 @@ pub enum MegolmError {
 /// Decryption failed because of a mismatch between the identity keys of the
 /// device we received the room key from and the identity keys recorded in
 /// the plaintext of the room key to-device message.
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub struct MismatchedIdentityKeysError {
     /// The Ed25519 key recorded in the room key's to-device message.
     pub key_ed25519: Box<Ed25519PublicKey>,
@@ -138,6 +138,12 @@ impl std::fmt::Display for MismatchedIdentityKeysError {
 impl From<MismatchedIdentityKeysError> for MegolmError {
     fn from(value: MismatchedIdentityKeysError) -> Self {
         MegolmError::MismatchedIdentityKeys(value)
+    }
+}
+
+impl From<MismatchedIdentityKeysError> for SessionCreationError {
+    fn from(value: MismatchedIdentityKeysError) -> Self {
+        SessionCreationError::MismatchedIdentityKeys(value)
     }
 }
 
@@ -325,6 +331,15 @@ pub enum SessionCreationError {
     /// The given device keys are invalid.
     #[error("The given device keys are invalid")]
     InvalidDeviceKeys(#[from] SignatureError),
+
+    /// There was a mismatch between the identity keys of the device we received
+    /// the room key from and the identity keys recorded in the plaintext of the
+    /// room key to-device message.
+    #[error(
+        "There was a mismatch between the identity keys of the sending device \
+        and those recorded in the to-device message"
+    )]
+    MismatchedIdentityKeys(MismatchedIdentityKeysError),
 }
 
 /// Errors that can be returned by
