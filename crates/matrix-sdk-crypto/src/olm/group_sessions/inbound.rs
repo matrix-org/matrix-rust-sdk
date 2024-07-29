@@ -471,6 +471,12 @@ impl InboundGroupSession {
 
         Ok((decrypted_object, decrypted.message_index))
     }
+
+    /// For test only, mark this session as imported.
+    #[cfg(test)]
+    pub(crate) fn mark_as_imported(&mut self) {
+        self.imported = true;
+    }
 }
 
 #[cfg(not(tarpaulin_include))]
