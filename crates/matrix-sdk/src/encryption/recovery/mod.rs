@@ -345,8 +345,18 @@ impl Recovery {
         RecoverAndReset::new(self, old_key)
     }
 
-    /// Completely reset the current user's crypto identity: reset the cross
-    /// signing keys, delete the existing backup and recovery key.
+    /// Completely reset the current user's crypto identity.
+    /// This method will go through the following steps:
+    ///
+    /// 1. Disable backing up room keys and delete the active backup
+    /// 2. Disable recovery and delete secret storage
+    /// 3. Go through the cross-signing key reset flow
+    /// 4. Finally, re-enable key backups (only if they were already enabled)
+    ///
+    /// Disclaimer: failures in this flow will potentially leave the user in
+    /// an inconsistent state but they're expected to just run the reset flow
+    /// again as presumably the reason they started it to begin with was
+    /// that they no longer had access to any of their data.
     ///
     /// # Examples
     ///
@@ -384,14 +394,26 @@ impl Recovery {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn reset_identity(&self) -> Result<Option<IdentityResetHandle>> {
+        self.client.encryption().backups().disable().await?; // 1.
+
+        // 2. (We can't delete account data events)
+        self.client.account().set_account_data(SecretStorageDisabledContent {}).await?;
+        self.client.encryption().recovery().update_recovery_state().await?;
+
         let cross_signing_reset_handle = self.client.encryption().reset_cross_signing().await?;
 
         if let Some(handle) = cross_signing_reset_handle {
+            // Authentication required, backups will be re-enabled after the reset
             Ok(Some(IdentityResetHandle {
                 client: self.client.clone(),
                 cross_signing_reset_handle: handle,
             }))
         } else {
+            // No authentication required, re-enable backups
+            if self.client.encryption().recovery().should_auto_enable_backups().await? {
+                self.client.encryption().recovery().enable_backup().await?; // 4.
+            }
+
             Ok(None)
         }
     }
@@ -620,8 +642,9 @@ impl Recovery {
     }
 }
 
-/// A helper struct that handles resetting a user's crypto identity as well as
-/// deleting their key backup, recovery key and store secrets.
+/// A helper struct that handles continues resetting a user's crypto identity
+/// after authentication was required and re-enabling backups (if necessary) at
+/// the end of it
 #[derive(Debug)]
 pub struct IdentityResetHandle {
     client: Client,
@@ -635,24 +658,13 @@ impl IdentityResetHandle {
         &self.cross_signing_reset_handle.auth_type
     }
 
-    /// This method starts the identity reset process and
-    /// will go through the following steps:
-    ///
-    /// 1. Disable backing up room keys and delete the active backup
-    /// 2. Disable recovery and delete secret storage
-    /// 3. Go through the cross-signing key reset flow
-    /// 4. Finally, re-enable key backups only if they were enabled before
+    /// This method will retry to upload the device keys after the previous try
+    /// failed due to required authentication
     pub async fn reset(&self, auth: Option<AuthData>) -> Result<()> {
-        self.client.encryption().backups().disable().await?; // 1.
-
-        // 2. (We can't delete account data events)
-        self.client.account().set_account_data(SecretStorageDisabledContent {}).await?;
-        self.client.encryption().recovery().update_recovery_state().await?;
-
-        self.cross_signing_reset_handle.auth(auth).await?; // 3.
+        self.cross_signing_reset_handle.auth(auth).await?;
 
         if self.client.encryption().recovery().should_auto_enable_backups().await? {
-            self.client.encryption().recovery().enable_backup().await?; // 4.
+            self.client.encryption().recovery().enable_backup().await?;
         }
 
         Ok(())
