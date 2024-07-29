@@ -18,10 +18,10 @@ use vodozemac::Curve25519PublicKey;
 
 use super::{InboundGroupSession, SenderData, SenderDataRetryDetails};
 use crate::{
-    error::{OlmResult, SessionCreationError},
+    error::MismatchedIdentityKeysError,
     store::Store,
     types::{events::olm_v1::DecryptedRoomKeyEvent, DeviceKeys},
-    CryptoStoreError, Device, DeviceData, OlmError,
+    CryptoStoreError, Device, DeviceData, MegolmError, OlmError, SignatureError,
 };
 
 /// Temporary struct that is used to look up [`SenderData`] based on the
@@ -139,7 +139,7 @@ impl<'a> SenderDataFinder<'a> {
         sender_curve_key: Curve25519PublicKey,
         room_key_event: &'a DecryptedRoomKeyEvent,
         session: &'a InboundGroupSession,
-    ) -> OlmResult<SenderData> {
+    ) -> Result<SenderData, SessionDeviceKeysCheckError> {
         let finder = Self { store, session };
         finder.have_event(sender_curve_key, room_key_event).await
     }
@@ -149,7 +149,7 @@ impl<'a> SenderDataFinder<'a> {
         store: &'a Store,
         device_keys: DeviceKeys,
         session: &'a InboundGroupSession,
-    ) -> OlmResult<SenderData> {
+    ) -> Result<SenderData, SessionDeviceKeysCheckError> {
         let finder = Self { store, session };
         finder.have_device_keys(&device_keys).await
     }
@@ -159,7 +159,7 @@ impl<'a> SenderDataFinder<'a> {
         &self,
         sender_curve_key: Curve25519PublicKey,
         room_key_event: &'a DecryptedRoomKeyEvent,
-    ) -> OlmResult<SenderData> {
+    ) -> Result<SenderData, SessionDeviceKeysCheckError> {
         // Does the to-device message contain the device_keys property from MSC4147?
         if let Some(sender_device_keys) = &room_key_event.device_keys {
             // Yes: use the device keys to continue
@@ -175,14 +175,14 @@ impl<'a> SenderDataFinder<'a> {
         &self,
         sender_curve_key: Curve25519PublicKey,
         sender_user_id: &UserId,
-    ) -> Result<SenderData, CryptoStoreError> {
+    ) -> Result<SenderData, SessionDeviceCheckError> {
         // Does the locally-cached (in the store) devices list contain a device with the
         // curve key of the sender of the to-device message?
         if let Some(sender_device) =
             self.store.get_device_from_curve_key(sender_user_id, sender_curve_key).await?
         {
             // Yes: use the device to continue
-            Ok(self.have_device(sender_device))
+            self.have_device(sender_device)
         } else {
             // Step C (we don't know the sending device)
             //
@@ -202,24 +202,20 @@ impl<'a> SenderDataFinder<'a> {
         }
     }
 
-    async fn have_device_keys(&self, sender_device_keys: &DeviceKeys) -> OlmResult<SenderData> {
+    async fn have_device_keys(
+        &self,
+        sender_device_keys: &DeviceKeys,
+    ) -> Result<SenderData, SessionDeviceKeysCheckError> {
         // Validate the signature of the DeviceKeys supplied.
-        match DeviceData::try_from(sender_device_keys) {
-            Ok(sender_device_data) => {
-                let sender_device = self.store.wrap_device_data(sender_device_data).await?;
-                Ok(self.have_device(sender_device))
-            }
-            Err(e) => {
-                // The device keys supplied did not validate.
-                Err(OlmError::SessionCreation(SessionCreationError::InvalidDeviceKeys(e)))
-            }
-        }
+        let sender_device_data = DeviceData::try_from(sender_device_keys)?;
+        let sender_device = self.store.wrap_device_data(sender_device_data).await?;
+        Ok(self.have_device(sender_device)?)
     }
 
     /// Step D (we have a device)
     ///
     /// Returns Err if the device does not own the session.
-    fn have_device(&self, sender_device: Device) -> SenderData {
+    fn have_device(&self, sender_device: Device) -> Result<SenderData, SessionDeviceCheckError> {
         // Is the session owned by the device?
         // Note: the only error case from is_owner_of_session would be
         // MegolmError::MismatchedIdentityKeys, so we can treat this the same as
@@ -231,7 +227,7 @@ impl<'a> SenderDataFinder<'a> {
         // And is the signature in the device valid?
         let cross_signed = sender_device.is_cross_signed_by_owner();
 
-        match (device_is_owner, cross_signed) {
+        Ok(match (device_is_owner, cross_signed) {
             (true, true) => self.device_is_cross_signed_by_sender(sender_device),
             (true, false) => {
                 // F (we have device keys, but they are not signed by the sender)
@@ -250,7 +246,7 @@ impl<'a> SenderDataFinder<'a> {
                     owner_check_failed: true,
                 }
             }
-        }
+        })
     }
 
     /// Step G (device is cross-signed by the sender)
@@ -280,6 +276,90 @@ impl<'a> SenderDataFinder<'a> {
                 retry_details: SenderDataRetryDetails::retry_soon(),
                 legacy_session: true, // TODO: change to false when retries etc. are done
             }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum SessionDeviceCheckError {
+    CryptoStoreError(CryptoStoreError),
+    MismatchedIdentityKeys(MismatchedIdentityKeysError),
+}
+
+impl From<CryptoStoreError> for SessionDeviceCheckError {
+    fn from(e: CryptoStoreError) -> Self {
+        Self::CryptoStoreError(e)
+    }
+}
+
+impl From<MismatchedIdentityKeysError> for SessionDeviceCheckError {
+    fn from(e: MismatchedIdentityKeysError) -> Self {
+        Self::MismatchedIdentityKeys(e)
+    }
+}
+
+impl From<SessionDeviceCheckError> for OlmError {
+    fn from(e: SessionDeviceCheckError) -> Self {
+        match e {
+            SessionDeviceCheckError::CryptoStoreError(e) => e.into(),
+            SessionDeviceCheckError::MismatchedIdentityKeys(e) => {
+                OlmError::SessionCreation(e.into())
+            }
+        }
+    }
+}
+
+impl From<SessionDeviceCheckError> for MegolmError {
+    fn from(e: SessionDeviceCheckError) -> Self {
+        match e {
+            SessionDeviceCheckError::CryptoStoreError(e) => e.into(),
+            SessionDeviceCheckError::MismatchedIdentityKeys(e) => e.into(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum SessionDeviceKeysCheckError {
+    CryptoStoreError(CryptoStoreError),
+    MismatchedIdentityKeys(MismatchedIdentityKeysError),
+    SignatureError(SignatureError),
+}
+
+impl From<CryptoStoreError> for SessionDeviceKeysCheckError {
+    fn from(e: CryptoStoreError) -> Self {
+        Self::CryptoStoreError(e)
+    }
+}
+
+impl From<MismatchedIdentityKeysError> for SessionDeviceKeysCheckError {
+    fn from(e: MismatchedIdentityKeysError) -> Self {
+        Self::MismatchedIdentityKeys(e)
+    }
+}
+
+impl From<SignatureError> for SessionDeviceKeysCheckError {
+    fn from(e: SignatureError) -> Self {
+        Self::SignatureError(e)
+    }
+}
+
+impl From<SessionDeviceCheckError> for SessionDeviceKeysCheckError {
+    fn from(e: SessionDeviceCheckError) -> Self {
+        match e {
+            SessionDeviceCheckError::CryptoStoreError(e) => Self::CryptoStoreError(e),
+            SessionDeviceCheckError::MismatchedIdentityKeys(e) => Self::MismatchedIdentityKeys(e),
+        }
+    }
+}
+
+impl From<SessionDeviceKeysCheckError> for OlmError {
+    fn from(e: SessionDeviceKeysCheckError) -> Self {
+        match e {
+            SessionDeviceKeysCheckError::CryptoStoreError(e) => e.into(),
+            SessionDeviceKeysCheckError::MismatchedIdentityKeys(e) => {
+                OlmError::SessionCreation(e.into())
+            }
+            SessionDeviceKeysCheckError::SignatureError(e) => OlmError::SessionCreation(e.into()),
         }
     }
 }
