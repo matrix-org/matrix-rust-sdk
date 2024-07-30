@@ -1392,6 +1392,11 @@ impl OlmMachine {
         self.inner.key_request_machine.request_key(room_id, &event).await
     }
 
+    /// Find whether the supplied session is verified, and provide
+    /// explanation of what is missing/wrong if not.
+    ///
+    /// Store the updated [`SenderData`] for this session in the store
+    /// if we find an updated value for it.
     async fn get_verification_state(
         &self,
         session: &InboundGroupSession,
@@ -1404,6 +1409,12 @@ impl OlmMachine {
             session,
         )
         .await?;
+
+        if sender_data != session.sender_data {
+            let mut new_session = session.clone();
+            new_session.sender_data = sender_data.clone();
+            self.store().save_inbound_group_sessions(&[new_session]).await?;
+        }
 
         Ok(sender_data_to_verification_state(sender_data, session.has_been_imported()))
     }
@@ -2408,7 +2419,7 @@ pub(crate) mod tests {
         serde::Raw,
         to_device::DeviceIdOrAllDevices,
         uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-        OwnedDeviceKeyId, SecondsSinceUnixEpoch, TransactionId, UserId,
+        OwnedDeviceKeyId, RoomId, SecondsSinceUnixEpoch, TransactionId, UserId,
     };
     use serde_json::{json, value::to_raw_value};
     use vodozemac::{
@@ -2428,7 +2439,10 @@ pub(crate) mod tests {
         store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore, RoomSettings},
         types::{
             events::{
-                room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
+                room::encrypted::{
+                    EncryptedEvent, EncryptedToDeviceEvent, RoomEventEncryptionScheme,
+                    ToDeviceEncryptedEventContent,
+                },
                 room_key_withheld::{
                     MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, WithheldCode,
                 },
@@ -2438,8 +2452,8 @@ pub(crate) mod tests {
         },
         utilities::json_convert,
         verification::tests::{bob_id, outgoing_request_to_event, request_to_event},
-        Account, DeviceData, EncryptionSettings, LocalTrust, MegolmError, OlmError,
-        OutgoingRequests, ToDeviceRequest, UserIdentities,
+        Account, CryptoStoreError, DeviceData, EncryptionSettings, LocalTrust, MegolmError,
+        OlmError, OutgoingRequests, ToDeviceRequest, UserIdentities,
     };
 
     /// These keys need to be periodically uploaded to the server.
@@ -3448,10 +3462,24 @@ pub(crate) mod tests {
 
         assert_shield!(encryption_info, Red, None);
 
+        // Given alice is verified
         mark_alice_identity_as_verified_test_helper(&alice, &bob).await;
+
+        // Update bob's store to make sure there is no useful SenderData for this
+        // session.
+        let mut session = load_session(&bob, room_id, &event).await.unwrap().unwrap();
+        session.sender_data = SenderData::unknown();
+        save_session(&bob, session).await.unwrap();
+
+        // When I get the encryption info
         let encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
+        // Then it should say Verified
         assert_eq!(VerificationState::Verified, encryption_info.verification_state);
         assert_shield!(encryption_info, None, None);
+
+        // And the updated SenderData should have been saved into the store.
+        let session = load_session(&bob, room_id, &event).await.unwrap().unwrap();
+        assert_let!(SenderData::SenderKnown { .. } = session.sender_data);
 
         // Simulate an imported session, to change verification state
         let imported = InboundGroupSession::from_export(&export).unwrap();
@@ -3469,6 +3497,31 @@ pub(crate) mod tests {
         );
 
         assert_shield!(encryption_info, Red, Grey);
+    }
+
+    async fn load_session(
+        machine: &OlmMachine,
+        room_id: &RoomId,
+        event: &Raw<EncryptedEvent>,
+    ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
+        let event = event.deserialize().unwrap();
+        let session_id = match &event.content.scheme {
+            RoomEventEncryptionScheme::MegolmV1AesSha2(s) => &s.session_id,
+            #[cfg(feature = "experimental-algorithms")]
+            RoomEventEncryptionScheme::MegolmV2AesSha2(s) => &s.session_id,
+            RoomEventEncryptionScheme::Unknown(_) => {
+                panic!("Unknown encryption scheme - can't find session ID!")
+            }
+        };
+
+        machine.store().get_inbound_group_session(room_id, session_id).await
+    }
+
+    async fn save_session(
+        machine: &OlmMachine,
+        session: InboundGroupSession,
+    ) -> Result<(), CryptoStoreError> {
+        machine.store().save_inbound_group_sessions(&[session]).await
     }
 
     /// Test what happens when we feed an unencrypted event into the decryption
