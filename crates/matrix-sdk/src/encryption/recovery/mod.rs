@@ -115,6 +115,7 @@ use self::{
     futures::{Enable, RecoverAndReset, Reset},
     types::{BackupDisabledContent, SecretStorageDisabledContent},
 };
+use crate::encryption::{AuthData, CrossSigningResetAuthType, CrossSigningResetHandle};
 
 /// The recovery manager for the [`Client`].
 #[derive(Debug)]
@@ -344,6 +345,79 @@ impl Recovery {
         RecoverAndReset::new(self, old_key)
     }
 
+    /// Completely reset the current user's crypto identity.
+    /// This method will go through the following steps:
+    ///
+    /// 1. Disable backing up room keys and delete the active backup
+    /// 2. Disable recovery and delete secret storage
+    /// 3. Go through the cross-signing key reset flow
+    /// 4. Finally, re-enable key backups (only if they were already enabled)
+    ///
+    /// Disclaimer: failures in this flow will potentially leave the user in
+    /// an inconsistent state but they're expected to just run the reset flow
+    /// again as presumably the reason they started it to begin with was
+    /// that they no longer had access to any of their data.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{
+    ///     encryption::recovery, encryption::CrossSigningResetAuthType, ruma::api::client::uiaa,
+    ///     Client,
+    ///   };
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// # let user_id = unimplemented!();
+    /// let encryption = client.encryption();
+    ///       
+    /// if let Some(handle) = encryption.recovery().reset_identity().await? {
+    ///     match handle.auth_type() {
+    ///         CrossSigningResetAuthType::Uiaa(uiaa) => {
+    ///             let password = "1234".to_owned();
+    ///             let mut password = uiaa::Password::new(user_id, password);
+    ///             password.session = uiaa.session;
+    ///
+    ///             handle.reset(Some(uiaa::AuthData::Password(password))).await?;
+    ///         }
+    ///         CrossSigningResetAuthType::Oidc(o) => {
+    ///             println!(
+    ///                 "To reset your end-to-end encryption cross-signing identity, \
+    ///                 you first need to approve it at {}",
+    ///                 o.approval_url
+    ///             );
+    ///             handle.reset(None).await?;
+    ///         }
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn reset_identity(&self) -> Result<Option<IdentityResetHandle>> {
+        self.client.encryption().backups().disable().await?; // 1.
+
+        // 2. (We can't delete account data events)
+        self.client.account().set_account_data(SecretStorageDisabledContent {}).await?;
+        self.client.encryption().recovery().update_recovery_state().await?;
+
+        let cross_signing_reset_handle = self.client.encryption().reset_cross_signing().await?;
+
+        if let Some(handle) = cross_signing_reset_handle {
+            // Authentication required, backups will be re-enabled after the reset
+            Ok(Some(IdentityResetHandle {
+                client: self.client.clone(),
+                cross_signing_reset_handle: handle,
+            }))
+        } else {
+            // No authentication required, re-enable backups
+            if self.client.encryption().recovery().should_auto_enable_backups().await? {
+                self.client.encryption().recovery().enable_backup().await?; // 4.
+            }
+
+            Ok(None)
+        }
+    }
+
     /// Recover all the secrets from the homeserver.
     ///
     /// This method is a convenience method around the
@@ -565,5 +639,34 @@ impl Recovery {
                 self.update_recovery_state_no_fail().await;
             }
         }
+    }
+}
+
+/// A helper struct that handles continues resetting a user's crypto identity
+/// after authentication was required and re-enabling backups (if necessary) at
+/// the end of it
+#[derive(Debug)]
+pub struct IdentityResetHandle {
+    client: Client,
+    cross_signing_reset_handle: CrossSigningResetHandle,
+}
+
+impl IdentityResetHandle {
+    /// Get the underlying [`CrossSigningResetAuthType`] this identity reset
+    /// process is using.
+    pub fn auth_type(&self) -> &CrossSigningResetAuthType {
+        &self.cross_signing_reset_handle.auth_type
+    }
+
+    /// This method will retry to upload the device keys after the previous try
+    /// failed due to required authentication
+    pub async fn reset(&self, auth: Option<AuthData>) -> Result<()> {
+        self.cross_signing_reset_handle.auth(auth).await?;
+
+        if self.client.encryption().recovery().should_auto_enable_backups().await? {
+            self.client.encryption().recovery().enable_backup().await?;
+        }
+
+        Ok(())
     }
 }

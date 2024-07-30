@@ -57,6 +57,36 @@ use crate::{
     utils::u64_to_uint,
 };
 
+#[derive(uniffi::Enum)]
+pub enum AuthData {
+    /// Password-based authentication (`m.login.password`).
+    Password { password_details: AuthDataPasswordDetails },
+}
+
+#[derive(uniffi::Record)]
+pub struct AuthDataPasswordDetails {
+    /// One of the user's identifiers.
+    identifier: String,
+
+    /// The plaintext password.
+    password: String,
+}
+
+impl From<AuthData> for ruma::api::client::uiaa::AuthData {
+    fn from(value: AuthData) -> ruma::api::client::uiaa::AuthData {
+        match value {
+            AuthData::Password { password_details } => {
+                let user_id = ruma::UserId::parse(password_details.identifier).unwrap();
+
+                ruma::api::client::uiaa::AuthData::Password(ruma::api::client::uiaa::Password::new(
+                    user_id.into(),
+                    password_details.password,
+                ))
+            }
+        }
+    }
+}
+
 /// Parse a matrix entity from a given URI, be it either
 /// a `matrix.to` link or a `matrix:` URI
 #[uniffi::export]
