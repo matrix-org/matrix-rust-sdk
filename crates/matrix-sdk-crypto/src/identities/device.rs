@@ -815,24 +815,17 @@ impl DeviceData {
         event_type: &str,
         content: impl Serialize,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
-        #[cfg(feature = "message-ids")]
-        let message_id = {
-            #[cfg(not(target_arch = "wasm32"))]
-            let id = ulid::Ulid::new().to_string();
-            #[cfg(target_arch = "wasm32")]
-            let id = ruma::TransactionId::new().to_string();
+        #[cfg(not(target_arch = "wasm32"))]
+        let message_id = ulid::Ulid::new().to_string();
+        #[cfg(target_arch = "wasm32")]
+        let message_id = ruma::TransactionId::new().to_string();
 
-            tracing::Span::current().record("message_id", &id);
-            Some(id)
-        };
-
-        #[cfg(not(feature = "message-ids"))]
-        let message_id = None;
+        tracing::Span::current().record("message_id", &message_id);
 
         let session = self.get_most_recent_session(store).await?;
 
         if let Some(mut session) = session {
-            let message = session.encrypt(self, event_type, content, message_id).await?;
+            let message = session.encrypt(self, event_type, content, Some(message_id)).await?;
             Ok((session, message))
         } else {
             trace!("Trying to encrypt an event for a device, but no Olm session is found.");
