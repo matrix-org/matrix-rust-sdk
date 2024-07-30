@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId};
+use ruma::{OwnedDeviceId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 use vodozemac::Ed25519PublicKey;
 
@@ -28,10 +28,6 @@ pub enum SenderData {
     /// We have not yet found the (signed) device info for the sending device,
     /// or we did find a device but it does not own the session.
     UnknownDevice {
-        /// When we will next try again to find device info for this session,
-        /// and how many times we have tried
-        retry_details: SenderDataRetryDetails,
-
         /// Was this session created before we started collecting trust
         /// information about sessions? If so, we may choose to display its
         /// messages even though trust info is missing.
@@ -50,9 +46,6 @@ pub enum SenderData {
         /// Information about the device that sent the to-device message
         /// creating this session.
         device_keys: DeviceKeys,
-        /// When we will next try again to find a cross-signing key that signed
-        /// the device information, and how many times we have tried.
-        retry_details: SenderDataRetryDetails,
 
         /// Was this session created before we started collecting trust
         /// information about sessions? If so, we may choose to display its
@@ -87,7 +80,6 @@ impl SenderData {
     /// retried soon.
     pub fn unknown() -> Self {
         Self::UnknownDevice {
-            retry_details: SenderDataRetryDetails::retry_soon(),
             // TODO: when we have implemented all of SenderDataFinder,
             // legacy_session should be set to false, but for now we leave
             // it as true because we might lose device info while
@@ -103,16 +95,7 @@ impl SenderData {
     ///
     /// The returned struct contains no device info, and will be retried soon.
     pub fn legacy() -> Self {
-        Self::UnknownDevice {
-            retry_details: SenderDataRetryDetails::retry_soon(),
-            legacy_session: true,
-            owner_check_failed: false,
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn unknown_retry_at(retry_details: SenderDataRetryDetails) -> Self {
-        Self::UnknownDevice { retry_details, legacy_session: false, owner_check_failed: false }
+        Self::UnknownDevice { legacy_session: true, owner_check_failed: false }
     }
 }
 
@@ -128,52 +111,16 @@ impl Default for SenderData {
     }
 }
 
-/// Tracking information about when we need to try again fetching device or
-/// user information, and how many times we have already tried.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct SenderDataRetryDetails {
-    /// How many times we have already tried to find the currently-needed
-    /// information for this session.
-    pub retry_count: u8,
-
-    /// What time to try again to find the currently-needed information.
-    pub next_retry_time_ms: MilliSecondsSinceUnixEpoch,
-}
-
-impl SenderDataRetryDetails {
-    /// Create a new RetryDetails with a retry count of zero, and retry time of
-    /// now.
-    pub(crate) fn retry_soon() -> Self {
-        Self { retry_count: 0, next_retry_time_ms: MilliSecondsSinceUnixEpoch::now() }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn new(retry_count: u8, next_retry_time_ms: u64) -> Self {
-        use ruma::UInt;
-
-        Self {
-            retry_count,
-            next_retry_time_ms: MilliSecondsSinceUnixEpoch(
-                UInt::try_from(next_retry_time_ms).unwrap_or(UInt::from(0u8)),
-            ),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
 
-    use super::{SenderData, SenderDataRetryDetails};
+    use super::SenderData;
 
     #[test]
     fn serializing_unknown_device_correctly_preserves_owner_check_failed_if_true() {
         // Given an unknown device SenderData with failed owner check
-        let start = SenderData::UnknownDevice {
-            retry_details: SenderDataRetryDetails::new(3, 10_000),
-            legacy_session: false,
-            owner_check_failed: true,
-        };
+        let start = SenderData::UnknownDevice { legacy_session: false, owner_check_failed: true };
 
         // When we round-trip it to JSON and back
         let json = serde_json::to_string(&start).unwrap();
@@ -190,11 +137,7 @@ mod tests {
     #[test]
     fn serializing_unknown_device_without_failed_owner_check_excludes_it() {
         // Given an unknown device SenderData with owner_check_failed==false
-        let start = SenderData::UnknownDevice {
-            retry_details: SenderDataRetryDetails::new(3, 10_000),
-            legacy_session: false,
-            owner_check_failed: false,
-        };
+        let start = SenderData::UnknownDevice { legacy_session: false, owner_check_failed: false };
 
         // When we write it to JSON
         let json = serde_json::to_string(&start).unwrap();
@@ -205,6 +148,26 @@ mod tests {
         // And for good measure, it round-trips fully
         let end: SenderData = serde_json::from_str(&json).unwrap();
         assert_eq!(start, end);
+    }
+
+    #[test]
+    fn deserializing_unknown_device_with_extra_retry_info_ignores_it() {
+        // Previously, SenderData contained `retry_details` but it is no longer needed -
+        // just check that we are able to deserialize even if it is present.
+        let json = r#"
+            {
+                "UnknownDevice":{
+                    "retry_details":{
+                        "retry_count":3,
+                        "next_retry_time_ms":10000
+                    },
+                    "legacy_session":false
+                }
+            }
+            "#;
+
+        let end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
+        assert_let!(SenderData::UnknownDevice { .. } = end);
     }
 
     #[test]
@@ -222,6 +185,7 @@ mod tests {
             }
             "#;
 
-        let _end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
+        let end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
+        assert_let!(SenderData::SenderKnown { .. } = end);
     }
 }
