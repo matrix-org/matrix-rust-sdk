@@ -19,10 +19,12 @@ default = []
 automatic-room-key-forwarding = []
 js = ["ruma/js", "vodozemac/js", "matrix-sdk-common/js"]
 qrcode = ["dep:matrix-sdk-qrcode"]
-message-ids = ["dep:ulid"]
 experimental-algorithms = []
 uniffi = ["dep:uniffi"]
 _disable-minimum-rotation-period-ms = []
+
+# "message-ids" feature doesn't do anything and is deprecated.
+message-ids = []
 
 # Testing helpers for implementations based upon this
 testing = ["dep:http"]
@@ -60,7 +62,7 @@ tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
 url = { workspace = true }
-ulid = { version = "1.0.0", optional = true }
+ulid = { version = "1.0.0" }
 uniffi = { workspace = true, optional = true }
 vodozemac = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
