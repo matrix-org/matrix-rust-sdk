@@ -1397,7 +1397,7 @@ impl OlmMachine {
     ///
     /// Store the updated [`SenderData`] for this session in the store
     /// if we find an updated value for it.
-    async fn get_verification_state(
+    async fn get_or_update_verification_state(
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
@@ -1488,7 +1488,8 @@ impl OlmMachine {
         session: &InboundGroupSession,
         sender: &UserId,
     ) -> MegolmResult<EncryptionInfo> {
-        let (verification_state, device_id) = self.get_verification_state(session, sender).await?;
+        let (verification_state, device_id) =
+            self.get_or_update_verification_state(session, sender).await?;
 
         let sender = sender.to_owned();
 
@@ -3800,7 +3801,7 @@ pub(crate) mod tests {
         .unwrap();
 
         let (state, _) = bob
-            .get_verification_state(&web_unverified_inbound_session, other_user_id)
+            .get_or_update_verification_state(&web_unverified_inbound_session, other_user_id)
             .await
             .unwrap();
         assert_eq!(VerificationState::Unverified(VerificationLevel::UnsignedDevice), state);
@@ -3817,8 +3818,10 @@ pub(crate) mod tests {
         )
         .unwrap();
 
-        let (state, _) =
-            bob.get_verification_state(&web_signed_inbound_session, other_user_id).await.unwrap();
+        let (state, _) = bob
+            .get_or_update_verification_state(&web_signed_inbound_session, other_user_id)
+            .await
+            .unwrap();
 
         assert_eq!(VerificationState::Unverified(VerificationLevel::UnverifiedIdentity), state);
     }
