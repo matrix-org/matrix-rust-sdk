@@ -1405,33 +1405,7 @@ impl OlmMachine {
         )
         .await?;
 
-        Ok(match sender_data {
-            SenderData::UnknownDevice { owner_check_failed: false, .. } => {
-                let device_link_problem = if session.has_been_imported() {
-                    DeviceLinkProblem::InsecureSource
-                } else {
-                    DeviceLinkProblem::MissingDevice
-                };
-
-                (VerificationState::Unverified(VerificationLevel::None(device_link_problem)), None)
-            }
-            SenderData::UnknownDevice { owner_check_failed: true, .. } => (
-                VerificationState::Unverified(VerificationLevel::None(
-                    DeviceLinkProblem::InsecureSource,
-                )),
-                None,
-            ),
-            SenderData::DeviceInfo { device_keys, .. } => (
-                VerificationState::Unverified(VerificationLevel::UnsignedDevice),
-                Some(device_keys.device_id),
-            ),
-            SenderData::SenderKnown { master_key_verified: false, device_id, .. } => {
-                (VerificationState::Unverified(VerificationLevel::UnverifiedIdentity), device_id)
-            }
-            SenderData::SenderKnown { master_key_verified: true, device_id, .. } => {
-                (VerificationState::Verified, device_id)
-            }
-        })
+        Ok(sender_data_to_verification_state(sender_data, session.has_been_imported()))
     }
 
     /// Request missing local secrets from our devices (cross signing private
@@ -2302,6 +2276,39 @@ impl OlmMachine {
     pub async fn clear_crypto_cache(&self) {
         let crypto_store = self.store().crypto_store();
         crypto_store.as_ref().clear_caches().await;
+    }
+}
+
+fn sender_data_to_verification_state(
+    sender_data: SenderData,
+    session_has_been_imported: bool,
+) -> (VerificationState, Option<OwnedDeviceId>) {
+    match sender_data {
+        SenderData::UnknownDevice { owner_check_failed: false, .. } => {
+            let device_link_problem = if session_has_been_imported {
+                DeviceLinkProblem::InsecureSource
+            } else {
+                DeviceLinkProblem::MissingDevice
+            };
+
+            (VerificationState::Unverified(VerificationLevel::None(device_link_problem)), None)
+        }
+        SenderData::UnknownDevice { owner_check_failed: true, .. } => (
+            VerificationState::Unverified(VerificationLevel::None(
+                DeviceLinkProblem::InsecureSource,
+            )),
+            None,
+        ),
+        SenderData::DeviceInfo { device_keys, .. } => (
+            VerificationState::Unverified(VerificationLevel::UnsignedDevice),
+            Some(device_keys.device_id),
+        ),
+        SenderData::SenderKnown { master_key_verified: false, device_id, .. } => {
+            (VerificationState::Unverified(VerificationLevel::UnverifiedIdentity), device_id)
+        }
+        SenderData::SenderKnown { master_key_verified: true, device_id, .. } => {
+            (VerificationState::Verified, device_id)
+        }
     }
 }
 
