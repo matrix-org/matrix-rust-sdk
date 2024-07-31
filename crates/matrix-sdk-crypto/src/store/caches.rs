@@ -28,7 +28,7 @@ use std::{
 
 use ruma::{DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId, UserId};
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{field::display, instrument, trace, Span};
 
 use crate::{
@@ -40,7 +40,7 @@ use crate::{
 #[derive(Debug, Default, Clone)]
 pub struct SessionStore {
     #[allow(clippy::type_complexity)]
-    entries: Arc<StdRwLock<BTreeMap<String, Arc<Mutex<Vec<Session>>>>>>,
+    pub(crate) entries: Arc<RwLock<BTreeMap<String, Arc<Mutex<Vec<Session>>>>>>,
 }
 
 impl SessionStore {
@@ -52,8 +52,8 @@ impl SessionStore {
     /// Clear all entries in the session store.
     ///
     /// This is intended to be used when regenerating olm machines.
-    pub fn clear(&self) {
-        self.entries.write().unwrap().clear()
+    pub async fn clear(&self) {
+        self.entries.write().await.clear()
     }
 
     /// Add a session to the store.
@@ -61,13 +61,8 @@ impl SessionStore {
     /// Returns true if the session was added, false if the session was
     /// already in the store.
     pub async fn add(&self, session: Session) -> bool {
-        let sessions_lock = self
-            .entries
-            .write()
-            .unwrap()
-            .entry(session.sender_key.to_base64())
-            .or_default()
-            .clone();
+        let sessions_lock =
+            self.entries.write().await.entry(session.sender_key.to_base64()).or_default().clone();
 
         let mut sessions = sessions_lock.lock().await;
 
@@ -80,13 +75,13 @@ impl SessionStore {
     }
 
     /// Get all the sessions that belong to the given sender key.
-    pub fn get(&self, sender_key: &str) -> Option<Arc<Mutex<Vec<Session>>>> {
-        self.entries.read().unwrap().get(sender_key).cloned()
+    pub async fn get(&self, sender_key: &str) -> Option<Arc<Mutex<Vec<Session>>>> {
+        self.entries.read().await.get(sender_key).cloned()
     }
 
     /// Add a list of sessions belonging to the sender key.
-    pub fn set_for_sender(&self, sender_key: &str, sessions: Vec<Session>) {
-        self.entries.write().unwrap().insert(sender_key.to_owned(), Arc::new(Mutex::new(sessions)));
+    pub async fn set_for_sender(&self, sender_key: &str, sessions: Vec<Session>) {
+        self.entries.write().await.insert(sender_key.to_owned(), Arc::new(Mutex::new(sessions)));
     }
 }
 
@@ -406,7 +401,7 @@ mod tests {
         assert!(store.add(session.clone()).await);
         assert!(!store.add(session.clone()).await);
 
-        let sessions = store.get(&session.sender_key.to_base64()).unwrap();
+        let sessions = store.get(&session.sender_key.to_base64()).await.unwrap();
         let sessions = sessions.lock().await;
 
         let loaded_session = &sessions[0];
@@ -419,9 +414,9 @@ mod tests {
         let (_, session) = get_account_and_session_test_helper();
 
         let store = SessionStore::new();
-        store.set_for_sender(&session.sender_key.to_base64(), vec![session.clone()]);
+        store.set_for_sender(&session.sender_key.to_base64(), vec![session.clone()]).await;
 
-        let sessions = store.get(&session.sender_key.to_base64()).unwrap();
+        let sessions = store.get(&session.sender_key.to_base64()).await.unwrap();
         let sessions = sessions.lock().await;
 
         let loaded_session = &sessions[0];
