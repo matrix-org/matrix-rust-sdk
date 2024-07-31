@@ -25,7 +25,7 @@ experimental-sliding-sync = [
     "ruma/unstable-msc3575",
     "ruma/unstable-simplified-msc3575",
 ]
-uniffi = ["dep:uniffi", "matrix-sdk-crypto?/uniffi"]
+uniffi = ["dep:uniffi", "matrix-sdk-crypto?/uniffi", "matrix-sdk-common/uniffi"]
 
 # "message-ids" feature doesn't do anything and is deprecated.
 message-ids = []
