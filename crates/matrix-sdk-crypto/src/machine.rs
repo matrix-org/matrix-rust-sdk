@@ -1406,9 +1406,8 @@ impl OlmMachine {
         session: &InboundGroupSession,
         sender: &UserId,
     ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
-        let sender_data = if session.sender_data.is_known_and_verified() {
-            // The existing sender_data we have is fully trusted, so there
-            // is no need to recalculate it to find a more trusted version.
+        let sender_data = if session.sender_data.is_known() {
+            // The existing sender_data is known, so there is no need to recalculate it.
             session.sender_data.clone()
         } else {
             // The session is not sure of the sender yet. Calculate it.
