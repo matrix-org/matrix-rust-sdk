@@ -17,6 +17,7 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [features]
 js = ["instant/wasm-bindgen", "wasm-bindgen-futures"]
+uniffi = ["dep:uniffi"]
 
 [dependencies]
 async-trait = { workspace = true }
@@ -28,6 +29,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true, features = ["rt", "time"] }
+uniffi = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-util = { workspace = true, features = ["channel"] }

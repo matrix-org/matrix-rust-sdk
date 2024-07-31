@@ -88,17 +88,20 @@ impl VerificationState {
         match self {
             VerificationState::Verified => ShieldState::None,
             VerificationState::Unverified(level) => {
-                let message = match level {
+                let red = ShieldStateColor::Red;
+                match level {
                     VerificationLevel::UnverifiedIdentity | VerificationLevel::UnsignedDevice => {
-                        UNVERIFIED_IDENTITY
+                        ShieldState::UnverifiedIdentity { color: red }
                     }
                     VerificationLevel::None(link) => match link {
-                        DeviceLinkProblem::MissingDevice => UNKNOWN_DEVICE,
-                        DeviceLinkProblem::InsecureSource => AUTHENTICITY_NOT_GUARANTEED,
+                        DeviceLinkProblem::MissingDevice => {
+                            ShieldState::UnknownDevice { color: red }
+                        }
+                        DeviceLinkProblem::InsecureSource => {
+                            ShieldState::AuthenticityNotGuaranteed { color: red }
+                        }
                     },
-                };
-
-                ShieldState::Red { message }
+                }
             }
         }
     }
@@ -123,19 +126,19 @@ impl VerificationState {
                 }
                 VerificationLevel::UnsignedDevice => {
                     // This is a high warning. The sender hasn't verified his own device.
-                    ShieldState::Red { message: UNSIGNED_DEVICE }
+                    ShieldState::UnsignedDevice { color: ShieldStateColor::Red }
                 }
                 VerificationLevel::None(link) => match link {
                     DeviceLinkProblem::MissingDevice => {
                         // Have to warn as it could have been a temporary injected device.
                         // Notice that the device might just not be known at this time, so callers
                         // should retry when there is a device change for that user.
-                        ShieldState::Red { message: UNKNOWN_DEVICE }
+                        ShieldState::UnknownDevice { color: ShieldStateColor::Red }
                     }
                     DeviceLinkProblem::InsecureSource => {
                         // In legacy mode, we tone down this warning as it is quite common and
                         // mostly noise (due to legacy backup and lack of trusted forwards).
-                        ShieldState::Grey { message: AUTHENTICITY_NOT_GUARANTEED }
+                        ShieldState::AuthenticityNotGuaranteed { color: ShieldStateColor::Grey }
                     }
                 },
             },
@@ -167,7 +170,7 @@ pub enum VerificationLevel {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum DeviceLinkProblem {
     /// The device is missing, either because it was deleted, or you haven't
-    /// yet downoaled it or the server is erroneously omitting it (federation
+    /// yet downloaded it or the server is erroneously omitting it (federation
     /// lag).
     MissingDevice,
     /// The key was obtained from an insecure source: imported from a file,
@@ -178,15 +181,56 @@ pub enum DeviceLinkProblem {
 /// Recommended decorations for decrypted messages, representing the message's
 /// authenticity properties.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum ShieldState {
-    /// A red shield with a tooltip containing the associated message should be
-    /// presented.
-    Red { message: &'static str },
-    /// A grey shield with a tooltip containing the associated message should be
-    /// presented.
-    Grey { message: &'static str },
-    /// No shield should be presented.
+    /// Not enough information available to check the authenticity.
+    AuthenticityNotGuaranteed { color: ShieldStateColor },
+    /// The sending device isn't yet known by the Client.
+    UnknownDevice { color: ShieldStateColor },
+    /// The sending device hasn't been verified by the sender.
+    UnsignedDevice { color: ShieldStateColor },
+    /// The sender hasn't been verified by the Client's user.
+    UnverifiedIdentity { color: ShieldStateColor },
+    /// An unencrypted event in an encrypted room.
+    SentInClear { color: ShieldStateColor },
+    /// The event is trusted as authentic.
     None,
+}
+
+impl ShieldState {
+    /// The message (in English) that should be presented.
+    pub fn message(&self) -> Option<&str> {
+        match self {
+            ShieldState::AuthenticityNotGuaranteed { .. } => Some(AUTHENTICITY_NOT_GUARANTEED),
+            ShieldState::UnknownDevice { .. } => Some(UNKNOWN_DEVICE),
+            ShieldState::UnsignedDevice { .. } => Some(UNSIGNED_DEVICE),
+            ShieldState::UnverifiedIdentity { .. } => Some(UNVERIFIED_IDENTITY),
+            ShieldState::SentInClear { .. } => Some(SENT_IN_CLEAR),
+            ShieldState::None => None,
+        }
+    }
+
+    /// A helper method to get the color that should be used.
+    pub fn color(&self) -> Option<&ShieldStateColor> {
+        match self {
+            ShieldState::AuthenticityNotGuaranteed { color } => Some(color),
+            ShieldState::UnknownDevice { color } => Some(color),
+            ShieldState::UnsignedDevice { color } => Some(color),
+            ShieldState::UnverifiedIdentity { color } => Some(color),
+            ShieldState::SentInClear { color } => Some(color),
+            ShieldState::None => None,
+        }
+    }
+}
+
+/// The color of the shield that should be presented to the user.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum ShieldStateColor {
+    /// A red shield should be presented.
+    Red,
+    /// A grey shield should be presented.
+    Grey,
 }
 
 /// The algorithm specific information of a decrypted event.
