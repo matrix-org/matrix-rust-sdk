@@ -204,10 +204,7 @@ impl<'a> SenderDataFinder<'a> {
             let sender_data = SenderData::UnknownDevice {
                 // This is not a legacy session since we did attempt to look
                 // up its sender data at the time of reception.
-                // legacy_session: false,
-                // TODO: we set legacy to true for now, since our implementation is incomplete, so
-                // we may not have had a proper chance to look up the sender data.
-                legacy_session: true,
+                legacy_session: false,
                 owner_check_failed: false,
             };
             Ok(sender_data)
@@ -238,18 +235,12 @@ impl<'a> SenderDataFinder<'a> {
             (true, true) => self.device_is_cross_signed_by_sender(sender_device),
             (true, false) => {
                 // F (we have device keys, but they are not signed by the sender)
-                SenderData::DeviceInfo {
-                    device_keys: sender_device.as_device_keys().clone(),
-                    legacy_session: true, // TODO: change to false when we have all the retry code
-                }
+                SenderData::device_info(sender_device.as_device_keys().clone())
             }
             (false, _) => {
                 // Step E (the device does not own the session)
                 // Give up: something is wrong with the session.
-                SenderData::UnknownDevice {
-                    legacy_session: true, // TODO: change to false when all SenderData work is done
-                    owner_check_failed: true,
-                }
+                SenderData::UnknownDevice { legacy_session: false, owner_check_failed: true }
             }
         })
     }
@@ -285,11 +276,7 @@ impl<'a> SenderDataFinder<'a> {
             // treat it as if the device was not signed by this master key.
             //
             error!("MasterPubkey for user {user_id} does not contain any keys!",);
-
-            SenderData::DeviceInfo {
-                device_keys: sender_device.as_device_keys().clone(),
-                legacy_session: true, // TODO: change to false when retries etc. are done
-            }
+            SenderData::device_info(sender_device.as_device_keys().clone())
         }
     }
 }
@@ -429,10 +416,7 @@ mod tests {
         // Then we get back no useful information at all
         assert_let!(SenderData::UnknownDevice { legacy_session, owner_check_failed } = sender_data);
 
-        // TODO: This should not be marked as a legacy session, but for now it is
-        // because we haven't finished implementing the whole sender_data and
-        // retry mechanism.
-        assert!(legacy_session);
+        assert!(!legacy_session);
         assert!(!owner_check_failed);
     }
 
@@ -453,11 +437,7 @@ mod tests {
         // Then we get back the device keys that were in the event
         assert_let!(SenderData::DeviceInfo { device_keys, legacy_session } = sender_data);
         assert_eq!(&device_keys, setup.sender_device.as_device_keys());
-
-        // TODO: This should not be marked as a legacy session, but for now it is
-        // because we haven't finished implementing the whole sender_data and
-        // retry mechanism.
-        assert!(legacy_session);
+        assert!(!legacy_session);
     }
 
     #[async_test]
@@ -477,11 +457,7 @@ mod tests {
         // Then we get back the device keys that were in the store
         assert_let!(SenderData::DeviceInfo { device_keys, legacy_session } = sender_data);
         assert_eq!(&device_keys, setup.sender_device.as_device_keys());
-
-        // TODO: This should not be marked as a legacy session, but for now it is
-        // because we haven't finished implementing the whole sender_data and
-        // retry mechanism.
-        assert!(legacy_session);
+        assert!(!legacy_session);
     }
 
     #[async_test]
@@ -501,11 +477,7 @@ mod tests {
         // check it matches up later.
         assert_let!(SenderData::DeviceInfo { device_keys, legacy_session } = sender_data);
         assert_eq!(&device_keys, setup.sender_device.as_device_keys());
-
-        // TODO: This should not be marked as a legacy session, but for now it is
-        // because we haven't finished implementing the whole sender_data and
-        // retry mechanism.
-        assert!(legacy_session);
+        assert!(!legacy_session);
     }
 
     #[async_test]
@@ -684,11 +656,7 @@ mod tests {
 
         // Then we fail to find useful sender data
         assert_let!(SenderData::UnknownDevice { legacy_session, owner_check_failed } = sender_data);
-
-        // TODO: This should not be marked as a legacy session, but for now it is
-        // because we haven't finished implementing the whole sender_data and
-        // retry mechanism.
-        assert!(legacy_session);
+        assert!(!legacy_session);
 
         // And report that the owner_check_failed
         assert!(owner_check_failed);

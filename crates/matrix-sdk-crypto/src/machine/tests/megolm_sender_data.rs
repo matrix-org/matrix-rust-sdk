@@ -66,7 +66,7 @@ async fn test_receive_megolm_session_from_unknown_device() {
     assert_matches!(
         session.sender_data,
         SenderData::UnknownDevice {legacy_session, owner_check_failed} => {
-            assert!(legacy_session); // TODO: change when https://github.com/matrix-org/matrix-rust-sdk/pull/3785 lands
+            assert!(!legacy_session);
             assert!(!owner_check_failed);
         }
     );
@@ -102,8 +102,8 @@ async fn test_receive_megolm_session_from_known_device() {
 
     assert_matches!(
         session.sender_data,
-        SenderData::DeviceInfo {legacy_session, ..} => {
-            assert!(legacy_session); // TODO: change when https://github.com/matrix-org/matrix-rust-sdk/pull/3785 lands
+        SenderData::DeviceInfo { legacy_session, .. } => {
+            assert!(!legacy_session);
         }
     );
 }
@@ -158,7 +158,7 @@ async fn test_update_unknown_device_senderdata_on_keys_query() {
     assert_matches!(
         session.sender_data,
         SenderData::DeviceInfo {legacy_session, ..} => {
-            assert!(legacy_session); // TODO: change when https://github.com/matrix-org/matrix-rust-sdk/pull/3785 lands
+            assert!(!legacy_session);
         }
     );
 }

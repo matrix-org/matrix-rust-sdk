@@ -95,26 +95,12 @@ pub enum SenderData {
 impl SenderData {
     /// Create a [`SenderData`] which contains no device info.
     pub fn unknown() -> Self {
-        Self::UnknownDevice {
-            // TODO: when we have implemented all of SenderDataFinder,
-            // legacy_session should be set to false, but for now we leave
-            // it as true because we might lose device info while
-            // this code is still in transition.
-            legacy_session: true,
-            owner_check_failed: false,
-        }
+        Self::UnknownDevice { legacy_session: false, owner_check_failed: false }
     }
 
     /// Create a [`SenderData`] which contains device info.
     pub fn device_info(device_keys: DeviceKeys) -> Self {
-        Self::DeviceInfo {
-            device_keys,
-            // TODO: when we have implemented all of SenderDataFinder,
-            // legacy_session should be set to false, but for now we leave
-            // it as true because we might lose device info while
-            // this code is still in transition.
-            legacy_session: true,
-        }
+        Self::DeviceInfo { device_keys, legacy_session: false }
     }
 
     /// Create a [`SenderData`] with a known but unverified sender, where the
@@ -209,9 +195,8 @@ impl SenderData {
 /// Used when deserialising and the sender_data property is missing.
 /// If we are deserialising an InboundGroupSession session with missing
 /// sender_data, this must be a legacy session (i.e. it was created before we
-/// started tracking sender data). We set its legacy flag to true, and set it up
-/// to be retried soon, so we can populate it with trust information if it is
-/// available.
+/// started tracking sender data). We set its legacy flag to true, so we can
+/// populate it with trust information if it is available later.
 impl Default for SenderData {
     fn default() -> Self {
         Self::legacy()
