@@ -51,6 +51,10 @@ pub struct Capabilities {
     /// This means clients should not offer to open the widget in a separate
     /// browser/tab/webview that is not connected to the postmessage widget-api.
     pub requires_client: bool,
+    /// This allows the widget to ask the client to update delayed events.
+    pub update_delayed_event: bool,
+    /// This allows the widget to send events with a delay.
+    pub send_delayed_event: bool,
 }
 
 impl Capabilities {
@@ -73,6 +77,8 @@ const READ_EVENT: &str = "org.matrix.msc2762.receive.event";
 const SEND_STATE: &str = "org.matrix.msc2762.send.state_event";
 const READ_STATE: &str = "org.matrix.msc2762.receive.state_event";
 const REQUIRES_CLIENT: &str = "io.element.requires_client";
+pub(super) const SEND_DELAYED_EVENT: &str = "org.matrix.msc4157.send.delayed_event";
+pub(super) const UPDATE_DELAYED_EVENT: &str = "org.matrix.msc4157.update_delayed_event";
 
 impl Serialize for Capabilities {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -117,11 +123,21 @@ impl Serialize for Capabilities {
             }
         }
 
-        let seq_len = self.requires_client as usize + self.read.len() + self.send.len();
+        let seq_len = self.requires_client as usize
+            + self.update_delayed_event as usize
+            + self.send_delayed_event as usize
+            + self.read.len()
+            + self.send.len();
         let mut seq = serializer.serialize_seq(Some(seq_len))?;
 
         if self.requires_client {
             seq.serialize_element(REQUIRES_CLIENT)?;
+        }
+        if self.update_delayed_event {
+            seq.serialize_element(UPDATE_DELAYED_EVENT)?;
+        }
+        if self.send_delayed_event {
+            seq.serialize_element(SEND_DELAYED_EVENT)?;
         }
         for filter in &self.read {
             let name = match filter {
@@ -149,6 +165,8 @@ impl<'de> Deserialize<'de> for Capabilities {
     {
         enum Permission {
             RequiresClient,
+            UpdateDelayedEvent,
+            SendDelayedEvent,
             Read(EventFilter),
             Send(EventFilter),
             Unknown,
@@ -162,6 +180,12 @@ impl<'de> Deserialize<'de> for Capabilities {
                 let s = ruma::serde::deserialize_cow_str(deserializer)?;
                 if s == REQUIRES_CLIENT {
                     return Ok(Self::RequiresClient);
+                }
+                if s == UPDATE_DELAYED_EVENT {
+                    return Ok(Self::UpdateDelayedEvent);
+                }
+                if s == SEND_DELAYED_EVENT {
+                    return Ok(Self::SendDelayedEvent);
                 }
 
                 match s.split_once(':') {
@@ -211,6 +235,8 @@ impl<'de> Deserialize<'de> for Capabilities {
                 Permission::Send(filter) => capabilities.send.push(filter),
                 // ignore unknown capabilities
                 Permission::Unknown => {}
+                Permission::UpdateDelayedEvent => capabilities.update_delayed_event = true,
+                Permission::SendDelayedEvent => capabilities.send_delayed_event = true,
             }
         }
 
@@ -225,6 +251,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn deserialization_of_no_capabilities() {
+        let capabilities_str = r#"[]"#;
+
+        let parsed = serde_json::from_str::<Capabilities>(capabilities_str).unwrap();
+        let expected = Capabilities::default();
+
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
     fn deserialization_of_capabilities() {
         let capabilities_str = r#"[
             "m.always_on_screen",
@@ -233,7 +269,9 @@ mod tests {
             "org.matrix.msc2762.receive.state_event:m.room.member",
             "org.matrix.msc2762.receive.state_event:org.matrix.msc3401.call.member",
             "org.matrix.msc2762.send.event:org.matrix.rageshake_request",
-            "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@user:matrix.server"
+            "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@user:matrix.server",
+            "org.matrix.msc4157.send.delayed_event",
+            "org.matrix.msc4157.update_delayed_event"
         ]"#;
 
         let parsed = serde_json::from_str::<Capabilities>(capabilities_str).unwrap();
@@ -257,6 +295,8 @@ mod tests {
                 )),
             ],
             requires_client: true,
+            update_delayed_event: true,
+            send_delayed_event: true,
         };
 
         assert_eq!(parsed, expected);
@@ -285,6 +325,8 @@ mod tests {
                 )),
             ],
             requires_client: true,
+            update_delayed_event: false,
+            send_delayed_event: false,
         };
 
         let capabilities_str = serde_json::to_string(&capabilities).unwrap();

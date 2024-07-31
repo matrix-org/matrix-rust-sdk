@@ -318,6 +318,8 @@ pub fn get_element_call_required_permissions(
             },
         ],
         requires_client: true,
+        update_delayed_event: true,
+        send_delayed_event: true,
     }
 }
 
@@ -379,6 +381,10 @@ pub struct WidgetCapabilities {
     /// This means clients should not offer to open the widget in a separate
     /// browser/tab/webview that is not connected to the postmessage widget-api.
     pub requires_client: bool,
+    /// This allows the widget to ask the client to update delayed events.
+    pub update_delayed_event: bool,
+    /// This allows the widget to send events with a delay.
+    pub send_delayed_event: bool,
 }
 
 impl From<WidgetCapabilities> for matrix_sdk::widget::Capabilities {
@@ -387,6 +393,8 @@ impl From<WidgetCapabilities> for matrix_sdk::widget::Capabilities {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
             requires_client: value.requires_client,
+            update_delayed_event: value.update_delayed_event,
+            send_delayed_event: value.send_delayed_event,
         }
     }
 }
@@ -397,6 +405,8 @@ impl From<matrix_sdk::widget::Capabilities> for WidgetCapabilities {
             read: value.read.into_iter().map(Into::into).collect(),
             send: value.send.into_iter().map(Into::into).collect(),
             requires_client: value.requires_client,
+            update_delayed_event: value.update_delayed_event,
+            send_delayed_event: value.send_delayed_event,
         }
     }
 }
