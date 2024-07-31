@@ -90,7 +90,7 @@ pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, EncryptedMessage, EventItemOrigin, EventSendState,
         EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
-        OtherState, Profile, ReactionsByKeyBySender, ReactionInfo, RepliedToEvent,
+        OtherState, Profile, ReactionInfo, ReactionsByKeyBySender, RepliedToEvent,
         RoomMembershipChange, Sticker, TimelineDetails, TimelineEventItemId, TimelineItemContent,
     },
     event_type_filter::TimelineEventTypeFilter,
