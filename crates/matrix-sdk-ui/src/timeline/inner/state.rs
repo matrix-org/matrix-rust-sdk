@@ -75,6 +75,7 @@ impl TimelineInnerState {
         is_live_timeline: bool,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
+        is_room_encrypted: bool,
     ) -> Self {
         Self {
             // Upstream default capacity is currently 16, which is making
@@ -85,6 +86,7 @@ impl TimelineInnerState {
                 room_version,
                 internal_id_prefix,
                 unable_to_decrypt_hook,
+                is_room_encrypted,
             ),
             is_live_timeline,
         }
@@ -723,6 +725,8 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     /// This value is constant over the lifetime of the metadata.
     pub(crate) unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
 
+    pub(crate) is_room_encrypted: bool,
+
     /// Matrix room version of the timeline's room, or a sensible default.
     ///
     /// This value is constant over the lifetime of the metadata.
@@ -757,6 +761,7 @@ impl TimelineInnerMetadata {
         room_version: RoomVersionId,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
+        is_room_encrypted: bool,
     ) -> Self {
         Self {
             all_events: Default::default(),
@@ -771,6 +776,7 @@ impl TimelineInnerMetadata {
             room_version,
             unable_to_decrypt_hook,
             internal_id_prefix,
+            is_room_encrypted,
         }
     }
 

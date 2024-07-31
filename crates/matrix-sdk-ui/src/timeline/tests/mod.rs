@@ -90,6 +90,7 @@ impl TestTimeline {
                 TimelineFocus::Live,
                 Some(prefix),
                 None,
+                false,
             ),
             event_builder: EventBuilder::new(),
         }
@@ -97,7 +98,7 @@ impl TestTimeline {
 
     fn with_room_data_provider(room_data_provider: TestRoomDataProvider) -> Self {
         Self {
-            inner: TimelineInner::new(room_data_provider, TimelineFocus::Live, None, None),
+            inner: TimelineInner::new(room_data_provider, TimelineFocus::Live, None, None, false),
             event_builder: EventBuilder::new(),
         }
     }
@@ -109,6 +110,7 @@ impl TestTimeline {
                 TimelineFocus::Live,
                 None,
                 Some(hook),
+                true,
             ),
             event_builder: EventBuilder::new(),
         }

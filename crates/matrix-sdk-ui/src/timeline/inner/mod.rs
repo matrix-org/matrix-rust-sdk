@@ -227,6 +227,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         focus: TimelineFocus,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
+        is_room_encrypted: bool,
     ) -> Self {
         let (focus_data, is_live) = match focus {
             TimelineFocus::Live => (TimelineFocusData::Live, true),
@@ -244,6 +245,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             is_live,
             internal_id_prefix,
             unable_to_decrypt_hook,
+            is_room_encrypted,
         );
 
         Self {

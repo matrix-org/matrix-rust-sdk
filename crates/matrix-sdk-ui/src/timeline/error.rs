@@ -48,6 +48,10 @@ pub enum Error {
     #[error("Failed toggling reaction")]
     FailedToToggleReaction,
 
+    /// Couldn't read the encryption state of the room.
+    #[error("The room's encryption state is unknown.")]
+    UnknownEncryptionState,
+
     /// Something went wrong with the room event cache.
     #[error("Something went wrong with the room event cache.")]
     EventCacheError(#[from] EventCacheError),

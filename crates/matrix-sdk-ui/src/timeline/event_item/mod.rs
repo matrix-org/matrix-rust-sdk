@@ -21,7 +21,10 @@ use matrix_sdk::{
     send_queue::SendHandle,
     Client, Error,
 };
-use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent};
+use matrix_sdk_base::{
+    deserialized_responses::{SyncTimelineEvent, SENT_IN_CLEAR},
+    latest_event::LatestEvent,
+};
 use once_cell::sync::Lazy;
 use ruma::{
     events::{receipt::Receipt, room::message::MessageType, AnySyncTimelineEvent},
@@ -66,6 +69,8 @@ pub struct EventTimelineItem {
     pub(super) content: TimelineItemContent,
     /// The kind of event timeline item, local or remote.
     pub(super) kind: EventTimelineItemKind,
+    /// Whether or not the event belongs to an encrypted room.
+    pub(super) is_room_encrypted: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -103,8 +108,9 @@ impl EventTimelineItem {
         timestamp: MilliSecondsSinceUnixEpoch,
         content: TimelineItemContent,
         kind: EventTimelineItemKind,
+        is_room_encrypted: bool,
     ) -> Self {
-        Self { sender, sender_profile, timestamp, content, kind }
+        Self { sender, sender_profile, timestamp, content, kind, is_room_encrypted }
     }
 
     /// If the supplied low-level `SyncTimelineEvent` is suitable for use as the
@@ -165,7 +171,7 @@ impl EventTimelineItem {
         .into();
 
         let room = client.get_room(room_id);
-        let sender_profile = if let Some(room) = room {
+        let (sender_profile, is_room_encrypted) = if let Some(room) = room {
             let mut profile = room.profile_from_latest_event(&latest_event).await;
 
             // Fallback to the slow path.
@@ -173,12 +179,24 @@ impl EventTimelineItem {
                 profile = room.profile_from_user_id(&sender).await;
             }
 
-            profile.map(TimelineDetails::Ready).unwrap_or(TimelineDetails::Unavailable)
+            let sender_profile =
+                profile.map(TimelineDetails::Ready).unwrap_or(TimelineDetails::Unavailable);
+
+            let is_room_encrypted = room.is_encrypted().await.unwrap_or(false);
+
+            (sender_profile, is_room_encrypted)
         } else {
-            TimelineDetails::Unavailable
+            (TimelineDetails::Unavailable, false)
         };
 
-        Some(Self::new(sender, sender_profile, timestamp, item_content, event_kind))
+        Some(Self::new(
+            sender,
+            sender_profile,
+            timestamp,
+            item_content,
+            event_kind,
+            is_room_encrypted,
+        ))
     }
 
     /// Check whether this item is a local echo.
@@ -350,13 +368,20 @@ impl EventTimelineItem {
     /// Gets the [`ShieldState`] which can be used to decorate messages in the
     /// recommended way.
     pub fn get_shield(&self, strict: bool) -> Option<ShieldState> {
-        self.encryption_info().map(|info| {
-            if strict {
-                info.verification_state.to_shield_state_strict()
-            } else {
-                info.verification_state.to_shield_state_lax()
+        if self.is_room_encrypted {
+            match self.encryption_info() {
+                Some(info) => {
+                    if strict {
+                        Some(info.verification_state.to_shield_state_strict())
+                    } else {
+                        Some(info.verification_state.to_shield_state_lax())
+                    }
+                }
+                None => Some(ShieldState::Grey { message: SENT_IN_CLEAR }),
             }
-        })
+        } else {
+            None
+        }
     }
 
     /// Check whether this item can be replied to.
@@ -456,6 +481,7 @@ impl EventTimelineItem {
             timestamp: self.timestamp,
             content,
             kind,
+            is_room_encrypted: self.is_room_encrypted,
         }
     }
 
