@@ -17,7 +17,7 @@
 use std::marker::PhantomData;
 
 use ruma::{
-    api::client::{account::request_openid_token, future::FutureParameters},
+    api::client::{account::request_openid_token, delayed_events::update_delayed_event},
     events::{AnyTimelineEvent, MessageLikeEventType, StateEventType, TimelineEventType},
     serde::Raw,
 };
@@ -51,6 +51,9 @@ pub(crate) enum MatrixDriverRequestData {
 
     /// Send matrix event that corresponds to the given description.
     SendMatrixEvent(SendEventRequest),
+
+    /// Data for sending a UpdateDelayedEvent client server api request.
+    UpdateDelayedEvent(UpdateDelayedEventRequest),
 }
 
 /// A handle to a pending `toWidget` request.
@@ -209,7 +212,8 @@ impl MatrixDriverRequest for ReadStateEventRequest {
 }
 
 /// Ask the client to send matrix event that corresponds to the given
-/// description and return an event ID as a response.
+/// description and returns an event ID (or a delay ID,
+/// see [MSC4140](https://github.com/matrix-org/matrix-spec-proposals/pull/4140)) as a response.
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct SendEventRequest {
     /// The type of the event.
@@ -219,9 +223,10 @@ pub(crate) struct SendEventRequest {
     pub(crate) state_key: Option<String>,
     /// Raw content of an event.
     pub(crate) content: Box<RawJsonValue>,
-    /// Additional send event parameters to send a future event.  
-    #[serde(flatten)]
-    pub(crate) future_event_parameters: Option<FutureParameters>,
+    /// The optional delay (in ms) to send the event at.
+    /// If provided, the response will contain a delay_id instead of a event_id.
+    /// Defined by [MSC4157](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
+    pub(crate) delay: Option<u64>,
 }
 
 impl From<SendEventRequest> for MatrixDriverRequestData {
@@ -238,6 +243,36 @@ impl FromMatrixDriverResponse for SendEventResponse {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
             MatrixDriverResponse::MatrixEventSent(response) => Some(response),
+            _ => {
+                error!("bug in MatrixDriver, received wrong event response");
+                None
+            }
+        }
+    }
+}
+
+/// Ask the client to send a UpdateDelayedEventRequest with the given `delay_id`
+/// and `action`. Defined by [MSC4157](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
+#[derive(Deserialize, Debug, Clone)]
+pub(crate) struct UpdateDelayedEventRequest {
+    pub(crate) action: update_delayed_event::unstable::UpdateAction,
+    pub(crate) delay_id: String,
+}
+
+impl From<UpdateDelayedEventRequest> for MatrixDriverRequestData {
+    fn from(value: UpdateDelayedEventRequest) -> Self {
+        MatrixDriverRequestData::UpdateDelayedEvent(value)
+    }
+}
+
+impl MatrixDriverRequest for UpdateDelayedEventRequest {
+    type Response = update_delayed_event::unstable::Response;
+}
+
+impl FromMatrixDriverResponse for update_delayed_event::unstable::Response {
+    fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
+        match ev {
+            MatrixDriverResponse::MatrixDelayedEventUpdate(response) => Some(response),
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None
