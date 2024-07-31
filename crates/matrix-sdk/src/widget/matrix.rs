@@ -21,8 +21,8 @@ use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedState;
 use ruma::{
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
+        delayed_events::{self, update_delayed_event::unstable::UpdateAction},
         filter::RoomEventFilter,
-        future,
     },
     assign,
     events::{
@@ -113,37 +113,50 @@ impl MatrixDriver {
         event_type: TimelineEventType,
         state_key: Option<String>,
         content: Box<RawJsonValue>,
-        future_event_parameters: Option<future::FutureParameters>,
+        delayed_event_parameters: Option<delayed_events::DelayParameters>,
     ) -> Result<SendEventResponse> {
         let type_str = event_type.to_string();
-        Ok(match (state_key, future_event_parameters) {
+        Ok(match (state_key, delayed_event_parameters) {
             (None, None) => SendEventResponse::from_event_id(
                 self.room.send_raw(&type_str, content).await?.event_id,
             ),
             (Some(key), None) => SendEventResponse::from_event_id(
                 self.room.send_state_event_raw(&type_str, &key, content).await?.event_id,
             ),
-            (None, Some(future_event_parameters)) => {
-                let r = future::send_future_message_event::unstable::Request::new_raw(
+            (None, Some(delayed_event_parameters)) => {
+                let r = delayed_events::delayed_message_event::unstable::Request::new_raw(
                     self.room.room_id().to_owned(),
                     TransactionId::new(),
                     MessageLikeEventType::from(type_str),
-                    future_event_parameters,
+                    delayed_event_parameters,
                     Raw::<AnyMessageLikeEventContent>::from_json(content),
                 );
                 self.room.client.send(r, None).await.map(|r| r.into())?
             }
-            (Some(key), Some(future_event_parameters)) => {
-                let r = future::send_future_state_event::unstable::Request::new_raw(
+            (Some(key), Some(delayed_event_parameters)) => {
+                let r = delayed_events::delayed_state_event::unstable::Request::new_raw(
                     self.room.room_id().to_owned(),
                     key,
                     StateEventType::from(type_str),
-                    future_event_parameters,
+                    delayed_event_parameters,
                     Raw::<AnyStateEventContent>::from_json(content),
                 );
                 self.room.client.send(r, None).await.map(|r| r.into())?
             }
         })
+    }
+
+    /// Send a request to the `/delayed_events`` endpoint ([MSC4140](https://github.com/matrix-org/matrix-spec-proposals/pull/4140))
+    /// This can be used to refresh cancel or send a Delayed Event (An Event
+    /// that is send ahead of time to the homeserver and gets distributed
+    /// once it times out.)
+    pub(crate) async fn update_delayed_event(
+        &self,
+        delay_id: String,
+        action: UpdateAction,
+    ) -> HttpResult<delayed_events::update_delayed_event::unstable::Response> {
+        let r = delayed_events::update_delayed_event::unstable::Request::new(delay_id, action);
+        self.room.client.send(r, None).await
     }
 
     /// Starts forwarding new room events. Once the returned `EventReceiver`
