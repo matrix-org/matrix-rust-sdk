@@ -119,11 +119,20 @@ impl EventTimelineItem {
 
     /// If the supplied low-level `SyncTimelineEvent` is suitable for use as the
     /// `latest_event` in a message preview, wrap it as an `EventTimelineItem`.
+    ///
+    /// **Note:** Timeline items created via this constructor do **not** produce
+    /// the correct ShieldState when calling
+    /// [`get_shield`][EventTimelineItem::get_shield]. This is because they are
+    /// intended for display in the room list which a) is unlikely to show
+    /// shields and b) would incur a significant performance overhead.
     pub async fn from_latest_event(
         client: Client,
         room_id: &RoomId,
         latest_event: LatestEvent,
     ) -> Option<EventTimelineItem> {
+        // TODO: We shouldn't be returning an EventTimelineItem here because we're
+        // starting to diverge on what kind of data we need. The note above is a
+        // potential footgun which could one day turn into a security issue.
         use super::traits::RoomDataProvider;
 
         let SyncTimelineEvent { event: raw_sync_event, encryption_info, .. } =
