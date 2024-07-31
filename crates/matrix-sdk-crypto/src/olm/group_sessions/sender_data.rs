@@ -127,8 +127,8 @@ impl SenderData {
     }
 
     /// Returns true if this is SenderKnown and `master_key_verified` is true.
-    pub(crate) fn is_known_and_verified(&self) -> bool {
-        matches!(self, SenderData::SenderKnown { master_key_verified: true, .. })
+    pub(crate) fn is_known(&self) -> bool {
+        matches!(self, SenderData::SenderKnown { .. })
     }
 
     /// Returns `Greater` if this `SenderData` represents a greater level of
@@ -253,18 +253,20 @@ mod tests {
     }
 
     #[test]
-    fn known_session_with_master_key_verified_is_known_and_verified() {
+    fn known_session_is_known() {
+        let user_id = user_id!("@u:s.co");
+        let device_id = device_id!("DEV");
         let master_key =
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
 
-        assert!(SenderData::sender_known(user_id!("@u:s.co"), device_id!("DEV"), master_key, true)
-            .is_known_and_verified());
+        assert!(SenderData::sender_known(user_id, device_id, master_key, true).is_known());
+        assert!(SenderData::sender_known(user_id, device_id, master_key, false).is_known());
     }
 
     #[test]
-    fn other_sessions_are_not_known_and_verified() {
+    fn unknown_and_device_sessions_are_not_known() {
         // Anything that is not SenderKnown is not know and verified.
-        assert!(!SenderData::unknown().is_known_and_verified());
+        assert!(!SenderData::unknown().is_known());
 
         let device_keys = DeviceKeys::new(
             owned_user_id!("@u:s.co"),
@@ -273,18 +275,7 @@ mod tests {
             BTreeMap::new(),
             Signatures::new(),
         );
-        assert!(!SenderData::device_info(device_keys).is_known_and_verified());
-
-        // Even SenderKnown, if master_key_verified is false, is not known and verified.
-        let master_key =
-            Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
-        assert!(!SenderData::sender_known(
-            user_id!("@u:s.co"),
-            device_id!("DEV"),
-            master_key,
-            false
-        )
-        .is_known_and_verified());
+        assert!(!SenderData::device_info(device_keys).is_known());
     }
 
     #[test]
