@@ -913,7 +913,11 @@ mod tests {
     }
 
     fn create_store(me: &TestUser) -> Store {
-        let store_wrapper = Arc::new(CryptoStoreWrapper::new(&me.user_id, MemoryStore::new()));
+        let store_wrapper = Arc::new(CryptoStoreWrapper::new(
+            &me.user_id,
+            me.account.device_id(),
+            MemoryStore::new(),
+        ));
 
         let verification_machine = VerificationMachine::new(
             me.account.deref().clone(),
@@ -1078,7 +1082,11 @@ mod tests {
                 Arc::new(Mutex::new(PrivateCrossSigningIdentity::new(
                     account.user_id().to_owned(),
                 ))),
-                Arc::new(CryptoStoreWrapper::new(account.user_id(), MemoryStore::new())),
+                Arc::new(CryptoStoreWrapper::new(
+                    account.user_id(),
+                    account.device_id(),
+                    MemoryStore::new(),
+                )),
             ),
             own_identity: None,
             device_owner_identity: None,

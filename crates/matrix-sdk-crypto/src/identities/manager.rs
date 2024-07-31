@@ -1067,7 +1067,7 @@ pub(crate) mod testing {
         let user_id = user_id.to_owned();
         let account = Account::with_device_id(&user_id, device_id);
         let static_account = account.static_data().clone();
-        let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
+        let store = Arc::new(CryptoStoreWrapper::new(&user_id, device_id, MemoryStore::new()));
         let verification =
             VerificationMachine::new(static_account.clone(), identity.clone(), store.clone());
         let store = Store::new(static_account, identity, store, verification);

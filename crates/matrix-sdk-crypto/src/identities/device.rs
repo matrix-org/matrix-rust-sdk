@@ -686,7 +686,8 @@ impl DeviceData {
         store: &CryptoStoreWrapper,
     ) -> OlmResult<Option<Session>> {
         if let Some(sender_key) = self.curve25519_key() {
-            if let Some(mut sessions) = store.get_sessions(&sender_key.to_base64()).await? {
+            if let Some(sessions) = store.get_sessions(&sender_key.to_base64()).await? {
+                let mut sessions = sessions.lock().await;
                 sessions.sort_by_key(|s| s.creation_time);
 
                 Ok(sessions.last().cloned())

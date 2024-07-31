@@ -1252,7 +1252,7 @@ impl Account {
                 if let Some(sessions) = existing_sessions {
                     // Try to decrypt the message using each Session we share with the
                     // given curve25519 sender key.
-                    for mut session in sessions {
+                    for session in sessions.lock().await.iter_mut() {
                         match session.decrypt(message).await {
                             Ok(p) => {
                                 // success!
@@ -1280,7 +1280,7 @@ impl Account {
             OlmMessage::PreKey(prekey_message) => {
                 // First try to decrypt using an existing session.
                 if let Some(sessions) = existing_sessions {
-                    for mut session in sessions {
+                    for session in sessions.lock().await.iter_mut() {
                         if prekey_message.session_id() != session.session_id() {
                             // wrong session
                             continue;
