@@ -1395,6 +1395,10 @@ impl OlmMachine {
     /// Find whether the supplied session is verified, and provide
     /// explanation of what is missing/wrong if not.
     ///
+    /// Checks both the stored verification state of the session and a
+    /// recalculated verification state based on our current knowledge, and
+    /// returns the more trusted of the two.
+    ///
     /// Store the updated [`SenderData`] for this session in the store
     /// if we find an updated value for it.
     async fn get_or_update_verification_state(
@@ -1402,19 +1406,34 @@ impl OlmMachine {
         session: &InboundGroupSession,
         sender: &UserId,
     ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
-        let sender_data = SenderDataFinder::find_using_curve_key(
-            self.store(),
-            session.sender_key(),
-            sender,
-            session,
-        )
-        .await?;
+        let sender_data = if session.sender_data.is_known_and_verified() {
+            // The existing sender_data we have is fully trusted, so there
+            // is no need to recalculate it to find a more trusted version.
+            session.sender_data.clone()
+        } else {
+            // The session is not sure of the sender yet. Calculate it.
+            let calculated_sender_data = SenderDataFinder::find_using_curve_key(
+                self.store(),
+                session.sender_key(),
+                sender,
+                session,
+            )
+            .await?;
 
-        if sender_data != session.sender_data {
-            let mut new_session = session.clone();
-            new_session.sender_data = sender_data.clone();
-            self.store().save_inbound_group_sessions(&[new_session]).await?;
-        }
+            // Is the newly-calculated sender data more trusted?
+            if calculated_sender_data.compare_trust_level(&session.sender_data).is_gt() {
+                // Yes - save it to the store
+                let mut new_session = session.clone();
+                new_session.sender_data = calculated_sender_data.clone();
+                self.store().save_inbound_group_sessions(&[new_session]).await?;
+
+                // and use it now.
+                calculated_sender_data
+            } else {
+                // No - use the existing data.
+                session.sender_data.clone()
+            }
+        };
 
         Ok(sender_data_to_verification_state(sender_data, session.has_been_imported()))
     }
