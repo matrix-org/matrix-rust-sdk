@@ -14,9 +14,10 @@
 
 //! Widget API implementation.
 
-use std::fmt;
+use std::{fmt, time::Duration};
 
 use async_channel::{Receiver, Sender};
+use ruma::api::client::delayed_events::DelayParameters;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio_util::sync::{CancellationToken, DropGuard};
@@ -28,7 +29,7 @@ use self::{
     },
     matrix::MatrixDriver,
 };
-use crate::{room::Room, Result};
+use crate::{room::Room, HttpError, Result};
 
 mod capabilities;
 mod filter;
@@ -225,18 +226,27 @@ impl<T: CapabilitiesProvider> ProcessingContext<T> {
                         .map_err(|e| e.to_string()),
 
                     MatrixDriverRequestData::SendMatrixEvent(req) => {
-                        let SendEventRequest {
-                            event_type,
-                            state_key,
-                            content,
-                            future_event_parameters,
-                        } = req;
+                        let SendEventRequest { event_type, state_key, content, delay } = req;
+                        // The widget api action does not use the unstable prefix:
+                        // `org.matrix.msc4140.delay` so we
+                        // cannot use the `DelayParameters` here and need to convert
+                        // manually.
+                        let delay_event_parameter = delay.map(|d| DelayParameters::Timeout {
+                            timeout: Duration::from_millis(d),
+                        });
                         self.matrix_driver
-                            .send(event_type, state_key, content, future_event_parameters)
+                            .send(event_type, state_key, content, delay_event_parameter)
                             .await
                             .map(MatrixDriverResponse::MatrixEventSent)
-                            .map_err(|e| e.to_string())
+                            .map_err(|e: crate::Error| e.to_string())
                     }
+
+                    MatrixDriverRequestData::UpdateDelayedEvent(req) => self
+                        .matrix_driver
+                        .update_delayed_event(req.delay_id, req.action)
+                        .await
+                        .map(MatrixDriverResponse::MatrixDelayedEventUpdate)
+                        .map_err(|e: HttpError| e.to_string()),
                 };
 
                 self.events_tx
