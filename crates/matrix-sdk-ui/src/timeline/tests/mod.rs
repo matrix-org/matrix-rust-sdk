@@ -71,6 +71,7 @@ mod polls;
 mod reactions;
 mod read_receipts;
 mod redaction;
+mod shields;
 mod virt;
 
 struct TestTimeline {
@@ -111,6 +112,19 @@ impl TestTimeline {
                 None,
                 Some(hook),
                 true,
+            ),
+            event_builder: EventBuilder::new(),
+        }
+    }
+
+    fn with_is_room_encrypted(encrypted: bool) -> Self {
+        Self {
+            inner: TimelineInner::new(
+                TestRoomDataProvider::default(),
+                TimelineFocus::Live,
+                None,
+                None,
+                encrypted,
             ),
             event_builder: EventBuilder::new(),
         }
