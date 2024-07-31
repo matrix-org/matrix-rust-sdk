@@ -18,6 +18,8 @@
 
 use std::{fmt, iter, time::Duration};
 
+use driver_req::UpdateDelayedEventRequest;
+use from_widget::UpdateDelayedEventResponse;
 use indexmap::IndexMap;
 use ruma::{
     serde::{JsonObject, Raw},
@@ -48,6 +50,7 @@ use self::{
 #[cfg(doc)]
 use super::WidgetDriver;
 use super::{
+    capabilities,
     filter::{MatrixEventContent, MatrixEventFilterInput},
     Capabilities, StateKeySelector,
 };
@@ -245,6 +248,36 @@ impl WidgetMachine {
                 let response = self.send_from_widget_response(raw_request, OpenIdResponse::Pending);
                 iter::once(response).chain(request_action).collect()
             }
+            FromWidgetRequest::DelayedEventUpdate(req) => {
+                let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
+                    let text =
+                        "Received send update delayed event request before capabilities were negotiated";
+                    return vec![self.send_from_widget_error_response(raw_request, text)];
+                };
+                if !capabilities.update_delayed_event {
+                    return vec![self.send_from_widget_error_response(
+                        raw_request,
+                        format!(
+                            "Not allowed: missing the {} capability.",
+                            capabilities::UPDATE_DELAYED_EVENT
+                        ),
+                    )];
+                }
+                let (request, request_action) =
+                    self.send_matrix_driver_request(UpdateDelayedEventRequest {
+                        action: req.action,
+                        delay_id: req.delay_id,
+                    });
+                request.then(|res, machine| {
+                    vec![machine.send_from_widget_result_response(
+                        raw_request,
+                        // This is mapped to another type because the update_delay_event::Response
+                        // does not impl Serialize
+                        res.map(Into::<UpdateDelayedEventResponse>::into),
+                    )]
+                });
+                request_action.map(|a| vec![a]).unwrap_or_default()
+            }
         }
     }
 
@@ -338,7 +371,15 @@ impl WidgetMachine {
                 Default::default()
             }),
         };
-
+        if !capabilities.send_delayed_event && request.delay.is_some() {
+            return Some(self.send_from_widget_error_response(
+                raw_request,
+                format!(
+                    "Not allowed: missing the {} capability.",
+                    capabilities::SEND_DELAYED_EVENT
+                ),
+            ));
+        }
         if !capabilities.send.iter().any(|filter| filter.matches(&filter_in)) {
             return Some(self.send_from_widget_error_response(raw_request, "Not allowed"));
         }
