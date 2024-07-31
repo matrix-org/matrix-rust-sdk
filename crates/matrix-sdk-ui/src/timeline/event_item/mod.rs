@@ -70,7 +70,10 @@ pub struct EventTimelineItem {
     /// The kind of event timeline item, local or remote.
     pub(super) kind: EventTimelineItemKind,
     /// Whether or not the event belongs to an encrypted room.
-    pub(super) is_room_encrypted: bool,
+    ///
+    /// When `None` it is unknown if the room is encrypted and the item won't
+    /// return a ShieldState.
+    pub(super) is_room_encrypted: Option<bool>,
 }
 
 #[derive(Clone, Debug)]
@@ -110,6 +113,7 @@ impl EventTimelineItem {
         kind: EventTimelineItemKind,
         is_room_encrypted: bool,
     ) -> Self {
+        let is_room_encrypted = Some(is_room_encrypted);
         Self { sender, sender_profile, timestamp, content, kind, is_room_encrypted }
     }
 
@@ -137,7 +141,7 @@ impl EventTimelineItem {
 
         // If we don't (yet) know how to handle this type of message, return `None`
         // here. If we do, convert it into a `TimelineItemContent`.
-        let item_content = TimelineItemContent::from_latest_event_content(event)?;
+        let content = TimelineItemContent::from_latest_event_content(event)?;
 
         // We don't currently bundle any reactions with the main event. This could
         // conceivably be wanted in the message preview in future.
@@ -156,7 +160,7 @@ impl EventTimelineItem {
         // Probably the origin of the event doesn't matter for the preview.
         let origin = RemoteEventOrigin::Sync;
 
-        let event_kind = RemoteEventTimelineItem {
+        let kind = RemoteEventTimelineItem {
             event_id,
             transaction_id: None,
             reactions,
@@ -171,7 +175,7 @@ impl EventTimelineItem {
         .into();
 
         let room = client.get_room(room_id);
-        let (sender_profile, is_room_encrypted) = if let Some(room) = room {
+        let sender_profile = if let Some(room) = room {
             let mut profile = room.profile_from_latest_event(&latest_event).await;
 
             // Fallback to the slow path.
@@ -179,24 +183,13 @@ impl EventTimelineItem {
                 profile = room.profile_from_user_id(&sender).await;
             }
 
-            let sender_profile =
-                profile.map(TimelineDetails::Ready).unwrap_or(TimelineDetails::Unavailable);
-
-            let is_room_encrypted = room.is_encrypted().await.unwrap_or(false);
-
-            (sender_profile, is_room_encrypted)
+            profile.map(TimelineDetails::Ready).unwrap_or(TimelineDetails::Unavailable)
         } else {
-            (TimelineDetails::Unavailable, false)
+            TimelineDetails::Unavailable
         };
+        let is_room_encrypted = None;
 
-        Some(Self::new(
-            sender,
-            sender_profile,
-            timestamp,
-            item_content,
-            event_kind,
-            is_room_encrypted,
-        ))
+        Some(Self { sender, sender_profile, timestamp, content, kind, is_room_encrypted })
     }
 
     /// Check whether this item is a local echo.
@@ -368,19 +361,19 @@ impl EventTimelineItem {
     /// Gets the [`ShieldState`] which can be used to decorate messages in the
     /// recommended way.
     pub fn get_shield(&self, strict: bool) -> Option<ShieldState> {
-        if self.is_room_encrypted {
-            match self.encryption_info() {
-                Some(info) => {
-                    if strict {
-                        Some(info.verification_state.to_shield_state_strict())
-                    } else {
-                        Some(info.verification_state.to_shield_state_lax())
-                    }
+        if self.is_room_encrypted != Some(true) {
+            return None;
+        }
+
+        match self.encryption_info() {
+            Some(info) => {
+                if strict {
+                    Some(info.verification_state.to_shield_state_strict())
+                } else {
+                    Some(info.verification_state.to_shield_state_lax())
                 }
-                None => Some(ShieldState::Grey { message: SENT_IN_CLEAR }),
             }
-        } else {
-            None
+            None => Some(ShieldState::Grey { message: SENT_IN_CLEAR }),
         }
     }
 
