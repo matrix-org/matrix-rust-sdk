@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{OwnedDeviceId, OwnedUserId};
+use std::cmp::Ordering;
+
+use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize};
 use vodozemac::Ed25519PublicKey;
 
@@ -76,8 +78,7 @@ pub enum SenderData {
 }
 
 impl SenderData {
-    /// Create a [`SenderData`] which contains no device info and will be
-    /// retried soon.
+    /// Create a [`SenderData`] which contains no device info.
     pub fn unknown() -> Self {
         Self::UnknownDevice {
             // TODO: when we have implemented all of SenderDataFinder,
@@ -89,13 +90,70 @@ impl SenderData {
         }
     }
 
+    /// Create a [`SenderData`] which contains device info.
+    pub fn device_info(device_keys: DeviceKeys) -> Self {
+        Self::DeviceInfo {
+            device_keys,
+            // TODO: when we have implemented all of SenderDataFinder,
+            // legacy_session should be set to false, but for now we leave
+            // it as true because we might lose device info while
+            // this code is still in transition.
+            legacy_session: true,
+        }
+    }
+
+    /// Create a [`SenderData`] with a known sender.
+    pub fn sender_known(
+        user_id: &UserId,
+        device_id: &DeviceId,
+        master_key: Ed25519PublicKey,
+        master_key_verified: bool,
+    ) -> Self {
+        Self::SenderKnown {
+            user_id: user_id.to_owned(),
+            device_id: Some(device_id.to_owned()),
+            master_key: Box::new(master_key),
+            master_key_verified,
+        }
+    }
+
     /// Create a [`SenderData`] which has the legacy flag set. Caution: messages
     /// within sessions with this flag will be displayed in some contexts,
     /// even when we are unable to verify the sender.
     ///
-    /// The returned struct contains no device info, and will be retried soon.
+    /// The returned struct contains no device info.
     pub fn legacy() -> Self {
         Self::UnknownDevice { legacy_session: true, owner_check_failed: false }
+    }
+
+    /// Returns true if this is SenderKnown and `master_key_verified` is true.
+    pub(crate) fn is_known_and_verified(&self) -> bool {
+        matches!(self, SenderData::SenderKnown { master_key_verified: true, .. })
+    }
+
+    /// Returns `Greater` if this `SenderData` represents a greater level of
+    /// trust than the supplied one, `Equal` if they have the same level, and
+    /// `Less` if the supplied one has a greater level of trust.
+    ///
+    /// So calling this method on a `SenderKnown` or `DeviceInfo` `SenderData`
+    /// would return `Greater` if passed an `UnknownDevice` as its
+    /// argument, and a `SenderKnown` with `master_key_verified == true`
+    /// would return `Greater` if passed a `SenderKnown` with
+    /// `master_key_verified == false`.
+    pub(crate) fn compare_trust_level(&self, other: &Self) -> Ordering {
+        self.trust_number().cmp(&other.trust_number())
+    }
+
+    /// Internal function to give a numeric value of how much trust this
+    /// `SenderData` represents. Used to make the implementation of
+    /// compare_trust_level simpler.
+    fn trust_number(&self) -> u8 {
+        match self {
+            SenderData::UnknownDevice { .. } => 0,
+            SenderData::DeviceInfo { .. } => 1,
+            SenderData::SenderKnown { master_key_verified: false, .. } => 2,
+            SenderData::SenderKnown { master_key_verified: true, .. } => 3,
+        }
     }
 }
 
@@ -113,9 +171,14 @@ impl Default for SenderData {
 
 #[cfg(test)]
 mod tests {
+    use std::{cmp::Ordering, collections::BTreeMap};
+
     use assert_matches2::assert_let;
+    use ruma::{device_id, owned_device_id, owned_user_id, user_id};
+    use vodozemac::Ed25519PublicKey;
 
     use super::SenderData;
+    use crate::types::{DeviceKeys, Signatures};
 
     #[test]
     fn serializing_unknown_device_correctly_preserves_owner_check_failed_if_true() {
@@ -187,5 +250,96 @@ mod tests {
 
         let end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
         assert_let!(SenderData::SenderKnown { .. } = end);
+    }
+
+    #[test]
+    fn known_session_with_master_key_verified_is_known_and_verified() {
+        let master_key =
+            Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
+
+        assert!(SenderData::sender_known(user_id!("@u:s.co"), device_id!("DEV"), master_key, true)
+            .is_known_and_verified());
+    }
+
+    #[test]
+    fn other_sessions_are_not_known_and_verified() {
+        // Anything that is not SenderKnown is not know and verified.
+        assert!(!SenderData::unknown().is_known_and_verified());
+
+        let device_keys = DeviceKeys::new(
+            owned_user_id!("@u:s.co"),
+            owned_device_id!("DEV"),
+            Vec::new(),
+            BTreeMap::new(),
+            Signatures::new(),
+        );
+        assert!(!SenderData::device_info(device_keys).is_known_and_verified());
+
+        // Even SenderKnown, if master_key_verified is false, is not known and verified.
+        let master_key =
+            Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
+        assert!(!SenderData::sender_known(
+            user_id!("@u:s.co"),
+            device_id!("DEV"),
+            master_key,
+            false
+        )
+        .is_known_and_verified());
+    }
+
+    #[test]
+    fn equal_sessions_have_same_trust_level() {
+        let unknown = SenderData::unknown();
+        let device_keys = SenderData::device_info(DeviceKeys::new(
+            owned_user_id!("@u:s.co"),
+            owned_device_id!("DEV"),
+            Vec::new(),
+            BTreeMap::new(),
+            Signatures::new(),
+        ));
+        let master_key =
+            Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
+        let sender_unverified =
+            SenderData::sender_known(user_id!("@u:s.co"), device_id!("DEV"), master_key, false);
+        let sender_verified =
+            SenderData::sender_known(user_id!("@u:s.co"), device_id!("DEV"), master_key, true);
+
+        assert_eq!(unknown.compare_trust_level(&unknown), Ordering::Equal);
+        assert_eq!(device_keys.compare_trust_level(&device_keys), Ordering::Equal);
+        assert_eq!(sender_unverified.compare_trust_level(&sender_unverified), Ordering::Equal);
+        assert_eq!(sender_verified.compare_trust_level(&sender_verified), Ordering::Equal);
+    }
+
+    #[test]
+    fn more_trust_data_makes_you_more_trusted() {
+        let unknown = SenderData::unknown();
+        let device_keys = SenderData::device_info(DeviceKeys::new(
+            owned_user_id!("@u:s.co"),
+            owned_device_id!("DEV"),
+            Vec::new(),
+            BTreeMap::new(),
+            Signatures::new(),
+        ));
+        let master_key =
+            Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
+        let sender_unverified =
+            SenderData::sender_known(user_id!("@u:s.co"), device_id!("DEV"), master_key, false);
+        let sender_verified =
+            SenderData::sender_known(user_id!("@u:s.co"), device_id!("DEV"), master_key, true);
+
+        assert_eq!(unknown.compare_trust_level(&device_keys), Ordering::Less);
+        assert_eq!(unknown.compare_trust_level(&sender_unverified), Ordering::Less);
+        assert_eq!(unknown.compare_trust_level(&sender_verified), Ordering::Less);
+        assert_eq!(device_keys.compare_trust_level(&unknown), Ordering::Greater);
+        assert_eq!(sender_unverified.compare_trust_level(&unknown), Ordering::Greater);
+        assert_eq!(sender_verified.compare_trust_level(&unknown), Ordering::Greater);
+
+        assert_eq!(device_keys.compare_trust_level(&sender_unverified), Ordering::Less);
+        assert_eq!(device_keys.compare_trust_level(&sender_verified), Ordering::Less);
+        assert_eq!(sender_unverified.compare_trust_level(&device_keys), Ordering::Greater);
+        assert_eq!(sender_verified.compare_trust_level(&device_keys), Ordering::Greater);
+
+        assert_eq!(sender_unverified.compare_trust_level(&sender_verified), Ordering::Less);
+        assert_eq!(sender_verified.compare_trust_level(&sender_unverified), Ordering::Greater);
     }
 }
