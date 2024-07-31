@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{api::client::account::request_openid_token, events::AnyTimelineEvent, serde::Raw};
+use ruma::{
+    api::client::{account::request_openid_token, delayed_events},
+    events::AnyTimelineEvent,
+    serde::Raw,
+};
 use serde::{de, Deserialize, Deserializer};
 use serde_json::value::RawValue as RawJsonValue;
 use uuid::Uuid;
@@ -58,6 +62,7 @@ pub(crate) enum MatrixDriverResponse {
     /// Client sent some matrix event. The response contains the event ID.
     /// A response to an `Action::SendMatrixEvent` command.
     MatrixEventSent(SendEventResponse),
+    MatrixDelayedEventUpdate(delayed_events::update_delayed_event::unstable::Response),
 }
 
 pub(super) struct IncomingWidgetMessage {
