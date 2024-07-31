@@ -3,17 +3,16 @@ use std::{future, ops::Deref, sync::Arc};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_common::store_locks::CrossProcessStoreLock;
-use ruma::{OwnedUserId, UserId};
-use tokio::sync::broadcast;
+use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
+use tokio::sync::{broadcast, Mutex};
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::warn;
 
-use super::{DeviceChanges, IdentityChanges, LockableCryptoStore};
+use super::{caches::SessionStore, DeviceChanges, IdentityChanges, LockableCryptoStore};
 use crate::{
     olm::InboundGroupSession,
-    store,
-    store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
-    GossippedSecret, OwnUserIdentityData,
+    store::{self, Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
+    GossippedSecret, OwnUserIdentityData, Session,
 };
 
 /// A wrapper for crypto store implementations that adds update notifiers.
@@ -23,7 +22,12 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct CryptoStoreWrapper {
     user_id: OwnedUserId,
+    device_id: OwnedDeviceId,
+
     store: Arc<DynCryptoStore>,
+
+    /// A cache for the Olm Sessions.
+    sessions: SessionStore,
 
     /// The sender side of a broadcast stream that is notified whenever we get
     /// an update to an inbound group session.
@@ -44,7 +48,7 @@ pub(crate) struct CryptoStoreWrapper {
 }
 
 impl CryptoStoreWrapper {
-    pub(crate) fn new(user_id: &UserId, store: impl IntoCryptoStore) -> Self {
+    pub(crate) fn new(user_id: &UserId, device_id: &DeviceId, store: impl IntoCryptoStore) -> Self {
         let room_keys_received_sender = broadcast::Sender::new(10);
         let room_keys_withheld_received_sender = broadcast::Sender::new(10);
         let secrets_broadcaster = broadcast::Sender::new(10);
@@ -54,7 +58,9 @@ impl CryptoStoreWrapper {
 
         Self {
             user_id: user_id.to_owned(),
+            device_id: device_id.to_owned(),
             store: store.into_crypto_store(),
+            sessions: SessionStore::new(),
             room_keys_received_sender,
             room_keys_withheld_received_sender,
             secrets_broadcaster,
@@ -90,6 +96,22 @@ impl CryptoStoreWrapper {
         let devices = changes.devices.to_owned();
         let identities = changes.identities.to_owned();
 
+        if devices
+            .changed
+            .iter()
+            .any(|d| d.user_id() == self.user_id && d.device_id() == self.device_id)
+        {
+            // If our own device key changes, we need to clear the
+            // session cache because the sessions contain a copy of our
+            // device key.
+            self.sessions.clear().await;
+        } else {
+            // Otherwise add the sessions to the cache.
+            for session in &changes.sessions {
+                self.sessions.add(session.clone()).await;
+            }
+        }
+
         self.store.save_changes(changes).await?;
 
         if !room_key_updates.is_empty() {
@@ -116,6 +138,34 @@ impl CryptoStoreWrapper {
         }
 
         Ok(())
+    }
+
+    pub async fn get_sessions(
+        &self,
+        sender_key: &str,
+    ) -> store::Result<Option<Arc<Mutex<Vec<Session>>>>> {
+        let sessions = self.sessions.get(sender_key).await;
+
+        let sessions = if sessions.is_none() {
+            let mut entries = self.sessions.entries.write().await;
+
+            let sessions = entries.get(sender_key);
+
+            if sessions.is_some() {
+                sessions.cloned()
+            } else {
+                let sessions = self.store.get_sessions(sender_key).await?;
+                let sessions = Arc::new(Mutex::new(sessions.unwrap_or_default()));
+
+                entries.insert(sender_key.to_owned(), sessions.clone());
+
+                Some(sessions)
+            }
+        } else {
+            sessions
+        };
+
+        Ok(sessions)
     }
 
     /// Save a list of inbound group sessions to the store.
@@ -230,5 +280,55 @@ impl Deref for CryptoStoreWrapper {
 
     fn deref(&self) -> &Self::Target {
         self.store.deref()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use matrix_sdk_test::async_test;
+    use ruma::user_id;
+
+    use super::*;
+    use crate::machine::tests::get_machine_pair_with_setup_sessions_test_helper;
+
+    #[async_test]
+    async fn cache_cleared_after_device_update() {
+        let user_id = user_id!("@alice:example.com");
+        let (first, second) =
+            get_machine_pair_with_setup_sessions_test_helper(user_id, user_id, false).await;
+
+        let sender_key = second.identity_keys().curve25519.to_base64();
+
+        first
+            .store()
+            .inner
+            .store
+            .sessions
+            .get(&sender_key)
+            .await
+            .expect("We should have a session in the cache.");
+
+        let device_data = first
+            .get_device(user_id, first.device_id(), None)
+            .await
+            .unwrap()
+            .expect("We should have access to our own device.")
+            .inner;
+
+        // When we save a new version of our device keys
+        first
+            .store()
+            .save_changes(Changes {
+                devices: DeviceChanges { changed: vec![device_data], ..Default::default() },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Then the session is no longer in the cache
+        assert!(
+            first.store().inner.store.sessions.get(&sender_key).await.is_none(),
+            "The session should no longer be in the cache after our own device keys changed"
+        );
     }
 }

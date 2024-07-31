@@ -173,7 +173,8 @@ impl OlmMachine {
         let account = Account::rehydrate(pickle_key, self.user_id(), device_id, device_data)?;
         let static_account = account.static_data().clone();
 
-        let store = Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()));
+        let store =
+            Arc::new(CryptoStoreWrapper::new(self.user_id(), device_id, MemoryStore::new()));
         let device = DeviceData::from_account(&account);
         store.save_pending_changes(PendingChanges { account: Some(account) }).await?;
         store
@@ -356,7 +357,7 @@ impl OlmMachine {
         });
 
         let identity = Arc::new(Mutex::new(identity));
-        let store = Arc::new(CryptoStoreWrapper::new(user_id, store));
+        let store = Arc::new(CryptoStoreWrapper::new(user_id, device_id, store));
         Ok(OlmMachine::new_helper(device_id, store, static_account, identity, maybe_backup_key))
     }
 
@@ -2930,7 +2931,7 @@ pub(crate) mod tests {
             .unwrap()
             .unwrap();
 
-        assert!(!session.is_empty())
+        assert!(!session.lock().await.is_empty())
     }
 
     #[async_test]
@@ -2975,12 +2976,14 @@ pub(crate) mod tests {
         // a resolution in seconds, it's very likely that we're going to end up
         // with the same timestamps, so we manually masage them to be 10s apart.
         let session_id = {
-            let mut sessions = alice_machine
+            let sessions = alice_machine
                 .store()
                 .get_sessions(&bob_machine.identity_keys().curve25519.to_base64())
                 .await
                 .unwrap()
                 .unwrap();
+
+            let mut sessions = sessions.lock().await;
 
             let mut use_time = SystemTime::now();
 

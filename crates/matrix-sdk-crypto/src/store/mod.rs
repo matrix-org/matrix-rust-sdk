@@ -1009,6 +1009,13 @@ impl Store {
         self.save_changes(changes).await
     }
 
+    pub(crate) async fn get_sessions(
+        &self,
+        sender_key: &str,
+    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
+        self.inner.store.get_sessions(sender_key).await
+    }
+
     pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()> {
         self.inner.store.save_changes(changes).await
     }

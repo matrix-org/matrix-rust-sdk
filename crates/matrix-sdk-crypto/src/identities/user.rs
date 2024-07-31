@@ -1098,7 +1098,11 @@ pub(crate) mod tests {
         let verification_machine = VerificationMachine::new(
             Account::with_device_id(second.user_id(), second.device_id()).static_data,
             private_identity,
-            Arc::new(CryptoStoreWrapper::new(second.user_id(), MemoryStore::new())),
+            Arc::new(CryptoStoreWrapper::new(
+                second.user_id(),
+                second.device_id(),
+                MemoryStore::new(),
+            )),
         );
 
         let first = Device {
@@ -1139,7 +1143,11 @@ pub(crate) mod tests {
         let verification_machine = VerificationMachine::new(
             Account::with_device_id(device.user_id(), device.device_id()).static_data,
             id.clone(),
-            Arc::new(CryptoStoreWrapper::new(device.user_id(), MemoryStore::new())),
+            Arc::new(CryptoStoreWrapper::new(
+                device.user_id(),
+                device.device_id(),
+                MemoryStore::new(),
+            )),
         );
 
         let public_identity = identity.to_public_identity().await.unwrap();

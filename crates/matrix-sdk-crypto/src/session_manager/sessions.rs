@@ -244,8 +244,11 @@ impl SessionManager {
                 } else if let Some(sender_key) = device.curve25519_key() {
                     let sessions = self.store.get_sessions(&sender_key.to_base64()).await?;
 
-                    let is_missing =
-                        if let Some(sessions) = sessions { sessions.is_empty() } else { true };
+                    let is_missing = if let Some(sessions) = sessions {
+                        sessions.lock().await.is_empty()
+                    } else {
+                        true
+                    };
 
                     let is_timed_out = self.is_user_timed_out(&user_id, &device_id);
 
@@ -668,7 +671,7 @@ mod tests {
         let device_id = device_id();
 
         let account = Account::with_device_id(user_id, device_id);
-        let store = Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()));
+        let store = Arc::new(CryptoStoreWrapper::new(user_id, device_id, MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
         let verification = VerificationMachine::new(
             account.static_data().clone(),

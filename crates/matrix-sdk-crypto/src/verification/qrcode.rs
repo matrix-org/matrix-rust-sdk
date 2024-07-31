@@ -909,8 +909,8 @@ mod tests {
         user_id!("@example:localhost")
     }
 
-    fn memory_store(user_id: &UserId) -> Arc<CryptoStoreWrapper> {
-        Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()))
+    fn memory_store(user_id: &UserId, device_id: &DeviceId) -> Arc<CryptoStoreWrapper> {
+        Arc::new(CryptoStoreWrapper::new(user_id, device_id, MemoryStore::new()))
     }
 
     fn device_id() -> &'static DeviceId {
@@ -920,7 +920,7 @@ mod tests {
     #[async_test]
     async fn test_verification_creation() {
         let account = Account::with_device_id(user_id(), device_id());
-        let store = memory_store(account.user_id());
+        let store = memory_store(account.user_id(), account.device_id());
 
         let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
         let master_key = private_identity.master_public_key().await.unwrap();
@@ -984,7 +984,7 @@ mod tests {
     async fn test_reciprocate_receival() {
         let test = |flow_id: FlowId| async move {
             let alice_account = Account::with_device_id(user_id(), device_id());
-            let store = memory_store(alice_account.user_id());
+            let store = memory_store(alice_account.user_id(), alice_account.device_id());
 
             let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
 
@@ -1023,7 +1023,7 @@ mod tests {
             );
             assert_matches!(alice_verification.state(), QrVerificationState::Started);
 
-            let bob_store = memory_store(bob_account.user_id());
+            let bob_store = memory_store(bob_account.user_id(), bob_account.device_id());
 
             let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned());
             let bob_store = VerificationStore {
