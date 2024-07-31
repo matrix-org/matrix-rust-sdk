@@ -37,7 +37,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::mock_sync;
+use crate::{mock_encryption_state, mock_sync};
 
 mod echo;
 mod edit;
@@ -63,6 +63,8 @@ async fn test_reaction() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
@@ -171,6 +173,8 @@ async fn test_redacted_message() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    mock_encryption_state(&server, false).await;
+
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
@@ -227,6 +231,8 @@ async fn test_redact_message() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
@@ -308,6 +314,8 @@ async fn test_read_marker() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
@@ -391,6 +399,8 @@ async fn test_sync_highlighted() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    mock_encryption_state(&server, false).await;
+
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
@@ -456,6 +466,8 @@ async fn test_duplicate_maintains_correct_order() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
@@ -639,6 +651,7 @@ impl PinningTestSetup<'_> {
     }
 
     async fn timeline(&self) -> matrix_sdk_ui::Timeline {
+        mock_encryption_state(&self.server, false).await;
         let room = self.client.get_room(self.room_id).unwrap();
         room.timeline().await.unwrap()
     }
