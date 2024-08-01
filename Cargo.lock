@@ -541,12 +541,14 @@ dependencies = [
  "matrix-sdk-crypto",
  "matrix-sdk-sqlite",
  "matrix-sdk-test",
+ "matrix-sdk-ui",
  "pprof",
  "ruma",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "wiremock",
 ]
 
 [[package]]

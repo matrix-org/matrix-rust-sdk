@@ -13,12 +13,14 @@ matrix-sdk-base = { workspace = true }
 matrix-sdk-crypto = { workspace = true }
 matrix-sdk-sqlite = { workspace = true, features = ["crypto-store"] }
 matrix-sdk-test = { workspace = true }
+matrix-sdk-ui = { workspace = true }
 matrix-sdk = { workspace = true, features = ["native-tls", "e2e-encryption", "sqlite"] }
 ruma = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3.3.0"
 tokio = { workspace = true, default-features = false, features = ["rt-multi-thread"] }
+wiremock = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pprof = { version = "0.13.0", features = ["flamegraph", "criterion"] }
