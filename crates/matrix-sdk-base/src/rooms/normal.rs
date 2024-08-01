@@ -22,6 +22,7 @@ use std::{
 
 use bitflags::bitflags;
 use eyeball::{SharedObservable, Subscriber};
+use futures_util::{Stream, StreamExt};
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use matrix_sdk_common::ring_buffer::RingBuffer;
 #[cfg(feature = "experimental-sliding-sync")]
@@ -949,8 +950,31 @@ impl Room {
     }
 
     /// Get the list of event ids for pinned events in this room.
-    pub fn pinned_events(&self) -> Vec<OwnedEventId> {
+    pub fn pinned_event_ids(&self) -> Vec<OwnedEventId> {
         self.inner.get().base_info.pinned_events.map(|content| content.pinned).unwrap_or_default()
+    }
+
+    /// Get a `Stream` of loaded pinned events for this room.
+    /// If no pinned events are found a single empty `Vec` will be returned.
+    pub fn pinned_event_ids_stream(&self) -> impl Stream<Item = Vec<OwnedEventId>> {
+        self.inner
+            .subscribe()
+            .map(|i| i.base_info.pinned_events.map(|c| c.pinned).unwrap_or_default())
+    }
+
+    /// Checks if an `EventId` is currently pinned.
+    /// It avoids having to clone the whole list of event ids to check a single
+    /// value.
+    ///
+    /// Returns `true` if the provided `event_id` is pinned, `false` otherwise.
+    pub fn is_pinned_event(&self, event_id: &EventId) -> bool {
+        self.inner
+            .read()
+            .base_info
+            .pinned_events
+            .as_ref()
+            .map(|p| p.pinned.contains(&event_id.to_owned()))
+            .unwrap_or_default()
     }
 }
 
