@@ -2388,8 +2388,8 @@ pub(crate) mod tests {
     use futures_util::{pin_mut, FutureExt, StreamExt};
     use itertools::Itertools;
     use matrix_sdk_common::deserialized_responses::{
-        DeviceLinkProblem, EncryptionInfo, ShieldState, ShieldStateColor, UnableToDecryptInfo,
-        UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel, VerificationState,
+        DeviceLinkProblem, ShieldState, UnableToDecryptInfo, UnsignedDecryptionResult,
+        UnsignedEventLocation, VerificationLevel, VerificationState,
     };
     use matrix_sdk_test::{async_test, message_like_event_content, test_json};
     use ruma::{
@@ -3346,13 +3346,15 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_decryption_verification_state() {
-        let assert_shield = |info: EncryptionInfo, strict: ShieldState, lax: ShieldState| {
-            let info_lax = info.verification_state.to_shield_state_lax();
-            let info_strict = info.verification_state.to_shield_state_strict();
+        macro_rules! assert_shield {
+            ($foo: ident, $strict: ident, $lax: ident) => {
+                let lax = $foo.verification_state.to_shield_state_lax();
+                let strict = $foo.verification_state.to_shield_state_strict();
 
-            assert_eq!(info_lax, lax);
-            assert_eq!(info_strict, strict);
-        };
+                assert_matches!(lax, ShieldState::$lax { .. });
+                assert_matches!(strict, ShieldState::$strict { .. });
+            };
+        }
         let (alice, bob) =
             get_machine_pair_with_setup_sessions_test_helper(alice_id(), user_id(), false).await;
         let room_id = room_id!("!test:example.org");
@@ -3409,11 +3411,7 @@ pub(crate) mod tests {
             encryption_info.verification_state
         );
 
-        assert_shield(
-            encryption_info,
-            ShieldState::UnverifiedIdentity { color: ShieldStateColor::Red },
-            ShieldState::UnsignedDevice { color: ShieldStateColor::Red },
-        );
+        assert_shield!(encryption_info, Red, Red);
 
         // get_room_event_encryption_info should return the same information
         let encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
@@ -3421,11 +3419,7 @@ pub(crate) mod tests {
             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
             encryption_info.verification_state
         );
-        assert_shield(
-            encryption_info,
-            ShieldState::UnverifiedIdentity { color: ShieldStateColor::Red },
-            ShieldState::UnsignedDevice { color: ShieldStateColor::Red },
-        );
+        assert_shield!(encryption_info, Red, Red);
 
         // Local trust state has no effect
         bob.get_device(alice.user_id(), alice_device_id(), None)
@@ -3440,11 +3434,7 @@ pub(crate) mod tests {
             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
             encryption_info.verification_state
         );
-        assert_shield(
-            encryption_info,
-            ShieldState::UnverifiedIdentity { color: ShieldStateColor::Red },
-            ShieldState::UnsignedDevice { color: ShieldStateColor::Red },
-        );
+        assert_shield!(encryption_info, Red, Red);
 
         setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
         let bob_id_from_alice = alice.get_identity(bob.user_id(), None).await.unwrap();
@@ -3459,11 +3449,7 @@ pub(crate) mod tests {
             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
             encryption_info.verification_state
         );
-        assert_shield(
-            encryption_info,
-            ShieldState::UnverifiedIdentity { color: ShieldStateColor::Red },
-            ShieldState::UnsignedDevice { color: ShieldStateColor::Red },
-        );
+        assert_shield!(encryption_info, Red, Red);
 
         // Let alice sign her device
         sign_alice_device_for_machine_test_helper(&alice, &bob).await;
@@ -3475,11 +3461,7 @@ pub(crate) mod tests {
             encryption_info.verification_state
         );
 
-        assert_shield(
-            encryption_info,
-            ShieldState::UnverifiedIdentity { color: ShieldStateColor::Red },
-            ShieldState::None,
-        );
+        assert_shield!(encryption_info, Red, None);
 
         // Given alice is verified
         mark_alice_identity_as_verified_test_helper(&alice, &bob).await;
@@ -3494,7 +3476,7 @@ pub(crate) mod tests {
         let encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
         // Then it should say Verified
         assert_eq!(VerificationState::Verified, encryption_info.verification_state);
-        assert_shield(encryption_info, ShieldState::None, ShieldState::None);
+        assert_shield!(encryption_info, None, None);
 
         // And the updated SenderData should have been saved into the store.
         let session = load_session(&bob, room_id, &event).await.unwrap().unwrap();
@@ -3515,11 +3497,7 @@ pub(crate) mod tests {
             encryption_info.verification_state
         );
 
-        assert_shield(
-            encryption_info,
-            ShieldState::AuthenticityNotGuaranteed { color: ShieldStateColor::Red },
-            ShieldState::AuthenticityNotGuaranteed { color: ShieldStateColor::Grey },
-        );
+        assert_shield!(encryption_info, Red, Grey);
     }
 
     async fn load_session(

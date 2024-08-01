@@ -33,9 +33,7 @@ pub use error::{
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
-use matrix_sdk_common::deserialized_responses::{
-    ShieldState as RustShieldState, ShieldStateColor as RustShieldStateColor,
-};
+use matrix_sdk_common::deserialized_responses::{ShieldState as RustShieldState, ShieldStateCode};
 use matrix_sdk_crypto::{
     olm::{IdentityKeys, InboundGroupSession, SenderData, Session},
     store::{Changes, CryptoStore, PendingChanges, RoomSettings as RustRoomSettings},
@@ -728,37 +726,24 @@ pub enum ShieldColor {
 #[allow(missing_docs)]
 pub struct ShieldState {
     color: ShieldColor,
+    code: Option<ShieldStateCode>,
     message: Option<String>,
 }
 
 impl From<RustShieldState> for ShieldState {
     fn from(value: RustShieldState) -> Self {
-        match &value {
-            RustShieldState::AuthenticityNotGuaranteed { color } => {
-                Self { color: color.into(), message: value.message().map(ToOwned::to_owned) }
-            }
-            RustShieldState::UnknownDevice { color } => {
-                Self { color: color.into(), message: value.message().map(ToOwned::to_owned) }
-            }
-            RustShieldState::UnsignedDevice { color } => {
-                Self { color: color.into(), message: value.message().map(ToOwned::to_owned) }
-            }
-            RustShieldState::UnverifiedIdentity { color } => {
-                Self { color: color.into(), message: value.message().map(ToOwned::to_owned) }
-            }
-            RustShieldState::SentInClear { color } => {
-                Self { color: color.into(), message: value.message().map(ToOwned::to_owned) }
-            }
-            RustShieldState::None => Self { color: ShieldColor::None, message: None },
-        }
-    }
-}
-
-impl From<&RustShieldStateColor> for ShieldColor {
-    fn from(value: &RustShieldStateColor) -> Self {
         match value {
-            RustShieldStateColor::Red => ShieldColor::Red,
-            RustShieldStateColor::Grey => ShieldColor::Grey,
+            RustShieldState::Red { code, message } => Self {
+                color: ShieldColor::Red,
+                code: Some(code),
+                message: Some(message.to_owned()),
+            },
+            RustShieldState::Grey { code, message } => Self {
+                color: ShieldColor::Grey,
+                code: Some(code),
+                message: Some(message.to_owned()),
+            },
+            RustShieldState::None => Self { color: ShieldColor::None, code: None, message: None },
         }
     }
 }

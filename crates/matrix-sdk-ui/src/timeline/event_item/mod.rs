@@ -22,7 +22,7 @@ use matrix_sdk::{
     Client, Error,
 };
 use matrix_sdk_base::{
-    deserialized_responses::{ShieldStateColor, SyncTimelineEvent},
+    deserialized_responses::{ShieldStateCode, SyncTimelineEvent, SENT_IN_CLEAR},
     latest_event::LatestEvent,
 };
 use once_cell::sync::Lazy;
@@ -382,7 +382,10 @@ impl EventTimelineItem {
                     Some(info.verification_state.to_shield_state_lax())
                 }
             }
-            None => Some(ShieldState::SentInClear { color: ShieldStateColor::Grey }),
+            None => Some(ShieldState::Grey {
+                code: ShieldStateCode::SentInClear,
+                message: SENT_IN_CLEAR,
+            }),
         }
     }
 

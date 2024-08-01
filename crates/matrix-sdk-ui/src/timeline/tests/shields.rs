@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use matrix_sdk_base::deserialized_responses::{ShieldState, ShieldStateColor};
+use matrix_sdk_base::deserialized_responses::{ShieldState, ShieldStateCode};
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE};
 use ruma::{
     event_id,
@@ -41,7 +41,10 @@ async fn test_sent_in_clear_shield() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let shield = item.as_event().unwrap().get_shield(false);
-    assert_eq!(shield, Some(ShieldState::SentInClear { color: ShieldStateColor::Grey }));
+    assert_eq!(
+        shield,
+        Some(ShieldState::Grey { code: ShieldStateCode::SentInClear, message: "Sent in clear." })
+    );
 }
 
 #[async_test]
@@ -111,5 +114,8 @@ async fn test_local_sent_in_clear_shield() {
     // Then the remote echo should now be showing the shield.
     assert!(!event_item.is_local_echo());
     let shield = event_item.get_shield(false);
-    assert_eq!(shield, Some(ShieldState::Grey { message: "Sent in clear." }));
+    assert_eq!(
+        shield,
+        Some(ShieldState::Grey { code: ShieldStateCode::SentInClear, message: "Sent in clear." })
+    );
 }
