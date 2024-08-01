@@ -90,8 +90,8 @@ pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, EncryptedMessage, EventItemOrigin, EventSendState,
         EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
-        OtherState, Profile, RepliedToEvent, RoomMembershipChange, Sticker, TimelineDetails,
-        TimelineEventItemId, TimelineItemContent,
+        OtherState, Profile, ReactionInfo, ReactionsByKeyBySender, RepliedToEvent,
+        RoomMembershipChange, Sticker, TimelineDetails, TimelineEventItemId, TimelineItemContent,
     },
     event_type_filter::TimelineEventTypeFilter,
     inner::default_event_filter,
