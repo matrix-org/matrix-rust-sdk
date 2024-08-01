@@ -382,7 +382,7 @@ impl EventTimelineItem {
                     Some(info.verification_state.to_shield_state_lax())
                 }
             }
-            None => Some(ShieldState::Grey {
+            None => Some(ShieldState::Red {
                 code: ShieldStateCode::SentInClear,
                 message: SENT_IN_CLEAR,
             }),
