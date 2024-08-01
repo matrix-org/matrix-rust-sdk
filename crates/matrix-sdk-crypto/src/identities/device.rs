@@ -205,22 +205,27 @@ impl Device {
         } else if let Some(key) =
             session.signing_keys().get(&DeviceKeyAlgorithm::Ed25519).and_then(|k| k.ed25519())
         {
-            // Room keys are received as an `m.room.encrypted` event using the `m.olm`
-            // algorithm. Upon decryption of the `m.room.encrypted` event, the
-            // decrypted content will contain also a `Ed25519` public key[1].
+            // Room keys are received as an `m.room.encrypted` to-device message using the
+            // `m.olm` algorithm. Upon decryption of the `m.room.encrypted` to-device
+            // message, the decrypted content will contain also an `Ed25519` public key[1].
             //
             // The inclusion of this key means that the `Curve25519` key of the `Device` and
             // Olm `Session`, established using the DH authentication of the
-            // double ratchet, binds the `Ed25519` key of the `Device`
+            // double ratchet, "binds" the `Ed25519` key of the `Device`. In other words, it
+            // prevents an attack in which Mallory publishes Bob's public `Curve25519` key
+            // as her own, and subsequently forwards an Olm message she received from Bob to
+            // Alice, claiming that she, Mallory, originated the Olm message (leading Alice
+            // to believe that Mallory also sent the messages in the subsequent Megolm
+            // session).
             //
-            // On the other hand, the `Ed25519` key is binding the `Curve25519` key
+            // On the other hand, the `Ed25519` key binds the `Curve25519` key
             // using a signature which is uploaded to the server as
             // `device_keys` and downloaded by us using a `/keys/query` request.
             //
             // A `Device` is considered to be the owner of a room key iff:
             //     1. The `Curve25519` key that was used to establish the Olm `Session` that
-            //        was used to decrypt the event is binding the `Ed25519`key of this
-            //        `Device`.
+            //        was used to decrypt the to-device message is binding the `Ed25519` key
+            //        of this `Device` via the content of the to-device message, and:
             //     2. The `Ed25519` key of this device has signed a `device_keys` object
             //        that contains the `Curve25519` key from step 1.
             //
