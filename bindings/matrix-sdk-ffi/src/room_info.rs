@@ -66,7 +66,7 @@ impl RoomInfo {
         for (id, level) in power_levels_map.iter() {
             user_power_levels.insert(id.to_string(), *level);
         }
-        let pinned_event_ids = room.pinned_events().iter().map(|id| id.to_string()).collect();
+        let pinned_event_ids = room.pinned_event_ids().iter().map(|id| id.to_string()).collect();
 
         Ok(Self {
             id: room.room_id().to_string(),

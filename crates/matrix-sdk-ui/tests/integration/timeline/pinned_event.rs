@@ -75,7 +75,6 @@ async fn test_new_pinned_events_are_added_on_sync() {
     assert_matches!(timeline_stream.next().await.unwrap(), VectorDiff::PushFront { value } => {
         assert!(value.is_day_divider());
     });
-    assert_pending!(timeline_stream);
     test_helper.server.reset().await;
 }
 

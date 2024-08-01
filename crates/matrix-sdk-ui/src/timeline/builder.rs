@@ -176,12 +176,12 @@ impl TimelineBuilder {
         let room = inner.room();
         let client = room.client();
 
-        let mut pinned_event_ids_stream = room.pinned_event_ids_stream();
         let pinned_events_join_handle = if is_pinned_events {
+            let mut pinned_event_ids_stream = room.pinned_event_ids_stream();
             Some(spawn({
                 let inner = inner.clone();
                 async move {
-                    while let Some(_) = pinned_event_ids_stream.next().await {
+                    while pinned_event_ids_stream.next().await.is_some() {
                         if let Ok(events) = inner.pinned_events_load_events().await {
                             inner
                                 .replace_with_initial_remote_events(
@@ -263,24 +263,21 @@ impl TimelineBuilder {
                         RoomEventCacheUpdate::AddTimelineEvents { events, origin } => {
                             trace!("Received new timeline events.");
 
-                            // Special case for pinned events: when we receive new events what we'll do is
-                            // updated the cache for those events that are pinned and reload the
-                            // list.
-                            match &*focus.clone() {
-                                TimelineFocus::PinnedEvents { .. } => {
-                                    if let Ok(events) = inner.pinned_events_load_events().await {
-                                        inner.replace_with_initial_remote_events(events, RemoteEventOrigin::Sync).await;
+                            // Special case for pinned events: when we receive new events what we'll do is, instead of adding the
+                            // events, update the pinned events cache with them, reload the list of pinned event ids and reload
+                            // the list of pinned events with this info.
+                            if let TimelineFocus::PinnedEvents { .. } = &*focus.clone() {
+                                if let Ok(events) = inner.pinned_events_load_events().await {
+                                    inner.replace_with_initial_remote_events(events, RemoteEventOrigin::Sync).await;
+                                }
+                            } else {
+                                inner.add_events_at(
+                                    events,
+                                    TimelineEnd::Back,
+                                    match origin {
+                                        EventsOrigin::Sync => RemoteEventOrigin::Sync,
                                     }
-                                }
-                                _ => {
-                                    inner.add_events_at(
-                                        events,
-                                        TimelineEnd::Back,
-                                        match origin {
-                                            EventsOrigin::Sync => RemoteEventOrigin::Sync,
-                                        }
-                                    ).await;
-                                }
+                                ).await;
                             }
                         }
 

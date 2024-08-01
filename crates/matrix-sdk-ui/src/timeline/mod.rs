@@ -63,6 +63,8 @@ use ruma::{
 use thiserror::Error;
 use tracing::{error, instrument, trace, warn};
 
+use crate::timeline::pinned_events_loader::PinnedEventsRoom;
+
 mod builder;
 mod day_dividers;
 mod error;
