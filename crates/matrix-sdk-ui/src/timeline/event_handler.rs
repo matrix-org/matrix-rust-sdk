@@ -64,7 +64,7 @@ use super::{
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
-    timeline::{event_item::ReactionInfo, reactions::PendingReaction},
+    timeline::{event_item::ReactionInfo, reactions::PendingReaction, traits::RoomDataProvider},
     DEFAULT_SANITIZER_MODE,
 };
 
@@ -266,7 +266,15 @@ pub(super) struct TimelineEventHandler<'a, 'o> {
     meta: &'a mut TimelineInnerMetadata,
     ctx: TimelineEventContext,
     result: HandleEventResult,
-    is_live_timeline: bool,
+    live_timeline_updates_type: LiveTimelineUpdatesAllowed,
+}
+
+/// Types of live updates expected in this timeline.
+#[derive(Debug, Clone)]
+pub enum LiveTimelineUpdatesAllowed {
+    All,
+    PinnedEvents,
+    None,
 }
 
 impl<'a, 'o> TimelineEventHandler<'a, 'o> {
@@ -274,12 +282,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         state: &'a mut TimelineInnerStateTransaction<'o>,
         ctx: TimelineEventContext,
     ) -> Self {
-        let TimelineInnerStateTransaction { items, meta, is_live_timeline, .. } = state;
+        let TimelineInnerStateTransaction { items, meta, live_timeline_updates_type, .. } = state;
         Self {
             items,
             meta,
             ctx,
-            is_live_timeline: *is_live_timeline,
+            live_timeline_updates_type: live_timeline_updates_type.clone(),
             result: HandleEventResult::default(),
         }
     }
@@ -291,11 +299,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// `raw_event` is only needed to determine the cause of any UTDs,
     /// so if we know this is not a UTD it can be None.
     #[instrument(skip_all, fields(txn_id, event_id, position))]
-    pub(super) async fn handle_event(
+    pub(super) async fn handle_event<P: RoomDataProvider>(
         mut self,
         day_divider_adjuster: &mut DayDividerAdjuster,
         event_kind: TimelineEventKind,
         raw_event: Option<&Raw<AnySyncTimelineEvent>>,
+        room_data_provider: &P,
     ) -> HandleEventResult {
         let span = tracing::Span::current();
 
@@ -308,7 +317,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 // Only add new timeline items if we're in the live mode, i.e. not in the
                 // event-focused mode.
-                self.is_live_timeline
+                matches!(self.live_timeline_updates_type, LiveTimelineUpdatesAllowed::All)
             }
 
             Flow::Remote { event_id, txn_id, position, should_add, .. } => {
@@ -337,7 +346,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         // If the event comes the sync (or is unknown), consider adding it only if
                         // the timeline is in live mode; we don't want to display arbitrary sync
                         // events in an event-focused timeline.
-                        self.is_live_timeline && *should_add
+                        let can_add_to_live = match self.live_timeline_updates_type {
+                            LiveTimelineUpdatesAllowed::PinnedEvents => {
+                                room_data_provider.room_is_pinned_event_id(event_id)
+                            }
+                            LiveTimelineUpdatesAllowed::All => true,
+                            LiveTimelineUpdatesAllowed::None => false,
+                        };
+                        can_add_to_live && *should_add
                     }
                     RemoteEventOrigin::Pagination | RemoteEventOrigin::Cache => {
                         // Otherwise, forward the previous decision to add it.

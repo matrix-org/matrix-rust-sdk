@@ -31,7 +31,7 @@ use ruma::{
 use tracing::{debug, error};
 
 use super::{Profile, TimelineBuilder};
-use crate::timeline::{self, Timeline};
+use crate::timeline::{self, pinned_events_loader::PinnedEventsRoom, Timeline};
 
 #[async_trait]
 pub trait RoomExt {
@@ -67,7 +67,9 @@ impl RoomExt for Room {
 }
 
 #[async_trait]
-pub(super) trait RoomDataProvider: Clone + Send + Sync + 'static + PaginableRoom {
+pub(super) trait RoomDataProvider:
+    Clone + Send + Sync + 'static + PaginableRoom + PinnedEventsRoom
+{
     fn own_user_id(&self) -> &UserId;
     fn room_version(&self) -> RoomVersionId;
     async fn profile_from_user_id(&self, user_id: &UserId) -> Option<Profile>;

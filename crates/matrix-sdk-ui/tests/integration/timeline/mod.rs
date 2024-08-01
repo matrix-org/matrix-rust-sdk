@@ -43,6 +43,7 @@ mod echo;
 mod edit;
 mod focus_event;
 mod pagination;
+mod pinned_event;
 mod profiles;
 mod queue;
 mod read_receipts;

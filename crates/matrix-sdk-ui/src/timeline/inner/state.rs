@@ -34,8 +34,8 @@ use crate::{
     timeline::{
         day_dividers::DayDividerAdjuster,
         event_handler::{
-            Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
-            TimelineItemPosition,
+            Flow, HandleEventResult, LiveTimelineUpdatesAllowed, TimelineEventContext,
+            TimelineEventHandler, TimelineEventKind, TimelineItemPosition,
         },
         event_item::{ReactionInfo, RemoteEventOrigin, TimelineEventItemId},
         polls::PollPendingEvents,
@@ -65,14 +65,14 @@ pub(in crate::timeline) struct TimelineInnerState {
     pub items: ObservableVector<Arc<TimelineItem>>,
     pub meta: TimelineInnerMetadata,
 
-    /// Is the timeline focused on a live view?
-    pub is_live_timeline: bool,
+    /// Which timeline live updates are allowed.
+    pub live_timeline_updates_type: LiveTimelineUpdatesAllowed,
 }
 
 impl TimelineInnerState {
     pub(super) fn new(
         room_version: RoomVersionId,
-        is_live_timeline: bool,
+        live_timeline_updates_type: LiveTimelineUpdatesAllowed,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
@@ -88,7 +88,7 @@ impl TimelineInnerState {
                 unable_to_decrypt_hook,
                 is_room_encrypted,
             ),
-            is_live_timeline,
+            live_timeline_updates_type,
         }
     }
 
@@ -158,13 +158,14 @@ impl TimelineInnerState {
 
     /// Adds a local echo (for an event) to the timeline.
     #[instrument(skip_all)]
-    pub(super) async fn handle_local_event(
+    pub(super) async fn handle_local_event<P: RoomDataProvider>(
         &mut self,
         own_user_id: OwnedUserId,
         own_profile: Option<Profile>,
         txn_id: OwnedTransactionId,
         send_handle: Option<SendHandle>,
         content: TimelineEventKind,
+        room_data_provider: &P,
     ) {
         let ctx = TimelineEventContext {
             sender: own_user_id,
@@ -188,6 +189,7 @@ impl TimelineInnerState {
                 // Local events are never UTD, so no need to pass in a raw_event - this is only
                 // used to determine the type of UTD if there is one.
                 None,
+                room_data_provider,
             )
             .await;
 
@@ -364,7 +366,7 @@ impl TimelineInnerState {
             items,
             previous_meta: &mut self.meta,
             meta,
-            is_live_timeline: self.is_live_timeline,
+            live_timeline_updates_type: self.live_timeline_updates_type.clone(),
         }
     }
 }
@@ -379,8 +381,8 @@ pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
     /// [`Self::commit`].
     pub meta: TimelineInnerMetadata,
 
-    /// Is the timeline focused on a live view?
-    pub is_live_timeline: bool,
+    /// Which timeline live updates are allowed.
+    pub live_timeline_updates_type: LiveTimelineUpdatesAllowed,
 
     /// Pointer to the previous meta, only used during [`Self::commit`].
     previous_meta: &'a mut TimelineInnerMetadata,
@@ -571,7 +573,7 @@ impl TimelineInnerStateTransaction<'_> {
         };
 
         TimelineEventHandler::new(self, ctx)
-            .handle_event(day_divider_adjuster, event_kind, Some(&raw))
+            .handle_event(day_divider_adjuster, event_kind, Some(&raw), room_data_provider)
             .await
     }
 

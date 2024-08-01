@@ -73,6 +73,7 @@ pub mod futures;
 mod inner;
 mod item;
 mod pagination;
+mod pinned_events_loader;
 mod polls;
 mod reactions;
 mod read_receipts;
@@ -173,7 +174,14 @@ pub enum TimelineFocus {
     Live,
 
     /// Focus on a specific event, e.g. after clicking a permalink.
-    Event { target: OwnedEventId, num_context_events: u16 },
+    Event {
+        target: OwnedEventId,
+        num_context_events: u16,
+    },
+
+    PinnedEvents {
+        max_events_to_load: u16,
+    },
 }
 
 impl Timeline {
@@ -865,13 +873,13 @@ impl Timeline {
     /// Returns `true` if we sent the request, `false` if the event was already
     /// pinned.
     pub async fn pin_event(&self, event_id: &EventId) -> Result<bool> {
-        let mut pinned_events = self.room().pinned_events();
+        let mut pinned_event_ids = self.room().pinned_event_ids();
         let event_id = event_id.to_owned();
-        if pinned_events.contains(&event_id) {
+        if pinned_event_ids.contains(&event_id) {
             Ok(false)
         } else {
-            pinned_events.push(event_id);
-            let content = RoomPinnedEventsEventContent::new(pinned_events);
+            pinned_event_ids.push(event_id);
+            let content = RoomPinnedEventsEventContent::new(pinned_event_ids);
             self.room().send_state_event(content).await?;
             Ok(true)
         }
@@ -883,11 +891,11 @@ impl Timeline {
     /// Returns `true` if we sent the request, `false` if the event wasn't
     /// pinned.
     pub async fn unpin_event(&self, event_id: &EventId) -> Result<bool> {
-        let mut pinned_events = self.room().pinned_events();
+        let mut pinned_event_ids = self.room().pinned_event_ids();
         let event_id = event_id.to_owned();
-        if let Some(idx) = pinned_events.iter().position(|e| *e == *event_id) {
-            pinned_events.remove(idx);
-            let content = RoomPinnedEventsEventContent::new(pinned_events);
+        if let Some(idx) = pinned_event_ids.iter().position(|e| *e == *event_id) {
+            pinned_event_ids.remove(idx);
+            let content = RoomPinnedEventsEventContent::new(pinned_event_ids);
             self.room().send_state_event(content).await?;
             Ok(true)
         } else {
@@ -919,6 +927,7 @@ struct TimelineDropHandle {
     client: Client,
     event_handler_handles: Vec<EventHandlerHandle>,
     room_update_join_handle: JoinHandle<()>,
+    pinned_events_join_handle: Option<JoinHandle<()>>,
     room_key_from_backups_join_handle: JoinHandle<()>,
     local_echo_listener_handle: Option<JoinHandle<()>>,
     _event_cache_drop_handle: Arc<EventCacheDropHandles>,
@@ -930,6 +939,9 @@ impl Drop for TimelineDropHandle {
             self.client.remove_event_handler(handle);
         }
         if let Some(handle) = self.local_echo_listener_handle.take() {
+            handle.abort()
+        };
+        if let Some(handle) = self.pinned_events_join_handle.take() {
             handle.abort()
         };
         self.room_update_join_handle.abort();
