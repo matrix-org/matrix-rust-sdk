@@ -123,12 +123,7 @@ impl Serialize for Capabilities {
             }
         }
 
-        let seq_len = self.requires_client as usize
-            + self.update_delayed_event as usize
-            + self.send_delayed_event as usize
-            + self.read.len()
-            + self.send.len();
-        let mut seq = serializer.serialize_seq(Some(seq_len))?;
+        let mut seq = serializer.serialize_seq(None)?;
 
         if self.requires_client {
             seq.serialize_element(REQUIRES_CLIENT)?;
