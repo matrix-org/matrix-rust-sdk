@@ -360,6 +360,10 @@ pub enum Error {
     /// An error coming from the event cache subsystem.
     #[error(transparent)]
     EventCache(#[from] EventCacheError),
+
+    /// Backups are not enabled
+    #[error("backups are not enabled")]
+    BackupNotEnabled,
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
