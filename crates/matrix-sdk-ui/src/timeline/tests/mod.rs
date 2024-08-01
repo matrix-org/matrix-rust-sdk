@@ -321,15 +321,15 @@ impl PaginableRoom for TestRoomDataProvider {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl PinnedEventsRoom for TestRoomDataProvider {
-    async fn room_event(&self, _event_id: &EventId) -> Result<SyncTimelineEvent, PaginatorError> {
+    async fn event(&self, _event_id: &EventId) -> Result<SyncTimelineEvent, PaginatorError> {
         unimplemented!();
     }
 
-    fn room_pinned_event_ids(&self) -> Vec<OwnedEventId> {
+    fn pinned_event_ids(&self) -> Vec<OwnedEventId> {
         unimplemented!();
     }
 
-    fn room_is_pinned_event_id(&self, _event_id: &EventId) -> bool {
+    fn is_pinned_event(&self, _event_id: &EventId) -> bool {
         unimplemented!();
     }
 }

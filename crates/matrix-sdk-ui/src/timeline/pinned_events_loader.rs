@@ -39,7 +39,7 @@ impl PinnedEventsLoader {
     pub async fn load_events(&self) -> Result<Vec<SyncTimelineEvent>, PinnedEventsLoaderError> {
         let pinned_event_ids: Vec<OwnedEventId> = self
             .room
-            .room_pinned_event_ids()
+            .pinned_event_ids()
             .into_iter()
             .rev()
             .take(self.max_events_to_load)
@@ -71,7 +71,7 @@ impl PinnedEventsLoader {
                             .await
                             .map_err(|_| PinnedEventsLoaderError::SemaphoreNotAcquired)?;
                         let ret = provider
-                            .room_event(&id)
+                            .event(&id)
                             .await
                             .map_err(|_| PinnedEventsLoaderError::EventNotFound(id.to_owned()));
                         drop(permit);
@@ -118,7 +118,7 @@ impl PinnedEventsLoader {
         for ev in events {
             let ev = ev.into();
             if let Some(ev_id) = ev.event_id() {
-                if self.room.room_is_pinned_event_id(&ev_id) {
+                if self.room.is_pinned_event(&ev_id) {
                     to_update.push(ev);
                 }
             }
@@ -137,31 +137,34 @@ impl PinnedEventsLoader {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait PinnedEventsRoom: SendOutsideWasm + SyncOutsideWasm {
     /// Load a single room event.
-    async fn room_event(&self, event_id: &EventId) -> Result<SyncTimelineEvent, PaginatorError>;
+    async fn event(&self, event_id: &EventId) -> Result<SyncTimelineEvent, PaginatorError>;
 
     /// Get the pinned event ids for a room.
-    fn room_pinned_event_ids(&self) -> Vec<OwnedEventId>;
+    fn pinned_event_ids(&self) -> Vec<OwnedEventId>;
 
     /// Checks whether an event id is pinned in this room.
-    fn room_is_pinned_event_id(&self, event_id: &EventId) -> bool;
+    ///
+    /// It avoids having to clone the whole list of event ids to check a single
+    /// value.
+    fn is_pinned_event(&self, event_id: &EventId) -> bool;
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl PinnedEventsRoom for Room {
-    async fn room_event(&self, event_id: &EventId) -> Result<SyncTimelineEvent, PaginatorError> {
+    async fn event(&self, event_id: &EventId) -> Result<SyncTimelineEvent, PaginatorError> {
         self.event(event_id)
             .await
             .map(|e| e.into())
             .map_err(|err| PaginatorError::SdkError(Box::new(err)))
     }
 
-    fn room_pinned_event_ids(&self) -> Vec<OwnedEventId> {
-        self.pinned_event_ids()
+    fn pinned_event_ids(&self) -> Vec<OwnedEventId> {
+        self.clone_info().pinned_event_ids()
     }
 
-    fn room_is_pinned_event_id(&self, event_id: &EventId) -> bool {
-        self.is_pinned_event(event_id)
+    fn is_pinned_event(&self, event_id: &EventId) -> bool {
+        self.subscribe_info().read().is_pinned_event(event_id)
     }
 }
 
