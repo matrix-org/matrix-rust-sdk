@@ -1922,8 +1922,8 @@ pub(crate) mod tests {
         let identity = manager.store.get_user_identity(other_user).await.unwrap().unwrap();
         let other_identity = identity.other().unwrap();
 
-        // There should be now an identity and no pin violation (pinned msk is the
-        // current one)
+        // We should now have an identity for the user but no pin violation
+        // (pinned master key is the current one)
         assert!(!other_identity.has_pin_violation());
         let first_device = manager
             .store
@@ -1970,9 +1970,9 @@ pub(crate) mod tests {
 
         let remember_previous_identity = other_identity.clone();
         // We receive updated keys for that user, with no identity anymore.
-        // Notice that there is no server API to delete identity, but we want to test
-        // here that a home server cannot clear the identity and serve a new one
-        // after that would get automatically approved.
+        // Notice that there is no server API to delete identity, but we want to
+        // test here that a home server cannot clear the identity and
+        // subsequently serve a new one which would get automatically approved.
         manager
             .receive_keys_query_response(
                 &TransactionId::new(),
@@ -1989,7 +1989,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_manager_resolve_identity_mismatch() {
+    async fn test_manager_resolve_identity_pin_violation() {
         use test_json::keys_query_sets::IdentityChangeDataSet as DataSet;
 
         let manager = manager_test_helper(user_id(), device_id()).await;
@@ -2018,7 +2018,7 @@ pub(crate) mod tests {
         // We have a new identity now, so there should be a pin violation
         assert!(other_identity.has_pin_violation());
 
-        // Resolve the misatch by pinning the new identity
+        // Resolve the violation by pinning the new identity
         other_identity.pin();
 
         assert!(!other_identity.has_pin_violation());
