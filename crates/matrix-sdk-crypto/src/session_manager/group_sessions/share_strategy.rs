@@ -24,7 +24,7 @@ use tracing::{debug, instrument, trace};
 
 use super::OutboundGroupSession;
 use crate::{
-    error::{OlmResult, RoomKeyDistributionError},
+    error::{OlmResult, RoomKeySharingStrategyError},
     store::Store,
     types::events::room_key_withheld::WithheldCode,
     DeviceData, EncryptionSettings, OlmError, OwnUserIdentityData, UserIdentityData,
@@ -173,13 +173,13 @@ pub(crate) async fn collect_session_recipients(
 
             let own_verified_identity = match maybe_own_identity {
                 None => {
-                    return Err(OlmError::KeyDistributionError(
-                        RoomKeyDistributionError::CrossSigningNotSetup,
+                    return Err(OlmError::RoomKeySharingStrategyError(
+                        RoomKeySharingStrategyError::CrossSigningNotSetup,
                     ))
                 }
                 Some(identity) if !identity.is_verified() => {
-                    return Err(OlmError::KeyDistributionError(
-                        RoomKeyDistributionError::SendingFromUnverifiedDevice,
+                    return Err(OlmError::RoomKeySharingStrategyError(
+                        RoomKeySharingStrategyError::SendingFromUnverifiedDevice,
                     ))
                 }
                 Some(identity) => identity,
@@ -230,8 +230,10 @@ pub(crate) async fn collect_session_recipients(
 
             // Abort sharing and fail when there are identities mismatch.
             if !users_with_identity_mismatch.is_empty() {
-                return Err(OlmError::KeyDistributionError(
-                    RoomKeyDistributionError::KeyPinningViolation(users_with_identity_mismatch),
+                return Err(OlmError::RoomKeySharingStrategyError(
+                    RoomKeySharingStrategyError::UnconfirmedIdentities(
+                        users_with_identity_mismatch,
+                    ),
                 ));
             }
         }
@@ -644,8 +646,8 @@ mod tests {
         assert!(request_result.is_err());
         let err = request_result.unwrap_err();
         match err {
-            OlmError::KeyDistributionError(
-                crate::error::RoomKeyDistributionError::CrossSigningNotSetup,
+            OlmError::RoomKeySharingStrategyError(
+                crate::error::RoomKeySharingStrategyError::CrossSigningNotSetup,
             ) => {
                 // ok
             }
@@ -668,8 +670,8 @@ mod tests {
         assert!(request_result.is_err());
         let err = request_result.unwrap_err();
         match err {
-            OlmError::KeyDistributionError(
-                crate::error::RoomKeyDistributionError::SendingFromUnverifiedDevice,
+            OlmError::RoomKeySharingStrategyError(
+                crate::error::RoomKeySharingStrategyError::SendingFromUnverifiedDevice,
             ) => {
                 // ok
             }
@@ -746,8 +748,8 @@ mod tests {
         assert!(request_result.is_err());
         let err = request_result.unwrap_err();
         match err {
-            OlmError::KeyDistributionError(
-                crate::error::RoomKeyDistributionError::KeyPinningViolation(affected_users),
+            OlmError::RoomKeySharingStrategyError(
+                crate::error::RoomKeySharingStrategyError::UnconfirmedIdentities(affected_users),
             ) => {
                 assert_eq!(2, affected_users.len());
 
