@@ -58,7 +58,9 @@ use super::{
     traits::RoomDataProvider,
     EventTimelineItem, Profile, TimelineFocus, TimelineInner, TimelineItem,
 };
-use crate::unable_to_decrypt_hook::UtdHookManager;
+use crate::{
+    timeline::pinned_events_loader::PinnedEventsRoom, unable_to_decrypt_hook::UtdHookManager,
+};
 
 mod basic;
 mod echo;
@@ -312,6 +314,22 @@ impl PaginableRoom for TestRoomDataProvider {
     }
 
     async fn messages(&self, _opts: MessagesOptions) -> Result<Messages, PaginatorError> {
+        unimplemented!();
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl PinnedEventsRoom for TestRoomDataProvider {
+    async fn room_event(&self, _event_id: &EventId) -> Result<SyncTimelineEvent, PaginatorError> {
+        unimplemented!();
+    }
+
+    fn room_pinned_event_ids(&self) -> Vec<OwnedEventId> {
+        unimplemented!();
+    }
+
+    fn room_is_pinned_event_id(&self, _event_id: &EventId) -> bool {
         unimplemented!();
     }
 }

@@ -158,12 +158,13 @@ impl TimelineBuilder {
         let (_, mut event_subscriber) = room_event_cache.subscribe().await?;
 
         let is_live = matches!(focus, TimelineFocus::Live);
+        let is_pinned_events = matches!(focus, TimelineFocus::PinnedEvents { .. });
         let is_room_encrypted =
             room.is_encrypted().await.map_err(|_| Error::UnknownEncryptionState)?;
 
         let inner = TimelineInner::new(
             room,
-            focus,
+            focus.clone(),
             internal_id_prefix,
             unable_to_decrypt_hook,
             is_room_encrypted,
@@ -175,6 +176,27 @@ impl TimelineBuilder {
         let room = inner.room();
         let client = room.client();
 
+        let mut pinned_event_ids_stream = room.pinned_event_ids_stream();
+        let pinned_events_join_handle = if is_pinned_events {
+            Some(spawn({
+                let inner = inner.clone();
+                async move {
+                    while let Some(_) = pinned_event_ids_stream.next().await {
+                        if let Ok(events) = inner.pinned_events_load_events().await {
+                            inner
+                                .replace_with_initial_remote_events(
+                                    events,
+                                    RemoteEventOrigin::Pagination,
+                                )
+                                .await;
+                        }
+                    }
+                }
+            }))
+        } else {
+            None
+        };
+
         let room_update_join_handle = spawn({
             let room_event_cache = room_event_cache.clone();
             let inner = inner.clone();
@@ -182,6 +204,8 @@ impl TimelineBuilder {
             let span =
                 info_span!(parent: Span::none(), "room_update_handler", room_id = ?room.room_id());
             span.follows_from(Span::current());
+
+            let focus = Arc::new(focus);
 
             async move {
                 trace!("Spawned the event subscriber task.");
@@ -239,13 +263,25 @@ impl TimelineBuilder {
                         RoomEventCacheUpdate::AddTimelineEvents { events, origin } => {
                             trace!("Received new timeline events.");
 
-                            inner.add_events_at(
-                                events,
-                                TimelineEnd::Back,
-                                match origin {
-                                    EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                            // Special case for pinned events: when we receive new events what we'll do is
+                            // updated the cache for those events that are pinned and reload the
+                            // list.
+                            match &*focus.clone() {
+                                TimelineFocus::PinnedEvents { .. } => {
+                                    if let Ok(events) = inner.pinned_events_load_events().await {
+                                        inner.replace_with_initial_remote_events(events, RemoteEventOrigin::Sync).await;
+                                    }
                                 }
-                            ).await;
+                                _ => {
+                                    inner.add_events_at(
+                                        events,
+                                        TimelineEnd::Back,
+                                        match origin {
+                                            EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                                        }
+                                    ).await;
+                                }
+                            }
                         }
 
                         RoomEventCacheUpdate::AddEphemeralEvents { events } => {
@@ -363,6 +399,7 @@ impl TimelineBuilder {
                 client,
                 event_handler_handles: handles,
                 room_update_join_handle,
+                pinned_events_join_handle,
                 room_key_from_backups_join_handle,
                 local_echo_listener_handle,
                 _event_cache_drop_handle: event_cache_drop,
