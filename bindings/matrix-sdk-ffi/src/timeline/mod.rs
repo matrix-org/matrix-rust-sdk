@@ -24,7 +24,7 @@ use matrix_sdk::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
         BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
     },
-    deserialized_responses::ShieldState,
+    deserialized_responses::{ShieldState as RustShieldState, ShieldStateCode},
     Error,
 };
 use matrix_sdk_ui::timeline::{
@@ -923,9 +923,32 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
     }
 }
 
-#[uniffi::export]
-pub fn message_for_shield_state(shield_state: ShieldState) -> Option<String> {
-    shield_state.message().map(ToOwned::to_owned)
+/// Recommended decorations for decrypted messages, representing the message's
+/// authenticity properties.
+#[derive(uniffi::Enum)]
+pub enum ShieldState {
+    /// A red shield with a tooltip containing the associated message should be
+    /// presented.
+    Red { code: ShieldStateCode, message: String },
+    /// A grey shield with a tooltip containing the associated message should be
+    /// presented.
+    Grey { code: ShieldStateCode, message: String },
+    /// No shield should be presented.
+    None,
+}
+
+impl From<RustShieldState> for ShieldState {
+    fn from(value: RustShieldState) -> Self {
+        match value {
+            RustShieldState::Red { code, message } => {
+                Self::Red { code, message: message.to_owned() }
+            }
+            RustShieldState::Grey { code, message } => {
+                Self::Grey { code, message: message.to_owned() }
+            }
+            RustShieldState::None => Self::None,
+        }
+    }
 }
 
 #[derive(uniffi::Object)]
