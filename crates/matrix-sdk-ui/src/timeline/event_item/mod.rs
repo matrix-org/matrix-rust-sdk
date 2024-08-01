@@ -370,7 +370,7 @@ impl EventTimelineItem {
     /// Gets the [`ShieldState`] which can be used to decorate messages in the
     /// recommended way.
     pub fn get_shield(&self, strict: bool) -> Option<ShieldState> {
-        if self.is_room_encrypted != Some(true) {
+        if self.is_room_encrypted != Some(true) || self.is_local_echo() {
             return None;
         }
 
