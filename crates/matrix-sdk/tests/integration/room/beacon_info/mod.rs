@@ -1,33 +1,17 @@
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::time::Duration;
 
 use js_int::uint;
-use matrix_sdk::{
-    config::SyncSettings,
-    room::{edit::EditedContent, Receipts, ReportedContentScore, RoomMemberRole},
-    test_utils::events::EventFactory,
-};
-use matrix_sdk_base::{deserialized_responses::AnySyncOrStrippedState, RoomState};
-use matrix_sdk_test::{
-    async_test, test_json, test_json::sync::CUSTOM_ROOM_POWER_LEVELS, EphemeralTestEvent,
-    GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
-};
+use matrix_sdk::config::SyncSettings;
+use matrix_sdk_base::deserialized_responses::AnySyncOrStrippedState;
+use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
 use ruma::{
-    api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
-    assign, event_id,
-    events::{
-        location::AssetType,
-        receipt::ReceiptThread,
-        room::message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
-        AnySyncStateEvent, StateEventType, TimelineEventType,
-    },
-    int, room_id, user_id, MilliSecondsSinceUnixEpoch,
+    event_id,
+    events::{location::AssetType, AnySyncStateEvent, StateEventType},
+    MilliSecondsSinceUnixEpoch,
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{body_json, body_partial_json, header, method, path_regex},
+    matchers::{body_partial_json, header, method, path_regex},
     Mock, ResponseTemplate,
 };
 

@@ -4,13 +4,12 @@ use std::{
 };
 
 use futures_util::future::join_all;
-use js_int::uint;
 use matrix_sdk::{
     config::SyncSettings,
     room::{edit::EditedContent, Receipts, ReportedContentScore, RoomMemberRole},
     test_utils::events::EventFactory,
 };
-use matrix_sdk_base::{deserialized_responses::AnySyncOrStrippedState, RoomState};
+use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
     async_test, test_json, test_json::sync::CUSTOM_ROOM_POWER_LEVELS, EphemeralTestEvent,
     GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
@@ -19,13 +18,11 @@ use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
     assign, event_id,
     events::{
-        location::AssetType,
         receipt::ReceiptThread,
         room::message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
-        AnySyncStateEvent, StateEventType, TimelineEventType,
+        TimelineEventType,
     },
-    int, mxc_uri, owned_event_id, room_id, thirdparty, user_id, MilliSecondsSinceUnixEpoch,
-    OwnedUserId, TransactionId,
+    int, mxc_uri, owned_event_id, room_id, thirdparty, user_id, OwnedUserId, TransactionId,
 };
 use serde_json::{json, Value};
 use wiremock::{
