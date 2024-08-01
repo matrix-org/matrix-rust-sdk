@@ -163,7 +163,11 @@ impl Backups {
         result
     }
 
-    /// Disable and delete the currently active backup.
+    /// Disable and delete the currently active backup only if previously
+    /// enabled before, otherwise an error will be returned.
+    ///
+    /// For a more aggressive variant see [`Backups::disable_and_delete`] which
+    /// will delete the remote backup without checking the local state.
     ///
     /// # Examples
     ///
@@ -200,7 +204,6 @@ impl Backups {
                 info!("Backup successfully deleted");
 
                 olm_machine.backup_machine().disable_backup().await?;
-                self.set_state(BackupState::Unknown);
 
                 info!("Backup successfully disabled and deleted");
 
@@ -213,9 +216,60 @@ impl Backups {
 
         let result = future.await;
 
-        if result.is_err() {
-            self.set_state(BackupState::Unknown);
-        }
+        self.set_state(BackupState::Unknown);
+
+        result
+    }
+
+    /// Completely disable and delete the active backup both locally
+    /// and from the backend no matter if previously setup locally
+    /// or not.
+    ///
+    /// ⚠️ This method is mainly used when resetting the crypto identity
+    /// and for most other use cases its safer [`Backups::disable`] counterpart
+    /// should be used.
+    ///
+    /// It will fetch the current backup version from the backend and delete it
+    /// before proceeding to disabling local backups as well
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{Client, encryption::backups::BackupState};
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// let backups = client.encryption().backups();
+    /// backups.disable_and_delete().await?;
+    ///
+    /// assert_eq!(backups.state(), BackupState::Unknown);
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn disable_and_delete(&self) -> Result<(), Error> {
+        let _guard = self.client.locks().backup_modify_lock.lock().await;
+
+        self.set_state(BackupState::Disabling);
+
+        // Create a future so we can catch errors and go back to the `Unknown` state.
+        let future = async {
+            let response = self.get_current_version().await?;
+
+            if let Some(response) = response {
+                self.delete_backup_from_server(response.version).await?;
+            }
+
+            let olm_machine = self.client.olm_machine().await;
+            let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
+
+            olm_machine.backup_machine().disable_backup().await?;
+
+            Ok(())
+        };
+
+        let result = future.await;
+
+        self.set_state(BackupState::Unknown);
 
         result
     }
