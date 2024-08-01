@@ -884,7 +884,16 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         };
 
-        let mut item = EventTimelineItem::new(sender, sender_profile, timestamp, content, kind);
+        let is_room_encrypted = self.meta.is_room_encrypted;
+
+        let mut item = EventTimelineItem::new(
+            sender,
+            sender_profile,
+            timestamp,
+            content,
+            kind,
+            is_room_encrypted,
+        );
 
         match &self.ctx.flow {
             Flow::Local { .. } => {

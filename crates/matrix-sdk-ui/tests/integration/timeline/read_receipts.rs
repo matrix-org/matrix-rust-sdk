@@ -40,7 +40,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::mock_sync;
+use crate::{mock_encryption_state, mock_sync};
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
     match ev {
@@ -70,6 +70,8 @@ async fn test_read_receipts_updates() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
@@ -299,6 +301,8 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    mock_encryption_state(&server, false).await;
+
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().event_filter(filter_notice).build().await.unwrap();
     let (items, mut timeline_stream) = timeline.subscribe().await;
@@ -506,6 +510,8 @@ async fn test_send_single_receipt() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
@@ -854,6 +860,8 @@ async fn test_mark_as_read() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    mock_encryption_state(&server, false).await;
+
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
 
@@ -956,6 +964,8 @@ async fn test_send_multiple_receipts() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
@@ -1170,6 +1180,8 @@ async fn test_latest_user_read_receipt() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();

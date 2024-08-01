@@ -71,6 +71,7 @@ mod polls;
 mod reactions;
 mod read_receipts;
 mod redaction;
+mod shields;
 mod virt;
 
 struct TestTimeline {
@@ -90,6 +91,7 @@ impl TestTimeline {
                 TimelineFocus::Live,
                 Some(prefix),
                 None,
+                false,
             ),
             event_builder: EventBuilder::new(),
         }
@@ -97,7 +99,7 @@ impl TestTimeline {
 
     fn with_room_data_provider(room_data_provider: TestRoomDataProvider) -> Self {
         Self {
-            inner: TimelineInner::new(room_data_provider, TimelineFocus::Live, None, None),
+            inner: TimelineInner::new(room_data_provider, TimelineFocus::Live, None, None, false),
             event_builder: EventBuilder::new(),
         }
     }
@@ -109,6 +111,20 @@ impl TestTimeline {
                 TimelineFocus::Live,
                 None,
                 Some(hook),
+                true,
+            ),
+            event_builder: EventBuilder::new(),
+        }
+    }
+
+    fn with_is_room_encrypted(encrypted: bool) -> Self {
+        Self {
+            inner: TimelineInner::new(
+                TestRoomDataProvider::default(),
+                TimelineFocus::Live,
+                None,
+                None,
+                encrypted,
             ),
             event_builder: EventBuilder::new(),
         }

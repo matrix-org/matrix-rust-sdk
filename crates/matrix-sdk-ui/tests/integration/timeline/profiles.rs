@@ -31,7 +31,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::mock_sync;
+use crate::{mock_encryption_state, mock_sync};
 
 #[async_test]
 async fn test_update_sender_profiles() {
@@ -45,6 +45,8 @@ async fn test_update_sender_profiles() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());

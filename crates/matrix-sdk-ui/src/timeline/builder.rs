@@ -158,9 +158,17 @@ impl TimelineBuilder {
         let (_, mut event_subscriber) = room_event_cache.subscribe().await?;
 
         let is_live = matches!(focus, TimelineFocus::Live);
+        let is_room_encrypted =
+            room.is_encrypted().await.map_err(|_| Error::UnknownEncryptionState)?;
 
-        let inner = TimelineInner::new(room, focus, internal_id_prefix, unable_to_decrypt_hook)
-            .with_settings(settings);
+        let inner = TimelineInner::new(
+            room,
+            focus,
+            internal_id_prefix,
+            unable_to_decrypt_hook,
+            is_room_encrypted,
+        )
+        .with_settings(settings);
 
         let has_events = inner.init_focus(&room_event_cache).await?;
 

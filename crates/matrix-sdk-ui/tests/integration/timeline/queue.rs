@@ -127,6 +127,8 @@ async fn test_retry_order() {
     mock_sync(&server, sync_response_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
 
+    mock_encryption_state(&server, false).await;
+
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) =
@@ -228,6 +230,8 @@ async fn test_reloaded_failed_local_echoes_are_marked_as_failed() {
 
     mock_sync(&server, sync_response_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());

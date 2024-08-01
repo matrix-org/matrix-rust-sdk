@@ -46,7 +46,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::mock_sync;
+use crate::{mock_encryption_state, mock_sync};
 
 #[async_test]
 async fn test_back_pagination() {
@@ -60,6 +60,8 @@ async fn test_back_pagination() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
@@ -162,6 +164,8 @@ async fn test_back_pagination_highlighted() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    mock_encryption_state(&server, false).await;
+
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
@@ -244,6 +248,8 @@ async fn test_wait_for_token() {
     client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    mock_encryption_state(&server, false).await;
+
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
 
@@ -305,6 +311,8 @@ async fn test_dedup_pagination() {
     client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    mock_encryption_state(&server, false).await;
+
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
 
@@ -364,6 +372,8 @@ async fn test_timeline_reset_while_paginating() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
@@ -561,6 +571,8 @@ async fn test_empty_chunk() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    mock_encryption_state(&server, false).await;
+
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
@@ -650,6 +662,8 @@ async fn test_until_num_items_with_empty_chunk() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
@@ -765,6 +779,8 @@ async fn test_back_pagination_aborted() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());

@@ -38,7 +38,7 @@ use ruma::{
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 
-use crate::mock_sync;
+use crate::{mock_encryption_state, mock_sync};
 
 #[async_test]
 async fn test_batched() {
@@ -53,6 +53,8 @@ async fn test_batched() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().event_filter(|_, _| true).build().await.unwrap();
@@ -101,6 +103,8 @@ async fn test_event_filter() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().event_filter(|_, _| true).build().await.unwrap();
@@ -208,6 +212,8 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
+    mock_encryption_state(&server, false).await;
+
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().build().await.unwrap();
     let (_, timeline_stream) = timeline.subscribe().await;
@@ -313,6 +319,8 @@ async fn test_profile_updates() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline_builder().build().await.unwrap();
