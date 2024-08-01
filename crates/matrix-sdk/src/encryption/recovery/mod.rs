@@ -394,7 +394,7 @@ impl Recovery {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn reset_identity(&self) -> Result<Option<IdentityResetHandle>> {
-        self.client.encryption().backups().disable().await?; // 1.
+        self.client.encryption().backups().disable_and_delete().await?; // 1.
 
         // 2. (We can't delete account data events)
         self.client.account().set_account_data(SecretStorageDisabledContent {}).await?;

@@ -779,11 +779,49 @@ async fn test_reset_identity() {
     assert_eq!(client.encryption().backups().state(), BackupState::Enabled);
     assert_eq!(client.encryption().recovery().state(), RecoveryState::Enabled);
 
+    let did_delete_backup = Arc::new(Mutex::new(false));
+
     // Disabling backups
+    Mock::given(method("GET"))
+        .and(path("_matrix/client/r0/room_keys/version"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with({
+            let did_delete_backup = did_delete_backup.clone();
+            move |_: &wiremock::Request| {
+                if *did_delete_backup.lock().unwrap() {
+                    ResponseTemplate::new(404).set_body_json(json!({
+                        "errcode": "M_NOT_FOUND",
+                        "error": "No current backup version"
+                    }))
+                } else {
+                    ResponseTemplate::new(200).set_body_json(json!({
+                        "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+                        "auth_data": {
+                            "public_key": "hdx5rSn94rBuvJI5cwnhKAVmFyZgfJjk7vwEBD6mIHc",
+                            "signatures": {}
+                        },
+                        "count": 1,
+                        "etag": "1",
+                        "version": "1"
+                    }))
+                }
+            }
+        })
+        .expect(3)
+        .named("room_keys/version GET")
+        .mount(&server)
+        .await;
+
     Mock::given(method("DELETE"))
         .and(path("_matrix/client/r0/room_keys/version/1"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .respond_with({
+            let did_delete_backup = did_delete_backup.clone();
+            move |_: &wiremock::Request| {
+                *did_delete_backup.lock().unwrap() = true;
+                ResponseTemplate::new(200).set_body_json(json!({}))
+            }
+        })
         .expect(1)
         .mount(&server)
         .await;
@@ -858,18 +896,6 @@ async fn test_reset_identity() {
         .await;
 
     // Re-enable backups
-    Mock::given(method("GET"))
-        .and(path("_matrix/client/r0/room_keys/version"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
-            "errcode": "M_NOT_FOUND",
-            "error": "No current backup version"
-        })))
-        .expect(2)
-        .named("room_keys/version GET")
-        .mount(&server)
-        .await;
-
     Mock::given(method("PUT"))
         .and(path(format!(
             "_matrix/client/r0/user/{user_id}/account_data/m.org.matrix.custom.backup_disabled"
