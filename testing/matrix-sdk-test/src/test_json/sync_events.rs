@@ -320,7 +320,7 @@ pub static NAME_STRIPPED: Lazy<JsonValue> = Lazy::new(|| {
 pub static PINNED_EVENTS: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
-            "pinned": [ "$a" ]
+            "pinned": [ "$a", "$b" ]
         },
         "event_id": "$15139375513VdeRF:localhost",
         "origin_server_ts": 151393755,
