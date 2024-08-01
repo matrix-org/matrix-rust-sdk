@@ -203,11 +203,12 @@ impl Backups {
                 self.set_state(BackupState::Unknown);
 
                 info!("Backup successfully disabled and deleted");
+
+                Ok(())
             } else {
                 info!("Backup is not enabled, can't disable it");
+                Err(Error::BackupNotEnabled)
             }
-
-            Ok(())
         };
 
         let result = future.await;
