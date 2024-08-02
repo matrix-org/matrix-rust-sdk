@@ -194,7 +194,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 8;
+const DATABASE_VERSION: u8 = 9;
 
 /// Run migrations for the given version of the database.
 async fn run_migrations(conn: &SqliteConn, version: u8) -> Result<()> {
@@ -269,6 +269,15 @@ async fn run_migrations(conn: &SqliteConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 9 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/009_inbound_group_session_curve_key_sender_data_type.sql"
+            ))
+        })
+        .await?;
+    }
+
     conn.set_kv("version", vec![DATABASE_VERSION]).await?;
 
     Ok(())
@@ -288,6 +297,8 @@ trait SqliteConnectionExt {
         session_id: &[u8],
         data: &[u8],
         backed_up: bool,
+        curve_key: Option<&str>,
+        sender_data_type: Option<u8>,
     ) -> rusqlite::Result<()>;
 
     fn set_outbound_group_session(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
@@ -340,12 +351,14 @@ impl SqliteConnectionExt for rusqlite::Connection {
         session_id: &[u8],
         data: &[u8],
         backed_up: bool,
+        curve_key: Option<&str>,
+        sender_data_type: Option<u8>,
     ) -> rusqlite::Result<()> {
         self.execute(
-            "INSERT INTO inbound_group_session (session_id, room_id, data, backed_up) \
-             VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO inbound_group_session (session_id, room_id, data, backed_up, curve_key, sender_data_type) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT (session_id) DO UPDATE SET data = ?3, backed_up = ?4",
-            (session_id, room_id, data, backed_up),
+            (session_id, room_id, data, backed_up, curve_key, sender_data_type),
         )?;
         Ok(())
     }
@@ -845,6 +858,8 @@ impl CryptoStore for SqliteCryptoStore {
                         session_id,
                         &serialized_session,
                         pickle.backed_up,
+                        Some(&pickle.sender_key.to_base64()),
+                        Some(pickle.sender_data.to_type() as u8),
                     )?;
                 }
 
