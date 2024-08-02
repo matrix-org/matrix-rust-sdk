@@ -26,7 +26,7 @@ use crate::crypto_store::{
 
 /// Perform schema migrations as needed, up to schema version 5.
 pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 5, |db, old_version| {
+    do_schema_upgrade(name, 5, |db, _, old_version| {
         // An old_version of 1 could either mean actually the first version of the
         // schema, or a completely empty schema that has been created with a
         // call to `IdbDatabase::open` with no explicit "version". So, to determine

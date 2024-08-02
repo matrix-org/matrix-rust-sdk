@@ -57,5 +57,5 @@ pub(crate) async fn data_migrate(
 pub(crate) async fn schema_bump(name: &str) -> crate::crypto_store::Result<(), DomException> {
     // Just bump the version number to 11 to demonstrate that we have run the data
     // changes from data_migrate.
-    do_schema_upgrade(name, 11, |_, _| Ok(())).await
+    do_schema_upgrade(name, 11, |_, _, _| Ok(())).await
 }
