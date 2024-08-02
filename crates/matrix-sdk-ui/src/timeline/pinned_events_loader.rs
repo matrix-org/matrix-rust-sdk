@@ -116,7 +116,7 @@ impl PinnedEventsLoader {
         &self,
         events: Vec<impl Into<SyncTimelineEvent>>,
         cache: &PinnedEventCache,
-    ) -> Option<Vec<SyncTimelineEvent>> {
+    ) -> Option<Result<Vec<SyncTimelineEvent>, PinnedEventsLoaderError>> {
         let mut to_update = Vec::new();
         for ev in events {
             let ev = ev.into();
@@ -129,7 +129,7 @@ impl PinnedEventsLoader {
 
         if !to_update.is_empty() {
             cache.set_bulk(&to_update).await;
-            self.load_events(cache).await.ok()
+            Some(self.load_events(cache).await)
         } else {
             None
         }
