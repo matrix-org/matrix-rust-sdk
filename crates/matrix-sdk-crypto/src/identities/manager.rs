@@ -39,7 +39,7 @@ use crate::{
         Result as StoreResult, Store, StoreCache, UserKeyQueryResult,
     },
     types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
-    CryptoStoreError, LocalTrust, SignatureError,
+    CryptoStoreError, LocalTrust, OwnUserIdentity, SignatureError, UserIdentities,
 };
 
 enum DeviceChange {
@@ -83,6 +83,13 @@ struct KeysQueryRequestDetails {
     /// more actual KeysQueryRequests, each with their own request id. We
     /// record the outstanding request ids here.
     request_ids: HashSet<OwnedTransactionId>,
+}
+
+// Helper type to handle key query response
+struct KeySetInfo {
+    user_id: OwnedUserId,
+    master_key: MasterPubkey,
+    self_signing: SelfSigningPubkey,
 }
 
 impl IdentityManager {
@@ -444,6 +451,7 @@ impl IdentityManager {
     async fn handle_changed_identity(
         &self,
         response: &KeysQueryResponse,
+        maybe_verified_own_identity: Option<&OwnUserIdentity>,
         master_key: MasterPubkey,
         self_signing: SelfSigningPubkey,
         i: UserIdentityData,
@@ -461,7 +469,12 @@ impl IdentityManager {
                 }
             }
             UserIdentityData::Other(mut identity) => {
-                let has_changed = identity.update(master_key, self_signing)?;
+                let has_changed = identity.update(
+                    master_key,
+                    self_signing,
+                    maybe_verified_own_identity.map(|o| o.user_signing_key()),
+                )?;
+
                 if has_changed {
                     Ok(IdentityUpdateResult::Updated(identity.into()))
                 } else {
@@ -502,11 +515,13 @@ impl IdentityManager {
     async fn handle_new_identity(
         &self,
         response: &KeysQueryResponse,
+        maybe_verified_own_identity: Option<&OwnUserIdentity>,
         master_key: MasterPubkey,
         self_signing: SelfSigningPubkey,
         changed_private_identity: &mut Option<PrivateCrossSigningIdentity>,
     ) -> Result<UserIdentityData, SignatureError> {
         if master_key.user_id() == self.user_id() {
+            // Own identity
             let user_signing = self.get_user_signing_key_from_response(response)?;
             let identity = OwnUserIdentityData::new(master_key, self_signing, user_signing)?;
             *changed_private_identity = self.check_private_identity(&identity).await;
@@ -514,6 +529,13 @@ impl IdentityManager {
         } else {
             // First time seen, create the identity. The current MSK will be pinned.
             let identity = OtherUserIdentityData::new(master_key, self_signing)?;
+            let is_verified = maybe_verified_own_identity.map_or(false, |own_user_identity| {
+                own_user_identity.is_identity_signed(&identity).is_ok()
+            });
+            if is_verified {
+                identity.mark_as_verified_once();
+            }
+
             Ok(identity.into())
         }
     }
@@ -616,10 +638,9 @@ impl IdentityManager {
     /// * `changed_identity` - Output parameter: Unchanged if the identity is
     ///   that of another user. If it is our own, set to `None` or `Some`
     ///   depending on whether our stored private identity needs updating.
-    /// * `user_id` - The user id of the user whose identity is being processed.
-    /// * `master_key` - The public master cross-signing key for this user from
-    ///   the `/keys/query` response.
-    /// * `self_signing` - The public self-signing key from the `/keys/query`
+    /// * `maybe_verified_own_identity` - Own verified identity if any to check
+    ///   verification status of updated identity.
+    /// * `key_set_info` - The identity info as returned by the `/keys/query`
     ///   response.
     #[instrument(skip_all, fields(user_id))]
     async fn update_or_create_identity(
@@ -627,17 +648,18 @@ impl IdentityManager {
         response: &KeysQueryResponse,
         changes: &mut IdentityChanges,
         changed_private_identity: &mut Option<PrivateCrossSigningIdentity>,
-        user_id: &UserId,
-        master_key: MasterPubkey,
-        self_signing: SelfSigningPubkey,
+        maybe_verified_own_identity: Option<&OwnUserIdentity>,
+        key_set_info: KeySetInfo,
     ) -> StoreResult<()> {
+        let KeySetInfo { user_id, master_key, self_signing } = key_set_info;
         if master_key.user_id() != user_id || self_signing.user_id() != user_id {
             warn!(?user_id, "User ID mismatch in one of the cross signing keys");
-        } else if let Some(i) = self.store.get_user_identity(user_id).await? {
+        } else if let Some(i) = self.store.get_user_identity(&user_id).await? {
             // an identity we knew about before, which is being updated
             match self
                 .handle_changed_identity(
                     response,
+                    maybe_verified_own_identity,
                     master_key,
                     self_signing,
                     i,
@@ -660,7 +682,13 @@ impl IdentityManager {
         } else {
             // an identity we did not know about before
             match self
-                .handle_new_identity(response, master_key, self_signing, changed_private_identity)
+                .handle_new_identity(
+                    response,
+                    maybe_verified_own_identity,
+                    master_key,
+                    self_signing,
+                    changed_private_identity,
+                )
                 .await
             {
                 Ok(identity) => {
@@ -698,6 +726,15 @@ impl IdentityManager {
         let mut changes = IdentityChanges::default();
         let mut changed_identity = None;
 
+        // We want to check if the updated/new other identities are trusted by us or
+        // not. This is based on the current verified state of the own identity.
+        let maybe_own_verified_identity = self
+            .store
+            .get_identity(self.user_id())
+            .await?
+            .and_then(UserIdentities::own)
+            .filter(|own| own.is_verified());
+
         for (user_id, master_key) in &response.master_keys {
             // Get the master and self-signing key for each identity; those are required for
             // every user identity type. If we don't have those we skip over.
@@ -707,13 +744,14 @@ impl IdentityManager {
                 continue;
             };
 
+            let key_set_info = KeySetInfo { user_id: user_id.clone(), master_key, self_signing };
+
             self.update_or_create_identity(
                 response,
                 &mut changes,
                 &mut changed_identity,
-                user_id,
-                master_key,
-                self_signing,
+                maybe_own_verified_identity.as_ref(),
+                key_set_info,
             )
             .await?;
         }
@@ -1353,6 +1391,7 @@ pub(crate) mod tests {
     use crate::{
         identities::manager::testing::{other_key_query_cross_signed, own_key_query},
         olm::PrivateCrossSigningIdentity,
+        CrossSigningKeyExport, OlmMachine,
     };
 
     fn key_query_with_failures() -> KeysQueryResponse {

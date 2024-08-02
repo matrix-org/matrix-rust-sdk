@@ -669,6 +669,9 @@ impl OtherUserIdentityData {
     ///
     /// * `self_signing_key` - The new self signing key of user identity.
     ///
+    /// * `maybe_verified_own_user_signing_key` - Our own user_signing_key if it
+    ///   is verified to check the identity trust status after update.
+    ///
     /// Returns a `SignatureError` if we failed to update the identity.
     /// Otherwise, returns `true` if there was a change to the identity and
     /// `false` if the identity is unchanged.
@@ -676,6 +679,7 @@ impl OtherUserIdentityData {
         &mut self,
         master_key: MasterPubkey,
         self_signing_key: SelfSigningPubkey,
+        maybe_verified_own_user_signing_key: Option<&UserSigningPubkey>,
     ) -> Result<bool, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
@@ -685,11 +689,19 @@ impl OtherUserIdentityData {
         // (see `has_pin_violation()`).
         let pinned_master_key = self.pinned_master_key.read().unwrap().clone();
 
+        // Check if the new master_key is signed by our own **verified**
+        // user_signing_key. If the identity was verified we remember it.
+        let updated_is_verified = maybe_verified_own_user_signing_key
+            .map_or(false, |own_user_signing_key| {
+                own_user_signing_key.verify_master_key(&master_key).is_ok()
+            });
+
         let new = Self {
             user_id: master_key.user_id().into(),
             master_key: master_key.clone().into(),
             self_signing_key: self_signing_key.into(),
             pinned_master_key: RwLock::new(pinned_master_key).into(),
+            verified_latch: Arc::new((self.is_verified_latch_set() || updated_is_verified).into()),
         };
         let changed = new != *self;
 
