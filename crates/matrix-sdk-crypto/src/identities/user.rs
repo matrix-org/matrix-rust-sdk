@@ -1032,13 +1032,11 @@ pub(crate) mod tests {
 
     use super::{
         testing::{device, get_other_identity, get_own_identity},
-        OwnUserIdentityData, UserIdentityData,
+        OtherUserIdentityDataSerializerV2, OwnUserIdentityData, UserIdentityData,
     };
     use crate::{
         identities::{
-            manager::testing::own_key_query,
-            user::{OtherUserIdentityDataSerializer, OtherUserIdentityDataSerializerV1},
-            Device,
+            manager::testing::own_key_query, user::OtherUserIdentityDataSerializer, Device,
         },
         olm::{Account, PrivateCrossSigningIdentity},
         store::{CryptoStoreWrapper, MemoryStore},
@@ -1147,12 +1145,12 @@ pub(crate) mod tests {
         let value = serde_json::to_value(migrated.clone()).unwrap();
 
         // Should be serialized with latest version
-        let _: OtherUserIdentityDataSerializerV1 =
-            serde_json::from_value(value.clone()).expect("Should deserialize as version 1");
+        let _: OtherUserIdentityDataSerializerV2 =
+            serde_json::from_value(value.clone()).expect("Should deserialize as version 2");
 
         let with_serializer: OtherUserIdentityDataSerializer =
             serde_json::from_value(value).unwrap();
-        assert_eq!("1", with_serializer.version.unwrap());
+        assert_eq!("2", with_serializer.version.unwrap());
     }
 
     #[test]
