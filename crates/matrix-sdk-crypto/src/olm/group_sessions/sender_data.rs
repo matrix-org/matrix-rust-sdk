@@ -155,6 +155,15 @@ impl SenderData {
             SenderData::SenderKnown { master_key_verified: true, .. } => 3,
         }
     }
+
+    /// Return our type: `UnknownDevice`, `DeviceInfo`, or `SenderKnown`.
+    pub fn to_type(&self) -> SenderDataType {
+        match self {
+            Self::UnknownDevice { .. } => SenderDataType::UnknownDevice,
+            Self::DeviceInfo { .. } => SenderDataType::DeviceInfo,
+            Self::SenderKnown { .. } => SenderDataType::SenderKnown,
+        }
+    }
 }
 
 /// Used when deserialising and the sender_data property is missing.
@@ -167,6 +176,19 @@ impl Default for SenderData {
     fn default() -> Self {
         Self::legacy()
     }
+}
+
+/// Used when serializing [`crate::olm::group_sessions::InboundGroupSession`]s.
+/// We want just the type of the session's [`SenderData`] to be queryable, so we
+/// store the type as a separate column/property in the database.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
+pub enum SenderDataType {
+    /// The [`SenderData`] is of type `UnknownDevice`.
+    UnknownDevice = 1,
+    /// The [`SenderData`] is of type `DeviceInfo`.
+    DeviceInfo = 2,
+    /// The [`SenderData`] is of type `SenderKnown`.
+    SenderKnown = 3,
 }
 
 #[cfg(test)]

@@ -36,8 +36,8 @@ use vodozemac::{
 };
 
 use super::{
-    BackedUpRoomKey, ExportedRoomKey, OutboundGroupSession, SenderData, SessionCreationError,
-    SessionKey,
+    BackedUpRoomKey, ExportedRoomKey, OutboundGroupSession, SenderData, SenderDataType,
+    SessionCreationError, SessionKey,
 };
 use crate::{
     error::{EventError, MegolmResult},
@@ -476,6 +476,13 @@ impl InboundGroupSession {
     #[cfg(test)]
     pub(crate) fn mark_as_imported(&mut self) {
         self.imported = true;
+    }
+
+    /// Return the [`SenderDataType`] of our [`SenderData`]. This is used during
+    /// serialization, to allow us to store the type in a separate queryable
+    /// column/property.
+    pub fn sender_data_type(&self) -> SenderDataType {
+        self.sender_data.to_type()
     }
 }
 
