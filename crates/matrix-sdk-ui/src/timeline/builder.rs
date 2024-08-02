@@ -150,6 +150,7 @@ impl TimelineBuilder {
 
         let client = room.client();
         let event_cache = client.event_cache();
+        let pinned_event_cache = Arc::new(client.pinned_event_cache().clone());
 
         // Subscribe the event cache to sync responses, in case we hadn't done it yet.
         event_cache.subscribe()?;
@@ -171,7 +172,7 @@ impl TimelineBuilder {
         )
         .with_settings(settings);
 
-        let has_events = inner.init_focus(&room_event_cache).await?;
+        let has_events = inner.init_focus(&room_event_cache, &pinned_event_cache).await?;
 
         let room = inner.room();
         let client = room.client();
@@ -180,9 +181,10 @@ impl TimelineBuilder {
             let mut pinned_event_ids_stream = room.pinned_event_ids_stream();
             Some(spawn({
                 let inner = inner.clone();
+                let cache = pinned_event_cache.clone();
                 async move {
                     while pinned_event_ids_stream.next().await.is_some() {
-                        if let Ok(events) = inner.pinned_events_load_events().await {
+                        if let Ok(events) = inner.pinned_events_load_events(&cache).await {
                             inner
                                 .replace_with_initial_remote_events(
                                     events,
@@ -267,7 +269,7 @@ impl TimelineBuilder {
                             // events, update the pinned events cache with them, reload the list of pinned event ids and reload
                             // the list of pinned events with this info.
                             if let TimelineFocus::PinnedEvents { .. } = &*focus.clone() {
-                                if let Ok(events) = inner.pinned_events_load_events().await {
+                                if let Ok(events) = inner.pinned_events_load_events(&pinned_event_cache).await {
                                     inner.replace_with_initial_remote_events(events, RemoteEventOrigin::Sync).await;
                                 }
                             } else {
