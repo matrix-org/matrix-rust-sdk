@@ -103,6 +103,8 @@ pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -
             let new_value = InboundGroupSessionIndexedDbObject::new(
                 serializer.maybe_encrypt_value(session.pickle().await)?,
                 !session.backed_up(),
+                None,
+                None,
             );
 
             // Write it to the new store
