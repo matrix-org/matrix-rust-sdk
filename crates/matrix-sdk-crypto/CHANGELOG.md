@@ -32,6 +32,9 @@ Changes:
 
 Breaking changes:
 
+- Remove the method `OlmMachine::clear_crypto_cache()`, crypto stores are not
+  supposed to have any caches anymore.
+
 - Add a `custom_account` argument to the `OlmMachine::with_store()` method, this
   allows users to learn their identity keys before they get access to the user
   and device ID.
