@@ -114,10 +114,14 @@ impl Default for SenderData {
 /// Used when serializing [`crate::olm::group_sessions::InboundGroupSession`]s.
 /// We want just the type of the session's [`SenderData`] to be queryable, so we
 /// store the type as a separate column/property in the database.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 pub enum SenderDataType {
-    UnknownDevice,
-    DeviceInfo,
-    SenderKnown,
+    /// The [`SenderData`] is of type `UnknownDevice`.
+    UnknownDevice = 1,
+    /// The [`SenderData`] is of type `DeviceInfo`.
+    DeviceInfo = 2,
+    /// The [`SenderData`] is of type `SenderKnown`.
+    SenderKnown = 3,
 }
 
 impl From<SenderData> for SenderDataType {
