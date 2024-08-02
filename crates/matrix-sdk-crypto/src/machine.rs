@@ -1609,7 +1609,7 @@ impl OlmMachine {
                 SenderData::SenderKnown { .. } => Ok(()),
                 _ => self.check_sender_trusted(session.sender_key(), sender, false).await,
             },
-            TrustRequirement::VerifiedUser => match session.sender_data {
+            TrustRequirement::VerifiedUserIdentity => match session.sender_data {
                 SenderData::SenderKnown { master_key_verified: true, .. } => Ok(()),
                 _ => self.check_sender_trusted(session.sender_key(), sender, true).await,
             },
@@ -5141,7 +5141,7 @@ pub(crate) mod tests {
             DecryptionSettings { trust_requirement: TrustRequirement::CrossSigned };
         assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
         let decryption_settings =
-            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUser };
+            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUserIdentity };
         assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
 
         // An unknown legacy session should be decryptable only when the trust
@@ -5162,7 +5162,7 @@ pub(crate) mod tests {
             DecryptionSettings { trust_requirement: TrustRequirement::CrossSigned };
         assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
         let decryption_settings =
-            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUser };
+            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUserIdentity };
         assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
 
         // A session where we have the device keys but no cross-signing
@@ -5190,7 +5190,7 @@ pub(crate) mod tests {
             DecryptionSettings { trust_requirement: TrustRequirement::CrossSigned };
         assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
         let decryption_settings =
-            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUser };
+            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUserIdentity };
         assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
     }
 
@@ -5305,7 +5305,7 @@ pub(crate) mod tests {
             DecryptionSettings { trust_requirement: TrustRequirement::CrossSigned };
         assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_ok());
         let decryption_settings =
-            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUser };
+            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUserIdentity };
         assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
 
         // If we verify Alice, the event should be decryptable in verified mode
@@ -5334,7 +5334,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         let decryption_settings =
-            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUser };
+            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUserIdentity };
         assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_ok());
 
         // If alice's cross-signing key changes, the event should not be decryptable (except for in unverified mode)
@@ -5382,7 +5382,7 @@ pub(crate) mod tests {
             DecryptionSettings { trust_requirement: TrustRequirement::CrossSigned };
         assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
         let decryption_settings =
-            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUser };
+            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUserIdentity };
         assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
 
         // ... until we acknowledge the change, at which point it should be
@@ -5408,7 +5408,7 @@ pub(crate) mod tests {
             DecryptionSettings { trust_requirement: TrustRequirement::CrossSigned };
         assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_ok());
         let decryption_settings =
-            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUser };
+            DecryptionSettings { trust_requirement: TrustRequirement::VerifiedUserIdentity };
         assert!(bob.decrypt_room_event(&event, room_id, &decryption_settings).await.is_err());
     }
 }

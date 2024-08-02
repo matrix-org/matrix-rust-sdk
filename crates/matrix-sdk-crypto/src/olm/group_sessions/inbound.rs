@@ -55,17 +55,19 @@ use crate::{
     },
 };
 
-/// The trust level required to decrypt an event
+/// The trust level required to decrypt an event.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum TrustRequirement {
-    /// Decrypt events from everyone regardless of trust
+    /// Decrypt events from everyone regardless of trust.
     Untrusted,
-    /// Only decrypt events from cross-signed or legacy devices
+    /// Only decrypt events from cross-signed or legacy sessions (Megolm
+    /// sessions created before we started collecting trust information).
     CrossSignedOrLegacy,
-    /// Only decrypt events from cross-signed devices
+    /// Only decrypt events from cross-signed devices.
     CrossSigned,
-    /// Only decrypt events from cross-signed devices where we have verified the user
-    VerifiedUser,
+    /// Only decrypt events from cross-signed devices where we have verified the
+    /// user's identity.
+    VerifiedUserIdentity,
 }
 
 /// Settings for decrypting messages
