@@ -97,6 +97,15 @@ impl SenderData {
     pub fn legacy() -> Self {
         Self::UnknownDevice { legacy_session: true, owner_check_failed: false }
     }
+
+    /// Return our type: `UnknownDevice`, `DeviceInfo`, or `SenderKnown`.
+    pub fn to_type(&self) -> SenderDataType {
+        match self {
+            Self::UnknownDevice { .. } => SenderDataType::UnknownDevice,
+            Self::DeviceInfo { .. } => SenderDataType::DeviceInfo,
+            Self::SenderKnown { .. } => SenderDataType::SenderKnown,
+        }
+    }
 }
 
 /// Used when deserialising and the sender_data property is missing.
@@ -122,16 +131,6 @@ pub enum SenderDataType {
     DeviceInfo = 2,
     /// The [`SenderData`] is of type `SenderKnown`.
     SenderKnown = 3,
-}
-
-impl From<SenderData> for SenderDataType {
-    fn from(value: SenderData) -> Self {
-        match value {
-            SenderData::UnknownDevice { .. } => Self::UnknownDevice,
-            SenderData::DeviceInfo { .. } => Self::DeviceInfo,
-            SenderData::SenderKnown { .. } => Self::SenderKnown,
-        }
-    }
 }
 
 #[cfg(test)]
