@@ -494,7 +494,6 @@ impl TryFrom<OtherUserIdentityDataSerializer> for OtherUserIdentityData {
                     self_signing_key: Arc::new(v0.self_signing_key),
                     // We migrate by pinning the current master key
                     pinned_master_key: Arc::new(RwLock::new(v0.master_key)),
-                    // TODO Migration
                     verified_latch: Arc::new(false.into()),
                 })
             }
@@ -505,7 +504,8 @@ impl TryFrom<OtherUserIdentityDataSerializer> for OtherUserIdentityData {
                     master_key: Arc::new(v1.master_key.clone()),
                     self_signing_key: Arc::new(v1.self_signing_key),
                     pinned_master_key: Arc::new(RwLock::new(v1.pinned_master_key)),
-                    // TODO Migration
+                    // Put it to false. There will be a migration to mark all users as dirty, so we
+                    // will receive an update for the identity that will correctly set up the value.
                     verified_latch: Arc::new(false.into()),
                 })
             }
@@ -516,7 +516,6 @@ impl TryFrom<OtherUserIdentityDataSerializer> for OtherUserIdentityData {
                     master_key: Arc::new(v2.master_key.clone()),
                     self_signing_key: Arc::new(v2.self_signing_key),
                     pinned_master_key: Arc::new(RwLock::new(v2.pinned_master_key)),
-                    // TODO Migration
                     verified_latch: Arc::new(v2.verified_latch.into()),
                 })
             }
