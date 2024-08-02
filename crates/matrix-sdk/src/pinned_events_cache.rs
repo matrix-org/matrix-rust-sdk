@@ -34,6 +34,15 @@ impl PinnedEventCache {
             }
         }
     }
+
+    /// Removes the pinned events associated to the provided event ids from the
+    /// cache.
+    pub async fn remove_bulk(&self, event_ids: &Vec<OwnedEventId>) {
+        let mut cache = self.inner.events.write().await;
+        for ev_id in event_ids {
+            cache.remove(ev_id);
+        }
+    }
 }
 
 impl Default for PinnedEventCache {
