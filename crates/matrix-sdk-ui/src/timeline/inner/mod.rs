@@ -354,6 +354,20 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
     }
 
+    pub(crate) async fn pinned_events_update(
+        &self,
+        events: Vec<SyncTimelineEvent>,
+        pinned_event_cache: &PinnedEventCache,
+    ) -> Option<Result<Vec<SyncTimelineEvent>, PinnedEventsLoaderError>> {
+        let focus_guard = self.focus.read().await;
+
+        if let TimelineFocusData::PinnedEvents { loader } = &*focus_guard {
+            loader.update_if_needed(events, pinned_event_cache).await
+        } else {
+            Some(Err(PinnedEventsLoaderError::TimelineFocusNotPinnedEvents))
+        }
+    }
+
     /// Run a backward pagination (in focused mode) and append the results to
     /// the timeline.
     ///

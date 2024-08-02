@@ -22,7 +22,7 @@ use matrix_sdk::{
 };
 use ruma::{events::AnySyncTimelineEvent, RoomVersionId};
 use tokio::sync::broadcast::error::RecvError;
-use tracing::{info, info_span, trace, warn, Instrument, Span};
+use tracing::{error, info, info_span, trace, warn, Instrument, Span};
 
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
@@ -269,8 +269,11 @@ impl TimelineBuilder {
                             // events, update the pinned events cache with them, reload the list of pinned event ids and reload
                             // the list of pinned events with this info.
                             if let TimelineFocus::PinnedEvents { .. } = &*focus.clone() {
-                                if let Ok(events) = inner.pinned_events_load_events(&pinned_event_cache).await {
-                                    inner.replace_with_initial_remote_events(events, RemoteEventOrigin::Sync).await;
+                                if let Some(ret) = inner.pinned_events_update(events, &pinned_event_cache).await {
+                                    match ret {
+                                        Ok(events) => inner.replace_with_initial_remote_events(events, RemoteEventOrigin::Sync).await,
+                                        Err(err) => error!("Couldn't update pinned events with incoming timeline events: {err}"),
+                                    }
                                 }
                             } else {
                                 inner.add_events_at(
