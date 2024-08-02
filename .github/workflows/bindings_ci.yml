@@ -91,7 +91,7 @@ jobs:
         uses: nttld/setup-ndk@v1
         id: install-ndk
         with:
-          ndk-version: r25c
+          ndk-version: r27
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
