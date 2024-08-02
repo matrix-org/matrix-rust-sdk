@@ -113,7 +113,7 @@ pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -
 
 /// Perform the schema upgrade v7 to v8, Just bumping the schema version.
 pub(crate) async fn schema_bump(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 8, |_, _| {
+    do_schema_upgrade(name, 8, |_, _, _| {
         // Just bump the version number to 8 to demonstrate that we have run the data
         // changes from prepare_data_for_v8.
         Ok(())
