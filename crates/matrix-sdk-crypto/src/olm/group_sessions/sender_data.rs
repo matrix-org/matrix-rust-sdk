@@ -111,6 +111,25 @@ impl Default for SenderData {
     }
 }
 
+/// Used when serializing [`crate::olm::group_sessions::InboundGroupSession`]s.
+/// We want just the type of the session's [`SenderData`] to be queryable, so we
+/// store the type as a separate column/property in the database.
+pub enum SenderDataType {
+    UnknownDevice,
+    DeviceInfo,
+    SenderKnown,
+}
+
+impl From<SenderData> for SenderDataType {
+    fn from(value: SenderData) -> Self {
+        match value {
+            SenderData::UnknownDevice { .. } => Self::UnknownDevice,
+            SenderData::DeviceInfo { .. } => Self::DeviceInfo,
+            SenderData::SenderKnown { .. } => Self::SenderKnown,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
