@@ -11,6 +11,8 @@ use thiserror::Error;
 use tokio::sync::Semaphore;
 use tracing::info;
 
+const MAX_CONCURRENT_REQUESTS: usize = 10;
+
 /// Utility to load the pinned events in a room.
 pub struct PinnedEventsLoader {
     room: Arc<Box<dyn PinnedEventsRoom>>,
@@ -21,7 +23,11 @@ pub struct PinnedEventsLoader {
 impl PinnedEventsLoader {
     /// Creates a new `PinnedEventsLoader` instance.
     pub fn new(room: Box<dyn PinnedEventsRoom>, max_events_to_load: usize) -> Self {
-        Self { room: Arc::new(room), max_events_to_load, max_concurrent_requests: 10 }
+        Self {
+            room: Arc::new(room),
+            max_events_to_load,
+            max_concurrent_requests: MAX_CONCURRENT_REQUESTS,
+        }
     }
 
     /// Loads the pinned events in this room, using the cache first and then
