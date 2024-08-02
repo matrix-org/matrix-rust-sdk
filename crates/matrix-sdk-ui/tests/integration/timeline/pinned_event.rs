@@ -11,7 +11,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, BOB};
 use matrix_sdk_ui::{timeline::TimelineFocus, Timeline};
-use ruma::{event_id, owned_room_id, OwnedEventId, OwnedRoomId};
+use ruma::{event_id, owned_event_id, owned_room_id, OwnedEventId, OwnedRoomId};
 use serde_json::json;
 use stream_assert::assert_pending;
 use wiremock::MockServer;
@@ -224,11 +224,9 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     drop(timeline);
     drop(room);
 
-    // Set up a sync response with only the pinned event ids and no events, so if they exist later
-    // we know they come from the cache
-    let _ = test_helper
-        .setup_sync_response(Vec::new(), Some(vec!["$1", "$2"]))
-        .await;
+    // Set up a sync response with only the pinned event ids and no events, so if
+    // they exist later we know they come from the cache
+    let _ = test_helper.setup_sync_response(Vec::new(), Some(vec!["$1", "$2"])).await;
 
     // Get a new room instance
     let room = test_helper.client.get_room(&room_id).unwrap();
@@ -244,7 +242,29 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     assert!(!items.is_empty()); // These events came from the cache
     assert!(test_helper.client.pinned_event_cache().get(event_id!("$1")).await.is_some());
 
+    // Drop the existing room and timeline instances
     test_helper.server.reset().await;
+    drop(timeline);
+    drop(room);
+
+    // Now remove the pinned events from the cache and try again
+    test_helper.client.pinned_event_cache().remove_bulk(&vec![owned_event_id!("$1")]).await;
+
+    let _ = test_helper.setup_sync_response(Vec::new(), Some(vec!["$1", "$2"])).await;
+
+    // Get a new room instance
+    let room = test_helper.client.get_room(&room_id).unwrap();
+
+    // And a new timeline one
+    let timeline = Timeline::builder(&room)
+        .with_focus(TimelineFocus::PinnedEvents { max_events_to_load: 2 })
+        .build()
+        .await
+        .unwrap();
+
+    let (items, _) = timeline.subscribe().await;
+    assert!(items.is_empty()); // These events are no longer in the cache, so
+                               // they couldn't be retrieved
 }
 
 struct TestHelper {
