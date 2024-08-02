@@ -512,6 +512,7 @@ impl IdentityManager {
             *changed_private_identity = self.check_private_identity(&identity).await;
             Ok(identity.into())
         } else {
+            // First time seen, create the identity. The current MSK will be pinned.
             let identity = OtherUserIdentityData::new(master_key, self_signing)?;
             Ok(identity.into())
         }
@@ -1338,7 +1339,7 @@ pub(crate) mod tests {
     use std::ops::Deref;
 
     use futures_util::pin_mut;
-    use matrix_sdk_test::{async_test, response_from_file};
+    use matrix_sdk_test::{async_test, response_from_file, test_json};
     use ruma::{
         api::{client::keys::get_keys::v3::Response as KeysQueryResponse, IncomingResponse},
         device_id, user_id, TransactionId,
@@ -1896,5 +1897,130 @@ pub(crate) mod tests {
         assert_eq!(devices.devices().count(), 1);
 
         manager.store.get_device_data(other_user, device_id!("OBEBOSKTBE")).await.unwrap().unwrap();
+    }
+
+    #[async_test]
+    async fn test_manager_identity_updates() {
+        use test_json::keys_query_sets::IdentityChangeDataSet as DataSet;
+
+        let manager = manager_test_helper(user_id(), device_id()).await;
+        let other_user = DataSet::user_id();
+        let devices = manager.store.get_user_devices(other_user).await.unwrap();
+        assert_eq!(devices.devices().count(), 0);
+
+        let identity = manager.store.get_user_identity(other_user).await.unwrap();
+        assert!(identity.is_none());
+
+        manager
+            .receive_keys_query_response(
+                &TransactionId::new(),
+                &DataSet::key_query_with_identity_a(),
+            )
+            .await
+            .unwrap();
+
+        let identity = manager.store.get_user_identity(other_user).await.unwrap().unwrap();
+        let other_identity = identity.other().unwrap();
+
+        // We should now have an identity for the user but no pin violation
+        // (pinned master key is the current one)
+        assert!(!other_identity.has_pin_violation());
+        let first_device = manager
+            .store
+            .get_device_data(other_user, DataSet::first_device_id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(first_device.is_cross_signed_by_owner(&identity));
+
+        // We receive a new keys update for that user, with a new identity
+        manager
+            .receive_keys_query_response(
+                &TransactionId::new(),
+                &DataSet::key_query_with_identity_b(),
+            )
+            .await
+            .unwrap();
+
+        let identity = manager.store.get_user_identity(other_user).await.unwrap().unwrap();
+        let other_identity = identity.other().unwrap();
+
+        // The previous known identity has been replaced, there should be a pin
+        // violation
+        assert!(other_identity.has_pin_violation());
+
+        let second_device = manager
+            .store
+            .get_device_data(other_user, DataSet::second_device_id())
+            .await
+            .unwrap()
+            .unwrap();
+
+        // There is a new device signed by the new identity
+        assert!(second_device.is_cross_signed_by_owner(&identity));
+
+        // The first device should not be signed by the new identity
+        let first_device = manager
+            .store
+            .get_device_data(other_user, DataSet::first_device_id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!first_device.is_cross_signed_by_owner(&identity));
+
+        let remember_previous_identity = other_identity.clone();
+        // We receive updated keys for that user, with no identity anymore.
+        // Notice that there is no server API to delete identity, but we want to
+        // test here that a home server cannot clear the identity and
+        // subsequently serve a new one which would get automatically approved.
+        manager
+            .receive_keys_query_response(
+                &TransactionId::new(),
+                &DataSet::key_query_with_identity_no_identity(),
+            )
+            .await
+            .unwrap();
+
+        let identity = manager.store.get_user_identity(other_user).await.unwrap().unwrap();
+        let other_identity = identity.other().unwrap();
+
+        assert_eq!(other_identity, &remember_previous_identity);
+        assert!(other_identity.has_pin_violation());
+    }
+
+    #[async_test]
+    async fn test_manager_resolve_identity_pin_violation() {
+        use test_json::keys_query_sets::IdentityChangeDataSet as DataSet;
+
+        let manager = manager_test_helper(user_id(), device_id()).await;
+        let other_user = DataSet::user_id();
+
+        manager
+            .receive_keys_query_response(
+                &TransactionId::new(),
+                &DataSet::key_query_with_identity_a(),
+            )
+            .await
+            .unwrap();
+
+        // We receive a new keys update for that user, with a new identity
+        manager
+            .receive_keys_query_response(
+                &TransactionId::new(),
+                &DataSet::key_query_with_identity_b(),
+            )
+            .await
+            .unwrap();
+
+        let identity = manager.store.get_user_identity(other_user).await.unwrap().unwrap();
+        let other_identity = identity.other().unwrap();
+
+        // We have a new identity now, so there should be a pin violation
+        assert!(other_identity.has_pin_violation());
+
+        // Resolve the violation by pinning the new identity
+        other_identity.pin();
+
+        assert!(!other_identity.has_pin_violation());
     }
 }
