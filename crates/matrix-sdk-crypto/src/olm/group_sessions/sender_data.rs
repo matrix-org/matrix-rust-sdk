@@ -191,6 +191,19 @@ impl SenderData {
             SenderData::SenderVerified(..) => 4,
         }
     }
+
+    /// Return our type as a [`SenderDataType`].
+    pub fn to_type(&self) -> SenderDataType {
+        match self {
+            Self::UnknownDevice { .. } => SenderDataType::UnknownDevice,
+            Self::DeviceInfo { .. } => SenderDataType::DeviceInfo,
+            Self::SenderUnverifiedButPreviouslyVerified { .. } => {
+                SenderDataType::SenderUnverifiedButPreviouslyVerified
+            }
+            Self::SenderUnverified { .. } => SenderDataType::SenderUnverified,
+            Self::SenderVerified { .. } => SenderDataType::SenderVerified,
+        }
+    }
 }
 
 /// Used when deserialising and the sender_data property is missing.
@@ -264,6 +277,23 @@ impl From<SenderDataReader> for SenderData {
             }
         }
     }
+}
+
+/// Used when serializing [`crate::olm::group_sessions::InboundGroupSession`]s.
+/// We want just the type of the session's [`SenderData`] to be queryable, so we
+/// store the type as a separate column/property in the database.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
+pub enum SenderDataType {
+    /// The [`SenderData`] is of type `UnknownDevice`.
+    UnknownDevice = 1,
+    /// The [`SenderData`] is of type `DeviceInfo`.
+    DeviceInfo = 2,
+    /// The [`SenderData`] is of type `SenderUnverifiedButPreviouslyVerified`.
+    SenderUnverifiedButPreviouslyVerified = 3,
+    /// The [`SenderData`] is of type `SenderUnverified`.
+    SenderUnverified = 4,
+    /// The [`SenderData`] is of type `SenderVerified`.
+    SenderVerified = 5,
 }
 
 #[cfg(test)]
