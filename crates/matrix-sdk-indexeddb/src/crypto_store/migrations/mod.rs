@@ -176,9 +176,20 @@ async fn db_version(name: &str) -> Result<u32, IndexeddbCryptoStoreError> {
 
 type OldVersion = u32;
 
+/// Run a database schema upgrade operation
+///
+/// # Arguments
+///
+/// * `name` - name of the indexeddb database to be upgraded.
+/// * `version` - version we are upgrading to.
+/// * `f` - closure which will be called if the database is below the version
+///   given. It will be called with three arguments `(db, txn, oldver)`, where:
+///   * `db` - the [`IdbDatabase`]
+///   * `txn` - the database transaction: a [`IdbTransaction`]
+///   * `oldver` - the version number before the upgrade.
 async fn do_schema_upgrade<F>(name: &str, version: u32, f: F) -> Result<(), DomException>
 where
-    F: Fn(&IdbDatabase, OldVersion) -> Result<(), JsValue> + 'static,
+    F: Fn(&IdbDatabase, IdbTransaction<'_>, OldVersion) -> Result<(), JsValue> + 'static,
 {
     info!("IndexeddbCryptoStore upgrade schema -> v{version} starting");
     let mut db_req: OpenDbRequest = IdbDatabase::open_u32(name, version)?;
@@ -190,7 +201,7 @@ where
         let old_version = evt.old_version() as u32;
 
         // Run the upgrade code we were supplied
-        f(evt.db(), old_version)
+        f(evt.db(), evt.transaction(), old_version)
     }));
 
     let db = db_req.await?;
