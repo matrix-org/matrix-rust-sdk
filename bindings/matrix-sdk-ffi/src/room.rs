@@ -228,6 +228,30 @@ impl Room {
         Ok(Timeline::new(timeline))
     }
 
+    pub async fn pinned_events_timeline(
+        &self,
+        internal_id_prefix: Option<String>,
+        max_events_to_load: u16,
+    ) -> Result<Arc<Timeline>, ClientError> {
+        let room = &self.inner;
+
+        let mut builder = matrix_sdk_ui::timeline::Timeline::builder(room);
+
+        if let Some(internal_id_prefix) = internal_id_prefix {
+            builder = builder.with_internal_id_prefix(internal_id_prefix);
+        }
+
+        let timeline =
+            builder.with_focus(TimelineFocus::PinnedEvents { max_events_to_load }).build().await?;
+
+        Ok(Timeline::new(timeline))
+    }
+
+    pub async fn clear_pinned_events_cache(&self) {
+        let pinned_event_ids = self.inner.pinned_event_ids();
+        self.inner.client().pinned_event_cache().remove_bulk(&pinned_event_ids).await;
+    }
+
     pub fn is_encrypted(&self) -> Result<bool, ClientError> {
         Ok(RUNTIME.block_on(self.inner.is_encrypted())?)
     }
@@ -520,6 +544,11 @@ impl Room {
     ) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.can_user_send_message(&user_id, message.into()).await?)
+    }
+
+    pub async fn can_user_pin_unpin(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.can_user_pin_unpin(&user_id).await?)
     }
 
     pub async fn can_user_trigger_room_notification(

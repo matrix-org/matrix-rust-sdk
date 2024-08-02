@@ -38,7 +38,7 @@ use super::{atomic_bool_deserializer, atomic_bool_serializer};
 #[cfg(any(test, feature = "testing", doc))]
 use crate::OlmMachine;
 use crate::{
-    error::{EventError, OlmError, OlmResult, SignatureError},
+    error::{EventError, MismatchedIdentityKeysError, OlmError, OlmResult, SignatureError},
     identities::{OwnUserIdentityData, UserIdentityData},
     olm::{
         InboundGroupSession, OutboundGroupSession, Session, ShareInfo, SignedJsonObject, VerifyJson,
@@ -55,7 +55,7 @@ use crate::{
         DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures, SignedKey,
     },
     verification::VerificationMachine,
-    Account, MegolmError, OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
+    Account, OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
 };
 
 pub enum MaybeEncryptedRoomKey {
@@ -177,7 +177,10 @@ impl Device {
     /// An `InboundGroupSession` is exchanged between devices as an Olm
     /// encrypted `m.room_key` event. This method determines if this `Device`
     /// can be confirmed as the creator and owner of the `m.room_key`.
-    pub fn is_owner_of_session(&self, session: &InboundGroupSession) -> Result<bool, MegolmError> {
+    pub fn is_owner_of_session(
+        &self,
+        session: &InboundGroupSession,
+    ) -> Result<bool, MismatchedIdentityKeysError> {
         if session.has_been_imported() {
             // An imported room key means that we did not receive the room key as a
             // `m.room_key` event when the room key was initially exchanged.
@@ -202,22 +205,27 @@ impl Device {
         } else if let Some(key) =
             session.signing_keys().get(&DeviceKeyAlgorithm::Ed25519).and_then(|k| k.ed25519())
         {
-            // Room keys are received as an `m.room.encrypted` event using the `m.olm`
-            // algorithm. Upon decryption of the `m.room.encrypted` event, the
-            // decrypted content will contain also a `Ed25519` public key[1].
+            // Room keys are received as an `m.room.encrypted` to-device message using the
+            // `m.olm` algorithm. Upon decryption of the `m.room.encrypted` to-device
+            // message, the decrypted content will contain also an `Ed25519` public key[1].
             //
             // The inclusion of this key means that the `Curve25519` key of the `Device` and
             // Olm `Session`, established using the DH authentication of the
-            // double ratchet, binds the `Ed25519` key of the `Device`
+            // double ratchet, "binds" the `Ed25519` key of the `Device`. In other words, it
+            // prevents an attack in which Mallory publishes Bob's public `Curve25519` key
+            // as her own, and subsequently forwards an Olm message she received from Bob to
+            // Alice, claiming that she, Mallory, originated the Olm message (leading Alice
+            // to believe that Mallory also sent the messages in the subsequent Megolm
+            // session).
             //
-            // On the other hand, the `Ed25519` key is binding the `Curve25519` key
+            // On the other hand, the `Ed25519` key binds the `Curve25519` key
             // using a signature which is uploaded to the server as
             // `device_keys` and downloaded by us using a `/keys/query` request.
             //
             // A `Device` is considered to be the owner of a room key iff:
             //     1. The `Curve25519` key that was used to establish the Olm `Session` that
-            //        was used to decrypt the event is binding the `Ed25519`key of this
-            //        `Device`.
+            //        was used to decrypt the to-device message is binding the `Ed25519` key
+            //        of this `Device` via the content of the to-device message, and:
             //     2. The `Ed25519` key of this device has signed a `device_keys` object
             //        that contains the `Curve25519` key from step 1.
             //
@@ -261,7 +269,7 @@ impl Device {
             match (ed25519_comparison, curve25519_comparison) {
                 // If we have any of the keys but they don't turn out to match, refuse to decrypt
                 // instead.
-                (_, Some(false)) | (Some(false), _) => Err(MegolmError::MismatchedIdentityKeys {
+                (_, Some(false)) | (Some(false), _) => Err(MismatchedIdentityKeysError {
                     key_ed25519: key.into(),
                     device_ed25519: self.ed25519_key().map(Into::into),
                     key_curve25519: session.sender_key().into(),
@@ -812,24 +820,17 @@ impl DeviceData {
         event_type: &str,
         content: impl Serialize,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
-        #[cfg(feature = "message-ids")]
-        let message_id = {
-            #[cfg(not(target_arch = "wasm32"))]
-            let id = ulid::Ulid::new().to_string();
-            #[cfg(target_arch = "wasm32")]
-            let id = ruma::TransactionId::new().to_string();
+        #[cfg(not(target_arch = "wasm32"))]
+        let message_id = ulid::Ulid::new().to_string();
+        #[cfg(target_arch = "wasm32")]
+        let message_id = ruma::TransactionId::new().to_string();
 
-            tracing::Span::current().record("message_id", &id);
-            Some(id)
-        };
-
-        #[cfg(not(feature = "message-ids"))]
-        let message_id = None;
+        tracing::Span::current().record("message_id", &message_id);
 
         let session = self.get_most_recent_session(store).await?;
 
         if let Some(mut session) = session {
-            let message = session.encrypt(self, event_type, content, message_id).await?;
+            let message = session.encrypt(self, event_type, content, Some(message_id)).await?;
             Ok((session, message))
         } else {
             trace!("Trying to encrypt an event for a device, but no Olm session is found.");

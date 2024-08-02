@@ -20,6 +20,8 @@ use matrix_sdk::{
 };
 use thiserror::Error;
 
+use crate::timeline::pinned_events_loader::PinnedEventsLoaderError;
+
 /// Errors specific to the timeline.
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -48,6 +50,10 @@ pub enum Error {
     #[error("Failed toggling reaction")]
     FailedToToggleReaction,
 
+    /// Couldn't read the encryption state of the room.
+    #[error("The room's encryption state is unknown.")]
+    UnknownEncryptionState,
+
     /// Something went wrong with the room event cache.
     #[error("Something went wrong with the room event cache.")]
     EventCacheError(#[from] EventCacheError),
@@ -55,6 +61,10 @@ pub enum Error {
     /// An error happened during pagination.
     #[error("An error happened during pagination.")]
     PaginationError(#[from] PaginationError),
+
+    /// An error happened during pagination.
+    #[error("An error happened when loading pinned events.")]
+    PinnedEventsError(#[from] PinnedEventsLoaderError),
 
     /// An error happened while operating the room's send queue.
     #[error(transparent)]

@@ -28,6 +28,7 @@ pub enum StateTestEvent {
     RedactedState,
     RoomAvatar,
     RoomName,
+    RoomPinnedEvents,
     RoomTopic,
     Custom(JsonValue),
 }
@@ -53,6 +54,7 @@ impl StateTestEvent {
             Self::RedactedState => test_json::sync_events::REDACTED_STATE.to_owned(),
             Self::RoomAvatar => test_json::sync_events::ROOM_AVATAR.to_owned(),
             Self::RoomName => test_json::sync_events::NAME.to_owned(),
+            Self::RoomPinnedEvents => test_json::sync_events::PINNED_EVENTS.to_owned(),
             Self::RoomTopic => test_json::sync_events::TOPIC.to_owned(),
             Self::Custom(json) => json,
         }

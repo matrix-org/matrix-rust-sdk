@@ -18,6 +18,7 @@ pub use normal::{
 use ruma::{
     assign,
     events::{
+        beacon_info::BeaconInfoEventContent,
         call::member::CallMemberEventContent,
         macros::EventContent,
         room::{
@@ -30,6 +31,7 @@ use ruma::{
             join_rules::RoomJoinRulesEventContent,
             member::MembershipState,
             name::RoomNameEventContent,
+            pinned_events::RoomPinnedEventsEventContent,
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
@@ -81,6 +83,9 @@ impl fmt::Display for DisplayName {
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
     pub(crate) avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
+    /// All shared live location beacons of this room.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub(crate) beacons: BTreeMap<OwnedUserId, MinimalStateEvent<BeaconInfoEventContent>>,
     /// The canonical alias of this room.
     pub(crate) canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
     /// The `m.room.create` event content of this room.
@@ -117,6 +122,8 @@ pub struct BaseRoomInfo {
     /// others, and this field collects them.
     #[serde(skip_serializing_if = "RoomNotableTags::is_empty", default)]
     pub(crate) notable_tags: RoomNotableTags,
+    /// The `m.room.pinned_events` of this room.
+    pub(crate) pinned_events: Option<RoomPinnedEventsEventContent>,
 }
 
 impl BaseRoomInfo {
@@ -141,6 +148,9 @@ impl BaseRoomInfo {
     /// Returns true if the event modified the info, false otherwise.
     pub fn handle_state_event(&mut self, ev: &AnySyncStateEvent) -> bool {
         match ev {
+            AnySyncStateEvent::BeaconInfo(b) => {
+                self.beacons.insert(b.state_key().clone(), b.into());
+            }
             // No redacted branch - enabling encryption cannot be undone.
             AnySyncStateEvent::RoomEncryption(SyncStateEvent::Original(encryption)) => {
                 self.encryption = Some(encryption.content.clone());
@@ -193,6 +203,9 @@ impl BaseRoomInfo {
                 self.rtc_member.retain(|_, ev| {
                     ev.as_original().is_some_and(|o| !o.content.active_memberships(None).is_empty())
                 });
+            }
+            AnySyncStateEvent::RoomPinnedEvents(p) => {
+                self.pinned_events = p.as_original().map(|p| p.content.clone());
             }
             _ => return false,
         }
@@ -252,6 +265,11 @@ impl BaseRoomInfo {
                 // Ignore stripped call state events. Rooms that are not in Joined or Left state
                 // wont have call information.
                 return false;
+            }
+            AnyStrippedStateEvent::RoomPinnedEvents(p) => {
+                if let Some(pinned) = p.content.pinned.clone() {
+                    self.pinned_events = Some(RoomPinnedEventsEventContent::new(pinned));
+                }
             }
             _ => return false,
         }
@@ -335,6 +353,7 @@ impl Default for BaseRoomInfo {
     fn default() -> Self {
         Self {
             avatar: None,
+            beacons: BTreeMap::new(),
             canonical_alias: None,
             create: None,
             dm_targets: Default::default(),
@@ -349,6 +368,7 @@ impl Default for BaseRoomInfo {
             rtc_member: BTreeMap::new(),
             is_marked_unread: false,
             notable_tags: RoomNotableTags::empty(),
+            pinned_events: None,
         }
     }
 }

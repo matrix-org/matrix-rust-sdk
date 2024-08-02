@@ -52,6 +52,8 @@ use ruma::{
     },
     assign,
     events::{
+        beacon::BeaconEventContent,
+        beacon_info::BeaconInfoEventContent,
         call::notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         direct::DirectEventContent,
         marked_unread::MarkedUnreadEventContent,
@@ -70,11 +72,11 @@ use ruma::{
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         tag::{TagInfo, TagName},
         typing::SyncTypingEvent,
-        AnyRoomAccountDataEvent, AnyTimelineEvent, EmptyStateKey, Mentions,
-        MessageLikeEventContent, MessageLikeEventType, RedactContent, RedactedStateEventContent,
-        RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType,
-        StateEventContent, StateEventType, StaticEventContent, StaticStateEventContent,
-        SyncStateEvent,
+        AnyRoomAccountDataEvent, AnyRoomAccountDataEventContent, AnyTimelineEvent, EmptyStateKey,
+        Mentions, MessageLikeEventContent, MessageLikeEventType, OriginalSyncStateEvent,
+        RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
+        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
+        StaticEventContent, StaticStateEventContent, SyncStateEvent,
     },
     push::{Action, PushConditionRoomCtx},
     serde::Raw,
@@ -97,7 +99,7 @@ use crate::{
     attachment::AttachmentConfig,
     client::WeakClient,
     config::RequestConfig,
-    error::WrongRoomState,
+    error::{BeaconError, WrongRoomState},
     event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequest},
@@ -950,6 +952,79 @@ impl Room {
         }
 
         Ok(true)
+    }
+
+    /// Set the given account data event for this room.
+    ///
+    /// # Example
+    /// ```
+    /// # async {
+    /// # let room: matrix_sdk::Room = todo!();
+    /// # let event_id: ruma::OwnedEventId = todo!();
+    /// use matrix_sdk::ruma::events::fully_read::FullyReadEventContent;
+    /// let content = FullyReadEventContent::new(event_id);
+    ///
+    /// room.set_account_data(content).await?;
+    /// # anyhow::Ok(())
+    /// # };
+    /// ```
+    pub async fn set_account_data<T>(
+        &self,
+        content: T,
+    ) -> Result<set_room_account_data::v3::Response>
+    where
+        T: RoomAccountDataEventContent,
+    {
+        let own_user = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+
+        let request = set_room_account_data::v3::Request::new(
+            own_user.to_owned(),
+            self.room_id().to_owned(),
+            &content,
+        )?;
+
+        Ok(self.client.send(request, None).await?)
+    }
+
+    /// Set the given raw account data event in this room.
+    ///
+    /// # Example
+    /// ```
+    /// # async {
+    /// # let room: matrix_sdk::Room = todo!();
+    /// use matrix_sdk::ruma::{
+    ///     events::{
+    ///         marked_unread::MarkedUnreadEventContent,
+    ///         AnyRoomAccountDataEventContent, EventContent,
+    ///     },
+    ///     serde::Raw,
+    /// };
+    /// let marked_unread_content = MarkedUnreadEventContent::new(true);
+    /// let full_event: AnyRoomAccountDataEventContent =
+    ///     marked_unread_content.clone().into();
+    /// room.set_account_data_raw(
+    ///     marked_unread_content.event_type(),
+    ///     Raw::new(&full_event).unwrap(),
+    /// )
+    /// .await?;
+    /// # anyhow::Ok(())
+    /// # };
+    /// ```
+    pub async fn set_account_data_raw(
+        &self,
+        event_type: RoomAccountDataEventType,
+        content: Raw<AnyRoomAccountDataEventContent>,
+    ) -> Result<set_room_account_data::v3::Response> {
+        let own_user = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+
+        let request = set_room_account_data::v3::Request::new_raw(
+            own_user.to_owned(),
+            self.room_id().to_owned(),
+            event_type,
+            content,
+        );
+
+        Ok(self.client.send(request, None).await?)
     }
 
     /// Adds a tag to the room, or updates it if it already exists.
@@ -2258,6 +2333,17 @@ impl Room {
         Ok(self.room_power_levels().await?.user_can_send_message(user_id, message))
     }
 
+    /// Returns true if the user with the given user_id is able to pin or unpin
+    /// events in the room.
+    ///
+    /// The call may fail if there is an error in getting the power levels.
+    pub async fn can_user_pin_unpin(&self, user_id: &UserId) -> Result<bool> {
+        Ok(self
+            .room_power_levels()
+            .await?
+            .user_can_send_state(user_id, StateEventType::RoomPinnedEvents))
+    }
+
     /// Returns true if the user with the given user_id is able to trigger a
     /// notification in the room.
     ///
@@ -2666,6 +2752,101 @@ impl Room {
         .await?;
 
         Ok(())
+    }
+
+    /// Get the beacon information event in the room for the current user.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the event is redacted, stripped, not found or could
+    /// not be deserialized.
+    async fn get_user_beacon_info(
+        &self,
+    ) -> Result<OriginalSyncStateEvent<BeaconInfoEventContent>, BeaconError> {
+        let raw_event = self
+            .get_state_event_static_for_key::<BeaconInfoEventContent, _>(self.own_user_id())
+            .await?
+            .ok_or(BeaconError::NotFound)?;
+
+        match raw_event.deserialize()? {
+            SyncOrStrippedState::Sync(SyncStateEvent::Original(beacon_info)) => Ok(beacon_info),
+            SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_)) => Err(BeaconError::Redacted),
+            SyncOrStrippedState::Stripped(_) => Err(BeaconError::Stripped),
+        }
+    }
+
+    /// Start sharing live location in the room.
+    ///
+    /// # Arguments
+    ///
+    /// * `duration_millis` - The duration for which the live location is
+    ///   shared, in milliseconds.
+    /// * `description` - An optional description for the live location share.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the room is not joined or if the state event could
+    /// not be sent.
+    pub async fn start_live_location_share(
+        &self,
+        duration_millis: u64,
+        description: Option<String>,
+    ) -> Result<send_state_event::v3::Response> {
+        self.ensure_room_joined()?;
+
+        self.send_state_event_for_key(
+            self.own_user_id(),
+            BeaconInfoEventContent::new(
+                description,
+                Duration::from_millis(duration_millis),
+                true,
+                None,
+            ),
+        )
+        .await
+    }
+
+    /// Stop sharing live location in the room.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the room is not joined, if the beacon information
+    /// is redacted or stripped, or if the state event is not found.
+    pub async fn stop_live_location_share(
+        &self,
+    ) -> Result<send_state_event::v3::Response, BeaconError> {
+        self.ensure_room_joined()?;
+
+        let mut beacon_info_event = self.get_user_beacon_info().await?;
+        beacon_info_event.content.stop();
+        Ok(self.send_state_event_for_key(self.own_user_id(), beacon_info_event.content).await?)
+    }
+
+    /// Send a location beacon event in the current room.
+    ///
+    /// # Arguments
+    ///
+    /// * `geo_uri` - The geo URI of the location beacon.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the room is not joined, if the beacon information
+    /// is redacted or stripped, if the location share is no longer live,
+    /// or if the state event is not found.
+    pub async fn send_location_beacon(
+        &self,
+        geo_uri: String,
+    ) -> Result<send_message_event::v3::Response, BeaconError> {
+        self.ensure_room_joined()?;
+
+        let beacon_info_event = self.get_user_beacon_info().await?;
+
+        if beacon_info_event.content.is_live() {
+            let content = BeaconEventContent::new(beacon_info_event.event_id, geo_uri, None);
+            Ok(self.send(content).await?)
+        } else {
+            Err(BeaconError::NotLive)
+        }
     }
 
     /// Send a call notification event in the current room.

@@ -25,7 +25,7 @@ pub(crate) use outbound::ShareState;
 pub use outbound::{
     EncryptionSettings, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
 };
-pub use sender_data::{SenderData, SenderDataRetryDetails};
+pub use sender_data::SenderData;
 pub(crate) use sender_data_finder::SenderDataFinder;
 use thiserror::Error;
 pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};

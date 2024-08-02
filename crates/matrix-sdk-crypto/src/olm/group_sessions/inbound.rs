@@ -471,6 +471,12 @@ impl InboundGroupSession {
 
         Ok((decrypted_object, decrypted.message_index))
     }
+
+    /// For test only, mark this session as imported.
+    #[cfg(test)]
+    pub(crate) fn mark_as_imported(&mut self) {
+        self.imported = true;
+    }
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -627,7 +633,7 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id, events::room::history_visibility::HistoryVisibility, room_id, user_id, DeviceId,
-        UInt, UserId,
+        UserId,
     };
     use vodozemac::{
         megolm::{SessionKey, SessionOrdering},
@@ -635,7 +641,7 @@ mod tests {
     };
 
     use crate::{
-        olm::{InboundGroupSession, SenderData, SenderDataRetryDetails},
+        olm::{InboundGroupSession, SenderData},
         types::EventEncryptionAlgorithm,
         Account,
     };
@@ -699,10 +705,11 @@ mod tests {
         // And we populated the InboundGroupSession's sender_data with a default value,
         // with legacy_session set to true.
         assert_let!(
-            SenderData::UnknownDevice { retry_details, legacy_session } = unpickled.sender_data
+            SenderData::UnknownDevice { legacy_session, owner_check_failed } =
+                unpickled.sender_data
         );
-        assert_eq!(retry_details.retry_count, 0);
         assert!(legacy_session);
+        assert!(!owner_check_failed);
     }
 
     #[async_test]
@@ -714,7 +721,7 @@ mod tests {
             Ed25519PublicKey::from_base64("wTRTdz4rn4EY+68cKPzpMdQ6RAlg7T8cbTmEjaXuUww").unwrap(),
             room_id!("!test:localhost"),
             &create_session_key(),
-            SenderData::unknown_retry_at(SenderDataRetryDetails::new(5, 1234)),
+            SenderData::unknown(),
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             Some(HistoryVisibility::Shared),
         )
@@ -757,11 +764,7 @@ mod tests {
                 "signing_key":{"ed25519":"wTRTdz4rn4EY+68cKPzpMdQ6RAlg7T8cbTmEjaXuUww"},
                 "sender_data":{
                     "UnknownDevice":{
-                        "retry_details":{
-                            "retry_count":5,
-                            "next_retry_time_ms":1234
-                        },
-                        "legacy_session":false
+                        "legacy_session":true
                     }
                 },
                 "room_id":"!test:localhost",
@@ -805,10 +808,6 @@ mod tests {
             },
             "sender_data":{
                 "UnknownDevice":{
-                    "retry_details":{
-                        "retry_count":0,
-                        "next_retry_time_ms":98765
-                    },
                     "legacy_session":false
                 }
             },
@@ -832,13 +831,12 @@ mod tests {
 
         // And we populated the InboundGroupSession's sender_data with the provided
         // values
-        let SenderData::UnknownDevice { retry_details, legacy_session } = unpickled.sender_data
-        else {
-            panic!("Expected sender_data to be UnknownDevice!");
-        };
-        assert_eq!(retry_details.retry_count, 0);
-        assert_eq!(retry_details.next_retry_time_ms.0, UInt::new(98765).unwrap());
+        assert_let!(
+            SenderData::UnknownDevice { legacy_session, owner_check_failed } =
+                unpickled.sender_data
+        );
         assert!(!legacy_session);
+        assert!(!owner_check_failed);
     }
 
     #[async_test]

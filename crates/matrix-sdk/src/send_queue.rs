@@ -44,7 +44,7 @@
 //!   queue for the given room has been reopened for the first time.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, RwLock as SyncRwLock,
@@ -52,20 +52,30 @@ use std::{
 };
 
 use matrix_sdk_base::{
-    store::{QueuedEvent, SerializableEventContent},
+    store::{
+        ChildTransactionId, DependentQueuedEvent, DependentQueuedEventKind, QueuedEvent,
+        SerializableEventContent,
+    },
     RoomState, StoreError,
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use ruma::{
-    events::{AnyMessageLikeEventContent, EventContent as _},
+    events::{
+        room::message::RoomMessageEventContentWithoutRelation, AnyMessageLikeEventContent,
+        EventContent as _,
+    },
     serde::Raw,
-    OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
+    EventId, OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
 };
 use tokio::sync::{broadcast, Notify, RwLock};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
-    client::WeakClient, config::RequestConfig, error::RetryKind, room::WeakRoom, Client, Room,
+    client::WeakClient,
+    config::RequestConfig,
+    error::RetryKind,
+    room::{edit::EditedContent, WeakRoom},
+    Client, Room,
 };
 
 /// A client-wide send queue, for all the rooms known by a client.
@@ -410,6 +420,12 @@ impl RoomSendQueue {
                 break;
             }
 
+            // Try to apply dependent events now; those applying to previously failed
+            // attempts (local echoes) would succeed now.
+            if let Err(err) = queue.apply_dependent_events().await {
+                warn!("errors when applying dependent events: {err}");
+            }
+
             if !locally_enabled.load(Ordering::SeqCst) {
                 trace!("not enabled, sleeping");
                 // Wait for an explicit wakeup.
@@ -453,7 +469,7 @@ impl RoomSendQueue {
                 Ok(res) => {
                     trace!(txn_id = %queued_event.transaction_id, event_id = %res.event_id, "successfully sent");
 
-                    match queue.mark_as_sent(&queued_event.transaction_id).await {
+                    match queue.mark_as_sent(&queued_event.transaction_id, &res.event_id).await {
                         Ok(()) => {
                             let _ = updates.send(RoomSendQueueUpdate::SentEvent {
                                 transaction_id: queued_event.transaction_id,
@@ -602,6 +618,11 @@ impl QueueStorage {
         Self { room_id: room, being_sent: Default::default(), client }
     }
 
+    /// Small helper to get a strong Client from the weak one.
+    fn client(&self) -> Result<Client, RoomSendQueueStorageError> {
+        self.client.get().ok_or(RoomSendQueueStorageError::ClientShuttingDown)
+    }
+
     /// Push a new event to be sent in the queue.
     ///
     /// Returns the transaction id chosen to identify the request.
@@ -611,9 +632,7 @@ impl QueueStorage {
     ) -> Result<OwnedTransactionId, RoomSendQueueStorageError> {
         let transaction_id = TransactionId::new();
 
-        self.client
-            .get()
-            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
+        self.client()?
             .store()
             .save_send_queue_event(&self.room_id, transaction_id.clone(), serializable)
             .await?;
@@ -629,13 +648,7 @@ impl QueueStorage {
         // Keep the lock until we're done touching the storage.
         let mut being_sent = self.being_sent.write().await;
 
-        let queued_events = self
-            .client
-            .get()
-            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
-            .store()
-            .load_send_queue_events(&self.room_id)
-            .await?;
+        let queued_events = self.client()?.store().load_send_queue_events(&self.room_id).await?;
 
         if let Some(event) = queued_events.iter().find(|queued| !queued.is_wedged) {
             being_sent.insert(event.transaction_id.clone());
@@ -665,9 +678,7 @@ impl QueueStorage {
         being_sent.remove(transaction_id);
 
         Ok(self
-            .client
-            .get()
-            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
+            .client()?
             .store()
             .update_send_queue_event_status(&self.room_id, transaction_id, true)
             .await?)
@@ -678,18 +689,21 @@ impl QueueStorage {
     async fn mark_as_sent(
         &self,
         transaction_id: &TransactionId,
+        event_id: &EventId,
     ) -> Result<(), RoomSendQueueStorageError> {
         // Keep the lock until we're done touching the storage.
         let mut being_sent = self.being_sent.write().await;
         being_sent.remove(transaction_id);
 
-        let removed = self
-            .client
-            .get()
-            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
-            .store()
-            .remove_send_queue_event(&self.room_id, transaction_id)
+        let client = self.client()?;
+        let store = client.store();
+
+        // Update all dependent events.
+        store
+            .update_dependent_send_queue_event(&self.room_id, transaction_id, event_id.to_owned())
             .await?;
+
+        let removed = store.remove_send_queue_event(&self.room_id, transaction_id).await?;
 
         if !removed {
             warn!(txn_id = %transaction_id, "event marked as sent was missing from storage");
@@ -712,16 +726,22 @@ impl QueueStorage {
         let being_sent = self.being_sent.read().await;
 
         if being_sent.contains(transaction_id) {
-            return Ok(false);
+            // Save the intent to redact the event.
+            self.client()?
+                .store()
+                .save_dependent_send_queue_event(
+                    &self.room_id,
+                    transaction_id,
+                    ChildTransactionId::new(),
+                    DependentQueuedEventKind::Redact,
+                )
+                .await?;
+
+            return Ok(true);
         }
 
-        let removed = self
-            .client
-            .get()
-            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
-            .store()
-            .remove_send_queue_event(&self.room_id, transaction_id)
-            .await?;
+        let removed =
+            self.client()?.store().remove_send_queue_event(&self.room_id, transaction_id).await?;
 
         Ok(removed)
     }
@@ -742,13 +762,22 @@ impl QueueStorage {
         let being_sent = self.being_sent.read().await;
 
         if being_sent.contains(transaction_id) {
-            return Ok(false);
+            // Save the intent to redact the event.
+            self.client()?
+                .store()
+                .save_dependent_send_queue_event(
+                    &self.room_id,
+                    transaction_id,
+                    ChildTransactionId::new(),
+                    DependentQueuedEventKind::Edit { new_content: serializable },
+                )
+                .await?;
+
+            return Ok(true);
         }
 
         let edited = self
-            .client
-            .get()
-            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
+            .client()?
             .store()
             .update_send_queue_event(&self.room_id, transaction_id, serializable)
             .await?;
@@ -759,13 +788,195 @@ impl QueueStorage {
     /// Returns a list of the local echoes, that is, all the events that we're
     /// about to send but that haven't been sent yet (or are being sent).
     async fn local_echoes(&self) -> Result<Vec<QueuedEvent>, RoomSendQueueStorageError> {
-        Ok(self
-            .client
-            .get()
-            .ok_or(RoomSendQueueStorageError::ClientShuttingDown)?
-            .store()
-            .load_send_queue_events(&self.room_id)
-            .await?)
+        Ok(self.client()?.store().load_send_queue_events(&self.room_id).await?)
+    }
+
+    /// Try to apply a single dependent event, whether it's local or remote.
+    ///
+    /// This swallows errors that would retrigger every time if we retried
+    /// applying the dependent event: invalid edit content, etc.
+    #[instrument(skip_all)]
+    async fn try_apply_single_dependent_event(
+        &self,
+        client: &Client,
+        de: DependentQueuedEvent,
+    ) -> Result<(), RoomSendQueueError> {
+        let store = client.store();
+
+        match de.kind {
+            DependentQueuedEventKind::Edit { new_content } => {
+                if let Some(event_id) = de.event_id {
+                    // The parent event has been sent, so send an edit event.
+                    let room = client
+                        .get_room(&self.room_id)
+                        .ok_or(RoomSendQueueError::RoomDisappeared)?;
+
+                    // Check the event is one we know how to edit with an edit event.
+
+                    // 1. It must be deserializable…
+                    let content = match new_content.deserialize() {
+                        Ok(c) => c,
+                        Err(err) => {
+                            warn!("unable to deserialize: {err}");
+                            return Ok(());
+                        }
+                    };
+
+                    // 2. …and a room message, at this point.
+                    let AnyMessageLikeEventContent::RoomMessage(room_message_content) = content
+                    else {
+                        warn!("trying to send an edit event for a non-room message: aborting");
+                        return Ok(());
+                    };
+
+                    // Assume no relation.
+                    let new_content: RoomMessageEventContentWithoutRelation =
+                        room_message_content.into();
+
+                    let edit_event = match room
+                        .make_edit_event(&event_id, EditedContent::RoomMessage(new_content))
+                        .await
+                    {
+                        Ok(e) => e,
+                        Err(err) => {
+                            warn!("couldn't create edited event: {err}");
+                            return Ok(());
+                        }
+                    };
+
+                    // Queue the edit event in the send queue 🧠.
+                    let serializable = SerializableEventContent::from_raw(
+                        Raw::new(&edit_event)
+                            .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+                        edit_event.event_type().to_string(),
+                    );
+
+                    store
+                        .save_send_queue_event(
+                            &self.room_id,
+                            de.own_transaction_id.into(),
+                            serializable,
+                        )
+                        .await
+                        .map_err(RoomSendQueueStorageError::StorageError)?;
+                } else {
+                    // The parent event is still local (sending must have failed); update the local
+                    // echo.
+                    let edited = store
+                        .update_send_queue_event(
+                            &self.room_id,
+                            &de.parent_transaction_id,
+                            new_content,
+                        )
+                        .await
+                        .map_err(RoomSendQueueStorageError::StorageError)?;
+
+                    if !edited {
+                        warn!("missing local echo upon dependent edit");
+                    }
+                }
+            }
+
+            DependentQueuedEventKind::Redact => {
+                if let Some(event_id) = de.event_id {
+                    // The parent event has been sent; send a redaction.
+                    let room = client
+                        .get_room(&self.room_id)
+                        .ok_or(RoomSendQueueError::RoomDisappeared)?;
+
+                    // Ideally we'd use the send queue to send the redaction, but the protocol has
+                    // changed the shape of a room.redaction after v11, so keep it simple and try
+                    // once here.
+
+                    // Note: no reason is provided because we materialize the intent of "cancel
+                    // sending the parent event".
+
+                    if let Err(err) =
+                        room.redact(&event_id, None, Some(de.own_transaction_id.into())).await
+                    {
+                        warn!("error when sending a redact for {event_id}: {err}");
+                    }
+                } else {
+                    // The parent event is still local (sending must have failed); redact the local
+                    // echo.
+                    let removed = store
+                        .remove_send_queue_event(&self.room_id, &de.parent_transaction_id)
+                        .await
+                        .map_err(RoomSendQueueStorageError::StorageError)?;
+
+                    if !removed {
+                        warn!("missing local echo upon dependent redact??");
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn apply_dependent_events(&self) -> Result<(), RoomSendQueueError> {
+        // Keep the lock until we're done touching the storage.
+        let _being_sent = self.being_sent.read().await;
+
+        let client = self.client()?;
+        let store = client.store();
+
+        let dependent_events = store
+            .list_dependent_send_queue_events(&self.room_id)
+            .await
+            .map_err(RoomSendQueueStorageError::StorageError)?;
+
+        let num_initial_dependent_events = dependent_events.len();
+
+        let canonicalized_dependent_events = canonicalize_dependent_events(&dependent_events);
+
+        // Get rid of the all non-canonical dependent events.
+        for original in &dependent_events {
+            if !canonicalized_dependent_events
+                .iter()
+                .any(|canonical| canonical.own_transaction_id == original.own_transaction_id)
+            {
+                store
+                    .remove_dependent_send_queue_event(&self.room_id, &original.own_transaction_id)
+                    .await
+                    .map_err(RoomSendQueueStorageError::StorageError)?;
+            }
+        }
+
+        let mut num_dependent_events = canonicalized_dependent_events.len();
+
+        debug!(
+            num_dependent_events,
+            num_initial_dependent_events, "starting handling of dependent events"
+        );
+
+        for dependent in canonicalized_dependent_events {
+            let dependent_id = dependent.own_transaction_id.clone();
+
+            match self.try_apply_single_dependent_event(&client, dependent).await {
+                Ok(()) => {
+                    // The dependent event has been successfully applied, forget about it.
+                    store
+                        .remove_dependent_send_queue_event(&self.room_id, &dependent_id)
+                        .await
+                        .map_err(RoomSendQueueStorageError::StorageError)?;
+
+                    num_dependent_events -= 1;
+                }
+
+                Err(err) => {
+                    warn!("error when applying single dependent event: {err}");
+                }
+            }
+        }
+
+        debug!(
+            leftover_dependent_events = num_dependent_events,
+            "stopped handling dependent events"
+        );
+
+        Ok(())
     }
 }
 
@@ -896,7 +1107,7 @@ impl SendHandle {
 
             Ok(true)
         } else {
-            debug!("event was being sent, can't abort");
+            debug!("local echo didn't exist anymore, can't abort");
             Ok(false)
         }
     }
@@ -929,7 +1140,7 @@ impl SendHandle {
 
             Ok(true)
         } else {
-            debug!("event was being sent, can't edit");
+            debug!("local echo doesn't exist anymore, can't edit");
             Ok(false)
         }
     }
@@ -950,13 +1161,64 @@ impl SendHandle {
     }
 }
 
+/// From a given source of [`DependentQueuedEvent`], return only the most
+/// meaningful, i.e. the ones that wouldn't be overridden after applying the
+/// others.
+fn canonicalize_dependent_events(dependent: &[DependentQueuedEvent]) -> Vec<DependentQueuedEvent> {
+    let mut by_event_id = HashMap::<OwnedTransactionId, Vec<&DependentQueuedEvent>>::new();
+
+    for d in dependent {
+        let prevs = by_event_id.entry(d.parent_transaction_id.clone()).or_default();
+
+        if prevs.iter().any(|prev| matches!(prev.kind, DependentQueuedEventKind::Redact)) {
+            // The event has already been flagged for redaction, don't consider the other
+            // dependent events.
+            continue;
+        }
+
+        match &d.kind {
+            DependentQueuedEventKind::Edit { .. } => {
+                // Replace any previous edit with this one.
+                if let Some(prev_edit) = prevs
+                    .iter_mut()
+                    .find(|prev| matches!(prev.kind, DependentQueuedEventKind::Edit { .. }))
+                {
+                    *prev_edit = d;
+                } else {
+                    prevs.push(d);
+                }
+            }
+
+            DependentQueuedEventKind::Redact => {
+                // Remove every other dependent action.
+                prevs.clear();
+                prevs.push(d);
+            }
+        }
+    }
+
+    by_event_id
+        .into_iter()
+        .flat_map(|(_parent_txn_id, entries)| entries.into_iter().cloned())
+        .collect()
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use std::{sync::Arc, time::Duration};
 
+    use assert_matches2::{assert_let, assert_matches};
+    use matrix_sdk_base::store::{
+        ChildTransactionId, DependentQueuedEvent, DependentQueuedEventKind,
+        SerializableEventContent,
+    };
     use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
-    use ruma::room_id;
+    use ruma::{
+        events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
+        room_id, TransactionId,
+    };
 
+    use super::canonicalize_dependent_events;
     use crate::{client::WeakClient, test_utils::logged_in_client};
 
     #[async_test]
@@ -1001,6 +1263,154 @@ mod tests {
                 "too many strong references to the client: {}",
                 Arc::strong_count(&client.unwrap().inner)
             );
+        }
+    }
+
+    #[test]
+    fn test_canonicalize_dependent_events_smoke_test() {
+        // Smoke test: canonicalizing a single dependent event returns it.
+        let txn = TransactionId::new();
+
+        let edit = DependentQueuedEvent {
+            own_transaction_id: ChildTransactionId::new(),
+            parent_transaction_id: txn.clone(),
+            kind: DependentQueuedEventKind::Edit {
+                new_content: SerializableEventContent::new(
+                    &RoomMessageEventContent::text_plain("edit").into(),
+                )
+                .unwrap(),
+            },
+            event_id: None,
+        };
+        let res = canonicalize_dependent_events(&[edit]);
+
+        assert_eq!(res.len(), 1);
+        assert_matches!(&res[0].kind, DependentQueuedEventKind::Edit { .. });
+        assert_eq!(res[0].parent_transaction_id, txn);
+        assert!(res[0].event_id.is_none());
+    }
+
+    #[test]
+    fn test_canonicalize_dependent_events_redaction_preferred() {
+        // A redaction is preferred over any other kind of dependent event.
+        let txn = TransactionId::new();
+
+        let mut inputs = Vec::with_capacity(100);
+        let redact = DependentQueuedEvent {
+            own_transaction_id: ChildTransactionId::new(),
+            parent_transaction_id: txn.clone(),
+            kind: DependentQueuedEventKind::Redact,
+            event_id: None,
+        };
+
+        let edit = DependentQueuedEvent {
+            own_transaction_id: ChildTransactionId::new(),
+            parent_transaction_id: txn.clone(),
+            kind: DependentQueuedEventKind::Edit {
+                new_content: SerializableEventContent::new(
+                    &RoomMessageEventContent::text_plain("edit").into(),
+                )
+                .unwrap(),
+            },
+            event_id: None,
+        };
+
+        inputs.push({
+            let mut edit = edit.clone();
+            edit.own_transaction_id = ChildTransactionId::new();
+            edit
+        });
+
+        inputs.push(redact);
+
+        for _ in 0..98 {
+            let mut edit = edit.clone();
+            edit.own_transaction_id = ChildTransactionId::new();
+            inputs.push(edit);
+        }
+
+        let res = canonicalize_dependent_events(&inputs);
+
+        assert_eq!(res.len(), 1);
+        assert_matches!(&res[0].kind, DependentQueuedEventKind::Redact);
+        assert_eq!(res[0].parent_transaction_id, txn);
+    }
+
+    #[test]
+    fn test_canonicalize_dependent_events_last_edit_preferred() {
+        let parent_txn = TransactionId::new();
+
+        // The latest edit of a list is always preferred.
+        let inputs = (0..10)
+            .map(|i| DependentQueuedEvent {
+                own_transaction_id: ChildTransactionId::new(),
+                parent_transaction_id: parent_txn.clone(),
+                kind: DependentQueuedEventKind::Edit {
+                    new_content: SerializableEventContent::new(
+                        &RoomMessageEventContent::text_plain(format!("edit{i}")).into(),
+                    )
+                    .unwrap(),
+                },
+                event_id: None,
+            })
+            .collect::<Vec<_>>();
+
+        let txn = inputs[9].parent_transaction_id.clone();
+
+        let res = canonicalize_dependent_events(&inputs);
+
+        assert_eq!(res.len(), 1);
+        assert_let!(DependentQueuedEventKind::Edit { new_content } = &res[0].kind);
+        assert_let!(
+            AnyMessageLikeEventContent::RoomMessage(msg) = new_content.deserialize().unwrap()
+        );
+        assert_eq!(msg.body(), "edit9");
+        assert_eq!(res[0].parent_transaction_id, txn);
+    }
+
+    #[test]
+    fn test_canonicalize_multiple_local_echoes() {
+        let txn1 = TransactionId::new();
+        let txn2 = TransactionId::new();
+
+        let child1 = ChildTransactionId::new();
+        let child2 = ChildTransactionId::new();
+
+        let inputs = vec![
+            // This one pertains to txn1.
+            DependentQueuedEvent {
+                own_transaction_id: child1.clone(),
+                kind: DependentQueuedEventKind::Redact,
+                parent_transaction_id: txn1.clone(),
+                event_id: None,
+            },
+            // This one pertains to txn2.
+            DependentQueuedEvent {
+                own_transaction_id: child2,
+                kind: DependentQueuedEventKind::Edit {
+                    new_content: SerializableEventContent::new(
+                        &RoomMessageEventContent::text_plain("edit").into(),
+                    )
+                    .unwrap(),
+                },
+                parent_transaction_id: txn2.clone(),
+                event_id: None,
+            },
+        ];
+
+        let res = canonicalize_dependent_events(&inputs);
+
+        // The canonicalization shouldn't depend per event id.
+        assert_eq!(res.len(), 2);
+
+        for dependent in res {
+            if dependent.own_transaction_id == child1 {
+                assert_eq!(dependent.parent_transaction_id, txn1);
+                assert_matches!(dependent.kind, DependentQueuedEventKind::Redact);
+            } else {
+                assert_eq!(dependent.parent_transaction_id, txn2);
+                assert_matches!(dependent.kind, DependentQueuedEventKind::Edit { .. });
+            }
         }
     }
 }

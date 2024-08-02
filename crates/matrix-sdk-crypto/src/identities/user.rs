@@ -297,7 +297,7 @@ impl UserIdentity {
         )
     }
 
-    /// Pin the current identity (Master public key).
+    /// Pin the current identity (public part of the master signing key).
     pub async fn pin_current_master_key(&self) -> Result<(), CryptoStoreError> {
         self.inner.pin();
         let to_save = UserIdentityData::Other(self.inner.clone());
@@ -309,18 +309,21 @@ impl UserIdentity {
         Ok(())
     }
 
-    /// Returns true if the identity is not verified and did change since the
-    /// last time we pinned it.
+    /// Did the identity change after an initial observation in a way that
+    /// requires approval from the user?
     ///
-    /// An identity mismatch is detected when there is a trust problem with the
-    /// user identity. There is an identity mismatch if the current identity
-    /// is not verified and there is a pinning violation. An identity
-    /// mismatch must be reported to the user, and can be resolved by:
-    /// - Verifying the new identity (see
-    ///   [`UserIdentity::request_verification`])
-    /// - Or by updating the pinned key (see
-    ///   [`UserIdentity::pin_current_master_key`]).
-    pub fn has_identity_mismatch(&self) -> bool {
+    /// A user identity needs approval if it changed after the crypto machine
+    /// has already observed ("pinned") a different identity for that user *and*
+    /// it is not an explicitly verified identity (using for example interactive
+    /// verification).
+    ///
+    /// Such a change is to be considered a pinning violation which the
+    /// application should report to the local user, and can be resolved by:
+    ///
+    /// - Verifying the new identity with [`UserIdentity::request_verification`]
+    /// - Or by updating the pin to the new identity with
+    ///   [`UserIdentity::pin_current_master_key`].
+    pub fn identity_needs_user_approval(&self) -> bool {
         // First check if the current identity is verified.
         if self.is_verified() {
             return false;
@@ -411,13 +414,16 @@ impl UserIdentityData {
 /// only contain a master key and a self signing key, meaning that only device
 /// signatures can be checked with this identity.
 ///
-/// This struct also contains the currently pinned master key for that user.
-/// The first time a cryptographic identity is seen for a given user, it
-/// will be associated to that user (i.e. pinned). Future interactions
-/// will expect this user crypto identity to stay the same,
-/// this will help prevent some MITM attacks.
-/// In case of identity change, it will be possible to pin the new identity
-/// is the user wants.
+/// This struct also contains the currently pinned user identity (public master
+/// key) for that user.
+///
+/// The first time a cryptographic user identity is seen for a given user, it
+/// will be associated with that user ("pinned"). Future interactions
+/// will expect this identity to stay the same, to avoid MITM attacks from the
+/// homeserver.
+///
+/// The user can explicitly pin the new identity to allow for legitimate
+/// identity changes (for example, in case of key material or device loss).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(try_from = "OtherUserIdentityDataSerializer", into = "OtherUserIdentityDataSerializer")]
 pub struct OtherUserIdentityData {
@@ -429,8 +435,9 @@ pub struct OtherUserIdentityData {
 
 /// Intermediate struct to help serialize OtherUserIdentityData and support
 /// versioning and migration.
+///
 /// Version v1 is adding support for identity pinning (`pinned_master_key`), as
-/// part of migration we just pin the currently known master key.
+/// part of migration we just pin the currently known public master key.
 #[derive(Deserialize, Serialize)]
 struct OtherUserIdentityDataSerializer {
     version: Option<String>,
@@ -615,7 +622,7 @@ impl OtherUserIdentityData {
         // We update the identity with the new master and self signing key, but we keep
         // the previous pinned master key.
         // This identity will have a pin violation until the new master key is pinned
-        // (see [`has_pin_violation`]).
+        // (see `has_pin_violation()`).
         let pinned_master_key = self.pinned_master_key.read().unwrap().clone();
 
         let new = Self {
@@ -1233,7 +1240,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn resolve_identity_mismatch_with_verification() {
+    async fn resolve_identity_pin_violation_with_verification() {
         use test_json::keys_query_sets::IdentityChangeDataSet as DataSet;
 
         let my_user_id = user_id!("@me:localhost");
@@ -1243,12 +1250,11 @@ pub(crate) mod tests {
         let my_id = machine.get_identity(my_user_id, None).await.unwrap().unwrap().own().unwrap();
         let usk_key_id = my_id.inner.user_signing_key().keys().iter().next().unwrap().0;
 
-        println!("USK ID: {}", usk_key_id);
         let keys_query = DataSet::key_query_with_identity_a();
         let txn_id = TransactionId::new();
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
 
-        // Simulate an identity hange
+        // Simulate an identity change
         let keys_query = DataSet::key_query_with_identity_b();
         let txn_id = TransactionId::new();
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
@@ -1258,8 +1264,8 @@ pub(crate) mod tests {
         let other_identity =
             machine.get_identity(other_user_id, None).await.unwrap().unwrap().other().unwrap();
 
-        // There should be an identity mismatch
-        assert!(other_identity.has_identity_mismatch());
+        // The identity should need user approval now
+        assert!(other_identity.identity_needs_user_approval());
 
         // Manually verify for the purpose of this test
         let sig_upload = other_identity.verify().await.unwrap();
@@ -1294,10 +1300,10 @@ pub(crate) mod tests {
             .expect("Can't parse the `/keys/upload` response");
         machine.mark_request_as_sent(&TransactionId::new(), &kq_response).await.unwrap();
 
-        // There should not be an identity mismatch anymore
+        // The identity should not need any user approval now
         let other_identity =
             machine.get_identity(other_user_id, None).await.unwrap().unwrap().other().unwrap();
-        assert!(!other_identity.has_identity_mismatch());
+        assert!(!other_identity.identity_needs_user_approval());
         // But there is still a pin violation
         assert!(other_identity.inner.has_pin_violation());
     }

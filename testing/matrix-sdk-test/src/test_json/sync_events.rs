@@ -317,6 +317,22 @@ pub static NAME_STRIPPED: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
+pub static PINNED_EVENTS: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {
+            "pinned": [ "$a", "$b" ]
+        },
+        "event_id": "$15139375513VdeRF:localhost",
+        "origin_server_ts": 151393755,
+        "sender": "@example:localhost",
+        "state_key": "",
+        "type": "m.room.pinned_events",
+        "unsigned": {
+            "age": 703422
+        }
+    })
+});
+
 pub static POWER_LEVELS: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {

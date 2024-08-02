@@ -83,6 +83,22 @@ async fn mock_context(
         .await;
 }
 
+/// Mocks the /event endpoint
+#[allow(clippy::too_many_arguments)] // clippy you've got such a fixed mindset
+async fn mock_event(
+    server: &MockServer,
+    room_id: &RoomId,
+    event_id: &EventId,
+    event: TimelineEvent,
+) {
+    Mock::given(method("GET"))
+        .and(path(format!("/_matrix/client/r0/rooms/{room_id}/event/{event_id}")))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(event.event.json()))
+        .mount(server)
+        .await;
+}
+
 /// Mocks the /messages endpoint.
 ///
 /// Note: pass `chunk` in the correct order: topological for forward pagination,

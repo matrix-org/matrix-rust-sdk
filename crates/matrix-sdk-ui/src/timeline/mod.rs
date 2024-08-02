@@ -34,6 +34,7 @@ use matrix_sdk::{
 use matrix_sdk_base::RoomState;
 use mime::Mime;
 use pin_project_lite::pin_project;
+use reactions::ReactionAction;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
@@ -49,6 +50,7 @@ use ruma::{
                 AddMentions, ForwardThread, OriginalRoomMessageEvent, RoomMessageEventContent,
                 RoomMessageEventContentWithoutRelation,
             },
+            pinned_events::RoomPinnedEventsEventContent,
             redaction::RoomRedactionEventContent,
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -61,6 +63,8 @@ use ruma::{
 use thiserror::Error;
 use tracing::{error, instrument, trace, warn};
 
+use crate::timeline::pinned_events_loader::PinnedEventsRoom;
+
 mod builder;
 mod day_dividers;
 mod error;
@@ -71,6 +75,7 @@ pub mod futures;
 mod inner;
 mod item;
 mod pagination;
+mod pinned_events_loader;
 mod polls;
 mod reactions;
 mod read_receipts;
@@ -86,23 +91,22 @@ pub use self::{
     builder::TimelineBuilder,
     error::*,
     event_item::{
-        AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventItemOrigin,
-        EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
-        Message, OtherState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
-        TimelineDetails, TimelineEventItemId, TimelineItemContent,
+        AnyOtherFullStateEventContent, EncryptedMessage, EventItemOrigin, EventSendState,
+        EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
+        OtherState, Profile, ReactionInfo, ReactionsByKeyBySender, RepliedToEvent,
+        RoomMembershipChange, Sticker, TimelineDetails, TimelineEventItemId, TimelineItemContent,
     },
     event_type_filter::TimelineEventTypeFilter,
     inner::default_event_filter,
     item::{TimelineItem, TimelineItemKind},
     pagination::LiveBackPaginationStatus,
     polls::PollResult,
-    reactions::ReactionSenderData,
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
 use self::{
     futures::SendAttachment,
-    inner::{ReactionAction, TimelineInner},
+    inner::TimelineInner,
     reactions::ReactionToggleResult,
     util::{rfind_event_by_id, rfind_event_item},
 };
@@ -164,19 +168,6 @@ pub struct Timeline {
     drop_handle: Arc<TimelineDropHandle>,
 }
 
-// Implements hash etc
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
-struct AnnotationKey {
-    event_id: OwnedEventId,
-    key: String,
-}
-
-impl From<&Annotation> for AnnotationKey {
-    fn from(annotation: &Annotation) -> Self {
-        Self { event_id: annotation.event_id.clone(), key: annotation.key.clone() }
-    }
-}
-
 /// What should the timeline focus on?
 #[derive(Clone, Debug, PartialEq)]
 pub enum TimelineFocus {
@@ -185,7 +176,14 @@ pub enum TimelineFocus {
     Live,
 
     /// Focus on a specific event, e.g. after clicking a permalink.
-    Event { target: OwnedEventId, num_context_events: u16 },
+    Event {
+        target: OwnedEventId,
+        num_context_events: u16,
+    },
+
+    PinnedEvents {
+        max_events_to_load: u16,
+    },
 }
 
 impl Timeline {
@@ -870,6 +868,42 @@ impl Timeline {
             Ok(false)
         }
     }
+
+    /// Adds a new pinned event by sending an updated `m.room.pinned_events`
+    /// event containing the new event id.
+    ///
+    /// Returns `true` if we sent the request, `false` if the event was already
+    /// pinned.
+    pub async fn pin_event(&self, event_id: &EventId) -> Result<bool> {
+        let mut pinned_event_ids = self.room().pinned_event_ids();
+        let event_id = event_id.to_owned();
+        if pinned_event_ids.contains(&event_id) {
+            Ok(false)
+        } else {
+            pinned_event_ids.push(event_id);
+            let content = RoomPinnedEventsEventContent::new(pinned_event_ids);
+            self.room().send_state_event(content).await?;
+            Ok(true)
+        }
+    }
+
+    /// Adds a new pinned event by sending an updated `m.room.pinned_events`
+    /// event without the event id we want to remove.
+    ///
+    /// Returns `true` if we sent the request, `false` if the event wasn't
+    /// pinned.
+    pub async fn unpin_event(&self, event_id: &EventId) -> Result<bool> {
+        let mut pinned_event_ids = self.room().pinned_event_ids();
+        let event_id = event_id.to_owned();
+        if let Some(idx) = pinned_event_ids.iter().position(|e| *e == *event_id) {
+            pinned_event_ids.remove(idx);
+            let content = RoomPinnedEventsEventContent::new(pinned_event_ids);
+            self.room().send_state_event(content).await?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 /// Test helpers, likely not very useful in production.
@@ -895,6 +929,7 @@ struct TimelineDropHandle {
     client: Client,
     event_handler_handles: Vec<EventHandlerHandle>,
     room_update_join_handle: JoinHandle<()>,
+    pinned_events_join_handle: Option<JoinHandle<()>>,
     room_key_from_backups_join_handle: JoinHandle<()>,
     local_echo_listener_handle: Option<JoinHandle<()>>,
     _event_cache_drop_handle: Arc<EventCacheDropHandles>,
@@ -906,6 +941,9 @@ impl Drop for TimelineDropHandle {
             self.client.remove_event_handler(handle);
         }
         if let Some(handle) = self.local_echo_listener_handle.take() {
+            handle.abort()
+        };
+        if let Some(handle) = self.pinned_events_join_handle.take() {
             handle.abort()
         };
         self.room_update_join_handle.abort();

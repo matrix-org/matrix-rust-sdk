@@ -42,7 +42,7 @@ use crate::{
     },
     store::{Changes, CryptoStoreWrapper, Result as StoreResult, Store},
     types::events::{room::encrypted::RoomEncryptedEventContent, room_key_withheld::WithheldCode},
-    DeviceData, EncryptionSettings, OlmError, ToDeviceRequest,
+    Device, DeviceData, EncryptionSettings, OlmError, ToDeviceRequest,
 };
 
 #[derive(Clone, Debug)]
@@ -379,14 +379,31 @@ impl GroupSessionManager {
         outbound: OutboundGroupSession,
         encryption_settings: EncryptionSettings,
         changes: &mut Changes,
-        sender_data: SenderData,
+        own_device: Option<Device>,
     ) -> OlmResult<OutboundGroupSession> {
         Ok(if should_rotate {
             let old_session_id = outbound.session_id();
 
-            let (outbound, inbound) = self
-                .create_outbound_group_session(room_id, encryption_settings, sender_data)
+            let (outbound, mut inbound) = self
+                .create_outbound_group_session(room_id, encryption_settings, SenderData::unknown())
                 .await?;
+
+            // Use our own device info to populate the SenderData that validates the
+            // InboundGroupSession that we create as a pair to the OutboundGroupSession we
+            // are sending out.
+            let own_sender_data = if let Some(device) = own_device {
+                SenderDataFinder::find_using_device_keys(
+                    &self.store,
+                    device.as_device_keys().clone(),
+                    &inbound,
+                )
+                .await?
+            } else {
+                error!("Unable to find our own device!");
+                SenderData::unknown()
+            };
+            inbound.sender_data = own_sender_data;
+
             changes.outbound_group_sessions.push(outbound.clone());
             changes.inbound_group_sessions.push(inbound);
 
@@ -581,7 +598,6 @@ impl GroupSessionManager {
     /// Given a to-device request, build a recipient map suitable for logging.
     ///
     /// Returns a list of triples of (message_id, user id, device_id).
-    #[cfg(feature = "message-ids")]
     fn to_device_request_to_log_list(
         request: &Arc<ToDeviceRequest>,
     ) -> Vec<(String, String, String)> {
@@ -610,21 +626,6 @@ impl GroupSessionManager {
         result
     }
 
-    /// Given a to-device request, build a recipient map suitable for logging.
-    ///
-    /// Returns a list of pairs of (user id, device_id).
-    #[cfg(not(feature = "message-ids"))]
-    fn to_device_request_to_log_list(request: &Arc<ToDeviceRequest>) -> Vec<(String, String)> {
-        let mut result: Vec<(String, String)> = Vec::new();
-
-        for (user_id, device_map) in &request.messages {
-            for device in device_map.keys() {
-                result.push((user_id.to_string(), device.to_string()));
-            }
-        }
-        result
-    }
-
     /// Get to-device requests to share a room key with users in a room.
     ///
     /// # Arguments
@@ -644,41 +645,41 @@ impl GroupSessionManager {
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
         trace!("Checking if a room key needs to be shared");
 
+        let account = self.store.static_account();
+        let device = self.store.get_device(account.user_id(), account.device_id()).await?;
+
         let encryption_settings = encryption_settings.into();
         let mut changes = Changes::default();
-
-        // Use our own device info to populate the SenderData that validates the
-        // InboundGroupSession that we create as a pair to the OutboundGroupSession we
-        // are sending out.
-        let account = self.store.static_account();
-        let device = self.store.get_device(account.user_id(), account.device_id()).await;
-        let own_sender_data = match device {
-            Ok(Some(device)) => {
-                SenderDataFinder::find_using_device_keys(
-                    &self.store,
-                    device.as_device_keys().clone(),
-                )
-                .await?
-            }
-            _ => {
-                error!("Unable to find our own device!");
-                SenderData::unknown()
-            }
-        };
 
         // Try to get an existing session or create a new one.
         let (outbound, inbound) = self
             .get_or_create_outbound_session(
                 room_id,
                 encryption_settings.clone(),
-                own_sender_data.clone(),
+                SenderData::unknown(),
             )
             .await?;
         tracing::Span::current().record("session_id", outbound.session_id());
 
         // Having an inbound group session here means that we created a new
         // group session pair, which we then need to store.
-        if let Some(inbound) = inbound {
+        if let Some(mut inbound) = inbound {
+            // Use our own device info to populate the SenderData that validates the
+            // InboundGroupSession that we create as a pair to the OutboundGroupSession we
+            // are sending out.
+            let own_sender_data = if let Some(device) = &device {
+                SenderDataFinder::find_using_device_keys(
+                    &self.store,
+                    device.as_device_keys().clone(),
+                    &inbound,
+                )
+                .await?
+            } else {
+                error!("Unable to find our own device!");
+                SenderData::unknown()
+            };
+            inbound.sender_data = own_sender_data;
+
             changes.outbound_group_sessions.push(outbound.clone());
             changes.inbound_group_sessions.push(inbound);
         }
@@ -696,7 +697,7 @@ impl GroupSessionManager {
                 outbound,
                 encryption_settings,
                 &mut changes,
-                own_sender_data,
+                device,
             )
             .await?;
 

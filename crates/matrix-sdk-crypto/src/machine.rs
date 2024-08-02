@@ -66,7 +66,7 @@ use crate::{
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
-        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderDataFinder, SessionType,
+        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData, SenderDataFinder, SessionType,
         StaticAccountData,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
@@ -816,22 +816,25 @@ impl OlmMachine {
         event: &DecryptedRoomKeyEvent,
         content: &MegolmV1AesSha2Content,
     ) -> OlmResult<Option<InboundGroupSession>> {
-        let sender_data =
-            SenderDataFinder::find_using_event(self.store(), sender_key, event).await?;
-
         let session = InboundGroupSession::new(
             sender_key,
             event.keys.ed25519,
             &content.room_id,
             &content.session_key,
-            sender_data,
+            SenderData::unknown(),
             event.content.algorithm(),
             None,
         );
 
         match session {
-            Ok(session) => {
+            Ok(mut session) => {
                 Span::current().record("session_id", session.session_id());
+
+                let sender_data =
+                    SenderDataFinder::find_using_event(self.store(), sender_key, event, &session)
+                        .await?;
+
+                session.sender_data = sender_data;
 
                 if self.store().compare_group_session(&session).await? == SessionOrdering::Better {
                     info!("Received a new megolm room key");
@@ -1389,68 +1392,31 @@ impl OlmMachine {
         self.inner.key_request_machine.request_key(room_id, &event).await
     }
 
-    async fn get_verification_state(
+    /// Find whether the supplied session is verified, and provide
+    /// explanation of what is missing/wrong if not.
+    ///
+    /// Store the updated [`SenderData`] for this session in the store
+    /// if we find an updated value for it.
+    async fn get_or_update_verification_state(
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
     ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
-        let claimed_device = self
-            .get_user_devices(sender, None)
-            .await?
-            .devices()
-            .find(|d| d.curve25519_key() == Some(session.sender_key()));
+        let sender_data = SenderDataFinder::find_using_curve_key(
+            self.store(),
+            session.sender_key(),
+            sender,
+            session,
+        )
+        .await?;
 
-        Ok(match claimed_device {
-            None => {
-                // We didn't find a device, no way to know if we should trust the
-                // `InboundGroupSession` or not.
+        if sender_data != session.sender_data {
+            let mut new_session = session.clone();
+            new_session.sender_data = sender_data.clone();
+            self.store().save_inbound_group_sessions(&[new_session]).await?;
+        }
 
-                let link_problem = if session.has_been_imported() {
-                    DeviceLinkProblem::InsecureSource
-                } else {
-                    DeviceLinkProblem::MissingDevice
-                };
-
-                (VerificationState::Unverified(VerificationLevel::None(link_problem)), None)
-            }
-            Some(device) => {
-                let device_id = device.device_id().to_owned();
-
-                // We found a matching device, let's check if it owns the session.
-                if !(device.is_owner_of_session(session)?) {
-                    // The key cannot be linked to an owning device.
-                    (
-                        VerificationState::Unverified(VerificationLevel::None(
-                            DeviceLinkProblem::InsecureSource,
-                        )),
-                        Some(device_id),
-                    )
-                } else {
-                    // We only consider cross trust and not local trust. If your own device is not
-                    // signed and send a message, it will be seen as Unverified.
-                    if device.is_cross_signed_by_owner() {
-                        // The device is cross signed by this owner Meaning that the user did self
-                        // verify it properly. Let's check if we trust the identity.
-                        if device.is_device_owner_verified() {
-                            (VerificationState::Verified, Some(device_id))
-                        } else {
-                            (
-                                VerificationState::Unverified(
-                                    VerificationLevel::UnverifiedIdentity,
-                                ),
-                                Some(device_id),
-                            )
-                        }
-                    } else {
-                        // The device owner hasn't self-verified its device.
-                        (
-                            VerificationState::Unverified(VerificationLevel::UnsignedDevice),
-                            Some(device_id),
-                        )
-                    }
-                }
-            }
-        })
+        Ok(sender_data_to_verification_state(sender_data, session.has_been_imported()))
     }
 
     /// Request missing local secrets from our devices (cross signing private
@@ -1522,7 +1488,8 @@ impl OlmMachine {
         session: &InboundGroupSession,
         sender: &UserId,
     ) -> MegolmResult<EncryptionInfo> {
-        let (verification_state, device_id) = self.get_verification_state(session, sender).await?;
+        let (verification_state, device_id) =
+            self.get_or_update_verification_state(session, sender).await?;
 
         let sender = sender.to_owned();
 
@@ -2324,9 +2291,42 @@ impl OlmMachine {
     }
 }
 
+fn sender_data_to_verification_state(
+    sender_data: SenderData,
+    session_has_been_imported: bool,
+) -> (VerificationState, Option<OwnedDeviceId>) {
+    match sender_data {
+        SenderData::UnknownDevice { owner_check_failed: false, .. } => {
+            let device_link_problem = if session_has_been_imported {
+                DeviceLinkProblem::InsecureSource
+            } else {
+                DeviceLinkProblem::MissingDevice
+            };
+
+            (VerificationState::Unverified(VerificationLevel::None(device_link_problem)), None)
+        }
+        SenderData::UnknownDevice { owner_check_failed: true, .. } => (
+            VerificationState::Unverified(VerificationLevel::None(
+                DeviceLinkProblem::InsecureSource,
+            )),
+            None,
+        ),
+        SenderData::DeviceInfo { device_keys, .. } => (
+            VerificationState::Unverified(VerificationLevel::UnsignedDevice),
+            Some(device_keys.device_id),
+        ),
+        SenderData::SenderKnown { master_key_verified: false, device_id, .. } => {
+            (VerificationState::Unverified(VerificationLevel::UnverifiedIdentity), device_id)
+        }
+        SenderData::SenderKnown { master_key_verified: true, device_id, .. } => {
+            (VerificationState::Verified, device_id)
+        }
+    }
+}
+
 /// A set of requests to be executed when bootstrapping cross-signing using
 /// [`OlmMachine::bootstrap_cross_signing`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CrossSigningBootstrapRequests {
     /// An optional request to upload a device key.
     ///
@@ -2420,7 +2420,7 @@ pub(crate) mod tests {
         serde::Raw,
         to_device::DeviceIdOrAllDevices,
         uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-        OwnedDeviceKeyId, SecondsSinceUnixEpoch, TransactionId, UserId,
+        OwnedDeviceKeyId, RoomId, SecondsSinceUnixEpoch, TransactionId, UserId,
     };
     use serde_json::{json, value::to_raw_value};
     use vodozemac::{
@@ -2440,7 +2440,10 @@ pub(crate) mod tests {
         store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore, RoomSettings},
         types::{
             events::{
-                room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
+                room::encrypted::{
+                    EncryptedEvent, EncryptedToDeviceEvent, RoomEventEncryptionScheme,
+                    ToDeviceEncryptedEventContent,
+                },
                 room_key_withheld::{
                     MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, WithheldCode,
                 },
@@ -2450,8 +2453,8 @@ pub(crate) mod tests {
         },
         utilities::json_convert,
         verification::tests::{bob_id, outgoing_request_to_event, request_to_event},
-        Account, DeviceData, EncryptionSettings, LocalTrust, MegolmError, OlmError,
-        OutgoingRequests, ToDeviceRequest, UserIdentities,
+        Account, CryptoStoreError, DeviceData, EncryptionSettings, LocalTrust, MegolmError,
+        OlmError, OutgoingRequests, ToDeviceRequest, UserIdentities,
     };
 
     /// These keys need to be periodically uploaded to the server.
@@ -3460,10 +3463,24 @@ pub(crate) mod tests {
 
         assert_shield!(encryption_info, Red, None);
 
+        // Given alice is verified
         mark_alice_identity_as_verified_test_helper(&alice, &bob).await;
+
+        // Update bob's store to make sure there is no useful SenderData for this
+        // session.
+        let mut session = load_session(&bob, room_id, &event).await.unwrap().unwrap();
+        session.sender_data = SenderData::unknown();
+        save_session(&bob, session).await.unwrap();
+
+        // When I get the encryption info
         let encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
+        // Then it should say Verified
         assert_eq!(VerificationState::Verified, encryption_info.verification_state);
         assert_shield!(encryption_info, None, None);
+
+        // And the updated SenderData should have been saved into the store.
+        let session = load_session(&bob, room_id, &event).await.unwrap().unwrap();
+        assert_let!(SenderData::SenderKnown { .. } = session.sender_data);
 
         // Simulate an imported session, to change verification state
         let imported = InboundGroupSession::from_export(&export).unwrap();
@@ -3471,8 +3488,8 @@ pub(crate) mod tests {
 
         let encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
 
-        // As soon as the key source is unsafe the verification state (or existence) of
-        // the device is meaningless
+        // As soon as the key source is unsafe the verification state (or
+        // existence) of the device is meaningless
         assert_eq!(
             VerificationState::Unverified(VerificationLevel::None(
                 DeviceLinkProblem::InsecureSource
@@ -3481,6 +3498,31 @@ pub(crate) mod tests {
         );
 
         assert_shield!(encryption_info, Red, Grey);
+    }
+
+    async fn load_session(
+        machine: &OlmMachine,
+        room_id: &RoomId,
+        event: &Raw<EncryptedEvent>,
+    ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
+        let event = event.deserialize().unwrap();
+        let session_id = match &event.content.scheme {
+            RoomEventEncryptionScheme::MegolmV1AesSha2(s) => &s.session_id,
+            #[cfg(feature = "experimental-algorithms")]
+            RoomEventEncryptionScheme::MegolmV2AesSha2(s) => &s.session_id,
+            RoomEventEncryptionScheme::Unknown(_) => {
+                panic!("Unknown encryption scheme - can't find session ID!")
+            }
+        };
+
+        machine.store().get_inbound_group_session(room_id, session_id).await
+    }
+
+    async fn save_session(
+        machine: &OlmMachine,
+        session: InboundGroupSession,
+    ) -> Result<(), CryptoStoreError> {
+        machine.store().save_inbound_group_sessions(&[session]).await
     }
 
     /// Test what happens when we feed an unencrypted event into the decryption
@@ -3759,7 +3801,7 @@ pub(crate) mod tests {
         .unwrap();
 
         let (state, _) = bob
-            .get_verification_state(&web_unverified_inbound_session, other_user_id)
+            .get_or_update_verification_state(&web_unverified_inbound_session, other_user_id)
             .await
             .unwrap();
         assert_eq!(VerificationState::Unverified(VerificationLevel::UnsignedDevice), state);
@@ -3776,8 +3818,10 @@ pub(crate) mod tests {
         )
         .unwrap();
 
-        let (state, _) =
-            bob.get_verification_state(&web_signed_inbound_session, other_user_id).await.unwrap();
+        let (state, _) = bob
+            .get_or_update_verification_state(&web_signed_inbound_session, other_user_id)
+            .await
+            .unwrap();
 
         assert_eq!(VerificationState::Unverified(VerificationLevel::UnverifiedIdentity), state);
     }

@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use indexmap::IndexSet;
+use indexmap::IndexMap;
 use ruma::{
     events::relation::Annotation, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId,
     OwnedUserId,
@@ -22,30 +22,79 @@ use ruma::{
 
 use super::event_item::TimelineEventItemId;
 
-/// Data associated with a reaction sender. It can be used to display
-/// a details UI component for a reaction with both sender
-/// names and the date at which they sent a reaction.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ReactionSenderData {
+// Implements hash etc
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub(super) struct AnnotationKey {
+    event_id: OwnedEventId,
+    key: String,
+}
+
+impl From<&Annotation> for AnnotationKey {
+    fn from(annotation: &Annotation) -> Self {
+        Self { event_id: annotation.event_id.clone(), key: annotation.key.clone() }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(super) enum ReactionAction {
+    /// Request already in progress so allow that one to resolve
+    None,
+
+    /// Send this reaction to the server
+    SendRemote(OwnedTransactionId),
+
+    /// Redact this reaction from the server
+    RedactRemote(OwnedEventId),
+}
+
+#[derive(Debug, Clone)]
+pub(super) enum ReactionState {
+    /// We're redacting a reaction.
+    ///
+    /// The optional event id is defined if, and only if, there already was a
+    /// remote echo for this reaction.
+    Redacting(Option<OwnedEventId>),
+    /// We're sending the reaction with the given transaction id, which we'll
+    /// use to match against the response in the sync event.
+    Sending(OwnedTransactionId),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PendingReaction {
+    /// The annotation used for the reaction.
+    pub key: String,
     /// Sender identifier.
     pub sender_id: OwnedUserId,
     /// Date at which the sender reacted.
     pub timestamp: MilliSecondsSinceUnixEpoch,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct FullReactionKey {
+    pub item: TimelineEventItemId,
+    pub key: String,
+    pub sender: OwnedUserId,
+}
+
 #[derive(Clone, Debug, Default)]
 pub(super) struct Reactions {
-    /// Reaction event / txn ID => sender and reaction data.
-    pub(super) map: HashMap<TimelineEventItemId, (ReactionSenderData, Annotation)>,
-    /// ID of event that is not in the timeline yet => List of reaction event
-    /// IDs.
-    pub(super) pending: HashMap<OwnedEventId, IndexSet<OwnedEventId>>,
+    /// Reaction event / txn ID => full path to the reaction in some item.
+    pub map: HashMap<TimelineEventItemId, FullReactionKey>,
+    /// Mapping of events that are not in the timeline => reaction event id =>
+    /// pending reaction.
+    pub pending: HashMap<OwnedEventId, IndexMap<OwnedEventId, PendingReaction>>,
+    /// The local reaction request state that is queued next.
+    pub reaction_state: IndexMap<AnnotationKey, ReactionState>,
+    /// The in-flight reaction request state that is ongoing.
+    pub in_flight_reaction: IndexMap<AnnotationKey, ReactionState>,
 }
 
 impl Reactions {
     pub(super) fn clear(&mut self) {
         self.map.clear();
         self.pending.clear();
+        self.reaction_state.clear();
+        self.in_flight_reaction.clear();
     }
 }
 

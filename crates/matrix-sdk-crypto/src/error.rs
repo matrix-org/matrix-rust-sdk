@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use ruma::{CanonicalJsonError, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
+use serde::{ser::SerializeMap, Serializer};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
@@ -122,16 +123,7 @@ pub enum MegolmError {
     #[error(
         "decryption failed because of mismatched identity keys of the sending device and those recorded in the to-device message"
     )]
-    MismatchedIdentityKeys {
-        /// The Ed25519 key recorded in the room key's to-device message.
-        key_ed25519: Box<Ed25519PublicKey>,
-        /// The Ed25519 identity key of the device sending the room key.
-        device_ed25519: Option<Box<Ed25519PublicKey>>,
-        /// The Curve25519 key recorded in the room key's to-device message.
-        key_curve25519: Box<Curve25519PublicKey>,
-        /// The Curve25519 identity key of the device sending the room key.
-        device_curve25519: Option<Box<Curve25519PublicKey>>,
-    },
+    MismatchedIdentityKeys(MismatchedIdentityKeysError),
 
     /// The encrypted megolm message couldn't be decoded.
     #[error(transparent)]
@@ -144,6 +136,44 @@ pub enum MegolmError {
     /// The storage layer returned an error.
     #[error(transparent)]
     Store(#[from] CryptoStoreError),
+}
+
+/// Decryption failed because of a mismatch between the identity keys of the
+/// device we received the room key from and the identity keys recorded in
+/// the plaintext of the room key to-device message.
+#[derive(Error, Debug, PartialEq)]
+pub struct MismatchedIdentityKeysError {
+    /// The Ed25519 key recorded in the room key's to-device message.
+    pub key_ed25519: Box<Ed25519PublicKey>,
+    /// The Ed25519 identity key of the device sending the room key.
+    pub device_ed25519: Option<Box<Ed25519PublicKey>>,
+    /// The Curve25519 key recorded in the room key's to-device message.
+    pub key_curve25519: Box<Curve25519PublicKey>,
+    /// The Curve25519 identity key of the device sending the room key.
+    pub device_curve25519: Option<Box<Curve25519PublicKey>>,
+}
+
+impl std::fmt::Display for MismatchedIdentityKeysError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut ser = f.serialize_struct("MismatchedIdentityKeysError", 4)?;
+        ser.serialize_entry("key_ed25519", &self.key_ed25519)?;
+        ser.serialize_entry("device_ed25519", &self.device_ed25519)?;
+        ser.serialize_entry("key_curve25519", &self.key_curve25519)?;
+        ser.serialize_entry("device_curve25519", &self.device_curve25519)?;
+        ser.end()
+    }
+}
+
+impl From<MismatchedIdentityKeysError> for MegolmError {
+    fn from(value: MismatchedIdentityKeysError) -> Self {
+        MegolmError::MismatchedIdentityKeys(value)
+    }
+}
+
+impl From<MismatchedIdentityKeysError> for SessionCreationError {
+    fn from(value: MismatchedIdentityKeysError) -> Self {
+        SessionCreationError::MismatchedIdentityKeys(value)
+    }
 }
 
 /// Error that occurs when decrypting an event that is malformed.
@@ -330,6 +360,15 @@ pub enum SessionCreationError {
     /// The given device keys are invalid.
     #[error("The given device keys are invalid")]
     InvalidDeviceKeys(#[from] SignatureError),
+
+    /// There was a mismatch between the identity keys of the device we received
+    /// the room key from and the identity keys recorded in the plaintext of the
+    /// room key to-device message.
+    #[error(
+        "There was a mismatch between the identity keys of the sending device \
+        and those recorded in the to-device message"
+    )]
+    MismatchedIdentityKeys(MismatchedIdentityKeysError),
 }
 
 /// Errors that can be returned by

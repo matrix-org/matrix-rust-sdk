@@ -162,6 +162,11 @@ impl PollPendingEvents {
         });
     }
 
+    pub(super) fn clear(&mut self) {
+        self.pending_poll_ends.clear();
+        self.pending_poll_responses.clear();
+    }
+
     pub(super) fn add_end(&mut self, start_id: &EventId, timestamp: MilliSecondsSinceUnixEpoch) {
         self.pending_poll_ends.insert(start_id.to_owned(), timestamp);
     }
