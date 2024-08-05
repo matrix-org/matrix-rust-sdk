@@ -67,10 +67,10 @@ async fn test_new_pinned_events_are_added_on_sync() {
     // The list is reloaded, so it's reset
     assert_matches!(timeline_stream.next().await.unwrap(), VectorDiff::Clear);
     assert_matches!(timeline_stream.next().await.unwrap(), VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$1"));
+        assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
     });
     assert_matches!(timeline_stream.next().await.unwrap(), VectorDiff::PushBack { value } => {
-        assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
+        assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$1"));
     });
     assert_matches!(timeline_stream.next().await.unwrap(), VectorDiff::PushFront { value } => {
         assert!(value.is_day_divider());
