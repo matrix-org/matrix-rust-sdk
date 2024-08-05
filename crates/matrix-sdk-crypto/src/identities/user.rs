@@ -438,9 +438,10 @@ pub struct OtherUserIdentityData {
     pub(crate) master_key: Arc<MasterPubkey>,
     self_signing_key: Arc<SelfSigningPubkey>,
     pinned_master_key: Arc<RwLock<MasterPubkey>>,
-    /// This tracks whether we've verified this user with any identity at
-    /// any point in time on this device. To use it in the future to detect
-    /// cases where the user has become unverified for any reason.
+    /// This tracks whether this olm machine has already seen this user as
+    /// verified. To use it in the future to detect cases where the user has
+    /// become unverified for any reason. This can be reset using
+    /// [`OtherUserIdentityData::withdraw_verification()`].
     previously_verified: Arc<AtomicBool>,
 }
 
