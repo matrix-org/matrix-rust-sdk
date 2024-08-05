@@ -13,6 +13,8 @@ use crate::{
     olm::InboundGroupSession,
     store,
     store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
+    CryptoStoreError,
+    CryptoStoreError::CryptoStoreWrapperMigrationError,
     GossippedSecret, OwnUserIdentityData,
 };
 
@@ -43,8 +45,42 @@ pub(crate) struct CryptoStoreWrapper {
         broadcast::Sender<(Option<OwnUserIdentityData>, IdentityChanges, DeviceChanges)>,
 }
 
+const STORE_WRAPPER_VERSION_KEY: &str = "CryptoStoreWrapper_VERSION";
+const STORE_WRAPPER_VERSION: u32 = 1;
+
+async fn migrate(wrapper: &CryptoStoreWrapper, old_version: u32) -> Result<(), CryptoStoreError> {
+    if old_version < 1 {
+        // this
+        wrapper
+            .store
+            .set_custom_value(STORE_WRAPPER_VERSION_KEY, 1_u32.to_le_bytes().into())
+            .await?;
+    }
+
+    // if old_version < 2 { // Not `else if` because we want to run each migration
+    // in turn     // Future migration
+    //     ... Something like marking all users as dirty?
+    //     // Update the current version to complete this migration
+    //     wrapper.store.set_custom_value(STORE_WRAPPER_VERSION_KEY,
+    // 2_u32.to_le_bytes().into()).await?; }
+
+    Ok(())
+}
+
+async fn read_store_version(store: &DynCryptoStore) -> Result<Option<u32>, CryptoStoreError> {
+    let value = store.get_custom_value(STORE_WRAPPER_VERSION_KEY).await?;
+    Ok(match value {
+        Some(u8_vec) => Some(u32::from_le_bytes(u8_vec.try_into().map_err(|_| {
+            CryptoStoreWrapperMigrationError("Failed to read store version".to_owned())
+        })?)),
+        _ => None,
+    })
+}
 impl CryptoStoreWrapper {
-    pub(crate) fn new(user_id: &UserId, store: impl IntoCryptoStore) -> Self {
+    pub(crate) async fn new(
+        user_id: &UserId,
+        store: impl IntoCryptoStore,
+    ) -> Result<Self, CryptoStoreError> {
         let room_keys_received_sender = broadcast::Sender::new(10);
         let room_keys_withheld_received_sender = broadcast::Sender::new(10);
         let secrets_broadcaster = broadcast::Sender::new(10);
@@ -52,14 +88,38 @@ impl CryptoStoreWrapper {
         // devices, that's why we increase the capacity here.
         let identities_broadcaster = broadcast::Sender::new(20);
 
-        Self {
+        let store_wrapper = Self {
             user_id: user_id.to_owned(),
             store: store.into_crypto_store(),
             room_keys_received_sender,
             room_keys_withheld_received_sender,
             secrets_broadcaster,
             identities_broadcaster,
+        };
+
+        // Simple wrapper level migration handling
+        let old_version = read_store_version(store_wrapper.store.as_ref()).await?.unwrap_or(0);
+        let new_version = STORE_WRAPPER_VERSION;
+        if new_version < old_version {
+            // Backward migration
+            return Err(CryptoStoreWrapperMigrationError(
+                "The database format changed in an incompatible way".into(),
+            ));
         }
+
+        migrate(&store_wrapper, old_version).await.map_err(|e| {
+            CryptoStoreWrapperMigrationError(format!("An Error occurred during migration {}", e))
+        })?;
+
+        let upgraded_version = read_store_version(store_wrapper.store.as_ref()).await?.unwrap_or(0);
+
+        if upgraded_version != new_version {
+            return Err(CryptoStoreWrapperMigrationError(
+                "Migration did not upgrade up to the expected store version".into(),
+            ));
+        }
+
+        Ok(store_wrapper)
     }
 
     /// Save the set of changes to the store.
@@ -230,5 +290,54 @@ impl Deref for CryptoStoreWrapper {
 
     fn deref(&self) -> &Self::Target {
         self.store.deref()
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use assert_matches::assert_matches;
+    use matrix_sdk_test::async_test;
+    use ruma::user_id;
+
+    use crate::{
+        store::{
+            crypto_store_wrapper::{
+                read_store_version, STORE_WRAPPER_VERSION, STORE_WRAPPER_VERSION_KEY,
+            },
+            CryptoStore, CryptoStoreWrapper, MemoryStore,
+        },
+        CryptoStoreError,
+    };
+
+    #[async_test]
+    async fn test_migration() {
+        let store = MemoryStore::new();
+
+        let version = store.get_custom_value(STORE_WRAPPER_VERSION_KEY).await.unwrap();
+
+        assert!(version.is_none());
+
+        let alice_id = user_id!("@alice:localhost");
+        let wrapper = CryptoStoreWrapper::new(alice_id, store).await.unwrap();
+
+        let version = read_store_version(wrapper.store.as_ref()).await.unwrap().unwrap();
+
+        assert_eq!(STORE_WRAPPER_VERSION, version);
+    }
+
+    #[async_test]
+    async fn test_backward_migration_should_error() {
+        let store = MemoryStore::new();
+
+        store
+            .set_custom_value(STORE_WRAPPER_VERSION_KEY, 4_u32.to_le_bytes().into())
+            .await
+            .unwrap();
+
+        let alice_id = user_id!("@alice:localhost");
+        let wrapper = CryptoStoreWrapper::new(alice_id, store).await;
+        assert!(wrapper.is_err());
+        let error = wrapper.unwrap_err();
+        assert_matches!(error, CryptoStoreError::CryptoStoreWrapperMigrationError(_));
     }
 }
