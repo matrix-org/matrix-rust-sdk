@@ -12,11 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use matrix_sdk::{crypto::types::events::UtdCause, room::power_levels::power_level_user_changes};
 use matrix_sdk_ui::timeline::{PollResult, TimelineDetails};
-use ruma::events::room::{message::RoomMessageEventContentWithoutRelation, MediaSource};
+use ruma::{
+    events::room::{message::RoomMessageEventContentWithoutRelation, MediaSource},
+    OwnedEventId,
+};
 use tracing::warn;
 
 use super::ProfileDetails;
@@ -338,7 +344,7 @@ pub enum OtherState {
     RoomHistoryVisibility,
     RoomJoinRules,
     RoomName { name: Option<String> },
-    RoomPinnedEvents,
+    RoomPinnedEvents { change: RoomPinnedEventsChange },
     RoomPowerLevels { users: HashMap<String, i64>, previous: Option<HashMap<String, i64>> },
     RoomServerAcl,
     RoomThirdPartyInvite { display_name: Option<String> },
@@ -347,6 +353,13 @@ pub enum OtherState {
     SpaceChild,
     SpaceParent,
     Custom { event_type: String },
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum RoomPinnedEventsChange {
+    Added,
+    Removed,
+    Changed,
 }
 
 impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherState {
@@ -381,7 +394,49 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
                 };
                 Self::RoomName { name }
             }
-            Content::RoomPinnedEvents(_) => Self::RoomPinnedEvents,
+            Content::RoomPinnedEvents(c) => {
+                match c {
+                    FullContent::Original { content, prev_content } => {
+                        let change = if let Some(prev_content) = prev_content {
+                            let mut new_pinned: HashSet<&OwnedEventId> =
+                                HashSet::from_iter(&content.pinned);
+                            if let Some(old_pinned) = &prev_content.pinned {
+                                let mut still_pinned: HashSet<&OwnedEventId> =
+                                    HashSet::from_iter(old_pinned);
+
+                                // Newly added elements will be kept in new_pinned, previous ones in
+                                // still_pinned instead
+                                still_pinned.retain(|item| new_pinned.remove(item));
+
+                                let added = !new_pinned.is_empty();
+                                let removed = still_pinned.len() < old_pinned.len();
+                                if added && removed {
+                                    RoomPinnedEventsChange::Changed
+                                } else if added {
+                                    RoomPinnedEventsChange::Added
+                                } else if removed {
+                                    RoomPinnedEventsChange::Removed
+                                } else {
+                                    // Any other case
+                                    RoomPinnedEventsChange::Changed
+                                }
+                            } else {
+                                // We don't know the previous state, so let's assume a generic
+                                // change
+                                RoomPinnedEventsChange::Changed
+                            }
+                        } else {
+                            // If there is no previous content we can assume the first pinned event
+                            // id was just added
+                            RoomPinnedEventsChange::Added
+                        };
+                        Self::RoomPinnedEvents { change }
+                    }
+                    FullContent::Redacted(_) => {
+                        Self::RoomPinnedEvents { change: RoomPinnedEventsChange::Changed }
+                    }
+                }
+            }
             Content::RoomPowerLevels(c) => match c {
                 FullContent::Original { content, prev_content } => Self::RoomPowerLevels {
                     users: power_level_user_changes(content, prev_content)
