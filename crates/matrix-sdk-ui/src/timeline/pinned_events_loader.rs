@@ -51,6 +51,7 @@ impl PinnedEventsLoader {
             .rev()
             .collect();
 
+        let has_pinned_event_ids = !pinned_event_ids.is_empty();
         let mut loaded_events = Vec::new();
         let mut event_ids_to_request = Vec::new();
         for ev_id in pinned_event_ids {
@@ -89,9 +90,13 @@ impl PinnedEventsLoader {
 
             for handle in handles {
                 if let Ok(Ok(ev)) = handle.await {
-                    loaded_events.push(ev)
+                    loaded_events.push(ev);
                 }
             }
+        }
+
+        if has_pinned_event_ids && loaded_events.is_empty() {
+            return Err(PinnedEventsLoaderError::TimelineReloadFailed);
         }
 
         info!("Saving {} pinned events to the cache", loaded_events.len());
@@ -198,4 +203,7 @@ pub enum PinnedEventsLoaderError {
 
     #[error("Timeline focus is not pinned events.")]
     TimelineFocusNotPinnedEvents,
+
+    #[error("Could not load pinned events.")]
+    TimelineReloadFailed,
 }
