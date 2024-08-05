@@ -2352,6 +2352,12 @@ impl Room {
         Ok(self.room_power_levels().await?.user_can_trigger_room_notification(user_id))
     }
 
+    /// Removes the cached pinned events associated with this room.
+    pub async fn clear_pinned_events(&self) {
+        let pinned_event_ids = self.pinned_event_ids();
+        self.client.inner.pinned_event_cache.remove_bulk(&pinned_event_ids).await;
+    }
+
     /// Get a list of servers that should know this room.
     ///
     /// Uses the synced members of the room and the suggested [routing
