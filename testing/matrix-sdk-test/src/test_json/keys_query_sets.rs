@@ -668,10 +668,10 @@ impl IdentityChangeDataSet {
     }
 }
 
-pub struct VerificationLatchTestData {}
+pub struct PreviouslyVerifiedTestData {}
 
 #[allow(dead_code)]
-impl VerificationLatchTestData {
+impl PreviouslyVerifiedTestData {
     pub const MASTER_KEY_PRIVATE_EXPORT: &'static str =
         "bSa0nVTocZArMzL7OLmeFUIVF4ycp64rrkVMgqOYg6Y";
     pub const SELF_SIGNING_KEY_PRIVATE_EXPORT: &'static str =

@@ -151,12 +151,12 @@ impl CryptoStoreWrapper {
             // identities.
             if let Some(own_identity_after) = maybe_own_identity.as_ref() {
                 // Only do this if our identity is passing from not verified to verified,
-                // the verified_latch can only go this way.
+                // the previously_verified can only change in that case.
                 if !own_identity_was_verified_before_change && own_identity_after.is_verified() {
                     debug!("Own identity is now verified, check all known identities for verification status changes");
                     // We need to review all the other identities to see if they are verified now
                     // and mark them as such
-                    self.check_all_identities_and_update_verified_latch_if_needed(
+                    self.check_all_identities_and_update_was_previousy_verified_flag_if_needed(
                         own_identity_after,
                     )
                     .await?;
@@ -169,7 +169,7 @@ impl CryptoStoreWrapper {
         Ok(())
     }
 
-    async fn check_all_identities_and_update_verified_latch_if_needed(
+    async fn check_all_identities_and_update_was_previousy_verified_flag_if_needed(
         &self,
         own_identity_after: &OwnUserIdentityData,
     ) -> Result<(), CryptoStoreError> {
@@ -183,11 +183,11 @@ impl CryptoStoreWrapper {
                 .as_ref()
                 .and_then(|i| i.other())
             {
-                if !other_identity.is_verified_latch_set()
+                if !other_identity.was_previously_verified()
                     && own_identity_after.is_identity_signed(other_identity).is_ok()
                 {
                     trace!(?tracked_user.user_id, "Marking set verified_latch to true.");
-                    other_identity.mark_as_verified_once();
+                    other_identity.mark_as_previously_verified();
                     updated_identities.push(other_identity.clone().into());
                 }
             }

@@ -427,9 +427,10 @@ impl UserIdentityData {
 /// identity changes (for example, in case of key material or device loss).
 ///
 /// As soon as the cryptographic identity is verified (i.e. signed by our own
-/// trusted identity), a latch is set to remember it (`verified_latch`). Future
-/// interactions will expect this user to stay verified, in case of violation
-/// the user should be notified with a blocking warning.
+/// trusted identity), a flag is set to remember it (`previously_verified`).
+/// Future interactions will expect this user to stay verified, in case of
+/// violation the user should be notified with a blocking warning when sending a
+/// message.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(try_from = "OtherUserIdentityDataSerializer", into = "OtherUserIdentityDataSerializer")]
 pub struct OtherUserIdentityData {
@@ -437,10 +438,10 @@ pub struct OtherUserIdentityData {
     pub(crate) master_key: Arc<MasterPubkey>,
     self_signing_key: Arc<SelfSigningPubkey>,
     pinned_master_key: Arc<RwLock<MasterPubkey>>,
-    /// This tracks whether we've ever verified this user with any identity at
+    /// This tracks whether we've verified this user with any identity at
     /// any point in time on this device. To use it in the future to detect
     /// cases where the user has become unverified for any reason.
-    verified_latch: Arc<AtomicBool>,
+    previously_verified: Arc<AtomicBool>,
 }
 
 /// Intermediate struct to help serialize OtherUserIdentityData and support
@@ -476,7 +477,7 @@ struct OtherUserIdentityDataSerializerV2 {
     master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
     pinned_master_key: MasterPubkey,
-    verified_latch: bool,
+    previously_verified: bool,
 }
 
 impl TryFrom<OtherUserIdentityDataSerializer> for OtherUserIdentityData {
@@ -494,7 +495,7 @@ impl TryFrom<OtherUserIdentityDataSerializer> for OtherUserIdentityData {
                     self_signing_key: Arc::new(v0.self_signing_key),
                     // We migrate by pinning the current master key
                     pinned_master_key: Arc::new(RwLock::new(v0.master_key)),
-                    verified_latch: Arc::new(false.into()),
+                    previously_verified: Arc::new(false.into()),
                 })
             }
             Some(v) if v == "1" => {
@@ -506,7 +507,7 @@ impl TryFrom<OtherUserIdentityDataSerializer> for OtherUserIdentityData {
                     pinned_master_key: Arc::new(RwLock::new(v1.pinned_master_key)),
                     // Put it to false. There will be a migration to mark all users as dirty, so we
                     // will receive an update for the identity that will correctly set up the value.
-                    verified_latch: Arc::new(false.into()),
+                    previously_verified: Arc::new(false.into()),
                 })
             }
             Some(v) if v == "2" => {
@@ -516,7 +517,7 @@ impl TryFrom<OtherUserIdentityDataSerializer> for OtherUserIdentityData {
                     master_key: Arc::new(v2.master_key.clone()),
                     self_signing_key: Arc::new(v2.self_signing_key),
                     pinned_master_key: Arc::new(RwLock::new(v2.pinned_master_key)),
-                    verified_latch: Arc::new(v2.verified_latch.into()),
+                    previously_verified: Arc::new(v2.previously_verified.into()),
                 })
             }
             _ => Err(serde::de::Error::custom(format!("Unsupported Version {:?}", value.version))),
@@ -531,7 +532,7 @@ impl From<OtherUserIdentityData> for OtherUserIdentityDataSerializer {
             master_key: value.master_key().to_owned(),
             self_signing_key: value.self_signing_key().to_owned(),
             pinned_master_key: value.pinned_master_key.read().unwrap().clone(),
-            verified_latch: value.verified_latch.load(Ordering::SeqCst),
+            previously_verified: value.previously_verified.load(Ordering::SeqCst),
         };
         OtherUserIdentityDataSerializer {
             version: Some("2".to_owned()),
@@ -583,7 +584,7 @@ impl OtherUserIdentityData {
             master_key: master_key.clone().into(),
             self_signing_key: self_signing_key.into(),
             pinned_master_key: RwLock::new(master_key).into(),
-            verified_latch: Arc::new(false.into()),
+            previously_verified: Arc::new(false.into()),
         })
     }
 
@@ -598,7 +599,7 @@ impl OtherUserIdentityData {
             master_key: Arc::new(master_key.clone()),
             self_signing_key,
             pinned_master_key: Arc::new(RwLock::new(master_key.clone())),
-            verified_latch: Arc::new(false.into()),
+            previously_verified: Arc::new(false.into()),
         }
     }
 
@@ -624,17 +625,17 @@ impl OtherUserIdentityData {
     }
 
     /// Remember that this identity used to be verified at some point.
-    pub(crate) fn mark_as_verified_once(&self) {
-        self.verified_latch.store(true, Ordering::SeqCst)
+    pub(crate) fn mark_as_previously_verified(&self) {
+        self.previously_verified.store(true, Ordering::SeqCst)
     }
 
-    /// True if we ever verified this identity (with any own identity, at any
+    /// True if we verified this identity (with any own identity, at any
     /// point).
     ///
     /// To pass this latch back to false, one must call
     /// [`OtherUserIdentityData::withdraw_verification()`].
-    pub fn is_verified_latch_set(&self) -> bool {
-        self.verified_latch.load(Ordering::SeqCst)
+    pub fn was_previously_verified(&self) -> bool {
+        self.previously_verified.load(Ordering::SeqCst)
     }
 
     /// Remove the requirement for this identity to be verified.
@@ -643,7 +644,7 @@ impl OtherUserIdentityData {
     /// reported to the user. In order to remove this notice users have to
     /// verify again or to withdraw the verification requirement.
     pub fn withdraw_verification(&self) {
-        self.verified_latch.store(false, Ordering::SeqCst)
+        self.previously_verified.store(false, Ordering::SeqCst)
     }
 
     /// Returns true if the identity has changed since we last pinned it.
@@ -700,7 +701,9 @@ impl OtherUserIdentityData {
             master_key: master_key.clone().into(),
             self_signing_key: self_signing_key.into(),
             pinned_master_key: RwLock::new(pinned_master_key).into(),
-            verified_latch: Arc::new((self.is_verified_latch_set() || updated_is_verified).into()),
+            previously_verified: Arc::new(
+                (self.was_previously_verified() || updated_is_verified).into(),
+            ),
         };
         let changed = new != *self;
 

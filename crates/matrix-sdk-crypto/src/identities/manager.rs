@@ -533,7 +533,7 @@ impl IdentityManager {
                 own_user_identity.is_identity_signed(&identity).is_ok()
             });
             if is_verified {
-                identity.mark_as_verified_once();
+                identity.mark_as_previously_verified();
             }
 
             Ok(identity.into())
@@ -2065,8 +2065,8 @@ pub(crate) mod tests {
 
     // Set up a machine do initial own key query and import cross-signing secret to
     // make the current session verified.
-    async fn common_verification_latch_machine_setup() -> OlmMachine {
-        use test_json::keys_query_sets::VerificationLatchTestData as DataSet;
+    async fn common_verified_identity_changes_machine_setup() -> OlmMachine {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
 
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
 
@@ -2086,9 +2086,9 @@ pub(crate) mod tests {
     }
     #[async_test]
     async fn test_manager_verified_latch_setup_on_new_identities() {
-        use test_json::keys_query_sets::VerificationLatchTestData as DataSet;
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
 
-        let machine = common_verification_latch_machine_setup().await;
+        let machine = common_verified_identity_changes_machine_setup().await;
 
         // ######
         // First test: Assert that the latch is properly set on new identities
@@ -2105,7 +2105,7 @@ pub(crate) mod tests {
         let bob_identity =
             machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
         // The verified latch should be true
-        assert!(bob_identity.is_verified_latch_set());
+        assert!(bob_identity.was_previously_verified());
         // And bob is verified
         assert!(bob_identity.is_verified());
 
@@ -2121,7 +2121,7 @@ pub(crate) mod tests {
         // Bob is not verified anymore
         assert!(!bob_identity.is_verified());
         // The verified latch should still be true
-        assert!(bob_identity.is_verified_latch_set());
+        assert!(bob_identity.was_previously_verified());
         // Bob device_2 is self-signed even if there is this verification latch
         // violation
         let bob_device = machine
@@ -2136,15 +2136,15 @@ pub(crate) mod tests {
         bob_identity.pin_current_master_key().await.unwrap();
         assert!(!bob_identity.has_pin_violation());
         let has_latch_violation =
-            bob_identity.is_verified_latch_set() && !bob_identity.is_verified();
+            bob_identity.was_previously_verified() && !bob_identity.is_verified();
         assert!(has_latch_violation);
     }
 
     #[async_test]
-    async fn test_manager_verified_latch_setup_on_updated_identities() {
-        use test_json::keys_query_sets::VerificationLatchTestData as DataSet;
+    async fn test_manager_verified_identity_changes_setup_on_updated_identities() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
 
-        let machine = common_verification_latch_machine_setup().await;
+        let machine = common_verified_identity_changes_machine_setup().await;
 
         // ######
         // Get the Carol identity for the first time
@@ -2163,10 +2163,10 @@ pub(crate) mod tests {
         // The identity is not verified
         assert!(!carol_identity.is_verified());
         // The verified latch is off
-        assert!(!carol_identity.is_verified_latch_set());
+        assert!(!carol_identity.was_previously_verified());
 
         // Carol is verified, likely from another session. Ensure the latch is updated
-        // when the key query response is processes
+        // when the key query response is processed
         let keys_query = DataSet::carol_keys_query_response_signed();
         let txn_id = TransactionId::new();
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
@@ -2180,7 +2180,7 @@ pub(crate) mod tests {
             .unwrap();
         assert!(carol_identity.is_verified());
         // This should have updated the latch
-        assert!(carol_identity.is_verified_latch_set());
+        assert!(carol_identity.was_previously_verified());
         // It is the same identity, it's just signed now so no pin violation
         assert!(!carol_identity.has_pin_violation());
     }
@@ -2188,8 +2188,8 @@ pub(crate) mod tests {
     // Set up a machine do initial own key query.
     // The cross signing secrets are not yet uploaded.
     // Then query keys for carol and bob (both signed by own identity)
-    async fn common_verification_latch_own_trust_change_machine_setup() -> OlmMachine {
-        use test_json::keys_query_sets::VerificationLatchTestData as DataSet;
+    async fn common_verified_identity_changes_own_trust_change_machine_setup() -> OlmMachine {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
 
         // Start on a non-verified session
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
@@ -2222,9 +2222,9 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_manager_verified_latch_setup_on_own_identity_trust_change() {
-        use test_json::keys_query_sets::VerificationLatchTestData as DataSet;
-        let machine = common_verification_latch_own_trust_change_machine_setup().await;
+    async fn test_manager_verified_identity_changes_setup_on_own_identity_trust_change() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        let machine = common_verified_identity_changes_own_trust_change_machine_setup().await;
 
         let own_identity =
             machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap().own().unwrap();
@@ -2233,7 +2233,7 @@ pub(crate) mod tests {
             machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
         // Carol is verified by our identity but our own identity is not yet trusted
         assert!(own_identity.is_identity_signed(&bob_identity).is_ok());
-        assert!(!bob_identity.is_verified_latch_set());
+        assert!(!bob_identity.was_previously_verified());
 
         let carol_identity = machine
             .get_identity(DataSet::carol_id(), None)
@@ -2244,7 +2244,7 @@ pub(crate) mod tests {
             .unwrap();
         // Carol is verified by our identity but our own identity is not yet trusted
         assert!(own_identity.is_identity_signed(&carol_identity).is_ok());
-        assert!(!carol_identity.is_verified_latch_set());
+        assert!(!carol_identity.was_previously_verified());
 
         // Marking our own identity as trusted should update the existing identities
         let _ = own_identity.verify().await;
@@ -2262,19 +2262,19 @@ pub(crate) mod tests {
             .unwrap();
         assert!(carol_identity.is_verified());
         // The latch should be set now
-        assert!(carol_identity.is_verified_latch_set());
+        assert!(carol_identity.was_previously_verified());
 
         let bob_identity =
             machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
         assert!(bob_identity.is_verified());
         // The latch should be set now
-        assert!(bob_identity.is_verified_latch_set());
+        assert!(bob_identity.was_previously_verified());
     }
 
     #[async_test]
-    async fn test_manager_verified_latch_setup_on_import_secrets() {
-        use test_json::keys_query_sets::VerificationLatchTestData as DataSet;
-        let machine = common_verification_latch_own_trust_change_machine_setup().await;
+    async fn test_manager_verified_identity_change_setup_on_import_secrets() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        let machine = common_verified_identity_changes_own_trust_change_machine_setup().await;
 
         let own_identity =
             machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap().own().unwrap();
@@ -2283,7 +2283,7 @@ pub(crate) mod tests {
             machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
         // Carol is verified by our identity but our own identity is not yet trusted
         assert!(own_identity.is_identity_signed(&bob_identity).is_ok());
-        assert!(!bob_identity.is_verified_latch_set());
+        assert!(!bob_identity.was_previously_verified());
 
         let carol_identity = machine
             .get_identity(DataSet::carol_id(), None)
@@ -2294,7 +2294,7 @@ pub(crate) mod tests {
             .unwrap();
         // Carol is verified by our identity but our own identity is not yet trusted
         assert!(own_identity.is_identity_signed(&carol_identity).is_ok());
-        assert!(!carol_identity.is_verified_latch_set());
+        assert!(!carol_identity.was_previously_verified());
 
         // Marking our own identity as trusted should update the existing identities
         machine
@@ -2319,12 +2319,12 @@ pub(crate) mod tests {
             .unwrap();
         assert!(carol_identity.is_verified());
         // The latch should be set now
-        assert!(carol_identity.is_verified_latch_set());
+        assert!(carol_identity.was_previously_verified());
 
         let bob_identity =
             machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
         assert!(bob_identity.is_verified());
         // The latch should be set now
-        assert!(bob_identity.is_verified_latch_set());
+        assert!(bob_identity.was_previously_verified());
     }
 }
