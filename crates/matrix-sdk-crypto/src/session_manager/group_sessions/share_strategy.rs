@@ -24,12 +24,14 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
 
 use super::OutboundGroupSession;
-use crate::{
-    error::OlmResult, store::Store, types::events::room_key_withheld::WithheldCode, DeviceData,
-    EncryptionSettings, OwnUserIdentityData, UserIdentityData,
-};
 #[cfg(doc)]
-use crate::{Device, LocalTrust};
+use crate::Device;
+use crate::{
+    error::{OlmResult, SessionRecipientCollectionError},
+    store::Store,
+    types::events::room_key_withheld::WithheldCode,
+    DeviceData, EncryptionSettings, LocalTrust, OlmError, OwnUserIdentityData, UserIdentityData,
+};
 
 /// Strategy to collect the devices that should receive room keys for the
 /// current discussion.
@@ -112,6 +114,8 @@ pub(crate) async fn collect_session_recipients(
     let users: BTreeSet<&UserId> = users.collect();
     let mut devices: BTreeMap<OwnedUserId, Vec<DeviceData>> = Default::default();
     let mut withheld_devices: Vec<(DeviceData, WithheldCode)> = Default::default();
+    let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> =
+        Default::default();
 
     trace!(?users, ?settings, "Calculating group session recipients");
 
@@ -140,21 +144,28 @@ pub(crate) async fn collect_session_recipients(
     let own_identity = store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
 
     for user_id in users {
+        trace!("Considering recipient devices for user {}", user_id);
         let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
 
         let recipient_devices = match settings.sharing_strategy {
-            CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices, .. } => {
-                // We only need the user identity if only_allow_trusted_devices is set.
-                let device_owner_identity = if only_allow_trusted_devices {
-                    store.get_user_identity(user_id).await?
-                } else {
-                    None
-                };
-                split_recipients_withhelds_for_user(
+            CollectStrategy::DeviceBasedStrategy {
+                only_allow_trusted_devices,
+                error_on_verified_user_problem,
+            } => {
+                // We only need the user identity if `only_allow_trusted_devices` or
+                // `error_on_verified_user_problem` is set.
+                let device_owner_identity =
+                    if only_allow_trusted_devices || error_on_verified_user_problem {
+                        store.get_user_identity(user_id).await?
+                    } else {
+                        None
+                    };
+                split_devices_for_user(
                     user_devices,
                     &own_identity,
                     &device_owner_identity,
                     only_allow_trusted_devices,
+                    error_on_verified_user_problem,
                 )
             }
             CollectStrategy::IdentityBasedStrategy => {
@@ -165,6 +176,21 @@ pub(crate) async fn collect_session_recipients(
                 )
             }
         };
+
+        // If we're using a `DeviceBasedStrategy` with
+        // `error_on_verified_user_problem` set, then
+        // `unsigned_of_verified_user` may be populated. If so, add an entry to the
+        // list of users with unsigned devices.
+        if !recipient_devices.unsigned_of_verified_user.is_empty() {
+            unsigned_devices_of_verified_users.insert(
+                user_id.to_owned(),
+                recipient_devices
+                    .unsigned_of_verified_user
+                    .into_iter()
+                    .map(|d| d.device_id().to_owned())
+                    .collect(),
+            );
+        }
 
         let recipients = recipient_devices.allowed_devices;
         let withheld_recipients = recipient_devices.denied_devices_with_code;
@@ -179,6 +205,18 @@ pub(crate) async fn collect_session_recipients(
 
         devices.entry(user_id.to_owned()).or_default().extend(recipients);
         withheld_devices.extend(withheld_recipients);
+    }
+
+    // If we're using a `DeviceBasedStrategy` with
+    // `error_on_verified_user_problem` set, then
+    // `unsigned_devices_of_verified_users` may be populated. If so, we need to bail
+    // out with an error.
+    if !unsigned_devices_of_verified_users.is_empty() {
+        return Err(OlmError::SessionRecipientCollectionError(
+            SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(
+                unsigned_devices_of_verified_users,
+            ),
+        ));
     }
 
     if should_rotate {
@@ -248,29 +286,59 @@ fn is_session_overshared_for_user(
     should_rotate
 }
 
+/// Result type for [`split_devices_for_user`] and
+/// [`split_recipients_withhelds_for_user_based_on_identity`].
 #[derive(Default)]
 struct RecipientDevices {
+    /// Devices that should receive the room key.
     allowed_devices: Vec<DeviceData>,
+    /// Devices that should receive a withheld code.
     denied_devices_with_code: Vec<(DeviceData, WithheldCode)>,
+    /// Devices that should cause the transmission to fail, due to being an
+    /// unsigned device belonging to a verified user. Only populated by
+    /// [`split_devices_for_user`], when
+    /// `error_on_verified_user_problem` is set.
+    unsigned_of_verified_user: Vec<DeviceData>,
 }
 
-fn split_recipients_withhelds_for_user(
+/// Partition the list of a user's devices according to whether they should
+/// receive the key, for [`CollectStrategy::DeviceBasedStrategy`].
+///
+/// We split the list into three buckets:
+///
+///  * the devices that should receive the room key.
+///
+///  * the devices that should receive a withheld code.
+///
+///  * If `error_on_verified_user_problem` is set, the devices that should cause
+///    the transmission to fail due to being unsigned. (If
+///    `error_on_verified_user_problem` is unset, these devices are otherwise
+///    partitioned into `allowed_devices`.)
+fn split_devices_for_user(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
     only_allow_trusted_devices: bool,
+    error_on_verified_user_problem: bool,
 ) -> RecipientDevices {
-    // From all the devices a user has, we're splitting them into two
-    // buckets: a bucket of devices that should receive the
-    // room key, and a bucket of devices that should receive
-    // a withheld code.
     let mut recipient_devices: RecipientDevices = Default::default();
     for d in user_devices.into_values() {
         if d.is_blacklisted() {
             recipient_devices.denied_devices_with_code.push((d, WithheldCode::Blacklisted));
+        } else if d.local_trust_state() == LocalTrust::Ignored {
+            // Ignore the trust state of that device and share
+            recipient_devices.allowed_devices.push(d);
         } else if only_allow_trusted_devices && !d.is_verified(own_identity, device_owner_identity)
         {
             recipient_devices.denied_devices_with_code.push((d, WithheldCode::Unverified));
+        } else if error_on_verified_user_problem
+            && is_unsigned_device_of_verified_user(
+                own_identity.as_ref(),
+                device_owner_identity.as_ref(),
+                &d,
+            )
+        {
+            recipient_devices.unsigned_of_verified_user.push(d)
         } else {
             recipient_devices.allowed_devices.push(d);
         }
@@ -292,6 +360,7 @@ fn split_recipients_withhelds_for_user_based_on_identity(
                     .into_values()
                     .map(|d| (d, WithheldCode::Unauthorised))
                     .collect(),
+                unsigned_of_verified_user: Vec::default(),
             }
         }
         Some(device_owner_identity) => {
@@ -309,7 +378,31 @@ fn split_recipients_withhelds_for_user_based_on_identity(
             RecipientDevices {
                 allowed_devices: recipients,
                 denied_devices_with_code: withheld_recipients,
+                unsigned_of_verified_user: Vec::default(),
             }
+        }
+    }
+}
+
+fn is_unsigned_device_of_verified_user(
+    own_identity: Option<&OwnUserIdentityData>,
+    device_owner_identity: Option<&UserIdentityData>,
+    device_data: &DeviceData,
+) -> bool {
+    device_owner_identity.is_some_and(|device_owner_identity| {
+        is_user_verified(own_identity, device_owner_identity)
+            && !device_data.is_cross_signed_by_owner(device_owner_identity)
+    })
+}
+
+fn is_user_verified(
+    own_identity: Option<&OwnUserIdentityData>,
+    user_identity: &UserIdentityData,
+) -> bool {
+    match user_identity {
+        UserIdentityData::Own(own_identity) => own_identity.is_verified(),
+        UserIdentityData::Other(other_identity) => {
+            own_identity.is_some_and(|oi| oi.is_identity_verified(other_identity))
         }
     }
 }
