@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
 use ruma::{CanonicalJsonError, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde::{ser::SerializeMap, Serializer};
 use serde_json::Error as SerdeError;
@@ -70,8 +72,26 @@ pub enum OlmError {
             have a valid Olm session with us"
     )]
     MissingSession,
+
+    #[error(transparent)]
+    /// The room key that was to be shared was not shared because the sharing
+    /// strategy could not be fulfilled.
+    RoomKeySharingStrategyError(DeviceCollectError),
 }
 
+/// Depending on the sharing strategy for room keys, the distribution of the
+/// room key could fail.
+#[derive(Error, Debug)]
+pub enum DeviceCollectError {
+    /// When a verified user has some unsigned devices.
+    /// Happens only with `CollectStrategy::DeviceBasedStrategy` when
+    /// `error_on_unsigned_device_of_verified_users` is true.
+    ///
+    /// In order to resolve this the caller has to ignore or blacklist the given
+    /// devices (see [`Device::set_local_trust`]).
+    #[error("Encryption failed because one or several verified users have unsigned devices")]
+    DeviceBasedVerifiedUserHasUnsignedDevice(BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>),
+}
 /// Error representing a failure during a group encryption operation.
 #[derive(Error, Debug)]
 pub enum MegolmError {

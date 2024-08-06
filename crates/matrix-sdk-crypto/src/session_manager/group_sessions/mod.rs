@@ -1175,7 +1175,7 @@ mod tests {
             .any(|d| d.user_id() == user_id && d.device_id() == device_id));
 
         let settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::new_device_based(true),
+            sharing_strategy: CollectStrategy::new_device_based(true, false),
             ..Default::default()
         };
         let users = [user_id].into_iter();
@@ -1235,7 +1235,7 @@ mod tests {
 
         let users = keys_claim.one_time_keys.keys().map(Deref::deref);
         let settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::new_device_based(true),
+            sharing_strategy: CollectStrategy::new_device_based(true, false),
             ..Default::default()
         };
 

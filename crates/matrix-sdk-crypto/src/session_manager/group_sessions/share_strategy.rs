@@ -24,9 +24,13 @@ use tracing::{debug, instrument, trace};
 
 use super::OutboundGroupSession;
 use crate::{
-    error::OlmResult, store::Store, types::events::room_key_withheld::WithheldCode, DeviceData,
-    EncryptionSettings, OwnUserIdentityData, UserIdentityData,
+    error::{DeviceCollectError, OlmResult},
+    store::Store,
+    types::events::room_key_withheld::WithheldCode,
+    DeviceData, EncryptionSettings, OlmError, OwnUserIdentityData, UserIdentityData,
 };
+#[cfg(doc)]
+use crate::{Device, LocalTrust};
 
 /// Strategy to collect the devices that should receive room keys for the
 /// current discussion.
@@ -42,6 +46,21 @@ pub enum CollectStrategy {
         ///       trusted via interactive verification.
         ///     - It is the current own device of the user.
         only_allow_trusted_devices: bool,
+        /// If true, when a verified user has an unsigned device the key sharing
+        /// will fail with an error. If false the key will be
+        /// distributed to that unsigned device. In order to resolve
+        /// this sharing error the user can choose to ignore or blacklist the
+        /// device:
+        /// - [`Device::set_local_trust`] using [`LocalTrust::Ignored`], this
+        ///   will ignore the warning for this device, and send it the key.
+        /// - [`Device::set_local_trust`] using [`LocalTrust::BlackListed`],
+        ///   this will not distribute the key to this device.
+        ///
+        /// Once the problematic devices are blacklisted or whitelisted the
+        /// caller can retry to share a second time. This has to be done
+        /// once per problematic device.
+        #[serde(default)]
+        error_on_unsigned_device_of_verified_users: bool,
     },
     /// Share based on identity. Only distribute to devices signed by their
     /// owner. If a user has no published identity he will not receive
@@ -51,8 +70,14 @@ pub enum CollectStrategy {
 
 impl CollectStrategy {
     /// Creates a new legacy strategy, based on per device trust.
-    pub const fn new_device_based(only_allow_trusted_devices: bool) -> Self {
-        CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices }
+    pub const fn new_device_based(
+        only_allow_trusted_devices: bool,
+        error_on_unsigned_device_of_verified_users: bool,
+    ) -> Self {
+        CollectStrategy::DeviceBasedStrategy {
+            only_allow_trusted_devices,
+            error_on_unsigned_device_of_verified_users,
+        }
     }
 
     /// Creates an identity based strategy
@@ -63,7 +88,7 @@ impl CollectStrategy {
 
 impl Default for CollectStrategy {
     fn default() -> Self {
-        CollectStrategy::new_device_based(false)
+        CollectStrategy::new_device_based(false, false)
     }
 }
 
@@ -128,22 +153,31 @@ pub(crate) async fn collect_session_recipients(
     let own_identity = store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
 
     match settings.sharing_strategy {
-        CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices } => {
+        CollectStrategy::DeviceBasedStrategy {
+            only_allow_trusted_devices,
+            error_on_unsigned_device_of_verified_users,
+        } => {
+            let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> =
+                Default::default();
             for user_id in users {
                 let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
 
-                // We only need the user identity if only_allow_trusted_devices is set.
-                let device_owner_identity = if only_allow_trusted_devices {
-                    store.get_user_identity(user_id).await?
-                } else {
-                    None
-                };
+                // We only need the user identity if only_allow_trusted_devices or
+                // error_on_unsigned_device_of_verified_users is set.
+                let device_owner_identity =
+                    if only_allow_trusted_devices || error_on_unsigned_device_of_verified_users {
+                        store.get_user_identity(user_id).await?
+                    } else {
+                        None
+                    };
                 let recipient_devices = split_recipients_withhelds_for_user(
                     user_devices,
                     &own_identity,
                     &device_owner_identity,
                     only_allow_trusted_devices,
+                    error_on_unsigned_device_of_verified_users,
                 );
+
                 let recipients = recipient_devices.allowed_devices;
                 let withheld_recipients = recipient_devices.denied_devices_with_code;
 
@@ -157,6 +191,24 @@ pub(crate) async fn collect_session_recipients(
 
                 devices.entry(user_id.to_owned()).or_default().extend(recipients);
                 withheld_devices.extend(withheld_recipients);
+                if let Some(blockers) = recipient_devices.unsigned_of_verified_user {
+                    if !blockers.is_empty() {
+                        unsigned_devices_of_verified_users
+                            .entry(user_id.to_owned())
+                            .or_default()
+                            .extend(blockers)
+                    }
+                }
+            }
+
+            if error_on_unsigned_device_of_verified_users
+                && !unsigned_devices_of_verified_users.is_empty()
+            {
+                return Err(OlmError::RoomKeySharingStrategyError(
+                    DeviceCollectError::DeviceBasedVerifiedUserHasUnsignedDevice(
+                        unsigned_devices_of_verified_users,
+                    ),
+                ));
             }
         }
         CollectStrategy::IdentityBasedStrategy => {
@@ -186,9 +238,6 @@ pub(crate) async fn collect_session_recipients(
         }
     };
 
-    // }
-    // end of for each
-
     if should_rotate {
         debug!(
             should_rotate,
@@ -208,7 +257,7 @@ pub(crate) async fn collect_session_recipients(
 fn is_session_overshared_for_user(
     outbound: &OutboundGroupSession,
     user_id: &UserId,
-    recipients: &Vec<DeviceData>,
+    recipients: &[DeviceData],
 ) -> bool {
     // Device IDs that should receive this session
     let recipient_device_ids: BTreeSet<&DeviceId> =
@@ -245,6 +294,7 @@ fn is_session_overshared_for_user(
 struct RecipientDevices {
     allowed_devices: Vec<DeviceData>,
     denied_devices_with_code: Vec<(DeviceData, WithheldCode)>,
+    unsigned_of_verified_user: Option<Vec<OwnedDeviceId>>,
 }
 
 fn split_recipients_withhelds_for_user(
@@ -252,7 +302,9 @@ fn split_recipients_withhelds_for_user(
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
     only_allow_trusted_devices: bool,
+    error_on_unsigned_device_of_verified_users: bool,
 ) -> RecipientDevices {
+    let mut unsigned_of_verified: Vec<OwnedDeviceId> = Default::default();
     // From all the devices a user has, we're splitting them into two
     // buckets, a bucket of devices that should receive the
     // room key and a bucket of devices that should receive
@@ -261,16 +313,61 @@ fn split_recipients_withhelds_for_user(
         user_devices.into_values().partition_map(|d| {
             if d.is_blacklisted() {
                 Either::Right((d, WithheldCode::Blacklisted))
+            } else if d.is_whitelisted() {
+                // Ignore the trust state of that device and share
+                Either::Left(d)
             } else if only_allow_trusted_devices
                 && !d.is_verified(own_identity, device_owner_identity)
             {
                 Either::Right((d, WithheldCode::Unverified))
             } else {
+                // track and collect unsigned devices of verified users
+                if error_on_unsigned_device_of_verified_users
+                    && is_unsigned_device_of_verified_user(own_identity, device_owner_identity, &d)
+                {
+                    unsigned_of_verified.push(d.device_id().to_owned())
+                }
                 Either::Left(d)
             }
         });
 
-    RecipientDevices { allowed_devices: recipients, denied_devices_with_code: withheld_recipients }
+    RecipientDevices {
+        allowed_devices: recipients,
+        denied_devices_with_code: withheld_recipients,
+        unsigned_of_verified_user: Some(unsigned_of_verified),
+    }
+}
+
+fn is_unsigned_device_of_verified_user(
+    own_identity: &Option<OwnUserIdentityData>,
+    device_owner_identity: &Option<UserIdentityData>,
+    device_data: &DeviceData,
+) -> bool {
+    // If we don't have an identity the other user can't be verified so return false
+    let own_identity = match own_identity {
+        Some(o) => o,
+        _ => return false,
+    };
+
+    // If the device owner doesn't have an identity he can't be verified so return
+    // false
+    let owner_identity = match device_owner_identity {
+        Some(o) => o,
+        _ => return false,
+    };
+
+    let is_owner_verified = match owner_identity {
+        UserIdentityData::Other(other_data) => own_identity.is_identity_signed(other_data).is_ok(),
+        UserIdentityData::Own(own_data) => own_data.is_verified(),
+    };
+
+    if is_owner_verified {
+        // check the device
+        !device_data.is_cross_signed_by_owner(owner_identity)
+    } else {
+        // The owner is not verified
+        false
+    }
 }
 
 fn split_recipients_withhelds_for_user_based_on_identity(
@@ -287,6 +384,7 @@ fn split_recipients_withhelds_for_user_based_on_identity(
                     .into_values()
                     .map(|d| (d, WithheldCode::Unauthorised))
                     .collect(),
+                unsigned_of_verified_user: None,
             }
         }
         Some(device_owner_identity) => {
@@ -304,6 +402,7 @@ fn split_recipients_withhelds_for_user_based_on_identity(
             RecipientDevices {
                 allowed_devices: recipients,
                 denied_devices_with_code: withheld_recipients,
+                unsigned_of_verified_user: None,
             }
         }
     }
@@ -311,19 +410,23 @@ fn split_recipients_withhelds_for_user_based_on_identity(
 
 #[cfg(test)]
 mod tests {
-
     use std::sync::Arc;
 
-    use matrix_sdk_test::{async_test, test_json::keys_query_sets::KeyDistributionTestData};
-    use ruma::{events::room::history_visibility::HistoryVisibility, room_id, TransactionId};
+    use matrix_sdk_test::{
+        async_test, test_json, test_json::keys_query_sets::KeyDistributionTestData,
+    };
+    use ruma::{
+        device_id, events::room::history_visibility::HistoryVisibility, room_id, TransactionId,
+    };
 
     use crate::{
+        error::DeviceCollectError,
         olm::OutboundGroupSession,
         session_manager::{
             group_sessions::share_strategy::collect_session_recipients, CollectStrategy,
         },
         types::events::room_key_withheld::WithheldCode,
-        CrossSigningKeyExport, EncryptionSettings, OlmMachine,
+        CrossSigningKeyExport, EncryptionSettings, LocalTrust, OlmMachine,
     };
 
     async fn set_up_test_machine() -> OlmMachine {
@@ -369,7 +472,7 @@ mod tests {
     async fn test_share_with_per_device_strategy_to_all() {
         let machine = set_up_test_machine().await;
 
-        let legacy_strategy = CollectStrategy::new_device_based(false);
+        let legacy_strategy = CollectStrategy::new_device_based(false, false);
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
@@ -420,7 +523,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let legacy_strategy = CollectStrategy::new_device_based(true);
+        let legacy_strategy = CollectStrategy::new_device_based(true, false);
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
@@ -486,6 +589,425 @@ mod tests {
         assert_eq!(code, &WithheldCode::Unverified);
     }
 
+    #[async_test]
+    async fn test_share_with_per_device_strategy_only_trusted_error_on_unsigned_of_verified() {
+        let machine = set_up_test_machine().await;
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let legacy_strategy = CollectStrategy::new_device_based(true, true);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![
+                KeyDistributionTestData::dan_id(),
+                KeyDistributionTestData::dave_id(),
+                KeyDistributionTestData::good_id(),
+            ]
+            .into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await
+        .unwrap();
+
+        assert!(!share_result.should_rotate);
+
+        let dave_devices_shared = share_result.devices.get(KeyDistributionTestData::dave_id());
+        let good_devices_shared = share_result.devices.get(KeyDistributionTestData::good_id());
+        // dave and good wouldn't receive any key
+        assert!(dave_devices_shared.unwrap().is_empty());
+        assert!(good_devices_shared.unwrap().is_empty());
+
+        // dan is verified by me and has one of his devices self signed, so should get
+        // the key
+        let dan_devices_shared =
+            share_result.devices.get(KeyDistributionTestData::dan_id()).unwrap();
+
+        assert_eq!(dan_devices_shared.len(), 1);
+        let dan_device_that_will_get_the_key = &dan_devices_shared[0];
+        assert_eq!(
+            dan_device_that_will_get_the_key.device_id().as_str(),
+            KeyDistributionTestData::dan_signed_device_id()
+        );
+
+        // Check withhelds for others
+        let (_, code) = share_result
+            .withheld_devices
+            .iter()
+            .find(|(d, _)| d.device_id() == KeyDistributionTestData::dan_unsigned_device_id())
+            .expect("This dan's device should receive a withheld code");
+
+        assert_eq!(code, &WithheldCode::Unverified);
+
+        let (_, code) = share_result
+            .withheld_devices
+            .iter()
+            .find(|(d, _)| d.device_id() == KeyDistributionTestData::dave_device_id())
+            .expect("This daves's device should receive a withheld code");
+
+        assert_eq!(code, &WithheldCode::Unverified);
+    }
+
+    async fn error_on_unsigned_of_verified_machine_setup() -> OlmMachine {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+
+        let keys_query = DataSet::own_keys_query_response_1();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        // Import own keys private parts
+        machine
+            .import_cross_signing_keys(CrossSigningKeyExport {
+                master_key: DataSet::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+                self_signing_key: DataSet::SELF_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+                user_signing_key: DataSet::USER_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+            })
+            .await
+            .unwrap();
+
+        let keys_query = DataSet::bob_keys_query_response_signed();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        // Bob is verified and has 1 unsigned device
+        let bob_identity = machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap();
+        assert!(bob_identity.other().unwrap().is_verified());
+        // bob_device_1_id
+        let bob_signed_device = machine
+            .get_device(DataSet::bob_id(), DataSet::bob_device_1_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+        let bob_unsigned_device = machine
+            .get_device(DataSet::bob_id(), DataSet::bob_device_2_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(bob_signed_device.device_owner_identity.is_some());
+
+        assert!(bob_signed_device.is_verified());
+        assert!(!bob_unsigned_device.is_verified());
+        machine
+    }
+    #[async_test]
+    async fn test_error_on_unsigned_of_verified_resolve_by_whitelisting() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = error_on_unsigned_of_verified_machine_setup().await;
+
+        let bob_unsigned_device = machine
+            .get_device(DataSet::bob_id(), DataSet::bob_device_2_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_device_based(false, true);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![DataSet::bob_id()].into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await;
+
+        assert!(share_result.is_err());
+        let share_error = share_result.unwrap_err();
+        match share_error {
+            crate::OlmError::RoomKeySharingStrategyError(
+                DeviceCollectError::DeviceBasedVerifiedUserHasUnsignedDevice(blockers),
+            ) => {
+                assert_eq!(1, blockers.len());
+                assert_eq!(1, blockers.get(DataSet::bob_id()).unwrap().len());
+                let blocking_device_id =
+                    blockers.get(DataSet::bob_id()).unwrap().iter().next().unwrap();
+                assert_eq!(blocking_device_id, bob_unsigned_device.device_id());
+                // Try to resolve by ignoring
+                bob_unsigned_device.set_local_trust(LocalTrust::Ignored).await.unwrap();
+
+                // now sharing should work
+                let share_result = collect_session_recipients(
+                    machine.store(),
+                    vec![DataSet::bob_id()].into_iter(),
+                    &encryption_settings,
+                    &group_session,
+                )
+                .await
+                .unwrap();
+
+                assert_eq!(2, share_result.devices.get(DataSet::bob_id()).unwrap().len());
+                assert_eq!(0, share_result.withheld_devices.len());
+
+                // Ensure that this device will not cause problems for future messages
+                let group_session_2 = OutboundGroupSession::new(
+                    machine.device_id().into(),
+                    Arc::new(id_keys),
+                    fake_room_id,
+                    encryption_settings.clone(),
+                )
+                .unwrap();
+
+                let share_result = collect_session_recipients(
+                    machine.store(),
+                    vec![DataSet::bob_id()].into_iter(),
+                    &encryption_settings,
+                    &group_session_2,
+                )
+                .await
+                .unwrap();
+
+                assert_eq!(2, share_result.devices.get(DataSet::bob_id()).unwrap().len());
+                assert_eq!(0, share_result.withheld_devices.len());
+            }
+            _ => panic!("Expected a DeviceBasedVerifiedUserHasUnsignedDevice error"),
+        }
+    }
+
+    #[async_test]
+    async fn test_error_on_unsigned_of_verified_resolve_by_blacklisting() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = error_on_unsigned_of_verified_machine_setup().await;
+
+        let bob_unsigned_device = machine
+            .get_device(DataSet::bob_id(), DataSet::bob_device_2_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_device_based(false, true);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![DataSet::bob_id()].into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await;
+
+        assert!(share_result.is_err());
+        let share_error = share_result.unwrap_err();
+        match share_error {
+            crate::OlmError::RoomKeySharingStrategyError(
+                DeviceCollectError::DeviceBasedVerifiedUserHasUnsignedDevice(blockers),
+            ) => {
+                assert_eq!(1, blockers.len());
+                assert_eq!(1, blockers.get(DataSet::bob_id()).unwrap().len());
+                let blocking_device_id =
+                    blockers.get(DataSet::bob_id()).unwrap().iter().next().unwrap();
+                assert_eq!(blocking_device_id, bob_unsigned_device.device_id());
+                // Try to resolve by blacklisting
+                bob_unsigned_device.set_local_trust(LocalTrust::BlackListed).await.unwrap();
+
+                // now sharing should work
+                let share_result = collect_session_recipients(
+                    machine.store(),
+                    vec![DataSet::bob_id()].into_iter(),
+                    &encryption_settings,
+                    &group_session,
+                )
+                .await
+                .unwrap();
+
+                assert_eq!(1, share_result.devices.get(DataSet::bob_id()).unwrap().len());
+                assert_eq!(1, share_result.withheld_devices.len());
+                let (blocked, code) = share_result.withheld_devices.first().unwrap();
+                assert_eq!(WithheldCode::Blacklisted.as_str(), code.as_str());
+                assert_eq!(bob_unsigned_device.device_id(), blocked.device_id());
+
+                // Ensure that this device will not cause problems for future messages
+                let group_session_2 = OutboundGroupSession::new(
+                    machine.device_id().into(),
+                    Arc::new(id_keys),
+                    fake_room_id,
+                    encryption_settings.clone(),
+                )
+                .unwrap();
+
+                let share_result = collect_session_recipients(
+                    machine.store(),
+                    vec![DataSet::bob_id()].into_iter(),
+                    &encryption_settings,
+                    &group_session_2,
+                )
+                .await
+                .unwrap();
+
+                assert_eq!(1, share_result.devices.get(DataSet::bob_id()).unwrap().len());
+                assert_eq!(1, share_result.withheld_devices.len());
+            }
+            _ => panic!("Expected a DeviceBasedVerifiedUserHasUnsignedDevice error"),
+        }
+    }
+
+    #[async_test]
+    async fn test_error_on_unsigned_of_verified_multiple_users() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = error_on_unsigned_of_verified_machine_setup().await;
+        let bob_unsigned_device = machine
+            .get_device(DataSet::bob_id(), DataSet::bob_device_2_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Add carol, verified with one unsigned device
+        let keys_query = DataSet::carol_keys_query_response_signed();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let carol_identity =
+            machine.get_identity(DataSet::carol_id(), None).await.unwrap().unwrap();
+        assert!(carol_identity.other().unwrap().is_verified());
+        let carol_unsigned_device = machine
+            .get_device(DataSet::carol_id(), DataSet::carol_unsigned_device_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!carol_unsigned_device.is_verified());
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_device_based(false, true);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![DataSet::bob_id(), DataSet::carol_id()].into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await;
+
+        assert!(share_result.is_err());
+        let share_error = share_result.unwrap_err();
+        match share_error {
+            crate::OlmError::RoomKeySharingStrategyError(
+                DeviceCollectError::DeviceBasedVerifiedUserHasUnsignedDevice(blockers),
+            ) => {
+                assert_eq!(2, blockers.len());
+                assert_eq!(1, blockers.get(DataSet::bob_id()).unwrap().len());
+                assert_eq!(1, blockers.get(DataSet::carol_id()).unwrap().len());
+
+                let blocking_bob_device_id =
+                    blockers.get(DataSet::bob_id()).unwrap().iter().next().unwrap();
+                assert_eq!(blocking_bob_device_id, bob_unsigned_device.device_id());
+
+                let blocking_carol_device_id =
+                    blockers.get(DataSet::carol_id()).unwrap().iter().next().unwrap();
+                assert_eq!(blocking_carol_device_id, carol_unsigned_device.device_id());
+            }
+            _ => panic!("Unexpected error type"),
+        }
+    }
+
+    #[async_test]
+    async fn test_error_on_unsigned_of_verified_owner_is_us() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = error_on_unsigned_of_verified_machine_setup().await;
+        let me_unsigned_device = machine
+            .get_device(DataSet::own_id(), DataSet::own_unsigned_device_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(!me_unsigned_device.is_verified());
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_device_based(false, true);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![DataSet::own_id()].into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await;
+
+        assert!(share_result.is_err());
+        let share_error = share_result.unwrap_err();
+        match share_error {
+            crate::OlmError::RoomKeySharingStrategyError(
+                DeviceCollectError::DeviceBasedVerifiedUserHasUnsignedDevice(blockers),
+            ) => {
+                assert_eq!(1, blockers.len());
+                assert_eq!(1, blockers.get(DataSet::own_id()).unwrap().len());
+
+                let blocking_own_device_id =
+                    blockers.get(DataSet::own_id()).unwrap().iter().next().unwrap();
+                assert_eq!(blocking_own_device_id, me_unsigned_device.device_id());
+            }
+            _ => panic!("Unexpected error type"),
+        }
+    }
     #[async_test]
     async fn test_share_with_identity_strategy() {
         let machine = set_up_test_machine().await;
@@ -567,7 +1089,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::new_device_based(false);
+        let strategy = CollectStrategy::new_device_based(false, false);
 
         let encryption_settings = EncryptionSettings {
             sharing_strategy: strategy.clone(),
@@ -621,7 +1143,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::new_device_based(false);
+        let strategy = CollectStrategy::new_device_based(false, false);
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };

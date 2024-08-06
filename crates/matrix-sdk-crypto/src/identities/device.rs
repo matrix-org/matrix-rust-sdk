@@ -642,6 +642,14 @@ impl DeviceData {
         self.local_trust_state() == LocalTrust::BlackListed
     }
 
+    /// Is the device locally marked as whitelisted.
+    ///
+    /// Whitelisted devices will receive group sessions regardless of their
+    /// verification status.
+    pub fn is_whitelisted(&self) -> bool {
+        self.local_trust_state() == LocalTrust::Ignored
+    }
+
     /// Set the trust state of the device to the given state.
     ///
     /// Note: This should only done in the crypto store where the trust state
