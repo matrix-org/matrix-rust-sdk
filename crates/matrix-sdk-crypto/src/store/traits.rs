@@ -130,7 +130,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// and we want to update the sender data based on the new information.
     async fn get_inbound_group_sessions_for_device(
         &self,
-        device_key: Curve25519PublicKey,
+        device_key: &Curve25519PublicKey,
         sender_data_type: SenderDataType,
     ) -> Result<InboundGroupSessionStream, Self::Error>;
 
@@ -407,7 +407,7 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn get_inbound_group_sessions_for_device(
         &self,
-        device_key: Curve25519PublicKey,
+        device_key: &Curve25519PublicKey,
         sender_data_type: SenderDataType,
     ) -> Result<InboundGroupSessionStream> {
         self.0

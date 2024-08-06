@@ -384,7 +384,7 @@ impl CryptoStore for MemoryStore {
 
     async fn get_inbound_group_sessions_for_device(
         &self,
-        _device_key: Curve25519PublicKey,
+        _device_key: &Curve25519PublicKey,
         _sender_data_type: SenderDataType,
     ) -> Result<InboundGroupSessionStream> {
         todo!()
@@ -1246,7 +1246,7 @@ mod integration_tests {
 
         async fn get_inbound_group_sessions_for_device(
             &self,
-            device_key: Curve25519PublicKey,
+            device_key: &Curve25519PublicKey,
             sender_data_type: SenderDataType,
         ) -> Result<InboundGroupSessionStream, Self::Error> {
             self.0.get_inbound_group_sessions_for_device(device_key, sender_data_type).await

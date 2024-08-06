@@ -970,7 +970,7 @@ impl CryptoStore for SqliteCryptoStore {
 
     async fn get_inbound_group_sessions_for_device(
         &self,
-        _device_key: Curve25519PublicKey,
+        _device_key: &Curve25519PublicKey,
         _sender_data_type: SenderDataType,
     ) -> Result<InboundGroupSessionStream> {
         todo!()
