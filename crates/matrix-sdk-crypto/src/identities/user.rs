@@ -1084,8 +1084,8 @@ pub(crate) mod tests {
         assert_eq!("1", with_serializer.version.unwrap());
     }
 
-    #[test]
-    fn own_identity_check_signatures() {
+    #[async_test]
+    async fn own_identity_check_signatures() {
         let response = own_key_query();
         let identity = get_own_identity();
         let (first, second) = device(&response);
@@ -1098,7 +1098,7 @@ pub(crate) mod tests {
         let verification_machine = VerificationMachine::new(
             Account::with_device_id(second.user_id(), second.device_id()).static_data,
             private_identity,
-            Arc::new(CryptoStoreWrapper::new(second.user_id(), MemoryStore::new())),
+            Arc::new(CryptoStoreWrapper::new(second.user_id(), MemoryStore::new()).await.unwrap()),
         );
 
         let first = Device {
@@ -1139,7 +1139,7 @@ pub(crate) mod tests {
         let verification_machine = VerificationMachine::new(
             Account::with_device_id(device.user_id(), device.device_id()).static_data,
             id.clone(),
-            Arc::new(CryptoStoreWrapper::new(device.user_id(), MemoryStore::new())),
+            Arc::new(CryptoStoreWrapper::new(device.user_id(), MemoryStore::new()).await.unwrap()),
         );
 
         let public_identity = identity.to_public_identity().await.unwrap();

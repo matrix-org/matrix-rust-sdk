@@ -82,6 +82,10 @@ pub enum CryptoStoreError {
     /// An error due to an invalid generation in a cross-process locking scheme.
     #[error("invalid lock generation: {0}")]
     InvalidLockGeneration(String),
+
+    /// A problem when migrating the crypto store wrapper
+    #[error("Crypto store wrapper error: {0}")]
+    CryptoStoreWrapperMigrationError(String),
 }
 
 impl CryptoStoreError {

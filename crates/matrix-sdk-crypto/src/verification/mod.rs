@@ -868,14 +868,14 @@ pub(crate) mod tests {
         bob_store.save_devices(vec![alice_device]);
 
         let alice_store = VerificationStore {
-            inner: Arc::new(CryptoStoreWrapper::new(alice.user_id(), alice_store)),
+            inner: Arc::new(CryptoStoreWrapper::new(alice.user_id(), alice_store).await.unwrap()),
             account: alice.static_data.clone(),
             private_identity: alice_private_identity.into(),
         };
 
         let bob_store = VerificationStore {
             account: bob.static_data.clone(),
-            inner: Arc::new(CryptoStoreWrapper::new(bob.user_id(), bob_store)),
+            inner: Arc::new(CryptoStoreWrapper::new(bob.user_id(), bob_store).await.unwrap()),
             private_identity: bob_private_identity.into(),
         };
 

@@ -173,7 +173,8 @@ impl OlmMachine {
         let account = Account::rehydrate(pickle_key, self.user_id(), device_id, device_data)?;
         let static_account = account.static_data().clone();
 
-        let store = Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()));
+        let store =
+            Arc::new(CryptoStoreWrapper::new(self.user_id(), MemoryStore::new()).await.unwrap());
         let device = DeviceData::from_account(&account);
         store.save_pending_changes(PendingChanges { account: Some(account) }).await?;
         store
@@ -356,7 +357,7 @@ impl OlmMachine {
         });
 
         let identity = Arc::new(Mutex::new(identity));
-        let store = Arc::new(CryptoStoreWrapper::new(user_id, store));
+        let store = Arc::new(CryptoStoreWrapper::new(user_id, store).await?);
         Ok(OlmMachine::new_helper(device_id, store, static_account, identity, maybe_backup_key))
     }
 

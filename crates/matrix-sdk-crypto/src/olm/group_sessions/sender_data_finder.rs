@@ -860,10 +860,10 @@ mod tests {
             let sender_device = if options.device_is_signed {
                 create_signed_device(&sender.account, &*sender.private_identity.lock().await).await
             } else {
-                create_unsigned_device(&sender.account)
+                create_unsigned_device(&sender.account).await
             };
 
-            let store = create_store(&me);
+            let store = create_store(&me).await;
 
             save_to_store(&store, &me, &sender, &sender_device, &options).await;
 
@@ -912,8 +912,9 @@ mod tests {
         }
     }
 
-    fn create_store(me: &TestUser) -> Store {
-        let store_wrapper = Arc::new(CryptoStoreWrapper::new(&me.user_id, MemoryStore::new()));
+    async fn create_store(me: &TestUser) -> Store {
+        let store_wrapper =
+            Arc::new(CryptoStoreWrapper::new(&me.user_id, MemoryStore::new()).await.unwrap());
 
         let verification_machine = VerificationMachine::new(
             me.account.deref().clone(),
@@ -1063,14 +1064,14 @@ mod tests {
         self_signing.sign_device(&mut device_keys).unwrap();
         read_only_device.update_device(&device_keys).unwrap();
 
-        wrap_device(account, read_only_device)
+        wrap_device(account, read_only_device).await
     }
 
-    fn create_unsigned_device(account: &Account) -> Device {
-        wrap_device(account, DeviceData::from_account(account))
+    async fn create_unsigned_device(account: &Account) -> Device {
+        wrap_device(account, DeviceData::from_account(account)).await
     }
 
-    fn wrap_device(account: &Account, read_only_device: DeviceData) -> Device {
+    async fn wrap_device(account: &Account, read_only_device: DeviceData) -> Device {
         Device {
             inner: read_only_device,
             verification_machine: VerificationMachine::new(
@@ -1078,7 +1079,9 @@ mod tests {
                 Arc::new(Mutex::new(PrivateCrossSigningIdentity::new(
                     account.user_id().to_owned(),
                 ))),
-                Arc::new(CryptoStoreWrapper::new(account.user_id(), MemoryStore::new())),
+                Arc::new(
+                    CryptoStoreWrapper::new(account.user_id(), MemoryStore::new()).await.unwrap(),
+                ),
             ),
             own_identity: None,
             device_owner_identity: None,

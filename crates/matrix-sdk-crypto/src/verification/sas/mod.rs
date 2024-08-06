@@ -902,8 +902,8 @@ mod tests {
         device_id!("BOBDEVCIE")
     }
 
-    fn machine_pair_test_helper() -> (VerificationStore, DeviceData, VerificationStore, DeviceData)
-    {
+    async fn machine_pair_test_helper(
+    ) -> (VerificationStore, DeviceData, VerificationStore, DeviceData) {
         let alice = Account::with_device_id(alice_id(), alice_device_id());
         let alice_device = DeviceData::from_account(&alice);
 
@@ -912,7 +912,9 @@ mod tests {
 
         let alice_store = VerificationStore {
             account: alice.static_data.clone(),
-            inner: Arc::new(CryptoStoreWrapper::new(alice.user_id(), MemoryStore::new())),
+            inner: Arc::new(
+                CryptoStoreWrapper::new(alice.user_id(), MemoryStore::new()).await.unwrap(),
+            ),
             private_identity: Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())).into(),
         };
 
@@ -921,7 +923,7 @@ mod tests {
 
         let bob_store = VerificationStore {
             account: bob.static_data.clone(),
-            inner: Arc::new(CryptoStoreWrapper::new(bob.user_id(), bob_store)),
+            inner: Arc::new(CryptoStoreWrapper::new(bob.user_id(), bob_store).await.unwrap()),
             private_identity: Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())).into(),
         };
 
@@ -930,7 +932,7 @@ mod tests {
 
     #[async_test]
     async fn sas_wrapper_full() {
-        let (alice_store, alice_device, bob_store, bob_device) = machine_pair_test_helper();
+        let (alice_store, alice_device, bob_store, bob_device) = machine_pair_test_helper().await;
 
         let identities = alice_store.get_identities(bob_device).await.unwrap();
 
@@ -1004,7 +1006,7 @@ mod tests {
 
     #[async_test]
     async fn sas_with_restricted_methods() {
-        let (alice_store, alice_device, bob_store, bob_device) = machine_pair_test_helper();
+        let (alice_store, alice_device, bob_store, bob_device) = machine_pair_test_helper().await;
         let identities = alice_store.get_identities(bob_device).await.unwrap();
 
         let short_auth_strings = vec![ShortAuthenticationString::Decimal];
