@@ -8,10 +8,11 @@ use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 use ruma::events::{
     call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
     poll::unstable_start::SyncUnstablePollStartEvent,
-    relation::RelationType,
     room::message::SyncRoomMessageEvent,
     AnySyncMessageLikeEvent, AnySyncTimelineEvent,
 };
+#[cfg(feature = "e2e-encryption")]
+use ruma::EventId;
 use ruma::{events::sticker::SyncStickerEvent, MxcUri, OwnedEventId};
 use serde::{Deserialize, Serialize};
 
@@ -50,26 +51,33 @@ pub enum PossibleLatestEvent<'a> {
 /// Decide whether an event could be stored as the latest event in a room.
 /// Returns a LatestEvent representing our decision.
 #[cfg(feature = "e2e-encryption")]
-pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLatestEvent<'_> {
+pub fn is_suitable_for_latest_event<'a>(
+    event: &'a AnySyncTimelineEvent,
+    prev_latest: Option<&EventId>,
+) -> PossibleLatestEvent<'a> {
+    use ruma::events::room::message::Relation;
+
     match event {
         // Suitable - we have an m.room.message that was not redacted or edited
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(message)) => {
             // Check if this is a replacement for another message. If it is, ignore it
             if let Some(original_message) = message.as_original() {
-                let is_replacement =
-                    original_message.content.relates_to.as_ref().map_or(false, |relates_to| {
-                        if let Some(relation_type) = relates_to.rel_type() {
-                            relation_type == RelationType::Replacement
+                // We include messages that are not replacements; but we allow a replacement if
+                // that's the replacement to the previous known latest event.
+                let is_suitable =
+                    original_message.content.relates_to.as_ref().map_or(true, |relates_to| {
+                        if let Relation::Replacement(c) = &relates_to {
+                            prev_latest == Some(&c.event_id)
                         } else {
                             false
                         }
                     });
 
-                if is_replacement {
+                if !is_suitable {
                     return PossibleLatestEvent::NoUnsupportedMessageLikeType;
-                } else {
-                    return PossibleLatestEvent::YesRoomMessage(message);
                 }
+
+                return PossibleLatestEvent::YesRoomMessage(message);
             }
 
             return PossibleLatestEvent::YesRoomMessage(message);
@@ -328,7 +336,7 @@ mod tests {
         ));
         assert_let!(
             PossibleLatestEvent::YesRoomMessage(SyncMessageLikeEvent::Original(m)) =
-                is_suitable_for_latest_event(&event)
+                is_suitable_for_latest_event(&event, None)
         );
 
         assert_eq!(m.content.msgtype.msgtype(), "m.image");
@@ -351,7 +359,7 @@ mod tests {
         ));
         assert_let!(
             PossibleLatestEvent::YesPoll(SyncMessageLikeEvent::Original(m)) =
-                is_suitable_for_latest_event(&event)
+                is_suitable_for_latest_event(&event, None)
         );
 
         assert_eq!(m.content.poll_start().question.text, "do you like rust?");
@@ -375,7 +383,7 @@ mod tests {
         ));
         assert_let!(
             PossibleLatestEvent::YesCallInvite(SyncMessageLikeEvent::Original(_)) =
-                is_suitable_for_latest_event(&event)
+                is_suitable_for_latest_event(&event, None)
         );
     }
 
@@ -397,7 +405,7 @@ mod tests {
         ));
         assert_let!(
             PossibleLatestEvent::YesCallNotify(SyncMessageLikeEvent::Original(_)) =
-                is_suitable_for_latest_event(&event)
+                is_suitable_for_latest_event(&event, None)
         );
     }
 
@@ -418,7 +426,7 @@ mod tests {
         ));
 
         assert_matches!(
-            is_suitable_for_latest_event(&event),
+            is_suitable_for_latest_event(&event, None),
             PossibleLatestEvent::YesSticker(SyncStickerEvent::Original(_))
         );
     }
@@ -440,7 +448,7 @@ mod tests {
             ));
 
         assert_matches!(
-            is_suitable_for_latest_event(&event),
+            is_suitable_for_latest_event(&event, None),
             PossibleLatestEvent::NoUnsupportedMessageLikeType
         );
     }
@@ -468,7 +476,7 @@ mod tests {
         ));
 
         assert_matches!(
-            is_suitable_for_latest_event(&event),
+            is_suitable_for_latest_event(&event, None),
             PossibleLatestEvent::YesRoomMessage(SyncMessageLikeEvent::Redacted(_))
         );
     }
@@ -490,7 +498,10 @@ mod tests {
             }),
         ));
 
-        assert_matches!(is_suitable_for_latest_event(&event), PossibleLatestEvent::NoEncrypted);
+        assert_matches!(
+            is_suitable_for_latest_event(&event, None),
+            PossibleLatestEvent::NoEncrypted
+        );
     }
 
     #[test]
@@ -507,7 +518,7 @@ mod tests {
         ));
 
         assert_matches!(
-            is_suitable_for_latest_event(&event),
+            is_suitable_for_latest_event(&event, None),
             PossibleLatestEvent::NoUnsupportedEventType
         );
     }
@@ -531,7 +542,63 @@ mod tests {
         ));
 
         assert_matches!(
-            is_suitable_for_latest_event(&event),
+            is_suitable_for_latest_event(&event, None),
+            PossibleLatestEvent::NoUnsupportedMessageLikeType
+        );
+    }
+
+    #[test]
+    fn test_replacement_events_is_suitable_if_replaces_previous_latest_event() {
+        let prev_latest_event_id = owned_event_id!("$1");
+
+        // The content's body is the fallback for the edit.
+        let mut event_content = RoomMessageEventContent::text_plain("*Bye bye, world!");
+
+        // This is the actual edit.
+        event_content.relates_to = Some(Relation::Replacement(Replacement::new(
+            prev_latest_event_id.clone(),
+            RoomMessageEventContent::text_plain("Bye bye, world!").into(),
+        )));
+
+        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+            SyncRoomMessageEvent::Original(OriginalSyncMessageLikeEvent {
+                content: event_content,
+                event_id: owned_event_id!("$2"),
+                sender: owned_user_id!("@a:b.c"),
+                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
+                unsigned: MessageLikeUnsigned::new(),
+            }),
+        ));
+
+        assert_let!(
+            PossibleLatestEvent::YesRoomMessage(sync_message_event) =
+                is_suitable_for_latest_event(&event, Some(&prev_latest_event_id))
+        );
+        assert_eq!(sync_message_event.as_original().unwrap().content.body(), "*Bye bye, world!");
+    }
+
+    #[test]
+    fn test_replacement_events_is_suitable_if_doesnt_replace_previous_latest_event() {
+        let prev_latest_event_id = owned_event_id!("$42");
+
+        let mut event_content = RoomMessageEventContent::text_plain("Bye bye, world!");
+        event_content.relates_to = Some(Relation::Replacement(Replacement::new(
+            owned_event_id!("$1"),
+            RoomMessageEventContent::text_plain("Hello, world!").into(),
+        )));
+
+        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+            SyncRoomMessageEvent::Original(OriginalSyncMessageLikeEvent {
+                content: event_content,
+                event_id: owned_event_id!("$2"),
+                sender: owned_user_id!("@a:b.c"),
+                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
+                unsigned: MessageLikeUnsigned::new(),
+            }),
+        ));
+
+        assert_matches!(
+            is_suitable_for_latest_event(&event, Some(&prev_latest_event_id)),
             PossibleLatestEvent::NoUnsupportedMessageLikeType
         );
     }

@@ -17,7 +17,6 @@ use std::sync::Arc;
 use as_variant::as_variant;
 use imbl::Vector;
 use matrix_sdk::crypto::types::events::UtdCause;
-use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 use ruma::{
     events::{
         call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
@@ -50,10 +49,11 @@ use ruma::{
         sticker::{StickerEventContent, SyncStickerEvent},
         AnyFullStateEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType, StateEventType,
+        SyncMessageLikeEvent,
     },
     OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
 };
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::timeline::{polls::PollState, TimelineItem};
 
@@ -126,39 +126,37 @@ impl TimelineItemContent {
     pub(crate) fn from_latest_event_content(
         event: AnySyncTimelineEvent,
     ) -> Option<TimelineItemContent> {
-        match is_suitable_for_latest_event(&event) {
-            PossibleLatestEvent::YesRoomMessage(m) => {
-                Some(Self::from_suitable_latest_event_content(m))
+        match event {
+            AnySyncTimelineEvent::MessageLike(msg_like) => {
+                let bundled_relations = msg_like.relations();
+                match msg_like {
+                    AnySyncMessageLikeEvent::RoomMessage(room_msg) => {
+                        Some(Self::from_suitable_latest_event_content(room_msg, bundled_relations))
+                    }
+                    AnySyncMessageLikeEvent::Sticker(sticker) => {
+                        Some(Self::from_suitable_latest_sticker_content(sticker))
+                    }
+                    AnySyncMessageLikeEvent::UnstablePollStart(poll_start) => {
+                        Some(Self::from_suitable_latest_poll_event_content(&poll_start))
+                    }
+                    AnySyncMessageLikeEvent::CallInvite(call_invite) => {
+                        Some(Self::from_suitable_latest_call_invite_content(&call_invite))
+                    }
+                    AnySyncMessageLikeEvent::CallNotify(call_notify) => {
+                        Some(Self::from_suitable_latest_call_notify_content(&call_notify))
+                    }
+                    _ => {
+                        warn!(
+                            "Found latest event of type {}, but don't know how to wrap it.",
+                            msg_like.event_type()
+                        );
+                        None
+                    }
+                }
             }
-            PossibleLatestEvent::YesSticker(s) => {
-                Some(Self::from_suitable_latest_sticker_content(s))
-            }
-            PossibleLatestEvent::YesPoll(poll) => {
-                Some(Self::from_suitable_latest_poll_event_content(poll))
-            }
-            PossibleLatestEvent::YesCallInvite(call_invite) => {
-                Some(Self::from_suitable_latest_call_invite_content(call_invite))
-            }
-            PossibleLatestEvent::YesCallNotify(call_notify) => {
-                Some(Self::from_suitable_latest_call_notify_content(call_notify))
-            }
-            PossibleLatestEvent::NoUnsupportedEventType => {
-                // TODO: when we support state events in message previews, this will need change
-                warn!("Found a state event cached as latest_event! ID={}", event.event_id());
-                None
-            }
-            PossibleLatestEvent::NoUnsupportedMessageLikeType => {
-                // TODO: When we support reactions in message previews, this will need to change
-                warn!(
-                    "Found an event cached as latest_event, but I don't know how \
-                        to wrap it in a TimelineItemContent. type={}, ID={}",
-                    event.event_type().to_string(),
-                    event.event_id()
-                );
-                None
-            }
-            PossibleLatestEvent::NoEncrypted => {
-                warn!("Found an encrypted event cached as latest_event! ID={}", event.event_id());
+
+            AnySyncTimelineEvent::State(_) => {
+                debug!("State events as latest events not supported yet");
                 None
             }
         }
@@ -167,45 +165,33 @@ impl TimelineItemContent {
     /// Given some message content that is from an event that we have already
     /// determined is suitable for use as a latest event in a message preview,
     /// extract its contents and wrap it as a `TimelineItemContent`.
-    fn from_suitable_latest_event_content(event: &SyncRoomMessageEvent) -> TimelineItemContent {
-        match event {
-            SyncRoomMessageEvent::Original(event) => {
-                // Grab the content of this event
-                let event_content = event.content.clone();
+    fn from_suitable_latest_event_content(
+        event: SyncRoomMessageEvent,
+        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+    ) -> TimelineItemContent {
+        let SyncMessageLikeEvent::Original(event) = event else {
+            return TimelineItemContent::RedactedMessage;
+        };
 
-                // We don't have access to any relations via the `AnySyncTimelineEvent` (I think
-                // - andyb) so we pretend there are none. This might be OK for
-                // the message preview use case.
-                let relations = BundledMessageLikeRelations::new();
+        // If this message is a reply, we would look up in this list the message it was
+        // replying to. Since we probably won't show this in the message preview,
+        // it's probably OK to supply an empty list here.
+        //
+        // `Message::from_event` marks the original event as `Unavailable` if it can't
+        // be found inside the timeline_items.
+        let timeline_items = Vector::new();
 
-                // If this message is a reply, we would look up in this list the message it was
-                // replying to. Since we probably won't show this in the message preview,
-                // it's probably OK to supply an empty list here.
-                // `Message::from_event` marks the original event as `Unavailable` if it can't
-                // be found inside the timeline_items.
-                let timeline_items = Vector::new();
-                TimelineItemContent::Message(Message::from_event(
-                    event_content,
-                    relations,
-                    &timeline_items,
-                ))
-            }
-            SyncRoomMessageEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
-        }
+        TimelineItemContent::Message(Message::from_event(event.content, relations, &timeline_items))
     }
 
     /// Given some sticker content that is from an event that we have already
     /// determined is suitable for use as a latest event in a message preview,
     /// extract its contents and wrap it as a `TimelineItemContent`.
-    fn from_suitable_latest_sticker_content(event: &SyncStickerEvent) -> TimelineItemContent {
-        match event {
-            SyncStickerEvent::Original(event) => {
-                // Grab the content of this event
-                let event_content = event.content.clone();
-                TimelineItemContent::Sticker(Sticker { content: event_content })
-            }
-            SyncStickerEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
-        }
+    fn from_suitable_latest_sticker_content(event: SyncStickerEvent) -> TimelineItemContent {
+        let SyncMessageLikeEvent::Original(event) = event else {
+            return TimelineItemContent::RedactedMessage;
+        };
+        TimelineItemContent::Sticker(Sticker { content: event.content })
     }
 
     /// Extracts a `TimelineItemContent` from a poll start event for use as a
@@ -213,14 +199,12 @@ impl TimelineItemContent {
     fn from_suitable_latest_poll_event_content(
         event: &SyncUnstablePollStartEvent,
     ) -> TimelineItemContent {
-        match event {
-            SyncUnstablePollStartEvent::Original(event) => {
-                TimelineItemContent::Poll(PollState::new(NewUnstablePollStartEventContent::new(
-                    event.content.poll_start().clone(),
-                )))
-            }
-            SyncUnstablePollStartEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
-        }
+        let Some(event) = event.as_original() else {
+            return TimelineItemContent::RedactedMessage;
+        };
+        TimelineItemContent::Poll(PollState::new(NewUnstablePollStartEventContent::new(
+            event.content.poll_start().clone(),
+        )))
     }
 
     fn from_suitable_latest_call_invite_content(
