@@ -26,6 +26,7 @@ use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt};
 use indexmap::IndexMap;
 use matrix_sdk::{
+    config::RequestConfig,
     deserialized_responses::{SyncTimelineEvent, TimelineEvent},
     event_cache::paginator::{PaginableRoom, PaginatorError},
     room::{EventWithContextResponse, Messages, MessagesOptions},
@@ -321,7 +322,11 @@ impl PaginableRoom for TestRoomDataProvider {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl PinnedEventsRoom for TestRoomDataProvider {
-    async fn event(&self, _event_id: &EventId) -> Result<SyncTimelineEvent, PaginatorError> {
+    async fn event_with_config(
+        &self,
+        _event_id: &EventId,
+        _config: Option<RequestConfig>,
+    ) -> Result<SyncTimelineEvent, PaginatorError> {
         unimplemented!();
     }
 
