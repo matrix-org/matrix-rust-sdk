@@ -43,7 +43,7 @@ async fn test_sent_in_clear_shield() {
     let shield = item.as_event().unwrap().get_shield(false);
     assert_eq!(
         shield,
-        Some(ShieldState::Red { code: ShieldStateCode::SentInClear, message: "Sent in clear." })
+        Some(ShieldState::Red { code: ShieldStateCode::SentInClear, message: "Not encrypted." })
     );
 }
 
@@ -116,6 +116,6 @@ async fn test_local_sent_in_clear_shield() {
     let shield = event_item.get_shield(false);
     assert_eq!(
         shield,
-        Some(ShieldState::Red { code: ShieldStateCode::SentInClear, message: "Sent in clear." })
+        Some(ShieldState::Red { code: ShieldStateCode::SentInClear, message: "Not encrypted." })
     );
 }

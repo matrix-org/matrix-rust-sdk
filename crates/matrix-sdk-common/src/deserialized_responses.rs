@@ -29,7 +29,7 @@ const AUTHENTICITY_NOT_GUARANTEED: &str =
 const UNVERIFIED_IDENTITY: &str = "Encrypted by an unverified user.";
 const UNSIGNED_DEVICE: &str = "Encrypted by a device not verified by its owner.";
 const UNKNOWN_DEVICE: &str = "Encrypted by an unknown or deleted device.";
-pub const SENT_IN_CLEAR: &str = "Sent in clear.";
+pub const SENT_IN_CLEAR: &str = "Not encrypted.";
 
 /// Represents the state of verification for a decrypted message sent by a
 /// device.
