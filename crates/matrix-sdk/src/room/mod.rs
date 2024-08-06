@@ -389,9 +389,19 @@ impl Room {
 
     /// Fetch the event with the given `EventId` in this room.
     pub async fn event(&self, event_id: &EventId) -> Result<TimelineEvent> {
+        self.event_with_config(event_id, None).await
+    }
+
+    /// Fetch the event with the given `EventId` in this room, using the
+    /// provided  `RequestConfig`.
+    pub async fn event_with_config(
+        &self,
+        event_id: &EventId,
+        request_config: Option<RequestConfig>,
+    ) -> Result<TimelineEvent> {
         let request =
             get_room_event::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
-        let event = self.client.send(request, None).await?.event;
+        let event = self.client.send(request, request_config).await?.event;
         self.try_decrypt_event(event).await
     }
 
