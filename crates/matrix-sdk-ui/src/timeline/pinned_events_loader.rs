@@ -36,7 +36,7 @@ impl PinnedEventsLoader {
     /// `max_concurrent_requests` allows, to avoid overwhelming the server.
     ///
     /// It returns a `Result` with either a
-    /// reversed chronologically sorted list of retrieved `SyncTimelineEvent`s
+    /// chronologically sorted list of retrieved `SyncTimelineEvent`s
     /// or a `PinnedEventsLoaderError`.
     pub async fn load_events(
         &self,
@@ -109,10 +109,10 @@ impl PinnedEventsLoader {
                 .unwrap_or_else(|_| MilliSecondsSinceUnixEpoch::now())
         }
 
-        // Sort using reversed chronological ordering (newest -> oldest)
+        // Sort using chronological ordering (oldest -> newest)
         let sorted_events = loaded_events
             .into_iter()
-            .sorted_by(|e1, e2| timestamp(e1).cmp(&timestamp(e2)).reverse())
+            .sorted_by(|e1, e2| timestamp(e1).cmp(&timestamp(e2)))
             .collect();
 
         Ok(sorted_events)
