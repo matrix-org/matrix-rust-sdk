@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
 use ruma::{CanonicalJsonError, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde::{ser::SerializeMap, Serializer};
 use serde_json::Error as SerdeError;
@@ -23,6 +25,8 @@ use crate::{
     olm::SessionExportError,
     types::{events::room_key_withheld::WithheldCode, SignedKey},
 };
+#[cfg(doc)]
+use crate::{CollectStrategy, Device, LocalTrust};
 
 pub type OlmResult<T> = Result<T, OlmError>;
 pub type MegolmResult<T> = Result<T, MegolmError>;
@@ -70,6 +74,10 @@ pub enum OlmError {
             have a valid Olm session with us"
     )]
     MissingSession,
+
+    /// Encryption failed due to an error collecting the recipient devices.
+    #[error("encryption failed due to an error collecting the recipient devices: {0}")]
+    SessionRecipientCollectionError(SessionRecipientCollectionError),
 }
 
 /// Error representing a failure during a group encryption operation.
@@ -359,4 +367,22 @@ pub enum SetRoomSettingsError {
     /// The store ran into an error.
     #[error(transparent)]
     Store(#[from] CryptoStoreError),
+}
+
+/// Error representing a problem when collecting the recipient devices for the
+/// room key, during an encryption operation.
+#[derive(Error, Debug)]
+pub enum SessionRecipientCollectionError {
+    /// One or more verified users has one or more unsigned devices.
+    ///
+    /// Happens only with [`CollectStrategy::DeviceBasedStrategy`] when
+    /// [`error_on_verified_user_problem`](`CollectStrategy::DeviceBasedStrategy::error_on_verified_user_problem`)
+    /// is true.
+    ///
+    /// In order to resolve this, the caller can set the trust level of the
+    /// affected devices to [`LocalTrust::Ignored`] or
+    /// [`LocalTrust::BlackListed`] (see [`Device::set_local_trust`]), and
+    /// then retry the encryption operation.
+    #[error("one or more verified users have unsigned devices")]
+    VerifiedUserHasUnsignedDevice(BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>),
 }
