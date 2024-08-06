@@ -162,33 +162,7 @@ pub(crate) async fn collect_session_recipients(
         // of the devices in the session got deleted or blacklisted in the
         // meantime. If so, we should also rotate the session.
         if !should_rotate {
-            // Device IDs that should receive this session
-            let recipient_device_ids: BTreeSet<&DeviceId> =
-                recipients.iter().map(|d| d.device_id()).collect();
-
-            if let Some(shared) = outbound.shared_with_set.read().unwrap().get(user_id) {
-                // Devices that received this session
-                let shared: BTreeSet<OwnedDeviceId> = shared.keys().cloned().collect();
-                let shared: BTreeSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
-
-                // The set difference between
-                //
-                // 1. Devices that had previously received the session, and
-                // 2. Devices that would now receive the session
-                //
-                // Represents newly deleted or blacklisted devices. If this
-                // set is non-empty, we must rotate.
-                let newly_deleted_or_blacklisted =
-                    shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
-
-                should_rotate = !newly_deleted_or_blacklisted.is_empty();
-                if should_rotate {
-                    debug!(
-                        "Rotating a room key due to these devices being deleted/blacklisted {:?}",
-                        newly_deleted_or_blacklisted,
-                    );
-                }
-            };
+            should_rotate = is_session_overshared_for_user(outbound, user_id, &recipients)
         }
 
         devices.entry(user_id.to_owned()).or_default().extend(recipients);
@@ -207,6 +181,58 @@ pub(crate) async fn collect_session_recipients(
     trace!(should_rotate, "Done calculating group session recipients");
 
     Ok(CollectRecipientsResult { should_rotate, devices, withheld_devices })
+}
+
+/// Check if the session has been shared with a device belonging to the given
+/// user, that is no longer in the pool of devices that should participate in
+/// the discussion.
+///
+/// # Arguments
+///
+/// * `outbound_session` - the outbound group session to check for oversharing.
+/// * `user_id` - the ID of the user we are checking the devices for.
+/// * `recipient_devices` - the list of devices belonging to `user_id` that we
+///   expect to share the session with.
+///
+/// # Returns
+///
+/// `true` if the session has been shared with any devices belonging to
+/// `user_id` that are not in `recipient_devices`. Otherwise, `false`.
+fn is_session_overshared_for_user(
+    outbound_session: &OutboundGroupSession,
+    user_id: &UserId,
+    recipient_devices: &[DeviceData],
+) -> bool {
+    // Device IDs that should receive this session
+    let recipient_device_ids: BTreeSet<&DeviceId> =
+        recipient_devices.iter().map(|d| d.device_id()).collect();
+
+    if let Some(shared) = outbound_session.shared_with_set.read().unwrap().get(user_id) {
+        // Devices that received this session
+        let shared: BTreeSet<OwnedDeviceId> = shared.keys().cloned().collect();
+        let shared: BTreeSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
+
+        // The set difference between
+        //
+        // 1. Devices that had previously received the session, and
+        // 2. Devices that would now receive the session
+        //
+        // Represents newly deleted or blacklisted devices. If this
+        // set is non-empty, we must rotate.
+        let newly_deleted_or_blacklisted =
+            shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
+
+        let should_rotate = !newly_deleted_or_blacklisted.is_empty();
+        if should_rotate {
+            debug!(
+                "Rotating a room key due to these devices being deleted/blacklisted {:?}",
+                newly_deleted_or_blacklisted,
+            );
+        }
+        should_rotate
+    } else {
+        false
+    }
 }
 
 struct RecipientDevices {
