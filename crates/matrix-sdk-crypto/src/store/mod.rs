@@ -1941,7 +1941,7 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{room_id, user_id};
 
-    use crate::{machine::tests::get_machine_pair, types::EventEncryptionAlgorithm};
+    use crate::{machine::test_helpers::get_machine_pair, types::EventEncryptionAlgorithm};
 
     #[async_test]
     async fn import_room_keys_notifies_stream() {

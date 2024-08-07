@@ -2443,7 +2443,14 @@ pub(crate) mod tests {
     use super::{testing::response_from_file, CrossSigningBootstrapRequests};
     use crate::{
         error::{EventError, SetRoomSettingsError},
-        machine::{EncryptionSyncChanges, OlmMachine},
+        machine::{
+            test_helpers::{
+                get_machine_after_query_test_helper, get_machine_pair,
+                get_machine_pair_with_session, get_machine_pair_with_setup_sessions_test_helper,
+                get_prepared_machine_test_helper,
+            },
+            EncryptionSyncChanges, OlmMachine,
+        },
         olm::{
             BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, OutboundGroupSession,
             SenderData, VerifyJson,
@@ -2468,9 +2475,6 @@ pub(crate) mod tests {
         Account, CryptoStoreError, DeviceData, EncryptionSettings, LocalTrust, MegolmError,
         OlmError, OutgoingRequests, ToDeviceRequest, UserIdentities,
     };
-
-    /// These keys need to be periodically uploaded to the server.
-    type OneTimeKeys = BTreeMap<OwnedDeviceKeyId, Raw<OneTimeKey>>;
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -2515,119 +2519,6 @@ pub(crate) mod tests {
             .unwrap()
             .deserialize_as()
             .unwrap()
-    }
-
-    pub(crate) async fn get_prepared_machine_test_helper(
-        user_id: &UserId,
-        use_fallback_key: bool,
-    ) -> (OlmMachine, OneTimeKeys) {
-        let machine = OlmMachine::new(user_id, bob_device_id()).await;
-
-        let request = machine
-            .store()
-            .with_transaction(|mut tr| async {
-                let account = tr.account().await.unwrap();
-                account.generate_fallback_key_if_needed();
-                account.update_uploaded_key_count(0);
-                account.generate_one_time_keys_if_needed();
-                let request = machine
-                    .keys_for_upload(account)
-                    .await
-                    .expect("Can't prepare initial key upload");
-                Ok((tr, request))
-            })
-            .await
-            .unwrap();
-
-        let response = keys_upload_response();
-        machine.receive_keys_upload_response(&response).await.unwrap();
-
-        let keys = if use_fallback_key { request.fallback_keys } else { request.one_time_keys };
-
-        (machine, keys)
-    }
-
-    async fn get_machine_after_query_test_helper() -> (OlmMachine, OneTimeKeys) {
-        let (machine, otk) = get_prepared_machine_test_helper(user_id(), false).await;
-        let response = keys_query_response();
-        let req_id = TransactionId::new();
-
-        machine.receive_keys_query_response(&req_id, &response).await.unwrap();
-
-        (machine, otk)
-    }
-
-    pub async fn get_machine_pair(
-        alice: &UserId,
-        bob: &UserId,
-        use_fallback_key: bool,
-    ) -> (OlmMachine, OlmMachine, OneTimeKeys) {
-        let (bob, otk) = get_prepared_machine_test_helper(bob, use_fallback_key).await;
-
-        let alice_device = alice_device_id();
-        let alice = OlmMachine::new(alice, alice_device).await;
-
-        let alice_device = DeviceData::from_machine_test_helper(&alice).await.unwrap();
-        let bob_device = DeviceData::from_machine_test_helper(&bob).await.unwrap();
-        alice.store().save_device_data(&[bob_device]).await.unwrap();
-        bob.store().save_device_data(&[alice_device]).await.unwrap();
-
-        (alice, bob, otk)
-    }
-
-    async fn get_machine_pair_with_session(
-        alice: &UserId,
-        bob: &UserId,
-        use_fallback_key: bool,
-    ) -> (OlmMachine, OlmMachine) {
-        let (alice, bob, mut one_time_keys) = get_machine_pair(alice, bob, use_fallback_key).await;
-
-        let (device_key_id, one_time_key) = one_time_keys.pop_first().unwrap();
-
-        let one_time_keys = BTreeMap::from([(
-            bob.user_id().to_owned(),
-            BTreeMap::from([(
-                bob.device_id().to_owned(),
-                BTreeMap::from([(device_key_id, one_time_key)]),
-            )]),
-        )]);
-
-        let response = claim_keys::v3::Response::new(one_time_keys);
-        alice.inner.session_manager.create_sessions(&response).await.unwrap();
-
-        (alice, bob)
-    }
-
-    pub(crate) async fn get_machine_pair_with_setup_sessions_test_helper(
-        alice: &UserId,
-        bob: &UserId,
-        use_fallback_key: bool,
-    ) -> (OlmMachine, OlmMachine) {
-        let (alice, bob) = get_machine_pair_with_session(alice, bob, use_fallback_key).await;
-
-        let bob_device =
-            alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
-
-        let (session, content) =
-            bob_device.encrypt("m.dummy", ToDeviceDummyEventContent::new()).await.unwrap();
-        alice.store().save_sessions(&[session]).await.unwrap();
-
-        let event =
-            ToDeviceEvent::new(alice.user_id().to_owned(), content.deserialize_as().unwrap());
-
-        let decrypted = bob
-            .store()
-            .with_transaction(|mut tr| async {
-                let res =
-                    bob.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
-                Ok((tr, res))
-            })
-            .await
-            .unwrap();
-
-        bob.store().save_sessions(&[decrypted.session.session()]).await.unwrap();
-
-        (alice, bob)
     }
 
     #[async_test]
@@ -5010,3 +4901,6 @@ pub(crate) mod tests {
         assert_matches!(thread_encryption_result, UnsignedDecryptionResult::Decrypted(_));
     }
 }
+
+#[cfg(test)]
+pub(crate) mod test_helpers;
