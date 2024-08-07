@@ -2408,7 +2408,6 @@ pub(crate) mod tests {
         api::{
             client::{
                 keys::{
-                    claim_keys,
                     get_keys::{self, v3::Response as KeyQueryResponse},
                     upload_keys,
                 },
@@ -2418,7 +2417,6 @@ pub(crate) mod tests {
             IncomingResponse,
         },
         device_id,
-        encryption::OneTimeKey,
         events::{
             dummy::ToDeviceDummyEventContent,
             key::verification::VerificationMethod,
@@ -2432,7 +2430,7 @@ pub(crate) mod tests {
         serde::Raw,
         to_device::DeviceIdOrAllDevices,
         uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-        OwnedDeviceKeyId, RoomId, SecondsSinceUnixEpoch, TransactionId, UserId,
+        RoomId, SecondsSinceUnixEpoch, TransactionId, UserId,
     };
     use serde_json::{json, value::to_raw_value};
     use vodozemac::{
@@ -2445,7 +2443,7 @@ pub(crate) mod tests {
         error::{EventError, SetRoomSettingsError},
         machine::{
             test_helpers::{
-                get_machine_after_query_test_helper, get_machine_pair,
+                create_session, get_machine_after_query_test_helper, get_machine_pair,
                 get_machine_pair_with_session, get_machine_pair_with_setup_sessions_test_helper,
                 get_prepared_machine_test_helper,
             },
@@ -2780,22 +2778,6 @@ pub(crate) mod tests {
         assert!(missing_sessions.one_time_keys.contains_key(alice));
         let user_sessions = missing_sessions.one_time_keys.get(alice).unwrap();
         assert!(user_sessions.contains_key(alice_device));
-    }
-
-    pub async fn create_session(
-        machine: &OlmMachine,
-        user_id: &UserId,
-        device_id: &DeviceId,
-        key_id: OwnedDeviceKeyId,
-        one_time_key: Raw<OneTimeKey>,
-    ) {
-        let one_time_keys = BTreeMap::from([(
-            user_id.to_owned(),
-            BTreeMap::from([(device_id.to_owned(), BTreeMap::from([(key_id, one_time_key)]))]),
-        )]);
-
-        let response = claim_keys::v3::Response::new(one_time_keys);
-        machine.inner.session_manager.create_sessions(&response).await.unwrap();
     }
 
     #[async_test]

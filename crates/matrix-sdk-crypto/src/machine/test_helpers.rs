@@ -169,3 +169,20 @@ pub async fn get_machine_pair_with_setup_sessions_test_helper(
 
     (alice, bob)
 }
+
+/// Create an Olm session from the given machine to the given device
+pub async fn create_session(
+    machine: &OlmMachine,
+    user_id: &UserId,
+    device_id: &DeviceId,
+    key_id: OwnedDeviceKeyId,
+    one_time_key: Raw<OneTimeKey>,
+) {
+    let one_time_keys = BTreeMap::from([(
+        user_id.to_owned(),
+        BTreeMap::from([(device_id.to_owned(), BTreeMap::from([(key_id, one_time_key)]))]),
+    )]);
+
+    let response = claim_keys::v3::Response::new(one_time_keys);
+    machine.inner.session_manager.create_sessions(&response).await.unwrap();
+}
