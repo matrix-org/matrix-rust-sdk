@@ -332,6 +332,48 @@ impl UserIdentity {
         // higher priority than pinning.
         self.inner.has_pin_violation()
     }
+
+    /// Remove the requirement for this identity to be verified.
+    pub async fn withdraw_verification(&self) -> Result<(), CryptoStoreError> {
+        self.inner.withdraw_verification();
+        let to_save = UserIdentityData::Other(self.inner.clone());
+        let changes = Changes {
+            identities: IdentityChanges { changed: vec![to_save], ..Default::default() },
+            ..Default::default()
+        };
+        self.verification_machine.store.inner().save_changes(changes).await?;
+        Ok(())
+    }
+
+    // Test helper
+    #[cfg(test)]
+    pub async fn mark_as_previously_verified(&self) -> Result<(), CryptoStoreError> {
+        self.inner.mark_as_previously_verified();
+        let to_save = UserIdentityData::Other(self.inner.clone());
+        let changes = Changes {
+            identities: IdentityChanges { changed: vec![to_save], ..Default::default() },
+            ..Default::default()
+        };
+        self.verification_machine.store.inner().save_changes(changes).await?;
+        Ok(())
+    }
+
+    /// Was this identity verified since initial observation and is not anymore?
+    ///
+    /// Such a violation should be reported to the local user by the
+    /// application, and resolved by
+    ///
+    /// - Verifying the new identity with [`UserIdentity::request_verification`]
+    /// - Or by withdrawing the verification requirement
+    ///   [`UserIdentity::withdraw_verification`].
+    pub fn has_verification_violation(&self) -> bool {
+        if !self.inner.was_previously_verified() {
+            // If that identity has never been verified it cannot be in violation.
+            return false;
+        };
+
+        !self.is_verified()
+    }
 }
 
 /// Enum over the different user identity types we can have.
@@ -1046,7 +1088,7 @@ pub(crate) mod tests {
         store::{CryptoStoreWrapper, MemoryStore},
         types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, Signatures, UserSigningPubkey},
         verification::VerificationMachine,
-        OlmMachine, OtherUserIdentityData,
+        CrossSigningKeyExport, OlmMachine, OtherUserIdentityData,
     };
 
     #[test]
@@ -1387,5 +1429,84 @@ pub(crate) mod tests {
         assert!(!other_identity.identity_needs_user_approval());
         // But there is still a pin violation
         assert!(other_identity.inner.has_pin_violation());
+    }
+
+    #[async_test]
+    async fn resolve_identity_verification_violation_with_withdraw() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+
+        let keys_query = DataSet::own_keys_query_response_1();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        machine
+            .import_cross_signing_keys(CrossSigningKeyExport {
+                master_key: DataSet::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+                self_signing_key: DataSet::SELF_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+                user_signing_key: DataSet::USER_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+            })
+            .await
+            .unwrap();
+
+        let keys_query = DataSet::bob_keys_query_response_rotated();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let bob_identity =
+            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
+
+        // For testing purpose mark it as previously verified
+        bob_identity.mark_as_previously_verified().await.unwrap();
+
+        assert!(bob_identity.has_verification_violation());
+
+        // withdraw
+        bob_identity.withdraw_verification().await.unwrap();
+
+        let bob_identity =
+            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
+
+        assert!(!bob_identity.has_verification_violation());
+    }
+
+    #[async_test]
+    async fn reset_own_keys_creates_verification_violation() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+
+        let keys_query = DataSet::own_keys_query_response_1();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        machine
+            .import_cross_signing_keys(CrossSigningKeyExport {
+                master_key: DataSet::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+                self_signing_key: DataSet::SELF_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+                user_signing_key: DataSet::USER_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+            })
+            .await
+            .unwrap();
+
+        let keys_query = DataSet::bob_keys_query_response_signed();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let bob_identity =
+            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
+
+        // For testing purpose mark it as previously verified
+        bob_identity.mark_as_previously_verified().await.unwrap();
+
+        assert!(!bob_identity.has_verification_violation());
+
+        let _ = machine.bootstrap_cross_signing(true).await.unwrap();
+
+        let bob_identity =
+            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
+
+        assert!(bob_identity.has_verification_violation());
     }
 }
