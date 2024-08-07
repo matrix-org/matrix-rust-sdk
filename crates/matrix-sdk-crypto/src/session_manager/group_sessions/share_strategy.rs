@@ -133,7 +133,7 @@ pub(crate) async fn collect_session_recipients(
             let own_identity =
                 store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
             for user_id in users {
-                let user_devices = store.get_device_data_for_user(user_id).await?;
+                let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
 
                 // We only need the user identity if only_allow_trusted_devices is set.
                 let device_owner_identity = if only_allow_trusted_devices {
