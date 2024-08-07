@@ -53,7 +53,7 @@ use vodozemac::{
 
 use super::{testing::response_from_file, CrossSigningBootstrapRequests};
 use crate::{
-    error::{EventError, SetRoomSettingsError},
+    error::EventError,
     machine::{
         test_helpers::{
             get_machine_after_query_test_helper, get_machine_pair_with_session,
@@ -63,7 +63,7 @@ use crate::{
     },
     olm::{BackedUpRoomKey, ExportedRoomKey, SenderData, VerifyJson},
     session_manager::CollectStrategy,
-    store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore, RoomSettings},
+    store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore},
     types::{
         events::{
             room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
@@ -72,7 +72,7 @@ use crate::{
             },
             ToDeviceEvent,
         },
-        DeviceKeys, EventEncryptionAlgorithm, SignedKey, SigningKeys,
+        DeviceKeys, SignedKey, SigningKeys,
     },
     utilities::json_convert,
     verification::tests::bob_id,
@@ -83,6 +83,7 @@ use crate::{
 mod decryption_verification_state;
 mod interactive_verification;
 mod olm_encryption;
+mod room_settings;
 mod send_encrypted_to_device;
 
 fn alice_id() -> &'static UserId {
@@ -1147,97 +1148,6 @@ async fn test_wait_on_key_query_doesnt_block_store() {
 
     // The waiting should successfully complete.
     wait.await.unwrap();
-}
-
-#[async_test]
-async fn room_settings_returns_none_for_unknown_room() {
-    let machine = OlmMachine::new(user_id(), alice_device_id()).await;
-    let settings = machine.room_settings(room_id!("!test2:localhost")).await.unwrap();
-    assert!(settings.is_none());
-}
-
-#[async_test]
-async fn stores_and_returns_room_settings() {
-    let machine = OlmMachine::new(user_id(), alice_device_id()).await;
-    let room_id = room_id!("!test:localhost");
-
-    let settings = RoomSettings {
-        algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
-        only_allow_trusted_devices: true,
-        session_rotation_period: Some(Duration::from_secs(10)),
-        session_rotation_period_messages: Some(1234),
-    };
-
-    machine.set_room_settings(room_id, &settings).await.unwrap();
-    assert_eq!(machine.room_settings(room_id).await.unwrap(), Some(settings));
-}
-
-#[async_test]
-async fn set_room_settings_rejects_invalid_algorithms() {
-    let machine = OlmMachine::new(user_id(), alice_device_id()).await;
-    let room_id = room_id!("!test:localhost");
-
-    let err = machine
-        .set_room_settings(
-            room_id,
-            &RoomSettings {
-                algorithm: EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap_err();
-    assert_matches!(err, SetRoomSettingsError::InvalidSettings);
-}
-
-#[async_test]
-async fn set_room_settings_rejects_changes() {
-    let machine = OlmMachine::new(user_id(), alice_device_id()).await;
-    let room_id = room_id!("!test:localhost");
-
-    // Initial settings
-    machine
-        .set_room_settings(
-            room_id,
-            &RoomSettings { session_rotation_period_messages: Some(100), ..Default::default() },
-        )
-        .await
-        .unwrap();
-
-    // Now, modifying the settings should be rejected
-    let err = machine
-        .set_room_settings(
-            room_id,
-            &RoomSettings { session_rotation_period_messages: Some(1000), ..Default::default() },
-        )
-        .await
-        .unwrap_err();
-
-    assert_matches!(err, SetRoomSettingsError::EncryptionDowngrade);
-}
-
-#[async_test]
-async fn set_room_settings_accepts_noop_changes() {
-    let machine = OlmMachine::new(user_id(), alice_device_id()).await;
-    let room_id = room_id!("!test:localhost");
-
-    // Initial settings
-    machine
-        .set_room_settings(
-            room_id,
-            &RoomSettings { session_rotation_period_messages: Some(100), ..Default::default() },
-        )
-        .await
-        .unwrap();
-
-    // Same again; should be fine.
-    machine
-        .set_room_settings(
-            room_id,
-            &RoomSettings { session_rotation_period_messages: Some(100), ..Default::default() },
-        )
-        .await
-        .unwrap();
 }
 
 #[async_test]
