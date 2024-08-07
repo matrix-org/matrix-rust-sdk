@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use matrix_sdk_common::deserialized_responses::VerificationLevel;
 use ruma::{CanonicalJsonError, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
@@ -143,17 +144,8 @@ pub enum MegolmError {
     Store(#[from] CryptoStoreError),
 
     /// The sender's cross-signing identity isn't trusted
-    #[error("message quarantined because sender's cross-signing identity is not trusted")]
-    SenderCrossSigningUntrusted,
-
-    /// The sender's cross-signing identity has changed, and the change hasn't
-    /// been acknowledged
-    #[error("message quarantined because sender's cross-signing identity has changed")]
-    SenderCrossSigningIdentityChanged,
-
-    /// The sender's cross-signing identity is unknown
-    #[error("message quarantined because sender is unknown")]
-    SenderCrossSigningIdentityUnknown,
+    #[error("message quarantined because sender's cross-signing identity is not trusted: {0}")]
+    SenderIdentity(#[from] VerificationLevel),
 }
 
 /// Error that occurs when decrypting an event that is malformed.

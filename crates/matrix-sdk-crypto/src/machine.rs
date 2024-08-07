@@ -1427,15 +1427,41 @@ impl OlmMachine {
                     if device.is_cross_signed_by_owner() {
                         // The device is cross signed by this owner Meaning that the user did self
                         // verify it properly. Let's check if we trust the identity.
-                        if device.is_device_owner_verified() {
-                            (VerificationState::Verified, Some(device_id))
-                        } else {
+                        let is_device_owner_verified = device.is_device_owner_verified();
+                        let identity = device
+                            .device_owner_identity
+                            .expect("Cross-signed device must have owner identity");
+                        if sender == self.user_id() {
+                            if is_device_owner_verified {
+                                (VerificationState::Verified, Some(device_id))
+                            } else {
+                                (
+                                    VerificationState::Unverified(
+                                        VerificationLevel::UnverifiedIdentity,
+                                    ),
+                                    Some(device_id),
+                                )
+                            }
+                        } else if identity
+                            .other()
+                            .expect("Device is not our own device")
+                            .has_pin_violation()
+                        {
                             (
-                                VerificationState::Unverified(
-                                    VerificationLevel::UnverifiedIdentity,
-                                ),
+                                VerificationState::Unverified(VerificationLevel::ChangedIdentity),
                                 Some(device_id),
                             )
+                        } else {
+                            if is_device_owner_verified {
+                                (VerificationState::Verified, Some(device_id))
+                            } else {
+                                (
+                                    VerificationState::Unverified(
+                                        VerificationLevel::UnverifiedIdentity,
+                                    ),
+                                    Some(device_id),
+                                )
+                            }
                         }
                     } else {
                         // The device owner hasn't self-verified its device.
@@ -1554,47 +1580,32 @@ impl OlmMachine {
     /// cross-signed, and that the sender's identity is pinned.  If
     /// `require_verified` is `true`, then also checks if we have verified the
     /// sender's identity
-    async fn check_sender_trusted(
+    fn check_sender_trusted(
         &self,
-        sender_key: Curve25519PublicKey,
-        sender: &UserId,
+        encryption_info: &EncryptionInfo,
         require_verified: bool,
     ) -> MegolmResult<()> {
-        let Some(device) = self.inner.store.get_device_from_curve_key(sender, sender_key).await?
-        else {
-            return Err(MegolmError::SenderCrossSigningIdentityUnknown);
-        };
-        if !device.is_cross_signed_by_owner() {
-            return Err(MegolmError::SenderCrossSigningIdentityUnknown);
-        }
-        if device.is_cross_signing_trusted() {
-            return Ok(());
-        }
-        if sender == self.inner.user_id {
-            // if we get here, the device (that claims to be ours) wasn't
-            // cross-signed by us, so we reject it
-            Err(MegolmError::SenderCrossSigningIdentityUnknown)
-        } else if require_verified {
-            Err(MegolmError::SenderCrossSigningUntrusted)
-        } else {
-            // we don't require the sender to be trusted, but we require that
-            // the sender's identity matches their pinned identity
-            let identity =
-                device.device_owner_identity.expect("Cross-signed device must have owner identity");
-            if identity.other().expect("Device is not our own device").has_pin_violation() {
-                Err(MegolmError::SenderCrossSigningIdentityChanged)
-            } else {
-                Ok(())
+        match dbg!(&encryption_info.verification_state) {
+            VerificationState::Verified => Ok(()),
+            VerificationState::Unverified(VerificationLevel::UnverifiedIdentity) => {
+                if require_verified {
+                    Err(MegolmError::SenderIdentity(VerificationLevel::UnverifiedIdentity))
+                } else {
+                    Ok(())
+                }
+            }
+            VerificationState::Unverified(verification_level) => {
+                Err(MegolmError::SenderIdentity(verification_level.clone()))
             }
         }
     }
 
     /// Check that the sender of a Megolm session satisfies the trust
     /// requirement from the decryption settings.
-    async fn check_sender_trust_requirement(
+    fn check_sender_trust_requirement(
         &self,
         session: &InboundGroupSession,
-        sender: &UserId,
+        encryption_info: &EncryptionInfo,
         decryption_settings: &DecryptionSettings,
     ) -> MegolmResult<()> {
         match decryption_settings.trust_requirement {
@@ -1603,15 +1614,15 @@ impl OlmMachine {
                 SenderData::SenderKnown { .. } => Ok(()),
                 SenderData::DeviceInfo { legacy_session: true, .. } => Ok(()),
                 SenderData::UnknownDevice { legacy_session: true, .. } => Ok(()),
-                _ => self.check_sender_trusted(session.sender_key(), sender, false).await,
+                _ => self.check_sender_trusted(encryption_info, false),
             },
             TrustRequirement::CrossSigned => match session.sender_data {
                 SenderData::SenderKnown { .. } => Ok(()),
-                _ => self.check_sender_trusted(session.sender_key(), sender, false).await,
+                _ => self.check_sender_trusted(encryption_info, false),
             },
             TrustRequirement::VerifiedUserIdentity => match session.sender_data {
                 SenderData::SenderKnown { master_key_verified: true, .. } => Ok(()),
-                _ => self.check_sender_trusted(session.sender_key(), sender, true).await,
+                _ => self.check_sender_trusted(encryption_info, true),
             },
         }
     }
@@ -1626,8 +1637,6 @@ impl OlmMachine {
         let session =
             self.get_inbound_group_session_or_error(room_id, content.session_id()).await?;
 
-        self.check_sender_trust_requirement(&session, &event.sender, decryption_settings).await?;
-
         // This function is only ever called by decrypt_room_event, so
         // room_id, sender, algorithm and session_id are recorded already
         //
@@ -1639,6 +1648,13 @@ impl OlmMachine {
         match result {
             Ok((decrypted_event, _)) => {
                 let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
+
+                self.check_sender_trust_requirement(
+                    &session,
+                    &encryption_info,
+                    decryption_settings,
+                )?;
+
                 Ok((decrypted_event, encryption_info))
             }
             Err(error) => Err(

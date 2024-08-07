@@ -21,6 +21,7 @@ use ruma::{
     DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedUserId,
 };
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::debug::{DebugRawEvent, DebugStructExt};
 
@@ -88,7 +89,7 @@ impl VerificationState {
             VerificationState::Verified => ShieldState::None,
             VerificationState::Unverified(level) => {
                 let message = match level {
-                    VerificationLevel::UnverifiedIdentity | VerificationLevel::UnsignedDevice => {
+                    VerificationLevel::UnverifiedIdentity | VerificationLevel::ChangedIdentity | VerificationLevel::UnsignedDevice => {
                         UNVERIFIED_IDENTITY
                     }
                     VerificationLevel::None(link) => match link {
@@ -120,6 +121,11 @@ impl VerificationState {
                     // then warn see https://github.com/matrix-org/matrix-rust-sdk/issues/1129
                     ShieldState::None
                 }
+                VerificationLevel::ChangedIdentity => {
+                    // As above, if you didn't show interest in verifying that
+                    // user we don't nag you
+                    ShieldState::None
+                }
                 VerificationLevel::UnsignedDevice => {
                     // This is a high warning. The sender hasn't verified his own device.
                     ShieldState::Red { message: UNSIGNED_DEVICE }
@@ -144,13 +150,19 @@ impl VerificationState {
 
 /// The sub-enum containing detailed information on why a message is considered
 /// to be unverified.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, Deserialize, Serialize, PartialEq, Eq)]
 pub enum VerificationLevel {
     /// The message was sent by a user identity we have not verified.
+    #[error("The sender's identity was not verified")]
     UnverifiedIdentity,
+
+    /// The message was sent by a user whose identity has changed and the change has not yet been confirmed
+    #[error("The sender's identity has changed and the change has not yet been confirmed")]
+    ChangedIdentity,
 
     /// The message was sent by a device not linked to (signed by) any user
     /// identity.
+    #[error("The sending device was not signed by the user's identity")]
     UnsignedDevice,
 
     /// We weren't able to link the message back to any device. This might be
@@ -158,6 +170,7 @@ pub enum VerificationLevel {
     /// not been able to obtain (for example, because the device was since
     /// deleted) or because the key to decrypt the message was obtained from
     /// an insecure source.
+    #[error("The sending device is not known")]
     None(DeviceLinkProblem),
 }
 
