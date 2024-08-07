@@ -156,7 +156,7 @@ impl CryptoStoreWrapper {
                     debug!("Own identity is now verified, check all known identities for verification status changes");
                     // We need to review all the other identities to see if they are verified now
                     // and mark them as such
-                    self.check_all_identities_and_update_was_previousy_verified_flag_if_needed(
+                    self.check_all_identities_and_update_was_previously_verified_flag_if_needed(
                         own_identity_after,
                     )
                     .await?;
@@ -169,7 +169,7 @@ impl CryptoStoreWrapper {
         Ok(())
     }
 
-    async fn check_all_identities_and_update_was_previousy_verified_flag_if_needed(
+    async fn check_all_identities_and_update_was_previously_verified_flag_if_needed(
         &self,
         own_identity_after: &OwnUserIdentityData,
     ) -> Result<(), CryptoStoreError> {
