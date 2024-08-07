@@ -17,12 +17,12 @@
 
 use indexed_db_futures::IdbQuerySource;
 use wasm_bindgen::JsValue;
-use web_sys::IdbTransactionMode;
+use web_sys::{DomException, IdbTransactionMode};
 
 use crate::crypto_store::{
     indexeddb_serializer::IndexeddbSerializer,
     keys,
-    migrations::{old_keys, MigrationDb},
+    migrations::{do_schema_upgrade, old_keys, MigrationDb},
 };
 
 /// Migrate data from `backup_keys.backup_key_v1` to
@@ -51,4 +51,11 @@ pub(crate) async fn data_migrate(
     store.put_key_val(&JsValue::from_str(keys::BACKUP_VERSION_V1), &serialized)?.await?;
     store.delete(&JsValue::from_str(old_keys::BACKUP_KEY_V1))?.await?;
     Ok(())
+}
+
+/// Perform the schema upgrade v10 to v11, just bumping the schema version.
+pub(crate) async fn schema_bump(name: &str) -> crate::crypto_store::Result<(), DomException> {
+    // Just bump the version number to 11 to demonstrate that we have run the data
+    // changes from data_migrate.
+    do_schema_upgrade(name, 11, |_, _| Ok(())).await
 }

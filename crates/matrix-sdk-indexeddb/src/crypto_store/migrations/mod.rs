@@ -109,6 +109,7 @@ pub async fn open_and_upgrade_db(
 
     if old_version < 11 {
         v10_to_v11::data_migrate(name, serializer).await?;
+        v10_to_v11::schema_bump(name).await?;
     }
 
     // Open and return the DB (we know it's at the latest version)
