@@ -42,11 +42,10 @@ use ruma::{
     },
     room_id,
     serde::Raw,
-    to_device::DeviceIdOrAllDevices,
     uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
     TransactionId, UserId,
 };
-use serde_json::{json, value::to_raw_value};
+use serde_json::json;
 use vodozemac::{
     megolm::{GroupSession, SessionConfig},
     Ed25519PublicKey,
@@ -57,7 +56,7 @@ use crate::{
     error::{EventError, SetRoomSettingsError},
     machine::{
         test_helpers::{
-            get_machine_after_query_test_helper, get_machine_pair, get_machine_pair_with_session,
+            get_machine_after_query_test_helper, get_machine_pair_with_session,
             get_machine_pair_with_setup_sessions_test_helper, get_prepared_machine_test_helper,
         },
         EncryptionSyncChanges, OlmMachine,
@@ -84,6 +83,7 @@ use crate::{
 mod decryption_verification_state;
 mod interactive_verification;
 mod olm_encryption;
+mod send_encrypted_to_device;
 
 fn alice_id() -> &'static UserId {
     user_id!("@alice:example.org")
@@ -1238,100 +1238,6 @@ async fn set_room_settings_accepts_noop_changes() {
         )
         .await
         .unwrap();
-}
-
-#[async_test]
-async fn test_send_encrypted_to_device() {
-    let (alice, bob) = get_machine_pair_with_session(alice_id(), user_id(), false).await;
-
-    let custom_event_type = "m.new_device";
-
-    let custom_content = json!({
-            "device_id": "XYZABCDE",
-            "rooms": ["!726s6s6q:example.com"]
-    });
-
-    let device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
-    let raw_encrypted = device
-        .encrypt_event_raw(custom_event_type, &custom_content)
-        .await
-        .expect("Should have encryted the content");
-
-    let request = ToDeviceRequest::new(
-        bob.user_id(),
-        DeviceIdOrAllDevices::DeviceId(bob_device_id().to_owned()),
-        "m.room.encrypted",
-        raw_encrypted.cast(),
-    );
-
-    assert_eq!("m.room.encrypted", request.event_type.to_string());
-
-    let messages = &request.messages;
-    assert_eq!(1, messages.len());
-    assert!(messages.get(bob.user_id()).is_some());
-    let target_devices = messages.get(bob.user_id()).unwrap();
-    assert_eq!(1, target_devices.len());
-    assert!(target_devices
-        .get(&DeviceIdOrAllDevices::DeviceId(bob_device_id().to_owned()))
-        .is_some());
-
-    let event = ToDeviceEvent::new(
-        alice.user_id().to_owned(),
-        to_device_requests_to_content(vec![request.clone().into()]),
-    );
-
-    let event = json_convert(&event).unwrap();
-
-    let sync_changes = EncryptionSyncChanges {
-        to_device_events: vec![event],
-        changed_devices: &Default::default(),
-        one_time_keys_counts: &Default::default(),
-        unused_fallback_keys: None,
-        next_batch_token: None,
-    };
-
-    let (decrypted, _) = bob.receive_sync_changes(sync_changes).await.unwrap();
-
-    assert_eq!(1, decrypted.len());
-
-    let decrypted_event = decrypted[0].deserialize().unwrap();
-
-    assert_eq!(decrypted_event.event_type().to_string(), custom_event_type.to_owned());
-
-    let decrypted_value = to_raw_value(&decrypted[0]).unwrap();
-    let decrypted_value = serde_json::to_value(decrypted_value).unwrap();
-
-    assert_eq!(
-        decrypted_value.get("content").unwrap().get("device_id").unwrap().as_str().unwrap(),
-        custom_content.get("device_id").unwrap().as_str().unwrap(),
-    );
-
-    assert_eq!(
-        decrypted_value.get("content").unwrap().get("rooms").unwrap().as_array().unwrap(),
-        custom_content.get("rooms").unwrap().as_array().unwrap(),
-    );
-}
-
-#[async_test]
-async fn test_send_encrypted_to_device_no_session() {
-    let (alice, bob, _) = get_machine_pair(alice_id(), user_id(), false).await;
-
-    let custom_event_type = "m.new_device";
-
-    let custom_content = json!({
-            "device_id": "XYZABCDE",
-            "rooms": ["!726s6s6q:example.com"]
-    });
-
-    let encryption_result = alice
-        .get_device(bob.user_id(), bob_device_id(), None)
-        .await
-        .unwrap()
-        .unwrap()
-        .encrypt_event_raw(custom_event_type, &custom_content)
-        .await;
-
-    assert_matches!(encryption_result, Err(OlmError::MissingSession));
 }
 
 #[async_test]
