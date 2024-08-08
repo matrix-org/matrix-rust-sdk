@@ -83,7 +83,7 @@ pub struct MemoryStore {
     tracked_users: StdRwLock<HashMap<OwnedUserId, TrackedUser>>,
     olm_hashes: StdRwLock<HashMap<String, HashSet<String>>>,
     devices: DeviceStore,
-    identities: StdRwLock<HashMap<OwnedUserId, UserIdentityData>>,
+    identities: StdRwLock<HashMap<OwnedUserId, String>>,
     outgoing_key_requests: StdRwLock<HashMap<OwnedTransactionId, GossipRequest>>,
     key_requests_by_info: StdRwLock<HashMap<String, OwnedTransactionId>>,
     direct_withheld_info: StdRwLock<HashMap<OwnedRoomId, HashMap<String, RoomKeyWithheldEvent>>>,
@@ -231,7 +231,10 @@ impl CryptoStore for MemoryStore {
         {
             let mut identities = self.identities.write().unwrap();
             for identity in changes.identities.new.into_iter().chain(changes.identities.changed) {
-                identities.insert(identity.user_id().to_owned(), identity.clone());
+                identities.insert(
+                    identity.user_id().to_owned(),
+                    serde_json::to_string(&identity).unwrap(),
+                );
             }
         }
 
@@ -481,7 +484,14 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentityData>> {
-        Ok(self.identities.read().unwrap().get(user_id).cloned())
+        let serialized = self.identities.read().unwrap().get(user_id).cloned();
+        match serialized {
+            None => Ok(None),
+            Some(serialized) => {
+                let id: UserIdentityData = serde_json::from_str(serialized.as_str()).unwrap();
+                Ok(Some(id))
+            }
+        }
     }
 
     async fn is_message_known(&self, message_hash: &crate::olm::OlmMessageHash) -> Result<bool> {

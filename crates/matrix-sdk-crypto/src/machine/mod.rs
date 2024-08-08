@@ -147,6 +147,7 @@ impl std::fmt::Debug for OlmMachine {
 
 impl OlmMachine {
     const CURRENT_GENERATION_STORE_KEY: &'static str = "generation-counter";
+    const HAS_MIGRATED_VERIFICATION_LATCH: &'static str = "HAS_MIGRATED_VERIFICATION_LATCH";
 
     /// Create a new memory based OlmMachine.
     ///
@@ -358,7 +359,38 @@ impl OlmMachine {
 
         let identity = Arc::new(Mutex::new(identity));
         let store = Arc::new(CryptoStoreWrapper::new(user_id, device_id, store));
+
+        // FIXME: We might want in the future a more generic high-level data migration
+        // mechanism (at the store wrapper layer).
+        Self::migration_post_verified_latch_support(&store).await?;
+
         Ok(OlmMachine::new_helper(device_id, store, static_account, identity, maybe_backup_key))
+    }
+
+    // The sdk now support verified identity change detection.
+    // This introduces a new local flag (`verified_latch` on
+    // `OtherUserIdentityData`). In order to ensure that this flag is up-to-date and
+    // for the sake of simplicity we force a re-download of tracked users by marking
+    // them as dirty.
+    //
+    // pub(crate) visibility for testing.
+    pub(crate) async fn migration_post_verified_latch_support(
+        store: &CryptoStoreWrapper,
+    ) -> Result<(), CryptoStoreError> {
+        let maybe_migrate_for_identity_verified_latch =
+            store.get_custom_value(Self::HAS_MIGRATED_VERIFICATION_LATCH).await?.is_none();
+        if maybe_migrate_for_identity_verified_latch {
+            // We want to mark all tracked users as dirty to ensure the verified latch is
+            // set up correctly.
+            let tracked_user = store.load_tracked_users().await?;
+            let mut store_updates = Vec::with_capacity(tracked_user.len());
+            tracked_user.iter().for_each(|tu| {
+                store_updates.push((tu.user_id.as_ref(), true));
+            });
+            store.save_tracked_users(&store_updates).await?;
+            store.set_custom_value(Self::HAS_MIGRATED_VERIFICATION_LATCH, vec![0]).await?
+        }
+        Ok(())
     }
 
     /// Get the crypto store associated with this `OlmMachine` instance.
@@ -805,11 +837,11 @@ impl OlmMachine {
     }
 
     #[instrument(
-    skip_all,
-        // This function is only ever called by add_room_key via
-        // handle_decrypted_to_device_event, so sender, sender_key, and algorithm are
-        // already recorded.
-        fields(room_id = ?content.room_id, session_id)
+        skip_all,
+    // This function is only ever called by add_room_key via
+    // handle_decrypted_to_device_event, so sender, sender_key, and algorithm are
+    // already recorded.
+        fields(room_id = ? content.room_id, session_id)
     )]
     async fn handle_key(
         &self,

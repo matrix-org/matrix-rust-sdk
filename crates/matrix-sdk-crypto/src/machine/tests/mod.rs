@@ -1509,3 +1509,37 @@ async fn test_unsigned_decryption() {
         unsigned_encryption_info.get(&UnsignedEventLocation::RelationsThreadLatestEvent).unwrap();
     assert_matches!(thread_encryption_result, UnsignedDecryptionResult::Decrypted(_));
 }
+
+#[async_test]
+async fn test_verified_latch_migration() {
+    let store = MemoryStore::new();
+    let account = vodozemac::olm::Account::new();
+
+    // put some tracked users
+    let bob_id = user_id!("@bob:localhost");
+    let carol_id = user_id!("@carol:localhost");
+
+    // Mark them as not dirty
+    let to_track_not_dirty = vec![(bob_id, false), (carol_id, false)];
+    store.save_tracked_users(&to_track_not_dirty).await.unwrap();
+
+    let alice =
+        OlmMachine::with_store(user_id(), alice_device_id(), store, Some(account)).await.unwrap();
+
+    // A migration should have occurred and all users should be marked as dirty
+    alice.store().load_tracked_users().await.unwrap().iter().for_each(|tu| {
+        assert!(tu.dirty);
+    });
+
+    // Ensure it does so only once
+    alice.store().save_tracked_users(&to_track_not_dirty).await.unwrap();
+
+    OlmMachine::migration_post_verified_latch_support(alice.store().crypto_store().as_ref())
+        .await
+        .unwrap();
+
+    // Migration already done, so user should not be marked as dirty
+    alice.store().load_tracked_users().await.unwrap().iter().for_each(|tu| {
+        assert!(!tu.dirty);
+    });
+}
