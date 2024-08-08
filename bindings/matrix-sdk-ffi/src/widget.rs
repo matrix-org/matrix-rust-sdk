@@ -304,14 +304,14 @@ pub fn get_element_call_required_permissions(
             // [MSC3779](https://github.com/matrix-org/matrix-spec-proposals/pull/3779), with no leading underscore.
             WidgetEventFilter::StateWithTypeAndStateKey {
                 event_type: StateEventType::CallMember.to_string(),
-                state_key: format!("{}_{}", own_user_id, own_device_id),
+                state_key: format!("{own_user_id}_{own_device_id}"),
             },
             // The same as above but with an underscore.
             // To work around the issue that state events starting with `@` have to be matrix id's
             // but we use mxId+deviceId.
             WidgetEventFilter::StateWithTypeAndStateKey {
                 event_type: StateEventType::CallMember.to_string(),
-                state_key: format!("_{}_{}", own_user_id, own_device_id),
+                state_key: format!("_{own_user_id}_{own_device_id}"),
             },
             // To request other room members to send rageshakes
             WidgetEventFilter::MessageLikeWithType {
