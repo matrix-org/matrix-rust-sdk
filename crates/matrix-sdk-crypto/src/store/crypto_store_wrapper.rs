@@ -362,7 +362,7 @@ mod test {
     use ruma::user_id;
 
     use super::*;
-    use crate::machine::tests::get_machine_pair_with_setup_sessions_test_helper;
+    use crate::machine::test_helpers::get_machine_pair_with_setup_sessions_test_helper;
 
     #[async_test]
     async fn cache_cleared_after_device_update() {

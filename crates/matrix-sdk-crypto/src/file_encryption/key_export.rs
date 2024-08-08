@@ -243,7 +243,8 @@ mod tests {
         encrypt_room_key_export,
     };
     use crate::{
-        error::OlmResult, machine::tests::get_prepared_machine_test_helper, RoomKeyImportResult,
+        error::OlmResult, machine::test_helpers::get_prepared_machine_test_helper,
+        RoomKeyImportResult,
     };
 
     const PASSPHRASE: &str = "1234";

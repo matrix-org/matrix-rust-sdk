@@ -1937,7 +1937,8 @@ mod tests {
         use tokio_stream::StreamExt;
 
         use crate::{
-            machine::tests::get_machine_pair_with_setup_sessions_test_helper, EncryptionSyncChanges,
+            machine::test_helpers::get_machine_pair_with_setup_sessions_test_helper,
+            EncryptionSyncChanges,
         };
 
         let alice_id = user_id!("@alice:localhost");
