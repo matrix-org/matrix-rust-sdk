@@ -6,13 +6,14 @@ use matrix_sdk_common::store_locks::CrossProcessStoreLock;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use tokio::sync::{broadcast, Mutex};
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
-use tracing::warn;
+use tracing::{debug, trace, warn};
 
 use super::{caches::SessionStore, DeviceChanges, IdentityChanges, LockableCryptoStore};
 use crate::{
     olm::InboundGroupSession,
-    store::{self, Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
-    GossippedSecret, OwnUserIdentityData, Session,
+    store,
+    store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
+    CryptoStoreError, GossippedSecret, OwnUserIdentityData, Session, UserIdentityData,
 };
 
 /// A wrapper for crypto store implementations that adds update notifiers.
@@ -92,6 +93,17 @@ impl CryptoStoreWrapper {
             })
             .collect();
 
+        // If our own identity verified status changes we need to do some checks on
+        // other identities. So remember the verification status before
+        // processing the changes
+        let own_identity_was_verified_before_change = self
+            .store
+            .get_user_identity(self.user_id.as_ref())
+            .await?
+            .as_ref()
+            .and_then(|i| i.own())
+            .map_or(false, |own| own.is_verified());
+
         let secrets = changes.secrets.to_owned();
         let devices = changes.devices.to_owned();
         let identities = changes.identities.to_owned();
@@ -131,10 +143,71 @@ impl CryptoStoreWrapper {
             // Mapping the devices and user identities from the read-only variant to one's
             // that contain side-effects requires our own identity. This is
             // guaranteed to be up-to-date since we just persisted it.
-            let own_identity =
+            let maybe_own_identity =
                 self.store.get_user_identity(&self.user_id).await?.and_then(|i| i.into_own());
 
-            let _ = self.identities_broadcaster.send((own_identity, identities, devices));
+            // If our identity was not verified before the change and is now, that means
+            // this could impact the verification chain of other known
+            // identities.
+            if let Some(own_identity_after) = maybe_own_identity.as_ref() {
+                // Only do this if our identity is passing from not verified to verified,
+                // the previously_verified can only change in that case.
+                if !own_identity_was_verified_before_change && own_identity_after.is_verified() {
+                    debug!("Own identity is now verified, check all known identities for verification status changes");
+                    // We need to review all the other identities to see if they are verified now
+                    // and mark them as such
+                    self.check_all_identities_and_update_was_previously_verified_flag_if_needed(
+                        own_identity_after,
+                    )
+                    .await?;
+                }
+            }
+
+            let _ = self.identities_broadcaster.send((maybe_own_identity, identities, devices));
+        }
+
+        Ok(())
+    }
+
+    async fn check_all_identities_and_update_was_previously_verified_flag_if_needed(
+        &self,
+        own_identity_after: &OwnUserIdentityData,
+    ) -> Result<(), CryptoStoreError> {
+        let tracked_users = self.store.load_tracked_users().await?;
+        let mut updated_identities: Vec<UserIdentityData> = Default::default();
+        for tracked_user in tracked_users {
+            if let Some(other_identity) = self
+                .store
+                .get_user_identity(tracked_user.user_id.as_ref())
+                .await?
+                .as_ref()
+                .and_then(|i| i.other())
+            {
+                if !other_identity.was_previously_verified()
+                    && own_identity_after.is_identity_signed(other_identity).is_ok()
+                {
+                    trace!(?tracked_user.user_id, "Marking set verified_latch to true.");
+                    other_identity.mark_as_previously_verified();
+                    updated_identities.push(other_identity.clone().into());
+                }
+            }
+        }
+
+        if !updated_identities.is_empty() {
+            let identity_changes =
+                IdentityChanges { changed: updated_identities, ..Default::default() };
+            self.store
+                .save_changes(Changes {
+                    identities: identity_changes.clone(),
+                    ..Default::default()
+                })
+                .await?;
+
+            let _ = self.identities_broadcaster.send((
+                Some(own_identity_after.clone()),
+                identity_changes,
+                DeviceChanges::default(),
+            ));
         }
 
         Ok(())

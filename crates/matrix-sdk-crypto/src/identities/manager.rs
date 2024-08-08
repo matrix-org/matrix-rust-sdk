@@ -39,7 +39,7 @@ use crate::{
         Result as StoreResult, Store, StoreCache, UserKeyQueryResult,
     },
     types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
-    CryptoStoreError, LocalTrust, SignatureError,
+    CryptoStoreError, LocalTrust, OwnUserIdentity, SignatureError, UserIdentities,
 };
 
 enum DeviceChange {
@@ -83,6 +83,13 @@ struct KeysQueryRequestDetails {
     /// more actual KeysQueryRequests, each with their own request id. We
     /// record the outstanding request ids here.
     request_ids: HashSet<OwnedTransactionId>,
+}
+
+// Helper type to handle key query response
+struct KeySetInfo {
+    user_id: OwnedUserId,
+    master_key: MasterPubkey,
+    self_signing: SelfSigningPubkey,
 }
 
 impl IdentityManager {
@@ -444,6 +451,7 @@ impl IdentityManager {
     async fn handle_changed_identity(
         &self,
         response: &KeysQueryResponse,
+        maybe_verified_own_identity: Option<&OwnUserIdentity>,
         master_key: MasterPubkey,
         self_signing: SelfSigningPubkey,
         i: UserIdentityData,
@@ -461,7 +469,12 @@ impl IdentityManager {
                 }
             }
             UserIdentityData::Other(mut identity) => {
-                let has_changed = identity.update(master_key, self_signing)?;
+                let has_changed = identity.update(
+                    master_key,
+                    self_signing,
+                    maybe_verified_own_identity.map(|o| o.user_signing_key()),
+                )?;
+
                 if has_changed {
                     Ok(IdentityUpdateResult::Updated(identity.into()))
                 } else {
@@ -502,11 +515,13 @@ impl IdentityManager {
     async fn handle_new_identity(
         &self,
         response: &KeysQueryResponse,
+        maybe_verified_own_identity: Option<&OwnUserIdentity>,
         master_key: MasterPubkey,
         self_signing: SelfSigningPubkey,
         changed_private_identity: &mut Option<PrivateCrossSigningIdentity>,
     ) -> Result<UserIdentityData, SignatureError> {
         if master_key.user_id() == self.user_id() {
+            // Own identity
             let user_signing = self.get_user_signing_key_from_response(response)?;
             let identity = OwnUserIdentityData::new(master_key, self_signing, user_signing)?;
             *changed_private_identity = self.check_private_identity(&identity).await;
@@ -514,6 +529,13 @@ impl IdentityManager {
         } else {
             // First time seen, create the identity. The current MSK will be pinned.
             let identity = OtherUserIdentityData::new(master_key, self_signing)?;
+            let is_verified = maybe_verified_own_identity.map_or(false, |own_user_identity| {
+                own_user_identity.is_identity_signed(&identity).is_ok()
+            });
+            if is_verified {
+                identity.mark_as_previously_verified();
+            }
+
             Ok(identity.into())
         }
     }
@@ -616,10 +638,9 @@ impl IdentityManager {
     /// * `changed_identity` - Output parameter: Unchanged if the identity is
     ///   that of another user. If it is our own, set to `None` or `Some`
     ///   depending on whether our stored private identity needs updating.
-    /// * `user_id` - The user id of the user whose identity is being processed.
-    /// * `master_key` - The public master cross-signing key for this user from
-    ///   the `/keys/query` response.
-    /// * `self_signing` - The public self-signing key from the `/keys/query`
+    /// * `maybe_verified_own_identity` - Own verified identity if any to check
+    ///   verification status of updated identity.
+    /// * `key_set_info` - The identity info as returned by the `/keys/query`
     ///   response.
     #[instrument(skip_all, fields(user_id))]
     async fn update_or_create_identity(
@@ -627,17 +648,18 @@ impl IdentityManager {
         response: &KeysQueryResponse,
         changes: &mut IdentityChanges,
         changed_private_identity: &mut Option<PrivateCrossSigningIdentity>,
-        user_id: &UserId,
-        master_key: MasterPubkey,
-        self_signing: SelfSigningPubkey,
+        maybe_verified_own_identity: Option<&OwnUserIdentity>,
+        key_set_info: KeySetInfo,
     ) -> StoreResult<()> {
+        let KeySetInfo { user_id, master_key, self_signing } = key_set_info;
         if master_key.user_id() != user_id || self_signing.user_id() != user_id {
             warn!(?user_id, "User ID mismatch in one of the cross signing keys");
-        } else if let Some(i) = self.store.get_user_identity(user_id).await? {
+        } else if let Some(i) = self.store.get_user_identity(&user_id).await? {
             // an identity we knew about before, which is being updated
             match self
                 .handle_changed_identity(
                     response,
+                    maybe_verified_own_identity,
                     master_key,
                     self_signing,
                     i,
@@ -660,7 +682,13 @@ impl IdentityManager {
         } else {
             // an identity we did not know about before
             match self
-                .handle_new_identity(response, master_key, self_signing, changed_private_identity)
+                .handle_new_identity(
+                    response,
+                    maybe_verified_own_identity,
+                    master_key,
+                    self_signing,
+                    changed_private_identity,
+                )
                 .await
             {
                 Ok(identity) => {
@@ -698,6 +726,15 @@ impl IdentityManager {
         let mut changes = IdentityChanges::default();
         let mut changed_identity = None;
 
+        // We want to check if the updated/new other identities are trusted by us or
+        // not. This is based on the current verified state of the own identity.
+        let maybe_own_verified_identity = self
+            .store
+            .get_identity(self.user_id())
+            .await?
+            .and_then(UserIdentities::own)
+            .filter(|own| own.is_verified());
+
         for (user_id, master_key) in &response.master_keys {
             // Get the master and self-signing key for each identity; those are required for
             // every user identity type. If we don't have those we skip over.
@@ -707,13 +744,14 @@ impl IdentityManager {
                 continue;
             };
 
+            let key_set_info = KeySetInfo { user_id: user_id.clone(), master_key, self_signing };
+
             self.update_or_create_identity(
                 response,
                 &mut changes,
                 &mut changed_identity,
-                user_id,
-                master_key,
-                self_signing,
+                maybe_own_verified_identity.as_ref(),
+                key_set_info,
             )
             .await?;
         }
@@ -1353,6 +1391,7 @@ pub(crate) mod tests {
     use crate::{
         identities::manager::testing::{other_key_query_cross_signed, own_key_query},
         olm::PrivateCrossSigningIdentity,
+        CrossSigningKeyExport, OlmMachine,
     };
 
     fn key_query_with_failures() -> KeysQueryResponse {
@@ -2022,5 +2061,270 @@ pub(crate) mod tests {
         other_identity.pin();
 
         assert!(!other_identity.has_pin_violation());
+    }
+
+    // Set up a machine do initial own key query and import cross-signing secret to
+    // make the current session verified.
+    async fn common_verified_identity_changes_machine_setup() -> OlmMachine {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+
+        let keys_query = DataSet::own_keys_query_response_1();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        machine
+            .import_cross_signing_keys(CrossSigningKeyExport {
+                master_key: DataSet::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+                self_signing_key: DataSet::SELF_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+                user_signing_key: DataSet::USER_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+            })
+            .await
+            .unwrap();
+        machine
+    }
+    #[async_test]
+    async fn test_manager_verified_latch_setup_on_new_identities() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = common_verified_identity_changes_machine_setup().await;
+
+        // ######
+        // First test: Assert that the latch is properly set on new identities
+        // ######
+        let keys_query = DataSet::bob_keys_query_response_signed();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let own_identity =
+            machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap().own().unwrap();
+        // For sanity check that own identity is trusted
+        assert!(own_identity.is_verified());
+
+        let bob_identity =
+            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
+        // The verified latch should be true
+        assert!(bob_identity.was_previously_verified());
+        // And bob is verified
+        assert!(bob_identity.is_verified());
+
+        // ######
+        // Second test: Assert that the local latch stays on if the identity is rotated
+        // ######
+        let keys_query = DataSet::bob_keys_query_response_rotated();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let bob_identity =
+            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
+        // Bob is not verified anymore
+        assert!(!bob_identity.is_verified());
+        // The verified latch should still be true
+        assert!(bob_identity.was_previously_verified());
+        // Bob device_2 is self-signed even if there is this verification latch
+        // violation
+        let bob_device = machine
+            .get_device(DataSet::bob_id(), DataSet::bob_device_2_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(bob_identity.is_device_signed(&bob_device).is_ok());
+        // there is also a pin violation
+        assert!(bob_identity.has_pin_violation());
+        // Fixing the pin violation won't fix the verification latch violation
+        bob_identity.pin_current_master_key().await.unwrap();
+        assert!(!bob_identity.has_pin_violation());
+        let has_latch_violation =
+            bob_identity.was_previously_verified() && !bob_identity.is_verified();
+        assert!(has_latch_violation);
+    }
+
+    #[async_test]
+    async fn test_manager_verified_identity_changes_setup_on_updated_identities() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = common_verified_identity_changes_machine_setup().await;
+
+        // ######
+        // Get the Carol identity for the first time
+        // ######
+        let keys_query = DataSet::carol_keys_query_response_unsigned();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let carol_identity = machine
+            .get_identity(DataSet::carol_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap();
+        // The identity is not verified
+        assert!(!carol_identity.is_verified());
+        // The verified latch is off
+        assert!(!carol_identity.was_previously_verified());
+
+        // Carol is verified, likely from another session. Ensure the latch is updated
+        // when the key query response is processed
+        let keys_query = DataSet::carol_keys_query_response_signed();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let carol_identity = machine
+            .get_identity(DataSet::carol_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap();
+        assert!(carol_identity.is_verified());
+        // This should have updated the latch
+        assert!(carol_identity.was_previously_verified());
+        // It is the same identity, it's just signed now so no pin violation
+        assert!(!carol_identity.has_pin_violation());
+    }
+
+    // Set up a machine do initial own key query.
+    // The cross signing secrets are not yet uploaded.
+    // Then query keys for carol and bob (both signed by own identity)
+    async fn common_verified_identity_changes_own_trust_change_machine_setup() -> OlmMachine {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        // Start on a non-verified session
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+
+        let keys_query = DataSet::own_keys_query_response_1();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        // For sanity check that own identity is not trusted
+        let own_identity =
+            machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap().own().unwrap();
+        assert!(!own_identity.is_verified());
+
+        let keys_query = DataSet::own_keys_query_response_1();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        // Get Bob and Carol already signed
+        let keys_query = DataSet::bob_keys_query_response_signed();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let keys_query = DataSet::carol_keys_query_response_signed();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        machine.update_tracked_users(vec![DataSet::bob_id(), DataSet::carol_id()]).await.unwrap();
+
+        machine
+    }
+
+    #[async_test]
+    async fn test_manager_verified_identity_changes_setup_on_own_identity_trust_change() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        let machine = common_verified_identity_changes_own_trust_change_machine_setup().await;
+
+        let own_identity =
+            machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap().own().unwrap();
+
+        let bob_identity =
+            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
+        // Carol is verified by our identity but our own identity is not yet trusted
+        assert!(own_identity.is_identity_signed(&bob_identity).is_ok());
+        assert!(!bob_identity.was_previously_verified());
+
+        let carol_identity = machine
+            .get_identity(DataSet::carol_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap();
+        // Carol is verified by our identity but our own identity is not yet trusted
+        assert!(own_identity.is_identity_signed(&carol_identity).is_ok());
+        assert!(!carol_identity.was_previously_verified());
+
+        // Marking our own identity as trusted should update the existing identities
+        let _ = own_identity.verify().await;
+
+        let own_identity =
+            machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap().own().unwrap();
+        assert!(own_identity.is_verified());
+
+        let carol_identity = machine
+            .get_identity(DataSet::carol_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap();
+        assert!(carol_identity.is_verified());
+        // The latch should be set now
+        assert!(carol_identity.was_previously_verified());
+
+        let bob_identity =
+            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
+        assert!(bob_identity.is_verified());
+        // The latch should be set now
+        assert!(bob_identity.was_previously_verified());
+    }
+
+    #[async_test]
+    async fn test_manager_verified_identity_change_setup_on_import_secrets() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        let machine = common_verified_identity_changes_own_trust_change_machine_setup().await;
+
+        let own_identity =
+            machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap().own().unwrap();
+
+        let bob_identity =
+            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
+        // Carol is verified by our identity but our own identity is not yet trusted
+        assert!(own_identity.is_identity_signed(&bob_identity).is_ok());
+        assert!(!bob_identity.was_previously_verified());
+
+        let carol_identity = machine
+            .get_identity(DataSet::carol_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap();
+        // Carol is verified by our identity but our own identity is not yet trusted
+        assert!(own_identity.is_identity_signed(&carol_identity).is_ok());
+        assert!(!carol_identity.was_previously_verified());
+
+        // Marking our own identity as trusted should update the existing identities
+        machine
+            .import_cross_signing_keys(CrossSigningKeyExport {
+                master_key: DataSet::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+                self_signing_key: DataSet::SELF_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+                user_signing_key: DataSet::USER_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+            })
+            .await
+            .unwrap();
+
+        let own_identity =
+            machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap().own().unwrap();
+        assert!(own_identity.is_verified());
+
+        let carol_identity = machine
+            .get_identity(DataSet::carol_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap();
+        assert!(carol_identity.is_verified());
+        // The latch should be set now
+        assert!(carol_identity.was_previously_verified());
+
+        let bob_identity =
+            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
+        assert!(bob_identity.is_verified());
+        // The latch should be set now
+        assert!(bob_identity.was_previously_verified());
     }
 }

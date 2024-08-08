@@ -28,6 +28,7 @@ Abl = "Abl"
 Som = "Som"
 Ba = "Ba"
 Yur = "Yur" # as found in crates/matrix-sdk-indexeddb/src/crypto_store/migrations/mod.rs
+TYE = "TYE" # as found in testing/matrix-sdk-test/src/test_json/keys_query_sets.rs
 
 [files]
 extend-exclude = [
