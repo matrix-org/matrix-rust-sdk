@@ -127,7 +127,7 @@ impl Session {
         message
     }
 
-    /// Encrypt the given event content content as an m.room.encrypted event
+    /// Encrypt the given event content as an m.room.encrypted event
     /// content.
     ///
     /// # Arguments
@@ -170,6 +170,24 @@ impl Session {
 
         let ciphertext = self.encrypt_helper(&plaintext).await;
 
+        let content = self.build_encrypted_event(ciphertext, message_id).await?;
+        let content = Raw::new(&content)?;
+        Ok(content)
+    }
+
+    /// Take the given ciphertext, and package it into an `m.room.encrypted`
+    /// to-device message content.
+    ///
+    /// # Arguments
+    ///
+    /// * `ciphertext` - The encrypted message content.
+    /// * `message_id` - The ID to use for this to-device message, as
+    ///   `org.matrix.msgid`.
+    pub(crate) async fn build_encrypted_event(
+        &self,
+        ciphertext: OlmMessage,
+        message_id: Option<String>,
+    ) -> OlmResult<ToDeviceEncryptedEventContent> {
         let content = match self.algorithm().await {
             EventEncryptionAlgorithm::OlmV1Curve25519AesSha2 => OlmV1Curve25519AesSha2Content {
                 ciphertext,
@@ -193,8 +211,6 @@ impl Session {
             .into(),
             _ => unreachable!(),
         };
-
-        let content = Raw::new(&content)?;
 
         Ok(content)
     }
