@@ -36,6 +36,7 @@ macro_rules! cryptostore_integration_tests {
         mod cryptostore_integration_tests {
             use std::collections::{BTreeMap, HashMap};
             use std::time::Duration;
+            use futures_util::stream::StreamExt;
 
             use assert_matches::assert_matches;
             use matrix_sdk_test::async_test;
@@ -48,7 +49,7 @@ macro_rules! cryptostore_integration_tests {
             use $crate::{
                 olm::{
                     Account, Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
-                    PrivateCrossSigningIdentity, Session,
+                    PrivateCrossSigningIdentity, SenderData, SenderDataType, Session
                 },
                 store::{
                     BackupDecryptionKey, Changes, CryptoStore, DeviceChanges, GossipRequest,
@@ -70,7 +71,8 @@ macro_rules! cryptostore_integration_tests {
                     DeviceKeys,
                     EventEncryptionAlgorithm,
                 },
-                GossippedSecret, LocalTrust, DeviceData, SecretInfo, ToDeviceRequest, TrackedUser,
+                EncryptionSettings, GossippedSecret, LocalTrust, DeviceData, SecretInfo,
+                ToDeviceRequest, TrackedUser,
             };
 
             use super::get_store;
@@ -559,6 +561,69 @@ macro_rules! cryptostore_integration_tests {
 
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 1);
                 assert_eq!(store.inbound_group_session_counts(None).await.unwrap().total, 1);
+            }
+
+            #[async_test]
+            async fn fetch_inbound_group_sessions_for_device() {
+                // Given a store exists, containing inbound group sessions from different devices
+                let (account, store) =
+                    get_loaded_store("fetch_inbound_group_sessions_for_device").await;
+
+                let dev1 = Curve25519PublicKey::from_base64(
+                    "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4"
+                ).unwrap();
+                let dev2 = Curve25519PublicKey::from_base64(
+                    "LTpv2DGMhggPAXO02+7f68CNEp6A40F0Yl8B094Y8gc"
+                ).unwrap();
+
+                let dev_1_unknown_a = create_session(
+                    &account, &dev1, SenderDataType::UnknownDevice).await;
+
+                let dev_1_unknown_b = create_session(
+                    &account, &dev1, SenderDataType::UnknownDevice).await;
+
+                let dev_1_keys = create_session(
+                    &account, &dev1, SenderDataType::DeviceInfo).await;
+
+                let dev_2_unknown = create_session(
+                    &account, &dev1, SenderDataType::UnknownDevice).await;
+
+                let dev_2_keys = create_session(
+                    &account, &dev1, SenderDataType::DeviceInfo).await;
+
+                let sessions = vec![
+                    dev_1_unknown_a.clone(),
+                    dev_1_unknown_b.clone(),
+                    dev_1_keys.clone(),
+                    dev_2_unknown.clone(),
+                    dev_2_keys.clone(),
+                ];
+
+                let changes = Changes {
+                    inbound_group_sessions: sessions,
+                    ..Default::default()
+                };
+                store.save_changes(changes).await.expect("Can't save group session");
+
+                // When we fetch the list of sessions for device 1, unknown
+                let sessions_1_u: Vec<_> = store
+                    .get_inbound_group_sessions_for_device(&dev1, SenderDataType::UnknownDevice)
+                    .await
+                    .unwrap()
+                    .collect().await;
+
+                // Then the expected sessions are returned
+                assert_eq!(sessions_1_u, vec![dev_1_unknown_a, dev_1_unknown_b]);
+
+                // And when we ask for the list of sessions for device 2, with device keys
+                let sessions_2_d: Vec<_> = store
+                    .get_inbound_group_sessions_for_device(&dev2, SenderDataType::DeviceInfo)
+                    .await
+                    .unwrap()
+                    .collect().await;
+
+                // Then the matching session is returned
+                assert_eq!(sessions_2_d, vec![dev_2_keys]);
             }
 
             #[async_test]
@@ -1111,6 +1176,14 @@ macro_rules! cryptostore_integration_tests {
 
             fn session_info(session: &InboundGroupSession) -> (&RoomId, &str) {
                 (&session.room_id(), &session.session_id())
+            }
+
+            async fn create_session(
+                account: &Account,
+                device_curve_key: &Curve25519PublicKey,
+                sender_data_type: SenderDataType
+            ) -> InboundGroupSession {
+                todo!()
             }
         }
     };

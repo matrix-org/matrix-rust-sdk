@@ -15,10 +15,12 @@
 use std::{collections::HashMap, fmt, sync::Arc};
 
 use async_trait::async_trait;
+use futures_core::Stream;
 use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId,
 };
+use vodozemac::Curve25519PublicKey;
 
 use super::{
     BackupKeys, Changes, CryptoStoreError, PendingChanges, Result, RoomKeyCounts, RoomSettings,
@@ -26,7 +28,7 @@ use super::{
 use crate::{
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
-        Session,
+        SenderDataType, Session,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
@@ -120,6 +122,17 @@ pub trait CryptoStore: AsyncTraitDeps {
         &self,
         backup_version: Option<&str>,
     ) -> Result<RoomKeyCounts, Self::Error>;
+
+    /// Get all the inbound group sessions for the device with the supplied
+    /// curve key, whose sender data is of the supplied type.
+    ///
+    /// Used when the device information is updated via a /keys/query response
+    /// and we want to update the sender data based on the new information.
+    async fn get_inbound_group_sessions_for_device(
+        &self,
+        device_key: &Curve25519PublicKey,
+        sender_data_type: SenderDataType,
+    ) -> Result<InboundGroupSessionStream, Self::Error>;
 
     /// Return a batch of ['InboundGroupSession'] ("room keys") that have not
     /// yet been backed up in the supplied backup version.
@@ -322,6 +335,21 @@ pub trait CryptoStore: AsyncTraitDeps {
     async fn next_batch_token(&self) -> Result<Option<String>, Self::Error>;
 }
 
+/// A stream of [`InboundGroupSession`]s
+#[derive(Debug)]
+pub struct InboundGroupSessionStream {}
+
+impl Stream for InboundGroupSessionStream {
+    type Item = InboundGroupSession;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        todo!()
+    }
+}
+
 #[repr(transparent)]
 struct EraseCryptoStoreError<T>(T);
 
@@ -375,6 +403,17 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
         self.0.get_inbound_group_sessions().await.map_err(Into::into)
+    }
+
+    async fn get_inbound_group_sessions_for_device(
+        &self,
+        device_key: &Curve25519PublicKey,
+        sender_data_type: SenderDataType,
+    ) -> Result<InboundGroupSessionStream> {
+        self.0
+            .get_inbound_group_sessions_for_device(device_key, sender_data_type)
+            .await
+            .map_err(Into::into)
     }
 
     async fn inbound_group_session_counts(

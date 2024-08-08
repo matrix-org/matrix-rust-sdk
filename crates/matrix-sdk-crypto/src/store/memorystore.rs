@@ -26,16 +26,18 @@ use ruma::{
 };
 use tokio::sync::RwLock;
 use tracing::warn;
+use vodozemac::Curve25519PublicKey;
 
 use super::{
     caches::{DeviceStore, GroupSessionStore},
+    traits::InboundGroupSessionStream,
     Account, BackupKeys, Changes, CryptoStore, InboundGroupSession, PendingChanges, RoomKeyCounts,
     RoomSettings, Session,
 };
 use crate::{
     gossiping::{GossipRequest, GossippedSecret, SecretInfo},
     identities::{DeviceData, UserIdentityData},
-    olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
+    olm::{OutboundGroupSession, PrivateCrossSigningIdentity, SenderDataType},
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     TrackedUser,
 };
@@ -378,6 +380,14 @@ impl CryptoStore for MemoryStore {
         };
 
         Ok(RoomKeyCounts { total: self.inbound_group_sessions.count(), backed_up })
+    }
+
+    async fn get_inbound_group_sessions_for_device(
+        &self,
+        _device_key: &Curve25519PublicKey,
+        _sender_data_type: SenderDataType,
+    ) -> Result<InboundGroupSessionStream> {
+        todo!()
     }
 
     async fn inbound_group_sessions_for_backup(
@@ -1102,15 +1112,19 @@ mod integration_tests {
     use ruma::{
         events::secret::request::SecretName, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId,
     };
+    use vodozemac::Curve25519PublicKey;
 
     use super::MemoryStore;
     use crate::{
         cryptostore_integration_tests, cryptostore_integration_tests_time,
         olm::{
             InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
-            StaticAccountData,
+            SenderDataType, StaticAccountData,
         },
-        store::{BackupKeys, Changes, CryptoStore, PendingChanges, RoomKeyCounts, RoomSettings},
+        store::{
+            traits::InboundGroupSessionStream, BackupKeys, Changes, CryptoStore, PendingChanges,
+            RoomKeyCounts, RoomSettings,
+        },
         types::events::room_key_withheld::RoomKeyWithheldEvent,
         Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, Session, TrackedUser,
         UserIdentityData,
@@ -1230,6 +1244,13 @@ mod integration_tests {
             self.0.inbound_group_session_counts(backup_version).await
         }
 
+        async fn get_inbound_group_sessions_for_device(
+            &self,
+            device_key: &Curve25519PublicKey,
+            sender_data_type: SenderDataType,
+        ) -> Result<InboundGroupSessionStream, Self::Error> {
+            self.0.get_inbound_group_sessions_for_device(device_key, sender_data_type).await
+        }
         async fn inbound_group_sessions_for_backup(
             &self,
             backup_version: &str,
