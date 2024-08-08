@@ -89,12 +89,12 @@ impl Drop for MigrationDb {
 /// with `indexedDB.open(name, version)`, we explicitly check the version
 /// ourselves.
 ///
-/// It is expected that we will use version numbers that are multiples of 10 to
-/// represent breaking changes — for example, version 20 is a breaking change,
-/// as is version 30, but versions 21-29 are all backwards compatible with
-/// version 20. In other words, if you divide by 10, you get something
-/// approaching semver: version 20 is major version 2, minor version 0.
-const MAX_SUPPORTED_SCHEMA_VERSION: u32 = 19;
+/// It is expected that we will use version numbers that are multiples of 100 to
+/// represent breaking changes — for example, version 100 is a breaking change,
+/// as is version 200, but versions 101-199 are all backwards compatible with
+/// version 100. In other words, if you divide by 100, you get something
+/// approaching semver: version 200 is major version 2, minor version 0.
+const MAX_SUPPORTED_SCHEMA_VERSION: u32 = 99;
 
 /// Open the indexeddb with the given name, upgrading it to the latest version
 /// of the schema if necessary.
