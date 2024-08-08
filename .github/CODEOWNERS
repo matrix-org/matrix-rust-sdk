@@ -1,1 +1,2 @@
 * @matrix-org/rust
+/crates/matrix-sdk-crypto @matrix-org/rust @matrix-org/rust-crypto-reviewers
