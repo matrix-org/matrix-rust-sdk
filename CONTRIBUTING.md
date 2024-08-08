@@ -67,6 +67,71 @@ Having good commit messages and PR titles also helps with reviews, scanning the 
 the project, and writing the [*This week in
 Matrix*](https://matrix.org/category/this-week-in-matrix/) updates for the SDK.
 
+## Review process
+
+To streamline the review process and make it easier for maintainers to review
+your contributions, follow these basic rules:
+
+1. Do not force push after a review has started. This helps maintainers track
+   incremental changes without confusion and makes it easier to follow the
+   evolution of the code.
+
+2. Do not mix moves and refactoring with functional changes. Keep these in
+   separate commits for clarity. This ensures that the purpose of each commit is
+   clear and easy to review.
+
+3. Each commit must compile. If commits don’t compile, git bisect becomes
+   unusable, which hampers the debugging process and makes it harder to identify
+   the source of issues.
+
+4. Commits should only introduce test failures if they are proving that a bug
+   exists. New features should never introduce test failures. Test failures
+   should only be used to demonstrate existing bugs, not as part of adding new
+   functionality.
+
+5. Keep PRs on topic and small. Large PRs are harder to review and more prone to
+   delays. Create small, focused commits that address a single topic. Use a
+   combination of [git add] -p or git checkout -p to split changes into logical
+   units. This makes your work easier to review and reduces the chance of
+   introducing unrelated changes.
+
+[git add]: https://git-scm.com/docs/git-add#Documentation/git-add.txt---patch
+[git checkout]: https://git-scm.com/docs/git-checkout#Documentation/git-checkout.txt---patch
+
+### Addressing review comments using fixup commits
+
+So you posted a PR and the maintainers aren't quite happy with it. Here are some
+guidelines to make the maintainers life easier and increase the chances that
+your PR will be reviewed swiftly.
+
+1. Use [fixup] commits. When addressing reviewer feedback, you can create fixup
+commits. These commits mark your changes as corrections of specific previous
+commits in the PR.
+
+Example:
+
+```bash
+git commit --fixup=<commit-hash>
+```
+
+This command creates a new commit that refers to an existing one, making it
+easier to rebase and squash later while showing reviewers the history of fixes.
+For extra points, link to the fixup commit in the thread where the change was
+requested.
+
+2. After all requested changes were addressed, feel free to re-request a review.
+   People might not notice that all changes were addressed.
+
+3. Once the PR has been approved, rebase your PR to squash all the fixup
+   commits, the [autosquash] option can help with this.
+
+```bash
+git rebase main --autosquash
+```
+
+[fixup]: https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---fixupamendrewordltcommitgt
+[autosquash]: https://git-scm.com/docs/git-rebase#Documentation/git-rebase.txt---autosquash
+
 ## Sign off
 
 In order to have a concrete record that your contribution is intentional
