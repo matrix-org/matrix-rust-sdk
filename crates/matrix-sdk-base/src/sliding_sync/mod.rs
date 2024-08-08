@@ -626,10 +626,11 @@ impl BaseClient {
                     let new_state: RoomState = member.membership().into();
                     if new_state != room_info.state() {
                         room_info.set_state(new_state);
-                        room_info_notable_updates.insert(
-                            room_info.room_id.to_owned(),
-                            RoomInfoNotableUpdateReasons::MEMBERSHIP,
-                        );
+                        // Update an existing notable update entry or create a new one
+                        room_info_notable_updates
+                            .entry(room_info.room_id.to_owned())
+                            .or_default()
+                            .insert(RoomInfoNotableUpdateReasons::MEMBERSHIP);
                     }
                     break;
                 }
