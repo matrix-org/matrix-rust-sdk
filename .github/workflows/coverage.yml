@@ -25,7 +25,6 @@ jobs:
   code_coverage:
     name: Code Coverage
     runs-on: "ubuntu-latest"
-    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     # run several docker containers with the same networking stack so the hostname 'postgres'
     # maps to the postgres container, etc.
