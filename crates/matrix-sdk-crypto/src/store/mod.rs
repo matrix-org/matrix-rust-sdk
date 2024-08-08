@@ -94,7 +94,7 @@ pub(crate) use crypto_store_wrapper::CryptoStoreWrapper;
 pub use error::{CryptoStoreError, Result};
 use matrix_sdk_common::{store_locks::CrossProcessStoreLock, timeout::timeout};
 pub use memorystore::MemoryStore;
-pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
+pub use traits::{CryptoStore, DynCryptoStore, InboundGroupSessionStream, IntoCryptoStore};
 
 pub use crate::gossiping::{GossipRequest, SecretInfo};
 

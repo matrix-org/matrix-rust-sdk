@@ -25,9 +25,12 @@ use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_crypto::{
     olm::{
         InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
-        PrivateCrossSigningIdentity, Session, StaticAccountData,
+        PrivateCrossSigningIdentity, SenderDataType, Session, StaticAccountData,
     },
-    store::{BackupKeys, Changes, CryptoStore, PendingChanges, RoomKeyCounts, RoomSettings},
+    store::{
+        caches::SessionStore, BackupKeys, Changes, CryptoStore, InboundGroupSessionStream,
+        PendingChanges, RoomKeyCounts, RoomSettings,
+    },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
 };
@@ -40,6 +43,7 @@ use rusqlite::{params_from_iter, OptionalExtension};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{fs, sync::Mutex};
 use tracing::{debug, instrument, warn};
+use vodozemac::Curve25519PublicKey;
 
 use crate::{
     error::{Error, Result},
@@ -962,6 +966,14 @@ impl CryptoStore for SqliteCryptoStore {
                 Ok(InboundGroupSession::from_pickle(pickle)?)
             })
             .collect()
+    }
+
+    async fn get_inbound_group_sessions_for_device(
+        &self,
+        _device_key: Curve25519PublicKey,
+        _sender_data_type: SenderDataType,
+    ) -> Result<InboundGroupSessionStream> {
+        todo!()
     }
 
     async fn inbound_group_session_counts(
