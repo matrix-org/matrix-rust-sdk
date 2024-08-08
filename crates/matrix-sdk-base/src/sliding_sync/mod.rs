@@ -2120,7 +2120,7 @@ mod tests {
         let room_id = room_id!("!r:e.uk");
         let room = http::response::Room::new();
         let response = response_with_room(room_id, room);
-        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
 
         // Discard first room info update
         let _ = room_info_notable_update_stream.recv().await;
@@ -2143,7 +2143,7 @@ mod tests {
             required_state: events,
         });
         let response = response_with_room(room_id, room);
-        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
 
         // Room was already joined, no MEMBERSHIP update should be triggered here
         assert_matches!(
@@ -2170,7 +2170,7 @@ mod tests {
             required_state: events,
         });
         let response = response_with_room(room_id, room);
-        client.process_sliding_sync(&response, &()).await.expect("Failed to process sync");
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
 
         // Then a room info notable update is received.
         let update = room_info_notable_update_stream.recv().await;
