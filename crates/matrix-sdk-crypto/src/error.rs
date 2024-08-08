@@ -91,6 +91,14 @@ pub enum DeviceCollectError {
     /// devices (see [`Device::set_local_trust`]).
     #[error("Encryption failed because one or several verified users have unsigned devices")]
     DeviceBasedVerifiedUserHasUnsignedDevice(BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>),
+    /// When a previously verified user is not anymore.
+    /// Happens only with `CollectStrategy::DeviceBasedStrategy` when
+    /// `error_on_previously_verified_identity_change` is true.
+    ///
+    /// In order to resolve this the caller has to ignore or blacklist the given
+    /// devices (see [`OtherUserIdentityData::withdraw_verification`]).
+    #[error("Encryption failed because some users that was verified are not anymore.")]
+    UsersShouldBeVerified(Vec<OwnedUserId>),
 }
 /// Error representing a failure during a group encryption operation.
 #[derive(Error, Debug)]

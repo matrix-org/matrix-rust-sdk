@@ -61,6 +61,17 @@ pub enum CollectStrategy {
         /// once per problematic device.
         #[serde(default)]
         error_on_unsigned_device_of_verified_users: bool,
+        /// If true, when a user that was previously verified and is not anymore
+        /// the key sharing will fail with an error. If false the key
+        /// will be distributed to that user devices (as per other
+        /// sharing settings).
+        ///
+        /// In order to resolve this sharing error the user can choose to
+        /// withdraw the verification for that user
+        /// [`OtherUserIdentityData::withdraw_verification()`] or
+        /// blacklist/whitelist that user devices.
+        #[serde(default)]
+        error_on_previously_verified_identity_change: bool,
     },
     /// Share based on identity. Only distribute to devices signed by their
     /// owner. If a user has no published identity he will not receive
@@ -73,10 +84,12 @@ impl CollectStrategy {
     pub const fn new_device_based(
         only_allow_trusted_devices: bool,
         error_on_unsigned_device_of_verified_users: bool,
+        error_on_previously_verified_identity_change: bool,
     ) -> Self {
         CollectStrategy::DeviceBasedStrategy {
             only_allow_trusted_devices,
             error_on_unsigned_device_of_verified_users,
+            error_on_previously_verified_identity_change,
         }
     }
 
@@ -88,7 +101,7 @@ impl CollectStrategy {
 
 impl Default for CollectStrategy {
     fn default() -> Self {
-        CollectStrategy::new_device_based(false, false)
+        CollectStrategy::new_device_based(false, false, false)
     }
 }
 
@@ -156,26 +169,31 @@ pub(crate) async fn collect_session_recipients(
         CollectStrategy::DeviceBasedStrategy {
             only_allow_trusted_devices,
             error_on_unsigned_device_of_verified_users,
+            error_on_previously_verified_identity_change,
         } => {
             let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> =
                 Default::default();
+            let mut verification_violation_errors: Vec<OwnedUserId> = Default::default();
             for user_id in users {
                 let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
 
                 // We only need the user identity if only_allow_trusted_devices or
                 // error_on_unsigned_device_of_verified_users is set.
-                let device_owner_identity =
-                    if only_allow_trusted_devices || error_on_unsigned_device_of_verified_users {
-                        store.get_user_identity(user_id).await?
-                    } else {
-                        None
-                    };
+                let device_owner_identity = if only_allow_trusted_devices
+                    || error_on_unsigned_device_of_verified_users
+                    || error_on_previously_verified_identity_change
+                {
+                    store.get_user_identity(user_id).await?
+                } else {
+                    None
+                };
                 let recipient_devices = split_recipients_withhelds_for_user(
                     user_devices,
                     &own_identity,
                     &device_owner_identity,
                     only_allow_trusted_devices,
                     error_on_unsigned_device_of_verified_users,
+                    error_on_previously_verified_identity_change,
                 );
 
                 let recipients = recipient_devices.allowed_devices;
@@ -191,6 +209,11 @@ pub(crate) async fn collect_session_recipients(
 
                 devices.entry(user_id.to_owned()).or_default().extend(recipients);
                 withheld_devices.extend(withheld_recipients);
+
+                if recipient_devices.has_verification_violation_error.is_some_and(|b| b) {
+                    verification_violation_errors.push(user_id.to_owned())
+                }
+
                 if let Some(blockers) = recipient_devices.unsigned_of_verified_user {
                     if !blockers.is_empty() {
                         unsigned_devices_of_verified_users
@@ -199,6 +222,14 @@ pub(crate) async fn collect_session_recipients(
                             .extend(blockers)
                     }
                 }
+            }
+
+            if error_on_previously_verified_identity_change
+                && !verification_violation_errors.is_empty()
+            {
+                return Err(OlmError::RoomKeySharingStrategyError(
+                    DeviceCollectError::UsersShouldBeVerified(verification_violation_errors),
+                ));
             }
 
             if error_on_unsigned_device_of_verified_users
@@ -295,6 +326,7 @@ struct RecipientDevices {
     allowed_devices: Vec<DeviceData>,
     denied_devices_with_code: Vec<(DeviceData, WithheldCode)>,
     unsigned_of_verified_user: Option<Vec<OwnedDeviceId>>,
+    has_verification_violation_error: Option<bool>,
 }
 
 fn split_recipients_withhelds_for_user(
@@ -303,8 +335,10 @@ fn split_recipients_withhelds_for_user(
     device_owner_identity: &Option<UserIdentityData>,
     only_allow_trusted_devices: bool,
     error_on_unsigned_device_of_verified_users: bool,
+    error_on_previously_verified_identity_change: bool,
 ) -> RecipientDevices {
     let mut unsigned_of_verified: Vec<OwnedDeviceId> = Default::default();
+    let mut has_verification_violation_error: Option<bool> = None;
     // From all the devices a user has, we're splitting them into two
     // buckets, a bucket of devices that should receive the
     // room key and a bucket of devices that should receive
@@ -322,6 +356,11 @@ fn split_recipients_withhelds_for_user(
                 Either::Right((d, WithheldCode::Unverified))
             } else {
                 // track and collect unsigned devices of verified users
+                if error_on_previously_verified_identity_change
+                    && has_verification_violation(own_identity, device_owner_identity)
+                {
+                    has_verification_violation_error = Some(true)
+                }
                 if error_on_unsigned_device_of_verified_users
                     && is_unsigned_device_of_verified_user(own_identity, device_owner_identity, &d)
                 {
@@ -335,6 +374,7 @@ fn split_recipients_withhelds_for_user(
         allowed_devices: recipients,
         denied_devices_with_code: withheld_recipients,
         unsigned_of_verified_user: Some(unsigned_of_verified),
+        has_verification_violation_error,
     }
 }
 
@@ -371,6 +411,31 @@ fn is_unsigned_device_of_verified_user(
         false
     }
 }
+fn has_verification_violation(
+    own_identity: &Option<OwnUserIdentityData>,
+    device_owner_identity: &Option<UserIdentityData>,
+) -> bool {
+    // If we don't have an identity the other user can't be verified so return false
+    let own_identity = match own_identity {
+        Some(o) => o,
+        _ => return false,
+    };
+
+    let device_owner_identity = match device_owner_identity {
+        // we only want other user identities
+        Some(UserIdentityData::Other(o)) => o,
+        _ => return false,
+    };
+    if !device_owner_identity.was_previously_verified() {
+        return false;
+    }
+    // The user was verified previously
+    // Check now if he is still verified.
+    let owner_identity_is_trusted = own_identity.is_verified()
+        && own_identity.is_identity_signed(device_owner_identity).is_ok();
+    // If it is not anymore there is a verification violation
+    !owner_identity_is_trusted
+}
 
 fn split_recipients_withhelds_for_user_based_on_identity(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
@@ -387,6 +452,7 @@ fn split_recipients_withhelds_for_user_based_on_identity(
                     .map(|d| (d, WithheldCode::Unauthorised))
                     .collect(),
                 unsigned_of_verified_user: None,
+                has_verification_violation_error: None,
             }
         }
         Some(device_owner_identity) => {
@@ -405,6 +471,7 @@ fn split_recipients_withhelds_for_user_based_on_identity(
                 allowed_devices: recipients,
                 denied_devices_with_code: withheld_recipients,
                 unsigned_of_verified_user: None,
+                has_verification_violation_error: None,
             }
         }
     }
@@ -474,7 +541,7 @@ mod tests {
     async fn test_share_with_per_device_strategy_to_all() {
         let machine = set_up_test_machine().await;
 
-        let legacy_strategy = CollectStrategy::new_device_based(false, false);
+        let legacy_strategy = CollectStrategy::new_device_based(false, false, false);
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
@@ -525,7 +592,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let legacy_strategy = CollectStrategy::new_device_based(true, false);
+        let legacy_strategy = CollectStrategy::new_device_based(true, false, false);
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
@@ -603,7 +670,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let legacy_strategy = CollectStrategy::new_device_based(true, true);
+        let legacy_strategy = CollectStrategy::new_device_based(true, true, false);
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
@@ -736,7 +803,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::new_device_based(false, true);
+        let strategy = CollectStrategy::new_device_based(false, true, false);
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
@@ -824,7 +891,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::new_device_based(false, true);
+        let strategy = CollectStrategy::new_device_based(false, true, false);
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
@@ -929,7 +996,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::new_device_based(false, true);
+        let strategy = CollectStrategy::new_device_based(false, true, false);
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
@@ -1001,7 +1068,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::new_device_based(false, true);
+        let strategy = CollectStrategy::new_device_based(false, true, false);
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
@@ -1062,7 +1129,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::new_device_based(false, true);
+        let strategy = CollectStrategy::new_device_based(false, true, false);
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
@@ -1101,7 +1168,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::new_device_based(false, true);
+        let strategy = CollectStrategy::new_device_based(false, true, false);
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
@@ -1139,6 +1206,146 @@ mod tests {
             _ => panic!("Unexpected error type"),
         }
     }
+
+    #[async_test]
+    async fn test_user_verification_violation_resolve_by_withdraw() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = error_on_unsigned_of_verified_machine_setup().await;
+
+        let keys_query = DataSet::bob_keys_query_response_rotated();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let bob_identity = machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap();
+        assert!(bob_identity.other().unwrap().has_verification_violation());
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_device_based(false, false, true);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![DataSet::bob_id()].into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await;
+
+        assert!(share_result.is_err());
+        let share_error = share_result.unwrap_err();
+        match share_error {
+            crate::OlmError::RoomKeySharingStrategyError(
+                DeviceCollectError::UsersShouldBeVerified(violation),
+            ) => {
+                assert_eq!(1, violation.len());
+                assert_eq!(DataSet::bob_id(), violation.first().unwrap());
+
+                // Resolve by calling withdraw_verification
+                machine
+                    .get_identity(DataSet::bob_id(), None)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .other()
+                    .unwrap()
+                    .withdraw_verification()
+                    .await
+                    .unwrap();
+
+                collect_session_recipients(
+                    machine.store(),
+                    vec![DataSet::bob_id() /* , DataSet::carol_id() */].into_iter(),
+                    &encryption_settings,
+                    &group_session,
+                )
+                .await
+                .unwrap();
+            }
+            _ => panic!("Unexpected error type"),
+        }
+    }
+
+    #[async_test]
+    async fn test_user_verification_violation_resolve_by_blacklist() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = error_on_unsigned_of_verified_machine_setup().await;
+
+        let keys_query = DataSet::bob_keys_query_response_rotated();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let bob_identity = machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap();
+        assert!(bob_identity.other().unwrap().has_verification_violation());
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_device_based(false, false, true);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let share_result = collect_session_recipients(
+            machine.store(),
+            vec![DataSet::bob_id() /* , DataSet::carol_id() */].into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await;
+
+        assert!(share_result.is_err());
+        let share_error = share_result.unwrap_err();
+        match share_error {
+            crate::OlmError::RoomKeySharingStrategyError(
+                DeviceCollectError::UsersShouldBeVerified(violation),
+            ) => {
+                assert_eq!(1, violation.len());
+                assert_eq!(DataSet::bob_id(), violation.first().unwrap());
+
+                // Resolve by calling blacklisting the devices
+                let bob_devices = machine.get_user_devices(DataSet::bob_id(), None).await.unwrap();
+                for device in bob_devices.devices() {
+                    device.set_local_trust(LocalTrust::BlackListed).await.unwrap()
+                }
+
+                let share_result = collect_session_recipients(
+                    machine.store(),
+                    vec![DataSet::bob_id()].into_iter(),
+                    &encryption_settings,
+                    &group_session,
+                )
+                .await
+                .unwrap();
+
+                // Sharing will not return an error this time, but will not share the keys
+                assert_eq!(2, share_result.withheld_devices.len())
+            }
+            _ => panic!("Unexpected error type"),
+        }
+    }
+
     #[async_test]
     async fn test_share_with_identity_strategy() {
         let machine = set_up_test_machine().await;
@@ -1220,7 +1427,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::new_device_based(false, false);
+        let strategy = CollectStrategy::new_device_based(false, false, false);
 
         let encryption_settings = EncryptionSettings {
             sharing_strategy: strategy.clone(),
@@ -1274,7 +1481,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::new_device_based(false, false);
+        let strategy = CollectStrategy::new_device_based(false, false, false);
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };

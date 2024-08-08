@@ -670,6 +670,8 @@ pub struct EncryptionSettings {
     pub only_allow_trusted_devices: bool,
     /// Should fail to send when a verified user has unverified devices.
     pub error_on_unsigned_device_of_verified_users: bool,
+    /// Should fail to send if a previously verified user is not anymore.
+    pub error_on_previously_verified_identity_change: bool,
 }
 
 impl From<EncryptionSettings> for RustEncryptionSettings {
@@ -682,6 +684,7 @@ impl From<EncryptionSettings> for RustEncryptionSettings {
             sharing_strategy: CollectStrategy::new_device_based(
                 v.only_allow_trusted_devices,
                 v.error_on_unsigned_device_of_verified_users,
+                v.error_on_previously_verified_identity_change,
             ),
         }
     }

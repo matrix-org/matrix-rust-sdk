@@ -123,6 +123,7 @@ impl EncryptionSettings {
         history_visibility: HistoryVisibility,
         only_allow_trusted_devices: bool,
         error_on_unsigned_device_of_verified_users: bool,
+        error_on_previously_verified_identity_change: bool,
     ) -> Self {
         let rotation_period: Duration =
             content.rotation_period_ms.map_or(ROTATION_PERIOD, |r| Duration::from_millis(r.into()));
@@ -137,6 +138,7 @@ impl EncryptionSettings {
             sharing_strategy: CollectStrategy::new_device_based(
                 only_allow_trusted_devices,
                 error_on_unsigned_device_of_verified_users,
+                error_on_previously_verified_identity_change,
             ),
         }
     }
@@ -791,8 +793,13 @@ mod tests {
     fn test_encryption_settings_conversion() {
         let mut content =
             RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
-        let settings =
-            EncryptionSettings::new(content.clone(), HistoryVisibility::Joined, false, false);
+        let settings = EncryptionSettings::new(
+            content.clone(),
+            HistoryVisibility::Joined,
+            false,
+            false,
+            false,
+        );
 
         assert_eq!(settings.rotation_period, ROTATION_PERIOD);
         assert_eq!(settings.rotation_period_msgs, ROTATION_MESSAGES);
@@ -800,7 +807,8 @@ mod tests {
         content.rotation_period_ms = Some(uint!(3600));
         content.rotation_period_msgs = Some(uint!(500));
 
-        let settings = EncryptionSettings::new(content, HistoryVisibility::Shared, false, false);
+        let settings =
+            EncryptionSettings::new(content, HistoryVisibility::Shared, false, false, false);
 
         assert_eq!(settings.rotation_period, Duration::from_millis(3600));
         assert_eq!(settings.rotation_period_msgs, 500);

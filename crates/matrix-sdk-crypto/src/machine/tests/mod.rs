@@ -595,7 +595,7 @@ async fn test_withheld_unverified() {
 
     let encryption_settings = EncryptionSettings::default();
     let encryption_settings = EncryptionSettings {
-        sharing_strategy: CollectStrategy::new_device_based(true, false),
+        sharing_strategy: CollectStrategy::new_device_based(true, false, false),
         ..encryption_settings
     };
 
