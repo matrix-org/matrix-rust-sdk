@@ -139,7 +139,7 @@ Notably, this map only knows about the rooms that have come down [Sliding
 Sync protocol][MSC] and if the given room isn't in any active list range, it
 may be stale. Additionally to selecting the room data via the room lists,
 the [Sliding Sync protocol][MSC] allows to subscribe to specific rooms via
-the [`subscribe_to_room()`](SlidingSync::subscribe_to_room). Any room subscribed
+the [`subscribe_to_rooms()`](SlidingSync::subscribe_to_rooms). Any room subscribed
 to will receive updates (with the given settings) regardless of whether they are
 visible in any list. The most common case for using this API is when the user
 enters a room - as we want to receive the incoming new messages regardless of

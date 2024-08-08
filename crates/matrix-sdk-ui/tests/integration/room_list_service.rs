@@ -2128,19 +2128,20 @@ async fn test_room_subscription() -> Result<(), Error> {
         },
     };
 
-    let room1 = room_list.room(room_id_1).unwrap();
-
     // Subscribe.
 
-    room1.subscribe(Some(assign!(RoomSubscription::default(), {
-        required_state: vec![
-            (StateEventType::RoomName, "".to_owned()),
-            (StateEventType::RoomTopic, "".to_owned()),
-            (StateEventType::RoomAvatar, "".to_owned()),
-            (StateEventType::RoomCanonicalAlias, "".to_owned()),
-        ],
-        timeline_limit: Some(uint!(30)),
-    })));
+    room_list.subscribe_to_rooms(
+        &[room_id_1],
+        Some(assign!(RoomSubscription::default(), {
+            required_state: vec![
+                (StateEventType::RoomName, "".to_owned()),
+                (StateEventType::RoomTopic, "".to_owned()),
+                (StateEventType::RoomAvatar, "".to_owned()),
+                (StateEventType::RoomCanonicalAlias, "".to_owned()),
+            ],
+            timeline_limit: Some(uint!(30)),
+        })),
+    );
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]

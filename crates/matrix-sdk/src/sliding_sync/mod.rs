@@ -143,26 +143,26 @@ impl SlidingSync {
         SlidingSyncBuilder::new(id, client)
     }
 
-    /// Subscribe to a given room.
+    /// Subscribe to many rooms.
     ///
-    /// If the associated `Room` exists, it will be marked as
+    /// If the associated `Room`s exist, it will be marked as
     /// members are missing, so that it ensures to re-fetch all members.
-    pub fn subscribe_to_room(
+    pub fn subscribe_to_rooms(
         &self,
-        room_id: OwnedRoomId,
+        room_ids: &[&RoomId],
         settings: Option<http::request::RoomSubscription>,
     ) {
-        if let Some(room) = self.inner.client.get_room(&room_id) {
-            room.mark_members_missing();
-        }
+        let settings = settings.unwrap_or_default();
+        let mut sticky = self.inner.sticky.write().unwrap();
+        let room_subscriptions = &mut sticky.data_mut().room_subscriptions;
 
-        self.inner
-            .sticky
-            .write()
-            .unwrap()
-            .data_mut()
-            .room_subscriptions
-            .insert(room_id, settings.unwrap_or_default());
+        for room_id in room_ids {
+            if let Some(room) = self.inner.client.get_room(room_id) {
+                room.mark_members_missing();
+            }
+
+            room_subscriptions.insert((*room_id).to_owned(), settings.clone());
+        }
 
         self.inner.internal_channel_send_if_possible(
             SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
@@ -1081,7 +1081,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_subscribe_to_room() -> Result<()> {
+    async fn test_subscribe_to_rooms() -> Result<()> {
         let (server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
@@ -1150,8 +1150,7 @@ mod tests {
         // Members are now synced! We can start subscribing and see how it goes.
         assert!(room0.are_members_synced());
 
-        sliding_sync.subscribe_to_room(room_id_0.to_owned(), None);
-        sliding_sync.subscribe_to_room(room_id_1.to_owned(), None);
+        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], None);
 
         // OK, we have subscribed to some rooms. Let's check on `room0` if members are
         // now marked as not synced.
