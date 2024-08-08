@@ -203,10 +203,7 @@ impl<'a> SenderDataFinder<'a> {
             let sender_data = SenderData::UnknownDevice {
                 // This is not a legacy session since we did attempt to look
                 // up its sender data at the time of reception.
-                // legacy_session: false,
-                // TODO: we set legacy to true for now, since our implementation is incomplete, so
-                // we may not have had a proper chance to look up the sender data.
-                legacy_session: true,
+                legacy_session: false,
                 owner_check_failed: false,
             };
             Ok(sender_data)
@@ -247,10 +244,7 @@ impl<'a> SenderDataFinder<'a> {
             (false, _) => {
                 // Step E (the device does not own the session)
                 // Give up: something is wrong with the session.
-                SenderData::UnknownDevice {
-                    legacy_session: true, // TODO: change to false when all SenderData work is done
-                    owner_check_failed: true,
-                }
+                SenderData::UnknownDevice { legacy_session: false, owner_check_failed: true }
             }
         })
     }
@@ -420,10 +414,7 @@ mod tests {
         // Then we get back no useful information at all
         assert_let!(SenderData::UnknownDevice { legacy_session, owner_check_failed } = sender_data);
 
-        // TODO: This should not be marked as a legacy session, but for now it is
-        // because we haven't finished implementing the whole sender_data and
-        // retry mechanism.
-        assert!(legacy_session);
+        assert!(!legacy_session);
         assert!(!owner_check_failed);
     }
 
@@ -680,10 +671,7 @@ mod tests {
         // Then we fail to find useful sender data
         assert_let!(SenderData::UnknownDevice { legacy_session, owner_check_failed } = sender_data);
 
-        // TODO: This should not be marked as a legacy session, but for now it is
-        // because we haven't finished implementing the whole sender_data and
-        // retry mechanism.
-        assert!(legacy_session);
+        assert!(!legacy_session);
 
         // And report that the owner_check_failed
         assert!(owner_check_failed);

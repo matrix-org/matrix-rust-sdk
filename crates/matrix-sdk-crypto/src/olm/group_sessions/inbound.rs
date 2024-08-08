@@ -764,7 +764,7 @@ mod tests {
                 "signing_key":{"ed25519":"wTRTdz4rn4EY+68cKPzpMdQ6RAlg7T8cbTmEjaXuUww"},
                 "sender_data":{
                     "UnknownDevice":{
-                        "legacy_session":true
+                        "legacy_session":false
                     }
                 },
                 "room_id":"!test:localhost",
