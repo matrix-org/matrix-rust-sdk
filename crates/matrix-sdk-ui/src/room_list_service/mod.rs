@@ -365,6 +365,30 @@ impl RoomListService {
         ))
     }
 
+    /// Subscribe to rooms.
+    ///
+    /// It means that all events from these rooms will be received every time,
+    /// no matter how the `RoomList` is configured.
+    pub fn subscribe_to_rooms(
+        &self,
+        room_ids: &[&RoomId],
+        settings: Option<http::request::RoomSubscription>,
+    ) {
+        let mut settings = settings.unwrap_or_default();
+
+        // Make sure to always include the room creation event in the required state
+        // events, to know what the room version is.
+        if !settings
+            .required_state
+            .iter()
+            .any(|(event_type, _state_key)| *event_type == StateEventType::RoomCreate)
+        {
+            settings.required_state.push((StateEventType::RoomCreate, "".to_owned()));
+        }
+
+        self.sliding_sync.subscribe_to_rooms(room_ids, Some(settings))
+    }
+
     #[cfg(test)]
     pub fn sliding_sync(&self) -> &SlidingSync {
         &self.sliding_sync

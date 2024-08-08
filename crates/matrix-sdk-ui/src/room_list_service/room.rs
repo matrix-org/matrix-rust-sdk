@@ -19,8 +19,7 @@ use std::{ops::Deref, sync::Arc};
 
 use async_once_cell::OnceCell as AsyncOnceCell;
 use matrix_sdk::SlidingSync;
-use matrix_sdk_base::sliding_sync::http;
-use ruma::{events::StateEventType, RoomId};
+use ruma::RoomId;
 
 use super::Error;
 use crate::{
@@ -86,28 +85,6 @@ impl Room {
     /// Get the underlying [`matrix_sdk::Room`].
     pub fn inner_room(&self) -> &matrix_sdk::Room {
         &self.inner.room
-    }
-
-    /// Subscribe to this room.
-    ///
-    /// It means that all events from this room will be received every time, no
-    /// matter how the `RoomList` is configured.
-    pub fn subscribe(&self, settings: Option<http::request::RoomSubscription>) {
-        let mut settings = settings.unwrap_or_default();
-
-        // Make sure to always include the room creation event in the required state
-        // events, to know what the room version is.
-        if !settings
-            .required_state
-            .iter()
-            .any(|(event_type, _state_key)| *event_type == StateEventType::RoomCreate)
-        {
-            settings.required_state.push((StateEventType::RoomCreate, "".to_owned()));
-        }
-
-        self.inner
-            .sliding_sync
-            .subscribe_to_room(self.inner.room.room_id().to_owned(), Some(settings))
     }
 
     /// Get the timeline of the room if one exists.

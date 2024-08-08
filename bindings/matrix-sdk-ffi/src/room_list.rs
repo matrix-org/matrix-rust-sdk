@@ -132,6 +132,26 @@ impl RoomListService {
             }
         })))
     }
+
+    fn subscribe_to_rooms(
+        &self,
+        room_ids: Vec<String>,
+        settings: Option<RoomSubscription>,
+    ) -> Result<(), RoomListError> {
+        let room_ids = room_ids
+            .into_iter()
+            .map(|room_id| {
+                RoomId::parse(&room_id).map_err(|_| RoomListError::InvalidRoomId { error: room_id })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.inner.subscribe_to_rooms(
+            &room_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>(),
+            settings.map(Into::into),
+        );
+
+        Ok(())
+    }
 }
 
 #[derive(uniffi::Object)]
@@ -647,10 +667,6 @@ impl RoomListItem {
     /// `m.room.encryption` as required state.
     async fn is_encrypted(&self) -> bool {
         self.inner.is_encrypted().await.unwrap_or(false)
-    }
-
-    fn subscribe(&self, settings: Option<RoomSubscription>) {
-        self.inner.subscribe(settings.map(Into::into));
     }
 
     async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {

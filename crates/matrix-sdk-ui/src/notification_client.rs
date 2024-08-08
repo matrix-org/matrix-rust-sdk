@@ -373,8 +373,8 @@ impl NotificationClient {
             .build()
             .await?;
 
-        sync.subscribe_to_room(
-            room_id.to_owned(),
+        sync.subscribe_to_rooms(
+            &[room_id],
             Some(assign!(http::request::RoomSubscription::default(), {
                 required_state,
                 timeline_limit: Some(uint!(16))
