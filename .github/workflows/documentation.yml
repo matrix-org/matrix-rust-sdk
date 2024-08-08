@@ -8,6 +8,7 @@ on:
       - opened
       - reopened
       - synchronize
+      - ready_for_review
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,7 +23,7 @@ jobs:
   docs:
     name: All crates
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || !github.event.pull_request.draft
+    if: github.event_name == 'push'
 
     steps:
       - name: Checkout repository

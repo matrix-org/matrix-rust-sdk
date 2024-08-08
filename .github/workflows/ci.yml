@@ -10,6 +10,7 @@ on:
       - opened
       - reopened
       - synchronize
+      - ready_for_review
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,7 +26,7 @@ jobs:
   test-matrix-sdk-features:
     name: 🐧 [m], ${{ matrix.name }}
     needs: xtask
-    if: github.event_name == 'push' || !github.event.pull_request.draft
+    if: github.event_name == 'push'
 
     runs-on: ubuntu-latest
     strategy:
@@ -78,7 +79,7 @@ jobs:
     name: 🐧 [m]-examples
     needs: xtask
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || !github.event.pull_request.draft
+    if: github.event_name == 'push'
 
     steps:
       - name: Checkout the repo
@@ -110,7 +111,7 @@ jobs:
     name: 🐧 [m]-crypto
     needs: xtask
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || !github.event.pull_request.draft
+    if: github.event_name == 'push'
 
     steps:
       - name: Checkout the repo
@@ -140,7 +141,7 @@ jobs:
 
   test-all-crates:
     name: ${{ matrix.name }}
-    if: github.event_name == 'push' || !github.event.pull_request.draft
+    if: github.event_name == 'push'
 
     runs-on: ${{ matrix.os }}
     strategy:
@@ -193,7 +194,7 @@ jobs:
   test-wasm:
     name: 🕸️ ${{ matrix.name }}
     needs: xtask
-    if: github.event_name == 'push' || !github.event.pull_request.draft
+    if: github.event_name == 'push'
 
     runs-on: ubuntu-latest
 
@@ -269,7 +270,7 @@ jobs:
   formatting:
     name: Check Formatting
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || !github.event.pull_request.draft
+    if: github.event_name == 'push'
 
     steps:
       - name: Checkout the repo
@@ -288,7 +289,7 @@ jobs:
   typos:
     name: Spell Check with Typos
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || !github.event.pull_request.draft
+    if: github.event_name == 'push'
 
     steps:
       - name: Checkout Actions Repository
@@ -301,7 +302,7 @@ jobs:
     name: Run clippy
     needs: xtask
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || !github.event.pull_request.draft
+    if: github.event_name == 'push'
 
     steps:
       - name: Checkout the repo
@@ -336,7 +337,7 @@ jobs:
 
   integration-tests:
     name: Integration test
-    if: github.event_name == 'push' || !github.event.pull_request.draft
+    if: github.event_name == 'push'
 
     runs-on: ubuntu-latest
 
