@@ -17,6 +17,7 @@ use matrix_sdk_crypto::{
     decrypt_room_key_export, encrypt_room_key_export,
     olm::ExportedRoomKey,
     store::{BackupDecryptionKey, Changes},
+    types::decryption::{DecryptionSettings, TrustRequirement},
     LocalTrust, OlmMachine as InnerMachine, ToDeviceRequest, UserIdentities,
 };
 use ruma::{
@@ -884,7 +885,13 @@ impl OlmMachine {
         let event: Raw<_> = serde_json::from_str(&event)?;
         let room_id = RoomId::parse(room_id)?;
 
-        let decrypted = self.runtime.block_on(self.inner.decrypt_room_event(&event, &room_id))?;
+        let decryption_settings =
+            DecryptionSettings { trust_requirement: TrustRequirement::Untrusted };
+        let decrypted = self.runtime.block_on(self.inner.decrypt_room_event(
+            &event,
+            &room_id,
+            &decryption_settings,
+        ))?;
 
         if handle_verification_events {
             if let Ok(AnyTimelineEvent::MessageLike(e)) = decrypted.event.deserialize() {

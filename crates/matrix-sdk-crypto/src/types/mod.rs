@@ -43,6 +43,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 mod backup;
 mod cross_signing;
+pub mod decryption;
 mod device_keys;
 pub mod events;
 mod one_time_keys;

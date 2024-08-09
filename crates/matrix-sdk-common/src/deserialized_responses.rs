@@ -21,6 +21,7 @@ use ruma::{
     DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedUserId,
 };
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::debug::{DebugRawEvent, DebugStructExt};
 
@@ -88,12 +89,12 @@ impl VerificationState {
         match self {
             VerificationState::Verified => ShieldState::None,
             VerificationState::Unverified(level) => match level {
-                VerificationLevel::UnverifiedIdentity | VerificationLevel::UnsignedDevice => {
-                    ShieldState::Red {
-                        code: ShieldStateCode::UnverifiedIdentity,
-                        message: UNVERIFIED_IDENTITY,
-                    }
-                }
+                VerificationLevel::UnverifiedIdentity
+                | VerificationLevel::ChangedIdentity
+                | VerificationLevel::UnsignedDevice => ShieldState::Red {
+                    code: ShieldStateCode::UnverifiedIdentity,
+                    message: UNVERIFIED_IDENTITY,
+                },
                 VerificationLevel::None(link) => match link {
                     DeviceLinkProblem::MissingDevice => ShieldState::Red {
                         code: ShieldStateCode::UnknownDevice,
@@ -124,6 +125,11 @@ impl VerificationState {
                     // nag you with an error message.
                     // TODO: We should detect identity rotation of a previously trusted identity and
                     // then warn see https://github.com/matrix-org/matrix-rust-sdk/issues/1129
+                    ShieldState::None
+                }
+                VerificationLevel::ChangedIdentity => {
+                    // As above, if you didn't show interest in verifying that
+                    // user we don't nag you
                     ShieldState::None
                 }
                 VerificationLevel::UnsignedDevice => {
@@ -159,13 +165,20 @@ impl VerificationState {
 
 /// The sub-enum containing detailed information on why a message is considered
 /// to be unverified.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, Deserialize, Serialize, PartialEq, Eq)]
 pub enum VerificationLevel {
     /// The message was sent by a user identity we have not verified.
+    #[error("The sender's identity was not verified")]
     UnverifiedIdentity,
+
+    /// The message was sent by a user whose identity has changed and the change
+    /// has not yet been confirmed
+    #[error("The sender's identity has changed and the change has not yet been confirmed")]
+    ChangedIdentity,
 
     /// The message was sent by a device not linked to (signed by) any user
     /// identity.
+    #[error("The sending device was not signed by the user's identity")]
     UnsignedDevice,
 
     /// We weren't able to link the message back to any device. This might be
@@ -173,6 +186,7 @@ pub enum VerificationLevel {
     /// not been able to obtain (for example, because the device was since
     /// deleted) or because the key to decrypt the message was obtained from
     /// an insecure source.
+    #[error("The sending device is not known")]
     None(DeviceLinkProblem),
 }
 

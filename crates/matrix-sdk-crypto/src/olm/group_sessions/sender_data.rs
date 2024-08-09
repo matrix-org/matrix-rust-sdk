@@ -74,6 +74,9 @@ pub enum SenderData {
         /// If false, we had simply accepted the key as this user's latest
         /// key.
         master_key_verified: bool,
+
+        #[serde(default)]
+        identity_needs_user_approval: bool,
     },
 }
 
@@ -108,12 +111,14 @@ impl SenderData {
         device_id: &DeviceId,
         master_key: Ed25519PublicKey,
         master_key_verified: bool,
+        identity_needs_user_approval: bool,
     ) -> Self {
         Self::SenderKnown {
             user_id: user_id.to_owned(),
             device_id: Some(device_id.to_owned()),
             master_key: Box::new(master_key),
             master_key_verified,
+            identity_needs_user_approval,
         }
     }
 
@@ -259,8 +264,8 @@ mod tests {
         let master_key =
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
 
-        assert!(SenderData::sender_known(user_id, device_id, master_key, true).is_known());
-        assert!(SenderData::sender_known(user_id, device_id, master_key, false).is_known());
+        assert!(SenderData::sender_known(user_id, device_id, master_key, true, false).is_known());
+        assert!(SenderData::sender_known(user_id, device_id, master_key, false, false).is_known());
     }
 
     #[test]
@@ -290,10 +295,20 @@ mod tests {
         ));
         let master_key =
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
-        let sender_unverified =
-            SenderData::sender_known(user_id!("@u:s.co"), device_id!("DEV"), master_key, false);
-        let sender_verified =
-            SenderData::sender_known(user_id!("@u:s.co"), device_id!("DEV"), master_key, true);
+        let sender_unverified = SenderData::sender_known(
+            user_id!("@u:s.co"),
+            device_id!("DEV"),
+            master_key,
+            false,
+            false,
+        );
+        let sender_verified = SenderData::sender_known(
+            user_id!("@u:s.co"),
+            device_id!("DEV"),
+            master_key,
+            true,
+            false,
+        );
 
         assert_eq!(unknown.compare_trust_level(&unknown), Ordering::Equal);
         assert_eq!(device_keys.compare_trust_level(&device_keys), Ordering::Equal);
@@ -313,10 +328,20 @@ mod tests {
         ));
         let master_key =
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
-        let sender_unverified =
-            SenderData::sender_known(user_id!("@u:s.co"), device_id!("DEV"), master_key, false);
-        let sender_verified =
-            SenderData::sender_known(user_id!("@u:s.co"), device_id!("DEV"), master_key, true);
+        let sender_unverified = SenderData::sender_known(
+            user_id!("@u:s.co"),
+            device_id!("DEV"),
+            master_key,
+            false,
+            false,
+        );
+        let sender_verified = SenderData::sender_known(
+            user_id!("@u:s.co"),
+            device_id!("DEV"),
+            master_key,
+            true,
+            false,
+        );
 
         assert_eq!(unknown.compare_trust_level(&device_keys), Ordering::Less);
         assert_eq!(unknown.compare_trust_level(&sender_unverified), Ordering::Less);

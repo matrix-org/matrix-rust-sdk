@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use matrix_sdk_common::deserialized_responses::VerificationLevel;
 use ruma::{CanonicalJsonError, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde::{ser::SerializeMap, Serializer};
 use serde_json::Error as SerdeError;
@@ -70,8 +71,34 @@ pub enum OlmError {
             have a valid Olm session with us"
     )]
     MissingSession,
+    #[error(transparent)]
+    /// The room key that should be shared was not due to an error.
+    KeyDistributionError(RoomKeyDistributionError),
 }
 
+/// Depending on the sharing strategy for room keys, the distribution of the
+/// room key could fail.
+#[derive(Error, Debug)]
+pub enum RoomKeyDistributionError {
+    /// When encrypting using the IdentityBased strategy.
+    /// Will be thrown when sharing room keys when there is a new identity for a
+    /// user that has not been confirmed by the user.
+    /// Application should display identity changes to the user as soon as
+    /// possible to avoid hitting this case. If it happens the app might
+    /// just retry automatically after the identity change has been
+    /// notified, or offer option to cancel.
+    #[error("Encryption failed because there are key pinning violation, please re-pin or verify the problematic users")]
+    KeyPinningViolation(Vec<OwnedUserId>),
+
+    /// Cross-signing is required for encryption with invisible crypto
+    #[error("Encryption failed: Setup cross-signing on your account")]
+    CrossSigningNotSetup,
+    /// The current device needs to be verified when encrypting using the
+    /// IdentityBased strategy. Apps should prevent sending in the UI to
+    /// avoid hitting this case.
+    #[error("Encryption failed: Verify your device to send encrypted messages")]
+    SendingFromUnverifiedDevice,
+}
 /// Error representing a failure during a group encryption operation.
 #[derive(Error, Debug)]
 pub enum MegolmError {
@@ -107,6 +134,10 @@ pub enum MegolmError {
     /// The storage layer returned an error.
     #[error(transparent)]
     Store(#[from] CryptoStoreError),
+
+    /// The sender's cross-signing identity isn't trusted
+    #[error("message quarantined because sender's cross-signing identity is not trusted: {0}")]
+    SenderIdentity(#[from] VerificationLevel),
 }
 
 /// Decryption failed because of a mismatch between the identity keys of the
