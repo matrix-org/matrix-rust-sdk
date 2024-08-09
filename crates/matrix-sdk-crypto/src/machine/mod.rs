@@ -2409,16 +2409,6 @@ pub struct EncryptionSyncChanges<'a> {
     pub next_batch_token: Option<String>,
 }
 
-#[cfg(any(feature = "testing", test))]
-#[allow(dead_code)]
-pub(crate) mod testing {
-    use http::Response;
-
-    pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
-        Response::builder().status(200).body(json.to_string().as_bytes().to_vec()).unwrap()
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod test_helpers;
 

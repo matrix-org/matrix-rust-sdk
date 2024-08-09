@@ -27,7 +27,7 @@ _disable-minimum-rotation-period-ms = []
 message-ids = []
 
 # Testing helpers for implementations based upon this
-testing = ["dep:http"]
+testing = ["matrix-sdk-test"]
 
 [dependencies]
 aes = "0.8.1"
@@ -43,11 +43,11 @@ futures-core = { workspace = true }
 futures-util = { workspace = true }
 hkdf = "0.12.3"
 hmac = "0.12.1"
-http = { workspace = true, optional = true } # feature = testing only
 itertools = { workspace = true }
 js_option = "0.1.1"
 matrix-sdk-qrcode = { workspace = true, optional = true }
 matrix-sdk-common = { workspace = true }
+matrix-sdk-test = { workspace = true, optional = true }  # feature = testing only
 pbkdf2 = { version = "0.12.2", default-features = false }
 rand = { workspace = true }
 rmp-serde = "1.1.1"

@@ -17,12 +17,9 @@
 
 use std::collections::BTreeMap;
 
-use matrix_sdk_test::test_json;
+use matrix_sdk_test::{ruma_response_from_json, test_json};
 use ruma::{
-    api::{
-        client::keys::{claim_keys, get_keys, upload_keys},
-        IncomingResponse,
-    },
+    api::client::keys::{claim_keys, get_keys, upload_keys},
     device_id,
     encryption::OneTimeKey,
     events::dummy::ToDeviceDummyEventContent,
@@ -30,10 +27,7 @@ use ruma::{
     user_id, DeviceId, OwnedDeviceKeyId, TransactionId, UserId,
 };
 
-use crate::{
-    machine::testing::response_from_file, store::Changes, types::events::ToDeviceEvent, DeviceData,
-    OlmMachine,
-};
+use crate::{store::Changes, types::events::ToDeviceEvent, DeviceData, OlmMachine};
 
 /// These keys need to be periodically uploaded to the server.
 type OneTimeKeys = BTreeMap<OwnedDeviceKeyId, Raw<OneTimeKey>>;
@@ -51,15 +45,13 @@ fn user_id() -> &'static UserId {
 }
 
 fn keys_upload_response() -> upload_keys::v3::Response {
-    let data = response_from_file(&test_json::KEYS_UPLOAD);
-    upload_keys::v3::Response::try_from_http_response(data)
-        .expect("Can't parse the `/keys/upload` response")
+    let json = &test_json::KEYS_UPLOAD;
+    ruma_response_from_json(json)
 }
 
-fn keys_query_response() -> get_keys::v3::Response {
-    let data = response_from_file(&test_json::KEYS_QUERY);
-    get_keys::v3::Response::try_from_http_response(data)
-        .expect("Can't parse the `/keys/upload` response")
+pub fn keys_query_response() -> get_keys::v3::Response {
+    let json = &test_json::KEYS_QUERY;
+    ruma_response_from_json(json)
 }
 
 pub async fn get_prepared_machine_test_helper(

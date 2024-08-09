@@ -3,14 +3,11 @@ use std::{ops::Deref, sync::Arc};
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
 use matrix_sdk_sqlite::SqliteCryptoStore;
-use matrix_sdk_test::response_from_file;
+use matrix_sdk_test::ruma_response_from_json;
 use ruma::{
-    api::{
-        client::{
-            keys::{claim_keys, get_keys},
-            to_device::send_event_to_device::v3::Response as ToDeviceResponse,
-        },
-        IncomingResponse,
+    api::client::{
+        keys::{claim_keys, get_keys},
+        to_device::send_event_to_device::v3::Response as ToDeviceResponse,
     },
     device_id, room_id, user_id, DeviceId, OwnedUserId, TransactionId, UserId,
 };
@@ -28,25 +25,19 @@ fn alice_device_id() -> &'static DeviceId {
 fn keys_query_response() -> get_keys::v3::Response {
     let data = include_bytes!("crypto_bench/keys_query.json");
     let data: Value = serde_json::from_slice(data).unwrap();
-    let data = response_from_file(&data);
-    get_keys::v3::Response::try_from_http_response(data)
-        .expect("Can't parse the `/keys/upload` response")
+    ruma_response_from_json(&data)
 }
 
 fn keys_claim_response() -> claim_keys::v3::Response {
     let data = include_bytes!("crypto_bench/keys_claim.json");
     let data: Value = serde_json::from_slice(data).unwrap();
-    let data = response_from_file(&data);
-    claim_keys::v3::Response::try_from_http_response(data)
-        .expect("Can't parse the `/keys/upload` response")
+    ruma_response_from_json(&data)
 }
 
 fn huge_keys_query_response() -> get_keys::v3::Response {
     let data = include_bytes!("crypto_bench/keys_query_2000_members.json");
     let data: Value = serde_json::from_slice(data).unwrap();
-    let data = response_from_file(&data);
-    get_keys::v3::Response::try_from_http_response(data)
-        .expect("Can't parse the `/keys/query` response")
+    ruma_response_from_json(&data)
 }
 
 pub fn keys_query(c: &mut Criterion) {
