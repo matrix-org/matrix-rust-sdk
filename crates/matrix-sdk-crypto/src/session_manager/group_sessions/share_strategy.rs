@@ -189,7 +189,6 @@ pub(crate) async fn collect_session_recipients(
             let mut users_with_identity_mismatch: Vec<OwnedUserId> = Vec::default();
             for user_id in users {
                 let device_owner_identity = store.get_user_identity(user_id).await?;
-                // debug!(?device_owner_identity, "Other Checking identity");
 
                 if let Some(other_identity) = device_owner_identity.as_ref().and_then(|i| i.other())
                 {
