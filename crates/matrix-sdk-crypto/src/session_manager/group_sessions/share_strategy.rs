@@ -14,6 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    default::Default,
     ops::Deref,
 };
 
@@ -236,6 +237,7 @@ fn is_session_overshared_for_user(
     should_rotate
 }
 
+#[derive(Default)]
 struct RecipientDevices {
     allowed_devices: Vec<DeviceData>,
     denied_devices_with_code: Vec<(DeviceData, WithheldCode)>,
@@ -248,23 +250,21 @@ fn split_recipients_withhelds_for_user(
     only_allow_trusted_devices: bool,
 ) -> RecipientDevices {
     // From all the devices a user has, we're splitting them into two
-    // buckets, a bucket of devices that should receive the
-    // room key and a bucket of devices that should receive
+    // buckets: a bucket of devices that should receive the
+    // room key, and a bucket of devices that should receive
     // a withheld code.
-    let (recipients, withheld_recipients): (Vec<DeviceData>, Vec<(DeviceData, WithheldCode)>) =
-        user_devices.into_values().partition_map(|d| {
-            if d.is_blacklisted() {
-                Either::Right((d, WithheldCode::Blacklisted))
-            } else if only_allow_trusted_devices
-                && !d.is_verified(own_identity, device_owner_identity)
-            {
-                Either::Right((d, WithheldCode::Unverified))
-            } else {
-                Either::Left(d)
-            }
-        });
-
-    RecipientDevices { allowed_devices: recipients, denied_devices_with_code: withheld_recipients }
+    let mut recipient_devices: RecipientDevices = Default::default();
+    for d in user_devices.into_values() {
+        if d.is_blacklisted() {
+            recipient_devices.denied_devices_with_code.push((d, WithheldCode::Blacklisted));
+        } else if only_allow_trusted_devices && !d.is_verified(own_identity, device_owner_identity)
+        {
+            recipient_devices.denied_devices_with_code.push((d, WithheldCode::Unverified));
+        } else {
+            recipient_devices.allowed_devices.push(d);
+        }
+    }
+    recipient_devices
 }
 
 fn split_recipients_withhelds_for_user_based_on_identity(
