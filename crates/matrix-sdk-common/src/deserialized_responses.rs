@@ -89,12 +89,12 @@ impl VerificationState {
         match self {
             VerificationState::Verified => ShieldState::None,
             VerificationState::Unverified(level) => match level {
-                VerificationLevel::UnverifiedIdentity | VerificationLevel::ChangedIdentity | VerificationLevel::UnsignedDevice => {
-                    ShieldState::Red {
-                        code: ShieldStateCode::UnverifiedIdentity,
-                        message: UNVERIFIED_IDENTITY,
-                    }
-                }
+                VerificationLevel::UnverifiedIdentity
+                | VerificationLevel::ChangedIdentity
+                | VerificationLevel::UnsignedDevice => ShieldState::Red {
+                    code: ShieldStateCode::UnverifiedIdentity,
+                    message: UNVERIFIED_IDENTITY,
+                },
                 VerificationLevel::None(link) => match link {
                     DeviceLinkProblem::MissingDevice => ShieldState::Red {
                         code: ShieldStateCode::UnknownDevice,
@@ -171,7 +171,8 @@ pub enum VerificationLevel {
     #[error("The sender's identity was not verified")]
     UnverifiedIdentity,
 
-    /// The message was sent by a user whose identity has changed and the change has not yet been confirmed
+    /// The message was sent by a user whose identity has changed and the change
+    /// has not yet been confirmed
     #[error("The sender's identity has changed and the change has not yet been confirmed")]
     ChangedIdentity,
 

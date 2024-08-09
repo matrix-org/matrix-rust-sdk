@@ -439,7 +439,8 @@ async fn encrypt_message(
     (event, group_session.session_id().to_string())
 }
 
-// Helper function that checks whether a message is decryptable under different trust requirements.
+// Helper function that checks whether a message is decryptable under different
+// trust requirements.
 //
 // `tests` is a list of tuples, where the first element of the tuple is the
 // trust requirement to check, and the second element indicates whether
@@ -655,7 +656,8 @@ async fn test_decryption_trust_with_identity_changes() {
     )
     .await;
 
-    // If alice's cross-signing key changes, the event should not be decryptable (except for in unverified mode)
+    // If alice's cross-signing key changes, the event should not be decryptable
+    // (except for in unverified mode)
     let cross_signing_requests = alice.bootstrap_cross_signing(true).await.unwrap();
     let upload_signing_keys_req = cross_signing_requests.upload_signing_keys_req;
     let alice_msk: MasterPubkey = upload_signing_keys_req.master_key.unwrap().try_into().unwrap();
