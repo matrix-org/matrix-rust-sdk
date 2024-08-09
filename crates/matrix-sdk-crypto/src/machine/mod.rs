@@ -1109,7 +1109,11 @@ impl OlmMachine {
         decrypted: &mut OlmDecryptionInfo,
         changes: &mut Changes,
     ) -> OlmResult<()> {
-        debug!("Received a decrypted to-device event");
+        debug!(
+            sender_device_keys =
+                ?decrypted.result.event.sender_device_keys().map(|k| (k.curve25519_key(), k.ed25519_key())).unwrap_or((None, None)),
+            "Received a decrypted to-device event",
+        );
 
         match &*decrypted.result.event {
             AnyDecryptedOlmEvent::RoomKey(e) => {
