@@ -20,17 +20,11 @@ use itertools::Itertools;
 use matrix_sdk_common::deserialized_responses::{
     UnableToDecryptInfo, UnsignedDecryptionResult, UnsignedEventLocation,
 };
-use matrix_sdk_test::{async_test, message_like_event_content, test_json};
+use matrix_sdk_test::{async_test, message_like_event_content, ruma_response_from_json, test_json};
 use ruma::{
-    api::{
-        client::{
-            keys::{
-                get_keys::{self, v3::Response as KeyQueryResponse},
-                upload_keys,
-            },
-            sync::sync_events::DeviceLists,
-        },
-        IncomingResponse,
+    api::client::{
+        keys::{get_keys, upload_keys},
+        sync::sync_events::DeviceLists,
     },
     device_id,
     events::{
@@ -51,7 +45,7 @@ use vodozemac::{
     Ed25519PublicKey,
 };
 
-use super::{testing::response_from_file, CrossSigningBootstrapRequests};
+use super::CrossSigningBootstrapRequests;
 use crate::{
     error::EventError,
     machine::{
@@ -103,15 +97,13 @@ fn user_id() -> &'static UserId {
 }
 
 fn keys_upload_response() -> upload_keys::v3::Response {
-    let data = response_from_file(&test_json::KEYS_UPLOAD);
-    upload_keys::v3::Response::try_from_http_response(data)
-        .expect("Can't parse the `/keys/upload` response")
+    let json = &test_json::KEYS_UPLOAD;
+    ruma_response_from_json(json)
 }
 
 fn keys_query_response() -> get_keys::v3::Response {
-    let data = response_from_file(&test_json::KEYS_QUERY);
-    get_keys::v3::Response::try_from_http_response(data)
-        .expect("Can't parse the `/keys/upload` response")
+    let json = &test_json::KEYS_QUERY;
+    ruma_response_from_json(json)
 }
 
 pub fn to_device_requests_to_content(
@@ -749,9 +741,7 @@ pub async fn setup_cross_signing_for_machine_test_helper(alice: &OlmMachine, bob
       }
     );
 
-    let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
-        .expect("Can't parse the `/keys/upload` response");
-
+    let kq_response = ruma_response_from_json(&json);
     alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
     bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
 }
@@ -810,9 +800,7 @@ async fn sign_alice_device_for_machine_test_helper(alice: &OlmMachine, bob: &Olm
       }
     );
 
-    let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
-        .expect("Can't parse the `/keys/upload` response");
-
+    let kq_response = ruma_response_from_json(&json);
     alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
     bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
 }

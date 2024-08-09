@@ -1,10 +1,10 @@
 use ruma::{
-    api::{client::keys::get_keys::v3::Response as KeyQueryResponse, IncomingResponse},
-    device_id, user_id, DeviceId, UserId,
+    api::client::keys::get_keys::v3::Response as KeyQueryResponse, device_id, user_id, DeviceId,
+    UserId,
 };
 use serde_json::{json, Value};
 
-use crate::response_from_file;
+use crate::ruma_response_from_json;
 
 /// This set of keys/query response was generated using a local synapse.
 /// Each users was created, device added according to needs and the payload
@@ -95,10 +95,7 @@ impl KeyDistributionTestData {
             }
         });
 
-        let data = response_from_file(&data);
-
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        ruma_response_from_json(&data)
     }
 
     /// Dan has cross-signing setup, one device is cross signed `JHPUERYQUW`,
@@ -200,10 +197,7 @@ impl KeyDistributionTestData {
                 }
         });
 
-        let data = response_from_file(&data);
-
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        ruma_response_from_json(&data)
     }
 
     /// Same as `dan_keys_query_response` but `FRGNMZVOKA` was removed.
@@ -286,10 +280,7 @@ impl KeyDistributionTestData {
                 }
         });
 
-        let data = response_from_file(&data);
-
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        ruma_response_from_json(&data)
     }
 
     /// Dave is a user that has not enabled cross-signing
@@ -318,10 +309,7 @@ impl KeyDistributionTestData {
             }
         });
 
-        let data = response_from_file(&data);
-
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        ruma_response_from_json(&data)
     }
 
     /// Good is a user that has all his devices correctly cross-signed
@@ -419,10 +407,7 @@ impl KeyDistributionTestData {
             }
         });
 
-        let data = response_from_file(&data);
-
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        ruma_response_from_json(&data)
     }
 
     pub fn me_id() -> &'static UserId {
@@ -541,7 +526,7 @@ impl IdentityChangeDataSet {
     /// A key query with an identity (Ia), and a first device `GYKSNAWLVK`
     /// signed by Ia.
     pub fn key_query_with_identity_a() -> KeyQueryResponse {
-        let data = response_from_file(&json!({
+        let data = json!({
             "device_keys": {
                 "@bob:localhost": {
                     "GYKSNAWLVK": Self::device_keys_payload_1_signed_by_a()
@@ -551,9 +536,8 @@ impl IdentityChangeDataSet {
             "master_keys": Self::msk_a(),
             "self_signing_keys": Self::ssk_a(),
             "user_signing_keys": {}
-        }));
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        });
+        ruma_response_from_json(&data)
     }
 
     pub fn msk_b() -> Value {
@@ -619,7 +603,7 @@ impl IdentityChangeDataSet {
     /// `ATWKQFSFRN` is signed with the new identity but `GYKSNAWLVK` is still
     /// signed by the old identity (Ia).
     pub fn key_query_with_identity_b() -> KeyQueryResponse {
-        let data = response_from_file(&json!({
+        let data = json!({
             "device_keys": {
                 "@bob:localhost": {
                     "ATWKQFSFRN": Self::device_keys_payload_2_signed_by_b(),
@@ -629,15 +613,14 @@ impl IdentityChangeDataSet {
             "failures": {},
             "master_keys": Self::msk_b(),
             "self_signing_keys": Self::ssk_b(),
-        }));
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        });
+        ruma_response_from_json(&data)
     }
 
     /// A key query with no identity and a new device `OPABMDDXGX` (not
     /// cross-signed).
     pub fn key_query_with_identity_no_identity() -> KeyQueryResponse {
-        let data = response_from_file(&json!({
+        let data = json!({
             "device_keys": {
                 "@bob:localhost": {
                     "ATWKQFSFRN": Self::device_keys_payload_2_signed_by_b(),
@@ -662,9 +645,8 @@ impl IdentityChangeDataSet {
                 }
             },
             "failures": {},
-        }));
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        });
+        ruma_response_from_json(&data)
     }
 }
 
@@ -744,10 +726,7 @@ impl PreviouslyVerifiedTestData {
             }
         });
 
-        let data = response_from_file(&data);
-
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        ruma_response_from_json(&data)
     }
 
     pub fn device_keys_payload_bob_unsigned_device() -> Value {
@@ -839,10 +818,7 @@ impl PreviouslyVerifiedTestData {
             "user_signing_keys": {}
         });
 
-        let data = response_from_file(&data);
-
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        ruma_response_from_json(&data)
     }
 
     pub fn bob_device_1_id() -> &'static DeviceId {
@@ -940,10 +916,7 @@ impl PreviouslyVerifiedTestData {
             "user_signing_keys": {}
         });
 
-        let data = response_from_file(&data);
-
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        ruma_response_from_json(&data)
     }
 
     pub fn device_1_keys_payload_carol() -> Value {
@@ -1043,10 +1016,7 @@ impl PreviouslyVerifiedTestData {
             "user_signing_keys": {}
         });
 
-        let data = response_from_file(&data);
-
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        ruma_response_from_json(&data)
     }
 
     pub fn carol_keys_query_response_signed() -> KeyQueryResponse {
@@ -1082,9 +1052,6 @@ impl PreviouslyVerifiedTestData {
             "user_signing_keys": {}
         });
 
-        let data = response_from_file(&data);
-
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        ruma_response_from_json(&data)
     }
 }

@@ -779,14 +779,11 @@ mod tests {
     };
 
     use assert_matches2::assert_let;
-    use matrix_sdk_test::{async_test, response_from_file};
+    use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
-        api::{
-            client::{
-                keys::{claim_keys, get_keys, upload_keys},
-                to_device::send_event_to_device::v3::Response as ToDeviceResponse,
-            },
-            IncomingResponse,
+        api::client::{
+            keys::{claim_keys, get_keys, upload_keys},
+            to_device::send_event_to_device::v3::Response as ToDeviceResponse,
         },
         device_id,
         events::room::history_visibility::HistoryVisibility,
@@ -826,9 +823,7 @@ mod tests {
     fn keys_query_response() -> get_keys::v3::Response {
         let data = include_bytes!("../../../../../benchmarks/benches/crypto_bench/keys_query.json");
         let data: Value = serde_json::from_slice(data).unwrap();
-        let data = response_from_file(&data);
-        get_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        ruma_response_from_json(&data)
     }
 
     fn bob_keys_query_response() -> get_keys::v3::Response {
@@ -856,10 +851,7 @@ mod tests {
                 }
             }
         });
-        let data = response_from_file(&data);
-
-        get_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        ruma_response_from_json(&data)
     }
 
     /// Returns a keys claim response for device `BOBDEVICE` of user
@@ -882,10 +874,7 @@ mod tests {
                 }
             }
         });
-        let data = response_from_file(&data);
-
-        claim_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the keys claim response")
+        ruma_response_from_json(&data)
     }
 
     /// Returns a key claim response for device `NMMBNBUSNR` of user
@@ -893,9 +882,7 @@ mod tests {
     fn keys_claim_response() -> claim_keys::v3::Response {
         let data = include_bytes!("../../../../../benchmarks/benches/crypto_bench/keys_claim.json");
         let data: Value = serde_json::from_slice(data).unwrap();
-        let data = response_from_file(&data);
-        claim_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the keys claim response")
+        ruma_response_from_json(&data)
     }
 
     async fn machine_with_user_test_helper(user_id: &UserId, device_id: &DeviceId) -> OlmMachine {
@@ -1370,9 +1357,7 @@ mod tests {
                 }
             }
         });
-        let keys_query =
-            get_keys::v3::Response::try_from_http_response(response_from_file(&keys_query_data))
-                .unwrap();
+        let keys_query: get_keys::v3::Response = ruma_response_from_json(&keys_query_data);
         let txn_id = TransactionId::new();
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
 
