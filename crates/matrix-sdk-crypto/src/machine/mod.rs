@@ -1578,7 +1578,7 @@ impl OlmMachine {
         encryption_info: &EncryptionInfo,
         require_verified: bool,
     ) -> MegolmResult<()> {
-        match dbg!(&encryption_info.verification_state) {
+        match &encryption_info.verification_state {
             VerificationState::Verified => Ok(()),
             VerificationState::Unverified(VerificationLevel::UnverifiedIdentity) => {
                 if require_verified {

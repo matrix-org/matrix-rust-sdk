@@ -436,7 +436,7 @@ async fn encrypt_message(
     });
     let event = json_convert(&event).unwrap();
 
-    (event, group_session.session_id().to_string())
+    (event, group_session.session_id().to_owned())
 }
 
 // Helper function that checks whether a message is decryptable under different
@@ -453,7 +453,7 @@ async fn check_decryption_trust_requirement(
 ) {
     for (trust_requirement, is_ok) in tests {
         let decryption_settings =
-            DecryptionSettings { trust_requirement: trust_requirement.clone() };
+            DecryptionSettings { trust_requirement: *trust_requirement };
         if *is_ok {
             assert!(
                 bob.decrypt_room_event(event, room_id, &decryption_settings).await.is_ok(),
