@@ -2532,30 +2532,26 @@ async fn test_sync_indicator() -> Result<(), Error> {
                 SyncIndicator::Show,
                 under DELAY_BEFORE_SHOWING + request_margin,
             );
+
+            // Then, once the sync is done, the `SyncIndicator` must be hidden.
+            assert_next_sync_indicator!(
+                sync_indicator,
+                SyncIndicator::Hide,
+                under request_4_delay - DELAY_BEFORE_SHOWING
+                    + DELAY_BEFORE_HIDING
+                    + request_margin,
+            );
         }
 
         in_between_requests_synchronizer.recv().await.unwrap();
         assert_pending!(sync_indicator);
 
         // Request 5.
-        {
-            // It takes time for the system to recover…
-            assert_next_sync_indicator!(
-                sync_indicator,
-                SyncIndicator::Show,
-                under DELAY_BEFORE_SHOWING + request_margin,
-            );
 
-            // But finally, the system has recovered and is running. Time to hide the
-            // `SyncIndicator`.
-            assert_next_sync_indicator!(
-                sync_indicator,
-                SyncIndicator::Hide,
-                under request_5_delay - DELAY_BEFORE_SHOWING
-                    + DELAY_BEFORE_HIDING
-                    + request_margin,
-            );
-        }
+        in_between_requests_synchronizer.recv().await.unwrap();
+
+        // Even though request 5 took a while, the `SyncIndicator` shouldn't show.
+        assert_pending!(sync_indicator);
     });
 
     // Request 1.
@@ -2624,6 +2620,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
         },
         after delay = request_5_delay, // Slow request!
     };
+
+    in_between_requests_synchronizer_sender.send(()).await.unwrap();
 
     sync_indicator_task.await.unwrap();
 
