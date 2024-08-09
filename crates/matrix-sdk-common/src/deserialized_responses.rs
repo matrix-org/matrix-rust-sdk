@@ -30,6 +30,7 @@ const AUTHENTICITY_NOT_GUARANTEED: &str =
 const UNVERIFIED_IDENTITY: &str = "Encrypted by an unverified user.";
 const UNSIGNED_DEVICE: &str = "Encrypted by a device not verified by its owner.";
 const UNKNOWN_DEVICE: &str = "Encrypted by an unknown or deleted device.";
+pub const SENT_IN_CLEAR: &str = "Not encrypted.";
 
 /// Represents the state of verification for a decrypted message sent by a
 /// device.
@@ -87,19 +88,24 @@ impl VerificationState {
     pub fn to_shield_state_strict(&self) -> ShieldState {
         match self {
             VerificationState::Verified => ShieldState::None,
-            VerificationState::Unverified(level) => {
-                let message = match level {
-                    VerificationLevel::UnverifiedIdentity | VerificationLevel::ChangedIdentity | VerificationLevel::UnsignedDevice => {
-                        UNVERIFIED_IDENTITY
+            VerificationState::Unverified(level) => match level {
+                VerificationLevel::UnverifiedIdentity | VerificationLevel::ChangedIdentity | VerificationLevel::UnsignedDevice => {
+                    ShieldState::Red {
+                        code: ShieldStateCode::UnverifiedIdentity,
+                        message: UNVERIFIED_IDENTITY,
                     }
-                    VerificationLevel::None(link) => match link {
-                        DeviceLinkProblem::MissingDevice => UNKNOWN_DEVICE,
-                        DeviceLinkProblem::InsecureSource => AUTHENTICITY_NOT_GUARANTEED,
+                }
+                VerificationLevel::None(link) => match link {
+                    DeviceLinkProblem::MissingDevice => ShieldState::Red {
+                        code: ShieldStateCode::UnknownDevice,
+                        message: UNKNOWN_DEVICE,
                     },
-                };
-
-                ShieldState::Red { message }
-            }
+                    DeviceLinkProblem::InsecureSource => ShieldState::Red {
+                        code: ShieldStateCode::AuthenticityNotGuaranteed,
+                        message: AUTHENTICITY_NOT_GUARANTEED,
+                    },
+                },
+            },
         }
     }
 
@@ -128,19 +134,28 @@ impl VerificationState {
                 }
                 VerificationLevel::UnsignedDevice => {
                     // This is a high warning. The sender hasn't verified his own device.
-                    ShieldState::Red { message: UNSIGNED_DEVICE }
+                    ShieldState::Red {
+                        code: ShieldStateCode::UnsignedDevice,
+                        message: UNSIGNED_DEVICE,
+                    }
                 }
                 VerificationLevel::None(link) => match link {
                     DeviceLinkProblem::MissingDevice => {
                         // Have to warn as it could have been a temporary injected device.
                         // Notice that the device might just not be known at this time, so callers
                         // should retry when there is a device change for that user.
-                        ShieldState::Red { message: UNKNOWN_DEVICE }
+                        ShieldState::Red {
+                            code: ShieldStateCode::UnknownDevice,
+                            message: UNKNOWN_DEVICE,
+                        }
                     }
                     DeviceLinkProblem::InsecureSource => {
                         // In legacy mode, we tone down this warning as it is quite common and
                         // mostly noise (due to legacy backup and lack of trusted forwards).
-                        ShieldState::Grey { message: AUTHENTICITY_NOT_GUARANTEED }
+                        ShieldState::Grey {
+                            code: ShieldStateCode::AuthenticityNotGuaranteed,
+                            message: AUTHENTICITY_NOT_GUARANTEED,
+                        }
                     }
                 },
             },
@@ -193,12 +208,38 @@ pub enum DeviceLinkProblem {
 pub enum ShieldState {
     /// A red shield with a tooltip containing the associated message should be
     /// presented.
-    Red { message: &'static str },
+    Red {
+        /// A machine-readable representation.
+        code: ShieldStateCode,
+        /// A human readable description.
+        message: &'static str,
+    },
     /// A grey shield with a tooltip containing the associated message should be
     /// presented.
-    Grey { message: &'static str },
+    Grey {
+        /// A machine-readable representation.
+        code: ShieldStateCode,
+        /// A human readable description.
+        message: &'static str,
+    },
     /// No shield should be presented.
     None,
+}
+
+/// A machine-readable representation of the authenticity for a `ShieldState`.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum ShieldStateCode {
+    /// Not enough information available to check the authenticity.
+    AuthenticityNotGuaranteed,
+    /// The sending device isn't yet known by the Client.
+    UnknownDevice,
+    /// The sending device hasn't been verified by the sender.
+    UnsignedDevice,
+    /// The sender hasn't been verified by the Client's user.
+    UnverifiedIdentity,
+    /// An unencrypted event in an encrypted room.
+    SentInClear,
 }
 
 /// The algorithm specific information of a decrypted event.

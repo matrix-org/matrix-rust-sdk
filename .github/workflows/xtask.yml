@@ -57,7 +57,7 @@ jobs:
         id: xtask-cache
         with:
           path: target/debug/xtask
-          # use the cache key calculated in the step above. Bit of an awkard
+          # use the cache key calculated in the step above. Bit of an awkward
           # syntax
           key: |
             ${{ steps.cachekey.outputs[format('cachekey-{0}', matrix.cachekey-id)] }}

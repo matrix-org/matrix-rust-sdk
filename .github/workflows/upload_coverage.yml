@@ -3,7 +3,7 @@
 name: Codecov
 
 on:
-  # This workflow is triggered after every successfull execution
+  # This workflow is triggered after every successful execution
   # of `coverage` workflow.
   workflow_run:
     workflows: ["Code Coverage"]

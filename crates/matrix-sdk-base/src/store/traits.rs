@@ -16,6 +16,7 @@ use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     fmt,
+    ops::Deref,
     sync::Arc,
 };
 
@@ -454,6 +455,44 @@ pub trait StateStore: AsyncTraitDeps {
 
     /// Loads all the rooms which have any pending events in their send queue.
     async fn load_rooms_with_unsent_events(&self) -> Result<Vec<OwnedRoomId>, Self::Error>;
+
+    /// Add a new entry to the list of dependent send queue event for an event.
+    async fn save_dependent_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        parent_txn_id: &TransactionId,
+        own_txn_id: ChildTransactionId,
+        content: DependentQueuedEventKind,
+    ) -> Result<(), Self::Error>;
+
+    /// Update a set of dependent send queue events with an event id,
+    /// effectively marking them as ready.
+    ///
+    /// Returns the number of updated events.
+    async fn update_dependent_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        parent_txn_id: &TransactionId,
+        event_id: OwnedEventId,
+    ) -> Result<usize, Self::Error>;
+
+    /// Remove a specific dependent send queue event by id.
+    ///
+    /// Returns true if the dependent send queue event has been indeed removed.
+    async fn remove_dependent_send_queue_event(
+        &self,
+        room: &RoomId,
+        own_txn_id: &ChildTransactionId,
+    ) -> Result<bool, Self::Error>;
+
+    /// List all the dependent send queue events.
+    ///
+    /// This returns absolutely all the dependent send queue events, whether
+    /// they have an event id or not. They must be returned in insertion order.
+    async fn list_dependent_send_queue_events(
+        &self,
+        room: &RoomId,
+    ) -> Result<Vec<DependentQueuedEvent>, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -725,6 +764,46 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
 
     async fn load_rooms_with_unsent_events(&self) -> Result<Vec<OwnedRoomId>, Self::Error> {
         self.0.load_rooms_with_unsent_events().await.map_err(Into::into)
+    }
+
+    async fn save_dependent_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        parent_txn_id: &TransactionId,
+        own_txn_id: ChildTransactionId,
+        content: DependentQueuedEventKind,
+    ) -> Result<(), Self::Error> {
+        self.0
+            .save_dependent_send_queue_event(room_id, parent_txn_id, own_txn_id, content)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn update_dependent_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        parent_txn_id: &TransactionId,
+        event_id: OwnedEventId,
+    ) -> Result<usize, Self::Error> {
+        self.0
+            .update_dependent_send_queue_event(room_id, parent_txn_id, event_id)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn remove_dependent_send_queue_event(
+        &self,
+        room_id: &RoomId,
+        own_txn_id: &ChildTransactionId,
+    ) -> Result<bool, Self::Error> {
+        self.0.remove_dependent_send_queue_event(room_id, own_txn_id).await.map_err(Into::into)
+    }
+
+    async fn list_dependent_send_queue_events(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<DependentQueuedEvent>, Self::Error> {
+        self.0.list_dependent_send_queue_events(room_id).await.map_err(Into::into)
     }
 }
 
@@ -1161,6 +1240,89 @@ pub struct QueuedEvent {
     /// wedged, and won't ever be peeked for sending. The only option is to
     /// remove it.
     pub is_wedged: bool,
+}
+
+/// The specific user intent that characterizes a [`DependentQueuedEvent`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum DependentQueuedEventKind {
+    /// The event should be edited.
+    Edit {
+        /// The new event for the content.
+        new_content: SerializableEventContent,
+    },
+
+    /// The event should be redacted/aborted/removed.
+    Redact,
+}
+
+/// A transaction id identifying a [`DependentQueuedEvent`] rather than its
+/// parent [`QueuedEvent`].
+///
+/// This thin wrapper adds some safety to some APIs, making it possible to
+/// distinguish between the parent's `TransactionId` and the dependent event's
+/// own `TransactionId`.
+#[repr(transparent)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ChildTransactionId(OwnedTransactionId);
+
+impl ChildTransactionId {
+    /// Returns a new [`ChildTransactionId`].
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self(TransactionId::new())
+    }
+}
+
+impl Deref for ChildTransactionId {
+    type Target = TransactionId;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<String> for ChildTransactionId {
+    fn from(val: String) -> Self {
+        Self(val.into())
+    }
+}
+
+impl From<ChildTransactionId> for OwnedTransactionId {
+    fn from(val: ChildTransactionId) -> Self {
+        val.0
+    }
+}
+
+/// An event to be sent, depending on a [`QueuedEvent`] to be sent first.
+///
+/// Depending on whether the event has been sent or not, this will either update
+/// the local echo in the storage, or send an event equivalent to the user
+/// intent to the homeserver.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DependentQueuedEvent {
+    /// Unique identifier for this dependent queued event.
+    ///
+    /// Useful for deletion.
+    pub own_transaction_id: ChildTransactionId,
+
+    /// The kind of user intent.
+    pub kind: DependentQueuedEventKind,
+
+    /// Transaction id for the parent's local echo / used in the server request.
+    ///
+    /// Note: this is the transaction id used for the depended-on event, i.e.
+    /// the one that was originally sent and that's being modified with this
+    /// dependent event.
+    pub parent_transaction_id: OwnedTransactionId,
+
+    /// If the parent event has been sent, the parent's event identifier
+    /// returned by the server once the local echo has been sent out.
+    ///
+    /// Note: this is the event id used for the depended-on event after it's
+    /// been sent, not for a possible event that could have been sent
+    /// because of this [`DependentQueuedEvent`].
+    pub event_id: Option<OwnedEventId>,
 }
 
 #[cfg(not(tarpaulin_include))]

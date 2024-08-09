@@ -25,7 +25,7 @@ anyhow = { workspace = true }
 futures-util = { workspace = true }
 hmac = "0.12.1"
 http = { workspace = true }
-matrix-sdk-common = { workspace = true }
+matrix-sdk-common = { workspace = true, features = ["uniffi"] }
 pbkdf2 = "0.12.2"
 rand = { workspace = true }
 ruma = { workspace = true }
@@ -35,7 +35,7 @@ sha2 = { workspace = true }
 thiserror = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 # keep in sync with uniffi dependency in matrix-sdk-ffi, and uniffi_bindgen in ffi CI job
-uniffi = { workspace = true , features = ["cli"]}
+uniffi = { workspace = true, features = ["cli"] }
 vodozemac = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
 

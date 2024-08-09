@@ -96,7 +96,8 @@ impl DehydratedDevices {
         let user_identity = self.inner.store().private_identity();
 
         let account = Account::new_dehydrated(user_id);
-        let store = Arc::new(CryptoStoreWrapper::new(user_id, MemoryStore::new()));
+        let store =
+            Arc::new(CryptoStoreWrapper::new(user_id, account.device_id(), MemoryStore::new()));
 
         let verification_machine = VerificationMachine::new(
             account.static_data().clone(),
@@ -387,8 +388,9 @@ mod tests {
     };
 
     use crate::{
-        machine::tests::{
-            create_session, get_prepared_machine_test_helper, to_device_requests_to_content,
+        machine::{
+            test_helpers::{create_session, get_prepared_machine_test_helper},
+            tests::to_device_requests_to_content,
         },
         olm::OutboundGroupSession,
         types::{events::ToDeviceEvent, DeviceKeys as DeviceKeysType},

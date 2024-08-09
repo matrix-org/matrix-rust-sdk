@@ -1,20 +1,32 @@
+use std::time::Duration;
+
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use matrix_sdk::utils::IntoRawStateEventContent;
+use matrix_sdk::{
+    config::SyncSettings,
+    test_utils::{events::EventFactory, logged_in_client_with_server},
+    utils::IntoRawStateEventContent,
+};
 use matrix_sdk_base::{
     store::StoreConfig, BaseClient, RoomInfo, RoomState, SessionMeta, StateChanges, StateStore,
 };
 use matrix_sdk_sqlite::SqliteStateStore;
-use matrix_sdk_test::EventBuilder;
+use matrix_sdk_test::{EventBuilder, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder};
+use matrix_sdk_ui::{timeline::TimelineFocus, Timeline};
 use ruma::{
     api::client::membership::get_member_events,
     device_id,
     events::room::member::{RoomMemberEvent, RoomMemberEventContent},
-    owned_room_id,
+    owned_room_id, owned_user_id,
     serde::Raw,
-    user_id, OwnedUserId,
+    user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
 };
+use serde::Serialize;
 use serde_json::json;
 use tokio::runtime::Builder;
+use wiremock::{
+    matchers::{header, method, path, path_regex, query_param, query_param_is_missing},
+    Mock, MockServer, Request, ResponseTemplate,
+};
 
 pub fn receive_all_members_benchmark(c: &mut Criterion) {
     const MEMBERS_IN_ROOM: usize = 100000;
@@ -99,6 +111,124 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
     group.finish();
 }
 
+pub fn load_pinned_events_benchmark(c: &mut Criterion) {
+    const PINNED_EVENTS_COUNT: usize = 100;
+
+    let runtime = Builder::new_multi_thread().enable_all().build().expect("Can't create runtime");
+    let room_id = owned_room_id!("!room:example.com");
+    let sender_id = owned_user_id!("@sender:example.com");
+
+    let f = EventFactory::new().room(&room_id).sender(&sender_id);
+    let (client, server) = runtime.block_on(logged_in_client_with_server());
+
+    let mut sync_response_builder = SyncResponseBuilder::new();
+    let mut joined_room_builder =
+        JoinedRoomBuilder::new(&room_id).add_state_event(StateTestEvent::Encryption);
+
+    let pinned_event_ids: Vec<OwnedEventId> = (0..PINNED_EVENTS_COUNT)
+        .map(|i| EventId::parse(format!("${i}")).expect("Invalid event id"))
+        .collect();
+    joined_room_builder = joined_room_builder.add_state_event(StateTestEvent::Custom(json!(
+        {
+            "content": {
+                "pinned": pinned_event_ids
+            },
+            "event_id": "$15139375513VdeRF:localhost",
+            "origin_server_ts": 151393755,
+            "sender": "@example:localhost",
+            "state_key": "",
+            "type": "m.room.pinned_events",
+            "unsigned": {
+                "age": 703422
+            }
+        }
+    )));
+    let response_json =
+        sync_response_builder.add_joined_room(joined_room_builder).build_json_sync_response();
+    runtime.block_on(mock_sync(&server, response_json, None));
+
+    let sync_settings = SyncSettings::default();
+    runtime.block_on(client.sync_once(sync_settings)).expect("Could not sync");
+    runtime.block_on(server.reset());
+
+    runtime.block_on(
+        Mock::given(method("GET"))
+            .and(path_regex(r"/_matrix/client/r0/rooms/.*/event/.*"))
+            .respond_with(move |r: &Request| {
+                let segments: Vec<&str> = r.url.path_segments().expect("Invalid path").collect();
+                let event_id_str = segments[6];
+                // let f = EventFactory::new().room(&room_id)
+                let event_id = EventId::parse(event_id_str).expect("Invalid event id in response");
+                let event = f
+                    .text_msg(format!("Message {event_id_str}"))
+                    .event_id(&event_id)
+                    .server_ts(MilliSecondsSinceUnixEpoch::now())
+                    .into_raw_sync();
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_millis(50))
+                    .set_body_json(event.json())
+            })
+            .mount(&server),
+    );
+    // runtime.block_on(server.reset());
+
+    let room = client.get_room(&room_id).expect("Room not found");
+    assert!(!room.pinned_event_ids().is_empty());
+    assert_eq!(room.pinned_event_ids().len(), PINNED_EVENTS_COUNT);
+
+    let count = PINNED_EVENTS_COUNT;
+    let name = format!("{count} pinned events");
+    let mut group = c.benchmark_group("Test");
+    group.throughput(Throughput::Elements(count as u64));
+    group.sample_size(10);
+
+    group.bench_function(BenchmarkId::new("load_pinned_events", name), |b| {
+        b.to_async(&runtime).iter(|| async {
+            assert!(!room.pinned_event_ids().is_empty());
+            assert_eq!(room.pinned_event_ids().len(), PINNED_EVENTS_COUNT);
+
+            // Reset cache so it always loads the events from the mocked endpoint
+            room.clear_pinned_events().await;
+
+            let timeline = Timeline::builder(&room)
+                .with_focus(TimelineFocus::PinnedEvents { max_events_to_load: 100 })
+                .build()
+                .await
+                .expect("Could not create timeline");
+
+            let (items, _) = timeline.subscribe().await;
+            assert_eq!(items.len(), PINNED_EVENTS_COUNT + 1);
+            timeline.clear().await;
+        });
+    });
+
+    {
+        let _guard = runtime.enter();
+        runtime.block_on(server.reset());
+        drop(client);
+        drop(server);
+    }
+
+    group.finish();
+}
+
+async fn mock_sync(server: &MockServer, response_body: impl Serialize, since: Option<String>) {
+    let mut mock_builder = Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/sync"))
+        .and(header("authorization", "Bearer 1234"));
+
+    if let Some(since) = since {
+        mock_builder = mock_builder.and(query_param("since", since));
+    } else {
+        mock_builder = mock_builder.and(query_param_is_missing("since"));
+    }
+
+    mock_builder
+        .respond_with(ResponseTemplate::new(200).set_body_json(response_body))
+        .mount(server)
+        .await;
+}
+
 fn criterion() -> Criterion {
     #[cfg(target_os = "linux")]
     let criterion = Criterion::default().with_profiler(pprof::criterion::PProfProfiler::new(
@@ -114,6 +244,6 @@ fn criterion() -> Criterion {
 criterion_group! {
     name = room;
     config = criterion();
-    targets = receive_all_members_benchmark,
+    targets = receive_all_members_benchmark, load_pinned_events_benchmark,
 }
 criterion_main!(room);

@@ -22,6 +22,7 @@ use std::{
 
 use bitflags::bitflags;
 use eyeball::{SharedObservable, Subscriber};
+use futures_util::{Stream, StreamExt};
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use matrix_sdk_common::ring_buffer::RingBuffer;
 #[cfg(feature = "experimental-sliding-sync")]
@@ -947,6 +948,19 @@ impl Room {
     pub fn recency_stamp(&self) -> Option<u64> {
         self.inner.read().recency_stamp
     }
+
+    /// Get a `Stream` of loaded pinned events for this room.
+    /// If no pinned events are found a single empty `Vec` will be returned.
+    pub fn pinned_event_ids_stream(&self) -> impl Stream<Item = Vec<OwnedEventId>> {
+        self.inner
+            .subscribe()
+            .map(|i| i.base_info.pinned_events.map(|c| c.pinned).unwrap_or_default())
+    }
+
+    /// Returns the current pinned event ids for this room.
+    pub fn pinned_event_ids(&self) -> Vec<OwnedEventId> {
+        self.inner.read().pinned_event_ids()
+    }
 }
 
 /// The underlying pure data structure for joined and left rooms.
@@ -1466,6 +1480,24 @@ impl RoomInfo {
     pub(crate) fn update_recency_stamp(&mut self, stamp: u64) {
         self.recency_stamp = Some(stamp);
     }
+
+    /// Returns the current pinned event ids for this room.
+    pub fn pinned_event_ids(&self) -> Vec<OwnedEventId> {
+        self.base_info.pinned_events.clone().map(|c| c.pinned).unwrap_or_default()
+    }
+
+    /// Checks if an `EventId` is currently pinned.
+    /// It avoids having to clone the whole list of event ids to check a single
+    /// value.
+    ///
+    /// Returns `true` if the provided `event_id` is pinned, `false` otherwise.
+    pub fn is_pinned_event(&self, event_id: &EventId) -> bool {
+        self.base_info
+            .pinned_events
+            .as_ref()
+            .map(|p| p.pinned.contains(&event_id.to_owned()))
+            .unwrap_or_default()
+    }
 }
 
 #[cfg(feature = "experimental-sliding-sync")]
@@ -1615,10 +1647,11 @@ mod tests {
                     SyncRoomMemberEvent,
                 },
                 name::RoomNameEventContent,
+                pinned_events::RoomPinnedEventsEventContent,
             },
             AnySyncStateEvent, EmptyStateKey, StateEventType, StateUnsigned, SyncStateEvent,
         },
-        room_alias_id, room_id,
+        owned_event_id, room_alias_id, room_id,
         serde::Raw,
         user_id, EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
         UserId,
@@ -1671,7 +1704,9 @@ mod tests {
             latest_event: Some(Box::new(LatestEvent::new(
                 Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap().into(),
             ))),
-            base_info: Box::new(BaseRoomInfo::new()),
+            base_info: Box::new(
+                assign!(BaseRoomInfo::new(), { pinned_events: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$a")])) }),
+            ),
             read_receipts: Default::default(),
             warned_about_unknown_room_version: Arc::new(false.into()),
             cached_display_name: None,
@@ -1720,6 +1755,9 @@ mod tests {
                 "name": null,
                 "tombstone": null,
                 "topic": null,
+                "pinned_events": {
+                    "pinned": ["$a"]
+                },
             },
             "read_receipts": {
                 "num_unread": 0,

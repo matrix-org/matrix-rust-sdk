@@ -332,6 +332,37 @@ async fn disabling() {
 }
 
 #[async_test]
+async fn disable_if_only_enabled_remotely() {
+    let user_id = user_id!("@example:morpheus.localhost");
+
+    let session = MatrixSession {
+        meta: SessionMeta { user_id: user_id.into(), device_id: device_id!("DEVICEID").to_owned() },
+        tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+    };
+    let (client, server) = no_retry_test_client_with_server().await;
+    client.restore_session(session).await.unwrap();
+
+    assert_eq!(
+        client.encryption().backups().state(),
+        BackupState::Unknown,
+        "We should initially be in the unknown state"
+    );
+
+    // Disabling backups should result in an error and keep the error in unknown
+    // state
+
+    client.encryption().backups().disable().await.expect_err("Disabling backups should fail");
+
+    assert_eq!(
+        client.encryption().backups().state(),
+        BackupState::Unknown,
+        "Backups should be in the unknown state."
+    );
+
+    server.verify().await;
+}
+
+#[async_test]
 #[cfg(feature = "sqlite")]
 async fn backup_resumption() {
     use tempfile::tempdir;

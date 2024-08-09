@@ -29,7 +29,10 @@ use stream_assert::{assert_next_matches, assert_pending};
 use tokio::{spawn, sync::mpsc::channel, task::yield_now};
 use wiremock::MockServer;
 
-use crate::timeline::sliding_sync::{assert_timeline_stream, timeline_event};
+use crate::{
+    mock_encryption_state,
+    timeline::sliding_sync::{assert_timeline_stream, timeline_event},
+};
 
 async fn new_room_list_service() -> Result<(Client, MockServer, RoomListService), Error> {
     let (client, server) = logged_in_client_with_server().await;
@@ -2270,6 +2273,8 @@ async fn test_room_timeline() -> Result<(), Error> {
         },
     };
 
+    mock_encryption_state(&server, false).await;
+
     let room = room_list.room(room_id)?;
     room.init_timeline_with_builder(room.default_room_timeline_builder().await.unwrap()).await?;
     let timeline = room.timeline().unwrap();
@@ -2320,6 +2325,7 @@ async fn test_room_timeline() -> Result<(), Error> {
 #[async_test]
 async fn test_room_latest_event() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
+    mock_encryption_state(&server, false).await;
 
     let sync = room_list.sync();
     pin_mut!(sync);

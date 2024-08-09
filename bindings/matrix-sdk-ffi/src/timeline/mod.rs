@@ -24,7 +24,7 @@ use matrix_sdk::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
         BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
     },
-    deserialized_responses::ShieldState as RustShieldState,
+    deserialized_responses::{ShieldState as RustShieldState, ShieldStateCode},
     Error,
 };
 use matrix_sdk_ui::timeline::{
@@ -651,6 +651,26 @@ impl Timeline {
             )),
         }
     }
+
+    /// Adds a new pinned event by sending an updated `m.room.pinned_events`
+    /// event containing the new event id.
+    ///
+    /// Returns `true` if we sent the request, `false` if the event was already
+    /// pinned.
+    async fn pin_event(&self, event_id: String) -> Result<bool, ClientError> {
+        let event_id = EventId::parse(event_id).map_err(ClientError::from)?;
+        self.inner.pin_event(&event_id).await.map_err(ClientError::from)
+    }
+
+    /// Adds a new pinned event by sending an updated `m.room.pinned_events`
+    /// event without the event id we want to remove.
+    ///
+    /// Returns `true` if we sent the request, `false` if the event wasn't
+    /// pinned
+    async fn unpin_event(&self, event_id: String) -> Result<bool, ClientError> {
+        let event_id = EventId::parse(event_id).map_err(ClientError::from)?;
+        self.inner.unpin_event(&event_id).await.map_err(ClientError::from)
+    }
 }
 
 #[derive(uniffi::Object)]
@@ -909,10 +929,10 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
 pub enum ShieldState {
     /// A red shield with a tooltip containing the associated message should be
     /// presented.
-    Red { message: String },
+    Red { code: ShieldStateCode, message: String },
     /// A grey shield with a tooltip containing the associated message should be
     /// presented.
-    Grey { message: String },
+    Grey { code: ShieldStateCode, message: String },
     /// No shield should be presented.
     None,
 }
@@ -920,8 +940,12 @@ pub enum ShieldState {
 impl From<RustShieldState> for ShieldState {
     fn from(value: RustShieldState) -> Self {
         match value {
-            RustShieldState::Red { message } => Self::Red { message: message.to_owned() },
-            RustShieldState::Grey { message } => Self::Grey { message: message.to_owned() },
+            RustShieldState::Red { code, message } => {
+                Self::Red { code, message: message.to_owned() }
+            }
+            RustShieldState::Grey { code, message } => {
+                Self::Grey { code, message: message.to_owned() }
+            }
             RustShieldState::None => Self::None,
         }
     }
@@ -978,12 +1002,11 @@ impl EventTimelineItem {
             .iter()
             .map(|(k, v)| Reaction {
                 key: k.to_owned(),
-                count: v.len().try_into().unwrap(),
                 senders: v
-                    .senders()
-                    .map(|v| ReactionSenderData {
-                        sender_id: v.sender_id.to_string(),
-                        timestamp: v.timestamp.0.into(),
+                    .iter()
+                    .map(|(sender_id, info)| ReactionSenderData {
+                        sender_id: sender_id.to_string(),
+                        timestamp: info.timestamp.0.into(),
                     })
                     .collect(),
             })

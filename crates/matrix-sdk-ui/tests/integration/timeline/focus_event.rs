@@ -30,7 +30,7 @@ use matrix_sdk_ui::{timeline::TimelineFocus, Timeline};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
 use stream_assert::assert_pending;
 
-use crate::{mock_context, mock_messages, mock_sync};
+use crate::{mock_context, mock_encryption_state, mock_messages, mock_sync};
 
 #[async_test]
 async fn test_new_focused() {
@@ -67,6 +67,8 @@ async fn test_new_focused() {
         vec![],
     )
     .await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Timeline::builder(&room)
@@ -207,6 +209,8 @@ async fn test_focused_timeline_reacts() {
     )
     .await;
 
+    mock_encryption_state(&server, false).await;
+
     let room = client.get_room(room_id).unwrap();
     let timeline = Timeline::builder(&room)
         .with_focus(TimelineFocus::Event {
@@ -301,6 +305,8 @@ async fn test_focused_timeline_doesnt_show_local_echoes() {
         vec![],
     )
     .await;
+
+    mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
     let timeline = Timeline::builder(&room)

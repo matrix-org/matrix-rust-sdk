@@ -1,4 +1,6 @@
 mod attachment;
+mod beacon;
+mod beacon_info;
 mod common;
 mod joined;
 mod left;

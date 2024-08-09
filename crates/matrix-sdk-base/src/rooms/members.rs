@@ -194,6 +194,11 @@ impl RoomMember {
         self.can_do_impl(|pls| pls.user_can_send_state(self.user_id(), state_type))
     }
 
+    /// Whether this user can pin or unpin events based on the power levels.
+    pub fn can_pin_or_unpin_event(&self) -> bool {
+        self.can_send_state(StateEventType::RoomPinnedEvents)
+    }
+
     /// Whether this user can notify everybody in the room by writing `@room` in
     /// a message.
     ///

@@ -21,12 +21,12 @@ use eyeball_im::{ObservableVectorEntry, VectorDiff};
 use eyeball_im_util::vector::VectorObserverExt;
 use futures_core::Stream;
 use imbl::Vector;
-use itertools::Itertools;
 #[cfg(all(test, feature = "e2e-encryption"))]
 use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent,
     event_cache::{paginator::Paginator, RoomEventCache},
+    pinned_events_cache::PinnedEventCache,
     send_queue::{LocalEcho, RoomSendQueueUpdate, SendHandle},
     Result, Room,
 };
@@ -53,29 +53,33 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 #[cfg(feature = "e2e-encryption")]
 use tracing::{field, info_span, Instrument as _};
 
+pub(super) use self::state::{
+    EventMeta, FullEventMeta, TimelineEnd, TimelineInnerMetadata, TimelineInnerState,
+    TimelineInnerStateTransaction,
+};
 #[cfg(feature = "e2e-encryption")]
 use super::traits::Decryptor;
 use super::{
     event_handler::TimelineEventKind,
     event_item::RemoteEventOrigin,
-    reactions::ReactionToggleResult,
+    reactions::{AnnotationKey, ReactionAction, ReactionState, ReactionToggleResult},
     traits::RoomDataProvider,
     util::{rfind_event_by_id, rfind_event_item, RelativePosition},
-    AnnotationKey, Error, EventSendState, EventTimelineItem, InReplyToDetails, Message,
-    PaginationError, Profile, RepliedToEvent, TimelineDetails, TimelineFocus, TimelineItem,
+    Error, EventSendState, EventTimelineItem, InReplyToDetails, Message, PaginationError, Profile,
+    RepliedToEvent, TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
     TimelineItemContent, TimelineItemKind,
 };
 use crate::{
-    timeline::{day_dividers::DayDividerAdjuster, TimelineEventFilterFn},
+    timeline::{
+        day_dividers::DayDividerAdjuster,
+        event_handler::LiveTimelineUpdatesAllowed,
+        pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
+        TimelineEventFilterFn,
+    },
     unable_to_decrypt_hook::UtdHookManager,
 };
 
 mod state;
-
-pub(super) use self::state::{
-    EventMeta, FullEventMeta, TimelineEnd, TimelineInnerMetadata, TimelineInnerState,
-    TimelineInnerStateTransaction,
-};
 
 /// Data associated to the current timeline focus.
 #[derive(Debug)]
@@ -92,6 +96,10 @@ enum TimelineFocusData {
         paginator: Paginator,
         /// Number of context events to request for the first request.
         num_context_events: u16,
+    },
+
+    PinnedEvents {
+        loader: PinnedEventsLoader,
     },
 }
 
@@ -110,30 +118,6 @@ pub(super) struct TimelineInner<P: RoomDataProvider = Room> {
 
     /// Settings applied to this timeline.
     settings: TimelineInnerSettings,
-}
-
-#[derive(Debug, Clone)]
-pub(super) enum ReactionAction {
-    /// Request already in progress so allow that one to resolve
-    None,
-
-    /// Send this reaction to the server
-    SendRemote(OwnedTransactionId),
-
-    /// Redact this reaction from the server
-    RedactRemote(OwnedEventId),
-}
-
-#[derive(Debug, Clone)]
-pub(super) enum ReactionState {
-    /// We're redacting a reaction.
-    ///
-    /// The optional event id is defined if, and only if, there already was a
-    /// remote echo for this reaction.
-    Redacting(Option<OwnedEventId>),
-    /// We're sending the reaction with the given transaction id, which we'll
-    /// use to match against the response in the sync event.
-    Sending(OwnedTransactionId),
 }
 
 #[derive(Clone)]
@@ -252,16 +236,26 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         focus: TimelineFocus,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
+        is_room_encrypted: bool,
     ) -> Self {
         let (focus_data, is_live) = match focus {
-            TimelineFocus::Live => (TimelineFocusData::Live, true),
+            TimelineFocus::Live => (TimelineFocusData::Live, LiveTimelineUpdatesAllowed::All),
             TimelineFocus::Event { target, num_context_events } => {
                 let paginator = Paginator::new(Box::new(room_data_provider.clone()));
                 (
                     TimelineFocusData::Event { paginator, event_id: target, num_context_events },
-                    false,
+                    LiveTimelineUpdatesAllowed::None,
                 )
             }
+            TimelineFocus::PinnedEvents { max_events_to_load } => (
+                TimelineFocusData::PinnedEvents {
+                    loader: PinnedEventsLoader::new(
+                        Box::new(room_data_provider.clone()),
+                        max_events_to_load as usize,
+                    ),
+                },
+                LiveTimelineUpdatesAllowed::PinnedEvents,
+            ),
         };
 
         let state = TimelineInnerState::new(
@@ -269,6 +263,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             is_live,
             internal_id_prefix,
             unable_to_decrypt_hook,
+            is_room_encrypted,
         );
 
         Self {
@@ -288,6 +283,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) async fn init_focus(
         &self,
         room_event_cache: &RoomEventCache,
+        pinned_event_cache: &PinnedEventCache,
     ) -> Result<bool, Error> {
         let focus_guard = self.focus.read().await;
 
@@ -323,6 +319,52 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
                 Ok(has_events)
             }
+
+            TimelineFocusData::PinnedEvents { loader } => {
+                let loaded_events = loader
+                    .load_events(pinned_event_cache)
+                    .await
+                    .map_err(Error::PinnedEventsError)?;
+
+                drop(focus_guard);
+
+                let has_events = !loaded_events.is_empty();
+
+                self.replace_with_initial_remote_events(
+                    loaded_events,
+                    RemoteEventOrigin::Pagination,
+                )
+                .await;
+
+                Ok(has_events)
+            }
+        }
+    }
+
+    pub(crate) async fn pinned_events_load_events(
+        &self,
+        pinned_event_cache: &PinnedEventCache,
+    ) -> Result<Vec<SyncTimelineEvent>, PinnedEventsLoaderError> {
+        let focus_guard = self.focus.read().await;
+
+        if let TimelineFocusData::PinnedEvents { loader } = &*focus_guard {
+            loader.load_events(pinned_event_cache).await
+        } else {
+            Err(PinnedEventsLoaderError::TimelineFocusNotPinnedEvents)
+        }
+    }
+
+    pub(crate) async fn pinned_events_update(
+        &self,
+        events: Vec<SyncTimelineEvent>,
+        pinned_event_cache: &PinnedEventCache,
+    ) -> Option<Result<Vec<SyncTimelineEvent>, PinnedEventsLoaderError>> {
+        let focus_guard = self.focus.read().await;
+
+        if let TimelineFocusData::PinnedEvents { loader } = &*focus_guard {
+            loader.update_if_needed(events, pinned_event_cache).await
+        } else {
+            Some(Err(PinnedEventsLoaderError::TimelineFocusNotPinnedEvents))
         }
     }
 
@@ -340,6 +382,9 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 .paginate_backward(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
+            TimelineFocusData::PinnedEvents { .. } => {
+                return Err(PaginationError::NotEventFocusMode)
+            }
         };
 
         self.add_events_at(pagination.events, TimelineEnd::Front, RemoteEventOrigin::Pagination)
@@ -362,6 +407,9 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 .paginate_forward(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
+            TimelineFocusData::PinnedEvents { .. } => {
+                return Err(PaginationError::NotEventFocusMode)
+            }
         };
 
         self.add_events_at(pagination.events, TimelineEnd::Back, RemoteEventOrigin::Pagination)
@@ -433,17 +481,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         };
 
         let (local_echo_txn_id, remote_echo_event_id) = {
-            let reactions = related_event.reactions();
-
-            let user_reactions =
-                reactions.get(&annotation.key).map(|group| group.by_sender(user_id));
-
-            user_reactions
-                .map(|reactions| {
-                    let reactions = reactions.collect_vec();
-                    let local = reactions.iter().find_map(|(txid, _event_id)| *txid);
-                    let remote = reactions.iter().find_map(|(_txid, event_id)| *event_id);
-                    (local, remote)
+            related_event
+                .reactions()
+                .get(&annotation.key)
+                .and_then(|group| group.get(user_id))
+                .map(|reaction_info| match &reaction_info.id {
+                    TimelineEventItemId::TransactionId(txn_id) => (Some(txn_id), None),
+                    TimelineEventItemId::EventId(event_id) => (None, Some(event_id)),
                 })
                 .unwrap_or((None, None))
         };
@@ -453,8 +497,11 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let reaction_state = match (local_echo_txn_id, remote_echo_event_id) {
             (None, None) => {
                 // No previous record of the reaction, create a local echo.
-                let in_flight =
-                    state.meta.in_flight_reaction.get::<AnnotationKey>(&annotation.into());
+                let in_flight = state
+                    .meta
+                    .reactions
+                    .in_flight_reaction
+                    .get::<AnnotationKey>(&annotation.into());
                 let txn_id = match in_flight {
                     Some(ReactionState::Sending(txn_id)) => {
                         // Use the transaction ID as the in flight request
@@ -476,6 +523,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                             content: event_content.clone(),
                             relations: Default::default(),
                         },
+                        &self.room_data_provider,
                     )
                     .await;
 
@@ -493,7 +541,14 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 };
 
                 state
-                    .handle_local_event(sender, sender_profile, TransactionId::new(), None, content)
+                    .handle_local_event(
+                        sender,
+                        sender_profile,
+                        TransactionId::new(),
+                        None,
+                        content,
+                        &self.room_data_provider,
+                    )
                     .await;
 
                 // Remember the remote echo to redact on the homeserver.
@@ -501,10 +556,11 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             }
         };
 
-        state.meta.reaction_state.insert(annotation.into(), reaction_state.clone());
+        state.meta.reactions.reaction_state.insert(annotation.into(), reaction_state.clone());
 
         // Check the action to perform depending on any in flight request
-        let in_flight = state.meta.in_flight_reaction.get::<AnnotationKey>(&annotation.into());
+        let in_flight =
+            state.meta.reactions.in_flight_reaction.get::<AnnotationKey>(&annotation.into());
         let result = match in_flight {
             Some(_) => {
                 // There is an in-flight request
@@ -529,7 +585,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             ReactionAction::None => {}
             ReactionAction::SendRemote(_) | ReactionAction::RedactRemote(_) => {
                 // Remember the new in flight request
-                state.meta.in_flight_reaction.insert(annotation.into(), reaction_state);
+                state.meta.reactions.in_flight_reaction.insert(annotation.into(), reaction_state);
             }
         };
 
@@ -638,7 +694,16 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let profile = self.room_data_provider.profile_from_user_id(&sender).await;
 
         let mut state = self.state.write().await;
-        state.handle_local_event(sender, profile, txn_id, send_handle, content).await;
+        state
+            .handle_local_event(
+                sender,
+                profile,
+                txn_id,
+                send_handle,
+                content,
+                &self.room_data_provider,
+            )
+            .await;
     }
 
     /// Update the send state of a local event represented by a transaction ID.
@@ -734,6 +799,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let reaction_state = state
             .meta
+            .reactions
             .reaction_state
             .get(&AnnotationKey::from(annotation))
             .expect("Reaction state should be set before sending the reaction");
@@ -743,6 +809,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 // A reaction was added successfully but we've been requested to undo it
                 state
                     .meta
+                    .reactions
                     .in_flight_reaction
                     .insert(annotation_key, ReactionState::Redacting(Some(event_id.to_owned())));
                 ReactionAction::RedactRemote(event_id.to_owned())
@@ -752,14 +819,15 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 let txn_id = txn_id.to_owned();
                 state
                     .meta
+                    .reactions
                     .in_flight_reaction
                     .insert(annotation_key, ReactionState::Sending(txn_id.clone()));
                 ReactionAction::SendRemote(txn_id)
             }
             _ => {
                 // We're done, so also update the timeline
-                state.meta.in_flight_reaction.swap_remove(&annotation_key);
-                state.meta.reaction_state.swap_remove(&annotation_key);
+                state.meta.reactions.in_flight_reaction.swap_remove(&annotation_key);
+                state.meta.reactions.reaction_state.swap_remove(&annotation_key);
                 state.update_timeline_reaction(user_id, annotation, result)?;
 
                 ReactionAction::None

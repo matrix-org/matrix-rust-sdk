@@ -541,12 +541,14 @@ dependencies = [
  "matrix-sdk-crypto",
  "matrix-sdk-sqlite",
  "matrix-sdk-test",
+ "matrix-sdk-ui",
  "pprof",
  "ruma",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "wiremock",
 ]
 
 [[package]]
@@ -671,9 +673,9 @@ checksum = "79296716171880943b8470b5f8d03aa55eb2e645a4874bdbb28adb49162e012c"
 
 [[package]]
 name = "bytemuck"
-version = "1.16.1"
+version = "1.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b236fc92302c97ed75b38da1f4917b5cdda4984745740f153a5d3059e48d725e"
+checksum = "102087e286b4677862ea56cf8fc58bb2cdfa8725c40ffb80fe3a008eb7f2fc83"
 
 [[package]]
 name = "byteorder"
@@ -3299,6 +3301,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uniffi",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -3897,9 +3900,10 @@ dependencies = [
 [[package]]
 name = "oauth2"
 version = "5.0.0-alpha.4"
-source = "git+https://github.com/poljar/oauth2-rs?rev=f8e28ce5a7f3278ac85b8593ecdd86f2cf51fa2e#f8e28ce5a7f3278ac85b8593ecdd86f2cf51fa2e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "098af5a5110b4deacf3200682963713b143ae9d28762b739bdb7b98429dfaf68"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.21.7",
  "chrono",
  "getrandom",
  "http 1.1.0",
@@ -3986,7 +3990,8 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 [[package]]
 name = "openidconnect"
 version = "4.0.0-alpha.2"
-source = "git+https://github.com/poljar/openidconnect-rs?rev=c7e1dc31b83dd7559125984bfd36b9c0f191585e#c7e1dc31b83dd7559125984bfd36b9c0f191585e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd4c74c00c2727896cebfcd04018dea51902881e711c69f76a446314ab5596e2"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -5060,7 +5065,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.10.1"
-source = "git+https://github.com/matrix-org/ruma?rev=f25b3220d0c3ece7720020ed180af4955a855402#f25b3220d0c3ece7720020ed180af4955a855402"
+source = "git+https://github.com/matrix-org/ruma?rev=79289381444e886c454302e1e8f5b5f62f249a57#79289381444e886c454302e1e8f5b5f62f249a57"
 dependencies = [
  "assign",
  "js_int",
@@ -5077,7 +5082,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.18.0"
-source = "git+https://github.com/matrix-org/ruma?rev=f25b3220d0c3ece7720020ed180af4955a855402#f25b3220d0c3ece7720020ed180af4955a855402"
+source = "git+https://github.com/matrix-org/ruma?rev=79289381444e886c454302e1e8f5b5f62f249a57#79289381444e886c454302e1e8f5b5f62f249a57"
 dependencies = [
  "as_variant",
  "assign",
@@ -5100,7 +5105,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.13.0"
-source = "git+https://github.com/matrix-org/ruma?rev=f25b3220d0c3ece7720020ed180af4955a855402#f25b3220d0c3ece7720020ed180af4955a855402"
+source = "git+https://github.com/matrix-org/ruma?rev=79289381444e886c454302e1e8f5b5f62f249a57#79289381444e886c454302e1e8f5b5f62f249a57"
 dependencies = [
  "as_variant",
  "base64 0.22.1",
@@ -5132,7 +5137,7 @@ dependencies = [
 [[package]]
 name = "ruma-events"
 version = "0.28.1"
-source = "git+https://github.com/matrix-org/ruma?rev=f25b3220d0c3ece7720020ed180af4955a855402#f25b3220d0c3ece7720020ed180af4955a855402"
+source = "git+https://github.com/matrix-org/ruma?rev=79289381444e886c454302e1e8f5b5f62f249a57#79289381444e886c454302e1e8f5b5f62f249a57"
 dependencies = [
  "as_variant",
  "indexmap 2.2.6",
@@ -5157,9 +5162,11 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.9.0"
-source = "git+https://github.com/matrix-org/ruma?rev=f25b3220d0c3ece7720020ed180af4955a855402#f25b3220d0c3ece7720020ed180af4955a855402"
+source = "git+https://github.com/matrix-org/ruma?rev=79289381444e886c454302e1e8f5b5f62f249a57#79289381444e886c454302e1e8f5b5f62f249a57"
 dependencies = [
+ "http 1.1.0",
  "js_int",
+ "mime",
  "ruma-common",
  "ruma-events",
  "serde",
@@ -5169,7 +5176,7 @@ dependencies = [
 [[package]]
 name = "ruma-html"
 version = "0.2.0"
-source = "git+https://github.com/matrix-org/ruma?rev=f25b3220d0c3ece7720020ed180af4955a855402#f25b3220d0c3ece7720020ed180af4955a855402"
+source = "git+https://github.com/matrix-org/ruma?rev=79289381444e886c454302e1e8f5b5f62f249a57#79289381444e886c454302e1e8f5b5f62f249a57"
 dependencies = [
  "as_variant",
  "html5ever",
@@ -5181,7 +5188,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.9.5"
-source = "git+https://github.com/matrix-org/ruma?rev=f25b3220d0c3ece7720020ed180af4955a855402#f25b3220d0c3ece7720020ed180af4955a855402"
+source = "git+https://github.com/matrix-org/ruma?rev=79289381444e886c454302e1e8f5b5f62f249a57#79289381444e886c454302e1e8f5b5f62f249a57"
 dependencies = [
  "js_int",
  "thiserror",
@@ -5190,7 +5197,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.13.0"
-source = "git+https://github.com/matrix-org/ruma?rev=f25b3220d0c3ece7720020ed180af4955a855402#f25b3220d0c3ece7720020ed180af4955a855402"
+source = "git+https://github.com/matrix-org/ruma?rev=79289381444e886c454302e1e8f5b5f62f249a57#79289381444e886c454302e1e8f5b5f62f249a57"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
@@ -5205,7 +5212,7 @@ dependencies = [
 [[package]]
 name = "ruma-push-gateway-api"
 version = "0.9.0"
-source = "git+https://github.com/matrix-org/ruma?rev=f25b3220d0c3ece7720020ed180af4955a855402#f25b3220d0c3ece7720020ed180af4955a855402"
+source = "git+https://github.com/matrix-org/ruma?rev=79289381444e886c454302e1e8f5b5f62f249a57#79289381444e886c454302e1e8f5b5f62f249a57"
 dependencies = [
  "js_int",
  "ruma-common",

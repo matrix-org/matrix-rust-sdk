@@ -53,6 +53,8 @@ pub struct RoomInfo {
     /// Events causing mentions/highlights for the user, according to their
     /// notification settings.
     num_unread_mentions: u64,
+    /// The currently pinned event ids
+    pinned_event_ids: Vec<String>,
 }
 
 impl RoomInfo {
@@ -64,6 +66,7 @@ impl RoomInfo {
         for (id, level) in power_levels_map.iter() {
             user_power_levels.insert(id.to_string(), *level);
         }
+        let pinned_event_ids = room.pinned_event_ids().iter().map(|id| id.to_string()).collect();
 
         Ok(Self {
             id: room.room_id().to_string(),
@@ -109,6 +112,7 @@ impl RoomInfo {
             num_unread_messages: room.num_unread_messages(),
             num_unread_notifications: room.num_unread_notifications(),
             num_unread_mentions: room.num_unread_mentions(),
+            pinned_event_ids,
         })
     }
 }

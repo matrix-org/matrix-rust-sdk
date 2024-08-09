@@ -33,7 +33,7 @@ pub use error::{
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
-use matrix_sdk_common::deserialized_responses::ShieldState as RustShieldState;
+use matrix_sdk_common::deserialized_responses::{ShieldState as RustShieldState, ShieldStateCode};
 use matrix_sdk_crypto::{
     olm::{IdentityKeys, InboundGroupSession, SenderData, Session},
     store::{Changes, CryptoStore, PendingChanges, RoomSettings as RustRoomSettings},
@@ -337,10 +337,6 @@ async fn save_changes(
 
     processed_steps += 1;
     listener(processed_steps, total_steps);
-
-    // The Sessions were created with incorrect device keys, so clear the cache
-    // so that they'll get recreated with correct ones.
-    store.clear_caches().await;
 
     Ok(())
 }
@@ -726,19 +722,24 @@ pub enum ShieldColor {
 #[allow(missing_docs)]
 pub struct ShieldState {
     color: ShieldColor,
+    code: Option<ShieldStateCode>,
     message: Option<String>,
 }
 
 impl From<RustShieldState> for ShieldState {
     fn from(value: RustShieldState) -> Self {
         match value {
-            RustShieldState::Red { message } => {
-                Self { color: ShieldColor::Red, message: Some(message.to_owned()) }
-            }
-            RustShieldState::Grey { message } => {
-                Self { color: ShieldColor::Grey, message: Some(message.to_owned()) }
-            }
-            RustShieldState::None => Self { color: ShieldColor::None, message: None },
+            RustShieldState::Red { code, message } => Self {
+                color: ShieldColor::Red,
+                code: Some(code),
+                message: Some(message.to_owned()),
+            },
+            RustShieldState::Grey { code, message } => Self {
+                color: ShieldColor::Grey,
+                code: Some(code),
+                message: Some(message.to_owned()),
+            },
+            RustShieldState::None => Self { color: ShieldColor::None, code: None, message: None },
         }
     }
 }

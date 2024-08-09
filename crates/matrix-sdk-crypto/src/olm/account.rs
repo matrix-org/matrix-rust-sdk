@@ -1250,11 +1250,9 @@ impl Account {
                 let mut errors_by_olm_session = Vec::new();
 
                 if let Some(sessions) = existing_sessions {
-                    let sessions = &mut *sessions.lock().await;
-
                     // Try to decrypt the message using each Session we share with the
                     // given curve25519 sender key.
-                    for session in sessions.iter_mut() {
+                    for session in sessions.lock().await.iter_mut() {
                         match session.decrypt(message).await {
                             Ok(p) => {
                                 // success!

@@ -26,7 +26,9 @@ use matrix_sdk::ruma::{
     events::{relation::Annotation, room::message::RoomMessageEventContent},
     EventId, MilliSecondsSinceUnixEpoch, UserId,
 };
-use matrix_sdk_ui::timeline::{EventSendState, EventTimelineItem, RoomExt, TimelineItem};
+use matrix_sdk_ui::timeline::{
+    EventSendState, EventTimelineItem, RoomExt, TimelineEventItemId, TimelineItem,
+};
 use tokio::{
     spawn,
     task::JoinHandle,
@@ -195,8 +197,11 @@ async fn assert_local_added(
 
     let (reaction_tx_id, reaction_event_id) = {
         let reactions = event.reactions().get(&reaction.key).unwrap();
-        let reaction = reactions.by_sender(user_id).next().unwrap();
-        reaction.to_owned()
+        let reaction = reactions.get(user_id).unwrap();
+        match &reaction.id {
+            TimelineEventItemId::TransactionId(txn_id) => (Some(txn_id), None),
+            TimelineEventItemId::EventId(event_id) => (None, Some(event_id)),
+        }
     };
     assert_matches!(reaction_tx_id, Some(_));
     // Event ID hasn't been received from homeserver yet
@@ -222,18 +227,15 @@ async fn assert_remote_added(
     let event = assert_event_is_updated(stream, event_id, message_position).await;
 
     let reactions = event.reactions().get(&reaction.key).unwrap();
-    assert_eq!(reactions.senders().count(), 1);
+    assert_eq!(reactions.keys().count(), 1);
 
-    let reaction = reactions.by_sender(user_id).next().unwrap();
-    let (reaction_tx_id, reaction_event_id) = reaction;
-    assert_matches!(reaction_tx_id, None);
-    assert_matches!(reaction_event_id, Some(value) => value);
+    let reaction = reactions.get(user_id).unwrap();
+    assert_matches!(reaction.id, TimelineEventItemId::EventId(..));
 
     // Remote event should have a timestamp <= than now.
     // Note: this can actually be equal because if the timestamp from
     // server is not available, it might be created with a local call to `now()`
-    let reaction = reactions.senders().next();
-    assert!(reaction.unwrap().timestamp <= MilliSecondsSinceUnixEpoch::now());
+    assert!(reaction.timestamp <= MilliSecondsSinceUnixEpoch::now());
 }
 
 async fn assert_event_is_updated(

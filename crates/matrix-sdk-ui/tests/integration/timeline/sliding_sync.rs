@@ -223,6 +223,8 @@ macro_rules! assert_timeline_stream {
 
 pub(crate) use assert_timeline_stream;
 
+use crate::mock_encryption_state;
+
 async fn new_sliding_sync(lists: Vec<SlidingSyncListBuilder>) -> Result<(MockServer, SlidingSync)> {
     let (client, server) = logged_in_client_with_server().await;
 
@@ -316,6 +318,8 @@ async fn test_timeline_basic() -> Result<()> {
 
     create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
 
+    mock_encryption_state(&server, false).await;
+
     let (timeline_items, mut timeline_stream) =
         timeline_test_helper(&sliding_sync, room_id).await?;
     assert!(timeline_items.is_empty());
@@ -362,6 +366,8 @@ async fn test_timeline_duplicated_events() -> Result<()> {
     let room_id = room_id!("!foo:bar.org");
 
     create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
+
+    mock_encryption_state(&server, false).await;
 
     let (_, mut timeline_stream) = timeline_test_helper(&sliding_sync, room_id).await?;
 
@@ -439,6 +445,8 @@ async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
     let room_id = room_id!("!foo:bar.org");
 
     create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
+
+    mock_encryption_state(&server, false).await;
 
     let (timeline_items, mut timeline_stream) =
         timeline_test_helper(&sliding_sync, room_id).await?;

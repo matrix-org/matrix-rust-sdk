@@ -15,14 +15,16 @@
 use std::fmt;
 
 use ruma::{
-    api::client::future,
+    api::client::delayed_events::{
+        delayed_message_event, delayed_state_event, update_delayed_event,
+    },
     events::{AnyTimelineEvent, MessageLikeEventType, StateEventType},
     serde::Raw,
     OwnedEventId, OwnedRoomId,
 };
 use serde::{Deserialize, Serialize};
 
-use super::SendEventRequest;
+use super::{SendEventRequest, UpdateDelayedEventRequest};
 use crate::widget::StateKeySelector;
 
 #[derive(Deserialize, Debug)]
@@ -35,6 +37,8 @@ pub(super) enum FromWidgetRequest {
     #[serde(rename = "org.matrix.msc2876.read_events")]
     ReadEvent(ReadEventRequest),
     SendEvent(SendEventRequest),
+    #[serde(rename = "org.matrix.msc4157.update_delayed_event")]
+    DelayedEventUpdate(UpdateDelayedEventRequest),
 }
 
 #[derive(Serialize)]
@@ -137,64 +141,43 @@ pub(super) struct ReadEventResponse {
 pub(crate) struct SendEventResponse {
     /// The room id for the send event.
     pub(crate) room_id: Option<OwnedRoomId>,
-    /// The event id of the send event. It's optional because if it's a future
+    /// The event id of the send event. It's optional because if it's a delayed
     /// event, it does not get the event_id at this point.
     pub(crate) event_id: Option<OwnedEventId>,
-    /// A token to send/insert the future event into the DAG.
-    pub(crate) send_token: Option<String>,
-    /// A token to cancel this future event. It will never be sent if this is
-    /// called.
-    pub(crate) cancel_token: Option<String>,
-    /// The `future_group_id` generated for this future event. Used to connect
-    /// multiple future events. Only one of the connected future events will be
-    /// sent and inserted into the DAG.
-    pub(crate) future_group_id: Option<String>,
-    /// A token used to refresh the timer of the future event. This allows
-    /// to implement heartbeat-like capabilities. An event is only sent once
-    /// a refresh in the timeout interval is missed.
-    ///
-    /// If the future event does not have a timeout this will be `None`.
-    pub(crate) refresh_token: Option<String>,
+    /// The `delay_id` generated for this delayed event. Used to interact with
+    /// the delayed event.
+    pub(crate) delay_id: Option<String>,
 }
 
 impl SendEventResponse {
     pub(crate) fn from_event_id(event_id: OwnedEventId) -> Self {
-        SendEventResponse {
-            room_id: None,
-            event_id: Some(event_id),
-            send_token: None,
-            cancel_token: None,
-            future_group_id: None,
-            refresh_token: None,
-        }
+        SendEventResponse { room_id: None, event_id: Some(event_id), delay_id: None }
     }
     pub(crate) fn set_room_id(&mut self, room_id: OwnedRoomId) {
         self.room_id = Some(room_id);
     }
 }
 
-impl From<future::send_future_message_event::unstable::Response> for SendEventResponse {
-    fn from(val: future::send_future_message_event::unstable::Response) -> Self {
-        SendEventResponse {
-            room_id: None,
-            event_id: None,
-            send_token: Some(val.send_token),
-            cancel_token: Some(val.cancel_token),
-            future_group_id: Some(val.future_group_id),
-            refresh_token: val.refresh_token,
-        }
+impl From<delayed_message_event::unstable::Response> for SendEventResponse {
+    fn from(val: delayed_message_event::unstable::Response) -> Self {
+        SendEventResponse { room_id: None, event_id: None, delay_id: Some(val.delay_id) }
     }
 }
 
-impl From<future::send_future_state_event::unstable::Response> for SendEventResponse {
-    fn from(val: future::send_future_state_event::unstable::Response) -> Self {
-        SendEventResponse {
-            room_id: None,
-            event_id: None,
-            send_token: Some(val.send_token),
-            cancel_token: Some(val.cancel_token),
-            future_group_id: Some(val.future_group_id),
-            refresh_token: val.refresh_token,
-        }
+impl From<delayed_state_event::unstable::Response> for SendEventResponse {
+    fn from(val: delayed_state_event::unstable::Response) -> Self {
+        SendEventResponse { room_id: None, event_id: None, delay_id: Some(val.delay_id) }
+    }
+}
+
+/// A wrapper type for the empty okay response from
+/// [`update_delayed_event`](update_delayed_event::unstable::Response)
+/// which derives Serialize. (The response struct from Ruma does not derive
+/// serialize)
+#[derive(Serialize, Debug)]
+pub(crate) struct UpdateDelayedEventResponse {}
+impl From<update_delayed_event::unstable::Response> for UpdateDelayedEventResponse {
+    fn from(_: update_delayed_event::unstable::Response) -> Self {
+        Self {}
     }
 }

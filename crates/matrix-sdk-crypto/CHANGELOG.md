@@ -2,6 +2,11 @@
 
 Changes:
 
+- Add message IDs to all outgoing to-device messages encrypted by
+  `matrix-sdk-crypto`. The `message-ids` feature of `matrix-sdk-crypto` and
+  `matrix-sdk-base` is now a no-op.
+  ([#3776](https://github.com/matrix-org/matrix-rust-sdk/pull/3776))
+
 - Log the content of received `m.room_key.withheld` to-device events.
   ([#3591](https://github.com/matrix-org/matrix-rust-sdk/pull/3591))
 
@@ -26,6 +31,9 @@ Changes:
   ([#3151](https://github.com/matrix-org/matrix-rust-sdk/pull/3151))
 
 Breaking changes:
+
+- Remove the method `OlmMachine::clear_crypto_cache()`, crypto stores are not
+  supposed to have any caches anymore.
 
 - Add a `custom_account` argument to the `OlmMachine::with_store()` method, this
   allows users to learn their identity keys before they get access to the user

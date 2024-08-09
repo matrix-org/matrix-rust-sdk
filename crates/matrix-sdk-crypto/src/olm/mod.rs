@@ -28,8 +28,7 @@ pub(crate) use account::{OlmDecryptionInfo, SessionType};
 pub use group_sessions::{
     BackedUpRoomKey, DecryptionSettings, EncryptionSettings, ExportedRoomKey, InboundGroupSession,
     OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession, SenderData,
-    SenderDataRetryDetails, SessionCreationError, SessionExportError, SessionKey, ShareInfo,
-    TrustRequirement,
+    SessionCreationError, SessionExportError, SessionKey, ShareInfo, TrustRequirement,
 };
 pub(crate) use group_sessions::{SenderDataFinder, ShareState};
 pub use session::{PickledSession, Session};
