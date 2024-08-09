@@ -65,9 +65,9 @@ use crate::{
     gossiping::GossipMachine,
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
-        Account, CrossSigningStatus, DecryptionSettings, EncryptionSettings, IdentityKeys,
-        InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData,
-        SenderDataFinder, SessionType, StaticAccountData, TrustRequirement,
+        Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
+        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData, SenderDataFinder, SessionType,
+        StaticAccountData,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -77,6 +77,7 @@ use crate::{
         StoreCache, StoreTransaction,
     },
     types::{
+        decryption::{DecryptionSettings, TrustRequirement},
         events::{
             olm_v1::{AnyDecryptedOlmEvent, DecryptedRoomKeyEvent},
             room::encrypted::{

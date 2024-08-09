@@ -61,13 +61,11 @@ use crate::{
         },
         EncryptionSyncChanges, OlmMachine,
     },
-    olm::{
-        BackedUpRoomKey, DecryptionSettings, ExportedRoomKey, SenderData, TrustRequirement,
-        VerifyJson,
-    },
+    olm::{BackedUpRoomKey, ExportedRoomKey, SenderData, VerifyJson},
     session_manager::CollectStrategy,
     store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore},
     types::{
+        decryption::{DecryptionSettings, TrustRequirement},
         events::{
             room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
             room_key_withheld::{

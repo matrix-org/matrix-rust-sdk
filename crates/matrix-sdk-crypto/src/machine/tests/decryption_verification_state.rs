@@ -40,11 +40,10 @@ use crate::{
         testing::response_from_file,
         tests,
     },
-    olm::{
-        DecryptionSettings, InboundGroupSession, OutboundGroupSession, SenderData, TrustRequirement,
-    },
+    olm::{InboundGroupSession, OutboundGroupSession, SenderData},
     store::{Changes, IdentityChanges},
     types::{
+        decryption::{DecryptionSettings, TrustRequirement},
         events::{
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
             ToDeviceEvent,
