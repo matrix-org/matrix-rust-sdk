@@ -62,6 +62,40 @@ impl Drop for MigrationDb {
     }
 }
 
+/// The latest version of the schema we can support. If we encounter a database
+/// version with a higher schema version, we will return an error.
+///
+/// A note on how this works.
+///
+/// Normally, when you open an indexeddb database, you tell it the "schema
+/// version" that you know about. If the existing database is older than
+/// that, it lets you run a migration. If the existing database is newer, then
+/// it assumes that there have been incompatible schema changes and complains
+/// with an error ("The requested version (10) is less than the existing version
+/// (11)").
+///
+/// The problem with this is that, if someone upgrades their installed
+/// application, then realises it was a terrible mistake and tries to roll
+/// back, then suddenly every user's session is completely hosed. (They see
+/// an "unable to restore session" dialog.) Often, schema updates aren't
+/// actually backwards-incompatible — for example, existing code will work just
+/// fine if someone adds a new store or a new index — so this approach is too
+/// heavy-handed.
+///
+/// The solution we take here is to say "any schema changes up to
+/// [`MAX_SUPPORTED_SCHEMA_VERSION`] will be backwards-compatible". If, at some
+/// point, we do make a breaking change, we will give that schema version a
+/// higher number. Then, rather than using the implicit version check that comes
+/// with `indexedDB.open(name, version)`, we explicitly check the version
+/// ourselves.
+///
+/// It is expected that we will use version numbers that are multiples of 100 to
+/// represent breaking changes — for example, version 100 is a breaking change,
+/// as is version 200, but versions 101-199 are all backwards compatible with
+/// version 100. In other words, if you divide by 100, you get something
+/// approaching semver: version 200 is major version 2, minor version 0.
+const MAX_SUPPORTED_SCHEMA_VERSION: u32 = 99;
+
 /// Open the indexeddb with the given name, upgrading it to the latest version
 /// of the schema if necessary.
 pub async fn open_and_upgrade_db(
@@ -81,6 +115,16 @@ pub async fn open_and_upgrade_db(
     // because of the separate "add" and "delete" stages.
 
     let old_version = db_version(name).await?;
+
+    // If the database version is too new, bail out. We assume that schema updates
+    // all the way up to `MAX_SUPPORTED_SCHEMA_VERSION` will be
+    // backwards-compatible.
+    if old_version > MAX_SUPPORTED_SCHEMA_VERSION {
+        return Err(IndexeddbCryptoStoreError::SchemaTooNewError {
+            max_supported_version: MAX_SUPPORTED_SCHEMA_VERSION,
+            current_version: old_version,
+        });
+    }
 
     if old_version < 5 {
         v0_to_v5::schema_add(name).await?;
@@ -109,10 +153,18 @@ pub async fn open_and_upgrade_db(
 
     if old_version < 11 {
         v10_to_v11::data_migrate(name, serializer).await?;
+        v10_to_v11::schema_bump(name).await?;
     }
 
+    // If you add more migrations here, you'll need to update
+    // `tests::EXPECTED_SCHEMA_VERSION`.
+
+    // NOTE: IF YOU MAKE A BREAKING CHANGE TO THE SCHEMA, BUMP THE SCHEMA VERSION TO
+    // SOMETHING HIGHER THAN `MAX_SUPPORTED_SCHEMA_VERSION`! (And then bump
+    // `MAX_SUPPORTED_SCHEMA_VERSION` itself to the next multiple of 10).
+
     // Open and return the DB (we know it's at the latest version)
-    Ok(IdbDatabase::open_u32(name, 11)?.await?)
+    Ok(IdbDatabase::open(name)?.await?)
 }
 
 async fn db_version(name: &str) -> Result<u32, IndexeddbCryptoStoreError> {
@@ -169,8 +221,9 @@ fn add_unique_index<'a>(
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
-    use std::{future::Future, sync::Arc};
+    use std::{cell::Cell, future::Future, rc::Rc, sync::Arc};
 
+    use assert_matches::assert_matches;
     use gloo_utils::format::JsValueSerdeExt;
     use indexed_db_futures::prelude::*;
     use matrix_sdk_common::js_tracing::make_tracing_subscriber;
@@ -189,14 +242,14 @@ mod tests {
 
     use super::{v0_to_v5, v7::InboundGroupSessionIndexedDbObject2};
     use crate::{
-        crypto_store::{
-            indexeddb_serializer::MaybeEncrypted, keys, migrations::*,
-            InboundGroupSessionIndexedDbObject,
-        },
+        crypto_store::{keys, migrations::*, InboundGroupSessionIndexedDbObject},
         IndexeddbCryptoStore,
     };
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    /// The schema version we expect after we open the store.
+    const EXPECTED_SCHEMA_VERSION: u32 = 11;
 
     /// Adjust this to test do a more comprehensive perf test
     const NUM_RECORDS_FOR_PERF: usize = 2_000;
@@ -635,6 +688,75 @@ mod tests {
     async fn create_v5_db(name: &str) -> std::result::Result<IdbDatabase, DomException> {
         v0_to_v5::schema_add(name).await?;
         IdbDatabase::open_u32(name, 5)?.await
+    }
+
+    /// Opening a db that has been upgraded to MAX_SUPPORTED_SCHEMA_VERSION
+    /// should be ok
+    #[async_test]
+    async fn can_open_max_supported_schema_version() {
+        let _ = make_tracing_subscriber(None).try_init();
+
+        let db_prefix = "test_can_open_max_supported_schema_version";
+        // Create a database at MAX_SUPPORTED_SCHEMA_VERSION
+        create_future_schema_db(db_prefix, MAX_SUPPORTED_SCHEMA_VERSION).await;
+
+        // Now, try opening it again
+        IndexeddbCryptoStore::open_with_store_cipher(&db_prefix, None).await.unwrap();
+    }
+
+    /// Opening a db that has been upgraded beyond MAX_SUPPORTED_SCHEMA_VERSION
+    /// should throw an error
+    #[async_test]
+    async fn can_not_open_too_new_db() {
+        let _ = make_tracing_subscriber(None).try_init();
+
+        let db_prefix = "test_can_not_open_too_new_db";
+        // Create a database at MAX_SUPPORTED_SCHEMA_VERSION+1
+        create_future_schema_db(db_prefix, MAX_SUPPORTED_SCHEMA_VERSION + 1).await;
+
+        // Now, try opening it again
+        let result = IndexeddbCryptoStore::open_with_store_cipher(&db_prefix, None).await;
+        assert_matches!(
+            result,
+            Err(IndexeddbCryptoStoreError::SchemaTooNewError {
+                max_supported_version,
+                current_version
+            }) => {
+                assert_eq!(max_supported_version, MAX_SUPPORTED_SCHEMA_VERSION);
+                assert_eq!(current_version, MAX_SUPPORTED_SCHEMA_VERSION + 1);
+            }
+        );
+    }
+
+    // Create a database, and increase its schema version to the given version
+    // number.
+    async fn create_future_schema_db(db_prefix: &str, version: u32) {
+        let db_name = format!("{db_prefix}::matrix-sdk-crypto");
+
+        // delete the db in case it was used in a previous run
+        let _ = IdbDatabase::delete_by_name(&db_name);
+
+        // Open, and close, the store at the regular version.
+        IndexeddbCryptoStore::open_with_store_cipher(&db_prefix, None).await.unwrap();
+
+        // Now upgrade to the given version, keeping a record of the previous version so
+        // that we can double-check it.
+        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&db_name, version).unwrap();
+
+        let old_version: Rc<Cell<Option<u32>>> = Rc::new(Cell::new(None));
+        let old_version2 = old_version.clone();
+        db_req.set_on_upgrade_needed(Some(move |evt: &IdbVersionChangeEvent| {
+            old_version2.set(Some(evt.old_version() as u32));
+            Ok(())
+        }));
+
+        let db = db_req.await.unwrap();
+        assert_eq!(
+            old_version.get(),
+            Some(EXPECTED_SCHEMA_VERSION),
+            "Existing store had unexpected version number"
+        );
+        db.close();
     }
 
     /// Emulate the old behaviour of [`IndexeddbSerializer::serialize_value`].

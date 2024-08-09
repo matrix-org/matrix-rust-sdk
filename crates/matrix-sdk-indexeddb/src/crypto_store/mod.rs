@@ -137,6 +137,8 @@ pub enum IndexeddbCryptoStoreError {
     },
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
+    #[error("The schema version of the crypto store is too new. Existing version: {current_version}; max supported version: {max_supported_version}")]
+    SchemaTooNewError { max_supported_version: u32, current_version: u32 },
 }
 
 impl From<web_sys::DomException> for IndexeddbCryptoStoreError {
