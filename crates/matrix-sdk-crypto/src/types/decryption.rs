@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Data types for decrypting an event.
+
 use serde::{Deserialize, Serialize};
 
 /// The trust level required to decrypt an event.

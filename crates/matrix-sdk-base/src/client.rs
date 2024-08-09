@@ -28,7 +28,7 @@ use futures_util::Stream;
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    olm::{DecryptionSettings, TrustRequirement},
+    types::decryption::{DecryptionSettings, TrustRequirement},
     store::DynCryptoStore,
     EncryptionSettings, EncryptionSyncChanges, OlmError, OlmMachine, ToDeviceRequest,
 };

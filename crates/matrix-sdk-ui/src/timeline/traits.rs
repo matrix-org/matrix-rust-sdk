@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use indexmap::IndexMap;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk::{
-    crypto::olm::{DecryptionSettings, TrustRequirement},
+    crypto::types::decryption::{DecryptionSettings, TrustRequirement},
     deserialized_responses::TimelineEvent,
     Result,
 };

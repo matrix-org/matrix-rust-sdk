@@ -15,7 +15,7 @@ use futures_util::{
     stream::FuturesUnordered,
 };
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::olm::{DecryptionSettings, TrustRequirement};
+use matrix_sdk_base::crypto::types::decryption::{DecryptionSettings, TrustRequirement};
 use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState, TimelineEvent,
