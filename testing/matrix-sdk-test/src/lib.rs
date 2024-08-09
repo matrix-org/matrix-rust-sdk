@@ -152,10 +152,14 @@ pub fn sync_response(kind: SyncResponseFile) -> SyncResponse {
         SyncResponseFile::Voip => &test_json::VOIP_SYNC,
     };
 
-    let response = Response::builder().body(data.to_string().as_bytes().to_vec()).unwrap();
-    SyncResponse::try_from_http_response(response).unwrap()
+    ruma_response_from_json(data)
 }
 
-pub fn response_from_file(json: &JsonValue) -> Response<Vec<u8>> {
-    Response::builder().status(200).body(json.to_string().as_bytes().to_vec()).unwrap()
+/// Build a typed Ruma [`IncomingResponse`] object from a json body.
+pub fn ruma_response_from_json<ResponseType: IncomingResponse>(
+    json: &serde_json::Value,
+) -> ResponseType {
+    let http_response =
+        Response::builder().status(200).body(serde_json::to_vec(json).unwrap()).unwrap();
+    ResponseType::try_from_http_response(http_response).expect("Can't parse the response json")
 }

@@ -1068,10 +1068,10 @@ pub(crate) mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use assert_matches::assert_matches;
-    use matrix_sdk_test::{async_test, response_from_file, test_json};
+    use matrix_sdk_test::{async_test, ruma_response_from_json, test_json};
     use ruma::{
-        api::{client::keys::get_keys::v3::Response as KeyQueryResponse, IncomingResponse},
-        device_id, user_id, TransactionId,
+        api::client::keys::get_keys::v3::Response as KeyQueryResponse, device_id, user_id,
+        TransactionId,
     };
     use serde_json::{json, Value};
     use tokio::sync::Mutex;
@@ -1419,8 +1419,7 @@ pub(crate) mod tests {
                 "self_signing_keys": DataSet::ssk_b(),
             });
 
-        let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&data))
-            .expect("Can't parse the `/keys/upload` response");
+        let kq_response: KeyQueryResponse = ruma_response_from_json(&data);
         machine.mark_request_as_sent(&TransactionId::new(), &kq_response).await.unwrap();
 
         // The identity should not need any user approval now

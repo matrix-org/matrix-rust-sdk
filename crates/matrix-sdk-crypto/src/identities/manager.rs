@@ -1067,16 +1067,16 @@ fn debug_log_keys_query_response(
 pub(crate) mod testing {
     use std::sync::Arc;
 
+    use matrix_sdk_test::ruma_response_from_json;
     use ruma::{
-        api::{client::keys::get_keys::v3::Response as KeyQueryResponse, IncomingResponse},
-        device_id, user_id, DeviceId, UserId,
+        api::client::keys::get_keys::v3::Response as KeyQueryResponse, device_id, user_id,
+        DeviceId, UserId,
     };
     use serde_json::json;
     use tokio::sync::Mutex;
 
     use crate::{
         identities::IdentityManager,
-        machine::testing::response_from_file,
         olm::{Account, PrivateCrossSigningIdentity},
         store::{CryptoStoreWrapper, MemoryStore, PendingChanges, Store},
         types::DeviceKeys,
@@ -1114,7 +1114,7 @@ pub(crate) mod testing {
     }
 
     pub fn other_key_query() -> KeyQueryResponse {
-        let data = response_from_file(&json!({
+        let data = &json!({
             "device_keys": {
                 "@example2:localhost": {
                     "SKISMLNIMH": {
@@ -1167,16 +1167,15 @@ pub(crate) mod testing {
                 }
             },
             "user_signing_keys": {}
-        }));
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        });
+        ruma_response_from_json(data)
     }
 
     // An updated version of `other_key_query` featuring an additional signature on
     // the master key *Note*: The added signature is actually not valid, but a
     // valid signature  is not required for our test.
     pub fn other_key_query_cross_signed() -> KeyQueryResponse {
-        let data = response_from_file(&json!({
+        let data = json!({
             "device_keys": {
                 "@example2:localhost": {
                     "SKISMLNIMH": {
@@ -1233,14 +1232,13 @@ pub(crate) mod testing {
                 }
             },
             "user_signing_keys": {}
-        }));
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        });
+        ruma_response_from_json(&data)
     }
 
     /// Mocked response to a /keys/query request.
     pub fn own_key_query_with_user_id(user_id: &UserId) -> KeyQueryResponse {
-        let data = response_from_file(&json!({
+        let data = json!({
           "device_keys": {
             user_id: {
               "WSKKLTJZCL": {
@@ -1335,9 +1333,8 @@ pub(crate) mod testing {
               }
             }
           }
-        }));
-        KeyQueryResponse::try_from_http_response(data)
-            .expect("Can't parse the `/keys/upload` response")
+        });
+        ruma_response_from_json(&data)
     }
 
     pub fn own_key_query() -> KeyQueryResponse {
@@ -1367,8 +1364,7 @@ pub(crate) mod testing {
           }
         );
 
-        KeyQueryResponse::try_from_http_response(response_from_file(&json))
-            .expect("Can't parse the `/keys/upload` response")
+        ruma_response_from_json(&json)
     }
 }
 
@@ -1377,10 +1373,10 @@ pub(crate) mod tests {
     use std::ops::Deref;
 
     use futures_util::pin_mut;
-    use matrix_sdk_test::{async_test, response_from_file, test_json};
+    use matrix_sdk_test::{async_test, ruma_response_from_json, test_json};
     use ruma::{
-        api::{client::keys::get_keys::v3::Response as KeysQueryResponse, IncomingResponse},
-        device_id, user_id, TransactionId,
+        api::client::keys::get_keys::v3::Response as KeysQueryResponse, device_id, user_id,
+        TransactionId,
     };
     use serde_json::json;
     use stream_assert::{assert_closed, assert_pending, assert_ready};
@@ -1406,9 +1402,7 @@ pub(crate) mod tests {
             }
         });
 
-        let response = response_from_file(&response);
-
-        KeysQueryResponse::try_from_http_response(response).unwrap()
+        ruma_response_from_json(&response)
     }
 
     #[async_test]
@@ -1537,9 +1531,7 @@ pub(crate) mod tests {
             }
         });
 
-        let response = KeysQueryResponse::try_from_http_response(response_from_file(&response))
-            .expect("Can't parse the `/keys/query` response");
-
+        let response = ruma_response_from_json(&response);
         manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
 
         let identity = manager.store.get_user_identity(user_id).await.unwrap().unwrap();
@@ -1587,9 +1579,7 @@ pub(crate) mod tests {
             }
         });
 
-        let response = KeysQueryResponse::try_from_http_response(response_from_file(&response))
-            .expect("Can't parse the `/keys/query` response");
-
+        let response = ruma_response_from_json(&response);
         let (_, private_identity) = manager.handle_cross_signing_keys(&response).await.unwrap();
 
         assert!(private_identity.is_some());
@@ -1737,7 +1727,7 @@ pub(crate) mod tests {
 
         // Now provide an invalid update
         let (reqid, _) = manager.build_key_query_for_users(vec![my_user_id]);
-        let response_data = response_from_file(&json!({
+        let response = ruma_response_from_json(&json!({
             "device_keys": {
                 my_user_id: {
                     test_device_id.as_str(): {
@@ -1760,9 +1750,6 @@ pub(crate) mod tests {
                 }
             }
         }));
-        let response =
-            ruma::api::client::keys::get_keys::v3::Response::try_from_http_response(response_data)
-                .expect("Can't parse the `/keys/upload` response");
 
         let (device_changes, identity_changes) =
             manager.receive_keys_query_response(&reqid, &response).await.unwrap();
@@ -1927,9 +1914,7 @@ pub(crate) mod tests {
             },
         });
 
-        let response = KeysQueryResponse::try_from_http_response(response_from_file(&response))
-            .expect("Can't parse the `/keys/query` response");
-
+        let response = ruma_response_from_json(&response);
         manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
 
         let devices = manager.store.get_user_devices(other_user).await.unwrap();
