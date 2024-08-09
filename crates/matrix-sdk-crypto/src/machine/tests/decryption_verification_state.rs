@@ -18,12 +18,8 @@ use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk_common::deserialized_responses::{
     DeviceLinkProblem, ShieldState, VerificationLevel, VerificationState,
 };
-use matrix_sdk_test::{async_test, test_json};
+use matrix_sdk_test::{async_test, ruma_response_from_json, test_json};
 use ruma::{
-    api::{
-        client::keys::{get_keys, get_keys::v3::Response as KeyQueryResponse},
-        IncomingResponse,
-    },
     events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
     room_id,
     serde::Raw,
@@ -37,7 +33,6 @@ use crate::{
         test_helpers::{
             get_machine_pair_with_setup_sessions_test_helper, get_prepared_machine_test_helper,
         },
-        testing::response_from_file,
         tests,
     },
     olm::{InboundGroupSession, OutboundGroupSession, SenderData},
@@ -293,9 +288,7 @@ pub async fn mark_alice_identity_as_verified_test_helper(alice: &OlmMachine, bob
       }
     );
 
-    let kq_response = KeyQueryResponse::try_from_http_response(response_from_file(&json))
-        .expect("Can't parse the `/keys/upload` response");
-
+    let kq_response = ruma_response_from_json(&json);
     alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
     bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
 
@@ -317,9 +310,8 @@ async fn test_verification_states_multiple_device() {
 
     let other_user_id = user_id!("@web2:localhost:8482");
 
-    let data = response_from_file(&test_json::KEYS_QUERY_TWO_DEVICES_ONE_SIGNED);
-    let response = get_keys::v3::Response::try_from_http_response(data)
-        .expect("Can't parse the `/keys/upload` response");
+    let json = &test_json::KEYS_QUERY_TWO_DEVICES_ONE_SIGNED;
+    let response = ruma_response_from_json(json);
 
     let (device_change, identity_change) =
         bob.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
