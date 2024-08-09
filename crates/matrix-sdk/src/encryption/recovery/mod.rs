@@ -669,4 +669,9 @@ impl IdentityResetHandle {
 
         Ok(())
     }
+
+    /// Cancel the ongoing identity reset process
+    pub async fn cancel(&self) {
+        self.cross_signing_reset_handle.cancel().await;
+    }
 }
