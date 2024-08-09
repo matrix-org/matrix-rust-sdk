@@ -591,6 +591,12 @@ mod tests {
         assert_eq!(code, &WithheldCode::Unverified);
     }
 
+    // Variation of `test_share_with_per_device_strategy_only_trusted` to ensure
+    // that there is no unwanted interactions between
+    // `only_allow_trusted_devices` and
+    // `error_on_unsigned_device_of_verified_users`. Given that we only
+    // distribute to trusted devices there is no point in throwing errors for
+    // untrusted devices.
     #[async_test]
     async fn test_share_with_per_device_strategy_only_trusted_error_on_unsigned_of_verified() {
         let machine = set_up_test_machine().await;

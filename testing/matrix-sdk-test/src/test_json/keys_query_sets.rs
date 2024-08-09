@@ -713,7 +713,8 @@ impl PreviouslyVerifiedTestData {
 
     /// Current user keys query response containing the cross-signing keys.
     /// Contains also two additional devices, one unsigned (with device id
-    /// [`Self::own_unsigned_device_id`]) and one signed (with device id [`Self::own_signed_device_id`]).
+    /// [`Self::own_unsigned_device_id`]) and one signed (with device id
+    /// [`Self::own_signed_device_id`]).
     pub fn own_keys_query_response_1() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -844,7 +845,8 @@ impl PreviouslyVerifiedTestData {
     }
 
     /// Key query response for bob signed by own identity.
-    /// Contains two devices, see [`Self::bob_device_1_id`] and [`Self::bob_device_2_id`]
+    /// Contains two devices, see [`Self::bob_device_1_id`] and
+    /// [`Self::bob_device_2_id`]
     pub fn bob_keys_query_response_signed() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
