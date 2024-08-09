@@ -24,7 +24,7 @@ use matrix_sdk::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
         BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
     },
-    deserialized_responses::ShieldState as RustShieldState,
+    deserialized_responses::{ShieldState as RustShieldState, ShieldStateCode},
     Error,
 };
 use matrix_sdk_ui::timeline::{
@@ -929,10 +929,10 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
 pub enum ShieldState {
     /// A red shield with a tooltip containing the associated message should be
     /// presented.
-    Red { message: String },
+    Red { code: ShieldStateCode, message: String },
     /// A grey shield with a tooltip containing the associated message should be
     /// presented.
-    Grey { message: String },
+    Grey { code: ShieldStateCode, message: String },
     /// No shield should be presented.
     None,
 }
@@ -940,8 +940,12 @@ pub enum ShieldState {
 impl From<RustShieldState> for ShieldState {
     fn from(value: RustShieldState) -> Self {
         match value {
-            RustShieldState::Red { message } => Self::Red { message: message.to_owned() },
-            RustShieldState::Grey { message } => Self::Grey { message: message.to_owned() },
+            RustShieldState::Red { code, message } => {
+                Self::Red { code, message: message.to_owned() }
+            }
+            RustShieldState::Grey { code, message } => {
+                Self::Grey { code, message: message.to_owned() }
+            }
             RustShieldState::None => Self::None,
         }
     }

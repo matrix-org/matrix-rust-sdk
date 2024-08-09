@@ -15,7 +15,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::{crypto::types::events::UtdCause, room::power_levels::power_level_user_changes};
-use matrix_sdk_ui::timeline::{PollResult, TimelineDetails};
+use matrix_sdk_ui::timeline::{PollResult, RoomPinnedEventsChange, TimelineDetails};
 use ruma::events::room::{message::RoomMessageEventContentWithoutRelation, MediaSource};
 use tracing::warn;
 
@@ -338,7 +338,7 @@ pub enum OtherState {
     RoomHistoryVisibility,
     RoomJoinRules,
     RoomName { name: Option<String> },
-    RoomPinnedEvents,
+    RoomPinnedEvents { change: RoomPinnedEventsChange },
     RoomPowerLevels { users: HashMap<String, i64>, previous: Option<HashMap<String, i64>> },
     RoomServerAcl,
     RoomThirdPartyInvite { display_name: Option<String> },
@@ -381,7 +381,7 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
                 };
                 Self::RoomName { name }
             }
-            Content::RoomPinnedEvents(_) => Self::RoomPinnedEvents,
+            Content::RoomPinnedEvents(c) => Self::RoomPinnedEvents { change: c.into() },
             Content::RoomPowerLevels(c) => match c {
                 FullContent::Original { content, prev_content } => Self::RoomPowerLevels {
                     users: power_level_user_changes(content, prev_content)

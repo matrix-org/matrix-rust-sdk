@@ -248,8 +248,7 @@ impl Room {
     }
 
     pub async fn clear_pinned_events_cache(&self) {
-        let pinned_event_ids = self.inner.pinned_event_ids();
-        self.inner.client().pinned_event_cache().remove_bulk(&pinned_event_ids).await;
+        self.inner.clear_pinned_events().await;
     }
 
     pub fn is_encrypted(&self) -> Result<bool, ClientError> {

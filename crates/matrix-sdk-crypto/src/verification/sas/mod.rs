@@ -912,7 +912,11 @@ mod tests {
 
         let alice_store = VerificationStore {
             account: alice.static_data.clone(),
-            inner: Arc::new(CryptoStoreWrapper::new(alice.user_id(), MemoryStore::new())),
+            inner: Arc::new(CryptoStoreWrapper::new(
+                alice.user_id(),
+                alice_device_id(),
+                MemoryStore::new(),
+            )),
             private_identity: Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())).into(),
         };
 
@@ -921,7 +925,7 @@ mod tests {
 
         let bob_store = VerificationStore {
             account: bob.static_data.clone(),
-            inner: Arc::new(CryptoStoreWrapper::new(bob.user_id(), bob_store)),
+            inner: Arc::new(CryptoStoreWrapper::new(bob.user_id(), bob_device_id(), bob_store)),
             private_identity: Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())).into(),
         };
 

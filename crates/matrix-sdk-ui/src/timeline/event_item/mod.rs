@@ -22,7 +22,7 @@ use matrix_sdk::{
     Client, Error,
 };
 use matrix_sdk_base::{
-    deserialized_responses::{SyncTimelineEvent, SENT_IN_CLEAR},
+    deserialized_responses::{ShieldStateCode, SyncTimelineEvent, SENT_IN_CLEAR},
     latest_event::LatestEvent,
 };
 use once_cell::sync::Lazy;
@@ -41,8 +41,8 @@ mod remote;
 pub use self::{
     content::{
         AnyOtherFullStateEventContent, EncryptedMessage, InReplyToDetails, MemberProfileChange,
-        MembershipChange, Message, OtherState, RepliedToEvent, RoomMembershipChange, Sticker,
-        TimelineItemContent,
+        MembershipChange, Message, OtherState, RepliedToEvent, RoomMembershipChange,
+        RoomPinnedEventsChange, Sticker, TimelineItemContent,
     },
     local::EventSendState,
 };
@@ -382,7 +382,10 @@ impl EventTimelineItem {
                     Some(info.verification_state.to_shield_state_lax())
                 }
             }
-            None => Some(ShieldState::Grey { message: SENT_IN_CLEAR }),
+            None => Some(ShieldState::Red {
+                code: ShieldStateCode::SentInClear,
+                message: SENT_IN_CLEAR,
+            }),
         }
     }
 

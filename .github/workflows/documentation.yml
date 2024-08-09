@@ -23,7 +23,6 @@ jobs:
   docs:
     name: All crates
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
       - name: Checkout repository

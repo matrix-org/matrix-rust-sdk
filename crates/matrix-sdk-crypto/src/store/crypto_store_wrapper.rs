@@ -3,17 +3,17 @@ use std::{future, ops::Deref, sync::Arc};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_common::store_locks::CrossProcessStoreLock;
-use ruma::{OwnedUserId, UserId};
-use tokio::sync::broadcast;
+use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
+use tokio::sync::{broadcast, Mutex};
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
-use tracing::warn;
+use tracing::{debug, trace, warn};
 
-use super::{DeviceChanges, IdentityChanges, LockableCryptoStore};
+use super::{caches::SessionStore, DeviceChanges, IdentityChanges, LockableCryptoStore};
 use crate::{
     olm::InboundGroupSession,
     store,
     store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
-    GossippedSecret, OwnUserIdentityData,
+    CryptoStoreError, GossippedSecret, OwnUserIdentityData, Session, UserIdentityData,
 };
 
 /// A wrapper for crypto store implementations that adds update notifiers.
@@ -23,7 +23,12 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct CryptoStoreWrapper {
     user_id: OwnedUserId,
+    device_id: OwnedDeviceId,
+
     store: Arc<DynCryptoStore>,
+
+    /// A cache for the Olm Sessions.
+    sessions: SessionStore,
 
     /// The sender side of a broadcast stream that is notified whenever we get
     /// an update to an inbound group session.
@@ -44,7 +49,7 @@ pub(crate) struct CryptoStoreWrapper {
 }
 
 impl CryptoStoreWrapper {
-    pub(crate) fn new(user_id: &UserId, store: impl IntoCryptoStore) -> Self {
+    pub(crate) fn new(user_id: &UserId, device_id: &DeviceId, store: impl IntoCryptoStore) -> Self {
         let room_keys_received_sender = broadcast::Sender::new(10);
         let room_keys_withheld_received_sender = broadcast::Sender::new(10);
         let secrets_broadcaster = broadcast::Sender::new(10);
@@ -54,7 +59,9 @@ impl CryptoStoreWrapper {
 
         Self {
             user_id: user_id.to_owned(),
+            device_id: device_id.to_owned(),
             store: store.into_crypto_store(),
+            sessions: SessionStore::new(),
             room_keys_received_sender,
             room_keys_withheld_received_sender,
             secrets_broadcaster,
@@ -86,9 +93,36 @@ impl CryptoStoreWrapper {
             })
             .collect();
 
+        // If our own identity verified status changes we need to do some checks on
+        // other identities. So remember the verification status before
+        // processing the changes
+        let own_identity_was_verified_before_change = self
+            .store
+            .get_user_identity(self.user_id.as_ref())
+            .await?
+            .as_ref()
+            .and_then(|i| i.own())
+            .map_or(false, |own| own.is_verified());
+
         let secrets = changes.secrets.to_owned();
         let devices = changes.devices.to_owned();
         let identities = changes.identities.to_owned();
+
+        if devices
+            .changed
+            .iter()
+            .any(|d| d.user_id() == self.user_id && d.device_id() == self.device_id)
+        {
+            // If our own device key changes, we need to clear the
+            // session cache because the sessions contain a copy of our
+            // device key.
+            self.sessions.clear().await;
+        } else {
+            // Otherwise add the sessions to the cache.
+            for session in &changes.sessions {
+                self.sessions.add(session.clone()).await;
+            }
+        }
 
         self.store.save_changes(changes).await?;
 
@@ -109,13 +143,102 @@ impl CryptoStoreWrapper {
             // Mapping the devices and user identities from the read-only variant to one's
             // that contain side-effects requires our own identity. This is
             // guaranteed to be up-to-date since we just persisted it.
-            let own_identity =
+            let maybe_own_identity =
                 self.store.get_user_identity(&self.user_id).await?.and_then(|i| i.into_own());
 
-            let _ = self.identities_broadcaster.send((own_identity, identities, devices));
+            // If our identity was not verified before the change and is now, that means
+            // this could impact the verification chain of other known
+            // identities.
+            if let Some(own_identity_after) = maybe_own_identity.as_ref() {
+                // Only do this if our identity is passing from not verified to verified,
+                // the previously_verified can only change in that case.
+                if !own_identity_was_verified_before_change && own_identity_after.is_verified() {
+                    debug!("Own identity is now verified, check all known identities for verification status changes");
+                    // We need to review all the other identities to see if they are verified now
+                    // and mark them as such
+                    self.check_all_identities_and_update_was_previously_verified_flag_if_needed(
+                        own_identity_after,
+                    )
+                    .await?;
+                }
+            }
+
+            let _ = self.identities_broadcaster.send((maybe_own_identity, identities, devices));
         }
 
         Ok(())
+    }
+
+    async fn check_all_identities_and_update_was_previously_verified_flag_if_needed(
+        &self,
+        own_identity_after: &OwnUserIdentityData,
+    ) -> Result<(), CryptoStoreError> {
+        let tracked_users = self.store.load_tracked_users().await?;
+        let mut updated_identities: Vec<UserIdentityData> = Default::default();
+        for tracked_user in tracked_users {
+            if let Some(other_identity) = self
+                .store
+                .get_user_identity(tracked_user.user_id.as_ref())
+                .await?
+                .as_ref()
+                .and_then(|i| i.other())
+            {
+                if !other_identity.was_previously_verified()
+                    && own_identity_after.is_identity_signed(other_identity).is_ok()
+                {
+                    trace!(?tracked_user.user_id, "Marking set verified_latch to true.");
+                    other_identity.mark_as_previously_verified();
+                    updated_identities.push(other_identity.clone().into());
+                }
+            }
+        }
+
+        if !updated_identities.is_empty() {
+            let identity_changes =
+                IdentityChanges { changed: updated_identities, ..Default::default() };
+            self.store
+                .save_changes(Changes {
+                    identities: identity_changes.clone(),
+                    ..Default::default()
+                })
+                .await?;
+
+            let _ = self.identities_broadcaster.send((
+                Some(own_identity_after.clone()),
+                identity_changes,
+                DeviceChanges::default(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub async fn get_sessions(
+        &self,
+        sender_key: &str,
+    ) -> store::Result<Option<Arc<Mutex<Vec<Session>>>>> {
+        let sessions = self.sessions.get(sender_key).await;
+
+        let sessions = if sessions.is_none() {
+            let mut entries = self.sessions.entries.write().await;
+
+            let sessions = entries.get(sender_key);
+
+            if sessions.is_some() {
+                sessions.cloned()
+            } else {
+                let sessions = self.store.get_sessions(sender_key).await?;
+                let sessions = Arc::new(Mutex::new(sessions.unwrap_or_default()));
+
+                entries.insert(sender_key.to_owned(), sessions.clone());
+
+                Some(sessions)
+            }
+        } else {
+            sessions
+        };
+
+        Ok(sessions)
     }
 
     /// Save a list of inbound group sessions to the store.
@@ -230,5 +353,55 @@ impl Deref for CryptoStoreWrapper {
 
     fn deref(&self) -> &Self::Target {
         self.store.deref()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use matrix_sdk_test::async_test;
+    use ruma::user_id;
+
+    use super::*;
+    use crate::machine::test_helpers::get_machine_pair_with_setup_sessions_test_helper;
+
+    #[async_test]
+    async fn cache_cleared_after_device_update() {
+        let user_id = user_id!("@alice:example.com");
+        let (first, second) =
+            get_machine_pair_with_setup_sessions_test_helper(user_id, user_id, false).await;
+
+        let sender_key = second.identity_keys().curve25519.to_base64();
+
+        first
+            .store()
+            .inner
+            .store
+            .sessions
+            .get(&sender_key)
+            .await
+            .expect("We should have a session in the cache.");
+
+        let device_data = first
+            .get_device(user_id, first.device_id(), None)
+            .await
+            .unwrap()
+            .expect("We should have access to our own device.")
+            .inner;
+
+        // When we save a new version of our device keys
+        first
+            .store()
+            .save_changes(Changes {
+                devices: DeviceChanges { changed: vec![device_data], ..Default::default() },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Then the session is no longer in the cache
+        assert!(
+            first.store().inner.store.sessions.get(&sender_key).await.is_none(),
+            "The session should no longer be in the cache after our own device keys changed"
+        );
     }
 }

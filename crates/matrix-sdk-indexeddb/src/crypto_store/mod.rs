@@ -27,8 +27,8 @@ use matrix_sdk_crypto::{
         PrivateCrossSigningIdentity, Session, StaticAccountData,
     },
     store::{
-        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, PendingChanges,
-        RoomKeyCounts, RoomSettings,
+        BackupKeys, Changes, CryptoStore, CryptoStoreError, PendingChanges, RoomKeyCounts,
+        RoomSettings,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     vodozemac::base64_encode,
@@ -112,7 +112,6 @@ pub struct IndexeddbCryptoStore {
     pub(crate) inner: IdbDatabase,
 
     serializer: IndexeddbSerializer,
-    session_cache: SessionStore,
     save_changes_lock: Arc<Mutex<()>>,
 }
 
@@ -261,11 +260,9 @@ impl IndexeddbCryptoStore {
         let serializer = IndexeddbSerializer::new(store_cipher);
         debug!("IndexedDbCryptoStore: opening main store {name}");
         let db = open_and_upgrade_db(&name, &serializer).await?;
-        let session_cache = SessionStore::new();
 
         Ok(Self {
             name,
-            session_cache,
             inner: db,
             serializer,
             static_account: RwLock::new(None),
@@ -462,10 +459,7 @@ impl IndexeddbCryptoStore {
     /// Returns a tuple where the first item is a `PendingIndexeddbChanges`
     /// struct, and the second item is a boolean indicating whether the session
     /// cache should be cleared.
-    async fn prepare_for_transaction(
-        &self,
-        changes: &Changes,
-    ) -> Result<(PendingIndexeddbChanges, bool)> {
+    async fn prepare_for_transaction(&self, changes: &Changes) -> Result<PendingIndexeddbChanges> {
         let mut indexeddb_changes = PendingIndexeddbChanges::new();
 
         let private_identity_pickle =
@@ -553,17 +547,7 @@ impl IndexeddbCryptoStore {
 
         let mut device_store = indexeddb_changes.get(keys::DEVICES);
 
-        let account_info = self.get_static_account();
-        let mut clear_caches = false;
         for device in device_changes.new.iter().chain(&device_changes.changed) {
-            // If our own device key changes, we need to clear the session
-            // cache because the sessions contain a copy of our device key, and
-            // we want the sessions to use the new version.
-            if account_info.as_ref().is_some_and(|info| {
-                info.user_id == device.user_id() && info.device_id == device.device_id()
-            }) {
-                clear_caches = true;
-            }
             let key =
                 self.serializer.encode_key(keys::DEVICES, (device.user_id(), device.device_id()));
             let device = self.serializer.serialize_value(&device)?;
@@ -646,7 +630,7 @@ impl IndexeddbCryptoStore {
             }
         }
 
-        Ok((indexeddb_changes, clear_caches))
+        Ok(indexeddb_changes)
     }
 }
 
@@ -726,7 +710,7 @@ impl_crypto_store! {
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
 
-        let (indexeddb_changes, clear_caches) = self.prepare_for_transaction(&changes).await?;
+        let indexeddb_changes = self.prepare_for_transaction(&changes).await?;
 
         let stores = indexeddb_changes.touched_stores();
 
@@ -741,17 +725,6 @@ impl_crypto_store! {
         indexeddb_changes.apply(&tx)?;
 
         tx.await.into_result()?;
-
-        if clear_caches {
-            self.clear_caches().await;
-        } else {
-            // All good, let's update our caches:indexeddb.
-            // We only do this if clear_caches is false, because the sessions may
-            // have been created using old device_keys.
-            for session in changes.sessions {
-                self.session_cache.add(session).await;
-            }
-        }
 
         Ok(())
     }
@@ -894,15 +867,14 @@ impl_crypto_store! {
         }
     }
 
-    async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        if self.session_cache.get(sender_key).is_none() {
+    async fn get_sessions(&self, sender_key: &str) -> Result<Option<Vec<Session>>> {
             let device_keys = self.get_own_device()
                 .await?
                 .as_device_keys()
                 .clone();
 
-            let range = self.serializer.encode_to_range(keys::SESSION, sender_key)?;
-            let sessions: Vec<Session> = self
+        let range = self.serializer.encode_to_range(keys::SESSION, sender_key)?;
+        let sessions: Vec<Session> = self
                 .inner
                 .transaction_on_one_with_mode(keys::SESSION, IdbTransactionMode::Readonly)?
                 .object_store(keys::SESSION)?
@@ -918,10 +890,11 @@ impl_crypto_store! {
                 }))
                 .collect::<Result<Vec<Session>>>()?;
 
-            self.session_cache.set_for_sender(sender_key, sessions);
+        if sessions.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(sessions))
         }
-
-        Ok(self.session_cache.get(sender_key))
     }
 
     async fn get_inbound_group_session(
@@ -1375,13 +1348,6 @@ impl_crypto_store! {
             }
         }
     }
-
-    #[allow(clippy::unused_async)] // Mandated by trait on wasm.
-    async fn clear_caches(&self) {
-        self.session_cache.clear()
-        // We don't need to clear `static_account` as it only contains immutable data
-        // therefore cannot get out of sync with the underlying store.
-    }
 }
 
 impl Drop for IndexeddbCryptoStore {
@@ -1764,44 +1730,6 @@ mod tests {
                 .expect("Can't create store without passphrase"),
         }
     }
-
-    #[async_test]
-    async fn cache_cleared_after_device_update() {
-        let store = get_store("cache_cleared_after_device_update", None, true).await;
-        // Given we created a session and saved it in the store
-        let (account, session) = cryptostore_integration_tests::get_account_and_session().await;
-        let sender_key = session.sender_key.to_base64();
-
-        store
-            .save_pending_changes(PendingChanges { account: Some(account.deep_clone()) })
-            .await
-            .expect("Can't save account");
-
-        let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
-        store.save_changes(changes).await.unwrap();
-
-        store.session_cache.get(&sender_key).expect("We should have a session");
-
-        // When we save a new version of our device keys
-        store
-            .save_changes(Changes {
-                devices: DeviceChanges {
-                    new: vec![DeviceData::from_account(&account)],
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-            .await
-            .unwrap();
-
-        // Then the session is no longer in the cache
-        assert!(
-            store.session_cache.get(&sender_key).is_none(),
-            "Session should not be in the cache!"
-        );
-    }
-
-    cryptostore_integration_tests!();
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]

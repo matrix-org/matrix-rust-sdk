@@ -58,6 +58,9 @@ use tracing::warn;
 use crate::timeline::{polls::PollState, TimelineItem};
 
 mod message;
+pub(crate) mod pinned_events;
+
+pub use pinned_events::RoomPinnedEventsChange;
 
 pub use self::message::{InReplyToDetails, Message, RepliedToEvent};
 

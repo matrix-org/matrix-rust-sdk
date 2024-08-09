@@ -270,19 +270,8 @@ pub fn get_element_call_required_permissions(
 
     WidgetCapabilities {
         read: vec![
-            // This is required for legacy state events (using one event and a membership array)
-            // TODO: remove once legacy call members are sunset
+            // To compute the current state of the matrixRTC session.
             WidgetEventFilter::StateWithType { event_type: StateEventType::CallMember.to_string() },
-            // [MSC3779](https://github.com/matrix-org/matrix-spec-proposals/pull/3779) version, with no leading underscore
-            WidgetEventFilter::StateWithTypeAndStateKey {
-                event_type: StateEventType::CallMember.to_string(),
-                state_key: format!("@{}_{}", own_user_id, own_device_id),
-            },
-            // The same as above but with an underscore
-            WidgetEventFilter::StateWithTypeAndStateKey {
-                event_type: StateEventType::CallMember.to_string(),
-                state_key: format!("_@{}_{}", own_user_id, own_device_id),
-            },
             // To detect leaving/kicked room members during a call.
             WidgetEventFilter::StateWithType { event_type: StateEventType::RoomMember.to_string() },
             // To decide whether to encrypt the call streams based on the room encryption setting.
@@ -303,10 +292,26 @@ pub fn get_element_call_required_permissions(
             WidgetEventFilter::StateWithType { event_type: StateEventType::RoomCreate.to_string() },
         ],
         send: vec![
-            // To send the call participation state event (main MatrixRTC event)
+            // To send the call participation state event (main MatrixRTC event).
+            // This is required for legacy state events (using only one event for all devices with
+            // a membership array). TODO: remove once legacy call member events are
+            // sunset.
             WidgetEventFilter::StateWithTypeAndStateKey {
                 event_type: StateEventType::CallMember.to_string(),
-                state_key: own_user_id,
+                state_key: own_user_id.clone(),
+            },
+            // `delayed_event`` version for session memberhips
+            // [MSC3779](https://github.com/matrix-org/matrix-spec-proposals/pull/3779), with no leading underscore.
+            WidgetEventFilter::StateWithTypeAndStateKey {
+                event_type: StateEventType::CallMember.to_string(),
+                state_key: format!("{own_user_id}_{own_device_id}"),
+            },
+            // The same as above but with an underscore.
+            // To work around the issue that state events starting with `@` have to be matrix id's
+            // but we use mxId+deviceId.
+            WidgetEventFilter::StateWithTypeAndStateKey {
+                event_type: StateEventType::CallMember.to_string(),
+                state_key: format!("_{own_user_id}_{own_device_id}"),
             },
             // To request other room members to send rageshakes
             WidgetEventFilter::MessageLikeWithType {
@@ -533,5 +538,56 @@ impl From<url::ParseError> for ParseError {
             url::ParseError::Overflow => Self::Overflow,
             _ => Self::Other,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk::widget::Capabilities;
+
+    use super::get_element_call_required_permissions;
+
+    #[test]
+    fn element_call_permissions_are_correct() {
+        let widget_cap = get_element_call_required_permissions(
+            "@my_user:my_domain.org".to_owned(),
+            "ABCDEFGHI".to_owned(),
+        );
+
+        // We test two things:
+
+        // Converting the WidgetCapability (ffi struct) to Capabilities (rust sdk
+        // struct)
+        let cap = Into::<Capabilities>::into(widget_cap);
+        // Converting Capabilities (rust sdk struct) to a json list.
+        let cap_json_repr = serde_json::to_string(&cap).unwrap();
+
+        // Converting to a Vec<String> allows to check if the required elements exist
+        // without breaking the test each time the order of permissions might
+        // change.
+        let permission_array: Vec<String> = serde_json::from_str(&cap_json_repr).unwrap();
+
+        let cap_assert = |capability: &str| {
+            assert!(
+                permission_array.contains(&capability.to_owned()),
+                "The \"{}\" capability was missing from the element call capability list.",
+                capability
+            );
+        };
+
+        cap_assert("io.element.requires_client");
+        cap_assert("org.matrix.msc4157.update_delayed_event");
+        cap_assert("org.matrix.msc4157.send.delayed_event");
+        cap_assert("org.matrix.msc2762.receive.state_event:org.matrix.msc3401.call.member");
+        cap_assert("org.matrix.msc2762.receive.state_event:m.room.member");
+        cap_assert("org.matrix.msc2762.receive.state_event:m.room.encryption");
+        cap_assert("org.matrix.msc2762.receive.event:org.matrix.rageshake_request");
+        cap_assert("org.matrix.msc2762.receive.event:io.element.call.encryption_keys");
+        cap_assert("org.matrix.msc2762.receive.state_event:m.room.create");
+        cap_assert("org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@my_user:my_domain.org");
+        cap_assert("org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@my_user:my_domain.org_ABCDEFGHI");
+        cap_assert("org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#_@my_user:my_domain.org_ABCDEFGHI");
+        cap_assert("org.matrix.msc2762.send.event:org.matrix.rageshake_request");
+        cap_assert("org.matrix.msc2762.send.event:io.element.call.encryption_keys");
     }
 }

@@ -1177,7 +1177,7 @@ mod tests {
         let device_id = DeviceId::new();
 
         let account = Account::with_device_id(&user_id, &device_id);
-        let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
+        let store = Arc::new(CryptoStoreWrapper::new(&user_id, &device_id, MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification =
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
@@ -1197,7 +1197,8 @@ mod tests {
         let another_device =
             DeviceData::from_account(&Account::with_device_id(&user_id, alice2_device_id()));
 
-        let store = Arc::new(CryptoStoreWrapper::new(&user_id, MemoryStore::new()));
+        let store =
+            Arc::new(CryptoStoreWrapper::new(&user_id, account.device_id(), MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification =
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
@@ -1936,7 +1937,8 @@ mod tests {
         use tokio_stream::StreamExt;
 
         use crate::{
-            machine::tests::get_machine_pair_with_setup_sessions_test_helper, EncryptionSyncChanges,
+            machine::test_helpers::get_machine_pair_with_setup_sessions_test_helper,
+            EncryptionSyncChanges,
         };
 
         let alice_id = user_id!("@alice:localhost");

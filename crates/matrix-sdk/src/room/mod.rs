@@ -389,9 +389,19 @@ impl Room {
 
     /// Fetch the event with the given `EventId` in this room.
     pub async fn event(&self, event_id: &EventId) -> Result<TimelineEvent> {
+        self.event_with_config(event_id, None).await
+    }
+
+    /// Fetch the event with the given `EventId` in this room, using the
+    /// provided  `RequestConfig`.
+    pub async fn event_with_config(
+        &self,
+        event_id: &EventId,
+        request_config: Option<RequestConfig>,
+    ) -> Result<TimelineEvent> {
         let request =
             get_room_event::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
-        let event = self.client.send(request, None).await?.event;
+        let event = self.client.send(request, request_config).await?.event;
         self.try_decrypt_event(event).await
     }
 
@@ -2350,6 +2360,12 @@ impl Room {
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_trigger_room_notification(&self, user_id: &UserId) -> Result<bool> {
         Ok(self.room_power_levels().await?.user_can_trigger_room_notification(user_id))
+    }
+
+    /// Removes the cached pinned events associated with this room.
+    pub async fn clear_pinned_events(&self) {
+        let pinned_event_ids = self.pinned_event_ids();
+        self.client.inner.pinned_event_cache.remove_bulk(&pinned_event_ids).await;
     }
 
     /// Get a list of servers that should know this room.

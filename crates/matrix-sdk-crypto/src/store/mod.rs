@@ -345,7 +345,6 @@ impl<'a> SyncedKeyQueryManager<'a> {
 #[derive(Debug)]
 pub(crate) struct StoreCache {
     store: Arc<CryptoStoreWrapper>,
-
     tracked_users: StdRwLock<BTreeSet<OwnedUserId>>,
     loaded_tracked_users: RwLock<bool>,
     account: Mutex<Option<Account>>,
@@ -1008,6 +1007,13 @@ impl Store {
         let changes = Changes { sessions: sessions.to_vec(), ..Default::default() };
 
         self.save_changes(changes).await
+    }
+
+    pub(crate) async fn get_sessions(
+        &self,
+        sender_key: &str,
+    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
+        self.inner.store.get_sessions(sender_key).await
     }
 
     pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()> {
@@ -1935,7 +1941,7 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{room_id, user_id};
 
-    use crate::{machine::tests::get_machine_pair, types::EventEncryptionAlgorithm};
+    use crate::{machine::test_helpers::get_machine_pair, types::EventEncryptionAlgorithm};
 
     #[async_test]
     async fn import_room_keys_notifies_stream() {
