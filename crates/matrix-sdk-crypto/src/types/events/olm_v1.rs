@@ -148,6 +148,17 @@ impl AnyDecryptedOlmEvent {
             AnyDecryptedOlmEvent::Dummy(e) => e.content.event_type(),
         }
     }
+
+    /// The sender's device keys, if supplied in the message as per MSC4147
+    pub fn sender_device_keys(&self) -> Option<&DeviceKeys> {
+        match self {
+            AnyDecryptedOlmEvent::Custom(_) => None,
+            AnyDecryptedOlmEvent::RoomKey(e) => e.device_keys.as_ref(),
+            AnyDecryptedOlmEvent::ForwardedRoomKey(e) => e.device_keys.as_ref(),
+            AnyDecryptedOlmEvent::SecretSend(e) => e.device_keys.as_ref(),
+            AnyDecryptedOlmEvent::Dummy(e) => e.device_keys.as_ref(),
+        }
+    }
 }
 
 /// An `m.olm.v1.curve25519-aes-sha2` decrypted to-device event.
