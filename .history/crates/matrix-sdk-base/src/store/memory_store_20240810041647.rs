@@ -55,12 +55,46 @@ use crate::{
 /// Default if no other is configured at startup.
 #[allow(clippy::type_complexity)]
 #[derive(Debug)]
-
-struct MemoryStore(Mutex<MemoryStoreInner>);
-
-struct MemoryStoreInner {
-  recently_visited_rooms: HashMap<OwnedUserId, Vec<OwnedRoomId>>,
-  // etc.
+pub struct MemoryStore {
+    recently_visited_rooms: StdRwLock<HashMap<OwnedUserId, Vec<OwnedRoomId>>>,
+    composer_drafts: StdRwLock<HashMap<OwnedRoomId, ComposerDraft>>,
+    user_avatar_url: StdRwLock<HashMap<OwnedUserId, OwnedMxcUri>>,
+    sync_token: StdRwLock<Option<String>>,
+    server_capabilities: StdRwLock<Option<ServerCapabilities>>,
+    filters: StdRwLock<HashMap<String, String>>,
+    utd_hook_manager_data: StdRwLock<Option<GrowableBloom>>,
+    account_data: StdRwLock<HashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
+    profiles: StdRwLock<HashMap<OwnedRoomId, HashMap<OwnedUserId, MinimalRoomMemberEvent>>>,
+    display_names: StdRwLock<HashMap<OwnedRoomId, HashMap<String, BTreeSet<OwnedUserId>>>>,
+    members: StdRwLock<HashMap<OwnedRoomId, HashMap<OwnedUserId, MembershipState>>>,
+    room_info: StdRwLock<HashMap<OwnedRoomId, RoomInfo>>,
+    room_state: StdRwLock<
+        HashMap<OwnedRoomId, HashMap<StateEventType, HashMap<String, Raw<AnySyncStateEvent>>>>,
+    >,
+    room_account_data: StdRwLock<
+        HashMap<OwnedRoomId, HashMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>,
+    >,
+    stripped_room_state: StdRwLock<
+        HashMap<OwnedRoomId, HashMap<StateEventType, HashMap<String, Raw<AnyStrippedStateEvent>>>>,
+    >,
+    stripped_members: StdRwLock<HashMap<OwnedRoomId, HashMap<OwnedUserId, MembershipState>>>,
+    presence: StdRwLock<HashMap<OwnedUserId, Raw<PresenceEvent>>>,
+    room_user_receipts: StdRwLock<
+        HashMap<
+            OwnedRoomId,
+            HashMap<(String, Option<String>), HashMap<OwnedUserId, (OwnedEventId, Receipt)>>,
+        >,
+    >,
+    room_event_receipts: StdRwLock<
+        HashMap<
+            OwnedRoomId,
+            HashMap<(String, Option<String>), HashMap<OwnedEventId, HashMap<OwnedUserId, Receipt>>>,
+        >,
+    >,
+    media: StdRwLock<RingBuffer<(OwnedMxcUri, String /* unique key */, Vec<u8>)>>,
+    custom: StdRwLock<HashMap<Vec<u8>, Vec<u8>>>,
+    send_queue_events: StdRwLock<BTreeMap<OwnedRoomId, Vec<QueuedEvent>>>,
+    dependent_send_queue_events: StdRwLock<BTreeMap<OwnedRoomId, Vec<DependentQueuedEvent>>>,
 }
 
 // SAFETY: `new_unchecked` is safe because 20 is not zero.
