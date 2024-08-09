@@ -668,6 +668,20 @@ impl IdentityChangeDataSet {
     }
 }
 
+/// This set of keys/query response was generated using a local synapse.
+///
+/// The current user is `@alice:localhost`, the private part of the
+/// cross-signing keys have been exported using the console with the
+/// following snippet:  `await mxMatrixClientPeg.get().getCrypto().
+/// olmMachine.exportCrossSigningKeys()`.
+///
+/// This set was initially created to simulate when a user that was verified
+/// reset his keys and became unverified.
+///
+/// There are 2 other users `@bob:localhost` and `@carol:localhost`, each of
+/// them with a keys/query response signed by alice and a new one not signed.
+/// Bob and Carol both have 2 devices, one cross-signed and another one not
+/// cross-signed.
 pub struct PreviouslyVerifiedTestData {}
 
 #[allow(dead_code)]
@@ -690,9 +704,65 @@ impl PreviouslyVerifiedTestData {
         user_id!("@carol:localhost")
     }
 
-    /// Current user keys query response containing the cross-signing keys
+    pub fn own_unsigned_device_id() -> &'static DeviceId {
+        device_id!("AHIVRZICJK")
+    }
+    pub fn own_signed_device_id() -> &'static DeviceId {
+        device_id!("LCNRWQAVWK")
+    }
+
+    /// Current user keys query response containing the cross-signing keys.
+    /// Contains also two additional devices, one unsigned (with device id
+    /// [`Self::own_unsigned_device_id`]) and one signed (with device id
+    /// [`Self::own_signed_device_id`]).
     pub fn own_keys_query_response_1() -> KeyQueryResponse {
         let data = json!({
+            "device_keys": {
+                "@alice:localhost": {
+                    "AHIVRZICJK": {
+                        "algorithms": [
+                            "m.olm.v1.curve25519-aes-sha2",
+                            "m.megolm.v1.aes-sha2"
+                        ],
+                        "device_id": "AHIVRZICJK",
+                        "keys": {
+                            "curve25519:AHIVRZICJK": "3U73fbymtt6sn/H+5UYHiQxN2HfDmxzOMYZ+3JyPT2E",
+                            "ed25519:AHIVRZICJK": "I0NV5nJYmnH+f5py4Fz2tdCeSKUChaaXV7m4UOq9bis"
+                        },
+                        "signatures": {
+                            "@alice:localhost": {
+                                "ed25519:AHIVRZICJK": "HIs13b2GizN8gdZrYLWs9KZbcmKubXE+O4716Uow513e84JO8REy53OX4TDdoBfmVhPiZg5CIRrUDH7JxY4wAQ"
+                            }
+                        },
+                        "user_id": "@alice:localhost",
+                        "unsigned": {
+                            "device_display_name": "Element - dbg Android"
+                        }
+                    },
+                    "LCNRWQAVWK": {
+                        "algorithms": [
+                            "m.olm.v1.curve25519-aes-sha2",
+                            "m.megolm.v1.aes-sha2"
+                        ],
+                        "device_id": "LCNRWQAVWK",
+                        "keys": {
+                            "curve25519:LCNRWQAVWK": "fULFq9I6uYmsdDwRFU76wc43RqF7TVGvlWvKXhSrsS4",
+                            "ed25519:LCNRWQAVWK": "F7E0EF0lzVJN31cnetLdeBuNvZ8jQqkUzt8/nGD9M/E"
+                        },
+                        "signatures": {
+                            "@alice:localhost": {
+                                "ed25519:LCNRWQAVWK": "8kLsN76ytGRuHKMgIARaOds29QrPRzQ6Px+FOLsYK/ATmx5IVd65MpSh2pGjLAaPsSGWR1WLbBTq/LZtcpjTDQ",
+                                "ed25519:WXLer0esHUanp8DCeu2Be0xB5ms9aKFFBrCFl50COjw": "lo4Vuuu+WvPt1hnOCv30iS1y/cF7DljfFZYF3ib5JH/6iPZTW4jYdlmWo4a7hDf0fb2pu3EFnghYMr7vVx41Aw"
+                            }
+                        },
+                        "user_id": "@alice:localhost",
+                        "unsigned": {
+                            "device_display_name": "develop.element.io: Chrome on macOSr"
+                        }
+                    }
+                }
+            },
+            "failures": {},
             "master_keys": {
                 "@alice:localhost": {
                     "keys": {
@@ -750,6 +820,7 @@ impl PreviouslyVerifiedTestData {
             .expect("Can't parse the `/keys/upload` response")
     }
 
+    // Extracted payload for bob as used in different keys/query.
     pub fn device_keys_payload_bob_unsigned_device() -> Value {
         json!({
             "algorithms": [
@@ -773,6 +844,9 @@ impl PreviouslyVerifiedTestData {
         })
     }
 
+    /// Key query response for bob signed by own identity.
+    /// Contains two devices, see [`Self::bob_device_1_id`] and
+    /// [`Self::bob_device_2_id`]
     pub fn bob_keys_query_response_signed() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -845,14 +919,21 @@ impl PreviouslyVerifiedTestData {
             .expect("Can't parse the `/keys/upload` response")
     }
 
+    /// Bob's first device id.
+    /// Cross-Signed in [`Self::bob_keys_query_response_signed`] but not in
+    /// [`Self::bob_keys_query_response_rotated`].
     pub fn bob_device_1_id() -> &'static DeviceId {
         device_id!("RLZGZIHKMP")
     }
+
+    /// Bob's second device id.
+    /// Cross-Signed in [`Self::bob_keys_query_response_rotated`] but not in
+    /// [`Self::bob_keys_query_response_signed`].
     pub fn bob_device_2_id() -> &'static DeviceId {
         device_id!("XCYNVRMTER")
     }
 
-    // Bob has a new identity, the two devices are properly self-signed
+    /// Bob has a new identity, the two devices are properly self-signed.
     pub fn bob_keys_query_response_rotated() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -875,9 +956,6 @@ impl PreviouslyVerifiedTestData {
                             }
                         },
                         "user_id": "@bob:localhost",
-                        "unsigned": {
-                            "device_display_name": "develop.element.io: Chrome on macOS"
-                        }
                     },
                     "XCYNVRMTER": {
                         "algorithms": [
@@ -897,9 +975,6 @@ impl PreviouslyVerifiedTestData {
                             }
                         },
                         "user_id": "@bob:localhost",
-                        "unsigned": {
-                            "device_display_name": "app.element.io: Chrome on mac"
-                        }
                     }
                 }
             },
@@ -946,6 +1021,17 @@ impl PreviouslyVerifiedTestData {
             .expect("Can't parse the `/keys/upload` response")
     }
 
+    /// The carol's device id that is not signed.
+    /// See [`Self::device_1_keys_payload_carol`], is returned as part of
+    /// [`Self::carol_keys_query_response_signed`] and  as part of
+    /// [`Self::carol_keys_query_response_unsigned`]
+    pub fn carol_unsigned_device_id() -> &'static DeviceId {
+        device_id!("BAZAPVEHGA")
+    }
+
+    // Extracted device key payload of carol first device.
+    // Reused in the 2 different keys/query response for carol.
+    // Notice that there is no SSK signature in the `signatures` field.
     pub fn device_1_keys_payload_carol() -> Value {
         json!({
             // Not self signed
@@ -967,6 +1053,8 @@ impl PreviouslyVerifiedTestData {
         })
     }
 
+    // Extracted device key payload of carol second device.
+    // Reused in the 2 different keys/query response for carol
     pub fn device_2_keys_payload_carol() -> Value {
         // Self-signed device
         json!({
@@ -989,6 +1077,7 @@ impl PreviouslyVerifiedTestData {
         })
     }
 
+    // Extracted ssk, as it is used in 2 different keys/query response.
     pub fn ssk_payload_carol() -> Value {
         json!({
             "@carol:localhost": {
@@ -1008,8 +1097,8 @@ impl PreviouslyVerifiedTestData {
         })
     }
 
-    // Carol key query response with one signed and one unsigned device.
-    // Bob has not verified Carol yet
+    /// Carol key query response with one signed and one unsigned device.
+    /// Bob has not verified Carol yet.
     pub fn carol_keys_query_response_unsigned() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -1029,6 +1118,7 @@ impl PreviouslyVerifiedTestData {
                             "ed25519:JBRBCHOFDZ": "eRA4jRSszQVuYpMtHTBuWGLEzcdUojyCW4/XKHRIQ2solv7iTC/MWES6I20YrHJa7H82CVoyNxS1Y3AwttBbCg",
                             "ed25519:itnwUCRfBPW08IrmBks9MTp/Qm5AJ2WNca13ptIZF8U": "e3r5L+JLv6FB8+Tt4BlIbz4wk2qPeMoKL1uR079qZzYMvtKoWGK9p000cZIhA5R1Tl7buQ9ODUfizued8g3TAg"
                         },
+                        // Removed the signature from our USK
                         // "@alice:localhost": {
                         //     "ed25519:MXob/N/bYI7U2655O1/AI9NOX1245RnE03Nl4Hvf+u0": "yfRUvkaVg3KizC/HDXcuP4+gtYhxgzr8X916Wt4GRXjj4qhDjsCkf8mYZ7x4lcEXzRkYql5KelabgVzP12qmAA"
                         // }
@@ -1049,6 +1139,8 @@ impl PreviouslyVerifiedTestData {
             .expect("Can't parse the `/keys/upload` response")
     }
 
+    /// Returns device/identity keys for carol. The identity is signed by the
+    /// current own identity [`Self::own_keys_query_response_1`].
     pub fn carol_keys_query_response_signed() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
