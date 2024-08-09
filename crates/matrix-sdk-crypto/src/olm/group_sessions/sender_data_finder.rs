@@ -269,7 +269,7 @@ impl<'a> SenderDataFinder<'a> {
             let master_key = Box::new(master_key);
             let master_key_verified = sender_device.is_cross_signing_trusted();
             let identity_needs_user_approval = !master_key_verified
-                && owner_identity.other().map(|i| Some(i.has_pin_violation())).unwrap_or(true);
+                && owner_identity.other().map(|i| i.has_pin_violation()).unwrap_or(true);
             SenderData::SenderKnown {
                 user_id,
                 device_id,
