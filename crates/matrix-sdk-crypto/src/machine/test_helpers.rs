@@ -110,6 +110,8 @@ pub async fn get_machine_pair(
     (alice, bob, otk)
 }
 
+/// Return a pair of [`OlmMachine`]s, with an olm session created on Alice's
+/// side, but with no message yet sent.
 pub async fn get_machine_pair_with_session(
     alice: &UserId,
     bob: &UserId,
@@ -133,6 +135,8 @@ pub async fn get_machine_pair_with_session(
     (alice, bob)
 }
 
+/// Return a pair of [`OlmMachine`]s, with an olm session (initiated
+/// by Alice) established between the two.
 pub async fn get_machine_pair_with_setup_sessions_test_helper(
     alice: &UserId,
     bob: &UserId,
