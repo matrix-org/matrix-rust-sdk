@@ -65,9 +65,6 @@ pub enum TrustRequirement {
     CrossSignedOrLegacy,
     /// Only decrypt events from cross-signed devices.
     CrossSigned,
-    /// Only decrypt events from cross-signed devices where we have verified the
-    /// user's identity.
-    VerifiedUserIdentity,
 }
 
 /// Settings for decrypting messages

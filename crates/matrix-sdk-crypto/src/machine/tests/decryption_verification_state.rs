@@ -500,7 +500,6 @@ async fn test_decryption_trust_requirement() {
             (TrustRequirement::Untrusted, true),
             (TrustRequirement::CrossSignedOrLegacy, false),
             (TrustRequirement::CrossSigned, false),
-            (TrustRequirement::VerifiedUserIdentity, false),
         ],
     )
     .await;
@@ -519,7 +518,6 @@ async fn test_decryption_trust_requirement() {
             (TrustRequirement::Untrusted, true),
             (TrustRequirement::CrossSignedOrLegacy, true),
             (TrustRequirement::CrossSigned, false),
-            (TrustRequirement::VerifiedUserIdentity, false),
         ],
     )
     .await;
@@ -546,7 +544,6 @@ async fn test_decryption_trust_requirement() {
             (TrustRequirement::Untrusted, true),
             (TrustRequirement::CrossSignedOrLegacy, false),
             (TrustRequirement::CrossSigned, false),
-            (TrustRequirement::VerifiedUserIdentity, false),
         ],
     )
     .await;
@@ -617,7 +614,6 @@ async fn test_decryption_trust_with_identity_changes() {
             (TrustRequirement::Untrusted, true),
             (TrustRequirement::CrossSignedOrLegacy, true),
             (TrustRequirement::CrossSigned, true),
-            (TrustRequirement::VerifiedUserIdentity, false),
         ],
     )
     .await;
@@ -656,7 +652,6 @@ async fn test_decryption_trust_with_identity_changes() {
             (TrustRequirement::Untrusted, true),
             (TrustRequirement::CrossSignedOrLegacy, true),
             (TrustRequirement::CrossSigned, true),
-            (TrustRequirement::VerifiedUserIdentity, true),
         ],
     )
     .await;
@@ -703,7 +698,6 @@ async fn test_decryption_trust_with_identity_changes() {
             (TrustRequirement::Untrusted, true),
             (TrustRequirement::CrossSignedOrLegacy, false),
             (TrustRequirement::CrossSigned, false),
-            (TrustRequirement::VerifiedUserIdentity, false),
         ],
     )
     .await;
@@ -730,7 +724,6 @@ async fn test_decryption_trust_with_identity_changes() {
             (TrustRequirement::Untrusted, true),
             (TrustRequirement::CrossSignedOrLegacy, true),
             (TrustRequirement::CrossSigned, true),
-            (TrustRequirement::VerifiedUserIdentity, false),
         ],
     )
     .await;

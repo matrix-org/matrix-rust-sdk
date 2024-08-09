@@ -1612,10 +1612,6 @@ impl OlmMachine {
                 SenderData::SenderKnown { .. } => Ok(()),
                 _ => self.check_sender_trusted(encryption_info, false),
             },
-            TrustRequirement::VerifiedUserIdentity => match session.sender_data {
-                SenderData::SenderKnown { master_key_verified: true, .. } => Ok(()),
-                _ => self.check_sender_trusted(encryption_info, true),
-            },
         }
     }
 
