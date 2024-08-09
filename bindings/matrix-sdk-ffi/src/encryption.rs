@@ -434,6 +434,10 @@ impl IdentityResetHandle {
             self.inner.reset(None).await.map_err(|e| ClientError::Generic { msg: e.to_string() })
         }
     }
+
+    pub async fn cancel(&self) {
+        self.inner.cancel().await;
+    }
 }
 
 #[derive(uniffi::Enum)]
