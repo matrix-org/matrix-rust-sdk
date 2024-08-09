@@ -663,6 +663,16 @@ mod tests {
         assert_eq!(code, &WithheldCode::Unverified);
     }
 
+    // Common setup to test the `error_on_unsigned_device_of_verified_users` flag on
+    // DeviceBased strategy. Based on the `PreviouslyVerifiedTestData` data set.
+    //
+    // This setup ensures:
+    //     - That the current device is properly configured with cross-signing and
+    //       that the cross-signing
+    // keys are trusted.
+    //     - Bob is tracked, where Bob is verified and have 2 devices, one signed
+    //       and the other not.
+    //
     async fn error_on_unsigned_of_verified_machine_setup() -> OlmMachine {
         use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
 

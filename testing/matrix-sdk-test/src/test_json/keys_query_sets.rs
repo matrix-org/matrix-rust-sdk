@@ -668,6 +668,20 @@ impl IdentityChangeDataSet {
     }
 }
 
+/// This set of keys/query response was generated using a local synapse.
+///
+/// The current user is `@alice:localhost`, the private part of the
+/// cross-signing keys have been exported using the console with the
+/// following snippet:  `await mxMatrixClientPeg.get().getCrypto().
+/// olmMachine.exportCrossSigningKeys()`.
+///
+/// This set was initially created to simulate when a user that was verified
+/// reset his keys and became unverified.
+///
+/// There are 2 other users `@bob:localhost` and `@carol:localhost`, each of
+/// them with a keys/query response signed by alice and a new one not signed.
+/// Bob and Carol both have 2 devices, one cross-signed and another one not
+/// cross-signed.
 pub struct PreviouslyVerifiedTestData {}
 
 #[allow(dead_code)]
@@ -698,7 +712,8 @@ impl PreviouslyVerifiedTestData {
     }
 
     /// Current user keys query response containing the cross-signing keys.
-    /// Contains also two additional devices, one unsigned and one signed
+    /// Contains also two additional devices, one unsigned (with device id
+    /// [`own_unsigned_device_id`]) and one signed (with device id [`own_signed_device_id`]).
     pub fn own_keys_query_response_1() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -804,6 +819,7 @@ impl PreviouslyVerifiedTestData {
             .expect("Can't parse the `/keys/upload` response")
     }
 
+    // Extracted payload for bob as used in different keys/query.
     pub fn device_keys_payload_bob_unsigned_device() -> Value {
         json!({
             "algorithms": [
@@ -827,6 +843,8 @@ impl PreviouslyVerifiedTestData {
         })
     }
 
+    /// Key query response for bob signed by own identity.
+    /// Contains two devices, see [`Self::bob_device_1_id`] and [`Self::bob_device_2_id`]
     pub fn bob_keys_query_response_signed() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -899,14 +917,21 @@ impl PreviouslyVerifiedTestData {
             .expect("Can't parse the `/keys/upload` response")
     }
 
+    /// Bob's first device id.
+    /// Cross-Signed in [`Self::bob_keys_query_response_signed`] but not in
+    /// [`Self::bob_keys_query_response_rotated`].
     pub fn bob_device_1_id() -> &'static DeviceId {
         device_id!("RLZGZIHKMP")
     }
+
+    /// Bob's second device id.
+    /// Cross-Signed in [`Self::bob_keys_query_response_rotated`] but not in
+    /// [`Self::bob_keys_query_response_signed`].
     pub fn bob_device_2_id() -> &'static DeviceId {
         device_id!("XCYNVRMTER")
     }
 
-    // Bob has a new identity, the two devices are properly self-signed
+    /// Bob has a new identity, the two devices are properly self-signed.
     pub fn bob_keys_query_response_rotated() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -994,10 +1019,17 @@ impl PreviouslyVerifiedTestData {
             .expect("Can't parse the `/keys/upload` response")
     }
 
+    /// The carol's device id that is not signed.
+    /// See [`Self::device_1_keys_payload_carol`], is returned as part of
+    /// [`Self::carol_keys_query_response_signed`] and  as part of
+    /// [`Self::carol_keys_query_response_unsigned`]
     pub fn carol_unsigned_device_id() -> &'static DeviceId {
         device_id!("BAZAPVEHGA")
     }
 
+    // Extracted device key payload of carol first device.
+    // Reused in the 2 different keys/query response for carol.
+    // Notice that there is no SSK signature in the `signatures` field.
     pub fn device_1_keys_payload_carol() -> Value {
         json!({
             // Not self signed
@@ -1019,6 +1051,8 @@ impl PreviouslyVerifiedTestData {
         })
     }
 
+    // Extracted device key payload of carol second device.
+    // Reused in the 2 different keys/query response for carol
     pub fn device_2_keys_payload_carol() -> Value {
         // Self-signed device
         json!({
@@ -1041,6 +1075,7 @@ impl PreviouslyVerifiedTestData {
         })
     }
 
+    // Extracted ssk, as it is used in 2 different keys/query response.
     pub fn ssk_payload_carol() -> Value {
         json!({
             "@carol:localhost": {
@@ -1060,8 +1095,8 @@ impl PreviouslyVerifiedTestData {
         })
     }
 
-    // Carol key query response with one signed and one unsigned device.
-    // Bob has not verified Carol yet
+    /// Carol key query response with one signed and one unsigned device.
+    /// Bob has not verified Carol yet.
     pub fn carol_keys_query_response_unsigned() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -1081,6 +1116,7 @@ impl PreviouslyVerifiedTestData {
                             "ed25519:JBRBCHOFDZ": "eRA4jRSszQVuYpMtHTBuWGLEzcdUojyCW4/XKHRIQ2solv7iTC/MWES6I20YrHJa7H82CVoyNxS1Y3AwttBbCg",
                             "ed25519:itnwUCRfBPW08IrmBks9MTp/Qm5AJ2WNca13ptIZF8U": "e3r5L+JLv6FB8+Tt4BlIbz4wk2qPeMoKL1uR079qZzYMvtKoWGK9p000cZIhA5R1Tl7buQ9ODUfizued8g3TAg"
                         },
+                        // Removed the signature from our USK
                         // "@alice:localhost": {
                         //     "ed25519:MXob/N/bYI7U2655O1/AI9NOX1245RnE03Nl4Hvf+u0": "yfRUvkaVg3KizC/HDXcuP4+gtYhxgzr8X916Wt4GRXjj4qhDjsCkf8mYZ7x4lcEXzRkYql5KelabgVzP12qmAA"
                         // }
@@ -1101,6 +1137,8 @@ impl PreviouslyVerifiedTestData {
             .expect("Can't parse the `/keys/upload` response")
     }
 
+    /// Returns device/identity keys for carol. The identity is signed by the
+    /// current own identity [`Self::own_keys_query_response_1`].
     pub fn carol_keys_query_response_signed() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
