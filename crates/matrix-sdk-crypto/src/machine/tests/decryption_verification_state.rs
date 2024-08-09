@@ -452,8 +452,7 @@ async fn check_decryption_trust_requirement(
     tests: &[(TrustRequirement, bool)],
 ) {
     for (trust_requirement, is_ok) in tests {
-        let decryption_settings =
-            DecryptionSettings { trust_requirement: *trust_requirement };
+        let decryption_settings = DecryptionSettings { trust_requirement: *trust_requirement };
         if *is_ok {
             assert!(
                 bob.decrypt_room_event(event, room_id, &decryption_settings).await.is_ok(),
