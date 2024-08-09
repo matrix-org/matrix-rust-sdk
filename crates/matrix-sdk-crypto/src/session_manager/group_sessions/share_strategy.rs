@@ -193,6 +193,7 @@ pub(crate) async fn collect_session_recipients(
                 if let Some(other_identity) = device_owner_identity.as_ref().and_then(|i| i.other())
                 {
                     if other_identity.has_pin_violation()
+                        && other_identity.was_previously_verified()
                         && own_verified_identity.is_identity_signed(other_identity).is_err()
                     {
                         debug!(?other_identity, "Identity Mismatch detected");
@@ -724,10 +725,30 @@ mod tests {
         let keys_query = IdentityChangeDataSet::key_query_with_identity_b();
         let txn_id = TransactionId::new();
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        machine
+            .get_identity(IdentityChangeDataSet::user_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap()
+            .mark_as_previously_verified()
+            .await
+            .unwrap();
 
         let keys_query = MaloIdentityChangeDataSet::updated_key_query();
         let txn_id = TransactionId::new();
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        machine
+            .get_identity(MaloIdentityChangeDataSet::user_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap()
+            .mark_as_previously_verified()
+            .await
+            .unwrap();
 
         let fake_room_id = room_id!("!roomid:localhost");
         let strategy = CollectStrategy::new_identity_based();
