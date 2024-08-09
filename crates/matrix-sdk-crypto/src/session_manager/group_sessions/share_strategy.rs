@@ -357,7 +357,9 @@ fn is_unsigned_device_of_verified_user(
     };
 
     let is_owner_verified = match owner_identity {
-        UserIdentityData::Other(other_data) => own_identity.is_identity_signed(other_data).is_ok(),
+        UserIdentityData::Other(other_data) => {
+            own_identity.is_verified() && own_identity.is_identity_signed(other_data).is_ok()
+        }
         UserIdentityData::Own(own_data) => own_data.is_verified(),
     };
 
@@ -953,6 +955,119 @@ mod tests {
             }
             _ => panic!("Unexpected error type"),
         }
+    }
+
+    #[async_test]
+    async fn test_should_not_error_on_unsigned_of_unverified() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+
+        let keys_query = DataSet::own_keys_query_response_1();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        // Bob is signed by our identity but our identity is not trusted
+        let keys_query = DataSet::bob_keys_query_response_signed();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        let bob_identity =
+            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
+        let bob_unsigned_device = machine
+            .get_device(DataSet::bob_id(), DataSet::bob_device_2_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Some sanity check that bob has unsigned device but is not verified
+        assert!(!bob_unsigned_device.is_cross_signed_by_owner());
+        assert!(!bob_identity.is_verified());
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_device_based(false, true);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let _ = collect_session_recipients(
+            machine.store(),
+            vec![DataSet::bob_id(), DataSet::carol_id()].into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await
+        .unwrap();
+    }
+
+    #[async_test]
+    async fn test_should_not_error_on_unsigned_of_unverified_variation() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        // Import own keys private parts
+        machine
+            .import_cross_signing_keys(CrossSigningKeyExport {
+                master_key: DataSet::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+                self_signing_key: DataSet::SELF_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+                user_signing_key: DataSet::USER_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+            })
+            .await
+            .unwrap();
+
+        let keys_query = DataSet::own_keys_query_response_1();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        // This time our own identity is trusted but is not signing bob.
+        let keys_query = DataSet::bob_keys_query_response_rotated();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        let bob_identity =
+            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
+        let bob_unsigned_device = machine
+            .get_device(DataSet::bob_id(), DataSet::bob_device_1_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Some sanity check that bob has unsigned device but is not verified
+        assert!(!bob_unsigned_device.is_cross_signed_by_owner());
+        assert!(!bob_identity.is_verified());
+
+        let fake_room_id = room_id!("!roomid:localhost");
+
+        let strategy = CollectStrategy::new_device_based(false, true);
+
+        let encryption_settings =
+            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+
+        let id_keys = machine.identity_keys();
+        let group_session = OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(id_keys),
+            fake_room_id,
+            encryption_settings.clone(),
+        )
+        .unwrap();
+
+        let _ = collect_session_recipients(
+            machine.store(),
+            vec![DataSet::bob_id(), DataSet::carol_id()].into_iter(),
+            &encryption_settings,
+            &group_session,
+        )
+        .await
+        .unwrap();
     }
 
     #[async_test]
