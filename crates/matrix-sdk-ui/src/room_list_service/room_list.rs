@@ -226,8 +226,9 @@ fn merge_stream_and_receiver(
                     if reasons.contains(NotableUpdate::LATEST_EVENT) ||
                         reasons.contains(NotableUpdate::RECENCY_STAMP) ||
                         reasons.contains(NotableUpdate::READ_RECEIPT) ||
-                        reasons.contains(NotableUpdate::UNREAD_MARKER) {
-                    */
+                        reasons.contains(NotableUpdate::UNREAD_MARKER) ||
+                        reasons.contains(NotableUpdate::MEMBERSHIP) {
+                     */
                         // Emit a `VectorDiff::Set` for the specific rooms.
                         if let Some(index) = raw_current_values.iter().position(|room| room.room_id() == update.room_id) {
                             let room = &raw_current_values[index];

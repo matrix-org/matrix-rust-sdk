@@ -417,6 +417,7 @@ impl BaseClient {
             &state_events,
             store,
             room_id,
+            room_info_notable_updates,
         );
 
         room_info.mark_state_partially_synced();
@@ -549,6 +550,7 @@ impl BaseClient {
         state_events: &[AnySyncStateEvent],
         store: &Store,
         room_id: &RoomId,
+        room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
     ) -> (Room, RoomInfo, Option<InvitedRoom>) {
         if let Some(invite_state) = &room_data.invite_state {
             let room = store.get_or_create_room(
@@ -591,7 +593,11 @@ impl BaseClient {
             // property. In sliding sync we only have invite_state,
             // required_state and timeline, so we must process required_state and timeline
             // looking for relevant membership events.
-            self.handle_own_room_membership(state_events, &mut room_info);
+            self.handle_own_room_membership(
+                state_events,
+                &mut room_info,
+                room_info_notable_updates,
+            );
 
             (room, room_info, None)
         }
@@ -603,6 +609,7 @@ impl BaseClient {
         &self,
         state_events: &[AnySyncStateEvent],
         room_info: &mut RoomInfo,
+        room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
     ) {
         let Some(meta) = self.session_meta() else {
             return;
@@ -616,7 +623,15 @@ impl BaseClient {
                 // If this event updates the current user's membership, record that in the
                 // room_info.
                 if member.state_key() == meta.user_id.as_str() {
-                    room_info.set_state(member.membership().into());
+                    let new_state: RoomState = member.membership().into();
+                    if new_state != room_info.state() {
+                        room_info.set_state(new_state);
+                        // Update an existing notable update entry or create a new one
+                        room_info_notable_updates
+                            .entry(room_info.room_id.to_owned())
+                            .or_default()
+                            .insert(RoomInfoNotableUpdateReasons::MEMBERSHIP);
+                    }
                     break;
                 }
             }
@@ -2091,6 +2106,79 @@ mod tests {
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
                 assert_eq!(received_room_id, room_id);
                 assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::READ_RECEIPT));
+            }
+        );
+    }
+
+    #[async_test]
+    async fn test_leaving_room_can_trigger_a_notable_update_reason() {
+        // Given a logged-in client
+        let client = logged_in_base_client(None).await;
+        let mut room_info_notable_update_stream = client.room_info_notable_update_receiver();
+
+        // When I send sliding sync response containing a new room.
+        let room_id = room_id!("!r:e.uk");
+        let room = http::response::Room::new();
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
+
+        // Discard first room info update
+        let _ = room_info_notable_update_stream.recv().await;
+
+        // Send sliding sync response containing a membership event with 'join' value.
+        let room_id = room_id!("!r:e.uk");
+        let events = vec![Raw::from_json_string(
+            json!({
+                "type": "m.room.member",
+                "event_id": "$3",
+                "content": { "membership": "join" },
+                "sender": "@u:h.uk",
+                "origin_server_ts": 12344445,
+                "state_key": "@u:e.uk",
+            })
+            .to_string(),
+        )
+        .unwrap()];
+        let room = assign!(http::response::Room::new(), {
+            required_state: events,
+        });
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
+
+        // Room was already joined, no MEMBERSHIP update should be triggered here
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP));
+            }
+        );
+
+        let events = vec![Raw::from_json_string(
+            json!({
+                "type": "m.room.member",
+                "event_id": "$3",
+                "content": { "membership": "leave" },
+                "sender": "@u:h.uk",
+                "origin_server_ts": 12344445,
+                "state_key": "@u:e.uk",
+            })
+            .to_string(),
+        )
+        .unwrap()];
+        let room = assign!(http::response::Room::new(), {
+            required_state: events,
+        });
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
+
+        // Then a room info notable update is received.
+        let update = room_info_notable_update_stream.recv().await;
+        assert_matches!(
+            update,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP));
             }
         );
     }

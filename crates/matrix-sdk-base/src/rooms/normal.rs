@@ -103,6 +103,9 @@ bitflags! {
 
         /// The user-controlled unread marker value has changed.
         const UNREAD_MARKER = 0b0000_1000;
+
+        /// A membership change happened for the current user.
+        const MEMBERSHIP = 0b0001_0000;
     }
 }
 
@@ -1903,18 +1906,10 @@ mod tests {
 
         // When the new tag is handled and applied.
         let mut changes = StateChanges::default();
-        let mut notable_reasons_updates = Default::default();
         client
-            .handle_room_account_data(
-                room_id,
-                &[tag_raw],
-                &mut changes,
-                &mut notable_reasons_updates,
-            )
+            .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
             .await;
-
-        assert!(notable_reasons_updates.is_empty());
-        client.apply_changes(&changes, notable_reasons_updates);
+        client.apply_changes(&changes, Default::default());
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -1932,18 +1927,9 @@ mod tests {
         }))
         .unwrap()
         .cast();
-
-        let mut notable_reasons_updates = Default::default();
         client
-            .handle_room_account_data(
-                room_id,
-                &[tag_raw],
-                &mut changes,
-                &mut notable_reasons_updates,
-            )
+            .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
             .await;
-
-        assert!(notable_reasons_updates.is_empty());
         client.apply_changes(&changes, Default::default());
 
         // The `RoomInfo` is getting notified.
@@ -1998,18 +1984,10 @@ mod tests {
 
         // When the new tag is handled and applied.
         let mut changes = StateChanges::default();
-        let mut notable_reasons_updates = Default::default();
         client
-            .handle_room_account_data(
-                room_id,
-                &[tag_raw],
-                &mut changes,
-                &mut notable_reasons_updates,
-            )
+            .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
             .await;
-
-        assert!(notable_reasons_updates.is_empty());
-        client.apply_changes(&changes, notable_reasons_updates);
+        client.apply_changes(&changes, Default::default());
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
@@ -2027,19 +2005,10 @@ mod tests {
         }))
         .unwrap()
         .cast();
-
-        let mut notable_reasons_updates = Default::default();
         client
-            .handle_room_account_data(
-                room_id,
-                &[tag_raw],
-                &mut changes,
-                &mut notable_reasons_updates,
-            )
+            .handle_room_account_data(room_id, &[tag_raw], &mut changes, &mut Default::default())
             .await;
-
-        assert!(notable_reasons_updates.is_empty());
-        client.apply_changes(&changes, notable_reasons_updates);
+        client.apply_changes(&changes, Default::default());
 
         // The `RoomInfo` is getting notified.
         assert_ready!(room_info_subscriber);
