@@ -26,9 +26,6 @@ _disable-minimum-rotation-period-ms = []
 # "message-ids" feature doesn't do anything and is deprecated.
 message-ids = []
 
-# Testing helpers for implementations based upon this
-testing = ["dep:http"]
-
 [dependencies]
 aes = "0.8.1"
 as_variant = { workspace = true }

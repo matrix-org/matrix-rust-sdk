@@ -34,7 +34,7 @@ use tracing::{instrument, trace, warn};
 use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
-#[cfg(any(test, feature = "testing", doc))]
+#[cfg(any(test, doc))]
 use crate::OlmMachine;
 use crate::{
     error::{EventError, MismatchedIdentityKeysError, OlmError, OlmResult, SignatureError},
@@ -936,7 +936,7 @@ impl DeviceData {
         self.deleted.store(true, Ordering::Relaxed);
     }
 
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     #[allow(dead_code)]
     /// Generate the Device from a reference of an OlmMachine.
     pub async fn from_machine_test_helper(
@@ -998,7 +998,7 @@ impl PartialEq for DeviceData {
 }
 
 /// Testing Facilities for Device Management
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 #[allow(dead_code)]
 pub(crate) mod testing {
     use serde_json::json;

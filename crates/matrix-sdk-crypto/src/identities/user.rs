@@ -991,7 +991,7 @@ impl OwnUserIdentityData {
 }
 
 /// Testing Facilities
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 #[allow(dead_code)]
 pub(crate) mod testing {
     use ruma::{api::client::keys::get_keys::v3::Response as KeyQueryResponse, user_id};

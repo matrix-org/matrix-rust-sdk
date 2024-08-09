@@ -33,7 +33,7 @@ pub mod types;
 mod utilities;
 mod verification;
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 /// Testing facilities and helpers for crypto tests
 pub mod testing {
     pub use crate::identities::{

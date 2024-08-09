@@ -36,7 +36,6 @@ testing = [
     "dep:assert_matches2",
     "dep:http",
     "dep:matrix-sdk-test",
-    "matrix-sdk-crypto?/testing",
 ]
 
 [dependencies]

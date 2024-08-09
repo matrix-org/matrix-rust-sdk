@@ -230,7 +230,7 @@ impl StaticAccountData {
         Ok((outbound, inbound))
     }
 
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     #[allow(dead_code)]
     /// Testing only facility to create a group session pair with default
     /// settings.
@@ -1075,7 +1075,7 @@ impl Account {
         Ok(InboundCreationResult { session, plaintext })
     }
 
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     #[allow(dead_code)]
     /// Testing only helper to create a session for the given Account
     pub async fn create_session_for_test_helper(

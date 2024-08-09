@@ -84,7 +84,7 @@ mod error;
 mod memorystore;
 mod traits;
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 #[macro_use]
 #[allow(missing_docs)]
 pub mod integration_tests;

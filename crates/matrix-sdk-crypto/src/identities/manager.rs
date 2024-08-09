@@ -1062,7 +1062,7 @@ fn debug_log_keys_query_response(
     );
 }
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 #[allow(dead_code)]
 pub(crate) mod testing {
     use std::sync::Arc;

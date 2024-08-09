@@ -17,7 +17,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = ["e2e-encryption", "state-store"]
 state-store = ["dep:matrix-sdk-base", "growable-bloom-filter"]
 e2e-encryption = ["dep:matrix-sdk-crypto"]
-testing = ["matrix-sdk-crypto?/testing"]
+testing = []
 
 [dependencies]
 anyhow = { workspace = true }
@@ -52,7 +52,7 @@ assert_matches = { workspace = true }
 assert_matches2 = { workspace = true }
 matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-common = { workspace = true, features = ["js"] }
-matrix-sdk-crypto = { workspace = true, features = ["js", "testing"] }
+matrix-sdk-crypto = { workspace = true, features = ["js"] }
 matrix-sdk-test = { workspace = true }
 rand = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["registry", "tracing-log"] }

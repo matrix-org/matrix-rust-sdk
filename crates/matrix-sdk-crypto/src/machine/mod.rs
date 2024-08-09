@@ -2318,7 +2318,7 @@ impl OlmMachine {
         Ok(())
     }
 
-    #[cfg(any(feature = "testing", test))]
+    #[cfg(test)]
     /// Returns whether this `OlmMachine` is the same another one.
     ///
     /// Useful for testing purposes only.
@@ -2327,7 +2327,7 @@ impl OlmMachine {
     }
 
     /// Testing purposes only.
-    #[cfg(any(feature = "testing", test))]
+    #[cfg(test)]
     pub async fn uploaded_key_count(&self) -> Result<u64, CryptoStoreError> {
         let cache = self.inner.store.cache().await?;
         let account = cache.account().await?;
@@ -2409,7 +2409,7 @@ pub struct EncryptionSyncChanges<'a> {
     pub next_batch_token: Option<String>,
 }
 
-#[cfg(any(feature = "testing", test))]
+#[cfg(test)]
 #[allow(dead_code)]
 pub(crate) mod testing {
     use http::Response;

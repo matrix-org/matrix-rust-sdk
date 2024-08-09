@@ -542,14 +542,14 @@ impl PrivateCrossSigningIdentity {
 
     /// Create a new cross signing identity without signing the device that
     /// created it.
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     #[allow(dead_code)]
     pub fn new(user_id: OwnedUserId) -> Self {
         let master = MasterSigning::new(user_id.to_owned());
         Self::new_helper(&user_id, master)
     }
 
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     #[allow(dead_code)]
     /// Testing helper to reset this CrossSigning with a fresh one using the
     /// local identity
