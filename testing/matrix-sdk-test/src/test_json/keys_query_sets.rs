@@ -729,29 +729,6 @@ impl PreviouslyVerifiedTestData {
         ruma_response_from_json(&data)
     }
 
-    pub fn device_keys_payload_bob_unsigned_device() -> Value {
-        json!({
-            "algorithms": [
-                "m.olm.v1.curve25519-aes-sha2",
-                "m.megolm.v1.aes-sha2"
-            ],
-            "device_id": "XCYNVRMTER",
-            "keys": {
-                "curve25519:XCYNVRMTER": "xGKYkFcHGlJ+I1yiefPyZu1EY8i2h1eed5uk3PAW6GA",
-                "ed25519:XCYNVRMTER": "EsU8MJzTYE+/VJs1K9HkGqb8UXCByPioynGrV28WocU"
-            },
-            "signatures": {
-                "@bob:localhost": {
-                    "ed25519:XCYNVRMTER": "yZ7cpaoA+0rRx+bmklsP1iAd0eGPH6gsdywC11VE98/mrcbeFuxjQVn39Ds7h+vmciu5GRzwWgDgv+6go6FHAQ",
-                    // Remove the cross-signature
-                    // "ed25519:e8JFSrW8LW3UK6SSXh2ZESUzptFbapr28/+WqndD+Xk": "xYnGmU9FEdoavB5P743gx3xbEy29tlfRX5lT3JO0dWhHdsP+muqBXUYMBl1RRFeZtIE0GYc9ORb6Yf88EdeoCw"
-                }
-            },
-            "user_id": "@bob:localhost",
-            "unsigned": {}
-        })
-    }
-
     pub fn bob_keys_query_response_signed() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -775,7 +752,26 @@ impl PreviouslyVerifiedTestData {
                         "user_id": "@bob:localhost",
                         "unsigned": {}
                     },
-                    "XCYNVRMTER": Self::device_keys_payload_bob_unsigned_device(),
+                    "XCYNVRMTER": {
+                        "algorithms": [
+                            "m.olm.v1.curve25519-aes-sha2",
+                            "m.megolm.v1.aes-sha2"
+                        ],
+                        "device_id": "XCYNVRMTER",
+                        "keys": {
+                            "curve25519:XCYNVRMTER": "xGKYkFcHGlJ+I1yiefPyZu1EY8i2h1eed5uk3PAW6GA",
+                            "ed25519:XCYNVRMTER": "EsU8MJzTYE+/VJs1K9HkGqb8UXCByPioynGrV28WocU"
+                        },
+                        "signatures": {
+                            "@bob:localhost": {
+                                "ed25519:XCYNVRMTER": "yZ7cpaoA+0rRx+bmklsP1iAd0eGPH6gsdywC11VE98/mrcbeFuxjQVn39Ds7h+vmciu5GRzwWgDgv+6go6FHAQ",
+                                // Remove the cross-signature
+                                // "ed25519:e8JFSrW8LW3UK6SSXh2ZESUzptFbapr28/+WqndD+Xk": "xYnGmU9FEdoavB5P743gx3xbEy29tlfRX5lT3JO0dWhHdsP+muqBXUYMBl1RRFeZtIE0GYc9ORb6Yf88EdeoCw"
+                            }
+                        },
+                        "user_id": "@bob:localhost",
+                        "unsigned": {},
+                    },
                 }
             },
             "failures": {},
