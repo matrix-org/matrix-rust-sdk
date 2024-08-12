@@ -259,8 +259,9 @@ impl SlidingSync {
 
         trace!(yes = must_process_rooms_response, "Must process rooms response?");
 
-        // Compute `limited`, if we're interested in a room list query.
-        if must_process_rooms_response {
+        // Compute `limited` for the SS proxy only, if we're interested in a room list
+        // query.
+        if !self.inner.client.is_simplified_sliding_sync_enabled() && must_process_rooms_response {
             let known_rooms = self.inner.rooms.read().await;
             compute_limited(&known_rooms, &mut sliding_sync_response.rooms);
         }
