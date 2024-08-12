@@ -650,29 +650,74 @@ impl IdentityChangeDataSet {
     }
 }
 
+/// A set of `/keys/query` responses that were initially created to simulate
+/// when a user that was verified reset his keys and became unverified.
+///
+/// The local user (as returned by [`PreviouslyVerifiedTestData::own_id`]) is
+/// `@alice:localhost`. There are 2 other users: `@bob:localhost` (returned by
+/// [`PreviouslyVerifiedTestData::bob_id`]), and `@carol:localhost` (returned by
+/// [`PreviouslyVerifiedTestData::carol_id`]).
+///
+/// We provide two `/keys/query` responses for each of Bob and Carol: one signed
+/// by Alice, and one not signed.
+///
+/// Bob and Carol each have 2 devices, one signed by the owning user, and
+/// another one not cross-signed.
+///
+/// The `/keys/query` responses were generated using a local synapse.
 pub struct PreviouslyVerifiedTestData {}
 
 #[allow(dead_code)]
 impl PreviouslyVerifiedTestData {
+    /// Secret part of Alice's master cross-signing key.
+    ///
+    /// Exported from Element-Web with the following console snippet:
+    ///
+    /// ```javascript
+    /// (await mxMatrixClientPeg.get().getCrypto().olmMachine.exportCrossSigningKeys()).masterKey
+    /// ```
     pub const MASTER_KEY_PRIVATE_EXPORT: &'static str =
         "bSa0nVTocZArMzL7OLmeFUIVF4ycp64rrkVMgqOYg6Y";
+
+    /// Secret part of Alice's self cross-signing key.
+    ///
+    /// Exported from Element-Web with the following console snippet:
+    ///
+    /// ```javascript
+    /// (await mxMatrixClientPeg.get().getCrypto().olmMachine.exportCrossSigningKeys()).self_signing_key
+    /// ```
     pub const SELF_SIGNING_KEY_PRIVATE_EXPORT: &'static str =
         "MQ7b3MDXvOEMDvIOWkuH1XCNUyqBLqbdd1bT00p8HPU";
+
+    /// Secret part of Alice's user cross-signing key.
+    ///
+    /// Exported from Element-Web with the following console snippet:
+    ///
+    /// ```javascript
+    /// (await mxMatrixClientPeg.get().getCrypto().olmMachine.exportCrossSigningKeys()).userSigningKey
+    /// ```
     pub const USER_SIGNING_KEY_PRIVATE_EXPORT: &'static str =
         "v77s+TlT5/NbcQym2B7Rwf20HOAhyInF2p1ZUYDPtow";
 
+    /// Alice's user ID.
+    ///
+    /// Alice is the "local user" for this test data set.
     pub fn own_id() -> &'static UserId {
         user_id!("@alice:localhost")
     }
+
+    /// Bob's user ID.
     pub fn bob_id() -> &'static UserId {
         user_id!("@bob:localhost")
     }
 
+    /// Carol's user ID.
     pub fn carol_id() -> &'static UserId {
         user_id!("@carol:localhost")
     }
 
-    /// Current user keys query response containing the cross-signing keys
+    /// `/keys/query` response for Alice, containing the public cross-signing
+    /// keys.
     pub fn own_keys_query_response_1() -> KeyQueryResponse {
         let data = json!({
             "master_keys": {
@@ -729,6 +774,11 @@ impl PreviouslyVerifiedTestData {
         ruma_response_from_json(&data)
     }
 
+    /// `/keys/query` response for Bob, signed by Alice's identity.
+    ///
+    /// Contains Bob's cross-signing identity, and two devices:
+    /// [`Self::bob_device_1_id`] (signed by the cross-signing identity), and
+    /// [`Self::bob_device_2_id`] (not cross-signed).
     pub fn bob_keys_query_response_signed() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -817,14 +867,30 @@ impl PreviouslyVerifiedTestData {
         ruma_response_from_json(&data)
     }
 
+    /// Device ID of Bob's first device.
+    ///
+    /// This device is cross-signed in [`Self::bob_keys_query_response_signed`]
+    /// but not in [`Self::bob_keys_query_response_rotated`].
     pub fn bob_device_1_id() -> &'static DeviceId {
         device_id!("RLZGZIHKMP")
     }
+
+    /// Device ID of Bob's second device.
+    ///
+    /// This device is cross-signed in [`Self::bob_keys_query_response_rotated`]
+    /// but not in [`Self::bob_keys_query_response_signed`].
     pub fn bob_device_2_id() -> &'static DeviceId {
         device_id!("XCYNVRMTER")
     }
 
-    // Bob has a new identity, the two devices are properly self-signed
+    /// `/keys/query` response for Bob, signed by Alice's identity.
+    ///
+    /// In contrast to [`Self::bob_keys_query_response_signed`], Bob has a new
+    /// cross-signing identity, which is **not** signed by Alice.
+    /// As well as the new identity, still contains the two devices
+    /// [`Self::bob_device_1_id`] (signed only by the *old* cross-signing
+    /// identity), and [`Self::bob_device_2_id`] (properly signed by the new
+    /// identity).
     pub fn bob_keys_query_response_rotated() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -933,9 +999,12 @@ impl PreviouslyVerifiedTestData {
         device_id!("BAZAPVEHGA")
     }
 
+    /// Device-keys payload for Carol's unsigned device
+    /// ([`Self::carol_unsigned_device_id`]).
+    ///
+    /// Notice that there is no SSK signature in the `signatures` field.
     fn device_1_keys_payload_carol() -> Value {
         json!({
-            // Not self signed
             "algorithms": [
                 "m.olm.v1.curve25519-aes-sha2",
                 "m.megolm.v1.aes-sha2"
@@ -954,8 +1023,9 @@ impl PreviouslyVerifiedTestData {
         })
     }
 
+    /// Device-keys payload for Carol's signed device
+    /// ([`Self::carol_signed_device_id`]).
     fn device_2_keys_payload_carol() -> Value {
-        // Self-signed device
         json!({
             "algorithms": [
                 "m.olm.v1.curve25519-aes-sha2",
@@ -976,6 +1046,7 @@ impl PreviouslyVerifiedTestData {
         })
     }
 
+    /// Device-keys payload for Carol's SSK.
     fn ssk_payload_carol() -> Value {
         json!({
             "@carol:localhost": {
@@ -995,8 +1066,13 @@ impl PreviouslyVerifiedTestData {
         })
     }
 
-    // Carol key query response with one signed and one unsigned device.
-    // Bob has not verified Carol yet
+    /// `/keys/query` response for Carol, not yet verified by any other
+    /// user.
+    ///
+    /// Contains Carol's cross-signing identity, and two devices:
+    /// [`Self::carol_signed_device_id`] (signed by the cross-signing
+    /// identity), and [`Self::carol_unsigned_device_id`]
+    /// (not cross-signed).
     pub fn carol_keys_query_response_unsigned() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -1016,6 +1092,7 @@ impl PreviouslyVerifiedTestData {
                             "ed25519:JBRBCHOFDZ": "eRA4jRSszQVuYpMtHTBuWGLEzcdUojyCW4/XKHRIQ2solv7iTC/MWES6I20YrHJa7H82CVoyNxS1Y3AwttBbCg",
                             "ed25519:itnwUCRfBPW08IrmBks9MTp/Qm5AJ2WNca13ptIZF8U": "e3r5L+JLv6FB8+Tt4BlIbz4wk2qPeMoKL1uR079qZzYMvtKoWGK9p000cZIhA5R1Tl7buQ9ODUfizued8g3TAg"
                         },
+                        // Omit the signature from Alice's USK
                         // "@alice:localhost": {
                         //     "ed25519:MXob/N/bYI7U2655O1/AI9NOX1245RnE03Nl4Hvf+u0": "yfRUvkaVg3KizC/HDXcuP4+gtYhxgzr8X916Wt4GRXjj4qhDjsCkf8mYZ7x4lcEXzRkYql5KelabgVzP12qmAA"
                         // }
@@ -1033,6 +1110,10 @@ impl PreviouslyVerifiedTestData {
         ruma_response_from_json(&data)
     }
 
+    /// `/keys/query` response for Carol, signed by Alice.
+    ///
+    /// Contains the same data as [`Self::carol_keys_query_response_unsigned`],
+    /// but Carol's identity is now signed by Alice's user-signing key.
     pub fn carol_keys_query_response_signed() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
