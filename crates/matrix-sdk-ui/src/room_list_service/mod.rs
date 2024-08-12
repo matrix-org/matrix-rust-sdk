@@ -73,6 +73,7 @@ use ruma::{assign, events::StateEventType, OwnedRoomId, RoomId};
 pub use state::*;
 use thiserror::Error;
 use tokio::time::timeout;
+use tracing::debug;
 
 use crate::timeline;
 
@@ -203,6 +204,8 @@ impl RoomListService {
             // 3. A sync is done,
             // 4. The next state is stored.
             loop {
+                debug!("Run a sync iteration");
+
                 // Calculate the next state, and run the associated actions.
                 let next_state = self.state.get().next(&self.sliding_sync).await?;
 
@@ -210,6 +213,8 @@ impl RoomListService {
                 match sync.next().await {
                     // Got a successful result while syncing.
                     Some(Ok(_update_summary)) => {
+                        debug!(state = ?next_state, "New state");
+
                         // Update the state.
                         self.state.set(next_state);
 
@@ -218,6 +223,8 @@ impl RoomListService {
 
                     // Got an error while syncing.
                     Some(Err(error)) => {
+                        debug!(expected_state = ?next_state, "New state is an error");
+
                         let next_state = State::Error { from: Box::new(next_state) };
                         self.state.set(next_state);
 
@@ -228,6 +235,8 @@ impl RoomListService {
 
                     // Sync loop has terminated.
                     None => {
+                        debug!(expected_state = ?next_state, "New state is a termination");
+
                         let next_state = State::Terminated { from: Box::new(next_state) };
                         self.state.set(next_state);
 
