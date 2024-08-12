@@ -2158,7 +2158,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.topic", ""],
                         ["m.room.avatar", ""],
                         ["m.room.canonical_alias", ""],
-                        ["m.room.create", ""], // Added even when it's not specified
+                        ["m.room.create", ""],
                     ],
                     "timeline_limit": 30,
                 },
@@ -2166,6 +2166,59 @@ async fn test_room_subscription() -> Result<(), Error> {
         },
         respond with = {
             "pos": "1",
+            "lists": {},
+            "rooms": {},
+        },
+    };
+
+    // Subscribe to another room.
+
+    room_list.subscribe_to_rooms(
+        &[room_id_2],
+        Some(assign!(RoomSubscription::default(), {
+            required_state: vec![
+                (StateEventType::RoomName, "".to_owned()),
+                (StateEventType::RoomTopic, "".to_owned()),
+                (StateEventType::RoomAvatar, "".to_owned()),
+                (StateEventType::RoomCanonicalAlias, "".to_owned()),
+            ],
+            timeline_limit: Some(uint!(30)),
+        })),
+    );
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 2]],
+                },
+            },
+            "room_subscriptions": {
+                room_id_1: {
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.create", ""],
+                    ],
+                    "timeline_limit": 30,
+                },
+                room_id_2: {
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.create", ""],
+                    ],
+                    "timeline_limit": 30,
+                },
+            },
+        },
+        respond with = {
+            "pos": "2",
             "lists": {},
             "rooms": {},
         },
