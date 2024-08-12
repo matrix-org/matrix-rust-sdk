@@ -29,7 +29,7 @@ const MAX_CONCURRENT_REQUESTS: usize = 10;
 /// Utility to load the pinned events in a room.
 pub struct PinnedEventsLoader {
     /// Backend to load pinned events.
-    room: Arc<Box<dyn PinnedEventsRoom>>,
+    room: Arc<dyn PinnedEventsRoom>,
     /// Maximum number of pinned events to load (either from network or the
     /// cache).
     max_events_to_load: usize,
@@ -37,8 +37,8 @@ pub struct PinnedEventsLoader {
 
 impl PinnedEventsLoader {
     /// Creates a new `PinnedEventsLoader` instance.
-    pub fn new(room: Box<dyn PinnedEventsRoom>, max_events_to_load: usize) -> Self {
-        Self { room: Arc::new(room), max_events_to_load }
+    pub fn new(room: Arc<dyn PinnedEventsRoom>, max_events_to_load: usize) -> Self {
+        Self { room, max_events_to_load }
     }
 
     /// Loads the pinned events in this room, using the cache first and then
@@ -106,7 +106,7 @@ impl PinnedEventsLoader {
         }
 
         debug!("Saving {} pinned events to the cache", loaded_events.len());
-        cache.set_bulk(&loaded_events).await;
+        cache.set_bulk(loaded_events.clone()).await;
 
         // Sort using chronological ordering (oldest -> newest)
         loaded_events.sort_by_key(|item| {
@@ -141,7 +141,7 @@ impl PinnedEventsLoader {
         }
 
         if !to_update.is_empty() {
-            cache.set_bulk(&to_update).await;
+            cache.set_bulk(to_update).await;
             Some(self.load_events(cache).await)
         } else {
             None
@@ -188,7 +188,7 @@ impl PinnedEventsRoom for Room {
     }
 
     fn is_pinned_event(&self, event_id: &EventId) -> bool {
-        self.subscribe_info().read().is_pinned_event(event_id)
+        self.clone_info().is_pinned_event(event_id)
     }
 }
 

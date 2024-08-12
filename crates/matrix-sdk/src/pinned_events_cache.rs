@@ -26,11 +26,11 @@ impl PinnedEventCache {
     }
 
     /// Adds a list of pinned events to the cache in a performant way.
-    pub async fn set_bulk(&self, events: &Vec<SyncTimelineEvent>) {
+    pub async fn set_bulk(&self, events: Vec<SyncTimelineEvent>) {
         let mut cache = self.inner.events.write().await;
         for ev in events {
             if let Some(ev_id) = ev.event_id() {
-                cache.insert(ev_id.to_owned(), ev.clone());
+                cache.insert(ev_id.to_owned(), ev);
             }
         }
     }
