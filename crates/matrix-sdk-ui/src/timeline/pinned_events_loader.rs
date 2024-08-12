@@ -28,7 +28,10 @@ const MAX_CONCURRENT_REQUESTS: usize = 10;
 
 /// Utility to load the pinned events in a room.
 pub struct PinnedEventsLoader {
+    /// Backend to load pinned events.
     room: Arc<Box<dyn PinnedEventsRoom>>,
+    /// Maximum number of pinned events to load (either from network or the
+    /// cache).
     max_events_to_load: usize,
 }
 
