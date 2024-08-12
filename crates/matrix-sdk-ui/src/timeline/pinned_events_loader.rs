@@ -16,8 +16,8 @@ use std::{fmt::Formatter, num::NonZeroUsize, sync::Arc};
 
 use futures_util::future::join_all;
 use matrix_sdk::{
-    config::RequestConfig, event_cache::paginator::PaginatorError,
-    pinned_events_cache::PinnedEventCache, Room, SendOutsideWasm, SyncOutsideWasm,
+    config::RequestConfig, event_cache::paginator::PaginatorError, Room, SendOutsideWasm,
+    SyncOutsideWasm,
 };
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
@@ -30,6 +30,7 @@ const MAX_CONCURRENT_REQUESTS: usize = 10;
 pub struct PinnedEventsLoader {
     /// Backend to load pinned events.
     room: Arc<dyn PinnedEventsRoom>,
+
     /// Maximum number of pinned events to load (either from network or the
     /// cache).
     max_events_to_load: usize,
@@ -49,10 +50,7 @@ impl PinnedEventsLoader {
     /// It returns a `Result` with either a
     /// chronologically sorted list of retrieved `SyncTimelineEvent`s
     /// or a `PinnedEventsLoaderError`.
-    pub async fn load_events(
-        &self,
-        cache: &PinnedEventCache,
-    ) -> Result<Vec<SyncTimelineEvent>, PinnedEventsLoaderError> {
+    pub async fn load_events(&self) -> Result<Vec<SyncTimelineEvent>, PinnedEventsLoaderError> {
         let pinned_event_ids: Vec<OwnedEventId> = self
             .room
             .pinned_event_ids()
@@ -62,51 +60,34 @@ impl PinnedEventsLoader {
             .rev()
             .collect();
 
-        let has_pinned_event_ids = !pinned_event_ids.is_empty();
-        let mut loaded_events = Vec::new();
-        let mut event_ids_to_request = Vec::new();
-        for ev_id in pinned_event_ids {
-            if let Some(ev) = cache.get(&ev_id).await {
-                debug!("Loading pinned event {ev_id} from cache");
-                loaded_events.push(ev.clone());
-            } else {
-                debug!("Loading pinned event {ev_id} from HS");
-                event_ids_to_request.push(ev_id);
-            }
+        if pinned_event_ids.is_empty() {
+            return Ok(Vec::new());
         }
 
-        if !event_ids_to_request.is_empty() {
-            let provider = Arc::new(self.room.clone());
+        let request_config = Some(
+            RequestConfig::default()
+                .retry_limit(3)
+                .max_concurrent_requests(NonZeroUsize::new(MAX_CONCURRENT_REQUESTS)),
+        );
 
-            let request_config = Some(
-                RequestConfig::default()
-                    .retry_limit(3)
-                    .max_concurrent_requests(NonZeroUsize::new(MAX_CONCURRENT_REQUESTS)),
-            );
-
-            let new_events = join_all(event_ids_to_request.into_iter().map(|event_id| {
-                let provider = Arc::clone(&provider);
-                async move {
-                    match provider.fetch_event(&event_id, request_config).await {
-                        Ok(event) => Some(event),
-                        Err(err) => {
-                            warn!("error when loading pinned event: {err}");
-                            None
-                        }
+        let new_events = join_all(pinned_event_ids.into_iter().map(|event_id| {
+            let provider = self.room.clone();
+            async move {
+                match provider.load_event(&event_id, request_config).await {
+                    Ok(event) => Some(event),
+                    Err(err) => {
+                        warn!("error when loading pinned event: {err}");
+                        None
                     }
                 }
-            }))
-            .await;
+            }
+        }))
+        .await;
 
-            loaded_events.extend(new_events.into_iter().flatten());
-        }
-
-        if has_pinned_event_ids && loaded_events.is_empty() {
+        let mut loaded_events = new_events.into_iter().flatten().collect::<Vec<_>>();
+        if loaded_events.is_empty() {
             return Err(PinnedEventsLoaderError::TimelineReloadFailed);
         }
-
-        debug!("Saving {} pinned events to the cache", loaded_events.len());
-        cache.set_bulk(loaded_events.clone()).await;
 
         // Sort using chronological ordering (oldest -> newest)
         loaded_events.sort_by_key(|item| {
@@ -123,8 +104,8 @@ impl PinnedEventsLoader {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait PinnedEventsRoom: SendOutsideWasm + SyncOutsideWasm {
-    /// Load a single room event.
-    async fn fetch_event(
+    /// Load a single room event using the cache or network.
+    async fn load_event(
         &self,
         event_id: &EventId,
         request_config: Option<RequestConfig>,
@@ -143,11 +124,19 @@ pub trait PinnedEventsRoom: SendOutsideWasm + SyncOutsideWasm {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl PinnedEventsRoom for Room {
-    async fn fetch_event(
+    async fn load_event(
         &self,
         event_id: &EventId,
         request_config: Option<RequestConfig>,
     ) -> Result<SyncTimelineEvent, PaginatorError> {
+        if let Ok((cache, _handles)) = self.event_cache().await {
+            if let Some(event) = cache.event(event_id).await {
+                debug!("Loaded pinned event {event_id} from cache");
+                return Ok(event);
+            }
+        }
+
+        debug!("Loading pinned event {event_id} from HS");
         self.event(event_id, request_config)
             .await
             .map(|e| e.into())

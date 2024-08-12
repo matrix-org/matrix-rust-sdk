@@ -247,10 +247,6 @@ impl Room {
         Ok(Timeline::new(timeline))
     }
 
-    pub async fn clear_pinned_events_cache(&self) {
-        self.inner.clear_pinned_events().await;
-    }
-
     pub fn is_encrypted(&self) -> Result<bool, ClientError> {
         Ok(RUNTIME.block_on(self.inner.is_encrypted())?)
     }
