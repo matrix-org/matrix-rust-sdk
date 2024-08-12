@@ -87,7 +87,7 @@ impl PinnedEventsLoader {
             let new_events = join_all(event_ids_to_request.into_iter().map(|event_id| {
                 let provider = Arc::clone(&provider);
                 async move {
-                    match provider.event_with_config(&event_id, request_config).await {
+                    match provider.fetch_event(&event_id, request_config).await {
                         Ok(event) => Some(event),
                         Err(err) => {
                             warn!("error when loading pinned event: {err}");
@@ -124,7 +124,7 @@ impl PinnedEventsLoader {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait PinnedEventsRoom: SendOutsideWasm + SyncOutsideWasm {
     /// Load a single room event.
-    async fn event_with_config(
+    async fn fetch_event(
         &self,
         event_id: &EventId,
         request_config: Option<RequestConfig>,
@@ -143,7 +143,7 @@ pub trait PinnedEventsRoom: SendOutsideWasm + SyncOutsideWasm {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl PinnedEventsRoom for Room {
-    async fn event_with_config(
+    async fn fetch_event(
         &self,
         event_id: &EventId,
         request_config: Option<RequestConfig>,

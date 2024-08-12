@@ -322,7 +322,7 @@ impl PaginableRoom for TestRoomDataProvider {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl PinnedEventsRoom for TestRoomDataProvider {
-    async fn event_with_config(
+    async fn fetch_event(
         &self,
         _event_id: &EventId,
         _config: Option<RequestConfig>,
