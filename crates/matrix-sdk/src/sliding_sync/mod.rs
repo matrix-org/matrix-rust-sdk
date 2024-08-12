@@ -277,6 +277,8 @@ impl SlidingSync {
 
         let must_process_rooms_response = self.must_process_rooms_response().await;
 
+        trace!(yes = must_process_rooms_response, "Must process rooms response?");
+
         // Compute `limited`, if we're interested in a room list query.
         if must_process_rooms_response {
             let known_rooms = self.inner.rooms.read().await;
