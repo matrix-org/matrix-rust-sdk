@@ -28,6 +28,8 @@ use crate::{
     error::OlmResult, store::Store, types::events::room_key_withheld::WithheldCode, DeviceData,
     EncryptionSettings, OwnUserIdentityData, UserIdentityData,
 };
+#[cfg(doc)]
+use crate::{Device, LocalTrust};
 
 /// Strategy to collect the devices that should receive room keys for the
 /// current discussion.
@@ -43,7 +45,18 @@ pub enum CollectStrategy {
         ///       trusted via interactive verification.
         ///     - It is the current own device of the user.
         only_allow_trusted_devices: bool,
+
+        /// If `true`, and a verified user has an unsigned device, key sharing
+        /// will fail with a
+        /// [`SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice`].
+        /// Otherwise, keys are shared with unsigned devices as normal.
+        ///
+        /// Once the problematic devices are blacklisted or whitelisted the
+        /// caller can retry to share a second time.
+        #[serde(default)]
+        error_on_verified_user_problem: bool,
     },
+
     /// Share based on identity. Only distribute to devices signed by their
     /// owner. If a user has no published identity he will not receive
     /// any room keys.
@@ -59,7 +72,10 @@ impl CollectStrategy {
 
 impl Default for CollectStrategy {
     fn default() -> Self {
-        CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices: false }
+        CollectStrategy::DeviceBasedStrategy {
+            only_allow_trusted_devices: false,
+            error_on_verified_user_problem: false,
+        }
     }
 }
 
@@ -127,7 +143,7 @@ pub(crate) async fn collect_session_recipients(
         let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
 
         let recipient_devices = match settings.sharing_strategy {
-            CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices } => {
+            CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices, .. } => {
                 // We only need the user identity if only_allow_trusted_devices is set.
                 let device_owner_identity = if only_allow_trusted_devices {
                     store.get_user_identity(user_id).await?
@@ -358,8 +374,10 @@ mod tests {
     async fn test_share_with_per_device_strategy_to_all() {
         let machine = set_up_test_machine().await;
 
-        let legacy_strategy =
-            CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices: false };
+        let legacy_strategy = CollectStrategy::DeviceBasedStrategy {
+            only_allow_trusted_devices: false,
+            error_on_verified_user_problem: false,
+        };
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
@@ -410,8 +428,10 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let legacy_strategy =
-            CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices: true };
+        let legacy_strategy = CollectStrategy::DeviceBasedStrategy {
+            only_allow_trusted_devices: true,
+            error_on_verified_user_problem: false,
+        };
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
@@ -558,7 +578,10 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices: false };
+        let strategy = CollectStrategy::DeviceBasedStrategy {
+            only_allow_trusted_devices: false,
+            error_on_verified_user_problem: false,
+        };
 
         let encryption_settings = EncryptionSettings {
             sharing_strategy: strategy.clone(),
@@ -612,7 +635,10 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices: false };
+        let strategy = CollectStrategy::DeviceBasedStrategy {
+            only_allow_trusted_devices: false,
+            error_on_verified_user_problem: false,
+        };
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
