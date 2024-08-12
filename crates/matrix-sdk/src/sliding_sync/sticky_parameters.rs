@@ -55,7 +55,7 @@ pub trait StickyData {
 ///
 /// Initially, the provided data is considered to be invalidated, so it's
 /// applied onto the request the first time it's sent. Any changes to the
-/// wrapped data happen via `[Self::data_mut]`, which invalidates the sticky
+/// wrapped data happen via [`Self::data_mut`], which invalidates the sticky
 /// parameters; they will be applied automatically to the next request.
 ///
 /// When applying sticky parameters, we will also remember the transaction id
