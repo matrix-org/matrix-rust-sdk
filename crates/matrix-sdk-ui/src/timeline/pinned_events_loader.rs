@@ -16,17 +16,12 @@ const MAX_CONCURRENT_REQUESTS: usize = 10;
 pub struct PinnedEventsLoader {
     room: Arc<Box<dyn PinnedEventsRoom>>,
     max_events_to_load: usize,
-    max_concurrent_requests: usize,
 }
 
 impl PinnedEventsLoader {
     /// Creates a new `PinnedEventsLoader` instance.
     pub fn new(room: Box<dyn PinnedEventsRoom>, max_events_to_load: usize) -> Self {
-        Self {
-            room: Arc::new(room),
-            max_events_to_load,
-            max_concurrent_requests: MAX_CONCURRENT_REQUESTS,
-        }
+        Self { room: Arc::new(room), max_events_to_load }
     }
 
     /// Loads the pinned events in this room, using the cache first and then
@@ -69,7 +64,7 @@ impl PinnedEventsLoader {
             let request_config = Some(
                 RequestConfig::default()
                     .retry_limit(3)
-                    .max_concurrent_requests(NonZeroUsize::new(self.max_concurrent_requests)),
+                    .max_concurrent_requests(NonZeroUsize::new(MAX_CONCURRENT_REQUESTS)),
             );
 
             let new_events = join_all(event_ids_to_request.into_iter().map(|event_id| {
@@ -184,7 +179,7 @@ impl PinnedEventsRoom for Room {
 impl std::fmt::Debug for PinnedEventsLoader {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PinnedEventsLoader")
-            .field("max_concurrent_requests", &self.max_concurrent_requests)
+            .field("max_events_to_load", &self.max_events_to_load)
             .finish()
     }
 }
