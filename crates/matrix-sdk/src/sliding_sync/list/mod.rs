@@ -184,7 +184,7 @@ impl SlidingSyncList {
 
     /// Manually invalidate the sticky data, so the sticky parameters are
     /// re-sent next time.
-    pub fn invalidate_sticky_data(&self) {
+    pub(super) fn invalidate_sticky_data(&self) {
         let _ = self.inner.sticky.write().unwrap().data_mut();
     }
 }
