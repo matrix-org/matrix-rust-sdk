@@ -574,6 +574,8 @@ async fn test_send_edit_when_timeline_is_clear() {
     // Clear the event cache (hence the timeline) to make sure the old item does not
     // need to be available in it for the edit to work.
     client.event_cache().add_initial_events(room_id, vec![], None).await.unwrap();
+    client.event_cache().empty_immutable_cache().await;
+
     yield_now().await;
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
