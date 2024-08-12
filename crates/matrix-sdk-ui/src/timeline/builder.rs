@@ -184,7 +184,7 @@ impl TimelineBuilder {
                 let cache = pinned_event_cache.clone();
                 async move {
                     while pinned_event_ids_stream.next().await.is_some() {
-                        if let Ok(events) = inner.pinned_events_load_events(&cache).await {
+                        if let Ok(events) = inner.reload_pinned_events(&cache).await {
                             inner
                                 .replace_with_initial_remote_events(
                                     events,
@@ -265,11 +265,16 @@ impl TimelineBuilder {
                         RoomEventCacheUpdate::AddTimelineEvents { events, origin } => {
                             trace!("Received new timeline events.");
 
-                            // Special case for pinned events: when we receive new events what we'll do is, instead of adding the
-                            // events, update the pinned events cache with them, reload the list of pinned event ids and reload
-                            // the list of pinned events with this info.
+                            // Special case for pinned events: when we receive new events what
+                            // we'll do is, instead of adding the events, update the pinned events
+                            // cache with them, reload the list of pinned event ids and reload the
+                            // list of pinned events with this info.
+
+                            // TODO(bnjbvr): why is this done? the timeline already listens to
+                            // changes to the pinned events list, so we shouldn't have to trigger a
+                            // manual update here too.
                             if let TimelineFocus::PinnedEvents { .. } = &*focus.clone() {
-                                if let Some(ret) = inner.pinned_events_update(events, &pinned_event_cache).await {
+                                if let Some(ret) = inner.update_pinned_events_if_needed(events, &pinned_event_cache).await {
                                     match ret {
                                         Ok(events) => inner.replace_with_initial_remote_events(events, RemoteEventOrigin::Sync).await,
                                         Err(err) => error!("Couldn't update pinned events with incoming timeline events: {err}"),

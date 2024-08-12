@@ -250,7 +250,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             TimelineFocus::PinnedEvents { max_events_to_load } => (
                 TimelineFocusData::PinnedEvents {
                     loader: PinnedEventsLoader::new(
-                        Box::new(room_data_provider.clone()),
+                        Arc::new(room_data_provider.clone()),
                         max_events_to_load as usize,
                     ),
                 },
@@ -341,7 +341,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
     }
 
-    pub(crate) async fn pinned_events_load_events(
+    pub(crate) async fn reload_pinned_events(
         &self,
         pinned_event_cache: &PinnedEventCache,
     ) -> Result<Vec<SyncTimelineEvent>, PinnedEventsLoaderError> {
@@ -354,7 +354,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
     }
 
-    pub(crate) async fn pinned_events_update(
+    pub(crate) async fn update_pinned_events_if_needed(
         &self,
         events: Vec<SyncTimelineEvent>,
         pinned_event_cache: &PinnedEventCache,
