@@ -1396,6 +1396,7 @@ impl BaseClient {
                     history_visibility,
                     CollectStrategy::DeviceBasedStrategy {
                         only_allow_trusted_devices: false,
+                        error_on_verified_user_problem: false,
                     },
                 );
 
