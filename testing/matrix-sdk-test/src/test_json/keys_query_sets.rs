@@ -915,7 +915,7 @@ impl PreviouslyVerifiedTestData {
         ruma_response_from_json(&data)
     }
 
-    pub fn device_1_keys_payload_carol() -> Value {
+    fn device_1_keys_payload_carol() -> Value {
         json!({
             // Not self signed
             "algorithms": [
@@ -936,7 +936,7 @@ impl PreviouslyVerifiedTestData {
         })
     }
 
-    pub fn device_2_keys_payload_carol() -> Value {
+    fn device_2_keys_payload_carol() -> Value {
         // Self-signed device
         json!({
             "algorithms": [
@@ -958,7 +958,7 @@ impl PreviouslyVerifiedTestData {
         })
     }
 
-    pub fn ssk_payload_carol() -> Value {
+    fn ssk_payload_carol() -> Value {
         json!({
             "@carol:localhost": {
                 "keys": {
