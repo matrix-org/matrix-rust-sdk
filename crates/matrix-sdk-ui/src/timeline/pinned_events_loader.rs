@@ -1,6 +1,5 @@
 use std::{fmt::Formatter, num::NonZeroUsize, sync::Arc};
 
-use itertools::Itertools;
 use matrix_sdk::{
     config::RequestConfig, event_cache::paginator::PaginatorError,
     pinned_events_cache::PinnedEventCache, Room, SendOutsideWasm, SyncOutsideWasm,
@@ -99,20 +98,15 @@ impl PinnedEventsLoader {
         info!("Saving {} pinned events to the cache", loaded_events.len());
         cache.set_bulk(&loaded_events).await;
 
-        fn timestamp(item: &SyncTimelineEvent) -> MilliSecondsSinceUnixEpoch {
+        // Sort using chronological ordering (oldest -> newest)
+        loaded_events.sort_by_key(|item| {
             item.event
                 .deserialize()
                 .map(|e| e.origin_server_ts())
                 .unwrap_or_else(|_| MilliSecondsSinceUnixEpoch::now())
-        }
+        });
 
-        // Sort using chronological ordering (oldest -> newest)
-        let sorted_events = loaded_events
-            .into_iter()
-            .sorted_by(|e1, e2| timestamp(e1).cmp(&timestamp(e2)))
-            .collect();
-
-        Ok(sorted_events)
+        Ok(loaded_events)
     }
 
     /// Updates the cache with the provided events if they're associated with a
