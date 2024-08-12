@@ -1,13 +1,12 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    num::NonZeroUsize,
     sync::{Arc, RwLock as StdRwLock},
     time::Duration,
 };
 
 use matrix_sdk_base::sliding_sync::http;
-use matrix_sdk_common::{ring_buffer::RingBuffer, timer};
+use matrix_sdk_common::timer;
 use ruma::OwnedRoomId;
 use tokio::sync::{broadcast::channel, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use url::Url;
@@ -285,8 +284,6 @@ impl SlidingSyncBuilder {
             rooms,
 
             position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers { pos })),
-            // SAFETY: `unwrap` is safe because 20 is not zero.
-            past_positions: StdRwLock::new(RingBuffer::new(NonZeroUsize::new(20).unwrap())),
 
             sticky: StdRwLock::new(SlidingSyncStickyManager::new(
                 SlidingSyncStickyParameters::new(
