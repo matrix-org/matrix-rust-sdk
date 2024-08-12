@@ -118,35 +118,6 @@ impl PinnedEventsLoader {
 
         Ok(loaded_events)
     }
-
-    /// Updates the cache with the provided events if they're associated with a
-    /// pinned event id, then reloads the list of pinned events if there
-    /// were any changes.
-    ///
-    /// Returns an `Option` with either a new list of events if any of them
-    /// changed in this update or `None` if they didn't.
-    pub async fn update_if_needed(
-        &self,
-        events: Vec<impl Into<SyncTimelineEvent>>,
-        cache: &PinnedEventCache,
-    ) -> Option<Result<Vec<SyncTimelineEvent>, PinnedEventsLoaderError>> {
-        let mut to_update = Vec::new();
-        for ev in events {
-            let ev = ev.into();
-            if let Some(ev_id) = ev.event_id() {
-                if self.room.is_pinned_event(&ev_id) {
-                    to_update.push(ev);
-                }
-            }
-        }
-
-        if !to_update.is_empty() {
-            cache.set_bulk(to_update).await;
-            Some(self.load_events(cache).await)
-        } else {
-            None
-        }
-    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
