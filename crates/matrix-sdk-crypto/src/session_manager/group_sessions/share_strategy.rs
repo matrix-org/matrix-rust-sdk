@@ -475,16 +475,7 @@ mod tests {
         let encryption_settings =
             EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
 
-        let fake_room_id = room_id!("!roomid:localhost");
-
-        let id_keys = machine.identity_keys();
-        let group_session = OutboundGroupSession::new(
-            machine.device_id().into(),
-            Arc::new(id_keys),
-            fake_room_id,
-            encryption_settings.clone(),
-        )
-        .unwrap();
+        let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
         let share_result = collect_session_recipients(
             machine.store(),
@@ -519,8 +510,6 @@ mod tests {
     async fn test_share_with_per_device_strategy_only_trusted() {
         let machine = set_up_test_machine().await;
 
-        let fake_room_id = room_id!("!roomid:localhost");
-
         let legacy_strategy = CollectStrategy::DeviceBasedStrategy {
             only_allow_trusted_devices: true,
             error_on_verified_user_problem: false,
@@ -529,14 +518,7 @@ mod tests {
         let encryption_settings =
             EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
 
-        let id_keys = machine.identity_keys();
-        let group_session = OutboundGroupSession::new(
-            machine.device_id().into(),
-            Arc::new(id_keys),
-            fake_room_id,
-            encryption_settings.clone(),
-        )
-        .unwrap();
+        let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
         let share_result = collect_session_recipients(
             machine.store(),
@@ -594,21 +576,12 @@ mod tests {
     async fn test_share_with_identity_strategy() {
         let machine = set_up_test_machine().await;
 
-        let fake_room_id = room_id!("!roomid:localhost");
-
         let strategy = CollectStrategy::new_identity_based();
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
 
-        let id_keys = machine.identity_keys();
-        let group_session = OutboundGroupSession::new(
-            machine.device_id().into(),
-            Arc::new(id_keys),
-            fake_room_id,
-            encryption_settings.clone(),
-        )
-        .unwrap();
+        let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
         let share_result = collect_session_recipients(
             machine.store(),
@@ -669,8 +642,6 @@ mod tests {
     async fn test_should_rotate_based_on_visibility() {
         let machine = set_up_test_machine().await;
 
-        let fake_room_id = room_id!("!roomid:localhost");
-
         let strategy = CollectStrategy::DeviceBasedStrategy {
             only_allow_trusted_devices: false,
             error_on_verified_user_problem: false,
@@ -682,14 +653,7 @@ mod tests {
             ..Default::default()
         };
 
-        let id_keys = machine.identity_keys();
-        let group_session = OutboundGroupSession::new(
-            machine.device_id().into(),
-            Arc::new(id_keys),
-            fake_room_id,
-            encryption_settings.clone(),
-        )
-        .unwrap();
+        let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
         let _ = collect_session_recipients(
             machine.store(),
@@ -771,5 +735,20 @@ mod tests {
         .unwrap();
 
         assert!(share_result.should_rotate);
+    }
+
+    /// Create an [`OutboundGroupSession`], backed by the given olm machine,
+    /// without sharing it.
+    fn create_test_outbound_group_session(
+        machine: &OlmMachine,
+        encryption_settings: &EncryptionSettings,
+    ) -> OutboundGroupSession {
+        OutboundGroupSession::new(
+            machine.device_id().into(),
+            Arc::new(machine.identity_keys()),
+            room_id!("!roomid:localhost"),
+            encryption_settings.clone(),
+        )
+        .expect("creating an outbound group session should not fail")
     }
 }
