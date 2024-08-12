@@ -8,7 +8,7 @@ use matrix_sdk::{
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
 use thiserror::Error;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 const MAX_CONCURRENT_REQUESTS: usize = 10;
 
@@ -55,10 +55,10 @@ impl PinnedEventsLoader {
         let mut event_ids_to_request = Vec::new();
         for ev_id in pinned_event_ids {
             if let Some(ev) = cache.get(&ev_id).await {
-                info!("Loading pinned event {ev_id} from cache");
+                debug!("Loading pinned event {ev_id} from cache");
                 loaded_events.push(ev.clone());
             } else {
-                info!("Loading pinned event {ev_id} from HS");
+                debug!("Loading pinned event {ev_id} from HS");
                 event_ids_to_request.push(ev_id);
             }
         }
@@ -93,7 +93,7 @@ impl PinnedEventsLoader {
             return Err(PinnedEventsLoaderError::TimelineReloadFailed);
         }
 
-        info!("Saving {} pinned events to the cache", loaded_events.len());
+        debug!("Saving {} pinned events to the cache", loaded_events.len());
         cache.set_bulk(&loaded_events).await;
 
         // Sort using chronological ordering (oldest -> newest)
