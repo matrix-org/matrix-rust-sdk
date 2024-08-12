@@ -96,8 +96,5 @@ uniffi::setup_scaffolding!();
 #[cfg(any(test, feature = "testing"))]
 pub mod test_utils;
 
-/// Contains the pinned events cache implementation.
-pub mod pinned_events_cache;
-
 #[cfg(test)]
 matrix_sdk_test::init_tracing_for_tests!();
