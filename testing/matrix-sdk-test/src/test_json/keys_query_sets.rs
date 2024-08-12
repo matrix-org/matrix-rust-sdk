@@ -915,6 +915,24 @@ impl PreviouslyVerifiedTestData {
         ruma_response_from_json(&data)
     }
 
+    /// Device ID of Carol's signed device.
+    ///
+    /// The device is returned as part of
+    /// [`Self::carol_keys_query_response_signed`] and
+    /// [`Self::carol_keys_query_response_unsigned`].
+    pub fn carol_signed_device_id() -> &'static DeviceId {
+        device_id!("JBRBCHOFDZ")
+    }
+
+    /// Device ID of Carol's unsigned device.
+    ///
+    /// The device is returned as part of
+    /// [`Self::carol_keys_query_response_signed`] and
+    /// [`Self::carol_keys_query_response_unsigned`].
+    pub fn carol_unsigned_device_id() -> &'static DeviceId {
+        device_id!("BAZAPVEHGA")
+    }
+
     fn device_1_keys_payload_carol() -> Value {
         json!({
             // Not self signed
