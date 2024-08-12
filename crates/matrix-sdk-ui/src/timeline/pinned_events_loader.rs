@@ -1,5 +1,6 @@
 use std::{fmt::Formatter, num::NonZeroUsize, sync::Arc};
 
+use futures_util::future::join_all;
 use matrix_sdk::{
     config::RequestConfig, event_cache::paginator::PaginatorError,
     pinned_events_cache::PinnedEventCache, Room, SendOutsideWasm, SyncOutsideWasm,
@@ -7,7 +8,7 @@ use matrix_sdk::{
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
 use thiserror::Error;
-use tracing::info;
+use tracing::{info, warn};
 
 const MAX_CONCURRENT_REQUESTS: usize = 10;
 
@@ -64,31 +65,28 @@ impl PinnedEventsLoader {
 
         if !event_ids_to_request.is_empty() {
             let provider = Arc::new(self.room.clone());
-            let mut handles = Vec::new();
 
-            let config = Some(
+            let request_config = Some(
                 RequestConfig::default()
                     .retry_limit(3)
                     .max_concurrent_requests(NonZeroUsize::new(self.max_concurrent_requests)),
             );
 
-            for id in event_ids_to_request {
-                handles.push(tokio::spawn({
-                    let provider = Arc::clone(&provider);
-                    async move {
-                        provider
-                            .event_with_config(&id, config)
-                            .await
-                            .map_err(|_| PinnedEventsLoaderError::EventNotFound(id.to_owned()))
+            let new_events = join_all(event_ids_to_request.into_iter().map(|event_id| {
+                let provider = Arc::clone(&provider);
+                async move {
+                    match provider.event_with_config(&event_id, request_config).await {
+                        Ok(event) => Some(event),
+                        Err(err) => {
+                            warn!("error when loading pinned event: {err}");
+                            None
+                        }
                     }
-                }));
-            }
-
-            for handle in handles {
-                if let Ok(Ok(ev)) = handle.await {
-                    loaded_events.push(ev);
                 }
-            }
+            }))
+            .await;
+
+            loaded_events.extend(new_events.into_iter().flatten());
         }
 
         if has_pinned_event_ids && loaded_events.is_empty() {
