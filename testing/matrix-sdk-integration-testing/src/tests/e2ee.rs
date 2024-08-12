@@ -948,7 +948,7 @@ async fn test_secret_gossip_after_interactive_verification() -> Result<()> {
         .get_room(room_first_client.room_id())
         .expect("The second client should know about the room as well");
 
-    let timeline_event = room.event(&event_id).await?;
+    let timeline_event = room.event(&event_id, None).await?;
     timeline_event
         .encryption_info
         .expect("The event should have been encrypted and successfully decrypted.");

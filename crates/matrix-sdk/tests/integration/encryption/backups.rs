@@ -954,7 +954,8 @@ async fn enable_from_secret_storage() {
     mock_get_event(room_id, event_id, event_content, &server).await;
 
     let room = client.get_room(room_id).expect("We should have access to the room after the sync");
-    let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
+    let event =
+        room.event(event_id, None).await.expect("We should be able to fetch our encrypted event");
 
     assert_matches!(
         event.encryption_info,
@@ -1024,7 +1025,8 @@ async fn enable_from_secret_storage() {
         panic!("Failed to get an update about room keys being imported from the backup")
     }
 
-    let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
+    let event =
+        room.event(event_id, None).await.expect("We should be able to fetch our encrypted event");
 
     assert_matches!(event.encryption_info, Some(..), "The event should now be decrypted");
     let event: RoomMessageEvent =
@@ -1372,7 +1374,8 @@ async fn enable_from_secret_storage_and_download_after_utd() {
     pin_mut!(room_key_stream);
 
     let room = client.get_room(room_id).expect("We should have access to the room after the sync");
-    let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
+    let event =
+        room.event(event_id, None).await.expect("We should be able to fetch our encrypted event");
 
     assert_matches!(
         event.encryption_info,
@@ -1392,7 +1395,8 @@ async fn enable_from_secret_storage_and_download_after_utd() {
         assert!(room_key_set.contains("64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"));
     }
 
-    let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
+    let event =
+        room.event(event_id, None).await.expect("We should be able to fetch our encrypted event");
 
     assert_matches!(event.encryption_info, Some(..), "The event should now be decrypted");
     let event: RoomMessageEvent =
@@ -1500,7 +1504,8 @@ async fn enable_from_secret_storage_and_download_after_utd_from_old_message_inde
     // Finally, make a request for the event. That should kick off an attempt to
     // fetch from backup.
     let room = client.get_room(room_id).expect("We should have access to the room after the sync");
-    let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
+    let event =
+        room.event(event_id, None).await.expect("We should be able to fetch our encrypted event");
 
     assert_matches!(
         event.encryption_info,
@@ -1520,7 +1525,8 @@ async fn enable_from_secret_storage_and_download_after_utd_from_old_message_inde
         assert!(room_key_set.contains(outbound_group_session.session_id()));
     }
 
-    let event = room.event(event_id).await.expect("We should be able to fetch our encrypted event");
+    let event =
+        room.event(event_id, None).await.expect("We should be able to fetch our encrypted event");
 
     assert_matches!(event.encryption_info, Some(..), "The event should now be decrypted");
     let event: RoomMessageEvent =

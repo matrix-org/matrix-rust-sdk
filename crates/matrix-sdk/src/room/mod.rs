@@ -388,13 +388,10 @@ impl Room {
     }
 
     /// Fetch the event with the given `EventId` in this room.
-    pub async fn event(&self, event_id: &EventId) -> Result<TimelineEvent> {
-        self.event_with_config(event_id, None).await
-    }
-
-    /// Fetch the event with the given `EventId` in this room, using the
-    /// provided  `RequestConfig`.
-    pub async fn event_with_config(
+    ///
+    /// It uses the given [`RequestConfig`] if provided, or the client's default
+    /// one otherwise.
+    pub async fn event(
         &self,
         event_id: &EventId,
         request_config: Option<RequestConfig>,

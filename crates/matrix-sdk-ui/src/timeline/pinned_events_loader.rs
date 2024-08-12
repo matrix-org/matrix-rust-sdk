@@ -173,7 +173,7 @@ impl PinnedEventsRoom for Room {
         event_id: &EventId,
         request_config: Option<RequestConfig>,
     ) -> Result<SyncTimelineEvent, PaginatorError> {
-        self.event_with_config(event_id, request_config)
+        self.event(event_id, request_config)
             .await
             .map(|e| e.into())
             .map_err(|err| PaginatorError::SdkError(Box::new(err)))
