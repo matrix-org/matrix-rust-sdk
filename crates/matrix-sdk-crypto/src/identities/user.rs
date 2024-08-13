@@ -228,11 +228,9 @@ impl Deref for UserIdentity {
 impl UserIdentity {
     /// Is this user identity verified.
     pub fn is_verified(&self) -> bool {
-        self.own_identity.as_ref().is_some_and(|own_identity| {
-            // The identity of another user is verified iff our own identity is verified and
-            // if our own identity has signed the other user's identity.
-            own_identity.is_verified() && own_identity.is_identity_signed(&self.inner).is_ok()
-        })
+        self.own_identity
+            .as_ref()
+            .is_some_and(|own_identity| own_identity.is_identity_verified(&self.inner))
     }
 
     /// Manually verify this user.
@@ -886,7 +884,25 @@ impl OwnUserIdentityData {
         &self.user_signing_key
     }
 
+    /// Check if the given user identity has been verified.
+    ///
+    /// The identity of another user is verified iff our own identity is
+    /// verified and if our own identity has signed the other user's
+    /// identity.
+    ///
+    /// # Arguments
+    ///
+    /// * `identity` - The identity of another user which we want to check has
+    ///   been verified.
+    pub fn is_identity_verified(&self, identity: &OtherUserIdentityData) -> bool {
+        self.is_verified() && self.is_identity_signed(identity).is_ok()
+    }
+
     /// Check if the given identity has been signed by this identity.
+    ///
+    /// Note that, normally, you'll also want to check that the
+    /// `OwnUserIdentityData` has been verified; for that,
+    /// [`Self::is_identity_verified`] is more appropriate.
     ///
     /// # Arguments
     ///
