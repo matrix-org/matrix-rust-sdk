@@ -32,6 +32,18 @@ Changes:
 
 Breaking changes:
 
+- Add a new `error_on_verified_user_problem` property to
+  `CollectStrategy::DeviceBasedStrategy`, which, when set, causes
+  `OlmMachine::share_room_key` to fail with an error if any verified users on
+  the recipient list have unsigned devices.
+
+  Also remove `CollectStrategy::new_device_based`: callers should construct a
+  `CollectStrategy::DeviceBasedStrategy` directly.
+
+  `EncryptionSettings::new` now takes a `CollectStrategy` argument, instead of
+  a list of booleans.
+  ([#3810](https://github.com/matrix-org/matrix-rust-sdk/pull/3810))
+
 - Remove the method `OlmMachine::clear_crypto_cache()`, crypto stores are not
   supposed to have any caches anymore.
 
