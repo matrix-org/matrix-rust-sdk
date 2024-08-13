@@ -570,9 +570,10 @@ impl RoomMemberships {
 mod tests {
     use std::ops::Not;
 
+    use assert_matches::assert_matches;
     use ruma::events::tag::{TagInfo, TagName, Tags};
 
-    use super::{BaseRoomInfo, RoomNotableTags};
+    use super::{get_user_id_for_state_key, BaseRoomInfo, RoomNotableTags};
 
     #[test]
     fn test_handle_notable_tags_favourite() {
@@ -602,5 +603,20 @@ mod tests {
         tags.clear();
         base_room_info.handle_notable_tags(&tags);
         assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY).not());
+    }
+
+    #[test]
+    fn test_get_user_id_from_state_key() {
+        assert_matches!(get_user_id_for_state_key(""), None);
+        assert_matches!(get_user_id_for_state_key("abc"), None);
+        assert_matches!(get_user_id_for_state_key("username:example.org"), None);
+
+        assert_matches!(get_user_id_for_state_key("@username:example.org"), Some(_));
+        assert_matches!(get_user_id_for_state_key("@username:example.org_valid_suffix"), Some(_));
+        assert_matches!(get_user_id_for_state_key("@username:example.org:invalid_suffix"), None);
+
+        assert_matches!(get_user_id_for_state_key("_@username:example.org"), Some(_));
+        assert_matches!(get_user_id_for_state_key("_@username:example.org_valid_suffix"), Some(_));
+        assert_matches!(get_user_id_for_state_key("_@username:example.org:invalid_suffix"), None);
     }
 }
