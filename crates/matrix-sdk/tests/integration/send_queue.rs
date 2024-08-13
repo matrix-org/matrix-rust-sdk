@@ -85,6 +85,26 @@ macro_rules! assert_update {
         (txn, send_handle)
     }};
 
+    // Check the next stream event is a local echo for a reaction with the content $key which
+    // applies to the local echo with transaction id $parent.
+    ($watch:ident => local reaction { key = $key:expr, parent = $parent_txn_id:expr }) => {{
+        assert_let!(
+            Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+                content: LocalEchoContent::React {
+                    key,
+                    applies_to,
+                    send_handle: _,
+                },
+                transaction_id: txn,
+            }))) = timeout(Duration::from_secs(1), $watch.recv()).await
+        );
+
+        assert_eq!(key, $key);
+        assert_eq!(applies_to, $parent_txn_id);
+
+        txn
+    }};
+
     // Check the next stream event is an edit for a local echo with the content $body, and that the
     // transaction id is the one we expect.
     ($watch:ident => edit { body = $body:expr, txn = $transaction_id:expr }) => {{
@@ -759,7 +779,8 @@ async fn test_cancellation() {
     // Let the background task start now.
     tokio::task::yield_now().await;
 
-    // While the first item is being sent, the system records the intent to edit it.
+    // While the first item is being sent, the system records the intent to abort
+    // it.
     assert!(handle1.abort().await.unwrap());
     assert_update!(watch => cancelled { txn = txn1 });
     assert!(watch.is_empty());
@@ -1203,6 +1224,8 @@ async fn test_abort_or_edit_after_send() {
         .not());
     // Neither will aborting.
     assert!(handle.abort().await.unwrap().not());
+    // Or sending a reaction.
+    assert!(handle.react("😊".to_owned()).await.unwrap().is_none());
 
     assert!(watch.is_empty());
 }
@@ -1540,4 +1563,143 @@ async fn test_reloading_rooms_with_unsent_events() {
 
     // The real assertion is on the expect(2) on the above Mock.
     server.verify().await;
+}
+
+#[async_test]
+async fn test_reactions() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    let lock = Arc::new(Mutex::new(0));
+    let lock_guard = lock.lock().await;
+
+    let mock_lock = lock.clone();
+
+    mock_encryption_state(&server, false).await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(move |_req: &Request| {
+            // Wait for the signal from the main thread that we can process this query.
+            let mock_lock = mock_lock.clone();
+            let event_id = std::thread::spawn(move || {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    let mut event_id = mock_lock.lock().await;
+                    let ret = *event_id;
+                    *event_id += 1;
+                    ret
+                })
+            })
+            .join()
+            .unwrap();
+
+            ResponseTemplate::new(200).set_body_json(json!({
+                "event_id": format!("${event_id}"),
+            }))
+        })
+        .expect(3)
+        .mount(&server)
+        .await;
+
+    // Sending of the second emoji has started; abort it, it will result in a redact
+    // request.
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"event_id": "$3"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // Send a message.
+    let msg_handle =
+        room.send_queue().send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
+
+    // React to it a few times.
+    let emoji_handle =
+        msg_handle.react("💯".to_owned()).await.unwrap().expect("first emoji was queued");
+    let emoji_handle2 =
+        msg_handle.react("🍭".to_owned()).await.unwrap().expect("second emoji was queued");
+    let emoji_handle3 =
+        msg_handle.react("👍".to_owned()).await.unwrap().expect("fourth emoji was queued");
+
+    let (txn1, _) = assert_update!(watch => local echo { body = "1" });
+    let emoji1_txn = assert_update!(watch => local reaction { key = "💯", parent = txn1 });
+    let emoji2_txn = assert_update!(watch => local reaction { key = "🍭", parent = txn1 });
+    let emoji3_txn = assert_update!(watch => local reaction { key = "👍", parent = txn1 });
+
+    {
+        let (local_echoes, _) = q.subscribe().await.unwrap();
+
+        assert_eq!(local_echoes.len(), 4);
+        assert_eq!(local_echoes[0].transaction_id, txn1);
+
+        assert_eq!(local_echoes[1].transaction_id, emoji1_txn);
+        assert_let!(LocalEchoContent::React { key, applies_to, .. } = &local_echoes[1].content);
+        assert_eq!(key, "💯");
+        assert_eq!(*applies_to, txn1);
+
+        assert_eq!(local_echoes[2].transaction_id, emoji2_txn);
+        assert_let!(LocalEchoContent::React { key, applies_to, .. } = &local_echoes[2].content);
+        assert_eq!(key, "🍭");
+        assert_eq!(*applies_to, txn1);
+
+        assert_eq!(local_echoes[3].transaction_id, emoji3_txn);
+        assert_let!(LocalEchoContent::React { key, applies_to, .. } = &local_echoes[3].content);
+        assert_eq!(key, "👍");
+        assert_eq!(*applies_to, txn1);
+    }
+
+    // Cancel the first reaction before the original event is sent.
+    let aborted = emoji_handle.abort().await.unwrap();
+    assert!(aborted);
+    assert_update!(watch => cancelled { txn = emoji1_txn });
+    assert!(watch.is_empty());
+
+    // Let the original event be sent, and re-take the lock immediately so no
+    // reactions aren't sent (since the lock is fair).
+    drop(lock_guard);
+    assert_update!(watch => sent { txn = txn1, event_id = event_id!("$0") });
+    let lock_guard = lock.lock().await;
+    assert!(watch.is_empty());
+
+    // Abort sending of the second emoji. It was being sent, so it's first cancelled
+    // *then* sent and redacted.
+    let aborted = emoji_handle2.abort().await.unwrap();
+    assert!(aborted);
+    assert_update!(watch => cancelled { txn = emoji2_txn });
+    assert!(watch.is_empty());
+
+    // Drop the guard to let the mock server process events.
+    drop(lock_guard);
+
+    // Previous emoji has been sent; it will be redacted later.
+    assert_update!(watch => sent { txn = emoji2_txn, event_id = event_id!("$1") });
+
+    // The final emoji is sent.
+    assert_update!(watch => sent { txn = emoji3_txn, event_id = event_id!("$2") });
+
+    // Cancelling sending of the third emoji fails because it's been sent already.
+    assert!(emoji_handle3.abort().await.unwrap().not());
+
+    assert!(watch.is_empty());
 }
