@@ -322,7 +322,7 @@ impl BaseRoomInfo {
     }
 }
 
-/// Extact a user ID from a state key that matches one of the following formats:
+/// Extract a user ID from a state key that matches one of the following formats:
 /// - `<user ID>`
 /// - `<user ID>_<string>`
 /// - `_<user ID>_<string>`
