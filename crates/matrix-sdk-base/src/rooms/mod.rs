@@ -40,7 +40,7 @@ use ruma::{
         RedactedStateEventContent, StaticStateEventContent, SyncStateEvent,
     },
     room::RoomType,
-    EventId, OwnedUserId, RoomVersionId,
+    EventId, OwnedUserId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -195,9 +195,36 @@ impl BaseRoomInfo {
                 let mut o_ev = o_ev.clone();
                 o_ev.content.set_created_ts_if_none(o_ev.origin_server_ts);
 
+                let state_key = m.state_key();
+                let owned_user_id = match UserId::parse(state_key) {
+                    Ok(u) => u,
+                    Err(_) => {
+                        // Ignore leading underscore if present
+                        // (used for avoiding auth rules on @-prefixed state keys)
+                        let state_key = match state_key.strip_prefix('_') {
+                            None => state_key,
+                            Some(stripped_state_key) => stripped_state_key,
+                        };
+                        if state_key.starts_with('@') {
+                            if let Some(colon_idx) = state_key.find(':') {
+                                let state_key_user_id = match state_key[colon_idx + 1..].find('_') {
+                                    None => state_key,
+                                    Some(suffix_idx) => &state_key[..colon_idx + 1 + suffix_idx],
+                                };
+                                match UserId::parse(state_key_user_id) {
+                                    Ok(u) => u,
+                                    Err(_) => return false,
+                                }
+                            } else {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
+                    }
+                };
                 // add the new event.
-                self.rtc_member
-                    .insert(m.state_key().clone(), SyncStateEvent::Original(o_ev).into());
+                self.rtc_member.insert(owned_user_id, SyncStateEvent::Original(o_ev).into());
 
                 // Remove all events that don't contain any memberships anymore.
                 self.rtc_member.retain(|_, ev| {

@@ -2624,7 +2624,7 @@ mod tests {
             // we can simply use now here since this will be dropped when using a MinimalStateEvent
             // in the roomInfo
             origin_server_ts: timestamp(0),
-            state_key: user_id.to_owned(),
+            state_key: user_id.to_string(),
             unsigned: StateUnsigned::new(),
         }))
     }
