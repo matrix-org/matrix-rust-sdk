@@ -201,10 +201,7 @@ impl BaseRoomInfo {
                     Err(_) => {
                         // Ignore leading underscore if present
                         // (used for avoiding auth rules on @-prefixed state keys)
-                        let state_key = match state_key.strip_prefix('_') {
-                            None => state_key,
-                            Some(stripped_state_key) => stripped_state_key,
-                        };
+                        let state_key = state_key.strip_prefix('_').unwrap_or(state_key);
                         if state_key.starts_with('@') {
                             if let Some(colon_idx) = state_key.find(':') {
                                 let state_key_user_id = match state_key[colon_idx + 1..].find('_') {
