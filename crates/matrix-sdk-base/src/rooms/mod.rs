@@ -602,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_user_id_from_state_key() {
+    fn test_get_user_id_for_state_key() {
         assert_matches!(get_user_id_for_state_key(""), None);
         assert_matches!(get_user_id_for_state_key("abc"), None);
         assert_matches!(get_user_id_for_state_key("username:example.org"), None);
