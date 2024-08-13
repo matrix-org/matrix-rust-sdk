@@ -1,6 +1,6 @@
 use ruma::{
-    api::client::keys::get_keys::v3::Response as KeyQueryResponse, device_id, user_id, DeviceId,
-    UserId,
+    api::client::keys::get_keys::v3::Response as KeyQueryResponse, device_id,
+    encryption::DeviceKeys, serde::Raw, user_id, DeviceId, OwnedDeviceId, UserId,
 };
 use serde_json::{json, Value};
 
@@ -772,6 +772,77 @@ impl PreviouslyVerifiedTestData {
         });
 
         ruma_response_from_json(&data)
+    }
+
+    /// Device ID of the device returned by [`Self::own_unsigned_device_keys`].
+    pub fn own_unsigned_device_id() -> OwnedDeviceId {
+        Self::own_unsigned_device_keys().0
+    }
+
+    /// Device-keys response for a device belonging to Alice, which has *not*
+    /// been signed by her identity. This can be used as part of a
+    /// `/keys/query` response.
+    ///
+    /// For convenience, returns a tuple `(<device id>, <device keys>)`. The
+    /// device id is also returned by [`Self::own_unsigned_device_id`].
+    pub fn own_unsigned_device_keys() -> (OwnedDeviceId, Raw<DeviceKeys>) {
+        let json = json!({
+             "algorithms": [
+                 "m.olm.v1.curve25519-aes-sha2",
+                 "m.megolm.v1.aes-sha2"
+             ],
+             "device_id": "AHIVRZICJK",
+             "keys": {
+                 "curve25519:AHIVRZICJK": "3U73fbymtt6sn/H+5UYHiQxN2HfDmxzOMYZ+3JyPT2E",
+                 "ed25519:AHIVRZICJK": "I0NV5nJYmnH+f5py4Fz2tdCeSKUChaaXV7m4UOq9bis"
+             },
+             "signatures": {
+                 "@alice:localhost": {
+                     "ed25519:AHIVRZICJK": "HIs13b2GizN8gdZrYLWs9KZbcmKubXE+O4716Uow513e84JO8REy53OX4TDdoBfmVhPiZg5CIRrUDH7JxY4wAQ"
+                 }
+             },
+             "user_id": "@alice:localhost",
+             "unsigned": {
+                 "device_display_name": "Element - dbg Android"
+             }
+        });
+        (device_id!("AHIVRZICJK").to_owned(), serde_json::from_value(json).unwrap())
+    }
+
+    /// Device ID of the device returned by [`Self::own_signed_device_keys`].
+    pub fn own_signed_device_id() -> OwnedDeviceId {
+        Self::own_signed_device_keys().0
+    }
+
+    /// Device-keys response for a device belonging to Alice, which has been
+    /// signed by her identity. This can be used as part of a `/keys/query`
+    /// response.
+    ///
+    /// For convenience, returns a tuple `(<device id>, <device keys>)`. The
+    /// device id is also returned by [`Self::own_signed_device_id`].
+    pub fn own_signed_device_keys() -> (OwnedDeviceId, Raw<DeviceKeys>) {
+        let json = json!({
+            "algorithms": [
+                "m.olm.v1.curve25519-aes-sha2",
+                "m.megolm.v1.aes-sha2"
+            ],
+            "device_id": "LCNRWQAVWK",
+            "keys": {
+                "curve25519:LCNRWQAVWK": "fULFq9I6uYmsdDwRFU76wc43RqF7TVGvlWvKXhSrsS4",
+                "ed25519:LCNRWQAVWK": "F7E0EF0lzVJN31cnetLdeBuNvZ8jQqkUzt8/nGD9M/E"
+            },
+            "signatures": {
+                "@alice:localhost": {
+                    "ed25519:LCNRWQAVWK": "8kLsN76ytGRuHKMgIARaOds29QrPRzQ6Px+FOLsYK/ATmx5IVd65MpSh2pGjLAaPsSGWR1WLbBTq/LZtcpjTDQ",
+                    "ed25519:WXLer0esHUanp8DCeu2Be0xB5ms9aKFFBrCFl50COjw": "lo4Vuuu+WvPt1hnOCv30iS1y/cF7DljfFZYF3ib5JH/6iPZTW4jYdlmWo4a7hDf0fb2pu3EFnghYMr7vVx41Aw"
+                }
+            },
+            "user_id": "@alice:localhost",
+            "unsigned": {
+                "device_display_name": "develop.element.io: Chrome on macOS"
+            }
+        });
+        (device_id!("LCNRWQAVWK").to_owned(), serde_json::from_value(json).unwrap())
     }
 
     /// `/keys/query` response for Bob, signed by Alice's identity.
