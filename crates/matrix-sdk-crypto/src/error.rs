@@ -26,7 +26,7 @@ use crate::{
     types::{events::room_key_withheld::WithheldCode, SignedKey},
 };
 #[cfg(doc)]
-use crate::{CollectStrategy, Device, LocalTrust};
+use crate::{CollectStrategy, Device, LocalTrust, UserIdentity};
 
 pub type OlmResult<T> = Result<T, OlmError>;
 pub type MegolmResult<T> = Result<T, MegolmError>;
@@ -385,4 +385,26 @@ pub enum SessionRecipientCollectionError {
     /// then retry the encryption operation.
     #[error("one or more verified users have unsigned devices")]
     VerifiedUserHasUnsignedDevice(BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>),
+
+    /// One or more users was previously verified, but they have changed their
+    /// identity.
+    ///
+    /// Happens only with [`CollectStrategy::DeviceBasedStrategy`] when
+    /// [`error_on_verified_user_problem`](`CollectStrategy::DeviceBasedStrategy::error_on_verified_user_problem`)
+    /// is true.
+    ///
+    /// In order to resolve this, the user can:
+    ///
+    /// * re-verify the problematic recipients, or
+    ///
+    /// * withdraw verification of the problematic recipients with
+    ///   [`UserIdentity::withdraw_verification`], or
+    ///
+    /// * set the trust level of all of the devices belonging to the problematic
+    ///   recipients to [`LocalTrust::Ignored`] or [`LocalTrust::BlackListed`]
+    ///   (see [`Device::set_local_trust`]).
+    ///
+    /// The caller can then retry the encryption operation.
+    #[error("one or more users that were verified have changed their identity")]
+    VerifiedUserChangedIdentity(Vec<OwnedUserId>),
 }
