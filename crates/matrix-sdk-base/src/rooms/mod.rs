@@ -195,31 +195,10 @@ impl BaseRoomInfo {
                 let mut o_ev = o_ev.clone();
                 o_ev.content.set_created_ts_if_none(o_ev.origin_server_ts);
 
-                let state_key = m.state_key();
-                let owned_user_id = match UserId::parse(state_key) {
-                    Ok(user_id) => user_id,
-                    Err(_) => {
-                        // Ignore leading underscore if present
-                        // (used for avoiding auth rules on @-prefixed state keys)
-                        let state_key = state_key.strip_prefix('_').unwrap_or(state_key);
-                        if state_key.starts_with('@') {
-                            if let Some(colon_idx) = state_key.find(':') {
-                                let state_key_user_id = match state_key[colon_idx + 1..].find('_') {
-                                    None => state_key,
-                                    Some(suffix_idx) => &state_key[..colon_idx + 1 + suffix_idx],
-                                };
-                                match UserId::parse(state_key_user_id) {
-                                    Ok(user_id) => user_id,
-                                    Err(_) => return false,
-                                }
-                            } else {
-                                return false;
-                            }
-                        } else {
-                            return false;
-                        }
-                    }
+                let Some(owned_user_id) = get_user_id_for_state_key(m.state_key()) else {
+                    return false;
                 };
+
                 // add the new event.
                 self.rtc_member.insert(owned_user_id, SyncStateEvent::Original(o_ev).into());
 
@@ -340,6 +319,37 @@ impl BaseRoomInfo {
         }
 
         self.notable_tags = notable_tags;
+    }
+}
+
+/// Extact a user ID from a state key that matches one of the following formats:
+/// - `<user ID>`
+/// - `<user ID>_<string>`
+/// - `_<user ID>_<string>`
+fn get_user_id_for_state_key(state_key: &str) -> Option<OwnedUserId> {
+    match UserId::parse(state_key) {
+        Ok(user_id) => Some(user_id),
+        Err(_) => {
+            // Ignore leading underscore if present
+            // (used for avoiding auth rules on @-prefixed state keys)
+            let state_key = state_key.strip_prefix('_').unwrap_or(state_key);
+            if state_key.starts_with('@') {
+                if let Some(colon_idx) = state_key.find(':') {
+                    let state_key_user_id = match state_key[colon_idx + 1..].find('_') {
+                        None => state_key,
+                        Some(suffix_idx) => &state_key[..colon_idx + 1 + suffix_idx],
+                    };
+                    match UserId::parse(state_key_user_id) {
+                        Ok(user_id) => Some(user_id),
+                        Err(_) => None,
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
     }
 }
 
