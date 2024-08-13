@@ -668,7 +668,8 @@ pub struct EncryptionSettings {
     /// Should untrusted devices receive the room key, or should they be
     /// excluded from the conversation.
     pub only_allow_trusted_devices: bool,
-    /// Should fail to send when a verified user has unverified devices.
+    /// Should fail to send when a verified user has unverified devices, or when
+    /// a previously verified user replaces their identity.
     pub error_on_verified_user_problem: bool,
 }
 

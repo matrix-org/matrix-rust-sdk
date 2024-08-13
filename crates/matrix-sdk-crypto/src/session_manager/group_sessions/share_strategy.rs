@@ -24,14 +24,14 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
 
 use super::OutboundGroupSession;
-#[cfg(doc)]
-use crate::Device;
 use crate::{
     error::{OlmResult, SessionRecipientCollectionError},
     store::Store,
     types::events::room_key_withheld::WithheldCode,
     DeviceData, EncryptionSettings, LocalTrust, OlmError, OwnUserIdentityData, UserIdentityData,
 };
+#[cfg(doc)]
+use crate::{Device, UserIdentities};
 
 /// Strategy to collect the devices that should receive room keys for the
 /// current discussion.
@@ -51,6 +51,11 @@ pub enum CollectStrategy {
         /// If `true`, and a verified user has an unsigned device, key sharing
         /// will fail with a
         /// [`SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice`].
+        ///
+        /// If `true`, and a verified user has replaced their identity, key
+        /// sharing will fail with a
+        /// [`SessionRecipientCollectionError::VerifiedUserChangedIdentity`].
+        ///
         /// Otherwise, keys are shared with unsigned devices as normal.
         ///
         /// Once the problematic devices are blacklisted or whitelisted the
@@ -116,6 +121,7 @@ pub(crate) async fn collect_session_recipients(
     let mut withheld_devices: Vec<(DeviceData, WithheldCode)> = Default::default();
     let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> =
         Default::default();
+    let mut verified_users_with_new_identities: Vec<OwnedUserId> = Default::default();
 
     trace!(?users, ?settings, "Calculating group session recipients");
 
@@ -160,6 +166,18 @@ pub(crate) async fn collect_session_recipients(
                     } else {
                         None
                     };
+
+                if error_on_verified_user_problem
+                    && has_identity_verification_violation(
+                        own_identity.as_ref(),
+                        device_owner_identity.as_ref(),
+                    )
+                {
+                    verified_users_with_new_identities.push(user_id.to_owned());
+                    // No point considering the individual devices of this user.
+                    continue;
+                }
+
                 split_devices_for_user(
                     user_devices,
                     &own_identity,
@@ -215,6 +233,16 @@ pub(crate) async fn collect_session_recipients(
         return Err(OlmError::SessionRecipientCollectionError(
             SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(
                 unsigned_devices_of_verified_users,
+            ),
+        ));
+    }
+
+    // Alternatively, we may have encountered previously-verified users who have
+    // changed their identities. We bail out for that, too.
+    if !verified_users_with_new_identities.is_empty() {
+        return Err(OlmError::SessionRecipientCollectionError(
+            SessionRecipientCollectionError::VerifiedUserChangedIdentity(
+                verified_users_with_new_identities,
             ),
         ));
     }
@@ -392,6 +420,22 @@ fn is_unsigned_device_of_verified_user(
     device_owner_identity.is_some_and(|device_owner_identity| {
         is_user_verified(own_identity, device_owner_identity)
             && !device_data.is_cross_signed_by_owner(device_owner_identity)
+    })
+}
+
+/// Check if the user was previously verified, but they have now changed their
+/// identity so that they are no longer verified.
+///
+/// This is much the same as [`UserIdentities::has_verification_violation`], but
+/// works with a low-level [`UserIdentityData`] rather than higher-level
+/// [`UserIdentities`].
+fn has_identity_verification_violation(
+    own_identity: Option<&OwnUserIdentityData>,
+    device_owner_identity: Option<&UserIdentityData>,
+) -> bool {
+    device_owner_identity.is_some_and(|device_owner_identity| {
+        device_owner_identity.was_previously_verified()
+            && !is_user_verified(own_identity, device_owner_identity)
     })
 }
 
