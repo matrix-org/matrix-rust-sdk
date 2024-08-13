@@ -567,7 +567,10 @@ mod tests {
     use std::ops::Not;
 
     use assert_matches::assert_matches;
-    use ruma::events::tag::{TagInfo, TagName, Tags};
+    use ruma::{
+        events::tag::{TagInfo, TagName, Tags},
+        user_id,
+    };
 
     use super::{get_user_id_for_state_key, BaseRoomInfo, RoomNotableTags};
 
@@ -605,14 +608,32 @@ mod tests {
     fn test_get_user_id_for_state_key() {
         assert_matches!(get_user_id_for_state_key(""), None);
         assert_matches!(get_user_id_for_state_key("abc"), None);
-        assert_matches!(get_user_id_for_state_key("username:example.org"), None);
+        assert_matches!(get_user_id_for_state_key("@nocolon"), None);
+        assert_matches!(get_user_id_for_state_key("@noserverpart:"), None);
+        assert_matches!(get_user_id_for_state_key("@noserverpart:_suffix"), None);
 
-        assert_matches!(get_user_id_for_state_key("@username:example.org"), Some(_));
-        assert_matches!(get_user_id_for_state_key("@username:example.org_valid_suffix"), Some(_));
-        assert_matches!(get_user_id_for_state_key("@username:example.org:invalid_suffix"), None);
+        let user_id = user_id!("@username:example.org");
 
-        assert_matches!(get_user_id_for_state_key("_@username:example.org"), Some(_));
-        assert_matches!(get_user_id_for_state_key("_@username:example.org_valid_suffix"), Some(_));
-        assert_matches!(get_user_id_for_state_key("_@username:example.org:invalid_suffix"), None);
+        assert_matches!(
+            get_user_id_for_state_key(user_id.as_str()),
+            Some(captured_user_id) => assert_eq!(captured_user_id, user_id));
+        assert_matches!(
+            get_user_id_for_state_key(format!("{user_id}_valid_suffix").as_str()),
+            Some(captured_user_id) => assert_eq!(captured_user_id, user_id));
+        assert_matches!(
+            get_user_id_for_state_key(format!("{user_id}:invalid_suffix").as_str()),
+            None
+        );
+
+        assert_matches!(
+            get_user_id_for_state_key(format!("_{user_id}").as_str()),
+            Some(captured_user_id) => assert_eq!(captured_user_id, user_id));
+        assert_matches!(
+            get_user_id_for_state_key(format!("_{user_id}_valid_suffix").as_str()),
+            Some(captured_user_id) => assert_eq!(captured_user_id, user_id));
+        assert_matches!(
+            get_user_id_for_state_key(format!("_{user_id}:invalid_suffix").as_str()),
+            None
+        );
     }
 }
