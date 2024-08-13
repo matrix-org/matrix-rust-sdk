@@ -197,7 +197,7 @@ impl BaseRoomInfo {
 
                 let state_key = m.state_key();
                 let owned_user_id = match UserId::parse(state_key) {
-                    Ok(u) => u,
+                    Ok(user_id) => user_id,
                     Err(_) => {
                         // Ignore leading underscore if present
                         // (used for avoiding auth rules on @-prefixed state keys)
@@ -209,7 +209,7 @@ impl BaseRoomInfo {
                                     Some(suffix_idx) => &state_key[..colon_idx + 1 + suffix_idx],
                                 };
                                 match UserId::parse(state_key_user_id) {
-                                    Ok(u) => u,
+                                    Ok(user_id) => user_id,
                                     Err(_) => return false,
                                 }
                             } else {
