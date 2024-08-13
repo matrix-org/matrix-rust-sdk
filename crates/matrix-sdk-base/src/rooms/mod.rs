@@ -327,30 +327,26 @@ impl BaseRoomInfo {
 /// - `<user ID>_<string>`
 /// - `_<user ID>_<string>`
 fn get_user_id_for_state_key(state_key: &str) -> Option<OwnedUserId> {
-    match UserId::parse(state_key) {
-        Ok(user_id) => Some(user_id),
-        Err(_) => {
-            // Ignore leading underscore if present
-            // (used for avoiding auth rules on @-prefixed state keys)
-            let state_key = state_key.strip_prefix('_').unwrap_or(state_key);
-            if state_key.starts_with('@') {
-                if let Some(colon_idx) = state_key.find(':') {
-                    let state_key_user_id = match state_key[colon_idx + 1..].find('_') {
-                        None => state_key,
-                        Some(suffix_idx) => &state_key[..colon_idx + 1 + suffix_idx],
-                    };
-                    match UserId::parse(state_key_user_id) {
-                        Ok(user_id) => Some(user_id),
-                        Err(_) => None,
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
+    if let Ok(user_id) = UserId::parse(state_key) {
+        return Some(user_id);
+    }
+
+    // Ignore leading underscore if present
+    // (used for avoiding auth rules on @-prefixed state keys)
+    let state_key = state_key.strip_prefix('_').unwrap_or(state_key);
+    if state_key.starts_with('@') {
+        if let Some(colon_idx) = state_key.find(':') {
+            let state_key_user_id = match state_key[colon_idx + 1..].find('_') {
+                None => state_key,
+                Some(suffix_idx) => &state_key[..colon_idx + 1 + suffix_idx],
+            };
+            if let Ok(user_id) = UserId::parse(state_key_user_id) {
+                return Some(user_id);
             }
         }
     }
+
+    None
 }
 
 bitflags! {
