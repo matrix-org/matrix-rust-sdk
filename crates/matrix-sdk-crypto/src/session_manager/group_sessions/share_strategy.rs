@@ -51,11 +51,6 @@ pub enum CollectStrategy {
 }
 
 impl CollectStrategy {
-    /// Creates a new legacy strategy, based on per device trust.
-    pub const fn new_device_based(only_allow_trusted_devices: bool) -> Self {
-        CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices }
-    }
-
     /// Creates an identity based strategy
     pub const fn new_identity_based() -> Self {
         CollectStrategy::IdentityBasedStrategy
@@ -64,7 +59,7 @@ impl CollectStrategy {
 
 impl Default for CollectStrategy {
     fn default() -> Self {
-        CollectStrategy::new_device_based(false)
+        CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices: false }
     }
 }
 
@@ -363,7 +358,8 @@ mod tests {
     async fn test_share_with_per_device_strategy_to_all() {
         let machine = set_up_test_machine().await;
 
-        let legacy_strategy = CollectStrategy::new_device_based(false);
+        let legacy_strategy =
+            CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices: false };
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
@@ -414,7 +410,8 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let legacy_strategy = CollectStrategy::new_device_based(true);
+        let legacy_strategy =
+            CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices: true };
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
@@ -561,7 +558,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::new_device_based(false);
+        let strategy = CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices: false };
 
         let encryption_settings = EncryptionSettings {
             sharing_strategy: strategy.clone(),
@@ -615,7 +612,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::new_device_based(false);
+        let strategy = CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices: false };
 
         let encryption_settings =
             EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };

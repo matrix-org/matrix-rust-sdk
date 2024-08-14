@@ -133,7 +133,7 @@ impl EncryptionSettings {
             rotation_period,
             rotation_period_msgs,
             history_visibility,
-            sharing_strategy: CollectStrategy::new_device_based(only_allow_trusted_devices),
+            sharing_strategy: CollectStrategy::DeviceBasedStrategy { only_allow_trusted_devices },
         }
     }
 }
