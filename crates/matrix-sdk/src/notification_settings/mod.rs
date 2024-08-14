@@ -23,21 +23,12 @@ mod command;
 mod rule_commands;
 mod rules;
 
+pub use matrix_sdk_base::notification_settings::RoomNotificationMode;
+
 use crate::{
     config::RequestConfig, error::NotificationSettingsError, event_handler::EventHandlerDropGuard,
     Client, Result,
 };
-
-/// Enum representing the push notification modes for a room.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RoomNotificationMode {
-    /// Receive notifications for all messages.
-    AllMessages,
-    /// Receive notifications for mentions and keywords only.
-    MentionsAndKeywordsOnly,
-    /// Do not receive any notifications.
-    Mute,
-}
 
 /// Whether or not a room is encrypted
 #[derive(Debug, Clone, Copy)]
