@@ -268,14 +268,14 @@ impl<'a> SenderDataFinder<'a> {
             // We have user_id and master_key for the user sending the to-device message.
             let master_key = Box::new(master_key);
             let master_key_verified = sender_device.is_cross_signing_trusted();
-            let identity_needs_user_approval = !master_key_verified
-                && owner_identity.other().map(|i| i.has_pin_violation()).unwrap_or(true);
+            let previously_verified = !master_key_verified
+                && owner_identity.other().map(|i| i.was_previously_verified()).unwrap_or(false);
             SenderData::SenderKnown {
                 user_id,
                 device_id,
                 master_key,
                 master_key_verified,
-                identity_needs_user_approval,
+                previously_verified,
             }
         } else {
             // Surprisingly, there was no key in the MasterPubkey. We did not expect this:
@@ -531,14 +531,14 @@ mod tests {
                 device_id,
                 master_key,
                 master_key_verified,
-                identity_needs_user_approval,
+                previously_verified,
             } = sender_data
         );
         assert_eq!(user_id, setup.sender.user_id);
         assert_eq!(device_id.unwrap(), setup.sender_device.device_id());
         assert_eq!(*master_key, setup.sender_master_key());
         assert!(!master_key_verified);
-        assert!(identity_needs_user_approval);
+        assert!(!previously_verified);
     }
 
     #[async_test]
@@ -566,14 +566,14 @@ mod tests {
                 device_id,
                 master_key,
                 master_key_verified,
-                identity_needs_user_approval,
+                previously_verified,
             } = sender_data
         );
         assert_eq!(user_id, setup.sender.user_id);
         assert_eq!(device_id.unwrap(), setup.sender_device.device_id());
         assert_eq!(*master_key, setup.sender_master_key());
         assert!(!master_key_verified);
-        assert!(!identity_needs_user_approval);
+        assert!(!previously_verified);
     }
 
     #[async_test]
@@ -602,14 +602,14 @@ mod tests {
                 device_id,
                 master_key,
                 master_key_verified,
-                identity_needs_user_approval,
+                previously_verified,
             } = sender_data
         );
         assert_eq!(user_id, setup.sender.user_id);
         assert_eq!(device_id.unwrap(), setup.sender_device.device_id());
         assert_eq!(*master_key, setup.sender_master_key());
         assert!(!master_key_verified);
-        assert!(identity_needs_user_approval);
+        assert!(!previously_verified);
     }
 
     #[async_test]
@@ -637,14 +637,14 @@ mod tests {
                 device_id,
                 master_key,
                 master_key_verified,
-                identity_needs_user_approval,
+                previously_verified,
             } = sender_data
         );
         assert_eq!(user_id, setup.sender.user_id);
         assert_eq!(device_id.unwrap(), setup.sender_device.device_id());
         assert_eq!(*master_key, setup.sender_master_key());
         assert!(!master_key_verified);
-        assert!(!identity_needs_user_approval);
+        assert!(!previously_verified);
     }
 
     #[async_test]
@@ -747,7 +747,7 @@ mod tests {
                 device_id,
                 master_key,
                 master_key_verified,
-                identity_needs_user_approval,
+                previously_verified,
             } = sender_data
         );
         assert_eq!(user_id, setup.sender.user_id);
@@ -755,7 +755,7 @@ mod tests {
         assert_eq!(*master_key, setup.sender_master_key());
         // Including the fact that it was verified
         assert!(master_key_verified);
-        assert!(!identity_needs_user_approval);
+        assert!(!previously_verified);
     }
 
     #[async_test]
@@ -786,7 +786,7 @@ mod tests {
                 device_id,
                 master_key,
                 master_key_verified,
-                identity_needs_user_approval,
+                previously_verified,
             } = sender_data
         );
         assert_eq!(user_id, setup.sender.user_id);
@@ -794,7 +794,7 @@ mod tests {
         assert_eq!(*master_key, setup.sender_master_key());
         // Including the fact that it was verified
         assert!(master_key_verified);
-        assert!(!identity_needs_user_approval);
+        assert!(!previously_verified);
     }
 
     #[async_test]
@@ -816,14 +816,14 @@ mod tests {
                 device_id,
                 master_key,
                 master_key_verified,
-                identity_needs_user_approval,
+                previously_verified,
             } = sender_data
         );
         assert_eq!(user_id, setup.sender.user_id);
         assert_eq!(device_id.unwrap(), setup.sender_device.device_id());
         assert_eq!(*master_key, setup.sender_master_key());
         assert!(!master_key_verified);
-        assert!(!identity_needs_user_approval);
+        assert!(!previously_verified);
     }
 
     struct TestOptions {

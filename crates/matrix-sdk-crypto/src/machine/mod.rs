@@ -2426,10 +2426,10 @@ fn sender_data_to_verification_state(
         ),
         SenderData::SenderKnown {
             master_key_verified: false,
-            identity_needs_user_approval: true,
+            previously_verified: true,
             device_id,
             ..
-        } => (VerificationState::Unverified(VerificationLevel::ChangedIdentity), device_id),
+        } => (VerificationState::Unverified(VerificationLevel::PreviouslyVerified), device_id),
         SenderData::SenderKnown { master_key_verified: false, device_id, .. } => {
             (VerificationState::Unverified(VerificationLevel::UnverifiedIdentity), device_id)
         }

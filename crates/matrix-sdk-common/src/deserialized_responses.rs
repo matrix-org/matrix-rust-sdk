@@ -31,6 +31,7 @@ const UNVERIFIED_IDENTITY: &str = "Encrypted by an unverified user.";
 const UNSIGNED_DEVICE: &str = "Encrypted by a device not verified by its owner.";
 const UNKNOWN_DEVICE: &str = "Encrypted by an unknown or deleted device.";
 pub const SENT_IN_CLEAR: &str = "Not encrypted.";
+const PREVIOUSLY_VERIFIED: &str = "Encrypted by a previously-verified user.";
 
 /// Represents the state of verification for a decrypted message sent by a
 /// device.
@@ -90,7 +91,7 @@ impl VerificationState {
             VerificationState::Verified => ShieldState::None,
             VerificationState::Unverified(level) => match level {
                 VerificationLevel::UnverifiedIdentity
-                | VerificationLevel::ChangedIdentity
+                | VerificationLevel::PreviouslyVerified
                 | VerificationLevel::UnsignedDevice => ShieldState::Red {
                     code: ShieldStateCode::UnverifiedIdentity,
                     message: UNVERIFIED_IDENTITY,
@@ -123,14 +124,15 @@ impl VerificationState {
                 VerificationLevel::UnverifiedIdentity => {
                     // If you didn't show interest in verifying that user we don't
                     // nag you with an error message.
-                    // TODO: We should detect identity rotation of a previously trusted identity and
-                    // then warn see https://github.com/matrix-org/matrix-rust-sdk/issues/1129
                     ShieldState::None
                 }
-                VerificationLevel::ChangedIdentity => {
-                    // As above, if you didn't show interest in verifying that
-                    // user we don't nag you
-                    ShieldState::None
+                VerificationLevel::PreviouslyVerified => {
+                    // This is a high warning. The sender was previously
+                    // verified, but changed their identity.
+                    ShieldState::Red {
+                        code: ShieldStateCode::PreviouslyVerified,
+                        message: PREVIOUSLY_VERIFIED,
+                    }
                 }
                 VerificationLevel::UnsignedDevice => {
                     // This is a high warning. The sender hasn't verified his own device.
@@ -171,10 +173,10 @@ pub enum VerificationLevel {
     #[error("The sender's identity was not verified")]
     UnverifiedIdentity,
 
-    /// The message was sent by a user whose identity has changed and the change
-    /// has not yet been confirmed
-    #[error("The sender's identity has changed and the change has not yet been confirmed")]
-    ChangedIdentity,
+    /// The message was sent by a user who was previously verified, but changed
+    /// their identity, and we have not yet verified the new identity.
+    #[error("The sender's identity was previously verified but has changed")]
+    PreviouslyVerified,
 
     /// The message was sent by a device not linked to (signed by) any user
     /// identity.
@@ -241,6 +243,8 @@ pub enum ShieldStateCode {
     UnverifiedIdentity,
     /// An unencrypted event in an encrypted room.
     SentInClear,
+    /// The sender was previously verified but changed their identity.
+    PreviouslyVerified,
 }
 
 /// The algorithm specific information of a decrypted event.

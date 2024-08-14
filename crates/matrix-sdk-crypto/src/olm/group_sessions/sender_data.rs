@@ -76,7 +76,12 @@ pub enum SenderData {
         master_key_verified: bool,
 
         #[serde(default)]
-        identity_needs_user_approval: bool,
+        /// Whether the user's master key was previously verified, but the
+        /// current master key is not.
+        ///
+        /// TODO: should this be merged with the master_key_verified field and
+        /// turned into an enum?
+        previously_verified: bool,
     },
 }
 
@@ -111,14 +116,14 @@ impl SenderData {
         device_id: &DeviceId,
         master_key: Ed25519PublicKey,
         master_key_verified: bool,
-        identity_needs_user_approval: bool,
+        previously_verified: bool,
     ) -> Self {
         Self::SenderKnown {
             user_id: user_id.to_owned(),
             device_id: Some(device_id.to_owned()),
             master_key: Box::new(master_key),
             master_key_verified,
-            identity_needs_user_approval,
+            previously_verified,
         }
     }
 
