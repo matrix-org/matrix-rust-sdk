@@ -12,84 +12,112 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{ops::RangeInclusive, sync::Arc};
+use std::{sync::Arc, time::Duration};
 
-use assert_matches::assert_matches;
-use assert_matches2::assert_let;
+use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
-use matrix_sdk::test_utils::events::EventFactory;
-use matrix_sdk_test::{async_test, ALICE, BOB};
+use futures_util::{FutureExt as _, StreamExt as _};
+use matrix_sdk::{deserialized_responses::SyncTimelineEvent, test_utils::events::EventFactory};
+use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
 use ruma::{
-    event_id, events::relation::Annotation, server_name, uint, EventId, MilliSecondsSinceUnixEpoch,
-    OwnedEventId, TransactionId, UserId,
+    event_id,
+    events::{relation::Annotation, AnyMessageLikeEventContent},
+    server_name, uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId,
 };
 use stream_assert::assert_next_matches;
+use tokio::time::timeout;
 
 use crate::timeline::{
-    event_item::RemoteEventOrigin,
-    inner::TimelineEnd,
-    reactions::{ReactionAction, ReactionToggleResult},
-    tests::{assert_event_is_updated, assert_no_more_updates, TestTimeline},
-    TimelineEventItemId, TimelineItem,
+    event_item::RemoteEventOrigin, inner::TimelineEnd, tests::TestTimeline, ReactionStatus,
+    TimelineItem,
 };
 
 const REACTION_KEY: &str = "👍";
 
-#[async_test]
-async fn test_add_reaction_failed() {
-    let timeline = TestTimeline::new();
-    let mut stream = timeline.subscribe().await;
-    let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
+/// Assert that we receive an item update for an event at the given item index,
+/// for the given event id.
+///
+/// A macro rather than a function to help lower compile times and get better
+/// error locations.
+macro_rules! assert_item_update {
+    ($stream:expr, $event_id:expr, $index:expr) => {{
+        // Expect an event timeline item update, with a short timeout.
+        assert_let!(
+            Ok(Some(VectorDiff::Set { index: i, value: event })) =
+                timeout(Duration::from_secs(1), $stream.next()).await
+        );
 
-    let reaction = create_reaction(&msg_id);
-    let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
-    assert_let!(ReactionAction::SendRemote(txn_id) = action);
-    assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, None, Some(&txn_id)).await;
+        // Expect at the right position.
+        assert_eq!(i, $index);
 
-    timeline
-        .handle_reaction_response(&reaction, &ReactionToggleResult::AddFailure { txn_id })
-        .await
-        .unwrap_err();
-    assert_reactions_are_removed(&mut stream, &msg_id, msg_pos).await;
+        // Expect on the right event.
+        let event_item = event.as_event().unwrap();
+        assert_eq!(event_item.event_id().unwrap(), $event_id);
 
-    assert_no_more_updates(&mut stream).await;
+        event_item.clone()
+    }};
+}
+
+/// Checks that the reaction to an event in a timeline item has accordingly
+/// updated.
+///
+/// A macro rather than a function to help lower compile times and get better
+/// error locations.
+macro_rules! assert_reaction_is_updated {
+    ($stream:expr, $event_id:expr, $index:expr, $is_remote_echo:literal) => {{
+        let event = assert_item_update!($stream, $event_id, $index);
+        let reactions = event.reactions().get(&REACTION_KEY.to_owned()).unwrap();
+        let reaction = reactions.get(*ALICE).unwrap();
+        match reaction.status {
+            ReactionStatus::LocalToRemote(_) => assert!(!$is_remote_echo),
+            ReactionStatus::Remote(_) => assert!($is_remote_echo),
+        };
+        event
+    }};
 }
 
 #[async_test]
 async fn test_add_reaction_on_non_existent_event() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
-    let msg_id = EventId::new(server_name!("example.org")); // non existent event
-    let reaction = create_reaction(&msg_id);
+
+    let event_id = EventId::new(server_name!("example.org")); // non existent event
+    let reaction = create_annotation(&event_id);
 
     timeline.toggle_reaction_local(&reaction).await.unwrap_err();
 
-    assert_no_more_updates(&mut stream).await;
+    assert!(stream.next().now_or_never().is_none());
 }
 
 #[async_test]
 async fn test_add_reaction_success() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
-    let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
-    let reaction = create_reaction(&msg_id);
+    let (event_id, item_pos) = send_first_message(&timeline, &mut stream).await;
+    let reaction = create_annotation(&event_id);
 
-    let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
-    assert_let!(ReactionAction::SendRemote(txn_id) = action);
-    assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, None, Some(&txn_id)).await;
+    // If I toggle a reaction on an event which didn't have any…
+    timeline.toggle_reaction_local(&reaction).await.unwrap();
 
-    let event_id = EventId::new(server_name!("example.org"));
-    timeline
-        .handle_reaction_response(
-            &reaction,
-            &ReactionToggleResult::AddSuccess { event_id: event_id.clone(), txn_id },
-        )
-        .await
-        .unwrap();
-    assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(&event_id), None).await;
+    // The timeline item is updated, with a local echo for the reaction.
+    assert_reaction_is_updated!(stream, &event_id, item_pos, false);
 
-    assert_no_more_updates(&mut stream).await;
+    // An event of the right kind is sent over to the server.
+    {
+        let sent_events = &timeline.data().sent_events.read().await;
+        assert_eq!(sent_events.len(), 1);
+        assert_matches!(&sent_events[0], AnyMessageLikeEventContent::Reaction(..));
+    }
+
+    // When the remote echo is received from sync,
+    let f = EventFactory::new();
+    timeline.handle_live_event(f.reaction(&event_id, REACTION_KEY.to_owned()).sender(*ALICE)).await;
+
+    // The reaction is still present on the item, as a remote echo.
+    assert_reaction_is_updated!(stream, &event_id, item_pos, true);
+
+    assert!(stream.next().now_or_never().is_none());
 }
 
 #[async_test]
@@ -98,122 +126,43 @@ async fn test_redact_reaction_success() {
     let f = &timeline.factory;
 
     let mut stream = timeline.subscribe().await;
-    let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
-    let reaction = create_reaction(&msg_id);
+    let (msg_id, item_pos) = send_first_message(&timeline, &mut stream).await;
+    let reaction = create_annotation(&msg_id);
 
-    let event_id = event_id!("$1");
+    // A reaction is added by sync.
+    let reaction_id = event_id!("$reaction_id");
     timeline
         .handle_live_event(
-            f.reaction(&msg_id, REACTION_KEY.to_owned()).sender(&ALICE).event_id(event_id),
+            f.reaction(&msg_id, REACTION_KEY.to_owned()).sender(&ALICE).event_id(reaction_id),
         )
         .await;
-    assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(event_id), None).await;
+    assert_reaction_is_updated!(stream, &msg_id, item_pos, true);
 
-    let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
-    assert_matches!(action, ReactionAction::RedactRemote(_));
-    assert_reactions_are_removed(&mut stream, &msg_id, msg_pos).await;
+    // Toggling the reaction locally…
+    timeline.toggle_reaction_local(&reaction).await.unwrap();
+    // Will immediately redact it on the item.
+    let event = assert_item_update!(stream, &msg_id, item_pos);
+    assert!(event.reactions().get(&REACTION_KEY.to_owned()).is_none());
+    // And send a redaction request for that reaction.
+    {
+        let redacted_events = &timeline.data().redacted.read().await;
+        assert_eq!(redacted_events.len(), 1);
+        assert_eq!(&redacted_events[0], reaction_id);
+    }
 
+    // When that redaction is confirmed by the server,
     timeline
-        .handle_reaction_response(&reaction, &ReactionToggleResult::RedactSuccess)
-        .await
-        .unwrap();
-
-    assert_no_more_updates(&mut stream).await;
-}
-
-#[async_test]
-async fn test_redact_reaction_failure() {
-    let timeline = TestTimeline::new();
-    let mut stream = timeline.subscribe().await;
-    let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
-
-    let f = &timeline.factory;
-
-    let event_id = event_id!("$1");
-    timeline
-        .handle_live_event(
-            f.reaction(&msg_id, REACTION_KEY.to_owned()).sender(&ALICE).event_id(event_id),
-        )
+        .handle_live_event(SyncTimelineEvent::new(sync_timeline_event!({
+            "sender": *ALICE,
+            "type": "m.room.redaction",
+            "event_id": "$idb",
+            "redacts": reaction_id,
+            "origin_server_ts": 12344448,
+            "content": {},
+        })))
         .await;
-    assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(event_id), None).await;
 
-    let reaction = create_reaction(&msg_id);
-    let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
-    assert_matches!(action, ReactionAction::RedactRemote(_));
-    assert_reactions_are_removed(&mut stream, &msg_id, msg_pos).await;
-
-    timeline
-        .handle_reaction_response(
-            &reaction,
-            &ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() },
-        )
-        .await
-        .unwrap_err();
-    assert_reaction_is_updated(&mut stream, &msg_id, msg_pos, Some(event_id), None).await;
-
-    assert_no_more_updates(&mut stream).await;
-}
-
-#[async_test]
-async fn test_redact_reaction_from_non_existing_event() {
-    let timeline = TestTimeline::new();
-    let mut stream = timeline.subscribe().await;
-    let reaction_id = EventId::new(server_name!("example.org")); // non existent event
-
-    timeline.handle_local_redaction_event(&reaction_id).await;
-
-    assert_no_more_updates(&mut stream).await;
-}
-
-#[async_test]
-async fn test_toggle_during_request_resolves_new_action() {
-    let timeline = TestTimeline::new();
-    let mut stream = timeline.subscribe().await;
-    let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
-    let reaction = create_reaction(&msg_id);
-
-    // Add a reaction
-    let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
-    assert_let!(ReactionAction::SendRemote(txn_id) = action);
-    assert_reaction_is_added(&mut stream, &msg_id, msg_pos).await;
-
-    // Toggle before response is received
-    let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
-    assert_matches!(action, ReactionAction::None);
-    assert_reactions_are_removed(&mut stream, &msg_id, msg_pos).await;
-
-    // Receive response and resolve to a redaction action
-    let event_id = EventId::new(server_name!("example.org")); // non existent event
-    let action = timeline
-        .handle_reaction_response(&reaction, &ReactionToggleResult::AddSuccess { txn_id, event_id })
-        .await
-        .unwrap();
-    assert_matches!(action, ReactionAction::RedactRemote(event_id) => event_id);
-    assert_no_more_updates(&mut stream).await;
-
-    // Toggle before response is received
-    let action = timeline.toggle_reaction_local(&reaction).await.unwrap();
-    assert_matches!(action, ReactionAction::None);
-    assert_reaction_is_added(&mut stream, &msg_id, msg_pos).await;
-
-    // Receive response and resolve to a send action
-    let action = timeline
-        .handle_reaction_response(&reaction, &ReactionToggleResult::RedactSuccess)
-        .await
-        .unwrap();
-    assert_let!(ReactionAction::SendRemote(txn_id) = action);
-    assert_no_more_updates(&mut stream).await;
-
-    // Receive response and resolve to no new action
-    let event_id = EventId::new(server_name!("example.org")); // non existent event
-    let action = timeline
-        .handle_reaction_response(&reaction, &ReactionToggleResult::AddSuccess { txn_id, event_id })
-        .await
-        .unwrap();
-    assert_matches!(action, ReactionAction::None);
-    assert_reaction_is_added(&mut stream, &msg_id, msg_pos).await;
-
-    assert_no_more_updates(&mut stream).await;
+    assert!(stream.next().now_or_never().is_none());
 }
 
 #[async_test]
@@ -221,32 +170,19 @@ async fn test_reactions_store_timestamp() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
-    let reaction = create_reaction(&msg_id);
+    let reaction = create_annotation(&msg_id);
 
     // Creating a reaction adds a valid timestamp.
     let timestamp_before = MilliSecondsSinceUnixEpoch::now();
-    let _ = timeline.toggle_reaction_local(&reaction).await.unwrap();
-    let event = assert_event_is_updated(&mut stream, &msg_id, msg_pos).await;
+
+    timeline.toggle_reaction_local(&reaction).await.unwrap();
+
+    let event = assert_reaction_is_updated!(stream, &msg_id, msg_pos, false);
     let reactions = event.reactions().get(&REACTION_KEY.to_owned()).unwrap();
     let timestamp = reactions.values().next().unwrap().timestamp;
-    assert!(timestamp_range_until_now_from(timestamp_before).contains(&timestamp));
 
-    // Failing a redaction.
-    let _ = timeline.toggle_reaction_local(&reaction).await.unwrap();
-    let _ = assert_event_is_updated(&mut stream, &msg_id, msg_pos).await;
-    timeline
-        .handle_reaction_response(
-            &reaction,
-            &ReactionToggleResult::RedactFailure { event_id: msg_id.clone() },
-        )
-        .await
-        .unwrap_err();
-
-    // Restores an event with a valid timestamp.
-    let event = assert_event_is_updated(&mut stream, &msg_id, msg_pos).await;
-    let reactions = event.reactions().get(&REACTION_KEY.to_owned()).unwrap();
-    let new_timestamp = reactions.values().next().unwrap().timestamp;
-    assert!(timestamp_range_until_now_from(timestamp_before).contains(&new_timestamp));
+    let now = MilliSecondsSinceUnixEpoch::now();
+    assert!((timestamp_before..=now).contains(&timestamp),);
 }
 
 #[async_test]
@@ -280,7 +216,7 @@ async fn test_initial_reaction_timestamp_is_stored() {
     assert_eq!(reaction_timestamp, entry.values().next().unwrap().timestamp);
 }
 
-fn create_reaction(related_message_id: &EventId) -> Annotation {
+fn create_annotation(related_message_id: &EventId) -> Annotation {
     let reaction_key = REACTION_KEY.to_owned();
     let msg_id = related_message_id.to_owned();
     Annotation::new(msg_id, reaction_key)
@@ -301,52 +237,4 @@ async fn send_first_message(
     assert!(day_divider.is_day_divider());
 
     (event_id, position)
-}
-
-async fn assert_reaction_is_updated(
-    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
-    related_to: &EventId,
-    message_position: usize,
-    expected_event_id: Option<&EventId>,
-    expected_txn_id: Option<&TransactionId>,
-) {
-    let own_user_id: &UserId = &ALICE;
-    let event = assert_event_is_updated(stream, related_to, message_position).await;
-    let (reaction_tx_id, reaction_event_id) = {
-        let reactions = event.reactions().get(&REACTION_KEY.to_owned()).unwrap();
-        let reaction = reactions.get(own_user_id).unwrap();
-        match &reaction.id {
-            TimelineEventItemId::TransactionId(txn_id) => (Some(txn_id), None),
-            TimelineEventItemId::EventId(event_id) => (None, Some(event_id)),
-        }
-    };
-    assert_eq!(reaction_tx_id, expected_txn_id.map(|it| it.to_owned()).as_ref());
-    assert_eq!(reaction_event_id, expected_event_id.map(|it| it.to_owned()).as_ref());
-}
-
-async fn assert_reaction_is_added(
-    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
-    related_to: &EventId,
-    message_position: usize,
-) {
-    let own_user_id: &UserId = &ALICE;
-    let event = assert_event_is_updated(stream, related_to, message_position).await;
-    let reactions = event.reactions().get(&REACTION_KEY.to_owned()).unwrap();
-    assert!(reactions.get(own_user_id).is_some());
-}
-
-async fn assert_reactions_are_removed(
-    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
-    related_to: &EventId,
-    message_position: usize,
-) {
-    let event = assert_event_is_updated(stream, related_to, message_position).await;
-    let reactions = event.reactions().get(&REACTION_KEY.to_owned());
-    assert!(reactions.is_none());
-}
-
-fn timestamp_range_until_now_from(
-    timestamp: MilliSecondsSinceUnixEpoch,
-) -> RangeInclusive<MilliSecondsSinceUnixEpoch> {
-    timestamp..=MilliSecondsSinceUnixEpoch::now()
 }

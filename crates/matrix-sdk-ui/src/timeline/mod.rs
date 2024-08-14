@@ -31,10 +31,8 @@ use matrix_sdk::{
     send_queue::{RoomSendQueueError, SendHandle},
     Client, Result,
 };
-use matrix_sdk_base::RoomState;
 use mime::Mime;
 use pin_project_lite::pin_project;
-use reactions::ReactionAction;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
@@ -42,7 +40,6 @@ use ruma::{
             ReplacementUnstablePollStartEventContent, UnstablePollStartContentBlock,
             UnstablePollStartEventContent,
         },
-        reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread},
         relation::Annotation,
         room::{
@@ -51,14 +48,13 @@ use ruma::{
                 RoomMessageEventContentWithoutRelation,
             },
             pinned_events::RoomPinnedEventsEventContent,
-            redaction::RoomRedactionEventContent,
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         SyncMessageLikeEvent,
     },
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    RoomVersionId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomVersionId, TransactionId,
+    UserId,
 };
 use thiserror::Error;
 use tracing::{error, instrument, trace, warn};
@@ -93,7 +89,7 @@ pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, EncryptedMessage, EventItemOrigin, EventSendState,
         EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
-        OtherState, Profile, ReactionInfo, ReactionsByKeyBySender, RepliedToEvent,
+        OtherState, Profile, ReactionInfo, ReactionStatus, ReactionsByKeyBySender, RepliedToEvent,
         RoomMembershipChange, RoomPinnedEventsChange, Sticker, TimelineDetails,
         TimelineEventItemId, TimelineItemContent,
     },
@@ -108,7 +104,6 @@ pub use self::{
 use self::{
     futures::SendAttachment,
     inner::TimelineInner,
-    reactions::ReactionToggleResult,
     util::{rfind_event_by_id, rfind_event_item},
 };
 
@@ -563,79 +558,8 @@ impl Timeline {
     /// Ensures that only one reaction is sent at a time to avoid race
     /// conditions and spamming the homeserver with requests.
     pub async fn toggle_reaction(&self, annotation: &Annotation) -> Result<(), Error> {
-        // Always toggle the local reaction immediately
-        let mut action = self.inner.toggle_reaction_local(annotation).await?;
-
-        // The local echo may have been updated while a reaction is in flight
-        // so until it matches the state of the server, keep reconciling
-        loop {
-            let response = match action {
-                ReactionAction::None => {
-                    // The remote reaction matches the local reaction, OR
-                    // there is already a request in flight which will resolve
-                    // later, so stop here.
-                    break;
-                }
-                ReactionAction::SendRemote(txn_id) => {
-                    self.send_reaction(annotation, txn_id.to_owned()).await
-                }
-                ReactionAction::RedactRemote(event_id) => {
-                    self.redact_reaction(&event_id.to_owned()).await
-                }
-            };
-
-            action = self.inner.resolve_reaction_response(annotation, &response).await?;
-        }
+        self.inner.toggle_reaction_local(annotation).await?;
         Ok(())
-    }
-
-    /// Redact a reaction event from the homeserver
-    async fn redact_reaction(&self, event_id: &EventId) -> ReactionToggleResult {
-        let room = self.room();
-        if room.state() != RoomState::Joined {
-            warn!("Cannot redact a reaction in a room that is not joined");
-            return ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() };
-        }
-
-        let txn_id = TransactionId::new();
-        let no_reason = RoomRedactionEventContent::default();
-
-        let response = room.redact(event_id, no_reason.reason.as_deref(), Some(txn_id)).await;
-
-        match response {
-            Ok(_) => ReactionToggleResult::RedactSuccess,
-            Err(error) => {
-                error!("Failed to redact reaction: {error}");
-                ReactionToggleResult::RedactFailure { event_id: event_id.to_owned() }
-            }
-        }
-    }
-
-    /// Send a reaction event to the homeserver
-    async fn send_reaction(
-        &self,
-        annotation: &Annotation,
-        txn_id: OwnedTransactionId,
-    ) -> ReactionToggleResult {
-        let room = self.room();
-        if room.state() != RoomState::Joined {
-            warn!("Cannot send a reaction in a room that is not joined");
-            return ReactionToggleResult::AddFailure { txn_id };
-        }
-
-        let event_content =
-            AnyMessageLikeEventContent::Reaction(ReactionEventContent::from(annotation.clone()));
-        let response = room.send(event_content).with_transaction_id(&txn_id).await;
-
-        match response {
-            Ok(response) => {
-                ReactionToggleResult::AddSuccess { event_id: response.event_id, txn_id }
-            }
-            Err(error) => {
-                error!("Failed to send reaction: {error}");
-                ReactionToggleResult::AddFailure { txn_id }
-            }
-        }
     }
 
     /// Sends an attachment to the room. It does not currently support local

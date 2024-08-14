@@ -20,7 +20,9 @@ use ruma::{EventId, MilliSecondsSinceUnixEpoch};
 
 #[cfg(doc)]
 use super::inner::TimelineInnerMetadata;
-use super::{event_item::EventTimelineItemKind, EventTimelineItem, TimelineItem};
+use super::{
+    event_item::EventTimelineItemKind, EventTimelineItem, ReactionsByKeyBySender, TimelineItem,
+};
 
 pub(super) struct EventTimelineItemWithId<'a> {
     pub inner: &'a EventTimelineItem,
@@ -29,11 +31,21 @@ pub(super) struct EventTimelineItemWithId<'a> {
 }
 
 impl<'a> EventTimelineItemWithId<'a> {
+    /// Create a clone of the underlying [`TimelineItem`] with the given kind.
     pub fn with_inner_kind(&self, kind: impl Into<EventTimelineItemKind>) -> Arc<TimelineItem> {
-        Arc::new(TimelineItem {
-            kind: self.inner.with_kind(kind).into(),
-            internal_id: self.internal_id.to_owned(),
-        })
+        TimelineItem::new(self.inner.with_kind(kind), self.internal_id.to_owned())
+    }
+
+    /// Create a clone of the underlying [`TimelineItem`] with the given
+    /// reactions.
+    pub fn with_reactions(&self, reactions: ReactionsByKeyBySender) -> Arc<TimelineItem> {
+        let remote_item = self
+            .inner
+            .as_remote()
+            .expect("should only be remote at the moment (TODO: local)")
+            .with_reactions(reactions);
+        let event_item = self.inner.with_kind(remote_item);
+        TimelineItem::new(event_item, self.internal_id.to_owned())
     }
 }
 

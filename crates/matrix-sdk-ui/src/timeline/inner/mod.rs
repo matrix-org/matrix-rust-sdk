@@ -60,8 +60,7 @@ pub(super) use self::state::{
 use super::traits::Decryptor;
 use super::{
     event_handler::TimelineEventKind,
-    event_item::RemoteEventOrigin,
-    reactions::{AnnotationKey, ReactionAction, ReactionState, ReactionToggleResult},
+    event_item::{ReactionStatus, RemoteEventOrigin},
     traits::RoomDataProvider,
     util::{rfind_event_by_id, rfind_event_item, RelativePosition},
     Error, EventSendState, EventTimelineItem, InReplyToDetails, Message, PaginationError, Profile,
@@ -113,7 +112,7 @@ pub(super) struct TimelineInner<P: RoomDataProvider = Room> {
     /// A [`RoomDataProvider`] implementation, providing data.
     ///
     /// Useful for testing only; in the real world, it's just a [`Room`].
-    room_data_provider: P,
+    pub(crate) room_data_provider: P,
 
     /// Settings applied to this timeline.
     settings: TimelineInnerSettings,
@@ -443,133 +442,107 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         self.state.read().await.items.subscribe().filter_map(f)
     }
 
+    /// Toggle a reaction locally.
+    ///
+    /// Returns true if the reaction was added, false if it was removed.
     #[instrument(skip_all)]
     pub(super) async fn toggle_reaction_local(
         &self,
         annotation: &Annotation,
-    ) -> Result<ReactionAction, Error> {
+    ) -> Result<bool, Error> {
         let mut state = self.state.write().await;
 
         let user_id = self.room_data_provider.own_user_id();
 
-        let related_event = {
-            let Some((_, item)) = rfind_event_by_id(&state.items, &annotation.event_id) else {
-                warn!("Timeline item not found, can't update reaction ID");
-                return Err(Error::FailedToToggleReaction);
-            };
-            item.to_owned()
+        let Some((item_pos, item)) = rfind_event_by_id(&state.items, &annotation.event_id) else {
+            warn!("Timeline item not found, can't add reaction");
+            return Err(Error::FailedToToggleReaction);
         };
 
-        let (local_echo_txn_id, remote_echo_event_id) = {
-            related_event
-                .reactions()
-                .get(&annotation.key)
-                .and_then(|group| group.get(user_id))
-                .map(|reaction_info| match &reaction_info.id {
-                    TimelineEventItemId::TransactionId(txn_id) => (Some(txn_id), None),
-                    TimelineEventItemId::EventId(event_id) => (None, Some(event_id)),
-                })
-                .unwrap_or((None, None))
+        let prev_status = item
+            .reactions()
+            .get(&annotation.key)
+            .and_then(|group| group.get(user_id))
+            .map(|reaction_info| reaction_info.status.clone());
+
+        let Some(prev_status) = prev_status else {
+            // Add a reaction through the room data provider.
+            // No need to reflect the effect locally, since the local echo handling will
+            // take care of it.
+            trace!("adding a new reaction");
+            self.room_data_provider
+                .send(ReactionEventContent::from(annotation.clone()).into())
+                .await?;
+            return Ok(true);
         };
 
-        let sender = self.room_data_provider.own_user_id().to_owned();
-        let sender_profile = self.room_data_provider.profile_from_user_id(&sender).await;
-        let reaction_state = match (local_echo_txn_id, remote_echo_event_id) {
-            (None, None) => {
-                // No previous record of the reaction, create a local echo.
-                let in_flight = state
-                    .meta
-                    .reactions
-                    .in_flight_reaction
-                    .get::<AnnotationKey>(&annotation.into());
-                let txn_id = match in_flight {
-                    Some(ReactionState::Sending(txn_id)) => {
-                        // Use the transaction ID as the in flight request
-                        txn_id.clone()
+        trace!("removing a previous reaction");
+        match prev_status {
+            ReactionStatus::LocalToRemote(send_handle) => {
+                // No need to keep the lock.
+                drop(state);
+
+                // No need to reflect the change ourselves, since handling the discard of the
+                // local echo will take care of it.
+                trace!("aborting send of the previous reaction that was a local echo");
+                if let Some(send_handle) = send_handle {
+                    if !send_handle
+                        .abort()
+                        .await
+                        .map_err(|err| Error::SendQueueError(err.into()))?
+                    {
+                        // Impossible state: the reaction has moved from local to echo under our
+                        // feet, but the timeline was supposed to be locked!
+                        warn!("unexpectedly unable to abort sending of local reaction");
                     }
-                    _ => TransactionId::new(),
-                };
-
-                let event_content = AnyMessageLikeEventContent::Reaction(
-                    ReactionEventContent::from(annotation.clone()),
-                );
-                state
-                    .handle_local_event(
-                        sender,
-                        sender_profile,
-                        txn_id.clone(),
-                        None,
-                        TimelineEventKind::Message {
-                            content: event_content.clone(),
-                            relations: Default::default(),
-                        },
-                        &self.room_data_provider,
-                    )
-                    .await;
-
-                ReactionState::Sending(txn_id)
-            }
-
-            (local_echo_txn_id, remote_echo_event_id) => {
-                // The reaction exists, redact local echo and/or remote echo.
-                let content = if let Some(txn_id) = local_echo_txn_id {
-                    TimelineEventKind::LocalRedaction { redacts: txn_id.clone() }
-                } else if let Some(event_id) = remote_echo_event_id {
-                    TimelineEventKind::Redaction { redacts: event_id.clone() }
                 } else {
-                    unreachable!("the None/None case has been handled above")
-                };
-
-                state
-                    .handle_local_event(
-                        sender,
-                        sender_profile,
-                        TransactionId::new(),
-                        None,
-                        content,
-                        &self.room_data_provider,
-                    )
-                    .await;
-
-                // Remember the remote echo to redact on the homeserver.
-                ReactionState::Redacting(remote_echo_event_id.cloned())
-            }
-        };
-
-        state.meta.reactions.reaction_state.insert(annotation.into(), reaction_state.clone());
-
-        // Check the action to perform depending on any in flight request
-        let in_flight =
-            state.meta.reactions.in_flight_reaction.get::<AnnotationKey>(&annotation.into());
-        let result = match in_flight {
-            Some(_) => {
-                // There is an in-flight request
-                // This local reaction should not initiate a new request
-                ReactionAction::None
-            }
-
-            None => {
-                // There is no in-flight request
-                match reaction_state.clone() {
-                    ReactionState::Redacting(event_id) => match event_id {
-                        Some(event_id) => ReactionAction::RedactRemote(event_id),
-                        // If we just redacted a local echo, no need to send a remote request
-                        None => ReactionAction::None,
-                    },
-                    ReactionState::Sending(txn_id) => ReactionAction::SendRemote(txn_id),
+                    warn!("no send handle (this should only happen in testing contexts)");
                 }
             }
-        };
 
-        match result {
-            ReactionAction::None => {}
-            ReactionAction::SendRemote(_) | ReactionAction::RedactRemote(_) => {
-                // Remember the new in flight request
-                state.meta.reactions.in_flight_reaction.insert(annotation.into(), reaction_state);
+            ReactionStatus::Remote(event_id) => {
+                // Assume the redaction will work; we'll re-add the reaction if it didn't.
+                let mut reactions = item.reactions().clone();
+                let reaction_info = reactions.remove_reaction(user_id, &annotation.key);
+
+                if reaction_info.is_some() {
+                    let new_item = item.with_reactions(reactions);
+                    state.items.set(item_pos, new_item);
+                } else {
+                    warn!("reaction is missing on the item, not removing it locally, but sending redaction.");
+                }
+
+                // Release the lock before running the request.
+                drop(state);
+
+                trace!("sending redact for a previous reaction");
+                if let Err(err) = self.room_data_provider.redact(&event_id, None, None).await {
+                    if let Some(reaction_info) = reaction_info {
+                        debug!("sending redact failed, adding the reaction back to the list");
+
+                        let mut state = self.state.write().await;
+                        if let Some((item_pos, item)) =
+                            rfind_event_by_id(&state.items, &annotation.event_id)
+                        {
+                            // Re-add the reaction to the mapping.
+                            let mut reactions = item.reactions().clone();
+                            reactions
+                                .entry(annotation.key.to_owned())
+                                .or_default()
+                                .insert(user_id.to_owned(), reaction_info);
+                            let new_item = item.with_reactions(reactions);
+                            state.items.set(item_pos, new_item);
+                        } else {
+                            warn!("couldn't find item to re-add reaction anymore; maybe it's been redacted?");
+                        }
+                    }
+
+                    return Err(err);
+                }
             }
-        };
+        }
 
-        Ok(result)
+        Ok(false)
     }
 
     /// Handle a list of events at the given end of the timeline.
@@ -739,7 +712,34 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         });
 
         let Some((idx, item)) = result else {
-            // Event isn't found at all.
+            // Event isn't found as a proper item. Try to find it as a reaction?
+            if let Some((event_id, reaction_key)) = new_event_id.zip(
+                txn.meta.reactions.map.get(&TimelineEventItemId::TransactionId(txn_id.to_owned())),
+            ) {
+                match &reaction_key.item {
+                    TimelineEventItemId::TransactionId(_) => {
+                        error!("unexpected remote reaction to local echo")
+                    }
+                    TimelineEventItemId::EventId(reacted_to_event_id) => {
+                        if let Some((item_pos, event_item)) =
+                            rfind_event_by_id(&txn.items, reacted_to_event_id)
+                        {
+                            let mut reactions = event_item.reactions().clone();
+                            if let Some(entry) = reactions
+                                .get_mut(&reaction_key.key)
+                                .and_then(|by_user| by_user.get_mut(&reaction_key.sender))
+                            {
+                                trace!("updated reaction status to sent");
+                                entry.status = ReactionStatus::Remote(event_id.to_owned());
+                                txn.items.set(item_pos, event_item.with_reactions(reactions));
+                                txn.commit();
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
             warn!("Timeline item not found, can't add event ID");
             return;
         };
@@ -762,68 +762,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         txn.commit();
     }
 
-    /// Reconcile the timeline with the result of a request to toggle a
-    /// reaction.
-    ///
-    /// Checks and finalises any state that tracks ongoing requests and decides
-    /// whether further requests are required to handle any new local echos.
-    #[instrument(skip_all)]
-    pub(super) async fn resolve_reaction_response(
-        &self,
-        annotation: &Annotation,
-        result: &ReactionToggleResult,
-    ) -> Result<ReactionAction, Error> {
-        let mut state = self.state.write().await;
-        let user_id = self.room_data_provider.own_user_id();
-        let annotation_key: AnnotationKey = annotation.into();
-
-        let reaction_state = state
-            .meta
-            .reactions
-            .reaction_state
-            .get(&AnnotationKey::from(annotation))
-            .expect("Reaction state should be set before sending the reaction");
-
-        let follow_up_action = match (result, reaction_state) {
-            (ReactionToggleResult::AddSuccess { event_id, .. }, ReactionState::Redacting(_)) => {
-                // A reaction was added successfully but we've been requested to undo it
-                state
-                    .meta
-                    .reactions
-                    .in_flight_reaction
-                    .insert(annotation_key, ReactionState::Redacting(Some(event_id.to_owned())));
-                ReactionAction::RedactRemote(event_id.to_owned())
-            }
-            (ReactionToggleResult::RedactSuccess { .. }, ReactionState::Sending(txn_id)) => {
-                // A reaction was was redacted successfully but we've been requested to undo it
-                let txn_id = txn_id.to_owned();
-                state
-                    .meta
-                    .reactions
-                    .in_flight_reaction
-                    .insert(annotation_key, ReactionState::Sending(txn_id.clone()));
-                ReactionAction::SendRemote(txn_id)
-            }
-            _ => {
-                // We're done, so also update the timeline
-                state.meta.reactions.in_flight_reaction.swap_remove(&annotation_key);
-                state.meta.reactions.reaction_state.swap_remove(&annotation_key);
-                state.update_timeline_reaction(user_id, annotation, result)?;
-
-                ReactionAction::None
-            }
-        };
-
-        if matches!(
-            result,
-            ReactionToggleResult::AddFailure { .. } | ReactionToggleResult::RedactFailure { .. }
-        ) {
-            return Err(Error::FailedToToggleReaction);
-        }
-
-        Ok(follow_up_action)
-    }
-
     pub(super) async fn discard_local_echo(&self, txn_id: &TransactionId) -> bool {
         let mut state = self.state.write().await;
 
@@ -844,11 +782,43 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             txn.commit();
 
             debug!("Discarded local echo");
-            true
-        } else {
-            debug!("Can't find local echo to discard");
-            false
+            return true;
         }
+
+        // Look if this was a local reaction echo.
+        if let Some(full_key) =
+            state.meta.reactions.map.remove(&TimelineEventItemId::TransactionId(txn_id.to_owned()))
+        {
+            let item = match &full_key.item {
+                TimelineEventItemId::TransactionId(_) => {
+                    // TODO(bnjbvr): reactions on local echoes
+                    warn!("reactions on local echoes are NYI");
+                    return false;
+                }
+                TimelineEventItemId::EventId(event_id) => rfind_event_by_id(&state.items, event_id),
+            };
+
+            let Some((idx, item)) = item else {
+                warn!("missing reacted-to item for a reaction");
+                return false;
+            };
+
+            let mut reactions = item.reactions().clone();
+            if reactions.remove_reaction(&full_key.sender, &full_key.key).is_some() {
+                let updated_item = item.with_reactions(reactions);
+                state.items.set(idx, updated_item);
+            } else {
+                warn!(
+                    "missing reaction {} for sender {} on timeline item",
+                    full_key.key, full_key.sender
+                );
+            }
+
+            return true;
+        }
+
+        debug!("Can't find local echo to discard");
+        false
     }
 
     pub(super) async fn replace_local_echo(

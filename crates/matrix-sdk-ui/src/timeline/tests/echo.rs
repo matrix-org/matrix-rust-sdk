@@ -16,7 +16,7 @@ use std::{io, sync::Arc};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use matrix_sdk::{test_utils::events::EventFactory, Error};
+use matrix_sdk::{send_queue::RoomSendQueueUpdate, test_utils::events::EventFactory, Error};
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
 use ruma::{
     event_id,
@@ -266,11 +266,9 @@ async fn test_day_divider_removed_after_local_echo_disappeared() {
 
     // Cancel the local echo.
     timeline
-        .handle_room_send_queue_update(
-            matrix_sdk::send_queue::RoomSendQueueUpdate::CancelledLocalEvent {
-                transaction_id: txn_id,
-            },
-        )
+        .handle_room_send_queue_update(RoomSendQueueUpdate::CancelledLocalEvent {
+            transaction_id: txn_id,
+        })
         .await;
 
     let items = timeline.inner.items().await;
@@ -328,11 +326,9 @@ async fn test_read_marker_removed_after_local_echo_disappeared() {
 
     // Cancel the local echo.
     timeline
-        .handle_room_send_queue_update(
-            matrix_sdk::send_queue::RoomSendQueueUpdate::CancelledLocalEvent {
-                transaction_id: txn_id,
-            },
-        )
+        .handle_room_send_queue_update(RoomSendQueueUpdate::CancelledLocalEvent {
+            transaction_id: txn_id,
+        })
         .await;
 
     let items = timeline.inner.items().await;
