@@ -28,8 +28,8 @@ use futures_util::Stream;
 use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    store::DynCryptoStore, EncryptionSettings, EncryptionSyncChanges, OlmError, OlmMachine,
-    ToDeviceRequest,
+    store::DynCryptoStore, CollectStrategy, EncryptionSettings, EncryptionSyncChanges, OlmError,
+    OlmMachine, ToDeviceRequest,
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -1391,7 +1391,13 @@ impl BaseClient {
                 let members = self.store.get_user_ids(room_id, filter).await?;
 
                 let settings = settings.ok_or(Error::EncryptionNotEnabled)?;
-                let settings = EncryptionSettings::new(settings, history_visibility, false);
+                let settings = EncryptionSettings::new(
+                    settings,
+                    history_visibility,
+                    CollectStrategy::DeviceBasedStrategy {
+                        only_allow_trusted_devices: false,
+                    },
+                );
 
                 Ok(o.share_room_key(room_id, members.iter().map(Deref::deref), settings).await?)
             }
