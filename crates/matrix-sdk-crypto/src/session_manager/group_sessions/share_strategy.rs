@@ -467,13 +467,13 @@ mod tests {
     async fn test_share_with_per_device_strategy_to_all() {
         let machine = set_up_test_machine().await;
 
-        let legacy_strategy = CollectStrategy::DeviceBasedStrategy {
-            only_allow_trusted_devices: false,
-            error_on_verified_user_problem: false,
+        let encryption_settings = EncryptionSettings {
+            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
+                only_allow_trusted_devices: false,
+                error_on_verified_user_problem: false,
+            },
+            ..Default::default()
         };
-
-        let encryption_settings =
-            EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
 
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
@@ -510,13 +510,13 @@ mod tests {
     async fn test_share_with_per_device_strategy_only_trusted() {
         let machine = set_up_test_machine().await;
 
-        let legacy_strategy = CollectStrategy::DeviceBasedStrategy {
-            only_allow_trusted_devices: true,
-            error_on_verified_user_problem: false,
+        let encryption_settings = EncryptionSettings {
+            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
+                only_allow_trusted_devices: true,
+                error_on_verified_user_problem: false,
+            },
+            ..Default::default()
         };
-
-        let encryption_settings =
-            EncryptionSettings { sharing_strategy: legacy_strategy.clone(), ..Default::default() };
 
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
