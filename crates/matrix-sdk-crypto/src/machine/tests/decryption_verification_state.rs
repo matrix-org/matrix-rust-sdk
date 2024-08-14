@@ -483,46 +483,12 @@ async fn test_decryption_trust_requirement() {
     // Set the sender data to various values, and test that we can or can't
     // decrypt, depending on what the trust requirement is.
 
-    // An unknown non-legacy session should be decryptable only when the trust
-    // requirement allows untrusted sessions
     let mut session =
         bob.store().get_inbound_group_session(room_id, &session_id).await.unwrap().unwrap();
-    session.sender_data =
-        SenderData::UnknownDevice { legacy_session: false, owner_check_failed: false };
-    bob.store().save_inbound_group_sessions(&[session.clone()]).await.unwrap();
 
-    check_decryption_trust_requirement(
-        &bob,
-        &event,
-        room_id,
-        &[
-            (TrustRequirement::Untrusted, true),
-            (TrustRequirement::CrossSignedOrLegacy, false),
-            (TrustRequirement::CrossSigned, false),
-        ],
-    )
-    .await;
-
-    // An unknown legacy session should be decryptable only when the trust
-    // requirement allows untrusted or legacy sessions
-    session.sender_data =
-        SenderData::UnknownDevice { legacy_session: true, owner_check_failed: false };
-    bob.store().save_inbound_group_sessions(&[session.clone()]).await.unwrap();
-
-    check_decryption_trust_requirement(
-        &bob,
-        &event,
-        room_id,
-        &[
-            (TrustRequirement::Untrusted, true),
-            (TrustRequirement::CrossSignedOrLegacy, true),
-            (TrustRequirement::CrossSigned, false),
-        ],
-    )
-    .await;
-
-    // A session where we have the device keys but no cross-signing
-    // information should be just like an unknown device
+    // A session where we have the device keys but no cross-signing information
+    // should be decryptable only when the trust requirement allows untrusted or
+    // legacy sessions
     session.sender_data = SenderData::DeviceInfo {
         device_keys: alice
             .get_device(alice.user_id(), alice.device_id(), None)
@@ -546,29 +512,9 @@ async fn test_decryption_trust_requirement() {
         ],
     )
     .await;
-}
 
-#[async_test]
-async fn test_decryption_trust_with_identity_changes() {
-    let (alice, bob) = get_machine_pair_with_setup_sessions_test_helper(
-        tests::alice_id(),
-        tests::user_id(),
-        false,
-    )
-    .await;
+    // Bob later gets Alice's identity and cross-signed device keys
     bob.bootstrap_cross_signing(false).await.unwrap();
-    let room_id = room_id!("!test:example.org");
-    let (event, session_id) = encrypt_message(&alice, room_id, &bob, "Secret message").await;
-
-    // Bob receives the message but Alice's keys are unknown at the time of
-    // reception
-    let mut session =
-        bob.store().get_inbound_group_session(room_id, &session_id).await.unwrap().unwrap();
-    session.sender_data =
-        SenderData::UnknownDevice { legacy_session: false, owner_check_failed: false };
-    bob.store().save_inbound_group_sessions(&[session.clone()]).await.unwrap();
-
-    // Bob later gets Alice's device keys and identity
     let cross_signing_requests = alice.bootstrap_cross_signing(false).await.unwrap();
     let upload_signing_keys_req = cross_signing_requests.upload_signing_keys_req;
     let alice_msk: MasterPubkey = upload_signing_keys_req.master_key.unwrap().try_into().unwrap();
@@ -604,7 +550,7 @@ async fn test_decryption_trust_with_identity_changes() {
         .unwrap();
 
     // Since the sending device is now cross-signed by Alice, it should be
-    // decryptable in all modes except for verified.
+    // decryptable in all modes
     check_decryption_trust_requirement(
         &bob,
         &event,
@@ -616,48 +562,23 @@ async fn test_decryption_trust_with_identity_changes() {
         ],
     )
     .await;
+}
 
-    // If we verify Alice, the event should be decryptable in verified mode
-    let mut alice_identity =
-        bob.store().get_identity(alice.user_id()).await.unwrap().unwrap().other().unwrap();
-    let signature_upload_req = alice_identity.verify().await.unwrap();
-    let alice_read_only_identity = &mut alice_identity.inner;
-    let mut alice_msk_json = serde_json::to_value(alice_msk).unwrap();
-    for (_, value) in signature_upload_req.signed_keys.get(alice.user_id()).unwrap().iter() {
-        let value: serde_json::Value = serde_json::from_str(value.get()).unwrap();
-        alice_msk_json["signatures"]
-            .as_object_mut()
-            .unwrap()
-            .insert(bob.user_id().to_string(), value["signatures"][bob.user_id().as_str()].clone());
-    }
-    let alice_msk: MasterPubkey = serde_json::from_value(alice_msk_json).unwrap();
-    alice_read_only_identity.update(alice_msk.clone(), alice_ssk.clone(), None).unwrap();
-    bob.store()
-        .save_changes(Changes {
-            identities: IdentityChanges {
-                new: vec![alice_read_only_identity.clone().into()],
-                ..Default::default()
-            },
-            ..Default::default()
-        })
-        .await
-        .unwrap();
-
-    check_decryption_trust_requirement(
-        &bob,
-        &event,
-        room_id,
-        &[
-            (TrustRequirement::Untrusted, true),
-            (TrustRequirement::CrossSignedOrLegacy, true),
-            (TrustRequirement::CrossSigned, true),
-        ],
+#[async_test]
+async fn test_decryption_trust_with_identity_change() {
+    let (alice, bob) = get_machine_pair_with_setup_sessions_test_helper(
+        tests::alice_id(),
+        tests::user_id(),
+        false,
     )
     .await;
+    bob.bootstrap_cross_signing(false).await.unwrap();
+    let room_id = room_id!("!test:example.org");
+    let (event, session_id) = encrypt_message(&alice, room_id, &bob, "Secret message").await;
 
-    // If alice's cross-signing key changes, the event should not be decryptable
-    // (except for in unverified mode)
-    let cross_signing_requests = alice.bootstrap_cross_signing(true).await.unwrap();
+    // Simulate Alice's cross-signing key changing after having been verified by
+    // setting the `previously_verified` flag
+    let cross_signing_requests = alice.bootstrap_cross_signing(false).await.unwrap();
     let upload_signing_keys_req = cross_signing_requests.upload_signing_keys_req;
     let alice_msk: MasterPubkey = upload_signing_keys_req.master_key.unwrap().try_into().unwrap();
     let alice_ssk: SelfSigningPubkey =
@@ -678,18 +599,31 @@ async fn test_decryption_trust_with_identity_changes() {
         .unwrap()])
         .await
         .unwrap();
-    alice_read_only_identity.update(alice_msk.clone(), alice_ssk.clone(), None).unwrap();
     bob.store()
         .save_changes(Changes {
             identities: IdentityChanges {
-                new: vec![alice_read_only_identity.clone().into()],
+                new: vec![OtherUserIdentityData::new(alice_msk.clone(), alice_ssk.clone())
+                    .unwrap()
+                    .into()],
                 ..Default::default()
             },
             ..Default::default()
         })
         .await
         .unwrap();
+    let alice_identity =
+        bob.store().get_identity(alice.user_id()).await.unwrap().unwrap().other().unwrap();
+    alice_identity.mark_as_previously_verified().await.unwrap();
 
+    // Bob receives the Megolm session and message
+    let mut session =
+        bob.store().get_inbound_group_session(room_id, &session_id).await.unwrap().unwrap();
+    session.sender_data =
+        SenderData::UnknownDevice { legacy_session: false, owner_check_failed: false };
+    bob.store().save_inbound_group_sessions(&[session.clone()]).await.unwrap();
+
+    // In this case, the message should not be decryptable except for when we
+    // accept untrusted devices
     check_decryption_trust_requirement(
         &bob,
         &event,
@@ -698,32 +632,6 @@ async fn test_decryption_trust_with_identity_changes() {
             (TrustRequirement::Untrusted, true),
             (TrustRequirement::CrossSignedOrLegacy, false),
             (TrustRequirement::CrossSigned, false),
-        ],
-    )
-    .await;
-
-    // ... until we acknowledge the change, at which point it should be
-    // decryptable in every mode except for verified
-    alice_read_only_identity.pin();
-    bob.store()
-        .save_changes(Changes {
-            identities: IdentityChanges {
-                new: vec![alice_read_only_identity.clone().into()],
-                ..Default::default()
-            },
-            ..Default::default()
-        })
-        .await
-        .unwrap();
-
-    check_decryption_trust_requirement(
-        &bob,
-        &event,
-        room_id,
-        &[
-            (TrustRequirement::Untrusted, true),
-            (TrustRequirement::CrossSignedOrLegacy, true),
-            (TrustRequirement::CrossSigned, true),
         ],
     )
     .await;

@@ -1573,20 +1573,10 @@ impl OlmMachine {
     /// cross-signed, and that the sender's identity is pinned.  If
     /// `require_verified` is `true`, then also checks if we have verified the
     /// sender's identity
-    fn check_sender_trusted(
-        &self,
-        encryption_info: &EncryptionInfo,
-        require_verified: bool,
-    ) -> MegolmResult<()> {
+    fn check_sender_trusted(&self, encryption_info: &EncryptionInfo) -> MegolmResult<()> {
         match &encryption_info.verification_state {
             VerificationState::Verified => Ok(()),
-            VerificationState::Unverified(VerificationLevel::UnverifiedIdentity) => {
-                if require_verified {
-                    Err(MegolmError::SenderIdentity(VerificationLevel::UnverifiedIdentity))
-                } else {
-                    Ok(())
-                }
-            }
+            VerificationState::Unverified(VerificationLevel::UnverifiedIdentity) => Ok(()),
             VerificationState::Unverified(verification_level) => {
                 Err(MegolmError::SenderIdentity(verification_level.clone()))
             }
@@ -1603,15 +1593,25 @@ impl OlmMachine {
     ) -> MegolmResult<()> {
         match decryption_settings.trust_requirement {
             TrustRequirement::Untrusted => Ok(()),
-            TrustRequirement::CrossSignedOrLegacy => match session.sender_data {
+            TrustRequirement::CrossSignedOrLegacy => match &session.sender_data {
+                SenderData::SenderKnown {
+                    master_key_verified: false,
+                    previously_verified: true,
+                    ..
+                } => Err(MegolmError::SenderIdentity(VerificationLevel::PreviouslyVerified)),
                 SenderData::SenderKnown { .. } => Ok(()),
                 SenderData::DeviceInfo { legacy_session: true, .. } => Ok(()),
                 SenderData::UnknownDevice { legacy_session: true, .. } => Ok(()),
-                _ => self.check_sender_trusted(encryption_info, false),
+                _ => self.check_sender_trusted(encryption_info),
             },
-            TrustRequirement::CrossSigned => match session.sender_data {
+            TrustRequirement::CrossSigned => match &session.sender_data {
+                SenderData::SenderKnown {
+                    master_key_verified: false,
+                    previously_verified: true,
+                    ..
+                } => Err(MegolmError::SenderIdentity(VerificationLevel::PreviouslyVerified)),
                 SenderData::SenderKnown { .. } => Ok(()),
-                _ => self.check_sender_trusted(encryption_info, false),
+                _ => self.check_sender_trusted(encryption_info),
             },
         }
     }
