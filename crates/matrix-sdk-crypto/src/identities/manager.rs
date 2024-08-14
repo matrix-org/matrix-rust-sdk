@@ -529,9 +529,8 @@ impl IdentityManager {
         } else {
             // First time seen, create the identity. The current MSK will be pinned.
             let identity = OtherUserIdentityData::new(master_key, self_signing)?;
-            let is_verified = maybe_verified_own_identity.map_or(false, |own_user_identity| {
-                own_user_identity.is_identity_signed(&identity).is_ok()
-            });
+            let is_verified = maybe_verified_own_identity
+                .map_or(false, |own_user_identity| own_user_identity.is_identity_signed(&identity));
             if is_verified {
                 identity.mark_as_previously_verified();
             }
@@ -2217,7 +2216,7 @@ pub(crate) mod tests {
         let bob_identity =
             machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
         // Carol is verified by our identity but our own identity is not yet trusted
-        assert!(own_identity.is_identity_signed(&bob_identity).is_ok());
+        assert!(own_identity.is_identity_signed(&bob_identity));
         assert!(!bob_identity.was_previously_verified());
 
         let carol_identity = machine
@@ -2228,7 +2227,7 @@ pub(crate) mod tests {
             .other()
             .unwrap();
         // Carol is verified by our identity but our own identity is not yet trusted
-        assert!(own_identity.is_identity_signed(&carol_identity).is_ok());
+        assert!(own_identity.is_identity_signed(&carol_identity));
         assert!(!carol_identity.was_previously_verified());
 
         // Marking our own identity as trusted should update the existing identities
@@ -2267,7 +2266,7 @@ pub(crate) mod tests {
         let bob_identity =
             machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
         // Carol is verified by our identity but our own identity is not yet trusted
-        assert!(own_identity.is_identity_signed(&bob_identity).is_ok());
+        assert!(own_identity.is_identity_signed(&bob_identity));
         assert!(!bob_identity.was_previously_verified());
 
         let carol_identity = machine
@@ -2278,7 +2277,7 @@ pub(crate) mod tests {
             .other()
             .unwrap();
         // Carol is verified by our identity but our own identity is not yet trusted
-        assert!(own_identity.is_identity_signed(&carol_identity).is_ok());
+        assert!(own_identity.is_identity_signed(&carol_identity));
         assert!(!carol_identity.was_previously_verified());
 
         // Marking our own identity as trusted should update the existing identities
