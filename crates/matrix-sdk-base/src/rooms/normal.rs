@@ -681,7 +681,7 @@ impl Room {
     /// Returns the cached user defined notification mode, if available.
     ///
     /// This cache is refilled every time we call
-    /// [`Self::update_user_defined_notification_mode`].
+    /// [`Self::update_cached_user_defined_notification_mode`].
     pub fn cached_user_defined_notification_mode(&self) -> Option<RoomNotificationMode> {
         self.inner.read().cached_user_defined_notification_mode
     }
@@ -1044,7 +1044,7 @@ pub struct RoomInfo {
 
     /// Cached display name, useful for sync access.
     ///
-    /// Filled by calling [`Self::compute_display_name`]. It's automatically
+    /// Filled by calling [`Room::compute_display_name`]. It's automatically
     /// filled at start when creating a room, or on every successful sync.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) cached_display_name: Option<DisplayName>,
