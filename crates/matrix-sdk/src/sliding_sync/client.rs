@@ -137,3 +137,130 @@ async fn update_in_memory_caches(client: &Client, response: &SyncResponse) -> Re
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use matrix_sdk_base::notification_settings::RoomNotificationMode;
+    use matrix_sdk_test::async_test;
+    use ruma::{assign, room_id, serde::Raw};
+    use serde_json::json;
+
+    use crate::{
+        error::Result, sliding_sync::http, test_utils::logged_in_client_with_server,
+        SlidingSyncList, SlidingSyncMode,
+    };
+
+    #[async_test]
+    async fn test_cache_user_defined_notification_mode() -> Result<()> {
+        let (client, _server) = logged_in_client_with_server().await;
+        let room_id = room_id!("!r0:matrix.org");
+
+        let sliding_sync = client
+            .sliding_sync("test")?
+            .with_account_data_extension(
+                assign!(http::request::AccountData::default(), { enabled: Some(true) }),
+            )
+            .add_list(
+                SlidingSyncList::builder("all")
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+            )
+            .build()
+            .await?;
+
+        // Mock a sync response.
+        // A `m.push_rules` with `room` is cached during the sync.
+        {
+            let server_response = assign!(http::Response::new("0".to_owned()), {
+                rooms: BTreeMap::from([(
+                    room_id.to_owned(),
+                    http::response::Room::default(),
+                )]),
+                extensions: assign!(http::response::Extensions::default(), {
+                    account_data: assign!(http::response::AccountData::default(), {
+                        global: vec![
+                            Raw::from_json_string(
+                                json!({
+                                    "type": "m.push_rules",
+                                    "content": {
+                                        "global": {
+                                            "room": [
+                                                {
+                                                    "actions": ["notify"],
+                                                    "rule_id": room_id,
+                                                    "default": false,
+                                                    "enabled": true,
+                                                },
+                                            ],
+                                        },
+                                    },
+                                })
+                                .to_string(),
+                            ).unwrap()
+                        ]
+                    })
+                })
+            });
+
+            let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+            sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?;
+        }
+
+        // The room must exist, since it's been synced.
+        let room = client.get_room(room_id).unwrap();
+
+        // The room has a cached user-defined notification mode.
+        assert_eq!(
+            room.cached_user_defined_notification_mode(),
+            Some(RoomNotificationMode::AllMessages),
+        );
+
+        // Mock a sync response.
+        // A `m.push_rules` with `room` is cached during the sync.
+        // It overwrites the previous cache.
+        {
+            let server_response = assign!(http::Response::new("0".to_owned()), {
+                rooms: BTreeMap::from([(
+                    room_id.to_owned(),
+                    http::response::Room::default(),
+                )]),
+                extensions: assign!(http::response::Extensions::default(), {
+                    account_data: assign!(http::response::AccountData::default(), {
+                        global: vec![
+                            Raw::from_json_string(
+                                json!({
+                                    "type": "m.push_rules",
+                                    "content": {
+                                        "global": {
+                                            "room": [
+                                                {
+                                                    "actions": [],
+                                                    "rule_id": room_id,
+                                                    "default": false,
+                                                    "enabled": true,
+                                                },
+                                            ],
+                                        },
+                                    },
+                                })
+                                .to_string(),
+                            ).unwrap()
+                        ]
+                    })
+                })
+            });
+
+            let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+            sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?;
+        }
+
+        // The room has an updated cached user-defined notification mode.
+        assert_eq!(
+            room.cached_user_defined_notification_mode(),
+            Some(RoomNotificationMode::MentionsAndKeywordsOnly),
+        );
+
+        Ok(())
+    }
+}
