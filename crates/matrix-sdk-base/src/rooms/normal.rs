@@ -1694,9 +1694,7 @@ mod tests {
     use stream_assert::{assert_pending, assert_ready};
     use web_time::{Duration, SystemTime};
 
-    #[cfg(feature = "experimental-sliding-sync")]
-    use super::SyncInfo;
-    use super::{compute_display_name_from_heroes, Room, RoomHero, RoomInfo, RoomState};
+    use super::{compute_display_name_from_heroes, Room, RoomHero, RoomInfo, RoomState, SyncInfo};
     #[cfg(any(feature = "experimental-sliding-sync", feature = "e2e-encryption"))]
     use crate::latest_event::LatestEvent;
     use crate::{
@@ -1807,16 +1805,18 @@ mod tests {
         assert_eq!(serde_json::to_value(info).unwrap(), info_json);
     }
 
+    // Ensure we can still deserialize RoomInfos before we added things to its
+    // schema
+    //
+    // In an ideal world, we must not change this test. Please see
+    // [`test_room_info_serialization`] if you want to test a “recent” `RoomInfo`
+    // deserialization.
     #[test]
-    #[cfg(feature = "experimental-sliding-sync")]
     fn test_room_info_deserialization_without_optional_items() {
-        // Ensure we can still deserialize RoomInfos before we added things to its
-        // schema
+        use ruma::{owned_mxc_uri, owned_user_id};
 
         // The following JSON should never change if we want to be able to read in old
         // cached state
-
-        use ruma::{owned_mxc_uri, owned_user_id};
         let info_json = json!({
             "room_id": "!gda78o:server.tld",
             "room_state": "Invited",
@@ -1851,7 +1851,86 @@ mod tests {
                 "tombstone": null,
                 "topic": null,
             },
-            "cached_display_name": { "Calculated": "lol" }
+        });
+
+        let info: RoomInfo = serde_json::from_value(info_json).unwrap();
+
+        assert_eq!(info.room_id, room_id!("!gda78o:server.tld"));
+        assert_eq!(info.room_state, RoomState::Invited);
+        assert_eq!(info.notification_counts.highlight_count, 1);
+        assert_eq!(info.notification_counts.notification_count, 2);
+        assert_eq!(
+            info.summary.room_heroes,
+            vec![RoomHero {
+                user_id: owned_user_id!("@somebody:example.org"),
+                display_name: Some("Somebody".to_owned()),
+                avatar_url: Some(owned_mxc_uri!("mxc://example.org/abc")),
+            }]
+        );
+        assert_eq!(info.summary.joined_member_count, 5);
+        assert_eq!(info.summary.invited_member_count, 0);
+        assert!(info.members_synced);
+        assert_eq!(info.last_prev_batch, Some("pb".to_owned()));
+        assert_eq!(info.sync_info, SyncInfo::FullySynced);
+        assert!(info.encryption_state_synced);
+        assert!(info.base_info.avatar.is_none());
+        assert!(info.base_info.canonical_alias.is_none());
+        assert!(info.base_info.create.is_none());
+        assert_eq!(info.base_info.dm_targets.len(), 0);
+        assert!(info.base_info.encryption.is_none());
+        assert!(info.base_info.guest_access.is_none());
+        assert!(info.base_info.history_visibility.is_none());
+        assert!(info.base_info.join_rules.is_none());
+        assert_eq!(info.base_info.max_power_level, 100);
+        assert!(info.base_info.name.is_none());
+        assert!(info.base_info.tombstone.is_none());
+        assert!(info.base_info.topic.is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "experimental-sliding-sync")]
+    fn test_room_info_deserialization() {
+        use ruma::{owned_mxc_uri, owned_user_id};
+
+        use crate::notification_settings::RoomNotificationMode;
+
+        let info_json = json!({
+            "room_id": "!gda78o:server.tld",
+            "room_state": "Invited",
+            "notification_counts": {
+                "highlight_count": 1,
+                "notification_count": 2,
+            },
+            "summary": {
+                "room_heroes": [{
+                    "user_id": "@somebody:example.org",
+                    "display_name": "Somebody",
+                    "avatar_url": "mxc://example.org/abc"
+                }],
+                "joined_member_count": 5,
+                "invited_member_count": 0,
+            },
+            "members_synced": true,
+            "last_prev_batch": "pb",
+            "sync_info": "FullySynced",
+            "encryption_state_synced": true,
+            "base_info": {
+                "avatar": null,
+                "canonical_alias": null,
+                "create": null,
+                "dm_targets": [],
+                "encryption": null,
+                "guest_access": null,
+                "history_visibility": null,
+                "join_rules": null,
+                "max_power_level": 100,
+                "name": null,
+                "tombstone": null,
+                "topic": null,
+            },
+            "cached_display_name": { "Calculated": "lol" },
+            "cached_user_defined_notification_mode": "Mute",
+            "recency_stamp": 42,
         });
 
         let info: RoomInfo = serde_json::from_value(info_json).unwrap();
@@ -1890,9 +1969,13 @@ mod tests {
 
         assert_eq!(
             info.cached_display_name.as_ref(),
-            Some(&DisplayName::Calculated("lol".to_owned()))
+            Some(&DisplayName::Calculated("lol".to_owned())),
         );
-        assert!(info.cached_user_defined_notification_mode.is_none());
+        assert_eq!(
+            info.cached_user_defined_notification_mode.as_ref(),
+            Some(&RoomNotificationMode::Mute)
+        );
+        assert_eq!(info.recency_stamp.as_ref(), Some(&42));
     }
 
     #[async_test]
