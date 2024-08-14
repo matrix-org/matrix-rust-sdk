@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use imbl::Vector;
 use matrix_sdk_base::{sliding_sync::http, sync::SyncResponse, PreviousEventsProvider};
 use ruma::{events::AnyToDeviceEvent, serde::Raw, OwnedRoomId};
+use tracing::error;
 
 use super::{SlidingSync, SlidingSyncBuilder};
 use crate::{Client, Result, SlidingSyncRoom};
@@ -74,7 +75,7 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
         extensions: &http::response::Extensions,
     ) -> Result<()> {
         // This is an internal API misuse if this is triggered (calling
-        // handle_room_response before this function), so panic is fine.
+        // `handle_room_response` before this function), so panic is fine.
         assert!(self.response.is_none());
 
         self.to_device_events =
@@ -97,6 +98,16 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
                 )
                 .await?,
         );
+        self.post_process().await
+    }
+
+    async fn post_process(&mut self) -> Result<()> {
+        // This is an internal API misuse if this is triggered (calling
+        // `handle_room_response` after this function), so panic is fine.
+        let response = self.response.as_ref().unwrap();
+
+        update_in_memory_caches(&self.client, response).await?;
+
         Ok(())
     }
 
@@ -109,4 +120,20 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
 
         Ok(response)
     }
+}
+
+/// Update the caches for the rooms that received updates.
+///
+/// This will only fill the in-memory caches, not save the info on disk.
+async fn update_in_memory_caches(client: &Client, response: &SyncResponse) -> Result<()> {
+    for room_id in response.rooms.join.keys() {
+        let Some(room) = client.get_room(room_id) else {
+            error!(room_id = ?room_id, "Cannot post process a room in sliding sync because it is missing");
+            continue;
+        };
+
+        room.user_defined_notification_mode().await;
+    }
+
+    Ok(())
 }

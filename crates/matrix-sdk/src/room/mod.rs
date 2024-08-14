@@ -2671,7 +2671,8 @@ impl Room {
     /// Get the user-defined notification mode.
     ///
     /// The result is cached for fast and non-async call. To read the cached
-    /// result, use [`Self::cached_user_defined_notification_mode`].
+    /// result, use
+    /// [`matrix_sdk_base::Room::cached_user_defined_notification_mode`].
     //
     // Note for maintainers:
     //
