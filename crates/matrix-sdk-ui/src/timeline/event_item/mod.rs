@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
 use as_variant::as_variant;
 use indexmap::IndexMap;
@@ -154,7 +157,7 @@ impl EventTimelineItem {
 
         // We don't currently bundle any reactions with the main event. This could
         // conceivably be wanted in the message preview in future.
-        let reactions = IndexMap::new();
+        let reactions = ReactionsByKeyBySender::default();
 
         // The message preview probably never needs read receipts.
         let read_receipts = IndexMap::new();
@@ -609,19 +612,69 @@ pub enum EventItemOrigin {
     Pagination,
 }
 
+/// What's the status of a reaction?
+#[derive(Clone, Debug)]
+pub enum ReactionStatus {
+    /// It's a local reaction to a remote event.
+    ///
+    /// The handle is missing only in testing contexts.
+    LocalToRemote(Option<SendHandle>),
+    /// It's a remote reaction to a remote event.
+    Remote(OwnedEventId),
+}
+
 /// Information about a single reaction stored in [`ReactionsByKeyBySender`].
 #[derive(Clone, Debug)]
 pub struct ReactionInfo {
     pub timestamp: MilliSecondsSinceUnixEpoch,
-    /// Id of the reaction (not the reacted-to event).
-    pub id: TimelineEventItemId,
+    /// Current status of this reaction.
+    pub status: ReactionStatus,
 }
 
 /// Reactions grouped by key first, then by sender.
 ///
 /// This representation makes sure that a given sender has sent at most one
 /// reaction for an event.
-pub type ReactionsByKeyBySender = IndexMap<String, IndexMap<OwnedUserId, ReactionInfo>>;
+#[derive(Debug, Clone, Default)]
+pub struct ReactionsByKeyBySender(IndexMap<String, IndexMap<OwnedUserId, ReactionInfo>>);
+
+impl Deref for ReactionsByKeyBySender {
+    type Target = IndexMap<String, IndexMap<OwnedUserId, ReactionInfo>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for ReactionsByKeyBySender {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl ReactionsByKeyBySender {
+    /// Removes (in place) a reaction from the sender with the given annotation
+    /// from the mapping.
+    ///
+    /// Returns true if the reaction was found and thus removed, false
+    /// otherwise.
+    pub(crate) fn remove_reaction(
+        &mut self,
+        sender: &UserId,
+        annotation: &str,
+    ) -> Option<ReactionInfo> {
+        if let Some(by_user) = self.0.get_mut(annotation) {
+            if let Some(info) = by_user.swap_remove(sender) {
+                // If this was the last reaction, remove the annotation entry.
+                if by_user.is_empty() {
+                    self.0.swap_remove(annotation);
+                }
+                return Some(info);
+            }
+        }
+        None
+    }
+}
 
 #[cfg(test)]
 mod tests {

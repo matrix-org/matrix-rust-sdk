@@ -19,11 +19,9 @@ use std::{
     sync::Arc,
 };
 
-use assert_matches2::assert_let;
 use async_trait::async_trait;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
-use futures_util::{FutureExt, StreamExt};
 use indexmap::IndexMap;
 use matrix_sdk::{
     config::RequestConfig,
@@ -38,6 +36,7 @@ use matrix_sdk_test::{EventBuilder, ALICE, BOB};
 use ruma::{
     event_id,
     events::{
+        reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::Annotation,
         AnyMessageLikeEventContent, AnyTimelineEvent, EmptyStateKey,
@@ -57,7 +56,6 @@ use super::{
     event_handler::TimelineEventKind,
     event_item::RemoteEventOrigin,
     inner::{TimelineEnd, TimelineInnerSettings},
-    reactions::{ReactionAction, ReactionToggleResult},
     traits::RoomDataProvider,
     EventTimelineItem, Profile, TimelineFocus, TimelineInner, TimelineItem,
 };
@@ -90,6 +88,11 @@ struct TestTimeline {
 impl TestTimeline {
     fn new() -> Self {
         Self::with_room_data_provider(TestRoomDataProvider::default())
+    }
+
+    /// Returns the associated inner data from that [`TestTimeline`].
+    fn data(&self) -> &TestRoomDataProvider {
+        &self.inner.room_data_provider
     }
 
     fn with_internal_id_prefix(prefix: String) -> Self {
@@ -237,18 +240,6 @@ impl TestTimeline {
         txn_id
     }
 
-    async fn handle_local_redaction_event(&self, redacts: &EventId) -> OwnedTransactionId {
-        let txn_id = TransactionId::new();
-        self.inner
-            .handle_local_event(
-                txn_id.clone(),
-                TimelineEventKind::Redaction { redacts: redacts.to_owned() },
-                None,
-            )
-            .await;
-        txn_id
-    }
-
     async fn handle_back_paginated_event(&self, event: Raw<AnyTimelineEvent>) {
         let timeline_event = TimelineEvent::new(event.cast());
         self.inner
@@ -264,19 +255,12 @@ impl TestTimeline {
         self.inner.handle_read_receipts(ev_content).await;
     }
 
-    async fn toggle_reaction_local(
-        &self,
-        annotation: &Annotation,
-    ) -> Result<ReactionAction, super::Error> {
-        self.inner.toggle_reaction_local(annotation).await
-    }
-
-    async fn handle_reaction_response(
-        &self,
-        annotation: &Annotation,
-        result: &ReactionToggleResult,
-    ) -> Result<ReactionAction, super::Error> {
-        self.inner.resolve_reaction_response(annotation, result).await
+    async fn toggle_reaction_local(&self, annotation: &Annotation) -> Result<(), super::Error> {
+        if self.inner.toggle_reaction_local(annotation).await? {
+            // Fake a local echo, for new reactions.
+            self.handle_local_event(ReactionEventContent::new(annotation.clone()).into()).await;
+        }
+        Ok(())
     }
 
     async fn handle_room_send_queue_update(&self, update: RoomSendQueueUpdate) {
@@ -429,22 +413,4 @@ impl RoomDataProvider for TestRoomDataProvider {
         self.redacted.write().await.push(event_id.to_owned());
         Ok(())
     }
-}
-
-pub(super) async fn assert_event_is_updated(
-    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
-    event_id: &EventId,
-    index: usize,
-) -> EventTimelineItem {
-    assert_let!(Some(VectorDiff::Set { index: i, value: event }) = stream.next().await);
-    assert_eq!(i, index);
-    let event = event.as_event().unwrap();
-    assert_eq!(event.event_id().unwrap(), event_id);
-    event.to_owned()
-}
-
-pub(super) async fn assert_no_more_updates(
-    stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
-) {
-    assert!(stream.next().now_or_never().is_none())
 }

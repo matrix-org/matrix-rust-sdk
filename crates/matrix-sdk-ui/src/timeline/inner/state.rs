@@ -20,13 +20,11 @@ use matrix_sdk_base::deserialized_responses::TimelineEvent;
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
-    events::{relation::Annotation, AnySyncEphemeralRoomEvent},
-    push::Action,
-    serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    RoomVersionId, UserId,
+    events::AnySyncEphemeralRoomEvent, push::Action, serde::Raw, EventId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
+    UserId,
 };
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{debug, instrument, trace, warn};
 
 use super::{HandleManyEventsResult, TimelineInnerSettings};
 use crate::{
@@ -37,13 +35,13 @@ use crate::{
             Flow, HandleEventResult, LiveTimelineUpdatesAllowed, TimelineEventContext,
             TimelineEventHandler, TimelineEventKind, TimelineItemPosition,
         },
-        event_item::{ReactionInfo, RemoteEventOrigin, TimelineEventItemId},
+        event_item::RemoteEventOrigin,
         polls::PollPendingEvents,
-        reactions::{FullReactionKey, ReactionToggleResult, Reactions},
+        reactions::Reactions,
         read_receipts::ReadReceipts,
         traits::RoomDataProvider,
-        util::{rfind_event_by_id, rfind_event_item, RelativePosition},
-        Error as TimelineError, Profile, TimelineItem, TimelineItemKind,
+        util::{rfind_event_by_id, RelativePosition},
+        Profile, TimelineItem, TimelineItemKind,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -247,99 +245,6 @@ impl TimelineInnerState {
         txn.adjust_day_dividers(day_divider_adjuster);
 
         txn.commit();
-    }
-
-    pub(super) fn update_timeline_reaction(
-        &mut self,
-        own_user_id: &UserId,
-        annotation: &Annotation,
-        result: &ReactionToggleResult,
-    ) -> Result<(), TimelineError> {
-        if matches!(result, ReactionToggleResult::RedactSuccess) {
-            // We did a successful redaction, so no need to update the item
-            // because the reaction is already gone.
-            return Ok(());
-        }
-
-        let (remote_echo_to_add, local_echo_to_remove) = match result {
-            ReactionToggleResult::AddSuccess { event_id, txn_id } => (Some(event_id), Some(txn_id)),
-            ReactionToggleResult::AddFailure { txn_id } => (None, Some(txn_id)),
-            ReactionToggleResult::RedactSuccess => (None, None),
-            ReactionToggleResult::RedactFailure { event_id } => (Some(event_id), None),
-        };
-
-        let related = rfind_event_item(&self.items, |it| {
-            it.event_id().is_some_and(|it| it == annotation.event_id)
-        });
-
-        let Some((idx, related)) = related else {
-            // Event isn't found at all.
-            warn!("Timeline item not found, can't update reaction ID");
-            return Err(TimelineError::FailedToToggleReaction);
-        };
-        let Some(remote_related) = related.as_remote() else {
-            error!("inconsistent state: reaction received on a non-remote event item");
-            return Err(TimelineError::FailedToToggleReaction);
-        };
-
-        let new_reactions = {
-            let mut reactions = remote_related.reactions.clone();
-            let reaction_by_sender = reactions.entry(annotation.key.clone()).or_default();
-
-            if let Some(event_id) = remote_echo_to_add {
-                reaction_by_sender.insert(
-                    own_user_id.to_owned(),
-                    ReactionInfo {
-                        // Note: remote event is not synced yet, so we're adding an item
-                        // with the local timestamp.
-                        timestamp: MilliSecondsSinceUnixEpoch::now(),
-                        id: TimelineEventItemId::EventId(event_id.clone()),
-                    },
-                );
-            } else if local_echo_to_remove.is_some() {
-                reaction_by_sender.swap_remove(own_user_id);
-                // Remove the group if we were the last reaction.
-                if reaction_by_sender.is_empty() {
-                    reactions.swap_remove(&annotation.key);
-                }
-            }
-
-            reactions
-        };
-
-        let new_related = related.with_kind(remote_related.with_reactions(new_reactions));
-
-        // Update the reactions stored in the timeline state.
-        {
-            // Remove the local echo from reaction_map.
-            // (should the local echo already be up-to-date after event handling?)
-            if let Some(txn_id) = local_echo_to_remove {
-                let id = TimelineEventItemId::TransactionId(txn_id.clone());
-                if self.meta.reactions.map.remove(&id).is_none() {
-                    warn!(
-                        "Tried to remove reaction by transaction ID, but didn't \
-                         find matching reaction in the reaction map"
-                    );
-                }
-            }
-
-            // Add the remote echo to the reaction_map.
-            if let Some(event_id) = remote_echo_to_add {
-                self.meta.reactions.map.insert(
-                    TimelineEventItemId::EventId(event_id.clone()),
-                    FullReactionKey {
-                        item: TimelineEventItemId::EventId(annotation.event_id.clone()),
-                        key: annotation.key.clone(),
-                        sender: own_user_id.to_owned(),
-                    },
-                );
-            }
-        }
-
-        let item = TimelineItem::new(new_related, related.internal_id.to_owned());
-        self.items.set(idx, item);
-
-        Ok(())
     }
 
     #[cfg(test)]

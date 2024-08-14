@@ -64,7 +64,11 @@ use super::{
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
-    timeline::{event_item::ReactionInfo, reactions::PendingReaction, traits::RoomDataProvider},
+    timeline::{
+        event_item::{ReactionInfo, ReactionStatus},
+        reactions::PendingReaction,
+        traits::RoomDataProvider,
+    },
     DEFAULT_SANITIZER_MODE,
 };
 
@@ -126,9 +130,6 @@ pub(super) enum TimelineEventKind {
     /// We're redacting a remote event that we may or may not know about (i.e.
     /// the redacted event *may* have a corresponding timeline item).
     Redaction { redacts: OwnedEventId },
-
-    /// A redaction of a local echo.
-    LocalRedaction { redacts: OwnedTransactionId },
 
     /// A timeline event for a room membership update.
     RoomMember {
@@ -444,9 +445,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             TimelineEventKind::Redaction { redacts } => {
                 self.handle_redaction(redacts);
             }
-            TimelineEventKind::LocalRedaction { redacts } => {
-                self.handle_reaction_redaction(TimelineEventItemId::TransactionId(redacts));
-            }
 
             TimelineEventKind::RoomMember { user_id, content, sender } => {
                 if should_add {
@@ -570,12 +568,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn handle_reaction(&mut self, c: ReactionEventContent) {
         let reacted_to_event_id = &c.relates_to.event_id;
 
-        let (reaction_id, old_txn_id) = match &self.ctx.flow {
-            Flow::Local { txn_id, .. } => {
-                (TimelineEventItemId::TransactionId(txn_id.clone()), None)
+        let (reaction_id, send_handle, old_txn_id) = match &self.ctx.flow {
+            Flow::Local { txn_id, send_handle, .. } => {
+                (TimelineEventItemId::TransactionId(txn_id.clone()), send_handle.clone(), None)
             }
             Flow::Remote { event_id, txn_id, .. } => {
-                (TimelineEventItemId::EventId(event_id.clone()), txn_id.as_ref())
+                (TimelineEventItemId::EventId(event_id.clone()), None, txn_id.as_ref())
             }
         };
 
@@ -591,17 +589,27 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 return;
             }
 
-            // Add the reaction to event item's bundled reactions.
+            trace!("Added reaction");
+
+            // Add the reaction to the event item's bundled reactions.
             let mut reactions = remote_event_item.reactions.clone();
 
             reactions.entry(c.relates_to.key.clone()).or_default().insert(
                 self.ctx.sender.clone(),
-                ReactionInfo { timestamp: self.ctx.timestamp, id: reaction_id.clone() },
+                ReactionInfo {
+                    timestamp: self.ctx.timestamp,
+                    status: match &reaction_id {
+                        TimelineEventItemId::TransactionId(_txn_id) => {
+                            ReactionStatus::LocalToRemote(send_handle)
+                        }
+                        TimelineEventItemId::EventId(event_id) => {
+                            ReactionStatus::Remote(event_id.clone())
+                        }
+                    },
+                },
             );
 
-            trace!("Adding reaction");
-            self.items
-                .set(idx, event_item.with_inner_kind(remote_event_item.with_reactions(reactions)));
+            self.items.set(idx, event_item.with_reactions(reactions));
 
             self.result.items_updated += 1;
         } else {
@@ -822,24 +830,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     };
 
                     let mut reactions = remote_event_item.reactions.clone();
-
-                    if let Some(by_sender) = reactions.get_mut(&key) {
-                        if by_sender.swap_remove(&sender).is_none() {
-                            warn!("Tried to redact a reaction that wasn't sent by this sender");
-                        }
-
-                        // Remove the reaction group if this was the last reaction.
-                        if by_sender.is_empty() {
-                            reactions.swap_remove(&key);
-                        }
+                    if reactions.remove_reaction(&sender, &key).is_some() {
+                        trace!("Removing reaction");
+                        Some(event_item.with_kind(remote_event_item.with_reactions(reactions)))
                     } else {
-                        warn!(
-                            "Tried to redact a reaction for a key not present in the reaction list"
-                        );
+                        warn!("Reaction to redact was missing from the reaction or user map");
+                        None
                     }
-
-                    trace!("Removing reaction");
-                    Some(event_item.with_kind(remote_event_item.with_reactions(reactions)))
                 });
 
             if !updated_event {
@@ -1063,7 +1060,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Flow::Local { .. } => None,
             Flow::Remote { event_id, .. } => {
                 let reactions = self.meta.reactions.pending.remove(event_id)?;
-                let mut bundled = IndexMap::new();
+                let mut bundled = ReactionsByKeyBySender::default();
 
                 for (reaction_event_id, reaction) in reactions {
                     let group: &mut IndexMap<OwnedUserId, ReactionInfo> =
@@ -1073,7 +1070,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         reaction.sender_id,
                         ReactionInfo {
                             timestamp: reaction.timestamp,
-                            id: TimelineEventItemId::EventId(reaction_event_id),
+                            status: ReactionStatus::Remote(reaction_event_id),
                         },
                     );
                 }

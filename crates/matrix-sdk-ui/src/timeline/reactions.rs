@@ -15,10 +15,7 @@
 use std::collections::HashMap;
 
 use indexmap::IndexMap;
-use ruma::{
-    events::relation::Annotation, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId,
-    OwnedUserId,
-};
+use ruma::{events::relation::Annotation, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
 
 use super::event_item::TimelineEventItemId;
 
@@ -33,30 +30,6 @@ impl From<&Annotation> for AnnotationKey {
     fn from(annotation: &Annotation) -> Self {
         Self { event_id: annotation.event_id.clone(), key: annotation.key.clone() }
     }
-}
-
-#[derive(Debug, Clone)]
-pub(super) enum ReactionAction {
-    /// Request already in progress so allow that one to resolve
-    None,
-
-    /// Send this reaction to the server
-    SendRemote(OwnedTransactionId),
-
-    /// Redact this reaction from the server
-    RedactRemote(OwnedEventId),
-}
-
-#[derive(Debug, Clone)]
-pub(super) enum ReactionState {
-    /// We're redacting a reaction.
-    ///
-    /// The optional event id is defined if, and only if, there already was a
-    /// remote echo for this reaction.
-    Redacting(Option<OwnedEventId>),
-    /// We're sending the reaction with the given transaction id, which we'll
-    /// use to match against the response in the sync event.
-    Sending(OwnedTransactionId),
 }
 
 #[derive(Clone, Debug)]
@@ -83,49 +56,11 @@ pub(super) struct Reactions {
     /// Mapping of events that are not in the timeline => reaction event id =>
     /// pending reaction.
     pub pending: HashMap<OwnedEventId, IndexMap<OwnedEventId, PendingReaction>>,
-    /// The local reaction request state that is queued next.
-    pub reaction_state: IndexMap<AnnotationKey, ReactionState>,
-    /// The in-flight reaction request state that is ongoing.
-    pub in_flight_reaction: IndexMap<AnnotationKey, ReactionState>,
 }
 
 impl Reactions {
     pub(super) fn clear(&mut self) {
         self.map.clear();
         self.pending.clear();
-        self.reaction_state.clear();
-        self.in_flight_reaction.clear();
     }
-}
-
-/// The result of toggling a reaction
-///
-/// Holds the data required to update the state of the reaction in the timeline
-#[derive(Clone, Debug)]
-pub(super) enum ReactionToggleResult {
-    /// Represents a successful reaction toggle which added a reaction
-    AddSuccess {
-        /// The event ID of the reaction which was added (the remote echo)
-        event_id: OwnedEventId,
-
-        /// The transaction ID of the reaction which was added (the local echo)
-        txn_id: OwnedTransactionId,
-    },
-
-    /// Represents a failed reaction toggle which did not add a reaction
-    AddFailure {
-        /// The transaction ID of the reaction which failed to be added (the
-        /// local echo)
-        txn_id: OwnedTransactionId,
-    },
-
-    /// Represents a successful reaction toggle which redacted a reaction
-    RedactSuccess,
-
-    /// Represents a failed reaction toggle which did not redact a reaction
-    RedactFailure {
-        /// The event ID of the reaction which failed to be redacted (the remote
-        /// echo)
-        event_id: OwnedEventId,
-    },
 }
