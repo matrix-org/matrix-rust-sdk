@@ -2639,16 +2639,18 @@ impl Room {
         }
     }
 
-    /// Get the notification mode
+    /// Get the notification mode.
     pub async fn notification_mode(&self) -> Option<RoomNotificationMode> {
         if !matches!(self.state(), RoomState::Joined) {
             return None;
         }
+
         let notification_settings = self.client().notification_settings().await;
 
         // Get the user-defined mode if available
         let notification_mode =
             notification_settings.get_user_defined_room_notification_mode(self.room_id()).await;
+
         if notification_mode.is_some() {
             notification_mode
         } else if let Ok(is_encrypted) = self.is_encrypted().await {
@@ -2666,15 +2668,31 @@ impl Room {
         }
     }
 
-    /// Get the user-defined notification mode
+    /// Get the user-defined notification mode.
+    ///
+    /// The result is cached for fast and non-async call. To read the cached
+    /// result, use [`Self::cached_user_defined_notification_mode`].
+    //
+    // Note for maintainers:
+    //
+    // The fact the result is cached is an important property. If you change that in
+    // the future, please review all calls to this method.
     pub async fn user_defined_notification_mode(&self) -> Option<RoomNotificationMode> {
         if !matches!(self.state(), RoomState::Joined) {
             return None;
         }
+
         let notification_settings = self.client().notification_settings().await;
 
         // Get the user-defined mode if available
-        notification_settings.get_user_defined_room_notification_mode(self.room_id()).await
+        let mode =
+            notification_settings.get_user_defined_room_notification_mode(self.room_id()).await;
+
+        if let Some(mode) = mode {
+            self.update_cached_user_defined_notification_mode(mode);
+        }
+
+        mode
     }
 
     /// Report an event as inappropriate to the homeserver's administrator.

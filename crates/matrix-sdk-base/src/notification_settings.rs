@@ -14,8 +14,10 @@
 
 //! Some shared types about notification settings.
 
+use serde::{Deserialize, Serialize};
+
 /// Enum representing the push notification modes for a room.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub enum RoomNotificationMode {
     /// Receive notifications for all messages.
     AllMessages,
