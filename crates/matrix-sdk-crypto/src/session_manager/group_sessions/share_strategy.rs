@@ -207,32 +207,33 @@ fn is_session_overshared_for_user(
     let recipient_device_ids: BTreeSet<&DeviceId> =
         recipient_devices.iter().map(|d| d.device_id()).collect();
 
-    if let Some(shared) = outbound_session.shared_with_set.read().unwrap().get(user_id) {
-        // Devices that received this session
-        let shared: BTreeSet<OwnedDeviceId> = shared.keys().cloned().collect();
-        let shared: BTreeSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
+    let guard = outbound_session.shared_with_set.read().unwrap();
 
-        // The set difference between
-        //
-        // 1. Devices that had previously received the session, and
-        // 2. Devices that would now receive the session
-        //
-        // Represents newly deleted or blacklisted devices. If this
-        // set is non-empty, we must rotate.
-        let newly_deleted_or_blacklisted =
-            shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
+    let Some(shared) = guard.get(user_id) else {
+        return false;
+    };
 
-        let should_rotate = !newly_deleted_or_blacklisted.is_empty();
-        if should_rotate {
-            debug!(
-                "Rotating a room key due to these devices being deleted/blacklisted {:?}",
-                newly_deleted_or_blacklisted,
-            );
-        }
-        should_rotate
-    } else {
-        false
+    // Devices that received this session
+    let shared: BTreeSet<&DeviceId> = shared.keys().map(|d| d.as_ref()).collect();
+
+    // The set difference between
+    //
+    // 1. Devices that had previously received the session, and
+    // 2. Devices that would now receive the session
+    //
+    // Represents newly deleted or blacklisted devices. If this
+    // set is non-empty, we must rotate.
+    let newly_deleted_or_blacklisted =
+        shared.difference(&recipient_device_ids).collect::<BTreeSet<_>>();
+
+    let should_rotate = !newly_deleted_or_blacklisted.is_empty();
+    if should_rotate {
+        debug!(
+            "Rotating a room key due to these devices being deleted/blacklisted {:?}",
+            newly_deleted_or_blacklisted,
+        );
     }
+    should_rotate
 }
 
 struct RecipientDevices {
