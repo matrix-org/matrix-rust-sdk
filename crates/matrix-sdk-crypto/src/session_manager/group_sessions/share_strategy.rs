@@ -851,59 +851,6 @@ mod tests {
         );
     }
 
-    /// Common setup for tests which require a verified user to have unsigned
-    /// devices.
-    ///
-    /// Returns an `OlmMachine` which is properly configured with trusted
-    /// cross-signing keys. Also imports a set of keys for
-    /// Bob ([`PreviouslyVerifiedTestData::bob_id`]), where Bob is verified and
-    /// has 2 devices, one signed and the other not.
-    async fn unsigned_of_verified_setup() -> OlmMachine {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
-
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
-
-        // Tell the OlmMachine about our own public keys.
-        let own_keys = DataSet::own_keys_query_response_1();
-        machine.mark_request_as_sent(&TransactionId::new(), &own_keys).await.unwrap();
-
-        // Import the secret parts of our own cross-signing keys.
-        machine
-            .import_cross_signing_keys(CrossSigningKeyExport {
-                master_key: DataSet::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
-                self_signing_key: DataSet::SELF_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
-                user_signing_key: DataSet::USER_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
-            })
-            .await
-            .unwrap();
-
-        // Tell the OlmMachine about Bob's keys.
-        let bob_keys = DataSet::bob_keys_query_response_signed();
-        machine.mark_request_as_sent(&TransactionId::new(), &bob_keys).await.unwrap();
-
-        // Double-check the state of Bob: he should be verified, and should have one
-        // signed and one unsigned device.
-        let bob_identity = machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap();
-        assert!(bob_identity.other().unwrap().is_verified());
-
-        let bob_signed_device = machine
-            .get_device(DataSet::bob_id(), DataSet::bob_device_1_id(), None)
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(bob_signed_device.is_verified());
-        assert!(bob_signed_device.device_owner_identity.is_some());
-
-        let bob_unsigned_device = machine
-            .get_device(DataSet::bob_id(), DataSet::bob_device_2_id(), None)
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(!bob_unsigned_device.is_verified());
-
-        machine
-    }
-
     /// Test that an unsigned device of an unverified user doesn't cause an
     /// error.
     #[async_test]
@@ -1180,6 +1127,59 @@ mod tests {
         .unwrap();
 
         assert!(share_result.should_rotate);
+    }
+
+    /// Common setup for tests which require a verified user to have unsigned
+    /// devices.
+    ///
+    /// Returns an `OlmMachine` which is properly configured with trusted
+    /// cross-signing keys. Also imports a set of keys for
+    /// Bob ([`PreviouslyVerifiedTestData::bob_id`]), where Bob is verified and
+    /// has 2 devices, one signed and the other not.
+    async fn unsigned_of_verified_setup() -> OlmMachine {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+
+        // Tell the OlmMachine about our own public keys.
+        let own_keys = DataSet::own_keys_query_response_1();
+        machine.mark_request_as_sent(&TransactionId::new(), &own_keys).await.unwrap();
+
+        // Import the secret parts of our own cross-signing keys.
+        machine
+            .import_cross_signing_keys(CrossSigningKeyExport {
+                master_key: DataSet::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+                self_signing_key: DataSet::SELF_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+                user_signing_key: DataSet::USER_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+            })
+            .await
+            .unwrap();
+
+        // Tell the OlmMachine about Bob's keys.
+        let bob_keys = DataSet::bob_keys_query_response_signed();
+        machine.mark_request_as_sent(&TransactionId::new(), &bob_keys).await.unwrap();
+
+        // Double-check the state of Bob: he should be verified, and should have one
+        // signed and one unsigned device.
+        let bob_identity = machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap();
+        assert!(bob_identity.other().unwrap().is_verified());
+
+        let bob_signed_device = machine
+            .get_device(DataSet::bob_id(), DataSet::bob_device_1_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(bob_signed_device.is_verified());
+        assert!(bob_signed_device.device_owner_identity.is_some());
+
+        let bob_unsigned_device = machine
+            .get_device(DataSet::bob_id(), DataSet::bob_device_2_id(), None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!bob_unsigned_device.is_verified());
+
+        machine
     }
 
     /// Create an [`OutboundGroupSession`], backed by the given olm machine,
