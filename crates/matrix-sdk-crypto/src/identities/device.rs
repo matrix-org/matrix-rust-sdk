@@ -752,7 +752,7 @@ impl DeviceData {
                     // check if the other user has signed this device.
                     UserIdentityData::Other(device_identity) => {
                         own_identity.is_identity_verified(device_identity)
-                            && device_identity.is_device_signed(self).is_ok()
+                            && device_identity.is_device_signed(self)
                     }
                 }
             },
@@ -769,9 +769,7 @@ impl DeviceData {
             UserIdentityData::Own(identity) => identity.is_device_signed(self),
             // If it's a device from someone else, check
             // if the other user has signed this device.
-            UserIdentityData::Other(device_identity) => {
-                device_identity.is_device_signed(self).is_ok()
-            }
+            UserIdentityData::Other(device_identity) => device_identity.is_device_signed(self),
         }
     }
 

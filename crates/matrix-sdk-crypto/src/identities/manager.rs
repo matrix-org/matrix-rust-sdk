@@ -1458,7 +1458,7 @@ pub(crate) mod tests {
         let identity = manager.store.get_user_identity(other_user).await.unwrap().unwrap();
         let identity = identity.other().unwrap();
 
-        identity.is_device_signed(&device).unwrap();
+        assert!(identity.is_device_signed(&device));
     }
 
     #[async_test]
@@ -2113,7 +2113,7 @@ pub(crate) mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert!(bob_identity.is_device_signed(&bob_device).is_ok());
+        assert!(bob_identity.is_device_signed(&bob_device));
         // there is also a pin violation
         assert!(bob_identity.has_pin_violation());
         // Fixing the pin violation won't fix the verification latch violation

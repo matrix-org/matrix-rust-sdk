@@ -762,14 +762,9 @@ impl OtherUserIdentityData {
     ///
     /// * `device` - The device that should be checked for a valid signature.
     ///
-    /// Returns an empty result if the signature check succeeded, otherwise a
-    /// SignatureError indicating why the check failed.
-    pub(crate) fn is_device_signed(&self, device: &DeviceData) -> Result<(), SignatureError> {
-        if self.user_id() != device.user_id() {
-            return Err(SignatureError::UserIdMismatch);
-        }
-
-        self.self_signing_key.verify_device(device)
+    /// Returns `true` if the signature check succeeded, otherwise `false`.
+    pub(crate) fn is_device_signed(&self, device: &DeviceData) -> bool {
+        self.user_id() == device.user_id() && self.self_signing_key.verify_device(device).is_ok()
     }
 }
 
