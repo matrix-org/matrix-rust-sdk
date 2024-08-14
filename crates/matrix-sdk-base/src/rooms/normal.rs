@@ -64,6 +64,7 @@ use super::{
 use crate::latest_event::LatestEvent;
 use crate::{
     deserialized_responses::MemberEvent,
+    notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
@@ -660,6 +661,31 @@ impl Room {
         self.inner.read().cached_display_name.clone()
     }
 
+    /// Update the cached user defined notification mode.
+    ///
+    /// This is automatically recomputed on every successful sync, and the
+    /// cached result can be retrieved in
+    /// [`Self::cached_user_defined_notification_mode`].
+    pub fn update_cached_user_defined_notification_mode(&self, mode: RoomNotificationMode) {
+        self.inner.update_if(|info| {
+            if info.cached_user_defined_notification_mode.as_ref() != Some(&mode) {
+                info.cached_user_defined_notification_mode = Some(mode);
+
+                true
+            } else {
+                false
+            }
+        });
+    }
+
+    /// Returns the cached user defined notification mode, if available.
+    ///
+    /// This cache is refilled every time we call
+    /// [`Self::update_user_defined_notification_mode`].
+    pub fn cached_user_defined_notification_mode(&self) -> Option<RoomNotificationMode> {
+        self.inner.read().cached_user_defined_notification_mode
+    }
+
     /// Return the last event in this room, if one has been cached during
     /// sliding sync.
     #[cfg(feature = "experimental-sliding-sync")]
@@ -1023,6 +1049,10 @@ pub struct RoomInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) cached_display_name: Option<DisplayName>,
 
+    /// Cached user defined notification mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) cached_user_defined_notification_mode: Option<RoomNotificationMode>,
+
     /// The recency stamp of this room.
     ///
     /// It's not to be confused with `origin_server_ts` of the latest event.
@@ -1069,6 +1099,7 @@ impl RoomInfo {
             base_info: Box::new(BaseRoomInfo::new()),
             warned_about_unknown_room_version: Arc::new(false.into()),
             cached_display_name: None,
+            cached_user_defined_notification_mode: None,
             #[cfg(feature = "experimental-sliding-sync")]
             recency_stamp: None,
         }
@@ -1713,6 +1744,7 @@ mod tests {
             read_receipts: Default::default(),
             warned_about_unknown_room_version: Arc::new(false.into()),
             cached_display_name: None,
+            cached_user_defined_notification_mode: None,
             recency_stamp: Some(42),
         };
 
@@ -1859,7 +1891,8 @@ mod tests {
         assert_eq!(
             info.cached_display_name.as_ref(),
             Some(&DisplayName::Calculated("lol".to_owned()))
-        )
+        );
+        assert!(info.cached_user_defined_notification_mode.is_none());
     }
 
     #[async_test]
