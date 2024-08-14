@@ -14,15 +14,10 @@
 
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
+use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE};
 use ruma::{
-    assign,
-    events::{
-        relation::Replacement,
-        room::message::{
-            self, MessageType, RedactedRoomMessageEventContent, RoomMessageEventContent,
-        },
-    },
+    events::room::message::{MessageType, RedactedRoomMessageEventContent},
     server_name, EventId,
 };
 use stream_assert::assert_next_matches;
@@ -35,6 +30,7 @@ async fn test_live_redacted() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
+    let f = EventFactory::new();
     timeline
         .handle_live_redacted_message_event(*ALICE, RedactedRoomMessageEventContent::new())
         .await;
@@ -42,13 +38,13 @@ async fn test_live_redacted() {
 
     let redacted_event_id = item.as_event().unwrap().event_id().unwrap();
 
-    let edit = assign!(RoomMessageEventContent::text_plain(" * test"), {
-        relates_to: Some(message::Relation::Replacement(Replacement::new(
-            redacted_event_id.to_owned(),
-            MessageType::text_plain("test").into(),
-        ))),
-    });
-    timeline.handle_live_message_event(&ALICE, edit).await;
+    timeline
+        .handle_live_event(
+            f.text_msg(" * test")
+                .sender(&ALICE)
+                .edit(redacted_event_id, MessageType::text_plain("test").into()),
+        )
+        .await;
 
     assert_eq!(timeline.inner.items().await.len(), 2);
 
@@ -61,13 +57,10 @@ async fn test_live_sanitized() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
+    let f = EventFactory::new();
     timeline
-        .handle_live_message_event(
-            &ALICE,
-            RoomMessageEventContent::text_html(
-                "**original** message",
-                "<strong>original</strong> message",
-            ),
+        .handle_live_event(
+            f.text_html("**original** message", "<strong>original</strong> message").sender(&ALICE),
         )
         .await;
 
@@ -85,19 +78,16 @@ async fn test_live_sanitized() {
 
     let new_plain_content = "!!edited!! **better** message";
     let new_html_content = "<edited/> <strong>better</strong> message";
-    let edit = assign!(
-        RoomMessageEventContent::text_html(
-            format!("* {}", new_plain_content),
-            format!("* {}", new_html_content)
-        ),
-        {
-            relates_to: Some(message::Relation::Replacement(Replacement::new(
-                first_event_id.to_owned(),
-                MessageType::text_html(new_plain_content, new_html_content).into(),
-            ))),
-        }
-    );
-    timeline.handle_live_message_event(&ALICE, edit).await;
+    timeline
+        .handle_live_event(
+            f.text_html(format!("* {}", new_plain_content), format!("* {}", new_html_content))
+                .sender(&ALICE)
+                .edit(
+                    first_event_id,
+                    MessageType::text_html(new_plain_content, new_html_content).into(),
+                ),
+        )
+        .await;
 
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let first_event = item.as_event().unwrap();

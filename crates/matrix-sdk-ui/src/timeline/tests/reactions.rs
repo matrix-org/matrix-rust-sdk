@@ -21,9 +21,8 @@ use futures_core::Stream;
 use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
-    event_id,
-    events::{relation::Annotation, room::message::RoomMessageEventContent},
-    server_name, uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, TransactionId, UserId,
+    event_id, events::relation::Annotation, server_name, uint, EventId, MilliSecondsSinceUnixEpoch,
+    OwnedEventId, TransactionId, UserId,
 };
 use stream_assert::assert_next_matches;
 
@@ -292,9 +291,7 @@ async fn send_first_message(
     timeline: &TestTimeline,
     stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
 ) -> (OwnedEventId, usize) {
-    timeline
-        .handle_live_message_event(&BOB, RoomMessageEventContent::text_plain("I want you to react"))
-        .await;
+    timeline.handle_live_event(timeline.factory.text_msg("I want you to react").sender(&BOB)).await;
 
     let item = assert_next_matches!(*stream, VectorDiff::PushBack { value } => value);
     let event_id = item.as_event().unwrap().clone().event_id().unwrap().to_owned();

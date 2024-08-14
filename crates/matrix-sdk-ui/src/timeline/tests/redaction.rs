@@ -18,19 +18,13 @@ use eyeball_im::VectorDiff;
 use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{async_test, ALICE, BOB};
-use ruma::{
-    events::{
-        reaction::RedactedReactionEventContent,
-        room::{
-            message::{
-                AddMentions, ForwardThread, OriginalSyncRoomMessageEvent,
-                RedactedRoomMessageEventContent, RoomMessageEventContent,
-            },
-            name::RoomNameEventContent,
-        },
-        FullStateEventContent,
+use ruma::events::{
+    reaction::RedactedReactionEventContent,
+    room::{
+        message::{OriginalSyncRoomMessageEvent, RedactedRoomMessageEventContent},
+        name::RoomNameEventContent,
     },
-    owned_room_id,
+    FullStateEventContent,
 };
 use stream_assert::assert_next_matches;
 
@@ -87,14 +81,7 @@ async fn test_redact_replied_to_event() {
         first_item.original_json().unwrap().deserialize_as().unwrap();
 
     timeline
-        .handle_live_message_event(
-            &BOB,
-            RoomMessageEventContent::text_plain("Hello, alice.").make_reply_to(
-                &first_event.into_full_event(owned_room_id!("!whocares:local.host")),
-                ForwardThread::Yes,
-                AddMentions::No,
-            ),
-        )
+        .handle_live_event(f.text_msg("Hello, alice.").sender(&BOB).reply_to(&first_event.event_id))
         .await;
 
     let second_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);

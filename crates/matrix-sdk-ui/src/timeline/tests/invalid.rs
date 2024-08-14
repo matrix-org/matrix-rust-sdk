@@ -14,14 +14,10 @@
 
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
+use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
 use ruma::{
-    assign,
-    events::{
-        relation::Replacement,
-        room::message::{self, MessageType, RoomMessageEventContent},
-        MessageLikeEventType, StateEventType,
-    },
+    events::{room::message::MessageType, MessageLikeEventType, StateEventType},
     uint, MilliSecondsSinceUnixEpoch,
 };
 use stream_assert::assert_next_matches;
@@ -34,21 +30,22 @@ async fn invalid_edit() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
-    timeline.handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("test")).await;
+    let f = EventFactory::new();
+    timeline.handle_live_event(f.text_msg("test").sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let msg = item.content().as_message().unwrap();
     assert_eq!(msg.body(), "test");
 
     let msg_event_id = item.event_id().unwrap();
 
-    let edit = assign!(RoomMessageEventContent::text_plain(" * fake"), {
-        relates_to: Some(message::Relation::Replacement(Replacement::new(
-            msg_event_id.to_owned(),
-            MessageType::text_plain("fake").into(),
-        ))),
-    });
     // Edit is from a different user than the previous event
-    timeline.handle_live_message_event(&BOB, edit).await;
+    timeline
+        .handle_live_event(
+            f.text_msg(" * fake")
+                .edit(msg_event_id, MessageType::text_plain("fake").into())
+                .sender(&BOB),
+        )
+        .await;
 
     // Can't easily test the non-arrival of an item using the stream. Instead
     // just assert that there is still just a couple items in the timeline.
