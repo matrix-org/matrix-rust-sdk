@@ -566,7 +566,6 @@ impl RoomMemberships {
 mod tests {
     use std::ops::Not;
 
-    use assert_matches::assert_matches;
     use ruma::{
         events::tag::{TagInfo, TagName, Tags},
         user_id,
@@ -606,34 +605,29 @@ mod tests {
 
     #[test]
     fn test_get_user_id_for_state_key() {
-        assert_matches!(get_user_id_for_state_key(""), None);
-        assert_matches!(get_user_id_for_state_key("abc"), None);
-        assert_matches!(get_user_id_for_state_key("@nocolon"), None);
-        assert_matches!(get_user_id_for_state_key("@noserverpart:"), None);
-        assert_matches!(get_user_id_for_state_key("@noserverpart:_suffix"), None);
+        assert!(get_user_id_for_state_key("").is_none());
+        assert!(get_user_id_for_state_key("abc").is_none());
+        assert!(get_user_id_for_state_key("@nocolon").is_none());
+        assert!(get_user_id_for_state_key("@noserverpart:").is_none());
+        assert!(get_user_id_for_state_key("@noserverpart:_suffix").is_none());
 
         let user_id = user_id!("@username:example.org");
 
-        assert_matches!(
-            get_user_id_for_state_key(user_id.as_str()),
-            Some(captured_user_id) => assert_eq!(captured_user_id, user_id));
-        assert_matches!(
-            get_user_id_for_state_key(format!("{user_id}_valid_suffix").as_str()),
-            Some(captured_user_id) => assert_eq!(captured_user_id, user_id));
-        assert_matches!(
-            get_user_id_for_state_key(format!("{user_id}:invalid_suffix").as_str()),
-            None
+        assert_eq!(get_user_id_for_state_key(user_id.as_str()).as_deref(), Some(user_id));
+        assert_eq!(
+            get_user_id_for_state_key(format!("{user_id}_valid_suffix").as_str()).as_deref(),
+            Some(user_id)
         );
+        assert!(get_user_id_for_state_key(format!("{user_id}:invalid_suffix").as_str()).is_none());
 
-        assert_matches!(
-            get_user_id_for_state_key(format!("_{user_id}").as_str()),
-            Some(captured_user_id) => assert_eq!(captured_user_id, user_id));
-        assert_matches!(
-            get_user_id_for_state_key(format!("_{user_id}_valid_suffix").as_str()),
-            Some(captured_user_id) => assert_eq!(captured_user_id, user_id));
-        assert_matches!(
-            get_user_id_for_state_key(format!("_{user_id}:invalid_suffix").as_str()),
-            None
+        assert_eq!(
+            get_user_id_for_state_key(format!("_{user_id}").as_str()).as_deref(),
+            Some(user_id)
         );
+        assert_eq!(
+            get_user_id_for_state_key(format!("_{user_id}_valid_suffix").as_str()).as_deref(),
+            Some(user_id)
+        );
+        assert!(get_user_id_for_state_key(format!("_{user_id}:invalid_suffix").as_str()).is_none());
     }
 }
