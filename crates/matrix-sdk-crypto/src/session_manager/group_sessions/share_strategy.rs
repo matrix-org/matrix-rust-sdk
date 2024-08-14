@@ -942,8 +942,7 @@ mod tests {
             .own_identity
             .as_ref()
             .unwrap()
-            .is_identity_signed(&bob_identity.inner)
-            .is_ok());
+            .is_identity_signed(&bob_identity.inner));
         assert!(!bob_identity.is_verified());
 
         let bob_unsigned_device = machine

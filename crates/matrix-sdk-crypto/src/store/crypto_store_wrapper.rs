@@ -184,7 +184,7 @@ impl CryptoStoreWrapper {
                 .and_then(|i| i.other())
             {
                 if !other_identity.was_previously_verified()
-                    && own_identity_after.is_identity_signed(other_identity).is_ok()
+                    && own_identity_after.is_identity_signed(other_identity)
                 {
                     trace!(?tracked_user.user_id, "Marking set verified_latch to true.");
                     other_identity.mark_as_previously_verified();

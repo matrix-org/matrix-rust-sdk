@@ -895,7 +895,7 @@ impl OwnUserIdentityData {
     /// * `identity` - The identity of another user which we want to check has
     ///   been verified.
     pub fn is_identity_verified(&self, identity: &OtherUserIdentityData) -> bool {
-        self.is_verified() && self.is_identity_signed(identity).is_ok()
+        self.is_verified() && self.is_identity_signed(identity)
     }
 
     /// Check if the given identity has been signed by this identity.
@@ -909,13 +909,9 @@ impl OwnUserIdentityData {
     /// * `identity` - The identity of another user that we want to check if it
     ///   has been signed.
     ///
-    /// Returns an empty result if the signature check succeeded, otherwise a
-    /// SignatureError indicating why the check failed.
-    pub(crate) fn is_identity_signed(
-        &self,
-        identity: &OtherUserIdentityData,
-    ) -> Result<(), SignatureError> {
-        self.user_signing_key.verify_master_key(&identity.master_key)
+    /// Returns `true` if the signature check succeeded, otherwise `false`.
+    pub(crate) fn is_identity_signed(&self, identity: &OtherUserIdentityData) -> bool {
+        self.user_signing_key.verify_master_key(&identity.master_key).is_ok()
     }
 
     /// Check if the given device has been signed by this identity.
