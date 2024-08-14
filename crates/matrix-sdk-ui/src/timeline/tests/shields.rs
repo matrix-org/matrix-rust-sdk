@@ -1,5 +1,6 @@
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
+use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_base::deserialized_responses::{ShieldState, ShieldStateCode};
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE};
 use ruma::{
@@ -14,13 +15,9 @@ use crate::timeline::{tests::TestTimeline, EventSendState};
 async fn test_no_shield_in_unencrypted_room() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
+    let f = EventFactory::new();
 
-    timeline
-        .handle_live_message_event(
-            &ALICE,
-            RoomMessageEventContent::text_plain("Unencrypted message."),
-        )
-        .await;
+    timeline.handle_live_event(f.text_msg("Unencrypted message.").sender(&ALICE)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let shield = item.as_event().unwrap().get_shield(false);
@@ -32,12 +29,8 @@ async fn test_sent_in_clear_shield() {
     let timeline = TestTimeline::with_is_room_encrypted(true);
     let mut stream = timeline.subscribe().await;
 
-    timeline
-        .handle_live_message_event(
-            &ALICE,
-            RoomMessageEventContent::text_plain("Unencrypted message."),
-        )
-        .await;
+    let f = EventFactory::new();
+    timeline.handle_live_event(f.text_msg("Unencrypted message.").sender(&ALICE)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let shield = item.as_event().unwrap().get_shield(false);

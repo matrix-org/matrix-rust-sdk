@@ -19,21 +19,14 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
-use ruma::{
-    assign,
-    events::{
-        reaction::ReactionEventContent,
-        relation::{Annotation, Replacement},
-        room::{
-            member::{MembershipState, RoomMemberEventContent},
-            message::{
-                MessageType, RedactedRoomMessageEventContent, Relation, RoomMessageEventContent,
-            },
-            name::RoomNameEventContent,
-            topic::RoomTopicEventContent,
-        },
-        AnySyncTimelineEvent, TimelineEventType,
+use ruma::events::{
+    room::{
+        member::{MembershipState, RoomMemberEventContent},
+        message::{MessageType, RedactedRoomMessageEventContent},
+        name::RoomNameEventContent,
+        topic::RoomTopicEventContent,
     },
+    AnySyncTimelineEvent, TimelineEventType,
 };
 use stream_assert::assert_next_matches;
 
@@ -57,13 +50,13 @@ async fn test_default_filter() {
     let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     let first_event_id = item.as_event().unwrap().event_id().unwrap();
 
-    let edit = assign!(RoomMessageEventContent::text_plain(" * The _edited_ first message"), {
-        relates_to: Some(Relation::Replacement(Replacement::new(
-            first_event_id.to_owned(),
-            MessageType::text_plain("The _edited_ first message").into(),
-        ))),
-    });
-    timeline.handle_live_message_event(&ALICE, edit).await;
+    timeline
+        .handle_live_event(
+            f.text_msg(" * The _edited_ first message")
+                .sender(&ALICE)
+                .edit(first_event_id, MessageType::text_plain("The _edited_ first message").into()),
+        )
+        .await;
 
     // The edit was applied.
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
@@ -89,8 +82,7 @@ async fn test_default_filter() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let third_event_id = item.as_event().unwrap().event_id().unwrap();
 
-    let rel = Annotation::new(third_event_id.to_owned(), "+1".to_owned());
-    timeline.handle_live_message_event(&BOB, ReactionEventContent::new(rel)).await;
+    timeline.handle_live_event(f.reaction(third_event_id, "+1".to_owned()).sender(&BOB)).await;
     timeline.handle_live_event(f.redaction(second_event_id).sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 3, value } => value);
     assert_eq!(item.as_event().unwrap().reactions().len(), 1);
@@ -107,9 +99,8 @@ async fn test_filter_always_false() {
         ..Default::default()
     });
 
-    timeline
-        .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
-        .await;
+    let f = EventFactory::new();
+    timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
 
     timeline
         .handle_live_redacted_message_event(&ALICE, RedactedRoomMessageEventContent::new())
@@ -140,9 +131,8 @@ async fn test_custom_filter() {
     });
     let mut stream = timeline.subscribe().await;
 
-    timeline
-        .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
-        .await;
+    let f = EventFactory::new();
+    timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
     let _item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
@@ -209,11 +199,10 @@ async fn test_event_type_filter_include_only_room_names() {
         event_filter: Arc::new(move |event, _| event_filter.filter(event)),
         ..Default::default()
     });
+    let f = EventFactory::new();
 
     // Add a non-encrypted message event
-    timeline
-        .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
-        .await;
+    timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
     // Add a couple of room name events
     timeline
         .handle_live_state_event(
@@ -258,11 +247,10 @@ async fn test_event_type_filter_exclude_messages() {
         event_filter: Arc::new(move |event, _| event_filter.filter(event)),
         ..Default::default()
     });
+    let f = EventFactory::new();
 
     // Add a message event
-    timeline
-        .handle_live_message_event(&ALICE, RoomMessageEventContent::text_plain("The first message"))
-        .await;
+    timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
     // Add a couple of room name state events
     timeline
         .handle_live_state_event(

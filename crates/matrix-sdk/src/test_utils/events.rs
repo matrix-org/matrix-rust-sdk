@@ -21,9 +21,9 @@ use matrix_sdk_test::{sync_timeline_event, timeline_event};
 use ruma::{
     events::{
         reaction::ReactionEventContent,
-        relation::{Annotation, InReplyTo},
+        relation::{Annotation, InReplyTo, Replacement, Thread},
         room::{
-            message::{Relation, RoomMessageEventContent},
+            message::{Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
             redaction::RoomRedactionEventContent,
         },
         AnySyncTimelineEvent, AnyTimelineEvent, EventContent,
@@ -115,6 +115,22 @@ impl EventBuilder<RoomMessageEventContent> {
             Some(Relation::Reply { in_reply_to: InReplyTo::new(event_id.to_owned()) });
         self
     }
+
+    pub fn in_thread(mut self, root: &EventId, latest_thread_event: &EventId) -> Self {
+        self.content.relates_to =
+            Some(Relation::Thread(Thread::plain(root.to_owned(), latest_thread_event.to_owned())));
+        self
+    }
+
+    pub fn edit(
+        mut self,
+        edited_event_id: &EventId,
+        new_content: RoomMessageEventContentWithoutRelation,
+    ) -> Self {
+        self.content.relates_to =
+            Some(Relation::Replacement(Replacement::new(edited_event_id.to_owned(), new_content)));
+        self
+    }
 }
 
 impl<E: EventContent> From<EventBuilder<E>> for Raw<AnySyncTimelineEvent>
@@ -190,6 +206,15 @@ impl EventFactory {
     /// Create a new plain text `m.room.message`.
     pub fn text_msg(&self, content: impl Into<String>) -> EventBuilder<RoomMessageEventContent> {
         self.event(RoomMessageEventContent::text_plain(content.into()))
+    }
+
+    /// Create a new plain/html `m.room.message`.
+    pub fn text_html(
+        &self,
+        plain: impl Into<String>,
+        html: impl Into<String>,
+    ) -> EventBuilder<RoomMessageEventContent> {
+        self.event(RoomMessageEventContent::text_html(plain, html))
     }
 
     /// Create a new plain notice `m.room.message`.

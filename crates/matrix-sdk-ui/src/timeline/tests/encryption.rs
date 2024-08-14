@@ -25,7 +25,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     crypto::{decrypt_room_key_export, types::events::UtdCause, OlmMachine},
-    test_utils::test_client_builder,
+    test_utils::{events::EventFactory, test_client_builder},
 };
 use matrix_sdk_test::{async_test, BOB};
 use ruma::{
@@ -85,10 +85,10 @@ async fn test_retry_message_decryption() {
     let timeline = TestTimeline::with_unable_to_decrypt_hook(utd_hook.clone());
     let mut stream = timeline.subscribe().await;
 
+    let f = EventFactory::new();
     timeline
-        .handle_live_message_event(
-            &BOB,
-            RoomEncryptedEventContent::new(
+        .handle_live_event(
+            f.event(RoomEncryptedEventContent::new(
                 EncryptedEventScheme::MegolmV1AesSha2(
                     MegolmV1AesSha2ContentInit {
                         ciphertext: "\
@@ -106,7 +106,8 @@ async fn test_retry_message_decryption() {
                     .into(),
                 ),
                 None,
-            ),
+            ))
+            .sender(&BOB),
         )
         .await;
 
@@ -199,6 +200,7 @@ async fn test_retry_edit_decryption() {
         -----END MEGOLM SESSION DATA-----";
 
     let timeline = TestTimeline::new();
+    let f = EventFactory::new();
 
     let encrypted = EncryptedEventScheme::MegolmV1AesSha2(
         MegolmV1AesSha2ContentInit {
@@ -214,7 +216,9 @@ async fn test_retry_edit_decryption() {
         }
         .into(),
     );
-    timeline.handle_live_message_event(&BOB, RoomEncryptedEventContent::new(encrypted, None)).await;
+    timeline
+        .handle_live_event(f.event(RoomEncryptedEventContent::new(encrypted, None)).sender(&BOB))
+        .await;
 
     let event_id =
         timeline.inner.items().await[1].as_event().unwrap().event_id().unwrap().to_owned();
@@ -236,11 +240,11 @@ async fn test_retry_edit_decryption() {
         .into(),
     );
     timeline
-        .handle_live_message_event(
-            &BOB,
-            assign!(RoomEncryptedEventContent::new(encrypted, None), {
+        .handle_live_event(
+            f.event(assign!(RoomEncryptedEventContent::new(encrypted, None), {
                 relates_to: Some(Relation::Replacement(Replacement::new(event_id))),
-            }),
+            }))
+            .sender(&BOB),
         )
         .await;
 
@@ -309,16 +313,17 @@ async fn test_retry_edit_and_more() {
     }
 
     let timeline = TestTimeline::new();
+    let f = EventFactory::new();
 
     timeline
-        .handle_live_message_event(
-            &BOB,
-            encrypted_message(
+        .handle_live_event(
+            f.event(encrypted_message(
                 "AwgDEoABQsTrPTYDh22PTmfODR9EucX3qLl3buDcahHPjKJA8QIM+wW0s+e08Zi7/JbLdnZL1VL\
                  jO47HcRhxDTyHZPXPg8wd1l0Qb3irjnCnS7LFAc98+ko18CFJUGNeRZZwzGiorKK5VLMv0WQZI8\
                  mBZdKIaqDTUBFvcvbn2gQaWtUipQdJQRKyv2h0AWveVkv75lp5hRb7jolCi08oMX8cM+V3Zzyi7\
                  mlPAzZjDz0PaRbQwfbMTTHkcL7TZybBi4vLX4f5ZR2Iiysc7gw",
-            ),
+            ))
+            .sender(&BOB),
         )
         .await;
 
@@ -333,21 +338,20 @@ async fn test_retry_edit_and_more() {
          4uEzsQ0",
     );
     timeline
-        .handle_live_message_event(
-            &BOB,
-            assign!(msg2, { relates_to: Some(Relation::Replacement(Replacement::new(event_id))) }),
+        .handle_live_event(
+            f.event(assign!(msg2, { relates_to: Some(Relation::Replacement(Replacement::new(event_id))) })).sender(&BOB),
         )
         .await;
 
     timeline
-        .handle_live_message_event(
-            &BOB,
-            encrypted_message(
+        .handle_live_event(
+            f.event(encrypted_message(
                 "AwgFEoABUAwzBLYStHEa1RaZtojePQ6sue9terXNMFufeLKci/UcpOpZC9o3lDxp9rxlNjk4Ii+\
                  fkOeSClib/qxt+wLszeQZVa04bRr6byK1dOhlptvAPjUCcEsaHyMMR1AnjT2vmFlJRGviwN6cvQ\
                  2r/fEvAW/9QB+N6fX4g9729bt5ftXRqa5QI7NA351RNUveRHxVvx+2x0WJArQjYGRk7tMS2rUto\
                  IYt2ZY17nE1UJjN7M87STnCF9c9qy4aGNqIpeVIht6XbtgD7gQ",
-            ),
+            ))
+            .sender(&BOB),
         )
         .await;
 
@@ -397,12 +401,12 @@ async fn test_retry_message_decryption_highlighted() {
         -----END MEGOLM SESSION DATA-----";
 
     let timeline = TestTimeline::new();
+    let f = EventFactory::new();
     let mut stream = timeline.subscribe().await;
 
     timeline
-        .handle_live_message_event(
-            &BOB,
-            RoomEncryptedEventContent::new(
+        .handle_live_event(
+            f.event(RoomEncryptedEventContent::new(
                 EncryptedEventScheme::MegolmV1AesSha2(
                     MegolmV1AesSha2ContentInit {
                         ciphertext: "\
@@ -419,7 +423,8 @@ async fn test_retry_message_decryption_highlighted() {
                     .into(),
                 ),
                 None,
-            ),
+            ))
+            .sender(&BOB),
         )
         .await;
 

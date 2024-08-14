@@ -201,10 +201,11 @@ impl TestTimeline {
     }
 
     async fn send_poll_start(&self, sender: &UserId, content: UnstablePollStartContentBlock) {
+        // TODO: consider putting it in the `TestTimeline` itself?
         let event_content = AnyMessageLikeEventContent::UnstablePollStart(
             NewUnstablePollStartEventContent::new(content).into(),
         );
-        self.handle_live_message_event(sender, event_content).await;
+        self.handle_live_event(self.factory.event(event_content).sender(sender)).await;
     }
 
     async fn send_poll_start_with_id(
@@ -228,14 +229,14 @@ impl TestTimeline {
                 poll_id.to_owned(),
             ),
         );
-        self.handle_live_message_event(sender, event_content).await
+        self.handle_live_event(self.factory.event(event_content).sender(sender)).await
     }
 
     async fn send_poll_end(&self, sender: &UserId, text: &str, poll_id: &EventId) {
         let event_content = AnyMessageLikeEventContent::UnstablePollEnd(
             UnstablePollEndEventContent::new(text, poll_id.to_owned()),
         );
-        self.handle_live_message_event(sender, event_content).await
+        self.handle_live_event(self.factory.event(event_content).sender(sender)).await
     }
 
     async fn send_poll_edit(
@@ -247,7 +248,7 @@ impl TestTimeline {
         let content =
             ReplacementUnstablePollStartEventContent::new(content, original_id.to_owned());
         let event_content = AnyMessageLikeEventContent::UnstablePollStart(content.into());
-        self.handle_live_message_event(sender, event_content).await
+        self.handle_live_event(self.factory.event(event_content).sender(sender)).await
     }
 }
 
