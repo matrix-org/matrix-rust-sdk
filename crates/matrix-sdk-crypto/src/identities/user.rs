@@ -916,22 +916,17 @@ impl OwnUserIdentityData {
 
     /// Check if the given device has been signed by this identity.
     ///
-    /// Only devices of our own user should be checked with this method, if a
-    /// device of a different user is given the signature check will always fail
-    /// even if a valid signature exists.
+    /// Only devices of our own user should be checked with this method. If a
+    /// device of a different user is given, the signature check will always
+    /// fail even if a valid signature exists.
     ///
     /// # Arguments
     ///
     /// * `device` - The device that should be checked for a valid signature.
     ///
-    /// Returns an empty result if the signature check succeeded, otherwise a
-    /// SignatureError indicating why the check failed.
-    pub(crate) fn is_device_signed(&self, device: &DeviceData) -> Result<(), SignatureError> {
-        if self.user_id() != device.user_id() {
-            return Err(SignatureError::UserIdMismatch);
-        }
-
-        self.self_signing_key.verify_device(device)
+    /// Returns `true` if the signature check succeeded, otherwise `false`.
+    pub(crate) fn is_device_signed(&self, device: &DeviceData) -> bool {
+        self.user_id() == device.user_id() && self.self_signing_key.verify_device(device).is_ok()
     }
 
     /// Mark our identity as verified.
@@ -995,8 +990,7 @@ impl OwnUserIdentityData {
         devices
             .into_iter()
             .filter_map(|(device_id, device)| {
-                (device_id != own_device_id && self.is_device_signed(&device).is_ok())
-                    .then_some(device_id)
+                (device_id != own_device_id && self.is_device_signed(&device)).then_some(device_id)
             })
             .collect()
     }
@@ -1217,8 +1211,8 @@ pub(crate) mod tests {
         let identity = get_own_identity();
         let (first, second) = device(&response);
 
-        identity.is_device_signed(&first).unwrap_err();
-        identity.is_device_signed(&second).unwrap();
+        assert!(!identity.is_device_signed(&first));
+        assert!(identity.is_device_signed(&second));
 
         let private_identity =
             Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(second.user_id())));

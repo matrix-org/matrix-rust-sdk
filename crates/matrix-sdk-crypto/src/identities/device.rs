@@ -744,7 +744,7 @@ impl DeviceData {
             |(own_identity, device_identity)| {
                 match device_identity {
                     UserIdentityData::Own(_) => {
-                        own_identity.is_verified() && own_identity.is_device_signed(self).is_ok()
+                        own_identity.is_verified() && own_identity.is_device_signed(self)
                     }
 
                     // If it's a device from someone else, first check
@@ -766,7 +766,7 @@ impl DeviceData {
         match device_owner_identity {
             // If it's one of our own devices, just check that
             // we signed the device.
-            UserIdentityData::Own(identity) => identity.is_device_signed(self).is_ok(),
+            UserIdentityData::Own(identity) => identity.is_device_signed(self),
             // If it's a device from someone else, check
             // if the other user has signed this device.
             UserIdentityData::Other(device_identity) => {
