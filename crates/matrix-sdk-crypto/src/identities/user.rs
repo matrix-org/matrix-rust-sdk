@@ -29,11 +29,10 @@ use ruma::{
     },
     DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use tracing::error;
 
-use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
     error::SignatureError,
     store::{Changes, IdentityChanges, Store},
@@ -781,11 +780,18 @@ pub struct OwnUserIdentityData {
     master_key: Arc<MasterPubkey>,
     self_signing_key: Arc<SelfSigningPubkey>,
     user_signing_key: Arc<UserSigningPubkey>,
-    #[serde(
-        serialize_with = "atomic_bool_serializer",
-        deserialize_with = "atomic_bool_deserializer"
-    )]
-    verified: Arc<AtomicBool>,
+    #[serde(deserialize_with = "deserialize_own_user_identity_data_verified")]
+    verified: Arc<RwLock<OwnUserIdentityVerifiedState>>,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
+enum OwnUserIdentityVerifiedState {
+    /// We have never verified our own identity
+    #[default]
+    NeverVerified,
+
+    /// We have verified the current identity.
+    Verified,
 }
 
 impl PartialEq for OwnUserIdentityData {
@@ -806,7 +812,7 @@ impl PartialEq for OwnUserIdentityData {
             && self.master_key == other.master_key
             && self.self_signing_key == other.self_signing_key
             && self.user_signing_key == other.user_signing_key
-            && self.is_verified() == other.is_verified()
+            && *self.verified.read().unwrap() == *other.verified.read().unwrap()
             && self.master_key.signatures() == other.master_key.signatures()
     }
 }
@@ -838,7 +844,7 @@ impl OwnUserIdentityData {
             master_key: master_key.into(),
             self_signing_key: self_signing_key.into(),
             user_signing_key: user_signing_key.into(),
-            verified: Arc::new(AtomicBool::new(false)),
+            verified: Default::default(),
         })
     }
 
@@ -855,7 +861,7 @@ impl OwnUserIdentityData {
             master_key: master_key.into(),
             self_signing_key: self_signing_key.into(),
             user_signing_key: user_signing_key.into(),
-            verified: Arc::new(AtomicBool::new(false)),
+            verified: Default::default(),
         }
     }
 
@@ -926,17 +932,18 @@ impl OwnUserIdentityData {
 
     /// Mark our identity as verified.
     pub fn mark_as_verified(&self) {
-        self.verified.store(true, Ordering::SeqCst)
+        *self.verified.write().unwrap() = OwnUserIdentityVerifiedState::Verified;
     }
 
-    #[cfg(test)]
-    pub fn mark_as_unverified(&self) {
-        self.verified.store(false, Ordering::SeqCst)
+    /// Mark our identity as unverified.
+    pub(crate) fn mark_as_unverified(&self) {
+        let mut guard = self.verified.write().unwrap();
+        *guard = OwnUserIdentityVerifiedState::NeverVerified;
     }
 
     /// Check if our identity is verified.
     pub fn is_verified(&self) -> bool {
-        self.verified.load(Ordering::SeqCst)
+        *self.verified.read().unwrap() == OwnUserIdentityVerifiedState::Verified
     }
 
     /// Update the identity with a new master key and self signing key.
@@ -969,7 +976,7 @@ impl OwnUserIdentityData {
         self.user_signing_key = user_signing_key.into();
 
         if self.master_key.as_ref() != &master_key {
-            self.verified.store(false, Ordering::SeqCst);
+            self.mark_as_unverified()
         }
 
         self.master_key = master_key.into();
@@ -989,6 +996,31 @@ impl OwnUserIdentityData {
             })
             .collect()
     }
+}
+
+/// Custom deserializer for [`OwnUserIdentityData::verified`].
+///
+/// This used to be a bool, so we need to handle that.
+fn deserialize_own_user_identity_data_verified<'de, D>(
+    de: D,
+) -> Result<Arc<RwLock<OwnUserIdentityVerifiedState>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum VerifiedStateOrBool {
+        VerifiedState(OwnUserIdentityVerifiedState),
+        Bool(bool),
+    }
+
+    let verified_state = match VerifiedStateOrBool::deserialize(de)? {
+        VerifiedStateOrBool::Bool(true) => OwnUserIdentityVerifiedState::Verified,
+        VerifiedStateOrBool::Bool(false) => OwnUserIdentityVerifiedState::NeverVerified,
+        VerifiedStateOrBool::VerifiedState(x) => x,
+    };
+
+    Ok(Arc::new(RwLock::new(verified_state)))
 }
 
 /// Testing Facilities
@@ -1079,7 +1111,8 @@ pub(crate) mod tests {
 
     use super::{
         testing::{device, get_other_identity, get_own_identity},
-        OtherUserIdentityDataSerializerV2, OwnUserIdentityData, UserIdentityData,
+        OtherUserIdentityDataSerializerV2, OwnUserIdentityData, OwnUserIdentityVerifiedState,
+        UserIdentityData,
     };
     use crate::{
         identities::{
@@ -1198,6 +1231,39 @@ pub(crate) mod tests {
         let with_serializer: OtherUserIdentityDataSerializer =
             serde_json::from_value(value).unwrap();
         assert_eq!("2", with_serializer.version.unwrap());
+    }
+
+    /// [`OwnUserIdentityData::verified`] was previously an AtomicBool. Check
+    /// that we can deserialize boolean values.
+    #[test]
+    fn test_deserialize_own_user_identity_bool_verified() {
+        let mut json = json!({
+            "user_id": "@example:localhost",
+            "master_key": {
+                "user_id":"@example:localhost",
+                "usage":["master"],
+                "keys":{"ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0":"rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0"},
+            },
+            "self_signing_key": {
+                "user_id":"@example:localhost",
+                "usage":["self_signing"],
+                "keys":{"ed25519:0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210":"0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210"}
+            },
+            "user_signing_key": {
+                "user_id":"@example:localhost",
+                "usage":["user_signing"],
+                "keys":{"ed25519:DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo":"DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo"}
+            },
+            "verified": false
+        });
+
+        let id: OwnUserIdentityData = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(*id.verified.read().unwrap(), OwnUserIdentityVerifiedState::NeverVerified);
+
+        // Tweak the json to have `"verified": true`, and repeat
+        *json.get_mut("verified").unwrap() = true.into();
+        let id: OwnUserIdentityData = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(*id.verified.read().unwrap(), OwnUserIdentityVerifiedState::Verified);
     }
 
     #[test]
