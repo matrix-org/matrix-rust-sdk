@@ -14,13 +14,10 @@
 
 use async_trait::async_trait;
 use indexmap::IndexMap;
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk::{
-    deserialized_responses::TimelineEvent,
-    Result,
-};
 #[cfg(all(test, feature = "e2e-encryption"))]
 use matrix_sdk::crypto::types::decryption::{DecryptionSettings, TrustRequirement};
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use matrix_sdk::{event_cache::paginator::PaginableRoom, Room};
 use matrix_sdk_base::latest_event::LatestEvent;
 #[cfg(feature = "e2e-encryption")]
