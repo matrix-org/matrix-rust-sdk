@@ -26,7 +26,6 @@ use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent,
     event_cache::{paginator::Paginator, RoomEventCache},
-    pinned_events_cache::PinnedEventCache,
     send_queue::{LocalEcho, RoomSendQueueUpdate, SendHandle},
     Result, Room,
 };
@@ -250,7 +249,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             TimelineFocus::PinnedEvents { max_events_to_load } => (
                 TimelineFocusData::PinnedEvents {
                     loader: PinnedEventsLoader::new(
-                        Box::new(room_data_provider.clone()),
+                        Arc::new(room_data_provider.clone()),
                         max_events_to_load as usize,
                     ),
                 },
@@ -283,7 +282,6 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     pub(super) async fn init_focus(
         &self,
         room_event_cache: &RoomEventCache,
-        pinned_event_cache: &PinnedEventCache,
     ) -> Result<bool, Error> {
         let focus_guard = self.focus.read().await;
 
@@ -321,10 +319,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             }
 
             TimelineFocusData::PinnedEvents { loader } => {
-                let loaded_events = loader
-                    .load_events(pinned_event_cache)
-                    .await
-                    .map_err(Error::PinnedEventsError)?;
+                let loaded_events = loader.load_events().await.map_err(Error::PinnedEventsError)?;
 
                 drop(focus_guard);
 
@@ -341,30 +336,15 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
     }
 
-    pub(crate) async fn pinned_events_load_events(
+    pub(crate) async fn reload_pinned_events(
         &self,
-        pinned_event_cache: &PinnedEventCache,
     ) -> Result<Vec<SyncTimelineEvent>, PinnedEventsLoaderError> {
         let focus_guard = self.focus.read().await;
 
         if let TimelineFocusData::PinnedEvents { loader } = &*focus_guard {
-            loader.load_events(pinned_event_cache).await
+            loader.load_events().await
         } else {
             Err(PinnedEventsLoaderError::TimelineFocusNotPinnedEvents)
-        }
-    }
-
-    pub(crate) async fn pinned_events_update(
-        &self,
-        events: Vec<SyncTimelineEvent>,
-        pinned_event_cache: &PinnedEventCache,
-    ) -> Option<Result<Vec<SyncTimelineEvent>, PinnedEventsLoaderError>> {
-        let focus_guard = self.focus.read().await;
-
-        if let TimelineFocusData::PinnedEvents { loader } = &*focus_guard {
-            loader.update_if_needed(events, pinned_event_cache).await
-        } else {
-            Some(Err(PinnedEventsLoaderError::TimelineFocusNotPinnedEvents))
         }
     }
 
@@ -1472,7 +1452,7 @@ async fn fetch_replied_to_event(
     drop(state);
 
     trace!("Fetching replied-to event");
-    let res = match room.event(in_reply_to).await {
+    let res = match room.event(in_reply_to, None).await {
         Ok(timeline_event) => TimelineDetails::Ready(Box::new(
             RepliedToEvent::try_from_timeline_event(timeline_event, room).await?,
         )),

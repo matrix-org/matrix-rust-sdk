@@ -57,7 +57,7 @@ use ruma::{
     },
     DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
-use tokio::sync::RwLockReadGuard;
+use tokio::sync::{Mutex, RwLockReadGuard};
 use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 use vodozemac::Curve25519PublicKey;
@@ -246,9 +246,26 @@ pub struct CrossSigningResetHandle {
     upload_request: UploadSigningKeysRequest,
     signatures_request: UploadSignaturesRequest,
     auth_type: CrossSigningResetAuthType,
+    is_cancelled: Mutex<bool>,
 }
 
 impl CrossSigningResetHandle {
+    /// Set up a new `CrossSigningResetHandle`.
+    pub fn new(
+        client: Client,
+        upload_request: UploadSigningKeysRequest,
+        signatures_request: UploadSignaturesRequest,
+        auth_type: CrossSigningResetAuthType,
+    ) -> Self {
+        Self {
+            client,
+            upload_request,
+            signatures_request,
+            auth_type,
+            is_cancelled: Mutex::new(false),
+        }
+    }
+
     /// Get the [`CrossSigningResetAuthType`] this cross-signing reset process
     /// is using.
     pub fn auth_type(&self) -> &CrossSigningResetAuthType {
@@ -264,6 +281,10 @@ impl CrossSigningResetHandle {
 
         // TODO: Do we want to put a limit on this infinite loop? 🤷
         while let Err(e) = self.client.send(upload_request.clone(), None).await {
+            if *self.is_cancelled.lock().await {
+                return Ok(());
+            }
+
             if e.client_api_error_kind() != Some(&ErrorKind::Unrecognized) {
                 return Err(e.into());
             }
@@ -272,6 +293,11 @@ impl CrossSigningResetHandle {
         self.client.send(self.signatures_request.clone(), None).await?;
 
         Ok(())
+    }
+
+    /// Cancel the ongoing identity reset process
+    pub async fn cancel(&self) {
+        *self.is_cancelled.lock().await = true;
     }
 }
 
@@ -1231,12 +1257,12 @@ impl Encryption {
             if let Some(auth_type) = CrossSigningResetAuthType::new(&self.client, &error).await? {
                 let client = self.client.clone();
 
-                Ok(Some(CrossSigningResetHandle {
+                Ok(Some(CrossSigningResetHandle::new(
                     client,
-                    upload_request: upload_signing_keys_req,
-                    signatures_request: upload_signatures_req,
+                    upload_signing_keys_req,
+                    upload_signatures_req,
                     auth_type,
-                }))
+                )))
             } else {
                 Err(error.into())
             }

@@ -415,7 +415,7 @@ impl Timeline {
             return timeline_item.replied_to_info();
         }
 
-        let event = self.room().event(event_id).await.map_err(|error| {
+        let event = self.room().event(event_id, None).await.map_err(|error| {
             error!("Failed to fetch event with ID {event_id} with error: {error}");
             UnsupportedReplyItem::MissingEvent
         })?;

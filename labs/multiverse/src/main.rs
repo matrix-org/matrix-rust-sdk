@@ -398,7 +398,7 @@ impl App {
             .get_selected_room_id(Some(selected))
             .and_then(|room_id| self.ui_rooms.lock().unwrap().get(&room_id).cloned())
         {
-            room.subscribe(None);
+            self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()], None);
             self.current_room_subscription = Some(room);
         }
     }

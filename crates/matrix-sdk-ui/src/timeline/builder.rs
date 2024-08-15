@@ -22,7 +22,7 @@ use matrix_sdk::{
 };
 use ruma::{events::AnySyncTimelineEvent, RoomVersionId};
 use tokio::sync::broadcast::error::RecvError;
-use tracing::{error, info, info_span, trace, warn, Instrument, Span};
+use tracing::{info, info_span, trace, warn, Instrument, Span};
 
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
@@ -150,7 +150,6 @@ impl TimelineBuilder {
 
         let client = room.client();
         let event_cache = client.event_cache();
-        let pinned_event_cache = Arc::new(client.pinned_event_cache().clone());
 
         // Subscribe the event cache to sync responses, in case we hadn't done it yet.
         event_cache.subscribe()?;
@@ -172,7 +171,7 @@ impl TimelineBuilder {
         )
         .with_settings(settings);
 
-        let has_events = inner.init_focus(&room_event_cache, &pinned_event_cache).await?;
+        let has_events = inner.init_focus(&room_event_cache).await?;
 
         let room = inner.room();
         let client = room.client();
@@ -181,10 +180,9 @@ impl TimelineBuilder {
             let mut pinned_event_ids_stream = room.pinned_event_ids_stream();
             Some(spawn({
                 let inner = inner.clone();
-                let cache = pinned_event_cache.clone();
                 async move {
                     while pinned_event_ids_stream.next().await.is_some() {
-                        if let Ok(events) = inner.pinned_events_load_events(&cache).await {
+                        if let Ok(events) = inner.reload_pinned_events().await {
                             inner
                                 .replace_with_initial_remote_events(
                                     events,
@@ -206,8 +204,6 @@ impl TimelineBuilder {
             let span =
                 info_span!(parent: Span::none(), "room_update_handler", room_id = ?room.room_id());
             span.follows_from(Span::current());
-
-            let focus = Arc::new(focus);
 
             async move {
                 trace!("Spawned the event subscriber task.");
@@ -265,17 +261,9 @@ impl TimelineBuilder {
                         RoomEventCacheUpdate::AddTimelineEvents { events, origin } => {
                             trace!("Received new timeline events.");
 
-                            // Special case for pinned events: when we receive new events what we'll do is, instead of adding the
-                            // events, update the pinned events cache with them, reload the list of pinned event ids and reload
-                            // the list of pinned events with this info.
-                            if let TimelineFocus::PinnedEvents { .. } = &*focus.clone() {
-                                if let Some(ret) = inner.pinned_events_update(events, &pinned_event_cache).await {
-                                    match ret {
-                                        Ok(events) => inner.replace_with_initial_remote_events(events, RemoteEventOrigin::Sync).await,
-                                        Err(err) => error!("Couldn't update pinned events with incoming timeline events: {err}"),
-                                    }
-                                }
-                            } else {
+                            // Note: we deliberately choose to not handle
+                            // updates/reactions/redactions for pinned events.
+                            if !is_pinned_events {
                                 inner.add_events_at(
                                     events,
                                     TimelineEnd::Back,

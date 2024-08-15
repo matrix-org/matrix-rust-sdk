@@ -658,7 +658,7 @@ async fn test_event() {
         .mount(&server)
         .await;
 
-    let timeline_event = room.event(event_id).await.unwrap();
+    let timeline_event = room.event(event_id, None).await.unwrap();
     assert_let!(
         AnyTimelineEvent::State(AnyStateEvent::RoomTombstone(event)) =
             timeline_event.event.deserialize().unwrap()

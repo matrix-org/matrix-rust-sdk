@@ -2128,19 +2128,20 @@ async fn test_room_subscription() -> Result<(), Error> {
         },
     };
 
-    let room1 = room_list.room(room_id_1).unwrap();
-
     // Subscribe.
 
-    room1.subscribe(Some(assign!(RoomSubscription::default(), {
-        required_state: vec![
-            (StateEventType::RoomName, "".to_owned()),
-            (StateEventType::RoomTopic, "".to_owned()),
-            (StateEventType::RoomAvatar, "".to_owned()),
-            (StateEventType::RoomCanonicalAlias, "".to_owned()),
-        ],
-        timeline_limit: Some(uint!(30)),
-    })));
+    room_list.subscribe_to_rooms(
+        &[room_id_1],
+        Some(assign!(RoomSubscription::default(), {
+            required_state: vec![
+                (StateEventType::RoomName, "".to_owned()),
+                (StateEventType::RoomTopic, "".to_owned()),
+                (StateEventType::RoomAvatar, "".to_owned()),
+                (StateEventType::RoomCanonicalAlias, "".to_owned()),
+            ],
+            timeline_limit: Some(uint!(30)),
+        })),
+    );
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2157,7 +2158,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.topic", ""],
                         ["m.room.avatar", ""],
                         ["m.room.canonical_alias", ""],
-                        ["m.room.create", ""], // Added even when it's not specified
+                        ["m.room.create", ""],
                     ],
                     "timeline_limit": 30,
                 },
@@ -2165,6 +2166,59 @@ async fn test_room_subscription() -> Result<(), Error> {
         },
         respond with = {
             "pos": "1",
+            "lists": {},
+            "rooms": {},
+        },
+    };
+
+    // Subscribe to another room.
+
+    room_list.subscribe_to_rooms(
+        &[room_id_2],
+        Some(assign!(RoomSubscription::default(), {
+            required_state: vec![
+                (StateEventType::RoomName, "".to_owned()),
+                (StateEventType::RoomTopic, "".to_owned()),
+                (StateEventType::RoomAvatar, "".to_owned()),
+                (StateEventType::RoomCanonicalAlias, "".to_owned()),
+            ],
+            timeline_limit: Some(uint!(30)),
+        })),
+    );
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 2]],
+                },
+            },
+            "room_subscriptions": {
+                room_id_1: {
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.create", ""],
+                    ],
+                    "timeline_limit": 30,
+                },
+                room_id_2: {
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.create", ""],
+                    ],
+                    "timeline_limit": 30,
+                },
+            },
+        },
+        respond with = {
+            "pos": "2",
             "lists": {},
             "rooms": {},
         },
@@ -2531,30 +2585,26 @@ async fn test_sync_indicator() -> Result<(), Error> {
                 SyncIndicator::Show,
                 under DELAY_BEFORE_SHOWING + request_margin,
             );
+
+            // Then, once the sync is done, the `SyncIndicator` must be hidden.
+            assert_next_sync_indicator!(
+                sync_indicator,
+                SyncIndicator::Hide,
+                under request_4_delay - DELAY_BEFORE_SHOWING
+                    + DELAY_BEFORE_HIDING
+                    + request_margin,
+            );
         }
 
         in_between_requests_synchronizer.recv().await.unwrap();
         assert_pending!(sync_indicator);
 
         // Request 5.
-        {
-            // It takes time for the system to recover…
-            assert_next_sync_indicator!(
-                sync_indicator,
-                SyncIndicator::Show,
-                under DELAY_BEFORE_SHOWING + request_margin,
-            );
 
-            // But finally, the system has recovered and is running. Time to hide the
-            // `SyncIndicator`.
-            assert_next_sync_indicator!(
-                sync_indicator,
-                SyncIndicator::Hide,
-                under request_5_delay - DELAY_BEFORE_SHOWING
-                    + DELAY_BEFORE_HIDING
-                    + request_margin,
-            );
-        }
+        in_between_requests_synchronizer.recv().await.unwrap();
+
+        // Even though request 5 took a while, the `SyncIndicator` shouldn't show.
+        assert_pending!(sync_indicator);
     });
 
     // Request 1.
@@ -2623,6 +2673,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
         },
         after delay = request_5_delay, // Slow request!
     };
+
+    in_between_requests_synchronizer_sender.send(()).await.unwrap();
 
     sync_indicator_task.await.unwrap();
 

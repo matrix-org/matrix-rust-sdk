@@ -40,7 +40,7 @@ use ruma::{
         RedactedStateEventContent, StaticStateEventContent, SyncStateEvent,
     },
     room::RoomType,
-    EventId, OwnedUserId, RoomVersionId,
+    EventId, OwnedUserId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -195,9 +195,12 @@ impl BaseRoomInfo {
                 let mut o_ev = o_ev.clone();
                 o_ev.content.set_created_ts_if_none(o_ev.origin_server_ts);
 
+                let Some(owned_user_id) = get_user_id_for_state_key(m.state_key()) else {
+                    return false;
+                };
+
                 // add the new event.
-                self.rtc_member
-                    .insert(m.state_key().clone(), SyncStateEvent::Original(o_ev).into());
+                self.rtc_member.insert(owned_user_id, SyncStateEvent::Original(o_ev).into());
 
                 // Remove all events that don't contain any memberships anymore.
                 self.rtc_member.retain(|_, ev| {
@@ -317,6 +320,33 @@ impl BaseRoomInfo {
 
         self.notable_tags = notable_tags;
     }
+}
+
+/// Extract a user ID from a state key that matches one of these formats:
+/// - `<user ID>`
+/// - `<user ID>_<string>`
+/// - `_<user ID>_<string>`
+fn get_user_id_for_state_key(state_key: &str) -> Option<OwnedUserId> {
+    if let Ok(user_id) = UserId::parse(state_key) {
+        return Some(user_id);
+    }
+
+    // Ignore leading underscore if present
+    // (used for avoiding auth rules on @-prefixed state keys)
+    let state_key = state_key.strip_prefix('_').unwrap_or(state_key);
+    if state_key.starts_with('@') {
+        if let Some(colon_idx) = state_key.find(':') {
+            let state_key_user_id = match state_key[colon_idx + 1..].find('_') {
+                None => state_key,
+                Some(suffix_idx) => &state_key[..colon_idx + 1 + suffix_idx],
+            };
+            if let Ok(user_id) = UserId::parse(state_key_user_id) {
+                return Some(user_id);
+            }
+        }
+    }
+
+    None
 }
 
 bitflags! {
@@ -536,9 +566,12 @@ impl RoomMemberships {
 mod tests {
     use std::ops::Not;
 
-    use ruma::events::tag::{TagInfo, TagName, Tags};
+    use ruma::{
+        events::tag::{TagInfo, TagName, Tags},
+        user_id,
+    };
 
-    use super::{BaseRoomInfo, RoomNotableTags};
+    use super::{get_user_id_for_state_key, BaseRoomInfo, RoomNotableTags};
 
     #[test]
     fn test_handle_notable_tags_favourite() {
@@ -568,5 +601,33 @@ mod tests {
         tags.clear();
         base_room_info.handle_notable_tags(&tags);
         assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY).not());
+    }
+
+    #[test]
+    fn test_get_user_id_for_state_key() {
+        assert!(get_user_id_for_state_key("").is_none());
+        assert!(get_user_id_for_state_key("abc").is_none());
+        assert!(get_user_id_for_state_key("@nocolon").is_none());
+        assert!(get_user_id_for_state_key("@noserverpart:").is_none());
+        assert!(get_user_id_for_state_key("@noserverpart:_suffix").is_none());
+
+        let user_id = user_id!("@username:example.org");
+
+        assert_eq!(get_user_id_for_state_key(user_id.as_str()).as_deref(), Some(user_id));
+        assert_eq!(
+            get_user_id_for_state_key(format!("{user_id}_valid_suffix").as_str()).as_deref(),
+            Some(user_id)
+        );
+        assert!(get_user_id_for_state_key(format!("{user_id}:invalid_suffix").as_str()).is_none());
+
+        assert_eq!(
+            get_user_id_for_state_key(format!("_{user_id}").as_str()).as_deref(),
+            Some(user_id)
+        );
+        assert_eq!(
+            get_user_id_for_state_key(format!("_{user_id}_valid_suffix").as_str()).as_deref(),
+            Some(user_id)
+        );
+        assert!(get_user_id_for_state_key(format!("_{user_id}:invalid_suffix").as_str()).is_none());
     }
 }

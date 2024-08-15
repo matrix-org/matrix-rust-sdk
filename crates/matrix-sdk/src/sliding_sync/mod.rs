@@ -35,7 +35,7 @@ use std::{
 use async_stream::stream;
 use futures_core::stream::Stream;
 pub use matrix_sdk_base::sliding_sync::http;
-use matrix_sdk_common::{ring_buffer::RingBuffer, timer};
+use matrix_sdk_common::timer;
 use ruma::{
     api::{client::error::ErrorKind, OutgoingRequest},
     assign, OwnedEventId, OwnedRoomId, RoomId,
@@ -112,9 +112,6 @@ pub(super) struct SlidingSyncInner {
     /// `position` being updated, before sending a new request.
     position: Arc<AsyncMutex<SlidingSyncPositionMarkers>>,
 
-    /// Past position markers.
-    past_positions: StdRwLock<RingBuffer<SlidingSyncPositionMarkers>>,
-
     /// The lists of this Sliding Sync instance.
     lists: AsyncRwLock<BTreeMap<String, SlidingSyncList>>,
 
@@ -143,26 +140,26 @@ impl SlidingSync {
         SlidingSyncBuilder::new(id, client)
     }
 
-    /// Subscribe to a given room.
+    /// Subscribe to many rooms.
     ///
-    /// If the associated `Room` exists, it will be marked as
+    /// If the associated `Room`s exist, it will be marked as
     /// members are missing, so that it ensures to re-fetch all members.
-    pub fn subscribe_to_room(
+    pub fn subscribe_to_rooms(
         &self,
-        room_id: OwnedRoomId,
+        room_ids: &[&RoomId],
         settings: Option<http::request::RoomSubscription>,
     ) {
-        if let Some(room) = self.inner.client.get_room(&room_id) {
-            room.mark_members_missing();
-        }
+        let settings = settings.unwrap_or_default();
+        let mut sticky = self.inner.sticky.write().unwrap();
+        let room_subscriptions = &mut sticky.data_mut().room_subscriptions;
 
-        self.inner
-            .sticky
-            .write()
-            .unwrap()
-            .data_mut()
-            .room_subscriptions
-            .insert(room_id, settings.unwrap_or_default());
+        for room_id in room_ids {
+            if let Some(room) = self.inner.client.get_room(room_id) {
+                room.mark_members_missing();
+            }
+
+            room_subscriptions.insert((*room_id).to_owned(), settings.clone());
+        }
 
         self.inner.internal_channel_send_if_possible(
             SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
@@ -258,27 +255,13 @@ impl SlidingSync {
     ) -> Result<UpdateSummary, crate::Error> {
         let pos = Some(sliding_sync_response.pos.clone());
 
-        {
-            debug!("Update position markers");
-
-            // Look up for this new `pos` in the past position markers.
-            let past_positions = self.inner.past_positions.read().unwrap();
-
-            // The `pos` received by the server has already been received in the past!
-            if past_positions.iter().any(|position| position.pos == pos) {
-                error!(
-                    ?sliding_sync_response,
-                    "Sliding Sync response has ALREADY been handled by the client in the past"
-                );
-
-                return Err(Error::ResponseAlreadyReceived { pos }.into());
-            }
-        }
-
         let must_process_rooms_response = self.must_process_rooms_response().await;
 
-        // Compute `limited`, if we're interested in a room list query.
-        if must_process_rooms_response {
+        trace!(yes = must_process_rooms_response, "Must process rooms response?");
+
+        // Compute `limited` for the SS proxy only, if we're interested in a room list
+        // query.
+        if !self.inner.client.is_simplified_sliding_sync_enabled() && must_process_rooms_response {
             let known_rooms = self.inner.rooms.read().await;
             compute_limited(&known_rooms, &mut sliding_sync_response.rooms);
         }
@@ -422,10 +405,6 @@ impl SlidingSync {
         //
         // Save the new position markers.
         position.pos = pos;
-
-        // Keep this position markers in memory, in case it pops from the server.
-        let mut past_positions = self.inner.past_positions.write().unwrap();
-        past_positions.push(position.clone());
 
         Ok(update_summary)
     }
@@ -732,11 +711,6 @@ impl SlidingSync {
                                 yield Ok(updates);
                             }
 
-                            // Here, errors we can safely ignore.
-                            Err(crate::Error::SlidingSync(Error::ResponseAlreadyReceived { .. })) => {
-                                continue;
-                            }
-
                             // Here, errors we **cannot** ignore, and that must stop the sync loop.
                             Err(error) => {
                                 if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
@@ -772,8 +746,8 @@ impl SlidingSync {
 
     /// Expire the current Sliding Sync session.
     ///
-    /// Expiring a Sliding Sync session means: resetting `pos`. It also cleans
-    /// up the `past_positions`, and resets sticky parameters.
+    /// Expiring a Sliding Sync session means: resetting `pos`. It also resets
+    /// sticky parameters.
     ///
     /// This should only be used when it's clear that this session was about to
     /// expire anyways, and should be used only in very specific cases (e.g.
@@ -794,9 +768,6 @@ impl SlidingSync {
                     "couldn't invalidate sliding sync frozen state when expiring session: {err}"
                 );
             }
-
-            let mut past_positions = self.inner.past_positions.write().unwrap();
-            past_positions.clear();
         }
 
         // Force invalidation of all the sticky parameters.
@@ -1081,7 +1052,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_subscribe_to_room() -> Result<()> {
+    async fn test_subscribe_to_rooms() -> Result<()> {
         let (server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
             .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
         .await?;
@@ -1150,8 +1121,7 @@ mod tests {
         // Members are now synced! We can start subscribing and see how it goes.
         assert!(room0.are_members_synced());
 
-        sliding_sync.subscribe_to_room(room_id_0.to_owned(), None);
-        sliding_sync.subscribe_to_room(room_id_1.to_owned(), None);
+        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], None);
 
         // OK, we have subscribed to some rooms. Let's check on `room0` if members are
         // now marked as not synced.
@@ -1470,11 +1440,6 @@ mod tests {
 
             // `pos` has been updated.
             assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("0".to_owned()));
-
-            // `past_positions` has been updated.
-            let past_positions = sliding_sync.inner.past_positions.read().unwrap();
-            assert_eq!(past_positions.len(), 1);
-            assert_eq!(past_positions.get(0).unwrap().pos, Some("0".to_owned()));
         }
 
         // Next request doesn't ask to enable the extension.
@@ -1502,19 +1467,12 @@ mod tests {
 
             // `pos` has been updated.
             assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("1".to_owned()));
-
-            // `past_positions` has been updated.
-            let past_positions = sliding_sync.inner.past_positions.read().unwrap();
-            assert_eq!(past_positions.len(), 2);
-            assert_eq!(past_positions.get(0).unwrap().pos, Some("0".to_owned()));
-            assert_eq!(past_positions.get(1).unwrap().pos, Some("1".to_owned()));
         }
 
-        // Next request isn't successful because it receives an already
+        // Next request is successful despite it receives an already
         // received `pos` from the server.
         {
-            // First response with an already seen `pos`.
-            let _mock_guard1 = Mock::given(SlidingSyncMatcher)
+            let _mock_guard = Mock::given(SlidingSyncMatcher)
                 .respond_with(|request: &Request| {
                     // Repeat the txn_id in the response, if set.
                     let request: PartialRequest = request.body_json().unwrap();
@@ -1528,37 +1486,16 @@ mod tests {
                 .mount_as_scoped(&server)
                 .await;
 
-            // Second response with a new `pos`.
-            let _mock_guard2 = Mock::given(SlidingSyncMatcher)
-                .respond_with(|request: &Request| {
-                    // Repeat the txn_id in the response, if set.
-                    let request: PartialRequest = request.body_json().unwrap();
-
-                    ResponseTemplate::new(200).set_body_json(json!({
-                        "txn_id": request.txn_id,
-                        "pos": "2", // <- new!
-                    }))
-                })
-                .mount_as_scoped(&server)
-                .await;
-
             let next = sync.next().await;
             assert_matches!(next, Some(Ok(_update_summary)));
 
             // `pos` has been updated.
-            assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("2".to_owned()));
-
-            // `past_positions` has been updated.
-            let past_positions = sliding_sync.inner.past_positions.read().unwrap();
-            assert_eq!(past_positions.len(), 3);
-            assert_eq!(past_positions.get(0).unwrap().pos, Some("0".to_owned()));
-            assert_eq!(past_positions.get(1).unwrap().pos, Some("1".to_owned()));
-            assert_eq!(past_positions.get(2).unwrap().pos, Some("2".to_owned()));
+            assert_eq!(sliding_sync.inner.position.lock().await.pos, Some("0".to_owned()));
         }
 
         // Stop responding with successful requests!
         //
-        // When responding with M_UNKNOWN_POS, that regenerates the sticky parameters,
+        // When responding with `M_UNKNOWN_POS`, that regenerates the sticky parameters,
         // so they're reset. It also resets the `pos`.
         {
             let _mock_guard = Mock::given(SlidingSyncMatcher)
@@ -1576,9 +1513,6 @@ mod tests {
 
             // `pos` has been reset.
             assert!(sliding_sync.inner.position.lock().await.pos.is_none());
-
-            // `past_positions` has been reset.
-            assert!(sliding_sync.inner.past_positions.read().unwrap().is_empty());
 
             // Next request asks to enable the extension again.
             let (request, _, _) =

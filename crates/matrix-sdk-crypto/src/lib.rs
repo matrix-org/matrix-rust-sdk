@@ -71,7 +71,8 @@ impl RoomKeyImportResult {
 }
 
 pub use error::{
-    EventError, MegolmError, OlmError, SessionCreationError, SetRoomSettingsError, SignatureError,
+    EventError, MegolmError, OlmError, SessionCreationError, SessionRecipientCollectionError,
+    SetRoomSettingsError, SignatureError,
 };
 pub use file_encryption::{
     decrypt_room_key_export, encrypt_room_key_export, AttachmentDecryptor, AttachmentEncryptor,

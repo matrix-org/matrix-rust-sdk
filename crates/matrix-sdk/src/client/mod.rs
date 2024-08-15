@@ -88,7 +88,6 @@ use crate::{
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
     notification_settings::NotificationSettings,
-    pinned_events_cache::PinnedEventCache,
     room_preview::RoomPreview,
     send_queue::SendQueueData,
     sync::{RoomUpdate, SyncResponse},
@@ -287,9 +286,6 @@ pub(crate) struct ClientInner {
     /// It becomes active when [`EventCache::subscribe`] is called.
     pub(crate) event_cache: OnceCell<EventCache>,
 
-    /// A central cache for pinned events.
-    pub(crate) pinned_event_cache: PinnedEventCache,
-
     /// End-to-end encryption related state.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) e2ee: EncryptionData,
@@ -345,7 +341,6 @@ impl ClientInner {
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
             event_cache,
-            pinned_event_cache: PinnedEventCache::new(),
             send_queue_data: send_queue,
             #[cfg(feature = "e2e-encryption")]
             e2ee: EncryptionData::new(encryption_settings),
@@ -2233,11 +2228,6 @@ impl Client {
     pub fn event_cache(&self) -> &EventCache {
         // SAFETY: always initialized in the `Client` ctor.
         self.inner.event_cache.get().unwrap()
-    }
-
-    /// The [`PinnedEventCache`] instance for this [`Client`].
-    pub fn pinned_event_cache(&self) -> &PinnedEventCache {
-        &self.inner.pinned_event_cache
     }
 }
 

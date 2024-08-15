@@ -161,6 +161,7 @@ impl EventCache {
                 multiple_room_updates_lock: Default::default(),
                 by_room: Default::default(),
                 drop_handles: Default::default(),
+                events: Default::default(),
             }),
         }
     }
@@ -192,17 +193,24 @@ impl EventCache {
     }
 
     /// Try to find an event by its ID in all the rooms.
-    // NOTE: this does a linear scan, so it could be slow. If performance
-    // requires it, we could use a direct mapping of event id -> event, and keep it
-    // in memory until we store it on disk (and this becomes a SQL query by id).
+    // Note: replace this with a select-by-id query when this is implemented in a
+    // store.
     pub async fn event(&self, event_id: &EventId) -> Option<SyncTimelineEvent> {
-        let by_room = self.inner.by_room.read().await;
-        for room in by_room.values() {
-            if let Some(event) = room.event(event_id).await {
-                return Some(event);
-            }
-        }
-        None
+        self.inner.events.read().await.get(event_id).map(|(_room_id, event)| event.clone())
+    }
+
+    /// Clear all the events from the immutable event cache.
+    ///
+    /// This keeps all the rooms along with their internal events linked chunks,
+    /// but it clears the side immutable cache for events.
+    ///
+    /// As such, it doesn't emit any [`RoomEventCacheUpdate`], and it's expected
+    /// to be only useful in testing contexts.
+    // Note: replace this with a remove query when this is implemented in a
+    // store.
+    #[cfg(any(test, feature = "testing"))]
+    pub async fn empty_immutable_cache(&self) {
+        self.inner.events.write().await.clear();
     }
 
     #[instrument(skip_all)]
@@ -303,6 +311,8 @@ impl EventCache {
     }
 }
 
+type AllEventsMap = Arc<RwLock<BTreeMap<OwnedEventId, (OwnedRoomId, SyncTimelineEvent)>>>;
+
 struct EventCacheInner {
     /// A weak reference to the inner client, useful when trying to get a handle
     /// on the owning client.
@@ -319,6 +329,17 @@ struct EventCacheInner {
     /// Lazily-filled cache of live [`RoomEventCache`], once per room.
     by_room: RwLock<BTreeMap<OwnedRoomId, RoomEventCache>>,
 
+    /// All events, keyed by event id.
+    ///
+    /// Since events are immutable in Matrix, this is append-only — events can
+    /// be updated, though (e.g. if it was encrypted before, and
+    /// successfully decrypted later).
+    ///
+    /// This is shared between the [`EventCache`] singleton and all
+    /// [`RoomEventCache`] instances.
+    // If necessary, we can add a RoomId in the value later.
+    events: AllEventsMap,
+
     /// Handles to keep alive the task listening to updates.
     drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
 }
@@ -333,6 +354,9 @@ impl EventCacheInner {
         // Note: one must NOT clear the `by_room` map, because if something subscribed
         // to a room update, they would never get any new update for that room, since
         // re-creating the `RoomEventCache` would create a new unrelated sender.
+
+        // Note 2: we don't need to clear the [`Self::events`] map, because events are
+        // immutable in the Matrix protocol.
 
         let rooms = self.by_room.write().await;
         for room in rooms.values() {
@@ -407,7 +431,11 @@ impl EventCacheInner {
                     return Ok(Some(room.clone()));
                 }
 
-                let room_event_cache = RoomEventCache::new(self.client.clone(), room_id.to_owned());
+                let room_event_cache = RoomEventCache::new(
+                    self.client.clone(),
+                    room_id.to_owned(),
+                    self.events.clone(),
+                );
 
                 by_room_guard.insert(room_id.to_owned(), room_event_cache.clone());
 
@@ -433,8 +461,8 @@ impl Debug for RoomEventCache {
 
 impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
-    fn new(client: WeakClient, room_id: OwnedRoomId) -> Self {
-        Self { inner: Arc::new(RoomEventCacheInner::new(client, room_id)) }
+    fn new(client: WeakClient, room_id: OwnedRoomId, all_events: AllEventsMap) -> Self {
+        Self { inner: Arc::new(RoomEventCacheInner::new(client, room_id, all_events)) }
     }
 
     /// Subscribe to room updates for this room, after getting the initial list
@@ -457,11 +485,13 @@ impl RoomEventCache {
     }
 
     /// Try to find an event by id in this room.
-    ///
-    /// Note: this does a linear scan, so it could be slow. If performance
-    /// requires it, using a direct mapping of event id -> event might be
-    /// better.
     pub async fn event(&self, event_id: &EventId) -> Option<SyncTimelineEvent> {
+        if let Some((room_id, event)) = self.inner.all_events.read().await.get(event_id).cloned() {
+            if room_id == self.inner.room_id {
+                return Some(event);
+            }
+        }
+
         let events = self.inner.events.read().await;
         for (_pos, event) in events.revents() {
             if event.event_id().as_deref() == Some(event_id) {
@@ -470,15 +500,37 @@ impl RoomEventCache {
         }
         None
     }
+
+    /// Save a single event in the event cache, for further retrieval with
+    /// [`Self::event`].
+    // This doesn't insert the event into the linked chunk. In the future there'll
+    // be no distinction between the linked chunk and the separate cache.
+    pub(crate) async fn save_event(&self, event: SyncTimelineEvent) {
+        if let Some(event_id) = event.event_id() {
+            self.inner
+                .all_events
+                .write()
+                .await
+                .insert(event_id, (self.inner.room_id.clone(), event));
+        } else {
+            warn!("couldn't save event without event id in the event cache");
+        }
+    }
 }
 
 /// The (non-clonable) details of the `RoomEventCache`.
 struct RoomEventCacheInner {
+    /// The room id for this room.
+    room_id: OwnedRoomId,
+
     /// Sender part for subscribers to this room.
     sender: Sender<RoomEventCacheUpdate>,
 
     /// The events of the room.
     events: RwLock<RoomEvents>,
+
+    /// See comment of [`EventCacheInner::events`].
+    all_events: AllEventsMap,
 
     /// A paginator instance, that's configured to run back-pagination on our
     /// behalf.
@@ -497,13 +549,15 @@ struct RoomEventCacheInner {
 impl RoomEventCacheInner {
     /// Creates a new cache for a room, and subscribes to room updates, so as
     /// to handle new timeline events.
-    fn new(client: WeakClient, room_id: OwnedRoomId) -> Self {
+    fn new(client: WeakClient, room_id: OwnedRoomId, all_events: AllEventsMap) -> Self {
         let sender = Sender::new(32);
 
         let weak_room = WeakRoom::new(client, room_id);
 
         Self {
+            room_id: weak_room.room_id().to_owned(),
             events: RwLock::new(RoomEvents::default()),
+            all_events,
             sender,
             pagination: RoomPaginationData {
                 paginator: Paginator::new(Box::new(weak_room)),
@@ -636,6 +690,7 @@ impl RoomEventCacheInner {
             ephemeral_events,
             ambiguity_changes,
         )
+        .await
     }
 
     /// Append a set of events to the room cache and storage, notifying
@@ -654,6 +709,7 @@ impl RoomEventCacheInner {
             ephemeral_events,
             ambiguity_changes,
         )
+        .await
     }
 
     /// Append a set of events, with an attached lock.
@@ -661,7 +717,7 @@ impl RoomEventCacheInner {
     /// If the lock `room_events` is `None`, one will be created.
     ///
     /// This is a private implementation. It must not be exposed publicly.
-    fn append_events_locked_impl(
+    async fn append_events_locked_impl(
         &self,
         mut room_events: RwLockWriteGuard<'_, RoomEvents>,
         sync_timeline_events: Vec<SyncTimelineEvent>,
@@ -685,6 +741,13 @@ impl RoomEventCacheInner {
             }
 
             room_events.push_events(sync_timeline_events.clone());
+
+            let mut all_events = self.all_events.write().await;
+            for ev in &sync_timeline_events {
+                if let Some(event_id) = ev.event_id() {
+                    all_events.insert(event_id.to_owned(), (self.room_id.clone(), ev.clone()));
+                }
+            }
         }
 
         // Now that all events have been added, we can trigger the
@@ -920,6 +983,39 @@ mod tests {
         let found2 = room_event_cache.event(eid2).await.unwrap();
         assert_event_matches_msg(&found2, "you");
 
+        // Retrieving the event with id3 from the room which doesn't contain it will
+        // fail…
         assert!(room_event_cache.event(eid3).await.is_none());
+        // …but it doesn't fail at the client-wide level.
+        assert!(event_cache.event(eid3).await.is_some());
+    }
+
+    #[async_test]
+    async fn test_save_event_and_clear() {
+        let client = logged_in_client(None).await;
+        let room_id = room_id!("!galette:saucisse.bzh");
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+        let event_id = event_id!("$1");
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        room_event_cache.save_event(f.text_msg("hey there").event_id(event_id).into()).await;
+
+        // Retrieving the event at the room-wide cache works.
+        assert!(room_event_cache.event(event_id).await.is_some());
+        // Also at the client level.
+        assert!(event_cache.event(event_id).await.is_some());
+
+        event_cache.empty_immutable_cache().await;
+
+        // After clearing, both fail to find the event.
+        assert!(room_event_cache.event(event_id).await.is_none());
+        assert!(event_cache.event(event_id).await.is_none());
     }
 }

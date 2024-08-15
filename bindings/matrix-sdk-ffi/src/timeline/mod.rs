@@ -625,7 +625,7 @@ impl Timeline {
             if let Some(event) = self.inner.item_by_event_id(&event_id).await {
                 Ok(RepliedToEvent::from_timeline_item(&event))
             } else {
-                match self.inner.room().event(&event_id).await {
+                match self.inner.room().event(&event_id, None).await {
                     Ok(timeline_event) => Ok(RepliedToEvent::try_from_timeline_event_for_room(
                         timeline_event,
                         self.inner.room(),

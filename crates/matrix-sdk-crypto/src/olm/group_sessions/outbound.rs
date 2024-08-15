@@ -116,12 +116,11 @@ impl Default for EncryptionSettings {
 
 impl EncryptionSettings {
     /// Create new encryption settings using an `RoomEncryptionEventContent`,
-    /// a history visibility, and setting if only trusted devices should receive
-    /// a room key.
+    /// a history visibility, and key sharing strategy.
     pub fn new(
         content: RoomEncryptionEventContent,
         history_visibility: HistoryVisibility,
-        only_allow_trusted_devices: bool,
+        sharing_strategy: CollectStrategy,
     ) -> Self {
         let rotation_period: Duration =
             content.rotation_period_ms.map_or(ROTATION_PERIOD, |r| Duration::from_millis(r.into()));
@@ -133,7 +132,7 @@ impl EncryptionSettings {
             rotation_period,
             rotation_period_msgs,
             history_visibility,
-            sharing_strategy: CollectStrategy::new_device_based(only_allow_trusted_devices),
+            sharing_strategy,
         }
     }
 }
@@ -782,12 +781,20 @@ mod tests {
     };
 
     use super::{EncryptionSettings, ROTATION_MESSAGES, ROTATION_PERIOD};
+    use crate::CollectStrategy;
 
     #[test]
     fn test_encryption_settings_conversion() {
         let mut content =
             RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
-        let settings = EncryptionSettings::new(content.clone(), HistoryVisibility::Joined, false);
+        let settings = EncryptionSettings::new(
+            content.clone(),
+            HistoryVisibility::Joined,
+            CollectStrategy::DeviceBasedStrategy {
+                only_allow_trusted_devices: false,
+                error_on_verified_user_problem: false,
+            },
+        );
 
         assert_eq!(settings.rotation_period, ROTATION_PERIOD);
         assert_eq!(settings.rotation_period_msgs, ROTATION_MESSAGES);
@@ -795,7 +802,14 @@ mod tests {
         content.rotation_period_ms = Some(uint!(3600));
         content.rotation_period_msgs = Some(uint!(500));
 
-        let settings = EncryptionSettings::new(content, HistoryVisibility::Shared, false);
+        let settings = EncryptionSettings::new(
+            content,
+            HistoryVisibility::Shared,
+            CollectStrategy::DeviceBasedStrategy {
+                only_allow_trusted_devices: false,
+                error_on_verified_user_problem: false,
+            },
+        );
 
         assert_eq!(settings.rotation_period, Duration::from_millis(3600));
         assert_eq!(settings.rotation_period_msgs, 500);

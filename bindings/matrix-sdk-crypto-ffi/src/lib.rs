@@ -668,6 +668,8 @@ pub struct EncryptionSettings {
     /// Should untrusted devices receive the room key, or should they be
     /// excluded from the conversation.
     pub only_allow_trusted_devices: bool,
+    /// Should fail to send when a verified user has unverified devices.
+    pub error_on_verified_user_problem: bool,
 }
 
 impl From<EncryptionSettings> for RustEncryptionSettings {
@@ -677,7 +679,10 @@ impl From<EncryptionSettings> for RustEncryptionSettings {
             rotation_period: Duration::from_secs(v.rotation_period),
             rotation_period_msgs: v.rotation_period_msgs,
             history_visibility: v.history_visibility.into(),
-            sharing_strategy: CollectStrategy::new_device_based(v.only_allow_trusted_devices),
+            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
+                only_allow_trusted_devices: v.only_allow_trusted_devices,
+                error_on_verified_user_problem: v.error_on_verified_user_problem,
+            },
         }
     }
 }

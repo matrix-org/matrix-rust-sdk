@@ -11,7 +11,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, BOB};
 use matrix_sdk_ui::{timeline::TimelineFocus, Timeline};
-use ruma::{event_id, owned_event_id, owned_room_id, OwnedEventId, OwnedRoomId};
+use ruma::{event_id, owned_room_id, OwnedEventId, OwnedRoomId};
 use serde_json::json;
 use stream_assert::assert_pending;
 use wiremock::MockServer;
@@ -181,6 +181,10 @@ async fn test_max_events_to_load_is_honored() {
 #[async_test]
 async fn test_cached_events_are_kept_for_different_room_instances() {
     let mut test_helper = TestHelper::new().await;
+
+    // Subscribe to the event cache.
+    test_helper.client.event_cache().subscribe().unwrap();
+
     let room_id = test_helper.room_id.clone();
 
     // Join the room
@@ -194,6 +198,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
         .await;
 
     let room = test_helper.client.get_room(&room_id).unwrap();
+    let (room_cache, _drop_handles) = room.event_cache().await.unwrap();
     let timeline = Timeline::builder(&room)
         .with_focus(TimelineFocus::PinnedEvents { max_events_to_load: 2 })
         .build()
@@ -210,7 +215,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     assert!(!items.is_empty()); // We just loaded some events
     assert_pending!(timeline_stream);
 
-    assert!(test_helper.client.pinned_event_cache().get(event_id!("$1")).await.is_some());
+    assert!(room_cache.event(event_id!("$1")).await.is_some());
 
     // Drop the existing room and timeline instances
     test_helper.server.reset().await;
@@ -234,7 +239,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
 
     let (items, _) = timeline.subscribe().await;
     assert!(!items.is_empty()); // These events came from the cache
-    assert!(test_helper.client.pinned_event_cache().get(event_id!("$1")).await.is_some());
+    assert!(room_cache.event(event_id!("$1")).await.is_some());
 
     // Drop the existing room and timeline instances
     test_helper.server.reset().await;
@@ -242,7 +247,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     drop(room);
 
     // Now remove the pinned events from the cache and try again
-    test_helper.client.pinned_event_cache().remove_bulk(&vec![owned_event_id!("$1")]).await;
+    test_helper.client.event_cache().empty_immutable_cache().await;
 
     let _ = test_helper.setup_sync_response(Vec::new(), Some(vec!["$1", "$2"])).await;
 

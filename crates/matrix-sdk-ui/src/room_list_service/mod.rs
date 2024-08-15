@@ -73,6 +73,7 @@ use ruma::{assign, events::StateEventType, OwnedRoomId, RoomId};
 pub use state::*;
 use thiserror::Error;
 use tokio::time::timeout;
+use tracing::debug;
 
 use crate::timeline;
 
@@ -203,6 +204,8 @@ impl RoomListService {
             // 3. A sync is done,
             // 4. The next state is stored.
             loop {
+                debug!("Run a sync iteration");
+
                 // Calculate the next state, and run the associated actions.
                 let next_state = self.state.get().next(&self.sliding_sync).await?;
 
@@ -210,6 +213,8 @@ impl RoomListService {
                 match sync.next().await {
                     // Got a successful result while syncing.
                     Some(Ok(_update_summary)) => {
+                        debug!(state = ?next_state, "New state");
+
                         // Update the state.
                         self.state.set(next_state);
 
@@ -218,6 +223,8 @@ impl RoomListService {
 
                     // Got an error while syncing.
                     Some(Err(error)) => {
+                        debug!(expected_state = ?next_state, "New state is an error");
+
                         let next_state = State::Error { from: Box::new(next_state) };
                         self.state.set(next_state);
 
@@ -228,6 +235,8 @@ impl RoomListService {
 
                     // Sync loop has terminated.
                     None => {
+                        debug!(expected_state = ?next_state, "New state is a termination");
+
                         let next_state = State::Terminated { from: Box::new(next_state) };
                         self.state.set(next_state);
 
@@ -301,11 +310,11 @@ impl RoomListService {
 
             loop {
                 let (sync_indicator, yield_delay) = match current_state {
-                    State::Init | State::Recovering | State::Error { .. } => {
+                    State::Init | State::Error { .. } => {
                         (SyncIndicator::Show, delay_before_showing)
                     }
 
-                    State::SettingUp | State::Running | State::Terminated { .. } => {
+                    State::SettingUp | State::Recovering | State::Running | State::Terminated { .. } => {
                         (SyncIndicator::Hide, delay_before_hiding)
                     }
                 };
@@ -363,6 +372,30 @@ impl RoomListService {
             self.client.get_room(room_id).ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))?,
             &self.sliding_sync,
         ))
+    }
+
+    /// Subscribe to rooms.
+    ///
+    /// It means that all events from these rooms will be received every time,
+    /// no matter how the `RoomList` is configured.
+    pub fn subscribe_to_rooms(
+        &self,
+        room_ids: &[&RoomId],
+        settings: Option<http::request::RoomSubscription>,
+    ) {
+        let mut settings = settings.unwrap_or_default();
+
+        // Make sure to always include the room creation event in the required state
+        // events, to know what the room version is.
+        if !settings
+            .required_state
+            .iter()
+            .any(|(event_type, _state_key)| *event_type == StateEventType::RoomCreate)
+        {
+            settings.required_state.push((StateEventType::RoomCreate, "".to_owned()));
+        }
+
+        self.sliding_sync.subscribe_to_rooms(room_ids, Some(settings))
     }
 
     #[cfg(test)]

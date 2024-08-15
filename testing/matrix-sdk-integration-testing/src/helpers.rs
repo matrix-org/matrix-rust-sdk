@@ -73,11 +73,6 @@ impl TestClientBuilder {
         self
     }
 
-    pub fn http_proxy(mut self, proxy: String) -> Self {
-        self.http_proxy = Some(proxy);
-        self
-    }
-
     fn common_client_builder(&self) -> ClientBuilder {
         let homeserver_url =
             option_env!("HOMESERVER_URL").unwrap_or("http://localhost:8228").to_owned();
