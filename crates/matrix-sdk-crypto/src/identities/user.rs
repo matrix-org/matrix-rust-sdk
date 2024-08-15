@@ -199,6 +199,18 @@ impl OwnUserIdentity {
             methods,
         ))
     }
+
+    /// Remove the requirement for this identity to be verified.
+    pub async fn withdraw_verification(&self) -> Result<(), CryptoStoreError> {
+        self.inner.withdraw_verification();
+        let to_save = UserIdentityData::Own(self.inner.clone());
+        let changes = Changes {
+            identities: IdentityChanges { changed: vec![to_save], ..Default::default() },
+            ..Default::default()
+        };
+        self.verification_machine.store.inner().save_changes(changes).await?;
+        Ok(())
+    }
 }
 
 /// Struct representing a cross signing identity of a user.
@@ -784,11 +796,14 @@ pub struct OwnUserIdentityData {
     verified: Arc<RwLock<OwnUserIdentityVerifiedState>>,
 }
 
-#[derive(Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 enum OwnUserIdentityVerifiedState {
     /// We have never verified our own identity
     #[default]
     NeverVerified,
+
+    /// We previously verified this identity, but it has changed.
+    PreviouslyVerifiedButNoLonger,
 
     /// We have verified the current identity.
     Verified,
@@ -938,12 +953,52 @@ impl OwnUserIdentityData {
     /// Mark our identity as unverified.
     pub(crate) fn mark_as_unverified(&self) {
         let mut guard = self.verified.write().unwrap();
-        *guard = OwnUserIdentityVerifiedState::NeverVerified;
+        if *guard == OwnUserIdentityVerifiedState::Verified {
+            *guard = OwnUserIdentityVerifiedState::PreviouslyVerifiedButNoLonger;
+        }
     }
 
     /// Check if our identity is verified.
     pub fn is_verified(&self) -> bool {
         *self.verified.read().unwrap() == OwnUserIdentityVerifiedState::Verified
+    }
+
+    /// True if we verified our own identity at some point in the past.
+    ///
+    /// To reset this latch back to `false`, one must call
+    /// [`OwnUserIdentityData::withdraw_verification()`].
+    pub fn was_previously_verified(&self) -> bool {
+        matches!(
+            *self.verified.read().unwrap(),
+            OwnUserIdentityVerifiedState::Verified
+                | OwnUserIdentityVerifiedState::PreviouslyVerifiedButNoLonger
+        )
+    }
+
+    /// Remove the requirement for this identity to be verified.
+    ///
+    /// If an identity was previously verified and is not any more it will be
+    /// reported to the user. In order to remove this notice users have to
+    /// verify again or to withdraw the verification requirement.
+    pub fn withdraw_verification(&self) {
+        let mut guard = self.verified.write().unwrap();
+        if *guard == OwnUserIdentityVerifiedState::PreviouslyVerifiedButNoLonger {
+            *guard = OwnUserIdentityVerifiedState::NeverVerified;
+        }
+    }
+
+    /// Was this identity previously verified, and is no longer?
+    ///
+    /// Such a violation should be reported to the local user by the
+    /// application, and resolved by
+    ///
+    /// - Verifying the new identity with
+    ///   [`OwnUserIdentity::request_verification`]
+    /// - Or by withdrawing the verification requirement
+    ///   [`OwnUserIdentity::withdraw_verification`].
+    pub fn has_verification_violation(&self) -> bool {
+        *self.verified.read().unwrap()
+            == OwnUserIdentityVerifiedState::PreviouslyVerifiedButNoLonger
     }
 
     /// Update the identity with a new master key and self signing key.
@@ -1574,5 +1629,54 @@ pub(crate) mod tests {
             machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
 
         assert!(bob_identity.has_verification_violation());
+    }
+
+    /// Test that receiving new public keys for our own identity causes a
+    /// verification violation on our own identity.
+    #[async_test]
+    async fn own_keys_update_creates_own_identity_verification_violation() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+
+        // Start with our own identity verified
+        let own_keys = DataSet::own_keys_query_response_1();
+        machine.mark_request_as_sent(&TransactionId::new(), &own_keys).await.unwrap();
+
+        machine
+            .import_cross_signing_keys(CrossSigningKeyExport {
+                master_key: DataSet::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+                self_signing_key: DataSet::SELF_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+                user_signing_key: DataSet::USER_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+            })
+            .await
+            .unwrap();
+
+        // Double-check that we have a verified identity
+        let own_identity = machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap();
+        let own_identity = own_identity.own().unwrap();
+        assert!(own_identity.is_verified());
+        assert!(own_identity.was_previously_verified());
+        assert!(!own_identity.has_verification_violation());
+
+        // Now, we receive a *different* set of public keys
+        let own_keys = DataSet::own_keys_query_response_2();
+        machine.mark_request_as_sent(&TransactionId::new(), &own_keys).await.unwrap();
+
+        // That should give an identity that is no longer verified, with a verification
+        // violation.
+        let own_identity = machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap();
+        let own_identity = own_identity.own().unwrap();
+        assert!(!own_identity.is_verified());
+        assert!(own_identity.was_previously_verified());
+        assert!(own_identity.has_verification_violation());
+
+        // Now check that we can withdraw verification for our own identity, and that it
+        // becomes valid again.
+        own_identity.withdraw_verification().await.unwrap();
+
+        assert!(!own_identity.is_verified());
+        assert!(!own_identity.was_previously_verified());
+        assert!(!own_identity.has_verification_violation());
     }
 }
