@@ -1567,16 +1567,18 @@ impl OlmMachine {
         self.get_encryption_info(&session, &event.sender).await
     }
 
-    /// Check whether the sender of a Megolm session is trusted.
+    /// Check whether the sender of a Megolm session is trusted, based on the
+    /// verification state.
     ///
-    /// Checks that the device is cross-signed, that the sender's identity is
-    /// cross-signed, and that the sender's identity is pinned.  If
-    /// `require_verified` is `true`, then also checks if we have verified the
-    /// sender's identity
+    /// This is used by `check_sender_trust_requirement`, and ensures that the
+    /// sending device is cross-signed.
     fn check_sender_trusted(&self, encryption_info: &EncryptionInfo) -> MegolmResult<()> {
         match &encryption_info.verification_state {
+            // Device is cross-signed, and identity is verified
             VerificationState::Verified => Ok(()),
+            // Device is cross-signed, but identity is not verified
             VerificationState::Unverified(VerificationLevel::UnverifiedIdentity) => Ok(()),
+            // Device is not cross-signed
             VerificationState::Unverified(verification_level) => {
                 Err(MegolmError::SenderIdentity(verification_level.clone()))
             }
@@ -1593,7 +1595,10 @@ impl OlmMachine {
     ) -> MegolmResult<()> {
         match decryption_settings.trust_requirement {
             TrustRequirement::Untrusted => Ok(()),
+
             TrustRequirement::CrossSignedOrLegacy => match &session.sender_data {
+                // Reject if the sender was previously verified, but changed
+                // their identity and is not verified any more.
                 SenderData::SenderKnown {
                     master_key_verified: false,
                     previously_verified: true,
@@ -1604,7 +1609,10 @@ impl OlmMachine {
                 SenderData::UnknownDevice { legacy_session: true, .. } => Ok(()),
                 _ => self.check_sender_trusted(encryption_info),
             },
+
             TrustRequirement::CrossSigned => match &session.sender_data {
+                // Reject if the sender was previously verified, but changed
+                // their identity and is not verified any more.
                 SenderData::SenderKnown {
                     master_key_verified: false,
                     previously_verified: true,

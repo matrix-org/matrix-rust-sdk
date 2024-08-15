@@ -32,6 +32,9 @@ Changes:
 
 Breaking changes:
 
+- `OlmMachine::decrypt_room_event` now takes an `EncryptionSettings` argument.
+  ([#3701](https://github.com/matrix-org/matrix-rust-sdk/pull/3701))
+
 - Add a new `error_on_verified_user_problem` property to
   `CollectStrategy::DeviceBasedStrategy`, which, when set, causes
   `OlmMachine::share_room_key` to fail with an error if any verified users on
