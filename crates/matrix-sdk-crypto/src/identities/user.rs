@@ -86,6 +86,52 @@ impl UserIdentities {
             }
         }
     }
+
+    /// Check if this user identity is verified.
+    ///
+    /// For our own identity, this means either that we have checked the public
+    /// keys in the identity against the private keys; or that the identity
+    /// has been manually marked as verified via
+    /// [`OwnUserIdentity::verify`].
+    ///
+    /// For another user's identity, it means that we have verified our own
+    /// identity as above, *and* that the other user's identity has been signed
+    /// by our own user-signing key.
+    pub fn is_verified(&self) -> bool {
+        match self {
+            UserIdentities::Own(u) => u.is_verified(),
+            UserIdentities::Other(u) => u.is_verified(),
+        }
+    }
+
+    /// True if we verified this identity at some point in the past.
+    ///
+    /// To reset this latch back to `false`, one must call
+    /// [`UserIdentities::withdraw_verification()`].
+    pub fn was_previously_verified(&self) -> bool {
+        match self {
+            UserIdentities::Own(u) => u.was_previously_verified(),
+            UserIdentities::Other(u) => u.was_previously_verified(),
+        }
+    }
+
+    /// Reset the flag that records that the identity has been verified, thus
+    /// clearing [`Self::was_previously_verified`] and
+    /// [`Self::has_verification_violation`].
+    pub async fn withdraw_verification(&self) -> Result<(), CryptoStoreError> {
+        match self {
+            UserIdentities::Own(u) => u.withdraw_verification().await,
+            UserIdentities::Other(u) => u.withdraw_verification().await,
+        }
+    }
+
+    /// Was this identity previously verified, and is no longer?
+    pub fn has_verification_violation(&self) -> bool {
+        match self {
+            UserIdentities::Own(u) => u.has_verification_violation(),
+            UserIdentities::Other(u) => u.has_verification_violation(),
+        }
+    }
 }
 
 impl From<OwnUserIdentity> for UserIdentities {
