@@ -668,13 +668,7 @@ mod tests {
         assert!(!carol_unsigned_device.is_verified());
 
         // Sharing an OutboundGroupSession should fail.
-        let encryption_settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices: false,
-                error_on_verified_user_problem: true,
-            },
-            ..Default::default()
-        };
+        let encryption_settings = error_on_verification_problem_encryption_settings();
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
         let share_result = collect_session_recipients(
             machine.store(),
@@ -722,14 +716,7 @@ mod tests {
             .await
             .unwrap();
 
-        let encryption_settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices: false,
-                error_on_verified_user_problem: true,
-            },
-            ..Default::default()
-        };
-
+        let encryption_settings = error_on_verification_problem_encryption_settings();
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
         // We should be able to share a key, and it should include the unsigned device.
@@ -765,14 +752,7 @@ mod tests {
             .await
             .unwrap();
 
-        let encryption_settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices: false,
-                error_on_verified_user_problem: true,
-            },
-            ..Default::default()
-        };
-
+        let encryption_settings = error_on_verification_problem_encryption_settings();
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
         // We should be able to share a key, and it should exclude the unsigned device.
@@ -817,16 +797,8 @@ mod tests {
         );
         machine.mark_request_as_sent(&TransactionId::new(), &own_keys).await.unwrap();
 
-        let encryption_settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices: false,
-                error_on_verified_user_problem: true,
-            },
-            ..Default::default()
-        };
-
+        let encryption_settings = error_on_verification_problem_encryption_settings();
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
-
         let share_result = collect_session_recipients(
             machine.store(),
             iter::once(DataSet::own_id()),
@@ -889,16 +861,8 @@ mod tests {
             .unwrap();
         assert!(!bob_unsigned_device.is_cross_signed_by_owner());
 
-        let encryption_settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices: false,
-                error_on_verified_user_problem: true,
-            },
-            ..Default::default()
-        };
-
+        let encryption_settings = error_on_verification_problem_encryption_settings();
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
-
         collect_session_recipients(
             machine.store(),
             iter::once(DataSet::bob_id()),
@@ -944,16 +908,8 @@ mod tests {
         assert!(!bob_unsigned_device.is_cross_signed_by_owner());
 
         // Share a session, and ensure that it doesn't error.
-        let encryption_settings = EncryptionSettings {
-            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices: false,
-                error_on_verified_user_problem: true,
-            },
-            ..Default::default()
-        };
-
+        let encryption_settings = error_on_verification_problem_encryption_settings();
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
-
         collect_session_recipients(
             machine.store(),
             iter::once(DataSet::bob_id()),
@@ -1180,6 +1136,17 @@ mod tests {
         assert!(!bob_unsigned_device.is_verified());
 
         machine
+    }
+
+    /// [`EncryptionSettings`] with `error_on_verified_user_problem` set
+    fn error_on_verification_problem_encryption_settings() -> EncryptionSettings {
+        EncryptionSettings {
+            sharing_strategy: CollectStrategy::DeviceBasedStrategy {
+                only_allow_trusted_devices: false,
+                error_on_verified_user_problem: true,
+            },
+            ..Default::default()
+        }
     }
 
     /// Create an [`OutboundGroupSession`], backed by the given olm machine,
