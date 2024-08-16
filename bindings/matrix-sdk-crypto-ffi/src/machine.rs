@@ -285,10 +285,7 @@ impl OlmMachine {
             if let Some(identity) =
                 self.runtime.block_on(self.inner.get_identity(&user_id, None))?
             {
-                match identity {
-                    UserIdentities::Own(i) => i.is_verified(),
-                    UserIdentities::Other(i) => i.is_verified(),
-                }
+                identity.is_verified()
             } else {
                 false
             },

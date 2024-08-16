@@ -1700,7 +1700,6 @@ pub(crate) mod tests {
 
         // Double-check that we have a verified identity
         let own_identity = machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap();
-        let own_identity = own_identity.own().unwrap();
         assert!(own_identity.is_verified());
         assert!(own_identity.was_previously_verified());
         assert!(!own_identity.has_verification_violation());
@@ -1712,7 +1711,6 @@ pub(crate) mod tests {
         // That should give an identity that is no longer verified, with a verification
         // violation.
         let own_identity = machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap();
-        let own_identity = own_identity.own().unwrap();
         assert!(!own_identity.is_verified());
         assert!(own_identity.was_previously_verified());
         assert!(own_identity.has_verification_violation());

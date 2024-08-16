@@ -350,10 +350,7 @@ impl UserIdentity {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn is_verified(&self) -> bool {
-        match &self.inner.identity {
-            CryptoUserIdentities::Own(identity) => identity.is_verified(),
-            CryptoUserIdentities::Other(identity) => identity.is_verified(),
-        }
+        self.inner.identity.is_verified()
     }
 
     /// Get the public part of the Master key of this user identity.
