@@ -920,6 +920,106 @@ mod tests {
         .unwrap();
     }
 
+    /// Test that a verified user changing their identity causes an error in
+    /// `collect_session_recipients`, and that it can be resolved by
+    /// withdrawing verification
+    #[async_test]
+    async fn test_verified_user_changed_identity() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        // We start with Bob, who is verified and has one unsigned device. We have also
+        // verified our own identity.
+        let machine = unsigned_of_verified_setup().await;
+
+        // Bob then rotates his identity
+        let bob_keys = DataSet::bob_keys_query_response_rotated();
+        machine.mark_request_as_sent(&TransactionId::new(), &bob_keys).await.unwrap();
+
+        // Double-check the state of Bob
+        let bob_identity = machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap();
+        assert!(bob_identity.has_verification_violation());
+
+        // Sharing an OutboundGroupSession should fail.
+        let encryption_settings = error_on_verification_problem_encryption_settings();
+        let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
+        let share_result = collect_session_recipients(
+            machine.store(),
+            iter::once(DataSet::bob_id()),
+            &encryption_settings,
+            &group_session,
+        )
+        .await;
+
+        assert_let!(
+            Err(OlmError::SessionRecipientCollectionError(
+                SessionRecipientCollectionError::VerifiedUserChangedIdentity(violating_users)
+            )) = share_result
+        );
+        assert_eq!(violating_users, vec![DataSet::bob_id()]);
+
+        // Resolve by calling withdraw_verification
+        bob_identity.withdraw_verification().await.unwrap();
+
+        collect_session_recipients(
+            machine.store(),
+            iter::once(DataSet::bob_id()),
+            &encryption_settings,
+            &group_session,
+        )
+        .await
+        .unwrap();
+    }
+
+    /// Test that our own identity being changed causes an error in
+    /// `collect_session_recipients`, and that it can be resolved by
+    /// withdrawing verification
+    #[async_test]
+    async fn test_own_verified_identity_changed() {
+        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+
+        // We start with a verified identity.
+        let machine = unsigned_of_verified_setup().await;
+        let own_identity = machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap();
+        assert!(own_identity.own().unwrap().is_verified());
+
+        // Another device rotates our own identity.
+        let own_keys = DataSet::own_keys_query_response_2();
+        machine.mark_request_as_sent(&TransactionId::new(), &own_keys).await.unwrap();
+
+        let own_identity = machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap();
+        assert!(!own_identity.is_verified());
+
+        // Sharing an OutboundGroupSession should fail.
+        let encryption_settings = error_on_verification_problem_encryption_settings();
+        let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
+        let share_result = collect_session_recipients(
+            machine.store(),
+            iter::once(DataSet::own_id()),
+            &encryption_settings,
+            &group_session,
+        )
+        .await;
+
+        assert_let!(
+            Err(OlmError::SessionRecipientCollectionError(
+                SessionRecipientCollectionError::VerifiedUserChangedIdentity(violating_users)
+            )) = share_result
+        );
+        assert_eq!(violating_users, vec![DataSet::own_id()]);
+
+        // Resolve by calling withdraw_verification
+        own_identity.withdraw_verification().await.unwrap();
+
+        collect_session_recipients(
+            machine.store(),
+            iter::once(DataSet::own_id()),
+            &encryption_settings,
+            &group_session,
+        )
+        .await
+        .unwrap();
+    }
+
     #[async_test]
     async fn test_share_with_identity_strategy() {
         let machine = set_up_test_machine().await;
