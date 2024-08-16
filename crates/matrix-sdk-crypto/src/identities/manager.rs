@@ -2137,13 +2137,8 @@ pub(crate) mod tests {
         let txn_id = TransactionId::new();
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
 
-        let carol_identity = machine
-            .get_identity(DataSet::carol_id(), None)
-            .await
-            .unwrap()
-            .unwrap()
-            .other()
-            .unwrap();
+        let carol_identity =
+            machine.get_identity(DataSet::carol_id(), None).await.unwrap().unwrap();
         // The identity is not verified
         assert!(!carol_identity.is_verified());
         // The verified latch is off
@@ -2213,43 +2208,30 @@ pub(crate) mod tests {
         let own_identity =
             machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap().own().unwrap();
 
-        let bob_identity =
-            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
-        // Carol is verified by our identity but our own identity is not yet trusted
-        assert!(own_identity.is_identity_signed(&bob_identity));
+        let bob_identity = machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap();
+        // Bob is verified by our identity but our own identity is not yet trusted
         assert!(!bob_identity.was_previously_verified());
+        assert!(own_identity.is_identity_signed(&bob_identity.other().unwrap()));
 
-        let carol_identity = machine
-            .get_identity(DataSet::carol_id(), None)
-            .await
-            .unwrap()
-            .unwrap()
-            .other()
-            .unwrap();
+        let carol_identity =
+            machine.get_identity(DataSet::carol_id(), None).await.unwrap().unwrap();
         // Carol is verified by our identity but our own identity is not yet trusted
-        assert!(own_identity.is_identity_signed(&carol_identity));
         assert!(!carol_identity.was_previously_verified());
+        assert!(own_identity.is_identity_signed(&carol_identity.other().unwrap()));
 
         // Marking our own identity as trusted should update the existing identities
         let _ = own_identity.verify().await;
 
-        let own_identity =
-            machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap().own().unwrap();
+        let own_identity = machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap();
         assert!(own_identity.is_verified());
 
-        let carol_identity = machine
-            .get_identity(DataSet::carol_id(), None)
-            .await
-            .unwrap()
-            .unwrap()
-            .other()
-            .unwrap();
+        let carol_identity =
+            machine.get_identity(DataSet::carol_id(), None).await.unwrap().unwrap();
         assert!(carol_identity.is_verified());
         // The latch should be set now
         assert!(carol_identity.was_previously_verified());
 
-        let bob_identity =
-            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
+        let bob_identity = machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap();
         assert!(bob_identity.is_verified());
         // The latch should be set now
         assert!(bob_identity.was_previously_verified());
@@ -2290,23 +2272,16 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let own_identity =
-            machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap().own().unwrap();
+        let own_identity = machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap();
         assert!(own_identity.is_verified());
 
-        let carol_identity = machine
-            .get_identity(DataSet::carol_id(), None)
-            .await
-            .unwrap()
-            .unwrap()
-            .other()
-            .unwrap();
+        let carol_identity =
+            machine.get_identity(DataSet::carol_id(), None).await.unwrap().unwrap();
         assert!(carol_identity.is_verified());
         // The latch should be set now
         assert!(carol_identity.was_previously_verified());
 
-        let bob_identity =
-            machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
+        let bob_identity = machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap();
         assert!(bob_identity.is_verified());
         // The latch should be set now
         assert!(bob_identity.was_previously_verified());
