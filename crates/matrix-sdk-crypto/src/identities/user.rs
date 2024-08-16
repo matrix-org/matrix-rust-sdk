@@ -486,6 +486,17 @@ impl UserIdentityData {
         }
     }
 
+    /// True if we verified our own identity at some point in the past.
+    ///
+    /// To reset this latch back to `false`, one must call
+    /// [`UserIdentities::withdraw_verification()`].
+    pub fn was_previously_verified(&self) -> bool {
+        match self {
+            UserIdentityData::Own(i) => i.was_previously_verified(),
+            UserIdentityData::Other(i) => i.was_previously_verified(),
+        }
+    }
+
     /// Convert the enum into a reference [`OwnUserIdentityData`] if it's of
     /// the correct type.
     pub fn own(&self) -> Option<&OwnUserIdentityData> {
