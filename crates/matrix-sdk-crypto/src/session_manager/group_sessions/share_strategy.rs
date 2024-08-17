@@ -267,8 +267,7 @@ fn should_rotate_due_to_left_device(
 
     if let Some(shared) = outbound.shared_with_set.read().unwrap().get(user_id) {
         // Devices that received this session
-        let shared: BTreeSet<OwnedDeviceId> = shared.keys().cloned().collect();
-        let shared: BTreeSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
+        let shared: BTreeSet<&DeviceId> = shared.keys().map(|d| d.as_ref()).collect();
 
         // The set difference between
         //
@@ -364,6 +363,8 @@ mod tests {
 
     use std::sync::Arc;
 
+    use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use matrix_sdk_test::{
         async_test,
         test_json::keys_query_sets::{
@@ -373,6 +374,7 @@ mod tests {
     use ruma::{events::room::history_visibility::HistoryVisibility, room_id, TransactionId};
 
     use crate::{
+        error::RoomKeySharingStrategyError,
         olm::OutboundGroupSession,
         session_manager::{
             group_sessions::share_strategy::collect_session_recipients, CollectStrategy,
@@ -625,58 +627,48 @@ mod tests {
         .await;
 
         let keys_query = KeyDistributionTestData::dan_keys_query_response();
-        let txn_id = TransactionId::new();
-        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
         let fake_room_id = room_id!("!roomid:localhost");
 
-        let strategy = CollectStrategy::new_identity_based();
-
-        let encryption_settings =
-            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+        let encryption_settings = EncryptionSettings {
+            sharing_strategy: CollectStrategy::new_identity_based(),
+            ..Default::default()
+        };
 
         let request_result = machine
             .share_room_key(
                 fake_room_id,
-                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                std::iter::once(KeyDistributionTestData::dan_id()),
                 encryption_settings.clone(),
             )
             .await;
 
-        assert!(request_result.is_err());
-        let err = request_result.unwrap_err();
-        match err {
-            OlmError::RoomKeySharingStrategyError(
-                crate::error::RoomKeySharingStrategyError::CrossSigningNotSetup,
-            ) => {
-                // ok
-            }
-            _ => panic!("Unexpected share error"),
-        }
+        assert_matches!(
+            request_result,
+            Err(OlmError::RoomKeySharingStrategyError(
+                RoomKeySharingStrategyError::CrossSigningNotSetup
+            ))
+        );
 
         // Let's now have cross-signing, but the identity is not trusted
         let keys_query = KeyDistributionTestData::me_keys_query_response();
-        let txn_id = TransactionId::new();
-        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
         let request_result = machine
             .share_room_key(
                 fake_room_id,
-                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                std::iter::once(KeyDistributionTestData::dan_id()),
                 encryption_settings.clone(),
             )
             .await;
 
-        assert!(request_result.is_err());
-        let err = request_result.unwrap_err();
-        match err {
-            OlmError::RoomKeySharingStrategyError(
-                crate::error::RoomKeySharingStrategyError::SendingFromUnverifiedDevice,
-            ) => {
-                // ok
-            }
-            _ => panic!("Unexpected share error"),
-        }
+        assert_matches!(
+            request_result,
+            Err(OlmError::RoomKeySharingStrategyError(
+                RoomKeySharingStrategyError::SendingFromUnverifiedDevice
+            ))
+        );
 
         // If we are verified it should then work
         machine
@@ -695,7 +687,7 @@ mod tests {
         let request_result = machine
             .share_room_key(
                 fake_room_id,
-                vec![KeyDistributionTestData::dan_id()].into_iter(),
+                std::iter::once(KeyDistributionTestData::dan_id()),
                 encryption_settings.clone(),
             )
             .await;
@@ -714,17 +706,14 @@ mod tests {
         machine.bootstrap_cross_signing(false).await.unwrap();
 
         let keys_query = IdentityChangeDataSet::key_query_with_identity_a();
-        let txn_id = TransactionId::new();
-        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
         let keys_query = MaloIdentityChangeDataSet::initial_key_query();
-        let txn_id = TransactionId::new();
-        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
         // Simulate pinning violation
         let keys_query = IdentityChangeDataSet::key_query_with_identity_b();
-        let txn_id = TransactionId::new();
-        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
         machine
             .get_identity(IdentityChangeDataSet::user_id(), None)
             .await
@@ -737,8 +726,7 @@ mod tests {
             .unwrap();
 
         let keys_query = MaloIdentityChangeDataSet::updated_key_query();
-        let txn_id = TransactionId::new();
-        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
         machine
             .get_identity(MaloIdentityChangeDataSet::user_id(), None)
             .await
@@ -751,10 +739,11 @@ mod tests {
             .unwrap();
 
         let fake_room_id = room_id!("!roomid:localhost");
-        let strategy = CollectStrategy::new_identity_based();
 
-        let encryption_settings =
-            EncryptionSettings { sharing_strategy: strategy.clone(), ..Default::default() };
+        let encryption_settings = EncryptionSettings {
+            sharing_strategy: CollectStrategy::new_identity_based(),
+            ..Default::default()
+        };
 
         let request_result = machine
             .share_room_key(
@@ -765,41 +754,35 @@ mod tests {
             )
             .await;
 
-        assert!(request_result.is_err());
-        let err = request_result.unwrap_err();
-        match err {
-            OlmError::RoomKeySharingStrategyError(
-                crate::error::RoomKeySharingStrategyError::UnconfirmedIdentities(affected_users),
-            ) => {
-                assert_eq!(2, affected_users.len());
+        assert_let!(
+            Err(OlmError::RoomKeySharingStrategyError(
+                RoomKeySharingStrategyError::UnconfirmedIdentities(affected_users)
+            )) = request_result
+        );
+        assert_eq!(2, affected_users.len());
 
-                // resolve by pinning the new identity
-                for user_id in affected_users {
-                    machine
-                        .get_identity(&user_id, None)
-                        .await
-                        .unwrap()
-                        .unwrap()
-                        .other()
-                        .unwrap()
-                        .pin_current_master_key()
-                        .await
-                        .unwrap()
-                }
-
-                let request_result = machine
-                    .share_room_key(
-                        fake_room_id,
-                        // vec![KeyDistributionTestData::dan_id()].into_iter(),
-                        vec![IdentityChangeDataSet::user_id()].into_iter(),
-                        encryption_settings.clone(),
-                    )
-                    .await;
-
-                assert!(request_result.is_ok());
-            }
-            _ => panic!("Unexpected share error"),
+        // resolve by pinning the new identity
+        for user_id in affected_users {
+            machine
+                .get_identity(&user_id, None)
+                .await
+                .unwrap()
+                .unwrap()
+                .other()
+                .unwrap()
+                .pin_current_master_key()
+                .await
+                .unwrap()
         }
+
+        machine
+            .share_room_key(
+                fake_room_id,
+                std::iter::once(IdentityChangeDataSet::user_id()),
+                encryption_settings.clone(),
+            )
+            .await
+            .unwrap();
     }
 
     #[async_test]
