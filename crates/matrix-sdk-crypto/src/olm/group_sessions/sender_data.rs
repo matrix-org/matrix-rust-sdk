@@ -116,7 +116,8 @@ impl SenderData {
         }
     }
 
-    /// Create a [`SenderData`] with a known but unverified sender, where the sender was previously verified.
+    /// Create a [`SenderData`] with a known but unverified sender, where the
+    /// sender was previously verified.
     pub fn sender_previously_verified(
         user_id: &UserId,
         device_id: &DeviceId,

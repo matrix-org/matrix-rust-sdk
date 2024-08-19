@@ -91,12 +91,10 @@ impl VerificationState {
             VerificationState::Unverified(level) => match level {
                 VerificationLevel::UnverifiedIdentity
                 | VerificationLevel::PreviouslyVerified
-                | VerificationLevel::UnsignedDevice => {
-                    ShieldState::Red {
-                        code: ShieldStateCode::UnverifiedIdentity,
-                        message: UNVERIFIED_IDENTITY,
-                    }
-                }
+                | VerificationLevel::UnsignedDevice => ShieldState::Red {
+                    code: ShieldStateCode::UnverifiedIdentity,
+                    message: UNVERIFIED_IDENTITY,
+                },
                 VerificationLevel::None(link) => match link {
                     DeviceLinkProblem::MissingDevice => ShieldState::Red {
                         code: ShieldStateCode::UnknownDevice,
