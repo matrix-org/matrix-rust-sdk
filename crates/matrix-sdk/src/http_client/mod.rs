@@ -36,15 +36,11 @@ use tracing::{debug, field::debug, instrument, trace};
 
 use crate::{config::RequestConfig, error::HttpError};
 
-#[cfg(feature = "experimental-oidc")]
-mod http_helpers;
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 
-#[cfg(feature = "experimental-oidc")]
-use http_helpers::{ToHttpNew, ToHttpOld};
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use native::HttpSettings;
 
@@ -265,8 +261,8 @@ async fn response_to_http_response(
 }
 
 #[cfg(feature = "experimental-oidc")]
-impl tower::Service<http_old::Request<Bytes>> for HttpClient {
-    type Response = http_old::Response<Bytes>;
+impl tower::Service<http::Request<Bytes>> for HttpClient {
+    type Response = http::Response<Bytes>;
     type Error = tower::BoxError;
     type Future = futures_core::future::BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -277,19 +273,13 @@ impl tower::Service<http_old::Request<Bytes>> for HttpClient {
         std::task::Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, req: http_old::Request<Bytes>) -> Self::Future {
+    fn call(&mut self, req: http::Request<Bytes>) -> Self::Future {
         let inner = self.inner.clone();
 
         let fut = async move {
-            native::send_request(
-                &inner,
-                &req.to_http_new(),
-                DEFAULT_REQUEST_TIMEOUT,
-                Default::default(),
-            )
-            .await
-            .map(ToHttpOld::to_http_old)
-            .map_err(Into::into)
+            native::send_request(&inner, &req, DEFAULT_REQUEST_TIMEOUT, Default::default())
+                .await
+                .map_err(Into::into)
         };
         Box::pin(fut)
     }
