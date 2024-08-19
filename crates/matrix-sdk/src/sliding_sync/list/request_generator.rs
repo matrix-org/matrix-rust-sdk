@@ -8,26 +8,25 @@
 //! * There is a set of ranges,
 //! * Each request asks to load the particular ranges.
 //!
-//! In [`SlidingSyncMode::PagingFullSync`]:
+//! In [`SlidingSyncMode::Paging`]:
 //!
 //! * There is a `batch_size`,
 //! * Each request asks to load a new successive range containing exactly
 //!   `batch_size` rooms.
 //!
-//! In [`SlidingSyncMode::GrowingFullSync]:
+//! In [`SlidingSyncMode::Growing]:
 //!
 //! * There is a `batch_size`,
 //! * Each request asks to load a new range, always starting from 0, but where
 //!   the end is incremented by `batch_size` every time.
 //!
-//! The number of rooms to load is capped by the
-//! [`SlidingSyncList::maximum_number_of_rooms`], i.e. the real number of
-//! rooms it is possible to load. This value comes from the server.
+//! The number of rooms to load is capped by a `maximum_number_of_rooms`, i.e.
+//! the real number of rooms it is possible to load. This value comes from the
+//! server.
 //!
 //! The number of rooms to load can _also_ be capped by the
-//! [`SlidingSyncList::full_sync_maximum_number_of_rooms_to_fetch`], i.e. a
-//! user-specified limit representing the maximum number of rooms the user
-//! actually wants to load.
+//! `maximum_number_of_rooms_to_fetch`, i.e. a user-specified limit representing
+//! the maximum number of rooms the user actually wants to load.
 
 use std::cmp::min;
 
@@ -80,7 +79,7 @@ pub(in super::super) struct SlidingSyncListRequestGenerator {
     ranges: Ranges,
 
     /// The kind of request generator.
-    pub(super) kind: SlidingSyncListRequestGeneratorKind,
+    kind: SlidingSyncListRequestGeneratorKind,
 }
 
 impl SlidingSyncListRequestGenerator {
