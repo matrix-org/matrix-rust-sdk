@@ -1032,7 +1032,7 @@ mod tests {
 
     #[async_test]
     #[allow(clippy::await_holding_lock)]
-    async fn test_sliding_sync_inner_update_maximum_number_of_rooms() {
+    async fn test_inner_update_maximum_number_of_rooms() {
         let (sender, _receiver) = channel(1);
 
         let mut list = SlidingSyncList::builder("foo")
@@ -1085,7 +1085,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sliding_sync_state_serialization() {
+    fn test_sliding_sync_list_loading_state_serialization() {
         assert_json_roundtrip!(from SlidingSyncListLoadingState: SlidingSyncListLoadingState::NotLoaded => json!("NotLoaded"));
         assert_json_roundtrip!(from SlidingSyncListLoadingState: SlidingSyncListLoadingState::Preloaded => json!("Preloaded"));
         assert_json_roundtrip!(from SlidingSyncListLoadingState: SlidingSyncListLoadingState::PartiallyLoaded => json!("PartiallyLoaded"));
