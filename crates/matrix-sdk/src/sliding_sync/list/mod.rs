@@ -385,7 +385,7 @@ pub enum SlidingSyncListLoadingState {
 
 impl SlidingSyncListLoadingState {
     /// Check whether the state is [`Self::FullyLoaded`].
-    pub fn is_fully_loaded(&self) -> bool {
+    fn is_fully_loaded(&self) -> bool {
         matches!(self, Self::FullyLoaded)
     }
 }

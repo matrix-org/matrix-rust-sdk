@@ -416,13 +416,19 @@ impl SlidingSync {
         // Collect requests for lists.
         let mut requests_lists = BTreeMap::new();
 
-        {
+        let require_timeout = {
             let lists = self.inner.lists.read().await;
+
+            // Start at `true` in case there is zero list.
+            let mut require_timeout = true;
 
             for (name, list) in lists.iter() {
                 requests_lists.insert(name.clone(), list.next_request(txn_id)?);
+                require_timeout = require_timeout && list.requires_timeout();
             }
-        }
+
+            require_timeout
+        };
 
         // Collect the `pos`.
         //
@@ -466,10 +472,16 @@ impl SlidingSync {
 
         Span::current().record("pos", &pos);
 
+        // Configure the timeout.
+        //
+        // The `timeout` query is necessary when all lists require it. Please see
+        // [`SlidingSyncList::requires_timeout`].
+        let timeout = require_timeout.then(|| self.inner.poll_timeout);
+
         let mut request = assign!(http::Request::new(), {
             conn_id: Some(self.inner.id.clone()),
             pos,
-            timeout: Some(self.inner.poll_timeout),
+            timeout,
             lists: requests_lists,
         });
 
@@ -2505,6 +2517,124 @@ mod tests {
         }
 
         assert_eq!(num_requests, 2);
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_timeout_zero_list() -> Result<()> {
+        let (_server, sliding_sync) = new_sliding_sync(vec![]).await?;
+
+        let (request, _, _) =
+            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+
+        // Zero list means sliding sync is fully loaded, so there is a timeout to wait
+        // on new update to pop.
+        assert!(request.timeout.is_some());
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_timeout_one_list() -> Result<()> {
+        let (_server, sliding_sync) = new_sliding_sync(vec![
+            SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::new_growing(10))
+        ])
+        .await?;
+
+        let (request, _, _) =
+            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+
+        // The list does not require a timeout.
+        assert!(request.timeout.is_none());
+
+        // Simulate a response.
+        {
+            let server_response = assign!(http::Response::new("0".to_owned()), {
+                lists: BTreeMap::from([(
+                    "foo".to_owned(),
+                    assign!(http::response::List::default(), {
+                        count: uint!(7),
+                    })
+                 )])
+            });
+
+            let _summary = {
+                let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+                sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+            };
+        }
+
+        let (request, _, _) =
+            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+
+        // The list is now fully loaded, so it requires a timeout.
+        assert!(request.timeout.is_some());
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_timeout_three_lists() -> Result<()> {
+        let (_server, sliding_sync) = new_sliding_sync(vec![
+            SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::new_growing(10)),
+            SlidingSyncList::builder("bar").sync_mode(SlidingSyncMode::new_paging(10)),
+            SlidingSyncList::builder("baz")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+        ])
+        .await?;
+
+        let (request, _, _) =
+            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+
+        // Two lists don't require a timeout.
+        assert!(request.timeout.is_none());
+
+        // Simulate a response.
+        {
+            let server_response = assign!(http::Response::new("0".to_owned()), {
+                lists: BTreeMap::from([(
+                    "foo".to_owned(),
+                    assign!(http::response::List::default(), {
+                        count: uint!(7),
+                    })
+                 )])
+            });
+
+            let _summary = {
+                let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+                sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+            };
+        }
+
+        let (request, _, _) =
+            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+
+        // One don't require a timeout.
+        assert!(request.timeout.is_none());
+
+        // Simulate a response.
+        {
+            let server_response = assign!(http::Response::new("1".to_owned()), {
+                lists: BTreeMap::from([(
+                    "bar".to_owned(),
+                    assign!(http::response::List::default(), {
+                        count: uint!(7),
+                    })
+                 )])
+            });
+
+            let _summary = {
+                let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+                sliding_sync.handle_response(server_response.clone(), &mut pos_guard).await?
+            };
+        }
+
+        let (request, _, _) =
+            sliding_sync.generate_sync_request(&mut LazyTransactionId::new()).await?;
+
+        // All lists require a timeout.
+        assert!(request.timeout.is_some());
 
         Ok(())
     }
