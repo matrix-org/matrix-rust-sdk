@@ -1,7 +1,13 @@
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_core::Subscriber;
 use tracing_subscriber::{
-    fmt::{self, time::FormatTime, FormatEvent, FormatFields, FormattedFields},
+    field::RecordFields,
+    fmt::{
+        self,
+        format::{DefaultFields, Writer},
+        time::FormatTime,
+        FormatEvent, FormatFields, FormattedFields,
+    },
     layer::SubscriberExt,
     registry::LookupSpan,
     util::SubscriberInitExt,
@@ -135,7 +141,25 @@ where
 
         let writer = builder.build(&c.path).expect("Failed to create a rolling file appender.");
 
+        // Another fields formatter is necessary because of this bug
+        // https://github.com/tokio-rs/tracing/issues/1372. Using a new
+        // formatter for the fields forces to record them in different span
+        // extensions, and thus remove the duplicated fields in the span.
+        #[derive(Default)]
+        struct FieldsFormatterForFiles(DefaultFields);
+
+        impl<'writer> FormatFields<'writer> for FieldsFormatterForFiles {
+            fn format_fields<R: RecordFields>(
+                &self,
+                writer: Writer<'writer>,
+                fields: R,
+            ) -> std::fmt::Result {
+                self.0.format_fields(writer, fields)
+            }
+        }
+
         fmt::layer()
+            .fmt_fields(FieldsFormatterForFiles::default())
             .event_format(EventFormatter::new())
             // EventFormatter doesn't support ANSI colors anyways, but the
             // default field formatter does, which is unhelpful for iOS +
@@ -147,8 +171,26 @@ where
     Layer::and_then(
         file_layer,
         config.write_to_stdout_or_system.then(|| {
+            // Another fields formatter is necessary because of this bug
+            // https://github.com/tokio-rs/tracing/issues/1372. Using a new
+            // formatter for the fields forces to record them in different span
+            // extensions, and thus remove the duplicated fields in the span.
+            #[derive(Default)]
+            struct FieldsFormatterFormStdoutOrSystem(DefaultFields);
+
+            impl<'writer> FormatFields<'writer> for FieldsFormatterFormStdoutOrSystem {
+                fn format_fields<R: RecordFields>(
+                    &self,
+                    writer: Writer<'writer>,
+                    fields: R,
+                ) -> std::fmt::Result {
+                    self.0.format_fields(writer, fields)
+                }
+            }
+
             #[cfg(not(target_os = "android"))]
             return fmt::layer()
+                .fmt_fields(FieldsFormatterFormStdoutOrSystem::default())
                 .event_format(EventFormatter::new())
                 // See comment above.
                 .with_ansi(false)
@@ -156,6 +198,7 @@ where
 
             #[cfg(target_os = "android")]
             return fmt::layer()
+                .fmt_fields(FieldsFormatterFormStdoutOrSystem::default())
                 .event_format(EventFormatter::for_logcat())
                 // See comment above.
                 .with_ansi(false)
