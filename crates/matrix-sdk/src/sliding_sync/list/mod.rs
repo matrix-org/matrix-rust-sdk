@@ -353,14 +353,24 @@ pub enum SlidingSyncListLoadingState {
     /// Sliding Sync has not started to load anything yet.
     #[default]
     NotLoaded,
+
     /// Sliding Sync has been preloaded, i.e. restored from a cache for example.
     Preloaded,
+
     /// Updates are received from the loaded rooms, and new rooms are being
     /// fetched in the background.
     PartiallyLoaded,
+
     /// Updates are received for all the loaded rooms, and all rooms have been
     /// loaded!
     FullyLoaded,
+}
+
+impl SlidingSyncListLoadingState {
+    /// Check whether the state is [`Self::FullyLoaded`].
+    pub fn is_fully_loaded(&self) -> bool {
+        matches!(self, Self::FullyLoaded)
+    }
 }
 
 /// Builder for a new sliding sync list in selective mode.
@@ -498,6 +508,7 @@ impl SlidingSyncMode {
 mod tests {
     use std::{
         cell::Cell,
+        ops::Not,
         sync::{Arc, Mutex},
     };
 
@@ -1090,6 +1101,14 @@ mod tests {
         assert_json_roundtrip!(from SlidingSyncListLoadingState: SlidingSyncListLoadingState::Preloaded => json!("Preloaded"));
         assert_json_roundtrip!(from SlidingSyncListLoadingState: SlidingSyncListLoadingState::PartiallyLoaded => json!("PartiallyLoaded"));
         assert_json_roundtrip!(from SlidingSyncListLoadingState: SlidingSyncListLoadingState::FullyLoaded => json!("FullyLoaded"));
+    }
+
+    #[test]
+    fn test_sliding_sync_list_loading_state_is_fully_loaded() {
+        assert!(SlidingSyncListLoadingState::NotLoaded.is_fully_loaded().not());
+        assert!(SlidingSyncListLoadingState::Preloaded.is_fully_loaded().not());
+        assert!(SlidingSyncListLoadingState::PartiallyLoaded.is_fully_loaded().not());
+        assert!(SlidingSyncListLoadingState::FullyLoaded.is_fully_loaded());
     }
 
     #[test]
