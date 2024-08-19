@@ -543,7 +543,21 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             };
 
             trace!("Applying edit");
-            Some(event_item.with_content(new_content, edit_json))
+
+            if let EventTimelineItemKind::Remote(remote_event) = &event_item.kind {
+                let new_encryption_info = match &this.ctx.flow {
+                    Flow::Local { .. } => None,
+                    Flow::Remote { encryption_info, .. } => encryption_info.clone(),
+                };
+
+                Some(event_item.with_content(new_content, edit_json).with_kind(
+                    EventTimelineItemKind::Remote(
+                        remote_event.with_encryption_info(new_encryption_info),
+                    ),
+                ))
+            } else {
+                Some(event_item.with_content(new_content, edit_json))
+            }
         });
 
         if !found {

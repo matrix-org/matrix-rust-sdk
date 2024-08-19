@@ -73,6 +73,11 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
 }
 
 impl RemoteEventTimelineItem {
+    /// Clone the current event item, and update its `encryption_info`.
+    pub fn with_encryption_info(&self, encryption_info: Option<EncryptionInfo>) -> Self {
+        Self { encryption_info, ..self.clone() }
+    }
+
     /// Clone the current event item, and update its `reactions`.
     pub fn with_reactions(&self, reactions: ReactionsByKeyBySender) -> Self {
         Self { reactions, ..self.clone() }
