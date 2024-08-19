@@ -46,7 +46,6 @@ experimental-oidc = [
     "ruma/unstable-msc2967",
     "ruma/unstable-msc4108",
     "dep:chrono",
-    "dep:http_old",
     "dep:language-tags",
     "dep:mas-oidc-client",
     "dep:rand",
@@ -82,12 +81,11 @@ eyre = { version = "0.6.8", optional = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
 http = { workspace = true }
-http_old = { package = "http", version = "0.2", optional = true }
 imbl = { workspace = true, features = ["serde"] }
 indexmap = "2.0.2"
 js_int = "0.2.2"
 language-tags = { version = "0.3.2", optional = true }
-mas-oidc-client = { version = "0.9.0", default-features = false, optional = true }
+mas-oidc-client = { version = "0.10.0", default-features = false, optional = true }
 matrix-sdk-base = { workspace = true }
 matrix-sdk-common = { workspace = true }
 matrix-sdk-indexeddb = { workspace = true, optional = true }
