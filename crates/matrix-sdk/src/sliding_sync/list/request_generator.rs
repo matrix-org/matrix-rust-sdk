@@ -115,6 +115,12 @@ impl SlidingSyncListRequestGenerator {
         }
     }
 
+    /// Check whether this request generator is of kind
+    /// [`SlidingSyncListRequestGeneratorKind::Selective`].
+    pub(super) fn is_selective(&self) -> bool {
+        matches!(self.kind, SlidingSyncListRequestGeneratorKind::Selective)
+    }
+
     /// Return a view on the ranges requested by this generator.
     ///
     /// For generators in the selective mode, this is the initial set of ranges.
@@ -326,7 +332,7 @@ fn create_range(
 
 #[cfg(test)]
 mod tests {
-    use std::ops::RangeInclusive;
+    use std::ops::{Not, RangeInclusive};
 
     use assert_matches::assert_matches;
 
@@ -389,6 +395,7 @@ mod tests {
 
         assert!(request_generator.ranges.is_empty());
         assert_eq!(request_generator.kind, SlidingSyncListRequestGeneratorKind::Selective);
+        assert!(request_generator.is_selective());
     }
 
     #[test]
@@ -407,6 +414,7 @@ mod tests {
                 requested_end: None,
             }
         );
+        assert!(request_generator.is_selective().not());
     }
 
     #[test]
@@ -425,5 +433,6 @@ mod tests {
                 requested_end: None,
             }
         );
+        assert!(request_generator.is_selective().not());
     }
 }
