@@ -66,8 +66,8 @@ use crate::{
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
-        OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData, SenderDataFinder, SessionType,
-        StaticAccountData,
+        KnownSenderData, OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData,
+        SenderDataFinder, SessionType, StaticAccountData,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -2359,10 +2359,13 @@ fn sender_data_to_verification_state(
             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
             Some(device_keys.device_id),
         ),
-        SenderData::SenderKnown { master_key_verified: false, device_id, .. } => {
+        SenderData::SenderUnverifiedButPreviouslyVerified(KnownSenderData {
+            device_id, ..
+        }) => (VerificationState::Unverified(VerificationLevel::PreviouslyVerified), device_id),
+        SenderData::SenderUnverified(KnownSenderData { device_id, .. }) => {
             (VerificationState::Unverified(VerificationLevel::UnverifiedIdentity), device_id)
         }
-        SenderData::SenderKnown { master_key_verified: true, device_id, .. } => {
+        SenderData::SenderVerified(KnownSenderData { device_id, .. }) => {
             (VerificationState::Verified, device_id)
         }
     }

@@ -20,12 +20,32 @@ use vodozemac::Ed25519PublicKey;
 
 use crate::types::DeviceKeys;
 
+/// Information about the sender of a megolm session where we know the
+/// cross-signing identity of the sender.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct KnownSenderData {
+    /// The user ID of the user who established this session.
+    pub user_id: OwnedUserId,
+
+    /// The device ID of the device that send the session.
+    /// This is an `Option` for backwards compatibility, but we should always
+    /// populate it on creation.
+    pub device_id: Option<OwnedDeviceId>,
+
+    /// The cross-signing key of the user who established this session.
+    pub master_key: Box<Ed25519PublicKey>,
+}
+
 /// Information on the device and user that sent the megolm session data to us
 ///
 /// Sessions start off in `UnknownDevice` state, and progress into `DeviceInfo`
 /// state when we get the device info. Finally, if we can look up the sender
-/// using the device info, the session can be moved into `SenderKnown` state.
+/// using the device info, the session can be moved into
+/// `SenderUnverifiedButPreviouslyVerified`, `SenderUnverified`, or
+/// `SenderVerified` state, depending on the verification status of the user.
+/// If the user's verification state changes, the state may change accordingly.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(from = "SenderDataReader")]
 pub enum SenderData {
     /// We have not yet found the (signed) device info for the sending device,
     /// or we did find a device but it does not own the session.
@@ -56,25 +76,20 @@ pub enum SenderData {
     },
 
     /// We have found proof that this user, with this cross-signing key, sent
-    /// the to-device message that established this session.
-    SenderKnown {
-        /// The user ID of the user who established this session.
-        user_id: OwnedUserId,
+    /// the to-device message that established this session, but we have not yet
+    /// verified the cross-signing key, and we had verified a previous
+    /// cross-signing key for this user.
+    SenderUnverifiedButPreviouslyVerified(KnownSenderData),
 
-        /// The device ID of the device that send the session.
-        /// This is an `Option` for backwards compatibility, but we should
-        /// always populate it on creation.
-        device_id: Option<OwnedDeviceId>,
+    /// We have found proof that this user, with this cross-signing key, sent
+    /// the to-device message that established this session, but we have not yet
+    /// verified the cross-signing key.
+    SenderUnverified(KnownSenderData),
 
-        /// The cross-signing key of the user who established this session.
-        master_key: Box<Ed25519PublicKey>,
-
-        /// Whether, at the time we checked the signature on the device,
-        /// we had actively verified that `master_key` belongs to the user.
-        /// If false, we had simply accepted the key as this user's latest
-        /// key.
-        master_key_verified: bool,
-    },
+    /// We have found proof that this user, with this cross-signing key, sent
+    /// the to-device message that established this session, and we have
+    /// verified the cross-signing key.
+    SenderVerified(KnownSenderData),
 }
 
 impl SenderData {
@@ -102,19 +117,44 @@ impl SenderData {
         }
     }
 
-    /// Create a [`SenderData`] with a known sender.
-    pub fn sender_known(
+    /// Create a [`SenderData`] with a known but unverified sender, where the
+    /// sender was previously verified.
+    pub fn sender_previously_verified(
         user_id: &UserId,
         device_id: &DeviceId,
         master_key: Ed25519PublicKey,
-        master_key_verified: bool,
     ) -> Self {
-        Self::SenderKnown {
+        Self::SenderUnverifiedButPreviouslyVerified(KnownSenderData {
             user_id: user_id.to_owned(),
             device_id: Some(device_id.to_owned()),
             master_key: Box::new(master_key),
-            master_key_verified,
-        }
+        })
+    }
+
+    /// Create a [`SenderData`] with a known but unverified sender.
+    pub fn sender_unverified(
+        user_id: &UserId,
+        device_id: &DeviceId,
+        master_key: Ed25519PublicKey,
+    ) -> Self {
+        Self::SenderUnverified(KnownSenderData {
+            user_id: user_id.to_owned(),
+            device_id: Some(device_id.to_owned()),
+            master_key: Box::new(master_key),
+        })
+    }
+
+    /// Create a [`SenderData`] with a verified sender.
+    pub fn sender_verified(
+        user_id: &UserId,
+        device_id: &DeviceId,
+        master_key: Ed25519PublicKey,
+    ) -> Self {
+        Self::SenderVerified(KnownSenderData {
+            user_id: user_id.to_owned(),
+            device_id: Some(device_id.to_owned()),
+            master_key: Box::new(master_key),
+        })
     }
 
     /// Create a [`SenderData`] which has the legacy flag set. Caution: messages
@@ -128,7 +168,9 @@ impl SenderData {
 
     /// Returns true if this is SenderKnown and `master_key_verified` is true.
     pub(crate) fn is_known(&self) -> bool {
-        matches!(self, SenderData::SenderKnown { .. })
+        matches!(self, SenderData::SenderUnverifiedButPreviouslyVerified { .. })
+            || matches!(self, SenderData::SenderUnverified { .. })
+            || matches!(self, SenderData::SenderVerified { .. })
     }
 
     /// Returns `Greater` if this `SenderData` represents a greater level of
@@ -151,8 +193,9 @@ impl SenderData {
         match self {
             SenderData::UnknownDevice { .. } => 0,
             SenderData::DeviceInfo { .. } => 1,
-            SenderData::SenderKnown { master_key_verified: false, .. } => 2,
-            SenderData::SenderKnown { master_key_verified: true, .. } => 3,
+            SenderData::SenderUnverifiedButPreviouslyVerified(..) => 2,
+            SenderData::SenderUnverified(..) => 3,
+            SenderData::SenderVerified(..) => 4,
         }
     }
 }
@@ -166,6 +209,67 @@ impl SenderData {
 impl Default for SenderData {
     fn default() -> Self {
         Self::legacy()
+    }
+}
+
+/// Deserialisation type, to handle conversion from older formats
+#[derive(Deserialize)]
+enum SenderDataReader {
+    UnknownDevice {
+        legacy_session: bool,
+        #[serde(default)]
+        owner_check_failed: bool,
+    },
+
+    DeviceInfo {
+        device_keys: DeviceKeys,
+        legacy_session: bool,
+    },
+
+    SenderUnverifiedButPreviouslyVerified(KnownSenderData),
+
+    SenderUnverified(KnownSenderData),
+
+    SenderVerified(KnownSenderData),
+
+    // If we read this older variant, it gets changed to SenderUnverified or
+    // SenderVerified, depending on the master_key_verified flag.
+    SenderKnown {
+        user_id: OwnedUserId,
+        device_id: Option<OwnedDeviceId>,
+        master_key: Box<Ed25519PublicKey>,
+        master_key_verified: bool,
+    },
+}
+
+impl From<SenderDataReader> for SenderData {
+    fn from(data: SenderDataReader) -> Self {
+        match data {
+            SenderDataReader::UnknownDevice { legacy_session, owner_check_failed } => {
+                Self::UnknownDevice { legacy_session, owner_check_failed }
+            }
+            SenderDataReader::DeviceInfo { device_keys, legacy_session } => {
+                Self::DeviceInfo { device_keys, legacy_session }
+            }
+            SenderDataReader::SenderUnverifiedButPreviouslyVerified(data) => {
+                Self::SenderUnverifiedButPreviouslyVerified(data)
+            }
+            SenderDataReader::SenderUnverified(data) => Self::SenderUnverified(data),
+            SenderDataReader::SenderVerified(data) => Self::SenderVerified(data),
+            SenderDataReader::SenderKnown {
+                user_id,
+                device_id,
+                master_key,
+                master_key_verified,
+            } => {
+                let known_sender_data = KnownSenderData { user_id, device_id, master_key };
+                if master_key_verified {
+                    Self::SenderVerified(known_sender_data)
+                } else {
+                    Self::SenderUnverified(known_sender_data)
+                }
+            }
+        }
     }
 }
 
@@ -249,7 +353,7 @@ mod tests {
             "#;
 
         let end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
-        assert_let!(SenderData::SenderKnown { .. } = end);
+        assert_let!(SenderData::SenderVerified { .. } = end);
     }
 
     #[test]
@@ -259,8 +363,10 @@ mod tests {
         let master_key =
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
 
-        assert!(SenderData::sender_known(user_id, device_id, master_key, true).is_known());
-        assert!(SenderData::sender_known(user_id, device_id, master_key, false).is_known());
+        assert!(!SenderData::unknown().is_known());
+        assert!(SenderData::sender_previously_verified(user_id, device_id, master_key).is_known());
+        assert!(SenderData::sender_unverified(user_id, device_id, master_key).is_known());
+        assert!(SenderData::sender_verified(user_id, device_id, master_key).is_known());
     }
 
     #[test]
@@ -291,9 +397,9 @@ mod tests {
         let master_key =
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
         let sender_unverified =
-            SenderData::sender_known(user_id!("@u:s.co"), device_id!("DEV"), master_key, false);
+            SenderData::sender_unverified(user_id!("@u:s.co"), device_id!("DEV"), master_key);
         let sender_verified =
-            SenderData::sender_known(user_id!("@u:s.co"), device_id!("DEV"), master_key, true);
+            SenderData::sender_verified(user_id!("@u:s.co"), device_id!("DEV"), master_key);
 
         assert_eq!(unknown.compare_trust_level(&unknown), Ordering::Equal);
         assert_eq!(device_keys.compare_trust_level(&device_keys), Ordering::Equal);
@@ -313,23 +419,39 @@ mod tests {
         ));
         let master_key =
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
+        let sender_previously_verified = SenderData::sender_previously_verified(
+            user_id!("@u:s.co"),
+            device_id!("DEV"),
+            master_key,
+        );
         let sender_unverified =
-            SenderData::sender_known(user_id!("@u:s.co"), device_id!("DEV"), master_key, false);
+            SenderData::sender_unverified(user_id!("@u:s.co"), device_id!("DEV"), master_key);
         let sender_verified =
-            SenderData::sender_known(user_id!("@u:s.co"), device_id!("DEV"), master_key, true);
+            SenderData::sender_verified(user_id!("@u:s.co"), device_id!("DEV"), master_key);
 
         assert_eq!(unknown.compare_trust_level(&device_keys), Ordering::Less);
+        assert_eq!(unknown.compare_trust_level(&sender_previously_verified), Ordering::Less);
         assert_eq!(unknown.compare_trust_level(&sender_unverified), Ordering::Less);
         assert_eq!(unknown.compare_trust_level(&sender_verified), Ordering::Less);
         assert_eq!(device_keys.compare_trust_level(&unknown), Ordering::Greater);
+        assert_eq!(sender_previously_verified.compare_trust_level(&unknown), Ordering::Greater);
         assert_eq!(sender_unverified.compare_trust_level(&unknown), Ordering::Greater);
         assert_eq!(sender_verified.compare_trust_level(&unknown), Ordering::Greater);
 
         assert_eq!(device_keys.compare_trust_level(&sender_unverified), Ordering::Less);
         assert_eq!(device_keys.compare_trust_level(&sender_verified), Ordering::Less);
+        assert_eq!(sender_previously_verified.compare_trust_level(&device_keys), Ordering::Greater);
         assert_eq!(sender_unverified.compare_trust_level(&device_keys), Ordering::Greater);
         assert_eq!(sender_verified.compare_trust_level(&device_keys), Ordering::Greater);
 
+        assert_eq!(
+            sender_previously_verified.compare_trust_level(&sender_verified),
+            Ordering::Less
+        );
+        assert_eq!(
+            sender_previously_verified.compare_trust_level(&sender_unverified),
+            Ordering::Less
+        );
         assert_eq!(sender_unverified.compare_trust_level(&sender_verified), Ordering::Less);
         assert_eq!(sender_verified.compare_trust_level(&sender_unverified), Ordering::Greater);
     }
