@@ -97,17 +97,19 @@ where
 
             if let Some(scope) = ctx.event_scope() {
                 writer.write_str(" | spans: ")?;
+
                 let mut first = true;
 
                 for span in scope.from_root() {
                     if !first {
                         writer.write_str(" > ")?;
                     }
-                    first = false;
-                    write!(writer, "{}", span.metadata().name())?;
 
-                    let ext = span.extensions();
-                    if let Some(fields) = &ext.get::<FormattedFields<N>>() {
+                    first = false;
+
+                    write!(writer, "{}", span.name())?;
+
+                    if let Some(fields) = &span.extensions().get::<FormattedFields<N>>() {
                         if !fields.is_empty() {
                             write!(writer, "{{{fields}}}")?;
                         }
