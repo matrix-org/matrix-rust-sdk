@@ -187,7 +187,7 @@ async fn test_decryption_verification_state() {
 
     // And the updated SenderData should have been saved into the store.
     let session = load_session(&bob, room_id, &event).await.unwrap().unwrap();
-    assert_let!(SenderData::SenderKnown { .. } = session.sender_data);
+    assert_let!(SenderData::SenderVerified { .. } = session.sender_data);
 
     // Simulate an imported session, to change verification state
     let imported = InboundGroupSession::from_export(&export).unwrap();

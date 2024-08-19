@@ -32,15 +32,24 @@ Changes:
 
 Breaking changes:
 
+  **NOTE**: this version causes changes to the format of the serialised data in
+  the CryptoStore, meaning that, once upgraded, it will not be possible to roll
+  back applications to earlier versions without breaking user sessions.
+
+- Change the structure of the `SenderData` enum to separate variants for
+  previously-verified, unverified and verified.
+  ([#3877](https://github.com/matrix-org/matrix-rust-sdk/pull/3877))
+
+- Where `EncryptionInfo` is returned it may include the new `PreviouslyVerified`
+  variant of `VerificationLevel` to indicate that the user was previously
+  verified and is no longer verified.
+  ([#3877](https://github.com/matrix-org/matrix-rust-sdk/pull/3877))
+
 - Expose new methods `OwnUserIdentity::was_previously_verified`,
   `OwnUserIdentity::withdraw_verification`, and
   `OwnUserIdentity::has_verification_violation`, which track whether our own
   identity was previously verified.
   ([#3846](https://github.com/matrix-org/matrix-rust-sdk/pull/3846))
-
-  **NOTE**: this causes changes to the format of the serialised data in the
-  CryptoStore, meaning that, once upgraded, it will not be possible to roll
-  back applications to earlier versions without breaking user sessions.
 
 - Add a new `error_on_verified_user_problem` property to
   `CollectStrategy::DeviceBasedStrategy`, which, when set, causes
