@@ -20,7 +20,7 @@ use vodozemac::Ed25519PublicKey;
 
 use crate::types::DeviceKeys;
 
-/// Information about the sender of a megolm session where we know their
+/// Information about the sender of a megolm session where we know the
 /// cross-signing identity of the sender.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct KnownSenderData {
@@ -75,7 +75,7 @@ pub enum SenderData {
         legacy_session: bool,
     },
 
-    /// We have found proof that this user, with this cross-signing key, send
+    /// We have found proof that this user, with this cross-signing key, sent
     /// the to-device message that established this session, but we have not yet
     /// verified the cross-signing key, and we had verified a previous
     /// cross-signing key for this user.
