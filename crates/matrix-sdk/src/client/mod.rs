@@ -32,6 +32,8 @@ use futures_util::StreamExt;
 use imbl::Vector;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
+#[cfg(feature = "media-cache")]
+use matrix_sdk_base::media_cache::DynMediaCache;
 use matrix_sdk_base::{
     store::{DynStateStore, ServerCapabilities},
     sync::{Notification, RoomUpdates},
@@ -571,6 +573,12 @@ impl Client {
     /// Get a reference to the state store.
     pub fn store(&self) -> &DynStateStore {
         self.base_client().store()
+    }
+
+    /// Get a reference to the media cache.
+    #[cfg(feature = "media-cache")]
+    pub(crate) fn media_cache(&self) -> &DynMediaCache {
+        self.base_client().media_cache()
     }
 
     /// Access the native Matrix authentication API with this client.

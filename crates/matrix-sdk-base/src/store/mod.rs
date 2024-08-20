@@ -58,6 +58,8 @@ use ruma::{
 };
 use tokio::sync::{broadcast, Mutex, RwLock};
 
+#[cfg(feature = "media-cache")]
+use crate::media_cache::{DynMediaCache, IntoMediaCache};
 use crate::{
     rooms::{normal::RoomInfoNotableUpdate, RoomInfo, RoomState},
     MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
@@ -434,8 +436,11 @@ impl StateChanges {
     }
 }
 
-/// Configuration for the state store and, when `encryption` is enabled, for the
-/// crypto store.
+/// Configuration for the various stores.
+///
+/// By default, this always includes a state store. When the `e2e-encryption`
+/// feature is enabled, this also includes a crypto store. When the
+/// `media-cache` feature is enabled, this also includes a media cache.
 ///
 /// # Examples
 ///
@@ -449,6 +454,8 @@ pub struct StoreConfig {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) crypto_store: Arc<DynCryptoStore>,
     pub(crate) state_store: Arc<DynStateStore>,
+    #[cfg(feature = "media-cache")]
+    pub(crate) media_cache: Arc<DynMediaCache>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -466,6 +473,8 @@ impl StoreConfig {
             #[cfg(feature = "e2e-encryption")]
             crypto_store: matrix_sdk_crypto::store::MemoryStore::new().into_crypto_store(),
             state_store: Arc::new(MemoryStore::new()),
+            #[cfg(feature = "media-cache")]
+            media_cache: crate::media_cache::MemoryStore::new().into_media_cache(),
         }
     }
 
@@ -481,6 +490,13 @@ impl StoreConfig {
     /// Set a custom implementation of a `StateStore`.
     pub fn state_store(mut self, store: impl IntoStateStore) -> Self {
         self.state_store = store.into_state_store();
+        self
+    }
+
+    /// Set a custom implementation of a `MediaCache`.
+    #[cfg(feature = "media-cache")]
+    pub fn media_cache(mut self, media_cache: impl IntoMediaCache) -> Self {
+        self.media_cache = media_cache.into_media_cache();
         self
     }
 }

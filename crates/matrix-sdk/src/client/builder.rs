@@ -662,6 +662,11 @@ async fn build_store_config(
                 matrix_sdk_sqlite::SqliteStateStore::open(&path, passphrase.as_deref()).await?,
             );
 
+            #[cfg(feature = "media-cache")]
+            let store_config = store_config.media_cache(
+                matrix_sdk_sqlite::SqliteMediaCache::open(&path, passphrase.as_deref()).await?,
+            );
+
             #[cfg(feature = "e2e-encryption")]
             let store_config = store_config.crypto_store(
                 matrix_sdk_sqlite::SqliteCryptoStore::open(&path, passphrase.as_deref()).await?,
@@ -688,17 +693,25 @@ async fn build_indexeddb_store_config(
     passphrase: Option<&str>,
 ) -> Result<StoreConfig, ClientBuildError> {
     #[cfg(feature = "e2e-encryption")]
-    {
+    let store_config = {
         let (state_store, crypto_store) =
             matrix_sdk_indexeddb::open_stores_with_name(name, passphrase).await?;
-        Ok(StoreConfig::new().state_store(state_store).crypto_store(crypto_store))
-    }
+        StoreConfig::new().state_store(state_store).crypto_store(crypto_store)
+    };
 
     #[cfg(not(feature = "e2e-encryption"))]
-    {
+    let store_config = {
         let state_store = matrix_sdk_indexeddb::open_state_store(name, passphrase).await?;
-        Ok(StoreConfig::new().state_store(state_store))
-    }
+        StoreConfig::new().state_store(state_store)
+    };
+
+    #[cfg(feature = "media-cache")]
+    let store_config = {
+        tracing::warn!("The IndexedDB backend does not implement a media cache, falling back to the memory media cache…");
+        store_config.media_cache(matrix_sdk_base::media_cache::MemoryStore::new())
+    };
+
+    Ok(store_config)
 }
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "indexeddb"))]

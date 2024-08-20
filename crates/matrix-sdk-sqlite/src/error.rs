@@ -13,6 +13,8 @@
 // limitations under the License.
 
 use deadpool_sqlite::{CreatePoolError, PoolError};
+#[cfg(feature = "media-cache")]
+use matrix_sdk_base::media_cache::MediaCacheError;
 #[cfg(feature = "state-store")]
 use matrix_sdk_base::store::StoreError as StateStoreError;
 #[cfg(feature = "crypto-store")]
@@ -132,6 +134,16 @@ impl From<Error> for StateStoreError {
             Error::Encryption(e) => StateStoreError::Encryption(e),
             Error::Redaction(e) => StateStoreError::Redaction(e),
             e => StateStoreError::backend(e),
+        }
+    }
+}
+
+#[cfg(feature = "media-cache")]
+impl From<Error> for MediaCacheError {
+    fn from(e: Error) -> Self {
+        match e {
+            Error::Encryption(e) => MediaCacheError::Encryption(e),
+            e => MediaCacheError::backend(e),
         }
     }
 }

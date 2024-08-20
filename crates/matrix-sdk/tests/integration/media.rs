@@ -61,36 +61,39 @@ async fn test_get_media_content_no_auth() {
 
     let expected_content = "Hello, World (2)!";
 
-    // Third time, with the cache.
+    #[cfg(feature = "media-cache")]
     {
-        let _mock_guard = Mock::given(method("GET"))
-            .and(path("/_matrix/media/r0/download/localhost/textfile"))
-            .respond_with(ResponseTemplate::new(200).set_body_string(expected_content))
-            .named("get_file_with_cache")
-            .expect(1)
-            .mount_as_scoped(&server)
-            .await;
+        // Third time, with the cache.
+        {
+            let _mock_guard = Mock::given(method("GET"))
+                .and(path("/_matrix/media/r0/download/localhost/textfile"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(expected_content))
+                .named("get_file_with_cache")
+                .expect(1)
+                .mount_as_scoped(&server)
+                .await;
 
-        assert_eq!(
-            media.get_media_content(&request, true).await.unwrap(),
-            expected_content.as_bytes()
-        );
-    }
+            assert_eq!(
+                media.get_media_content(&request, true).await.unwrap(),
+                expected_content.as_bytes()
+            );
+        }
 
-    // Third time, with the cache, the HTTP server isn't reached.
-    {
-        let _mock_guard = Mock::given(method("GET"))
-            .and(path("/_matrix/media/r0/download/localhost/textfile"))
-            .respond_with(ResponseTemplate::new(500))
-            .named("get_file_with_cache_error")
-            .expect(0)
-            .mount_as_scoped(&server)
-            .await;
+        // Third time, with the cache, the HTTP server isn't reached.
+        {
+            let _mock_guard = Mock::given(method("GET"))
+                .and(path("/_matrix/media/r0/download/localhost/textfile"))
+                .respond_with(ResponseTemplate::new(500))
+                .named("get_file_with_cache_error")
+                .expect(0)
+                .mount_as_scoped(&server)
+                .await;
 
-        assert_eq!(
-            client.media().get_media_content(&request, true).await.unwrap(),
-            expected_content.as_bytes()
-        );
+            assert_eq!(
+                client.media().get_media_content(&request, true).await.unwrap(),
+                expected_content.as_bytes()
+            );
+        }
     }
 }
 

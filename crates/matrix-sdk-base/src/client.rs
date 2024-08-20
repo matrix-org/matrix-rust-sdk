@@ -17,7 +17,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt, iter,
 };
-#[cfg(feature = "e2e-encryption")]
+#[cfg(any(feature = "e2e-encryption", feature = "media-cache"))]
 use std::{ops::Deref, sync::Arc};
 
 use eyeball::{SharedObservable, Subscriber};
@@ -65,6 +65,8 @@ use tracing::{debug, info, instrument, trace, warn};
 
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
+#[cfg(feature = "media-cache")]
+use crate::media_cache::DynMediaCache;
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
 use crate::{
@@ -90,6 +92,9 @@ use crate::{
 pub struct BaseClient {
     /// Database
     pub(crate) store: Store,
+    /// The media cache.
+    #[cfg(feature = "media-cache")]
+    media_cache: Arc<DynMediaCache>,
     /// The store used for encryption.
     ///
     /// This field is only meant to be used for `OlmMachine` initialization.
@@ -138,6 +143,8 @@ impl BaseClient {
 
         BaseClient {
             store: Store::new(config.state_store),
+            #[cfg(feature = "media-cache")]
+            media_cache: config.media_cache,
             #[cfg(feature = "e2e-encryption")]
             crypto_store: config.crypto_store,
             #[cfg(feature = "e2e-encryption")]
@@ -198,6 +205,12 @@ impl BaseClient {
     #[allow(unknown_lints, clippy::explicit_auto_deref)]
     pub fn store(&self) -> &DynStateStore {
         &*self.store
+    }
+
+    /// Get a reference to the media cache.
+    #[cfg(feature = "media-cache")]
+    pub fn media_cache(&self) -> &DynMediaCache {
+        &*self.media_cache
     }
 
     /// Is the client logged in.

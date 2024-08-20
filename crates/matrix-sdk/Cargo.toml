@@ -16,7 +16,7 @@ features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls"]
+default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls", "media-cache"]
 testing = ["matrix-sdk-sqlite?/testing", "matrix-sdk-indexeddb?/testing", "matrix-sdk-base/testing", "wiremock", "matrix-sdk-test", "assert_matches2"]
 
 e2e-encryption = [
@@ -25,6 +25,10 @@ e2e-encryption = [
     "matrix-sdk-indexeddb?/e2e-encryption",   # activate on indexeddb if given
 ]
 js = ["matrix-sdk-common/js", "matrix-sdk-base/js"]
+media-cache = [
+    "matrix-sdk-base/media-cache",
+    "matrix-sdk-sqlite?/media-cache",  # activate media cache on sqlite if given
+]
 
 sqlite = ["dep:matrix-sdk-sqlite", "matrix-sdk-sqlite?/state-store"]
 bundled-sqlite = ["sqlite", "matrix-sdk-sqlite?/bundled"]

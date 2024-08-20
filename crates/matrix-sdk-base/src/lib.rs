@@ -29,6 +29,8 @@ pub mod deserialized_responses;
 mod error;
 pub mod latest_event;
 pub mod media;
+#[cfg(feature = "media-cache")]
+pub mod media_cache;
 pub mod notification_settings;
 mod rooms;
 
