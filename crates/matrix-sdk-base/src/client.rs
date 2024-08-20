@@ -108,6 +108,11 @@ pub struct BaseClient {
     /// event contains the room and a boolean whether this event should
     /// trigger a room list update.
     pub(crate) room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
+
+    /// The strategy to use for picking recipient devices, when sending an
+    /// encrypted message.
+    #[cfg(feature = "e2e-encryption")]
+    pub room_key_recipient_strategy: CollectStrategy,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -144,17 +149,28 @@ impl BaseClient {
             olm_machine: Default::default(),
             ignore_user_list_changes: Default::default(),
             room_info_notable_update_sender,
+            #[cfg(feature = "e2e-encryption")]
+            room_key_recipient_strategy: Default::default(),
         }
     }
 
     /// Clones the current base client to use the same crypto store but a
     /// different, in-memory store config, and resets transient state.
+    #[cfg(feature = "e2e-encryption")]
     pub fn clone_with_in_memory_state_store(&self) -> Self {
         let config = StoreConfig::new().state_store(MemoryStore::new());
-
-        #[cfg(feature = "e2e-encryption")]
         let config = config.crypto_store(self.crypto_store.clone());
 
+        let mut result = Self::with_store_config(config);
+        result.room_key_recipient_strategy = self.room_key_recipient_strategy.clone();
+        result
+    }
+
+    /// Clones the current base client to use the same crypto store but a
+    /// different, in-memory store config, and resets transient state.
+    #[cfg(not(feature = "e2e-encryption"))]
+    pub fn clone_with_in_memory_state_store(&self) -> Self {
+        let config = StoreConfig::new().state_store(MemoryStore::new());
         Self::with_store_config(config)
     }
 
@@ -1394,10 +1410,7 @@ impl BaseClient {
                 let settings = EncryptionSettings::new(
                     settings,
                     history_visibility,
-                    CollectStrategy::DeviceBasedStrategy {
-                        only_allow_trusted_devices: false,
-                        error_on_verified_user_problem: false,
-                    },
+                    self.room_key_recipient_strategy.clone(),
                 );
 
                 Ok(o.share_room_key(room_id, members.iter().map(Deref::deref), settings).await?)
