@@ -156,20 +156,13 @@ impl SqliteCryptoStore {
         value: Vec<u8>,
         backed_up: bool,
     ) -> Result<InboundGroupSession> {
-        let pickle = self.deserialize_pickled_inbound_group_session(&value, backed_up)?;
-        Ok(InboundGroupSession::from_pickle(pickle)?)
-    }
+        let mut pickle: PickledInboundGroupSession = self.deserialize_value(&value)?;
 
-    fn deserialize_pickled_inbound_group_session(
-        &self,
-        value: &[u8],
-        backed_up: bool,
-    ) -> Result<PickledInboundGroupSession> {
-        let mut pickle: PickledInboundGroupSession = self.deserialize_value(value)?;
         // backed_up SQL column is source of truth, backed_up field in pickle
         // needed for other stores though
         pickle.backed_up = backed_up;
-        Ok(pickle)
+
+        Ok(InboundGroupSession::from_pickle(pickle)?)
     }
 
     fn deserialize_key_request(&self, value: &[u8], sent_out: bool) -> Result<GossipRequest> {
