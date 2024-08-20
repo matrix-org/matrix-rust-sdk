@@ -454,12 +454,12 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
     async fn get_inbound_group_session(
         &self,
         session_id: Key,
-    ) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+    ) -> Result<Option<(Vec<u8>, Vec<u8>, bool)>> {
         Ok(self
             .query_row(
-                "SELECT room_id, data FROM inbound_group_session WHERE session_id = ?",
+                "SELECT room_id, data, backed_up FROM inbound_group_session WHERE session_id = ?",
                 (session_id,),
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .await
             .optional()?)
@@ -921,7 +921,7 @@ impl CryptoStore for SqliteCryptoStore {
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
         let session_id = self.encode_key("inbound_group_session", session_id);
-        let Some((room_id_from_db, value)) =
+        let Some((room_id_from_db, value, backed_up)) =
             self.acquire().await?.get_inbound_group_session(session_id).await?
         else {
             return Ok(None);
@@ -933,9 +933,7 @@ impl CryptoStore for SqliteCryptoStore {
             return Ok(None);
         }
 
-        let pickle = self.deserialize_value(&value)?;
-
-        Ok(Some(InboundGroupSession::from_pickle(pickle)?))
+        Ok(Some(self.deserialize_and_unpickle_inbound_group_session(value, backed_up)?))
     }
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
