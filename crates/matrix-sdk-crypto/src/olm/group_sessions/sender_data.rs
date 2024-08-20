@@ -45,6 +45,7 @@ pub struct KnownSenderData {
 /// `SenderVerified` state, depending on the verification status of the user.
 /// If the user's verification state changes, the state may change accordingly.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(from = "SenderDataReader")]
 pub enum SenderData {
     /// We have not yet found the (signed) device info for the sending device,
     /// or we did find a device but it does not own the session.
@@ -208,6 +209,67 @@ impl SenderData {
 impl Default for SenderData {
     fn default() -> Self {
         Self::legacy()
+    }
+}
+
+/// Deserialisation type, to handle conversion from older formats
+#[derive(Deserialize)]
+enum SenderDataReader {
+    UnknownDevice {
+        legacy_session: bool,
+        #[serde(default)]
+        owner_check_failed: bool,
+    },
+
+    DeviceInfo {
+        device_keys: DeviceKeys,
+        legacy_session: bool,
+    },
+
+    SenderUnverifiedButPreviouslyVerified(KnownSenderData),
+
+    SenderUnverified(KnownSenderData),
+
+    SenderVerified(KnownSenderData),
+
+    // If we read this older variant, it gets changed to SenderUnverified or
+    // SenderVerified, depending on the master_key_verified flag.
+    SenderKnown {
+        user_id: OwnedUserId,
+        device_id: Option<OwnedDeviceId>,
+        master_key: Box<Ed25519PublicKey>,
+        master_key_verified: bool,
+    },
+}
+
+impl From<SenderDataReader> for SenderData {
+    fn from(data: SenderDataReader) -> Self {
+        match data {
+            SenderDataReader::UnknownDevice { legacy_session, owner_check_failed } => {
+                Self::UnknownDevice { legacy_session, owner_check_failed }
+            }
+            SenderDataReader::DeviceInfo { device_keys, legacy_session } => {
+                Self::DeviceInfo { device_keys, legacy_session }
+            }
+            SenderDataReader::SenderUnverifiedButPreviouslyVerified(data) => {
+                Self::SenderUnverifiedButPreviouslyVerified(data)
+            }
+            SenderDataReader::SenderUnverified(data) => Self::SenderUnverified(data),
+            SenderDataReader::SenderVerified(data) => Self::SenderVerified(data),
+            SenderDataReader::SenderKnown {
+                user_id,
+                device_id,
+                master_key,
+                master_key_verified,
+            } => {
+                let known_sender_data = KnownSenderData { user_id, device_id, master_key };
+                if master_key_verified {
+                    Self::SenderVerified(known_sender_data)
+                } else {
+                    Self::SenderUnverified(known_sender_data)
+                }
+            }
+        }
     }
 }
 
