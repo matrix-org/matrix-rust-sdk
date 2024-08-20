@@ -31,6 +31,8 @@ use url::Url;
 
 use super::{Client, ClientInner};
 #[cfg(feature = "e2e-encryption")]
+use crate::crypto::CollectStrategy;
+#[cfg(feature = "e2e-encryption")]
 use crate::encryption::EncryptionSettings;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::http_client::HttpSettings;
@@ -99,6 +101,8 @@ pub struct ClientBuilder {
     base_client: Option<BaseClient>,
     #[cfg(feature = "e2e-encryption")]
     encryption_settings: EncryptionSettings,
+    #[cfg(feature = "e2e-encryption")]
+    room_key_recipient_strategy: CollectStrategy,
 }
 
 impl ClientBuilder {
@@ -121,6 +125,8 @@ impl ClientBuilder {
             base_client: None,
             #[cfg(feature = "e2e-encryption")]
             encryption_settings: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            room_key_recipient_strategy: Default::default(),
         }
     }
 
@@ -413,6 +419,14 @@ impl ClientBuilder {
         self
     }
 
+    /// Set the strategy to be used for picking recipient devices, when sending
+    /// an encrypted message.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn with_room_key_recipient_strategy(mut self, strategy: CollectStrategy) -> Self {
+        self.room_key_recipient_strategy = strategy;
+        self
+    }
+
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -445,7 +459,12 @@ impl ClientBuilder {
         let base_client = if let Some(base_client) = self.base_client {
             base_client
         } else {
-            BaseClient::with_store_config(build_store_config(self.store_config).await?)
+            #[allow(unused_mut)]
+            let mut client =
+                BaseClient::with_store_config(build_store_config(self.store_config).await?);
+            #[cfg(feature = "e2e-encryption")]
+            (client.room_key_recipient_strategy = self.room_key_recipient_strategy.clone());
+            client
         };
 
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
