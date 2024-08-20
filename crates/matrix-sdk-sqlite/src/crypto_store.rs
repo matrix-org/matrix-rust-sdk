@@ -158,8 +158,10 @@ impl SqliteCryptoStore {
     ) -> Result<InboundGroupSession> {
         let mut pickle: PickledInboundGroupSession = self.deserialize_value(&value)?;
 
-        // backed_up SQL column is source of truth, backed_up field in pickle
-        // needed for other stores though
+        // The `backed_up` SQL column is the source of truth, because we update it
+        // inside `mark_inbound_group_sessions_as_backed_up` and don't update
+        // the pickled value inside the `data` column (until now, when we are puling it
+        // out of the DB).
         pickle.backed_up = backed_up;
 
         Ok(InboundGroupSession::from_pickle(pickle)?)
