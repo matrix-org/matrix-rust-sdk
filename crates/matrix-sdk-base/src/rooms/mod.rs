@@ -40,11 +40,11 @@ use ruma::{
         RedactedStateEventContent, StaticStateEventContent, SyncStateEvent,
     },
     room::RoomType,
-    EventId, OwnedUserId, RoomVersionId, UserId,
+    DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::MinimalStateEvent;
+use crate::{Error, MinimalStateEvent};
 
 /// The name of the room, either from the metadata or calculated
 /// according to [matrix specification](https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room)
@@ -112,7 +112,8 @@ pub struct BaseRoomInfo {
     /// All minimal state events that containing one or more running matrixRTC
     /// memberships.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
-    pub(crate) rtc_member: BTreeMap<OwnedUserId, MinimalStateEvent<CallMemberEventContent>>,
+    pub(crate) rtc_member_events:
+        BTreeMap<ParsedMemberEventKey, MinimalStateEvent<CallMemberEventContent>>,
     /// Whether this room has been manually marked as unread.
     #[serde(default)]
     pub(crate) is_marked_unread: bool,
@@ -195,15 +196,16 @@ impl BaseRoomInfo {
                 let mut o_ev = o_ev.clone();
                 o_ev.content.set_created_ts_if_none(o_ev.origin_server_ts);
 
-                let Some(owned_user_id) = get_user_id_for_state_key(m.state_key()) else {
+                let Ok(user_and_device_id) = parse_rtc_member_event_key(m.state_key()) else {
                     return false;
                 };
 
-                // add the new event.
-                self.rtc_member.insert(owned_user_id, SyncStateEvent::Original(o_ev).into());
+                // Add the new event.
+                self.rtc_member_events
+                    .insert(user_and_device_id, SyncStateEvent::Original(o_ev).into());
 
                 // Remove all events that don't contain any memberships anymore.
-                self.rtc_member.retain(|_, ev| {
+                self.rtc_member_events.retain(|_, ev| {
                     ev.as_original().is_some_and(|o| !o.content.active_memberships(None).is_empty())
                 });
             }
@@ -303,7 +305,8 @@ impl BaseRoomInfo {
         } else if self.topic.has_event_id(redacts) {
             self.topic.as_mut().unwrap().redact(&room_version);
         } else {
-            self.rtc_member.retain(|_, member_event| member_event.event_id() != Some(redacts));
+            self.rtc_member_events
+                .retain(|_, member_event| member_event.event_id() != Some(redacts));
         }
     }
 
@@ -322,31 +325,55 @@ impl BaseRoomInfo {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum MemberParseError {
+    #[error("Missing an @ sign at the start (or after a '_') of the member event key")]
+    MissingAt,
+    #[error("Missing colon in the member event key. This is expected as part of the UserId")]
+    NoColonIndex,
+    #[error("Could not parse the UserId: {user_id}")]
+    InvalidUserId { user_id: String, error: ruma::IdParseError },
+}
+
+type ParsedMemberEventKey = (OwnedUserId, Option<OwnedDeviceId>);
 /// Extract a user ID from a state key that matches one of these formats:
 /// - `<user ID>`
 /// - `<user ID>_<string>`
 /// - `_<user ID>_<string>`
-fn get_user_id_for_state_key(state_key: &str) -> Option<OwnedUserId> {
+fn parse_rtc_member_event_key(state_key: &str) -> Result<ParsedMemberEventKey, MemberParseError> {
     if let Ok(user_id) = UserId::parse(state_key) {
-        return Some(user_id);
+        return Ok((user_id, None));
     }
 
     // Ignore leading underscore if present
     // (used for avoiding auth rules on @-prefixed state keys)
     let state_key = state_key.strip_prefix('_').unwrap_or(state_key);
-    if state_key.starts_with('@') {
-        if let Some(colon_idx) = state_key.find(':') {
-            let state_key_user_id = match state_key[colon_idx + 1..].find('_') {
-                None => state_key,
-                Some(suffix_idx) => &state_key[..colon_idx + 1 + suffix_idx],
-            };
-            if let Ok(user_id) = UserId::parse(state_key_user_id) {
-                return Some(user_id);
-            }
-        }
+    if !state_key.starts_with('@') {
+        return Err(MemberParseError::MissingAt);
     }
+    // Fail early if we cannot find the index of the ":"
+    let Some(colon_idx) = state_key.find(':') else {
+        return Err(MemberParseError::NoColonIndex);
+    };
 
-    None
+    let (state_key_user_id, state_key_device_id) = match state_key[colon_idx + 1..].find('_') {
+        None => (state_key, None),
+        Some(suffix_idx) => (
+            &state_key[..colon_idx + 1 + suffix_idx],
+            Some(&state_key[colon_idx + 2 + suffix_idx..]),
+        ),
+    };
+
+    match (
+        UserId::parse(state_key_user_id),
+        state_key_device_id.map(|device_id| Into::<OwnedDeviceId>::into(device_id)),
+    ) {
+        (Ok(user_id), device_id) => Ok((user_id, device_id)),
+        (Err(err), _) => Err(MemberParseError::InvalidUserId {
+            user_id: state_key_user_id.to_owned(),
+            error: err,
+        }),
+    }
 }
 
 bitflags! {
@@ -395,7 +422,7 @@ impl Default for BaseRoomInfo {
             name: None,
             tombstone: None,
             topic: None,
-            rtc_member: BTreeMap::new(),
+            rtc_member_events: BTreeMap::new(),
             is_marked_unread: false,
             notable_tags: RoomNotableTags::empty(),
             pinned_events: None,
@@ -567,11 +594,12 @@ mod tests {
     use std::ops::Not;
 
     use ruma::{
+        device_id,
         events::tag::{TagInfo, TagName, Tags},
         user_id,
     };
 
-    use super::{get_user_id_for_state_key, BaseRoomInfo, RoomNotableTags};
+    use super::{parse_rtc_member_event_key, BaseRoomInfo, RoomNotableTags};
 
     #[test]
     fn test_handle_notable_tags_favourite() {
@@ -604,30 +632,30 @@ mod tests {
     }
 
     #[test]
-    fn test_get_user_id_for_state_key() {
-        assert!(get_user_id_for_state_key("").is_none());
-        assert!(get_user_id_for_state_key("abc").is_none());
-        assert!(get_user_id_for_state_key("@nocolon").is_none());
-        assert!(get_user_id_for_state_key("@noserverpart:").is_none());
-        assert!(get_user_id_for_state_key("@noserverpart:_suffix").is_none());
+    fn test_parse_rtc_member_event_key() {
+        assert!(parse_rtc_member_event_key("").is_err());
+        assert!(parse_rtc_member_event_key("abc").is_err());
+        assert!(parse_rtc_member_event_key("@nocolon").is_err());
+        assert!(parse_rtc_member_event_key("@noserverpart:").is_err());
+        assert!(parse_rtc_member_event_key("@noserverpart:_suffix").is_err());
 
         let user_id = user_id!("@username:example.org");
+        let device_id = device_id!("VALID_DEVICE_ID");
+        assert_eq!(parse_rtc_member_event_key(user_id.as_str()).unwrap().0, user_id);
+        assert_eq!(
+            parse_rtc_member_event_key(format!("{user_id}_{device_id}").as_str()).unwrap(),
+            (user_id.to_owned(), Some(device_id.to_owned()))
+        );
+        assert!(parse_rtc_member_event_key(format!("{user_id}:invalid_suffix").as_str()).is_err());
 
-        assert_eq!(get_user_id_for_state_key(user_id.as_str()).as_deref(), Some(user_id));
         assert_eq!(
-            get_user_id_for_state_key(format!("{user_id}_valid_suffix").as_str()).as_deref(),
-            Some(user_id)
-        );
-        assert!(get_user_id_for_state_key(format!("{user_id}:invalid_suffix").as_str()).is_none());
-
-        assert_eq!(
-            get_user_id_for_state_key(format!("_{user_id}").as_str()).as_deref(),
-            Some(user_id)
+            parse_rtc_member_event_key(format!("_{user_id}").as_str()).unwrap(),
+            (user_id.to_owned(), None)
         );
         assert_eq!(
-            get_user_id_for_state_key(format!("_{user_id}_valid_suffix").as_str()).as_deref(),
-            Some(user_id)
+            parse_rtc_member_event_key(format!("_{user_id}_{device_id}").as_str()).unwrap(),
+            (user_id.to_owned(), Some(device_id.to_owned()))
         );
-        assert!(get_user_id_for_state_key(format!("_{user_id}:invalid_suffix").as_str()).is_none());
+        assert!(parse_rtc_member_event_key(format!("_{user_id}:invalid_suffix").as_str()).is_err());
     }
 }

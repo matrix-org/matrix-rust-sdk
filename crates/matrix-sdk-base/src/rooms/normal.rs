@@ -57,8 +57,8 @@ use tokio::sync::broadcast;
 use tracing::{debug, field::debug, info, instrument, warn};
 
 use super::{
-    members::MemberRoomInfo, BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent,
-    RoomMember, RoomNotableTags,
+    members::MemberRoomInfo, BaseRoomInfo, DisplayName, ParsedMemberEventKey,
+    RoomCreateWithCreatorEventContent, RoomMember, RoomNotableTags,
 };
 #[cfg(feature = "experimental-sliding-sync")]
 use crate::latest_event::LatestEvent;
@@ -1452,10 +1452,10 @@ impl RoomInfo {
     /// associated UserId's in this room.
     ///
     /// The vector is ordered by oldest membership to newest.
-    fn active_matrix_rtc_memberships(&self) -> Vec<(OwnedUserId, MembershipData<'_>)> {
+    fn active_matrix_rtc_memberships(&self) -> Vec<(ParsedMemberEventKey, MembershipData<'_>)> {
         let mut v = self
             .base_info
-            .rtc_member
+            .rtc_member_events
             .iter()
             .filter_map(|(user_id, ev)| {
                 ev.as_original().map(|ev| {
@@ -1476,7 +1476,7 @@ impl RoomInfo {
     /// returns Memberships with application "m.call" and scope "m.room".
     ///
     /// The vector is ordered by oldest membership user to newest.
-    fn active_room_call_memberships(&self) -> Vec<(OwnedUserId, MembershipData<'_>)> {
+    fn active_room_call_memberships(&self) -> Vec<(ParsedMemberEventKey, MembershipData<'_>)> {
         self.active_matrix_rtc_memberships()
             .into_iter()
             .filter(|(_user_id, m)| m.is_room_call())
@@ -1498,7 +1498,10 @@ impl RoomInfo {
     ///
     /// The vector is ordered by oldest membership user to newest.
     pub fn active_room_call_participants(&self) -> Vec<OwnedUserId> {
-        self.active_room_call_memberships().iter().map(|(user_id, _)| user_id.clone()).collect()
+        self.active_room_call_memberships()
+            .iter()
+            .map(|((user_id, _), _)| user_id.clone())
+            .collect()
     }
 
     /// Returns the latest (decrypted) event recorded for this room.
@@ -1669,9 +1672,9 @@ mod tests {
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         events::{
             call::member::{
-                Application, CallApplicationContent, CallMemberEventContent, Focus,
-                LegacyMembershipData, LegacyMembershipDataInit, LivekitFocus,
-                OriginalSyncCallMemberEvent,
+                ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent,
+                CallMemberEventContent, Focus, LegacyMembershipData, LegacyMembershipDataInit,
+                LivekitFocus, OriginalSyncCallMemberEvent,
             },
             room::{
                 canonical_alias::RoomCanonicalAliasEventContent,
@@ -2701,6 +2704,35 @@ mod tests {
         user_id: &UserId,
     ) -> AnySyncStateEvent {
         let content = CallMemberEventContent::new_legacy(memberships);
+
+        AnySyncStateEvent::CallMember(SyncStateEvent::Original(OriginalSyncCallMemberEvent {
+            content,
+            event_id: OwnedEventId::from_str(ev_id).unwrap(),
+            sender: user_id.to_owned(),
+            // we can simply use now here since this will be dropped when using a MinimalStateEvent
+            // in the roomInfo
+            origin_server_ts: timestamp(0),
+            state_key: user_id.to_string(),
+            unsigned: StateUnsigned::new(),
+        }))
+    }
+    fn session_member_state_event(ev_id: &str, user_id: &UserId) -> AnySyncStateEvent {
+        let application = Application::Call(CallApplicationContent::new(
+            "my_call_id_1".to_owned(),
+            ruma::events::call::member::CallScope::Room,
+        ));
+        let foci_preferred = vec![Focus::Livekit(LivekitFocus::new(
+            "my_call_foci_alias".to_owned(),
+            "https://lk.org".to_owned(),
+        ))];
+        let focus_active = ActiveFocus::Livekit(ActiveLivekitFocus::new());
+        let content = CallMemberEventContent::new(
+            application,
+            "DEVICE_ID".into(),
+            focus_active,
+            foci_preferred,
+            Some(timestamp(0)),
+        );
 
         AnySyncStateEvent::CallMember(SyncStateEvent::Original(OriginalSyncCallMemberEvent {
             content,
