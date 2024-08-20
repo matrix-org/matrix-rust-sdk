@@ -132,3 +132,13 @@ on Git 2.17+ you can mass signoff using rebase:
 ```
 git rebase --signoff origin/main
 ```
+
+## Tips for working on the `matrix-rust-sdk` with specific IDEs
+
+* [RustRover](https://www.jetbrains.com/rust/) will attempt to sync the project
+  with all features enabled, causing an error in `matrix-sdk` ("only one of the
+  features 'native-tls' or 'rustls-tls' can be enabled"). To work around this,
+  open `crates/matrix-sdk/Cargo.toml` in RustRover and uncheck one of the
+  `native-tls` or `rustls-tls` feature definitions:
+
+  ![Screenshot of RustRover](.img/rustrover-disable-feature.png)
