@@ -13,3 +13,4 @@ Breaking changes:
 
 Additions:
 
+- Add `ClientBuilder::room_key_recipient_strategy`

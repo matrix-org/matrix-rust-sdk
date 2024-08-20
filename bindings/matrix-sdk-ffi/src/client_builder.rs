@@ -3,7 +3,10 @@ use std::{fs, num::NonZeroUsize, path::PathBuf, sync::Arc, time::Duration};
 use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
-    crypto::types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
+    crypto::{
+        types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
+        CollectStrategy,
+    },
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Certificate,
     ruma::{ServerName, UserId},
@@ -259,6 +262,7 @@ pub struct ClientBuilder {
     additional_root_certificates: Vec<Vec<u8>>,
     disable_built_in_root_certificates: bool,
     encryption_settings: EncryptionSettings,
+    room_key_recipient_strategy: CollectStrategy,
     request_config: Option<RequestConfig>,
 }
 
@@ -289,6 +293,7 @@ impl ClientBuilder {
                     matrix_sdk::encryption::BackupDownloadStrategy::AfterDecryptionFailure,
                 auto_enable_backups: false,
             },
+            room_key_recipient_strategy: Default::default(),
             request_config: Default::default(),
         })
     }
@@ -444,6 +449,14 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    /// Set the strategy to be used for picking recipient devices when sending
+    /// an encrypted message.
+    pub fn room_key_recipient_strategy(self: Arc<Self>, strategy: CollectStrategy) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.room_key_recipient_strategy = strategy;
+        Arc::new(builder)
+    }
+
     /// Add a default request config to this client.
     pub fn request_config(self: Arc<Self>, config: RequestConfig) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
@@ -533,7 +546,9 @@ impl ClientBuilder {
             inner_builder = inner_builder.user_agent(user_agent);
         }
 
-        inner_builder = inner_builder.with_encryption_settings(builder.encryption_settings);
+        inner_builder = inner_builder
+            .with_encryption_settings(builder.encryption_settings)
+            .with_room_key_recipient_strategy(builder.room_key_recipient_strategy);
 
         if let Some(sliding_sync_proxy) = builder.sliding_sync_proxy {
             inner_builder = inner_builder.sliding_sync_proxy(sliding_sync_proxy);

@@ -36,6 +36,7 @@ use crate::{Device, UserIdentities};
 /// Strategy to collect the devices that should receive room keys for the
 /// current discussion.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum CollectStrategy {
     /// Device based sharing strategy.
     DeviceBasedStrategy {
