@@ -201,7 +201,6 @@ impl TestTimeline {
     }
 
     async fn send_poll_start(&self, sender: &UserId, content: UnstablePollStartContentBlock) {
-        // TODO: consider putting it in the `TestTimeline` itself?
         let event_content = AnyMessageLikeEventContent::UnstablePollStart(
             NewUnstablePollStartEventContent::new(content).into(),
         );

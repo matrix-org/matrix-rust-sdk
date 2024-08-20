@@ -17,7 +17,6 @@ use std::sync::Arc;
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
 use ruma::events::{
     room::{
@@ -41,7 +40,7 @@ async fn test_default_filter() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
 
     // Test edits work.
     timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
@@ -99,7 +98,7 @@ async fn test_filter_always_false() {
         ..Default::default()
     });
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
     timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
 
     timeline
@@ -131,7 +130,7 @@ async fn test_custom_filter() {
     });
     let mut stream = timeline.subscribe().await;
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
     timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
     let _item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
@@ -199,7 +198,7 @@ async fn test_event_type_filter_include_only_room_names() {
         event_filter: Arc::new(move |event, _| event_filter.filter(event)),
         ..Default::default()
     });
-    let f = EventFactory::new();
+    let f = &timeline.factory;
 
     // Add a non-encrypted message event
     timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
@@ -247,7 +246,7 @@ async fn test_event_type_filter_exclude_messages() {
         event_filter: Arc::new(move |event, _| event_filter.filter(event)),
         ..Default::default()
     });
-    let f = EventFactory::new();
+    let f = &timeline.factory;
 
     // Add a message event
     timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;

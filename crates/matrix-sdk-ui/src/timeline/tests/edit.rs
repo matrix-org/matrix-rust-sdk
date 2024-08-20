@@ -14,7 +14,6 @@
 
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE};
 use ruma::{
     events::room::message::{MessageType, RedactedRoomMessageEventContent},
@@ -30,7 +29,8 @@ async fn test_live_redacted() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
+
     timeline
         .handle_live_redacted_message_event(*ALICE, RedactedRoomMessageEventContent::new())
         .await;
@@ -57,7 +57,7 @@ async fn test_live_sanitized() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
     timeline
         .handle_live_event(
             f.text_html("**original** message", "<strong>original</strong> message").sender(&ALICE),
