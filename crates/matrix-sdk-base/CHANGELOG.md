@@ -1,5 +1,6 @@
 # unreleased
 
+- Add `BaseClient::room_key_recipient_strategy` field
 - Replace the `Notification` type from Ruma in `SyncResponse` and `StateChanges` by a custom one
 - The ambiguity maps in `SyncResponse` are moved to `JoinedRoom` and `LeftRoom`
 - `AmbiguityCache` contains the room member's user ID
