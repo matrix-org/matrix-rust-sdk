@@ -151,6 +151,15 @@ impl SqliteCryptoStore {
         Ok(rmp_serde::from_slice(&decoded)?)
     }
 
+    fn deserialize_and_unpickle_inbound_group_session(
+        &self,
+        value: Vec<u8>,
+        backed_up: bool,
+    ) -> Result<InboundGroupSession> {
+        let pickle = self.deserialize_pickled_inbound_group_session(&value, backed_up)?;
+        Ok(InboundGroupSession::from_pickle(pickle)?)
+    }
+
     fn deserialize_pickled_inbound_group_session(
         &self,
         value: &[u8],
@@ -943,8 +952,7 @@ impl CryptoStore for SqliteCryptoStore {
             .await?
             .into_iter()
             .map(|(value, backed_up)| {
-                let pickle = self.deserialize_pickled_inbound_group_session(&value, backed_up)?;
-                Ok(InboundGroupSession::from_pickle(pickle)?)
+                self.deserialize_and_unpickle_inbound_group_session(value, backed_up)
             })
             .collect()
     }
@@ -966,10 +974,7 @@ impl CryptoStore for SqliteCryptoStore {
             .get_inbound_group_sessions_for_backup(limit)
             .await?
             .into_iter()
-            .map(|value| {
-                let pickle = self.deserialize_pickled_inbound_group_session(&value, false)?;
-                Ok(InboundGroupSession::from_pickle(pickle)?)
-            })
+            .map(|value| self.deserialize_and_unpickle_inbound_group_session(value, false))
             .collect()
     }
 
