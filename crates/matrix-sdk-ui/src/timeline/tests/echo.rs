@@ -131,7 +131,7 @@ async fn test_remote_echo_full_trip() {
 async fn test_remote_echo_new_position() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
-    let f = EventFactory::new();
+    let f = &timeline.factory;
 
     // Given a local event…
     let txn_id = timeline
@@ -234,7 +234,7 @@ async fn test_day_divider_duplication() {
 async fn test_day_divider_removed_after_local_echo_disappeared() {
     let timeline = TestTimeline::new();
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
 
     timeline
         .handle_live_event(
@@ -282,14 +282,14 @@ async fn test_day_divider_removed_after_local_echo_disappeared() {
 
 #[async_test]
 async fn test_read_marker_removed_after_local_echo_disappeared() {
-    let f = EventFactory::new();
-
     let event_id = event_id!("$1");
 
     let timeline = TestTimeline::with_room_data_provider(
         TestRoomDataProvider::default().with_fully_read_marker(event_id.to_owned()),
     )
     .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
+
+    let f = &timeline.factory;
 
     // Use `replace_with_initial_remote_events` which initializes the read marker;
     // other methods don't, by default.

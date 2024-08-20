@@ -14,7 +14,6 @@
 
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
 use ruma::{
     events::{room::message::MessageType, MessageLikeEventType, StateEventType},
@@ -30,7 +29,7 @@ async fn invalid_edit() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
     timeline.handle_live_event(f.text_msg("test").sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let msg = item.content().as_message().unwrap();

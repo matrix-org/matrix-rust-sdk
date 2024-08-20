@@ -15,7 +15,6 @@
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::events::{
@@ -39,7 +38,7 @@ async fn test_redact_state_event() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
 
     timeline
         .handle_live_state_event(
@@ -71,7 +70,7 @@ async fn test_redact_replied_to_event() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
 
     timeline.handle_live_event(f.text_msg("Hello, world!").sender(&ALICE)).await;
 
@@ -110,7 +109,7 @@ async fn test_reaction_redaction() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
 
     timeline.handle_live_event(f.text_msg("hi!").sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -136,7 +135,7 @@ async fn test_reaction_redaction_timeline_filter() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
 
     // Initialise a timeline with a redacted reaction.
     timeline
@@ -183,7 +182,7 @@ async fn test_reaction_redaction_timeline_filter() {
 async fn test_receive_unredacted() {
     let timeline = TestTimeline::new();
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
 
     // send two events, second one redacted
     timeline.handle_live_event(f.text_msg("about to be redacted").sender(&ALICE)).await;

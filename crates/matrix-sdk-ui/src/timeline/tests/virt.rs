@@ -16,7 +16,6 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use chrono::{Datelike, Local, TimeZone};
 use eyeball_im::VectorDiff;
-use matrix_sdk::test_utils::events::EventFactory;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     event_id,
@@ -32,7 +31,7 @@ async fn test_day_divider() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
 
     timeline
         .handle_live_event(f.text_msg("This is a first message on the first day").sender(*ALICE))
@@ -92,7 +91,7 @@ async fn test_update_read_marker() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
 
     timeline.handle_live_event(f.text_msg("A").sender(&ALICE)).await;
 

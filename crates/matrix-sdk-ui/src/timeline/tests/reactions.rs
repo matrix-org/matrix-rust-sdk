@@ -94,9 +94,9 @@ async fn test_add_reaction_success() {
 
 #[async_test]
 async fn test_redact_reaction_success() {
-    let f = EventFactory::new();
-
     let timeline = TestTimeline::new();
+    let f = &timeline.factory;
+
     let mut stream = timeline.subscribe().await;
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
     let reaction = create_reaction(&msg_id);
@@ -127,7 +127,7 @@ async fn test_redact_reaction_failure() {
     let mut stream = timeline.subscribe().await;
     let (msg_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
 
-    let f = EventFactory::new();
+    let f = &timeline.factory;
 
     let event_id = event_id!("$1");
     timeline
