@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use matrix_sdk::{
@@ -157,7 +157,6 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
             .respond_with(move |r: &Request| {
                 let segments: Vec<&str> = r.url.path_segments().expect("Invalid path").collect();
                 let event_id_str = segments[6];
-                // let f = EventFactory::new().room(&room_id)
                 let event_id = EventId::parse(event_id_str).expect("Invalid event id in response");
                 let event = f
                     .text_msg(format!("Message {event_id_str}"))
@@ -170,9 +169,6 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
             })
             .mount(&server),
     );
-    // runtime.block_on(server.reset());
-
-    client.event_cache().subscribe().unwrap();
 
     let room = client.get_room(&room_id).expect("Room not found");
     assert!(!room.pinned_event_ids().is_empty());
@@ -183,6 +179,15 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Test");
     group.throughput(Throughput::Elements(count as u64));
     group.sample_size(10);
+
+    let client = Arc::new(client);
+
+    {
+        let client = client.clone();
+        runtime.spawn_blocking(move || {
+            client.event_cache().subscribe().unwrap();
+        });
+    }
 
     group.bench_function(BenchmarkId::new("load_pinned_events", name), |b| {
         b.to_async(&runtime).iter(|| async {
@@ -207,7 +212,6 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
     {
         let _guard = runtime.enter();
         runtime.block_on(server.reset());
-        drop(client);
         drop(server);
     }
 

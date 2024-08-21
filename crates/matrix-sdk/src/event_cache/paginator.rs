@@ -471,16 +471,16 @@ impl PaginableRoom for Room {
             match self.event_with_context(event_id, lazy_load_members, num_events, None).await {
                 Ok(result) => result,
 
-            Err(err) => {
-                // If the error was a 404, then the event wasn't found on the server;
-                // special case this to make it easy to react to
-                // such an error.
-                if let Some(error) = err.as_client_api_error() {
-                    if error.status_code == 404 {
-                        // Event not found
-                        return Err(PaginatorError::EventNotFound(event_id.to_owned()));
+                Err(err) => {
+                    // If the error was a 404, then the event wasn't found on the server;
+                    // special case this to make it easy to react to
+                    // such an error.
+                    if let Some(error) = err.as_client_api_error() {
+                        if error.status_code == 404 {
+                            // Event not found
+                            return Err(PaginatorError::EventNotFound(event_id.to_owned()));
+                        }
                     }
-                }
 
                     // Otherwise, just return a wrapped error.
                     return Err(PaginatorError::SdkError(Box::new(err)));
