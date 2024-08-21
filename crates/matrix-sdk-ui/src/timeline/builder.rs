@@ -261,17 +261,13 @@ impl TimelineBuilder {
                         RoomEventCacheUpdate::AddTimelineEvents { events, origin } => {
                             trace!("Received new timeline events.");
 
-                            // Note: we deliberately choose to not handle
-                            // updates/reactions/redactions for pinned events.
-                            if !is_pinned_events {
-                                inner.add_events_at(
-                                    events,
-                                    TimelineEnd::Back,
-                                    match origin {
-                                        EventsOrigin::Sync => RemoteEventOrigin::Sync,
-                                    }
-                                ).await;
-                            }
+                            inner.add_events_at(
+                                events,
+                                TimelineEnd::Back,
+                                match origin {
+                                    EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                                }
+                            ).await;
                         }
 
                         RoomEventCacheUpdate::AddEphemeralEvents { events } => {
