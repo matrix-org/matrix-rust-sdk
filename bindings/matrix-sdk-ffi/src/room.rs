@@ -41,7 +41,7 @@ use crate::{
     TaskHandle,
 };
 
-#[derive(uniffi::Enum)]
+#[derive(Debug, uniffi::Enum)]
 pub enum Membership {
     Invited,
     Joined,

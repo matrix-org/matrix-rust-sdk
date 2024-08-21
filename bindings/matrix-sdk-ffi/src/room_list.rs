@@ -23,7 +23,7 @@ use tokio::sync::RwLock;
 
 use crate::{
     error::ClientError,
-    room::Room,
+    room::{Membership, Room},
     room_info::RoomInfo,
     timeline::{EventTimelineItem, Timeline},
     timeline_event_filter::TimelineEventTypeFilter,
@@ -50,6 +50,8 @@ pub enum RoomListError {
     InitializingTimeline { error: String },
     #[error("Event cache ran into an error: {error}")]
     EventCache { error: String },
+    #[error("The requested room doesn't match the membership requirements {expected:?}, observed {actual:?}")]
+    IncorrectRoomMembership { expected: Membership, actual: Membership },
 }
 
 impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
@@ -603,10 +605,41 @@ impl RoomListItem {
         Ok(RoomInfo::new(self.inner.inner_room()).await?)
     }
 
+    /// The room's current membership state.
+    fn membership(&self) -> Membership {
+        self.inner.inner_room().state().into()
+    }
+
+    /// Builds a `Room` FFI from an invited room without initializing its
+    /// internal timeline
+    ///
+    /// An error will be returned if the room is a state different than invited
+    ///
+    /// ⚠️ Holding on to this room instance after it has been joined is not
+    /// safe. Use `full_room` instead
+    fn invited_room(&self) -> Result<Arc<Room>, RoomListError> {
+        if !matches!(self.membership(), Membership::Invited) {
+            return Err(RoomListError::IncorrectRoomMembership {
+                expected: Membership::Invited,
+                actual: self.membership(),
+            });
+        }
+
+        Ok(Arc::new(Room::new(self.inner.inner_room().clone())))
+    }
+
     /// Build a full `Room` FFI object, filling its associated timeline.
     ///
-    /// If its internal timeline hasn't been initialized, it'll fail.
+    /// An error will be returned if the room is a state different than joined
+    /// or if its internal timeline hasn't been initialized.
     fn full_room(&self) -> Result<Arc<Room>, RoomListError> {
+        if !matches!(self.membership(), Membership::Joined) {
+            return Err(RoomListError::IncorrectRoomMembership {
+                expected: Membership::Joined,
+                actual: self.membership(),
+            });
+        }
+
         if let Some(timeline) = self.inner.timeline() {
             Ok(Arc::new(Room::with_timeline(
                 self.inner.inner_room().clone(),
