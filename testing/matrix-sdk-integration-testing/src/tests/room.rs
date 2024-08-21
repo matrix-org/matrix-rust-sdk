@@ -94,7 +94,7 @@ async fn test_event_with_context() -> Result<()> {
 
     {
         // First /context query: only the target event, no context around it.
-        let response = room.event_with_context(&event_id, false, uint!(0)).await?;
+        let response = room.event_with_context(&event_id, false, uint!(0), None).await?;
 
         let target = response
             .event
@@ -113,7 +113,8 @@ async fn test_event_with_context() -> Result<()> {
 
     {
         // Next query: an event that doesn't exist (hopefully!).
-        let response = room.event_with_context(event_id!("$lolololol"), false, uint!(0)).await;
+        let response =
+            room.event_with_context(event_id!("$lolololol"), false, uint!(0), None).await;
 
         // Servers answers with 404.
         assert_let!(Err(err) = response);
@@ -123,7 +124,7 @@ async fn test_event_with_context() -> Result<()> {
     {
         // Next query: target event with a context of 3 events. There
         // should be some previous and next tokens.
-        let response = room.event_with_context(&event_id, false, uint!(3)).await?;
+        let response = room.event_with_context(&event_id, false, uint!(3), None).await?;
 
         let target = response
             .event

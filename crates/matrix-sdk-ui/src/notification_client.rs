@@ -478,7 +478,7 @@ impl NotificationClient {
             return Err(Error::UnknownRoom);
         };
 
-        let response = room.event_with_context(event_id, true, uint!(0)).await?;
+        let response = room.event_with_context(event_id, true, uint!(0), None).await?;
 
         let mut timeline_event = response.event.ok_or(Error::ContextMissingEvent)?;
         let state_events = response.state;

@@ -22,7 +22,7 @@ use matrix_sdk_base::{
     ComposerDraft, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges, StateStoreDataKey,
     StateStoreDataValue,
 };
-use matrix_sdk_common::timeout::timeout;
+use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, timeout::timeout};
 use mime::Mime;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -417,6 +417,7 @@ impl Room {
         event_id: &EventId,
         lazy_load_members: bool,
         context_size: UInt,
+        request_config: Option<RequestConfig>,
     ) -> Result<EventWithContextResponse> {
         let mut request =
             context::get_context::v3::Request::new(self.room_id().to_owned(), event_id.to_owned());
@@ -428,7 +429,7 @@ impl Room {
                 LazyLoadOptions::Enabled { include_redundant_members: false };
         }
 
-        let response = self.client.send(request, None).await?;
+        let response = self.client.send(request, request_config).await?;
 
         let target_event = if let Some(event) = response.event {
             Some(self.try_decrypt_event(event).await?)
@@ -444,6 +445,24 @@ impl Room {
             try_join_all(response.events_after.into_iter().map(|ev| self.try_decrypt_event(ev))),
         )
         .await?;
+
+        // Save the loaded events into the event cache, if it's set up.
+        if let Ok((cache, _handles)) = self.event_cache().await {
+            let mut events_to_save: Vec<SyncTimelineEvent> = Vec::new();
+            if let Some(event) = &target_event {
+                events_to_save.push(event.clone().into());
+            }
+
+            for event in &events_before {
+                events_to_save.push(event.clone().into());
+            }
+
+            for event in &events_after {
+                events_to_save.push(event.clone().into());
+            }
+
+            cache.save_events(events_to_save).await;
+        }
 
         Ok(EventWithContextResponse {
             event: target_event,

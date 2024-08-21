@@ -574,15 +574,10 @@ impl RoomEventCache {
     // be no distinction between the linked chunk and the separate cache.
     pub(crate) async fn save_event(&self, event: SyncTimelineEvent) {
         if let Some(event_id) = event.event_id() {
-            let mut cache = self.inner
-                .all_events_cache
-                .write()
-                .await;
+            let mut cache = self.inner.all_events_cache.write().await;
 
             self.inner.append_related_event(&mut cache, &event);
-            cache.events
-                .insert(event_id, (self.inner.room_id.clone(), event));
-
+            cache.events.insert(event_id, (self.inner.room_id.clone(), event));
         } else {
             warn!("couldn't save event without event id in the event cache");
         }
