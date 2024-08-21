@@ -17,12 +17,12 @@ use std::{fmt::Formatter, num::NonZeroUsize, sync::Arc};
 use futures_util::{future::join_all, FutureExt as _};
 use matrix_sdk::{
     config::RequestConfig, event_cache::paginator::PaginatorError, BoxFuture, Room,
-    SendOutsideWasm, SyncOutsideWasm,
 };
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
 use thiserror::Error;
 use tracing::{debug, warn};
+
 use crate::timeline::event_handler::TimelineEventKind;
 
 const MAX_CONCURRENT_REQUESTS: usize = 10;
@@ -74,8 +74,12 @@ impl PinnedEventsLoader {
         let new_events = join_all(pinned_event_ids.into_iter().map(|event_id| {
             let provider = self.room.clone();
             async move {
-                match provider.load_event(&event_id, request_config).await {
-                    Ok(event) => Some(event),
+                match provider.load_event_with_relations(&event_id, request_config).await {
+                    Ok((event, related_events)) => {
+                        let mut events = vec![event];
+                        events.extend(related_events);
+                        Some(events)
+                    }
                     Err(err) => {
                         warn!("error when loading pinned event: {err}");
                         None
@@ -85,7 +89,13 @@ impl PinnedEventsLoader {
         }))
         .await;
 
-        let mut loaded_events = new_events.into_iter().flatten().collect::<Vec<_>>();
+        let mut loaded_events = new_events
+            .into_iter()
+            // Get only the `Some<Vec<_>>` results
+            .flatten()
+            // Flatten the `Vec`s into a single one containing all their items
+            .flatten()
+            .collect::<Vec<SyncTimelineEvent>>();
         if loaded_events.is_empty() {
             return Err(PinnedEventsLoaderError::TimelineReloadFailed);
         }
@@ -102,13 +112,14 @@ impl PinnedEventsLoader {
     }
 }
 
-pub trait PinnedEventsRoom: SendOutsideWasm + SyncOutsideWasm {
-    /// Load a single room event using the cache or network.
-    fn load_event<'a>(
+pub trait PinnedEventsRoom {
+    /// Load a single room event using the cache or network and any events
+    /// related to it, if they are cached.
+    async fn load_event_with_relations<'a>(
         &'a self,
         event_id: &'a EventId,
         request_config: Option<RequestConfig>,
-    ) -> BoxFuture<'a, Result<SyncTimelineEvent, PaginatorError>>;
+    ) -> BoxFuture<'a, Result<(SyncTimelineEvent, Vec<SyncTimelineEvent>), PaginatorError>>;
 
     /// Get the pinned event ids for a room.
     fn pinned_event_ids(&self) -> Vec<OwnedEventId>;
@@ -137,23 +148,23 @@ pub trait PinnedEventsRoom: SendOutsideWasm + SyncOutsideWasm {
 }
 
 impl PinnedEventsRoom for Room {
-    fn load_event<'a>(
+    async fn load_event_with_relations<'a>(
         &'a self,
         event_id: &'a EventId,
         request_config: Option<RequestConfig>,
-    ) -> BoxFuture<'a, Result<SyncTimelineEvent, PaginatorError>> {
+    ) -> BoxFuture<'a, Result<(SyncTimelineEvent, Vec<SyncTimelineEvent>), PaginatorError>> {
         async move {
             if let Ok((cache, _handles)) = self.event_cache().await {
-                if let Some(event) = cache.event(event_id).await {
-                    debug!("Loaded pinned event {event_id} from cache");
-                    return Ok(event);
+                if let Some(ret) = cache.event_with_relations(event_id).await {
+                    debug!("Loaded pinned event {event_id} and related events from cache");
+                    return Ok(ret);
                 }
             }
 
             debug!("Loading pinned event {event_id} from HS");
             self.event(event_id, request_config)
                 .await
-                .map(|e| e.into())
+                .map(|e| (e.into(), Vec::new()))
                 .map_err(|err| PaginatorError::SdkError(Box::new(err)))
         }
         .boxed()
