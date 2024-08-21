@@ -756,7 +756,7 @@ impl SlidingSync {
         Ok(self.inner.internal_channel_send(SlidingSyncInternalMessage::SyncLoopStop)?)
     }
 
-    /// Expire the current Sliding Sync session.
+    /// Expire the current Sliding Sync session on the client-side.
     ///
     /// Expiring a Sliding Sync session means: resetting `pos`. It also resets
     /// sticky parameters.
@@ -782,8 +782,13 @@ impl SlidingSync {
             }
         }
 
-        // Force invalidation of all the sticky parameters.
-        let _ = self.inner.sticky.write().unwrap().data_mut();
+        {
+            let mut sticky = self.inner.sticky.write().unwrap();
+
+            // Clear all room subscriptions: we don't want to resend all room subscriptions
+            // when the session will restart.
+            sticky.data_mut().room_subscriptions.clear();
+        }
 
         self.inner.lists.read().await.values().for_each(|list| list.invalidate_sticky_data());
     }
@@ -1143,9 +1148,68 @@ mod tests {
             let sticky = sliding_sync.inner.sticky.read().unwrap();
             let room_subscriptions = &sticky.data().room_subscriptions;
 
-            assert!(room_subscriptions.contains_key(&room_id_0.to_owned()));
-            assert!(room_subscriptions.contains_key(&room_id_1.to_owned()));
-            assert!(!room_subscriptions.contains_key(&room_id_2.to_owned()));
+            assert!(room_subscriptions.contains_key(room_id_0));
+            assert!(room_subscriptions.contains_key(room_id_1));
+            assert!(!room_subscriptions.contains_key(room_id_2));
+        }
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_room_subscriptions_are_reset_when_session_expires() -> Result<()> {
+        let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
+        .await?;
+
+        let room_id_0 = room_id!("!r0:bar.org");
+        let room_id_1 = room_id!("!r1:bar.org");
+        let room_id_2 = room_id!("!r2:bar.org");
+
+        // Subscribe to two rooms.
+        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], None);
+
+        {
+            let sticky = sliding_sync.inner.sticky.read().unwrap();
+            let room_subscriptions = &sticky.data().room_subscriptions;
+
+            assert!(room_subscriptions.contains_key(room_id_0));
+            assert!(room_subscriptions.contains_key(room_id_1));
+            assert!(room_subscriptions.contains_key(room_id_2).not());
+        }
+
+        // Subscribe to one more room.
+        sliding_sync.subscribe_to_rooms(&[room_id_2], None);
+
+        {
+            let sticky = sliding_sync.inner.sticky.read().unwrap();
+            let room_subscriptions = &sticky.data().room_subscriptions;
+
+            assert!(room_subscriptions.contains_key(room_id_0));
+            assert!(room_subscriptions.contains_key(room_id_1));
+            assert!(room_subscriptions.contains_key(room_id_2));
+        }
+
+        // Suddenly, the session expires!
+        sliding_sync.expire_session().await;
+
+        {
+            let sticky = sliding_sync.inner.sticky.read().unwrap();
+            let room_subscriptions = &sticky.data().room_subscriptions;
+
+            assert!(room_subscriptions.is_empty());
+        }
+
+        // Subscribe to one room again.
+        sliding_sync.subscribe_to_rooms(&[room_id_2], None);
+
+        {
+            let sticky = sliding_sync.inner.sticky.read().unwrap();
+            let room_subscriptions = &sticky.data().room_subscriptions;
+
+            assert!(room_subscriptions.contains_key(room_id_0).not());
+            assert!(room_subscriptions.contains_key(room_id_1).not());
+            assert!(room_subscriptions.contains_key(room_id_2));
         }
 
         Ok(())
