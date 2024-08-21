@@ -2192,16 +2192,6 @@ async fn test_room_subscription() -> Result<(), Error> {
                 },
             },
             "room_subscriptions": {
-                room_id_1: {
-                    "required_state": [
-                        ["m.room.name", ""],
-                        ["m.room.topic", ""],
-                        ["m.room.avatar", ""],
-                        ["m.room.canonical_alias", ""],
-                        ["m.room.create", ""],
-                    ],
-                    "timeline_limit": 30,
-                },
                 room_id_2: {
                     "required_state": [
                         ["m.room.name", ""],
