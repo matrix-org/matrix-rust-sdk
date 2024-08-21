@@ -574,12 +574,34 @@ impl RoomEventCache {
     // be no distinction between the linked chunk and the separate cache.
     pub(crate) async fn save_event(&self, event: SyncTimelineEvent) {
         if let Some(event_id) = event.event_id() {
-            let mut cache = self.inner.all_events_cache.write().await;
+            let mut cache = self.inner
+                .all_events_cache
+                .write()
+                .await;
 
             self.inner.append_related_event(&mut cache, &event);
-            cache.events.insert(event_id, (self.inner.room_id.clone(), event));
+            cache.events
+                .insert(event_id, (self.inner.room_id.clone(), event));
+
         } else {
             warn!("couldn't save event without event id in the event cache");
+        }
+    }
+
+    /// Save some events in the event cache, for further retrieval with
+    /// [`Self::event`]. This function will save them using a single lock,
+    /// as opposed to [`Self::save_event`].
+    // This doesn't insert the event into the linked chunk. In the future there'll
+    // be no distinction between the linked chunk and the separate cache.
+    pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = SyncTimelineEvent>) {
+        let mut cache = self.inner.all_events_cache.write().await;
+        for event in events {
+            if let Some(event_id) = event.event_id() {
+                self.inner.append_related_event(&mut cache, &event);
+                cache.events.insert(event_id, (self.inner.room_id.clone(), event));
+            } else {
+                warn!("couldn't save event without event id in the event cache");
+            }
         }
     }
 }
