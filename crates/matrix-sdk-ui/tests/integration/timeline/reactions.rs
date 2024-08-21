@@ -171,3 +171,81 @@ async fn test_abort_before_being_sent() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(stream.next().now_or_never().is_none());
 }
+
+#[async_test]
+async fn test_redact_failed() {
+    // This test checks that if a reaction redaction failed, then we re-insert the
+    // reaction after displaying it was removed.
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+    let user_id = client.user_id().unwrap();
+
+    // Make the test aware of the room.
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(Default::default()).await.unwrap();
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await.unwrap();
+    let (initial_items, mut stream) = timeline.subscribe().await;
+
+    assert!(initial_items.is_empty());
+
+    let f = EventFactory::new();
+
+    let event_id = event_id!("$1");
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id))
+            .add_timeline_event(f.reaction(event_id, "😆".to_owned()).sender(user_id)),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(Default::default()).await.unwrap();
+    server.reset().await;
+
+    assert_let!(Some(VectorDiff::PushBack { value: item }) = stream.next().await);
+    let item = item.as_event().unwrap();
+    assert_eq!(item.content().as_message().unwrap().body(), "hello");
+    assert!(item.reactions().is_empty());
+
+    assert_let!(Some(VectorDiff::Set { index: 0, value: item }) = stream.next().await);
+    assert_eq!(item.as_event().unwrap().reactions().len(), 1);
+
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = stream.next().await);
+    assert!(day_divider.is_day_divider());
+
+    // Now, redact the annotation we previously added.
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(1)
+        .named("redact")
+        .mount(&server)
+        .await;
+
+    // We toggle the reaction, which fails with an error.
+    timeline
+        .toggle_reaction(&Annotation::new(event_id.to_owned(), "😆".to_owned()))
+        .await
+        .unwrap_err();
+
+    // The local echo is removed (assuming the redaction works)…
+    assert_let!(Some(VectorDiff::Set { index: 1, value: item }) = stream.next().await);
+    assert!(item.as_event().unwrap().reactions().is_empty());
+
+    // …then added back, after redaction failed.
+    assert_let!(Some(VectorDiff::Set { index: 1, value: item }) = stream.next().await);
+    assert_eq!(item.as_event().unwrap().reactions().len(), 1);
+
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(stream.next().now_or_never().is_none());
+}
