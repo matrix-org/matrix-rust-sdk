@@ -48,6 +48,7 @@ mod pagination;
 mod pinned_event;
 mod profiles;
 mod queue;
+mod reactions;
 mod read_receipts;
 mod replies;
 mod subscribe;
