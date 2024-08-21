@@ -3503,6 +3503,7 @@ dependencies = [
  "tokio",
  "tracing-subscriber",
  "wasm-bindgen-test",
+ "wiremock",
 ]
 
 [[package]]

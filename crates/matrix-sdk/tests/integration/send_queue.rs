@@ -16,7 +16,9 @@ use matrix_sdk::{
     },
     Client, MemoryStore,
 };
-use matrix_sdk_test::{async_test, InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder};
+use matrix_sdk_test::{
+    async_test, mocks::mock_redaction, InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder,
+};
 use ruma::{
     api::MatrixVersion,
     event_id,
@@ -735,13 +737,7 @@ async fn test_cancellation() {
         .await;
 
     // The redact of txn1 will happen because we asked for it previously.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"event_id": "$1"})))
-        .expect(1)
-        .mount(&server)
-        .await;
+    mock_redaction(event_id!("$1")).expect(1).mount(&server).await;
 
     let handle1 = q.send(RoomMessageEventContent::text_plain("msg1").into()).await.unwrap();
     let handle2 = q.send(RoomMessageEventContent::text_plain("msg2").into()).await.unwrap();

@@ -11,8 +11,11 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
-    async_test, test_json, test_json::sync::CUSTOM_ROOM_POWER_LEVELS, EphemeralTestEvent,
-    GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+    async_test,
+    mocks::mock_redaction,
+    test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
+    EphemeralTestEvent, GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder,
+    DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
@@ -340,22 +343,17 @@ async fn test_room_message_send() {
 async fn test_room_redact() {
     let (client, server) = synced_client().await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
-        .mount(&server)
-        .await;
+    let event_id = event_id!("$h29iv0s8:example.com");
+    mock_redaction(event_id).mount(&server).await;
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let event_id = event_id!("$xxxxxxxx:example.com");
-
     let txn_id = TransactionId::new();
     let reason = Some("Indecent material");
-    let response = room.redact(event_id, reason, Some(txn_id)).await.unwrap();
+    let response =
+        room.redact(event_id!("$xxxxxxxx:example.com"), reason, Some(txn_id)).await.unwrap();
 
-    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
+    assert_eq!(response.event_id, event_id);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -373,8 +371,7 @@ async fn test_fetch_members_deduplication() {
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/members"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(response_body))
-        // Expect that we're only going to send the request out once.
-        .expect(1..=1)
+        .expect(1)
         .mount(&server)
         .await;
 
