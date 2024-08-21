@@ -1439,8 +1439,7 @@ impl OlmMachine {
         session: &InboundGroupSession,
         sender: &UserId,
     ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
-        let sender_data = if session.sender_data.is_known() {
-            // The existing sender_data is known, so there is no need to recalculate it.
+        let sender_data = if !Self::should_recalculate_sender_data(&session.sender_data) {
             session.sender_data.clone()
         } else {
             // The session is not sure of the sender yet. Calculate it.
@@ -1468,6 +1467,17 @@ impl OlmMachine {
         };
 
         Ok(sender_data_to_verification_state(sender_data, session.has_been_imported()))
+    }
+
+    /// Whether we should recalculate the Megolm sender's data, given the
+    /// current sender data.
+    fn should_recalculate_sender_data(sender_data: &SenderData) -> bool {
+        // We don't recalculate if the sender is currently SenderVerified
+        // (because this is the most trusted they can be, so recalculating won't
+        // do anything), or SenderUnverified (because the sender is trusted
+        // enough that we'll decrypt their messages in all cases).
+        !(matches!(sender_data, SenderData::SenderUnverified { .. })
+            || matches!(sender_data, SenderData::SenderVerified { .. }))
     }
 
     /// Request missing local secrets from our devices (cross signing private
