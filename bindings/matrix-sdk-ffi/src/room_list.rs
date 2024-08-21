@@ -50,8 +50,8 @@ pub enum RoomListError {
     InitializingTimeline { error: String },
     #[error("Event cache ran into an error: {error}")]
     EventCache { error: String },
-    #[error("The requested room doesn't match the membership requirements")]
-    IncorrectRoomMembership,
+    #[error("The requested room doesn't match the membership requirements {expected:?}, observed {actual:?}")]
+    IncorrectRoomMembership { expected: Membership, actual: Membership },
 }
 
 impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
@@ -605,7 +605,7 @@ impl RoomListItem {
         Ok(RoomInfo::new(self.inner.inner_room()).await?)
     }
 
-    /// The room's current membership state
+    /// The room's current membership state.
     fn membership(&self) -> Membership {
         self.inner.inner_room().state().into()
     }
@@ -619,7 +619,10 @@ impl RoomListItem {
     /// safe. Use `full_room` instead
     fn invited_room(&self) -> Result<Arc<Room>, RoomListError> {
         if !matches!(self.membership(), Membership::Invited) {
-            return Err(RoomListError::IncorrectRoomMembership);
+            return Err(RoomListError::IncorrectRoomMembership {
+                expected: Membership::Invited,
+                actual: self.membership(),
+            });
         }
 
         Ok(Arc::new(Room::new(self.inner.inner_room().clone())))
@@ -631,7 +634,10 @@ impl RoomListItem {
     /// or if its internal timeline hasn't been initialized.
     fn full_room(&self) -> Result<Arc<Room>, RoomListError> {
         if !matches!(self.membership(), Membership::Joined) {
-            return Err(RoomListError::IncorrectRoomMembership);
+            return Err(RoomListError::IncorrectRoomMembership {
+                expected: Membership::Joined,
+                actual: self.membership(),
+            });
         }
 
         if let Some(timeline) = self.inner.timeline() {
