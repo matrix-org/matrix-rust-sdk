@@ -20,6 +20,12 @@ use matrix_sdk_base::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
 use matrix_sdk_test::{sync_timeline_event, timeline_event};
 use ruma::{
     events::{
+        message::TextContentBlock,
+        poll::{
+            end::PollEndEventContent,
+            response::{PollResponseEventContent, SelectionsContentBlock},
+            start::{PollAnswers, PollContentBlock, PollStartEventContent},
+        },
         reaction::ReactionEventContent,
         relation::{Annotation, InReplyTo, Replacement, Thread},
         room::{
@@ -33,6 +39,7 @@ use ruma::{
     RoomId, UserId,
 };
 use serde::Serialize;
+use serde_json::{json, Value};
 
 #[derive(Debug)]
 pub struct EventBuilder<E: EventContent> {
@@ -110,18 +117,15 @@ where
 }
 
 impl EventBuilder<RoomMessageEventContent> {
+    /// Adds a reply relation to the current event.
     pub fn reply_to(mut self, event_id: &EventId) -> Self {
         self.content.relates_to =
             Some(Relation::Reply { in_reply_to: InReplyTo::new(event_id.to_owned()) });
         self
     }
 
-    pub fn in_thread(mut self, root: &EventId, latest_thread_event: &EventId) -> Self {
-        self.content.relates_to =
-            Some(Relation::Thread(Thread::plain(root.to_owned(), latest_thread_event.to_owned())));
-        self
-    }
-
+    /// Adds a replacement relation to the current event, with the new content
+    /// passed.
     pub fn edit(
         mut self,
         edited_event_id: &EventId,
@@ -129,6 +133,14 @@ impl EventBuilder<RoomMessageEventContent> {
     ) -> Self {
         self.content.relates_to =
             Some(Relation::Replacement(Replacement::new(edited_event_id.to_owned(), new_content)));
+        self
+    }
+
+    /// Adds a thread relation to the root event, setting the latest thread
+    /// event id too.
+    pub fn in_thread(mut self, root: &EventId, latest_thread_event: &EventId) -> Self {
+        self.content.relates_to =
+            Some(Relation::Thread(Thread::plain(root.to_owned(), latest_thread_event.to_owned())));
         self
     }
 }
@@ -236,6 +248,72 @@ impl EventFactory {
         let mut builder = self.event(RoomRedactionEventContent::new_v11(event_id.to_owned()));
         builder.redacts = Some(event_id.to_owned());
         builder
+    }
+
+    /// Create a replacement message for an existing one given its id.
+    pub fn replacement_msg(
+        &self,
+        new_content: impl Into<String>,
+        original_event_id: &EventId,
+    ) -> EventBuilder<RoomMessageEventContent> {
+        let msg_content = RoomMessageEventContent::text_plain(new_content.into());
+        let builder = self.event(msg_content.clone());
+        builder.edit(original_event_id, msg_content.into())
+    }
+
+    /// Create a poll start event given a text, the question and the possible
+    /// answers.
+    pub fn poll_start(
+        &self,
+        content: impl Into<String>,
+        poll_question: impl Into<String>,
+        answers: Vec<impl Into<String>>,
+    ) -> EventBuilder<PollStartEventContent> {
+        // PollAnswers 'constructor' is not public, so we need to deserialize them
+        let answers: Vec<Value> = answers
+            .into_iter()
+            .enumerate()
+            .map(|(idx, answer)| {
+                json!({
+                    "m.id": format!("{idx}"),
+                    "m.text": [{ "body": answer.into() }]
+                })
+            })
+            .collect();
+        let poll_answers =
+            Raw::new(&json!(answers)).unwrap().cast::<PollAnswers>().deserialize().unwrap();
+        let poll_start_content = PollStartEventContent::new(
+            TextContentBlock::plain(content.into()),
+            PollContentBlock::new(TextContentBlock::plain(poll_question.into()), poll_answers),
+        );
+        self.event(poll_start_content)
+    }
+
+    /// Create a poll response with the given answer id and the associated poll
+    /// start event id.
+    pub fn poll_response(
+        &self,
+        answer_id: impl Into<String>,
+        poll_start_id: &EventId,
+    ) -> EventBuilder<PollResponseEventContent> {
+        let selection_content: SelectionsContentBlock = vec![answer_id.into()].into();
+        let poll_response_content =
+            PollResponseEventContent::new(selection_content, poll_start_id.to_owned());
+        self.event(poll_response_content)
+    }
+
+    /// Create a poll response with the given text and the associated poll start
+    /// event id.
+    pub fn poll_end(
+        &self,
+        content: impl Into<String>,
+        poll_start_id: &EventId,
+    ) -> EventBuilder<PollEndEventContent> {
+        let poll_end_content = PollEndEventContent::new(
+            TextContentBlock::plain(content.into()),
+            poll_start_id.to_owned(),
+        );
+        self.event(poll_end_content)
     }
 
     /// Set the next server timestamp.

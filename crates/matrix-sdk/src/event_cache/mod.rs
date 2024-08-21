@@ -42,7 +42,7 @@
 #![forbid(missing_docs)]
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt::Debug,
     sync::{Arc, OnceLock},
 };
@@ -54,7 +54,11 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use ruma::{
-    events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
+    events::{
+        room::{message::Relation, redaction::SyncRoomRedactionEvent},
+        AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    },
     serde::Raw,
     EventId, OwnedEventId, OwnedRoomId, RoomId,
 };
@@ -161,7 +165,7 @@ impl EventCache {
                 multiple_room_updates_lock: Default::default(),
                 by_room: Default::default(),
                 drop_handles: Default::default(),
-                events: Default::default(),
+                all_events: Default::default(),
             }),
         }
     }
@@ -196,7 +200,13 @@ impl EventCache {
     // Note: replace this with a select-by-id query when this is implemented in a
     // store.
     pub async fn event(&self, event_id: &EventId) -> Option<SyncTimelineEvent> {
-        self.inner.events.read().await.get(event_id).map(|(_room_id, event)| event.clone())
+        self.inner
+            .all_events
+            .read()
+            .await
+            .events
+            .get(event_id)
+            .map(|(_room_id, event)| event.clone())
     }
 
     /// Clear all the events from the immutable event cache.
@@ -210,7 +220,7 @@ impl EventCache {
     // store.
     #[cfg(any(test, feature = "testing"))]
     pub async fn empty_immutable_cache(&self) {
-        self.inner.events.write().await.clear();
+        self.inner.all_events.write().await.events.clear();
     }
 
     #[instrument(skip_all)]
@@ -311,7 +321,14 @@ impl EventCache {
     }
 }
 
-type AllEventsMap = Arc<RwLock<BTreeMap<OwnedEventId, (OwnedRoomId, SyncTimelineEvent)>>>;
+type AllEventsMap = BTreeMap<OwnedEventId, (OwnedRoomId, SyncTimelineEvent)>;
+type RelationsMap = BTreeMap<OwnedEventId, BTreeSet<OwnedEventId>>;
+
+#[derive(Default, Clone)]
+struct AllEventsCache {
+    events: AllEventsMap,
+    relations: RelationsMap,
+}
 
 struct EventCacheInner {
     /// A weak reference to the inner client, useful when trying to get a handle
@@ -338,7 +355,7 @@ struct EventCacheInner {
     /// This is shared between the [`EventCache`] singleton and all
     /// [`RoomEventCache`] instances.
     // If necessary, we can add a RoomId in the value later.
-    events: AllEventsMap,
+    all_events: Arc<RwLock<AllEventsCache>>,
 
     /// Handles to keep alive the task listening to updates.
     drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
@@ -434,7 +451,7 @@ impl EventCacheInner {
                 let room_event_cache = RoomEventCache::new(
                     self.client.clone(),
                     room_id.to_owned(),
-                    self.events.clone(),
+                    self.all_events.clone(),
                 );
 
                 by_room_guard.insert(room_id.to_owned(), room_event_cache.clone());
@@ -461,8 +478,12 @@ impl Debug for RoomEventCache {
 
 impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
-    fn new(client: WeakClient, room_id: OwnedRoomId, all_events: AllEventsMap) -> Self {
-        Self { inner: Arc::new(RoomEventCacheInner::new(client, room_id, all_events)) }
+    fn new(
+        client: WeakClient,
+        room_id: OwnedRoomId,
+        all_events_cache: Arc<RwLock<AllEventsCache>>,
+    ) -> Self {
+        Self { inner: Arc::new(RoomEventCacheInner::new(client, room_id, all_events_cache)) }
     }
 
     /// Subscribe to room updates for this room, after getting the initial list
@@ -486,7 +507,9 @@ impl RoomEventCache {
 
     /// Try to find an event by id in this room.
     pub async fn event(&self, event_id: &EventId) -> Option<SyncTimelineEvent> {
-        if let Some((room_id, event)) = self.inner.all_events.read().await.get(event_id).cloned() {
+        if let Some((room_id, event)) =
+            self.inner.all_events_cache.read().await.events.get(event_id).cloned()
+        {
             if room_id == self.inner.room_id {
                 return Some(event);
             }
@@ -501,17 +524,40 @@ impl RoomEventCache {
         None
     }
 
+    /// Try to find an event by id in this room, along with all relations.
+    pub async fn event_with_relations(
+        &self,
+        event_id: &EventId,
+    ) -> Option<(SyncTimelineEvent, Vec<SyncTimelineEvent>)> {
+        let mut relation_events = Vec::new();
+
+        let cache = self.inner.all_events_cache.read().await;
+        let all_events = &cache.events;
+        let relations = &cache.relations;
+        if let Some((_, event)) = all_events.get(event_id) {
+            if let Some(rel_ids) = relations.get(event_id) {
+                for id in rel_ids {
+                    if let Some((_, ev)) = all_events.get(id) {
+                        relation_events.push(ev.clone());
+                    }
+                }
+            }
+            Some((event.clone(), relation_events))
+        } else {
+            None
+        }
+    }
+
     /// Save a single event in the event cache, for further retrieval with
     /// [`Self::event`].
     // This doesn't insert the event into the linked chunk. In the future there'll
     // be no distinction between the linked chunk and the separate cache.
     pub(crate) async fn save_event(&self, event: SyncTimelineEvent) {
         if let Some(event_id) = event.event_id() {
-            self.inner
-                .all_events
-                .write()
-                .await
-                .insert(event_id, (self.inner.room_id.clone(), event));
+            let mut cache = self.inner.all_events_cache.write().await;
+
+            self.inner.append_related_event(&mut cache, &event);
+            cache.events.insert(event_id, (self.inner.room_id.clone(), event));
         } else {
             warn!("couldn't save event without event id in the event cache");
         }
@@ -530,7 +576,7 @@ struct RoomEventCacheInner {
     events: RwLock<RoomEvents>,
 
     /// See comment of [`EventCacheInner::events`].
-    all_events: AllEventsMap,
+    all_events_cache: Arc<RwLock<AllEventsCache>>,
 
     /// A paginator instance, that's configured to run back-pagination on our
     /// behalf.
@@ -549,7 +595,11 @@ struct RoomEventCacheInner {
 impl RoomEventCacheInner {
     /// Creates a new cache for a room, and subscribes to room updates, so as
     /// to handle new timeline events.
-    fn new(client: WeakClient, room_id: OwnedRoomId, all_events: AllEventsMap) -> Self {
+    fn new(
+        client: WeakClient,
+        room_id: OwnedRoomId,
+        all_events_cache: Arc<RwLock<AllEventsCache>>,
+    ) -> Self {
         let sender = Sender::new(32);
 
         let weak_room = WeakRoom::new(client, room_id);
@@ -557,7 +607,7 @@ impl RoomEventCacheInner {
         Self {
             room_id: weak_room.room_id().to_owned(),
             events: RwLock::new(RoomEvents::default()),
-            all_events,
+            all_events_cache,
             sender,
             pagination: RoomPaginationData {
                 paginator: Paginator::new(Box::new(weak_room)),
@@ -712,6 +762,113 @@ impl RoomEventCacheInner {
         .await
     }
 
+    /// If the event is related to another one, it's id is added to the
+    /// relations map.
+    fn append_related_event(
+        &self,
+        cache: &mut RwLockWriteGuard<'_, AllEventsCache>,
+        event: &SyncTimelineEvent,
+    ) {
+        // Handle and cache events and relations
+        if let Ok(AnySyncTimelineEvent::MessageLike(ev)) = event.event.deserialize() {
+            if let AnySyncMessageLikeEvent::RoomRedaction(ev) = &ev {
+                match ev {
+                    SyncRoomRedactionEvent::Original(ev) => {
+                        if let Some(redacted_event_id) = &ev.content.redacts {
+                            cache
+                                .relations
+                                .entry(redacted_event_id.to_owned())
+                                .or_default()
+                                .insert(ev.event_id.to_owned());
+                        } else if let Some(redacted_event_id) = &ev.redacts {
+                            cache
+                                .relations
+                                .entry(redacted_event_id.to_owned())
+                                .or_default()
+                                .insert(ev.event_id.to_owned());
+                        }
+                    }
+                    SyncRoomRedactionEvent::Redacted(ev) => {
+                        if let Some(redacted_event_id) = &ev.content.redacts {
+                            cache
+                                .relations
+                                .entry(redacted_event_id.to_owned())
+                                .or_default()
+                                .insert(ev.event_id.to_owned());
+                        }
+                    }
+                }
+            }
+            match ev.original_content() {
+                Some(AnyMessageLikeEventContent::RoomMessage(c)) => {
+                    if let Some(relation) = c.relates_to {
+                        match relation {
+                            Relation::Replacement(replacement) => {
+                                cache
+                                    .relations
+                                    .entry(replacement.event_id)
+                                    .or_default()
+                                    .insert(ev.event_id().to_owned());
+                            }
+                            Relation::Reply { in_reply_to } => {
+                                cache
+                                    .relations
+                                    .entry(in_reply_to.event_id)
+                                    .or_default()
+                                    .insert(ev.event_id().to_owned());
+                            }
+                            Relation::Thread(thread) => {
+                                cache
+                                    .relations
+                                    .entry(thread.event_id)
+                                    .or_default()
+                                    .insert(ev.event_id().to_owned());
+                            }
+                            // Do nothing for custom
+                            _ => (),
+                        }
+                    }
+                }
+                Some(AnyMessageLikeEventContent::PollResponse(c)) => {
+                    cache
+                        .relations
+                        .entry(c.relates_to.event_id)
+                        .or_default()
+                        .insert(ev.event_id().to_owned());
+                }
+                Some(AnyMessageLikeEventContent::PollEnd(c)) => {
+                    cache
+                        .relations
+                        .entry(c.relates_to.event_id)
+                        .or_default()
+                        .insert(ev.event_id().to_owned());
+                }
+                Some(AnyMessageLikeEventContent::UnstablePollResponse(c)) => {
+                    cache
+                        .relations
+                        .entry(c.relates_to.event_id)
+                        .or_default()
+                        .insert(ev.event_id().to_owned());
+                }
+                Some(AnyMessageLikeEventContent::UnstablePollEnd(c)) => {
+                    cache
+                        .relations
+                        .entry(c.relates_to.event_id)
+                        .or_default()
+                        .insert(ev.event_id().to_owned());
+                }
+                Some(AnyMessageLikeEventContent::Reaction(c)) => {
+                    cache
+                        .relations
+                        .entry(c.relates_to.event_id)
+                        .or_default()
+                        .insert(ev.event_id().to_owned());
+                }
+                _ => (),
+            }
+        }
+    }
+
     /// Append a set of events, with an attached lock.
     ///
     /// If the lock `room_events` is `None`, one will be created.
@@ -742,10 +899,11 @@ impl RoomEventCacheInner {
 
             room_events.push_events(sync_timeline_events.clone());
 
-            let mut all_events = self.all_events.write().await;
+            let mut cache = self.all_events_cache.write().await;
             for ev in &sync_timeline_events {
                 if let Some(event_id) = ev.event_id() {
-                    all_events.insert(event_id.to_owned(), (self.room_id.clone(), ev.clone()));
+                    self.append_related_event(&mut cache, ev);
+                    cache.events.insert(event_id.to_owned(), (self.room_id.clone(), ev.clone()));
                 }
             }
         }
@@ -844,9 +1002,11 @@ pub enum EventsOrigin {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_matches;
+    use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use futures_util::FutureExt as _;
     use matrix_sdk_base::sync::{JoinedRoomUpdate, RoomUpdates, Timeline};
+    use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{event_id, room_id, serde::Raw, user_id};
     use serde_json::json;
@@ -1017,5 +1177,160 @@ mod tests {
         // After clearing, both fail to find the event.
         assert!(room_event_cache.event(event_id).await.is_none());
         assert!(event_cache.event(event_id).await.is_none());
+    }
+
+    #[async_test]
+    async fn test_event_with_relations_and_redaction() {
+        let original_id = event_id!("$original");
+        let related_id = event_id!("$related");
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        test_relations(
+            f.text_msg("Original event").event_id(original_id).into(),
+            f.redaction(original_id).event_id(related_id).into(),
+            f,
+        )
+        .await;
+    }
+
+    #[async_test]
+    async fn test_event_with_relations_and_edit() {
+        let original_id = event_id!("$original");
+        let related_id = event_id!("$related");
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        test_relations(
+            f.text_msg("Original event").event_id(original_id).into(),
+            f.replacement_msg("An edited event", original_id).event_id(related_id).into(),
+            f,
+        )
+        .await;
+    }
+
+    #[async_test]
+    async fn test_event_with_relations_and_reply() {
+        let original_id = event_id!("$original");
+        let related_id = event_id!("$related");
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        test_relations(
+            f.text_msg("Original event").event_id(original_id).into(),
+            f.text_msg("A reply").reply_to(original_id).event_id(related_id).into(),
+            f,
+        )
+        .await;
+    }
+
+    #[async_test]
+    async fn test_event_with_relations_and_thread_reply() {
+        let original_id = event_id!("$original");
+        let related_id = event_id!("$related");
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        test_relations(
+            f.text_msg("Original event").event_id(original_id).into(),
+            f.text_msg("A reply").in_thread(original_id, related_id).event_id(related_id).into(),
+            f,
+        )
+        .await;
+    }
+
+    #[async_test]
+    async fn test_event_with_relations_and_reaction() {
+        let original_id = event_id!("$original");
+        let related_id = event_id!("$related");
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        test_relations(
+            f.text_msg("Original event").event_id(original_id).into(),
+            f.reaction(original_id, ":D".to_owned()).event_id(related_id).into(),
+            f,
+        )
+        .await;
+    }
+
+    #[async_test]
+    async fn test_event_with_relations_and_poll_response() {
+        let original_id = event_id!("$original");
+        let related_id = event_id!("$related");
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        test_relations(
+            f.poll_start("Poll start event", "A poll question", vec!["An answer"])
+                .event_id(original_id)
+                .into(),
+            f.poll_response("1", original_id).event_id(related_id).into(),
+            f,
+        )
+        .await;
+    }
+
+    #[async_test]
+    async fn test_event_with_relations_and_poll_end() {
+        let original_id = event_id!("$original");
+        let related_id = event_id!("$related");
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        test_relations(
+            f.poll_start("Poll start event", "A poll question", vec!["An answer"])
+                .event_id(original_id)
+                .into(),
+            f.poll_end("Poll ended", original_id).event_id(related_id).into(),
+            f,
+        )
+        .await;
+    }
+
+    async fn test_relations(
+        original_event: SyncTimelineEvent,
+        related_event: SyncTimelineEvent,
+        event_factory: EventFactory,
+    ) {
+        let client = logged_in_client(None).await;
+        let room_id = room_id!("!galette:saucisse.bzh");
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Save the original event
+        let original_event_id = original_event.event_id().unwrap();
+        room_event_cache.save_event(original_event).await;
+
+        // Save an unrelated event to check it's not in the related events list
+        let unrelated_id = event_id!("$2");
+        room_event_cache
+            .save_event(event_factory.text_msg("An unrelated event").event_id(unrelated_id).into())
+            .await;
+
+        // Save the related event
+        let related_id = related_event.event_id().unwrap();
+        room_event_cache.save_event(related_event).await;
+
+        assert_let!(
+            Some((event, related_events)) =
+                room_event_cache.event_with_relations(&original_event_id).await
+        );
+        // Fetched event is the right one
+        assert_matches!(event.event_id(), Some(cached_event_id) => {
+            assert_eq!(cached_event_id, original_event_id);
+        });
+
+        // There is only the actually related event in the related ones
+        assert_eq!(related_events.len(), 1);
+        assert_matches!(related_events[0].event_id(), Some(related_event_id) => {
+            assert_eq!(related_event_id, related_id);
+        });
     }
 }
