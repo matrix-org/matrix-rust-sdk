@@ -17,7 +17,9 @@ use matrix_sdk::{
     Client, MemoryStore,
 };
 use matrix_sdk_test::{
-    async_test, mocks::mock_redaction, InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder,
+    async_test,
+    mocks::{mock_encryption_state, mock_redaction},
+    InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder,
 };
 use ruma::{
     api::MatrixVersion,
@@ -39,7 +41,7 @@ use wiremock::{
     Mock, Request, ResponseTemplate,
 };
 
-use crate::{mock_encryption_state, mock_sync_with_new_room};
+use crate::mock_sync_with_new_room;
 
 fn mock_send_event(returned_event_id: &EventId) -> Mock {
     Mock::given(method("PUT"))

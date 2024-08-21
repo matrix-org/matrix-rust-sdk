@@ -17,8 +17,8 @@ use std::{sync::Arc, time::Duration};
 use assert_matches::assert_matches;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
-    async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB, CAROL,
-    DEFAULT_TEST_ROOM_ID,
+    async_test, mocks::mock_encryption_state, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder,
+    ALICE, BOB, CAROL, DEFAULT_TEST_ROOM_ID,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
 use ruma::events::room::{
@@ -31,7 +31,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{mock_encryption_state, mock_sync};
+use crate::mock_sync;
 
 #[async_test]
 async fn test_update_sender_profiles() {

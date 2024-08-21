@@ -23,8 +23,8 @@ use matrix_sdk::{
     test_utils::{events::EventFactory, logged_in_client_with_server},
 };
 use matrix_sdk_test::{
-    async_test, sync_timeline_event, EventBuilder, GlobalAccountDataTestEvent, JoinedRoomBuilder,
-    SyncResponseBuilder, ALICE, BOB,
+    async_test, mocks::mock_encryption_state, sync_timeline_event, EventBuilder,
+    GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails, TimelineItemContent};
 use ruma::{
@@ -38,7 +38,7 @@ use ruma::{
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 
-use crate::{mock_encryption_state, mock_sync};
+use crate::mock_sync;
 
 #[async_test]
 async fn test_batched() {

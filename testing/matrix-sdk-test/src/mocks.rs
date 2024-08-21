@@ -18,8 +18,10 @@ use ruma::EventId;
 use serde_json::json;
 use wiremock::{
     matchers::{header, method, path_regex},
-    Mock, ResponseTemplate,
+    Mock, MockServer, ResponseTemplate,
 };
+
+use crate::test_json;
 
 /// Mount a mock for a redaction endpoint, that will always work and return a
 /// 200 response.
@@ -29,4 +31,28 @@ pub fn mock_redaction(event_id: &EventId) -> Mock {
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": event_id })))
         .named("redact")
+}
+
+/// Mount a Mock on the given server to handle the `GET
+/// /rooms/.../state/m.room.encryption` endpoint with an option whether it
+/// should return an encryption event or not.
+pub async fn mock_encryption_state(server: &MockServer, is_encrypted: bool) {
+    let builder = Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.*room.*encryption.?"))
+        .and(header("authorization", "Bearer 1234"));
+
+    if is_encrypted {
+        builder
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(&*test_json::sync_events::ENCRYPTION_CONTENT),
+            )
+            .mount(server)
+            .await;
+    } else {
+        builder
+            .respond_with(ResponseTemplate::new(404).set_body_json(&*test_json::NOT_FOUND))
+            .mount(server)
+            .await;
+    }
 }
