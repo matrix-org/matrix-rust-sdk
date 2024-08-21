@@ -158,7 +158,10 @@ impl SlidingSync {
                 room.mark_members_missing();
             }
 
-            room_subscriptions.insert((*room_id).to_owned(), settings.clone());
+            room_subscriptions.insert(
+                (*room_id).to_owned(),
+                (RoomSubscriptionState::default(), settings.clone()),
+            );
         }
 
         self.inner.internal_channel_send_if_possible(
@@ -920,7 +923,8 @@ enum RoomSubscriptionState {
 pub(super) struct SlidingSyncStickyParameters {
     /// Room subscriptions, i.e. rooms that may be out-of-scope of all lists
     /// but one wants to receive updates.
-    room_subscriptions: BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
+    room_subscriptions:
+        BTreeMap<OwnedRoomId, (RoomSubscriptionState, http::request::RoomSubscription)>,
 
     /// The intended state of the extensions being supplied to sliding /sync
     /// calls.
@@ -933,7 +937,15 @@ impl SlidingSyncStickyParameters {
         room_subscriptions: BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
         extensions: http::request::Extensions,
     ) -> Self {
-        Self { room_subscriptions, extensions }
+        Self {
+            room_subscriptions: room_subscriptions
+                .into_iter()
+                .map(|(room_id, room_subscription)| {
+                    (room_id, (RoomSubscriptionState::Pending, room_subscription))
+                })
+                .collect(),
+            extensions,
+        }
     }
 }
 
@@ -941,8 +953,24 @@ impl StickyData for SlidingSyncStickyParameters {
     type Request = http::Request;
 
     fn apply(&self, request: &mut Self::Request) {
-        request.room_subscriptions = self.room_subscriptions.clone();
+        request.room_subscriptions = self
+            .room_subscriptions
+            .iter()
+            .filter_map(|(room_id, (state, room_subscription))| {
+                matches!(state, RoomSubscriptionState::Pending)
+                    .then(|| (room_id.clone(), room_subscription.clone()))
+            })
+            .collect();
         request.extensions = self.extensions.clone();
+    }
+
+    fn commit(&mut self) {
+        // All room subscriptions are marked as `Applied`.
+        for (state, _room_subscription) in self.room_subscriptions.values_mut() {
+            if matches!(state, RoomSubscriptionState::Pending) {
+                *state = RoomSubscriptionState::Applied;
+            }
+        }
     }
 }
 
@@ -1273,7 +1301,8 @@ mod tests {
 
     #[test]
     fn test_sticky_parameters_api_invalidated_flow() {
-        let r0 = room_id!("!room:example.org");
+        let r0 = room_id!("!r0.matrix.org");
+        let r1 = room_id!("!r1:matrix.org");
 
         let mut room_subscriptions = BTreeMap::new();
         room_subscriptions.insert(r0.to_owned(), Default::default());
@@ -1306,7 +1335,7 @@ mod tests {
         sticky
             .data_mut()
             .room_subscriptions
-            .insert(room_id!("!r1:bar.org").to_owned(), Default::default());
+            .insert(r1.to_owned(), (Default::default(), Default::default()));
         assert!(sticky.is_invalidated());
 
         // Committing with the wrong transaction id will keep it invalidated.
@@ -1320,7 +1349,11 @@ mod tests {
         sticky.maybe_apply(&mut request1, &mut LazyTransactionId::from_owned(txn_id1.to_owned()));
 
         assert!(sticky.is_invalidated());
-        assert_eq!(request1.room_subscriptions.len(), 2);
+        // The first room subscription has been applied to `request`, so it's not
+        // reapplied here. It's a particular logic of `room_subscriptions`, it's not
+        // related to the sticky design.
+        assert_eq!(request1.room_subscriptions.len(), 1);
+        assert!(request1.room_subscriptions.contains_key(r1));
 
         let txn_id2: &TransactionId = "tid789".into();
         let mut request2 = http::Request::default();
@@ -1328,7 +1361,10 @@ mod tests {
 
         sticky.maybe_apply(&mut request2, &mut LazyTransactionId::from_owned(txn_id2.to_owned()));
         assert!(sticky.is_invalidated());
-        assert_eq!(request2.room_subscriptions.len(), 2);
+        // `request2` contains `r1` because the sticky parameters have not been
+        // committed, so it's still marked as pending.
+        assert_eq!(request2.room_subscriptions.len(), 1);
+        assert!(request2.room_subscriptions.contains_key(r1));
 
         // Here we commit with the not most-recent TID, so it keeps the invalidated
         // status.
@@ -1338,6 +1374,101 @@ mod tests {
         // But here we use the latest TID, so the commit is effective.
         sticky.maybe_commit(txn_id2);
         assert!(!sticky.is_invalidated());
+    }
+
+    #[test]
+    fn test_room_subscriptions_are_sticky() {
+        let r0 = room_id!("!r0.matrix.org");
+        let r1 = room_id!("!r1:matrix.org");
+
+        let mut sticky = SlidingSyncStickyManager::new(SlidingSyncStickyParameters::new(
+            BTreeMap::new(),
+            Default::default(),
+        ));
+
+        // A room subscription is added, applied, and committed.
+        {
+            // Insert `r0`.
+            sticky
+                .data_mut()
+                .room_subscriptions
+                .insert(r0.to_owned(), (Default::default(), Default::default()));
+
+            // Then the sticky parameters are applied.
+            let txn_id: &TransactionId = "tid0".into();
+            let mut request = http::Request::default();
+            request.txn_id = Some(txn_id.to_string());
+
+            sticky.maybe_apply(&mut request, &mut LazyTransactionId::from_owned(txn_id.to_owned()));
+
+            assert!(request.txn_id.is_some());
+            assert_eq!(request.room_subscriptions.len(), 1);
+            assert!(request.room_subscriptions.contains_key(r0));
+
+            // Then the sticky parameters are committed.
+            let tid = request.txn_id.unwrap();
+
+            sticky.maybe_commit(tid.as_str().into());
+        }
+
+        // A room subscription is added, applied, but NOT committed.
+        {
+            // Insert `r1`.
+            sticky
+                .data_mut()
+                .room_subscriptions
+                .insert(r1.to_owned(), (Default::default(), Default::default()));
+
+            // Then the sticky parameters are applied.
+            let txn_id: &TransactionId = "tid1".into();
+            let mut request = http::Request::default();
+            request.txn_id = Some(txn_id.to_string());
+
+            sticky.maybe_apply(&mut request, &mut LazyTransactionId::from_owned(txn_id.to_owned()));
+
+            assert!(request.txn_id.is_some());
+            assert_eq!(request.room_subscriptions.len(), 1);
+            // `r0` is not present, it's only `r1`.
+            assert!(request.room_subscriptions.contains_key(r1));
+
+            // Then the sticky parameters are NOT committed.
+            // It can happen if the request has failed to be sent for example,
+            // or if the response didn't match.
+        }
+
+        // A previously added room subscription is re-added, applied, and committed.
+        {
+            // Then the sticky parameters are applied.
+            let txn_id: &TransactionId = "tid2".into();
+            let mut request = http::Request::default();
+            request.txn_id = Some(txn_id.to_string());
+
+            sticky.maybe_apply(&mut request, &mut LazyTransactionId::from_owned(txn_id.to_owned()));
+
+            assert!(request.txn_id.is_some());
+            assert_eq!(request.room_subscriptions.len(), 1);
+            // `r0` is not present, it's only `r1`.
+            assert!(request.room_subscriptions.contains_key(r1));
+
+            // Then the sticky parameters are committed.
+            let tid = request.txn_id.unwrap();
+
+            sticky.maybe_commit(tid.as_str().into());
+        }
+
+        // All room subscriptions have been committed.
+        {
+            // Then the sticky parameters are applied.
+            let txn_id: &TransactionId = "tid3".into();
+            let mut request = http::Request::default();
+            request.txn_id = Some(txn_id.to_string());
+
+            sticky.maybe_apply(&mut request, &mut LazyTransactionId::from_owned(txn_id.to_owned()));
+
+            assert!(request.txn_id.is_some());
+            // All room subscriptions have been sent.
+            assert!(request.room_subscriptions.is_empty());
+        }
     }
 
     #[test]
