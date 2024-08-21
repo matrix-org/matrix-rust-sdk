@@ -658,14 +658,14 @@ async fn build_store_config(
     let store_config = match builder_config {
         #[cfg(feature = "sqlite")]
         BuilderStoreConfig::Sqlite { path, passphrase } => {
-            let store_config = StoreConfig::new().state_store(
-                matrix_sdk_sqlite::SqliteStateStore::open(&path, passphrase.as_deref()).await?,
-            );
-
-            #[cfg(feature = "media-cache")]
-            let store_config = store_config.media_cache(
-                matrix_sdk_sqlite::SqliteMediaCache::open(&path, passphrase.as_deref()).await?,
-            );
+            let store_config = StoreConfig::new()
+                .state_store(
+                    matrix_sdk_sqlite::SqliteStateStore::open(&path, passphrase.as_deref()).await?,
+                )
+                .event_cache_store(
+                    matrix_sdk_sqlite::SqliteEventCacheStore::open(&path, passphrase.as_deref())
+                        .await?,
+                );
 
             #[cfg(feature = "e2e-encryption")]
             let store_config = store_config.crypto_store(
@@ -705,10 +705,9 @@ async fn build_indexeddb_store_config(
         StoreConfig::new().state_store(state_store)
     };
 
-    #[cfg(feature = "media-cache")]
     let store_config = {
-        tracing::warn!("The IndexedDB backend does not implement a media cache, falling back to the memory media cache…");
-        store_config.media_cache(matrix_sdk_base::media_cache::MemoryStore::new())
+        tracing::warn!("The IndexedDB backend does not implement an event cache store, falling back to the in-memory event cache store…");
+        store_config.event_cache_store(matrix_sdk_base::event_cache_store::MemoryStore::new())
     };
 
     Ok(store_config)

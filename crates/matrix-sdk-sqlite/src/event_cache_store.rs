@@ -8,8 +8,8 @@ use std::{
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
+    event_cache_store::EventCacheStore,
     media::{MediaRequest, UniqueKey},
-    media_cache::MediaCache,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use rusqlite::OptionalExtension;
@@ -32,31 +32,31 @@ mod keys {
 ///
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
-/// the [`SqliteMediaCache::run_migrations`] function.
+/// the [`SqliteEventCacheStore::run_migrations`] function.
 const DATABASE_VERSION: u8 = 1;
 
-/// A SQLite-based media cache.
+/// A SQLite-based event cache store.
 #[derive(Clone)]
-pub struct SqliteMediaCache {
+pub struct SqliteEventCacheStore {
     store_cipher: Option<Arc<StoreCipher>>,
     path: Option<PathBuf>,
     pool: SqlitePool,
 }
 
 #[cfg(not(tarpaulin_include))]
-impl fmt::Debug for SqliteMediaCache {
+impl fmt::Debug for SqliteEventCacheStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(path) = &self.path {
-            f.debug_struct("SqliteMediaCache").field("path", &path).finish()
+            f.debug_struct("SqliteEventCacheStore").field("path", &path).finish()
         } else {
-            f.debug_struct("SqliteMediaCache").field("path", &"memory store").finish()
+            f.debug_struct("SqliteEventCacheStore").field("path", &"memory store").finish()
         }
     }
 }
 
-impl SqliteMediaCache {
-    /// Open the SQLite-based media cache at the given path using the given
-    /// passphrase to encrypt private data.
+impl SqliteEventCacheStore {
+    /// Open the SQLite-based event cache store at the given path using the
+    /// given passphrase to encrypt private data.
     pub async fn open(
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
@@ -66,8 +66,8 @@ impl SqliteMediaCache {
         Self::open_with_pool(pool, passphrase).await
     }
 
-    /// Open an SQLite-based media cache using the given SQLite database pool.
-    /// The given passphrase will be used to encrypt private data.
+    /// Open an SQLite-based event cache store using the given SQLite database
+    /// pool. The given passphrase will be used to encrypt private data.
     pub async fn open_with_pool(
         pool: SqlitePool,
         passphrase: Option<&str>,
@@ -155,7 +155,7 @@ async fn init(conn: &SqliteConn) -> Result<()> {
     // the error message: "cannot change into wal mode from within a transaction".
     conn.execute_batch("PRAGMA journal_mode = wal;").await?;
     conn.with_transaction(|txn| {
-        txn.execute_batch(include_str!("../migrations/media_cache/001_init.sql"))
+        txn.execute_batch(include_str!("../migrations/event_cache_store/001_init.sql"))
     })
     .await?;
 
@@ -165,7 +165,7 @@ async fn init(conn: &SqliteConn) -> Result<()> {
 }
 
 #[async_trait]
-trait SqliteObjectMediaCacheExt: SqliteObjectExt {
+trait SqliteObjectEventCacheStoreExt: SqliteObjectExt {
     async fn set_media(&self, uri: Key, format: Key, data: Vec<u8>) -> Result<()> {
         self.execute(
             "INSERT OR REPLACE INTO media (uri, format, data, last_access) VALUES (?, ?, ?, CAST(strftime('%s') as INT))",
@@ -212,10 +212,10 @@ trait SqliteObjectMediaCacheExt: SqliteObjectExt {
 }
 
 #[async_trait]
-impl SqliteObjectMediaCacheExt for deadpool_sqlite::Object {}
+impl SqliteObjectEventCacheStoreExt for deadpool_sqlite::Object {}
 
 #[async_trait]
-impl MediaCache for SqliteMediaCache {
+impl EventCacheStore for SqliteEventCacheStore {
     type Error = Error;
 
     async fn add_media_content(&self, request: &MediaRequest, content: Vec<u8>) -> Result<()> {
@@ -252,36 +252,36 @@ mod tests {
     };
 
     use matrix_sdk_base::{
+        event_cache_store::{EventCacheStore, EventCacheStoreError},
+        event_cache_store_integration_tests,
         media::{MediaFormat, MediaRequest, MediaThumbnailSettings},
-        media_cache::{MediaCache, MediaCacheError},
-        media_cache_integration_tests,
     };
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
     use ruma::{events::room::MediaSource, media::Method, mxc_uri, uint};
     use tempfile::{tempdir, TempDir};
 
-    use super::SqliteMediaCache;
+    use super::SqliteEventCacheStore;
     use crate::utils::SqliteObjectExt;
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
 
-    async fn get_media_cache() -> Result<SqliteMediaCache, MediaCacheError> {
+    async fn get_event_cache_store() -> Result<SqliteEventCacheStore, EventCacheStoreError> {
         let name = NUM.fetch_add(1, SeqCst).to_string();
         let tmpdir_path = TMP_DIR.path().join(name);
 
-        tracing::info!("using media cache @ {}", tmpdir_path.to_str().unwrap());
+        tracing::info!("using event cache store @ {}", tmpdir_path.to_str().unwrap());
 
-        Ok(SqliteMediaCache::open(tmpdir_path.to_str().unwrap(), None).await.unwrap())
+        Ok(SqliteEventCacheStore::open(tmpdir_path.to_str().unwrap(), None).await.unwrap())
     }
 
-    media_cache_integration_tests!();
+    event_cache_store_integration_tests!();
 
-    async fn get_media_cache_content_sorted_by_last_access(
-        media_cache: &SqliteMediaCache,
+    async fn get_event_cache_store_content_sorted_by_last_access(
+        event_cache_store: &SqliteEventCacheStore,
     ) -> Vec<Vec<u8>> {
-        let sqlite_db = media_cache.acquire().await.expect("accessing sqlite db failed");
+        let sqlite_db = event_cache_store.acquire().await.expect("accessing sqlite db failed");
         sqlite_db
             .prepare("SELECT data FROM media ORDER BY last_access DESC", |mut stmt| {
                 stmt.query(())?.mapped(|row| row.get(0)).collect()
@@ -292,7 +292,7 @@ mod tests {
 
     #[async_test]
     async fn test_last_access() {
-        let media_cache = get_media_cache().await.expect("creating media cache failed");
+        let event_cache_store = get_event_cache_store().await.expect("creating media cache failed");
         let uri = mxc_uri!("mxc://localhost/media");
         let file_request =
             MediaRequest { source: MediaSource::Plain(uri.to_owned()), format: MediaFormat::File };
@@ -309,7 +309,7 @@ mod tests {
         let thumbnail_content: Vec<u8> = "hello…".into();
 
         // Add the media.
-        media_cache
+        event_cache_store
             .add_media_content(&file_request, content.clone())
             .await
             .expect("adding file failed");
@@ -318,13 +318,14 @@ mod tests {
         // differ.
         tokio::time::sleep(Duration::from_secs(3)).await;
 
-        media_cache
+        event_cache_store
             .add_media_content(&thumbnail_request, thumbnail_content.clone())
             .await
             .expect("adding thumbnail failed");
 
         // File's last access is older than thumbnail.
-        let contents = get_media_cache_content_sorted_by_last_access(&media_cache).await;
+        let contents =
+            get_event_cache_store_content_sorted_by_last_access(&event_cache_store).await;
 
         assert_eq!(contents.len(), 2, "media cache contents length is wrong");
         assert_eq!(contents[0], thumbnail_content, "thumbnail is not last access");
@@ -335,14 +336,15 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         // Access the file so it's last access is more recent.
-        let _ = media_cache
+        let _ = event_cache_store
             .get_media_content(&file_request)
             .await
             .expect("getting file failed")
             .expect("file is missing");
 
         // File's last access is more recent than thumbnail.
-        let contents = get_media_cache_content_sorted_by_last_access(&media_cache).await;
+        let contents =
+            get_event_cache_store_content_sorted_by_last_access(&event_cache_store).await;
 
         assert_eq!(contents.len(), 2, "media cache contents length is wrong");
         assert_eq!(contents[0], content, "file is not last access");
@@ -354,25 +356,30 @@ mod tests {
 mod encrypted_tests {
     use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
 
-    use matrix_sdk_base::{media_cache::MediaCacheError, media_cache_integration_tests};
+    use matrix_sdk_base::{
+        event_cache_store::EventCacheStoreError, event_cache_store_integration_tests,
+    };
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
 
-    use super::SqliteMediaCache;
+    use super::SqliteEventCacheStore;
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
 
-    async fn get_media_cache() -> Result<SqliteMediaCache, MediaCacheError> {
+    async fn get_event_cache_store() -> Result<SqliteEventCacheStore, EventCacheStoreError> {
         let name = NUM.fetch_add(1, SeqCst).to_string();
         let tmpdir_path = TMP_DIR.path().join(name);
 
-        tracing::info!("using media cache @ {}", tmpdir_path.to_str().unwrap());
+        tracing::info!("using event cache store @ {}", tmpdir_path.to_str().unwrap());
 
-        Ok(SqliteMediaCache::open(tmpdir_path.to_str().unwrap(), Some("default_test_password"))
-            .await
-            .unwrap())
+        Ok(SqliteEventCacheStore::open(
+            tmpdir_path.to_str().unwrap(),
+            Some("default_test_password"),
+        )
+        .await
+        .unwrap())
     }
 
-    media_cache_integration_tests!();
+    event_cache_store_integration_tests!();
 }

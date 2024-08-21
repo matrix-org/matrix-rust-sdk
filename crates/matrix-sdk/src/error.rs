@@ -24,9 +24,9 @@ use matrix_sdk_base::crypto::ScanError;
 use matrix_sdk_base::crypto::{
     CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
 };
-#[cfg(feature = "media-cache")]
-use matrix_sdk_base::media_cache::MediaCacheError;
-use matrix_sdk_base::{Error as SdkBaseError, RoomState, StoreError};
+use matrix_sdk_base::{
+    event_cache_store::EventCacheStoreError, Error as SdkBaseError, RoomState, StoreError,
+};
 use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
@@ -306,10 +306,9 @@ pub enum Error {
     #[error(transparent)]
     StateStore(#[from] StoreError),
 
-    /// An error occurred in the media cache.
-    #[cfg(feature = "media-cache")]
+    /// An error occurred in the event cache store.
     #[error(transparent)]
-    MediaCache(#[from] MediaCacheError),
+    EventCacheStore(#[from] EventCacheStoreError),
 
     /// An error encountered when trying to parse an identifier.
     #[error(transparent)]

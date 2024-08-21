@@ -58,9 +58,8 @@ use ruma::{
 };
 use tokio::sync::{broadcast, Mutex, RwLock};
 
-#[cfg(feature = "media-cache")]
-use crate::media_cache::{DynMediaCache, IntoMediaCache};
 use crate::{
+    event_cache_store::{DynEventCacheStore, IntoEventCacheStore},
     rooms::{normal::RoomInfoNotableUpdate, RoomInfo, RoomState},
     MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
 };
@@ -438,9 +437,9 @@ impl StateChanges {
 
 /// Configuration for the various stores.
 ///
-/// By default, this always includes a state store. When the `e2e-encryption`
-/// feature is enabled, this also includes a crypto store. When the
-/// `media-cache` feature is enabled, this also includes a media cache.
+/// By default, this always includes a state store and an event cache store.
+/// When the `e2e-encryption` feature is enabled, this also includes a crypto
+/// store.
 ///
 /// # Examples
 ///
@@ -454,8 +453,7 @@ pub struct StoreConfig {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) crypto_store: Arc<DynCryptoStore>,
     pub(crate) state_store: Arc<DynStateStore>,
-    #[cfg(feature = "media-cache")]
-    pub(crate) media_cache: Arc<DynMediaCache>,
+    pub(crate) event_cache_store: Arc<DynEventCacheStore>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -473,8 +471,8 @@ impl StoreConfig {
             #[cfg(feature = "e2e-encryption")]
             crypto_store: matrix_sdk_crypto::store::MemoryStore::new().into_crypto_store(),
             state_store: Arc::new(MemoryStore::new()),
-            #[cfg(feature = "media-cache")]
-            media_cache: crate::media_cache::MemoryStore::new().into_media_cache(),
+            event_cache_store: crate::event_cache_store::MemoryStore::new()
+                .into_event_cache_store(),
         }
     }
 
@@ -493,10 +491,9 @@ impl StoreConfig {
         self
     }
 
-    /// Set a custom implementation of a `MediaCache`.
-    #[cfg(feature = "media-cache")]
-    pub fn media_cache(mut self, media_cache: impl IntoMediaCache) -> Self {
-        self.media_cache = media_cache.into_media_cache();
+    /// Set a custom implementation of an `EventCacheStore`.
+    pub fn event_cache_store(mut self, event_cache_store: impl IntoEventCacheStore) -> Self {
+        self.event_cache_store = event_cache_store.into_event_cache_store();
         self
     }
 }

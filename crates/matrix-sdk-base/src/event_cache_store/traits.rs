@@ -18,16 +18,16 @@ use async_trait::async_trait;
 use matrix_sdk_common::AsyncTraitDeps;
 use ruma::MxcUri;
 
-use super::MediaCacheError;
+use super::EventCacheStoreError;
 use crate::media::MediaRequest;
 
-/// An abstract media cache trait that can be used to implement different caches
-/// for the SDK.
+/// An abstract trait that can be used to implement different store backends
+/// for the event cache of the SDK.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait MediaCache: AsyncTraitDeps {
-    /// The error type used by this media cache.
-    type Error: fmt::Debug + Into<MediaCacheError>;
+pub trait EventCacheStore: AsyncTraitDeps {
+    /// The error type used by this event cache store.
+    type Error: fmt::Debug + Into<EventCacheStoreError>;
 
     /// Add a media file's content in the media store.
     ///
@@ -69,10 +69,10 @@ pub trait MediaCache: AsyncTraitDeps {
 }
 
 #[repr(transparent)]
-struct EraseMediaCacheError<T>(T);
+struct EraseEventCacheStoreError<T>(T);
 
 #[cfg(not(tarpaulin_include))]
-impl<T: fmt::Debug> fmt::Debug for EraseMediaCacheError<T> {
+impl<T: fmt::Debug> fmt::Debug for EraseEventCacheStoreError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
@@ -80,8 +80,8 @@ impl<T: fmt::Debug> fmt::Debug for EraseMediaCacheError<T> {
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl<T: MediaCache> MediaCache for EraseMediaCacheError<T> {
-    type Error = MediaCacheError;
+impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
+    type Error = EventCacheStoreError;
 
     async fn add_media_content(
         &self,
@@ -107,39 +107,39 @@ impl<T: MediaCache> MediaCache for EraseMediaCacheError<T> {
     }
 }
 
-/// A type-erased [`MediaCache`].
-pub type DynMediaCache = dyn MediaCache<Error = MediaCacheError>;
+/// A type-erased [`EventCacheStore`].
+pub type DynEventCacheStore = dyn EventCacheStore<Error = EventCacheStoreError>;
 
-/// A type that can be type-erased into `Arc<dyn MediaCache>`.
+/// A type that can be type-erased into `Arc<dyn EventCacheStore>`.
 ///
 /// This trait is not meant to be implemented directly outside
 /// `matrix-sdk-base`, but it is automatically implemented for everything that
-/// implements `MediaCache`.
-pub trait IntoMediaCache {
+/// implements `EventCacheStore`.
+pub trait IntoEventCacheStore {
     #[doc(hidden)]
-    fn into_media_cache(self) -> Arc<DynMediaCache>;
+    fn into_event_cache_store(self) -> Arc<DynEventCacheStore>;
 }
 
-impl<T> IntoMediaCache for T
+impl<T> IntoEventCacheStore for T
 where
-    T: MediaCache + Sized + 'static,
+    T: EventCacheStore + Sized + 'static,
 {
-    fn into_media_cache(self) -> Arc<DynMediaCache> {
-        Arc::new(EraseMediaCacheError(self))
+    fn into_event_cache_store(self) -> Arc<DynEventCacheStore> {
+        Arc::new(EraseEventCacheStoreError(self))
     }
 }
 
-// Turns a given `Arc<T>` into `Arc<DynMediaCache>` by attaching the
-// MediaCache impl vtable of `EraseMediaCacheError<T>`.
-impl<T> IntoMediaCache for Arc<T>
+// Turns a given `Arc<T>` into `Arc<DynEventCacheStore>` by attaching the
+// `EventCacheStore` impl vtable of `EraseEventCacheStoreError<T>`.
+impl<T> IntoEventCacheStore for Arc<T>
 where
-    T: MediaCache + 'static,
+    T: EventCacheStore + 'static,
 {
-    fn into_media_cache(self) -> Arc<DynMediaCache> {
+    fn into_event_cache_store(self) -> Arc<DynEventCacheStore> {
         let ptr: *const T = Arc::into_raw(self);
-        let ptr_erased = ptr as *const EraseMediaCacheError<T>;
-        // SAFETY: EraseMediaCacheError is repr(transparent) so T and
-        //         EraseMediaCacheError<T> have the same layout and ABI
+        let ptr_erased = ptr as *const EraseEventCacheStoreError<T>;
+        // SAFETY: EraseEventCacheStoreError is repr(transparent) so T and
+        //         EraseEventCacheStoreError<T> have the same layout and ABI
         unsafe { Arc::from_raw(ptr_erased) }
     }
 }

@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The media cache holds all downloaded media when the cache was activated to
-//! save bandwidth at the cost of increased storage space usage.
+//! The event cache stores holds events and downloaded media when the cache was
+//! activated to save bandwidth at the cost of increased storage space usage.
 //!
-//! Implementing the `MediaCache` trait, you can plug any storage backend
-//! into the cache for the actual storage. By default this brings an in-memory
-//! store.
+//! Implementing the `EventCacheStore` trait, you can plug any storage backend
+//! into the event cache for the actual storage. By default this brings an
+//! in-memory store.
 
 use std::str::Utf8Error;
 
@@ -30,48 +30,48 @@ mod traits;
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 
 #[cfg(any(test, feature = "testing"))]
-pub use self::integration_tests::MediaCacheIntegrationTests;
+pub use self::integration_tests::EventCacheStoreIntegrationTests;
 pub use self::{
     memory_store::MemoryStore,
-    traits::{DynMediaCache, IntoMediaCache, MediaCache},
+    traits::{DynEventCacheStore, EventCacheStore, IntoEventCacheStore},
 };
 
-/// Media cache specific error type.
+/// Event cache store specific error type.
 #[derive(Debug, thiserror::Error)]
-pub enum MediaCacheError {
+pub enum EventCacheStoreError {
     /// An error happened in the underlying database backend.
     #[error(transparent)]
     Backend(Box<dyn std::error::Error + Send + Sync>),
 
-    /// The media cache is locked with a passphrase and an incorrect passphrase
+    /// The store is locked with a passphrase and an incorrect passphrase
     /// was given.
-    #[error("The media cache failed to be unlocked")]
+    #[error("The event cache store failed to be unlocked")]
     Locked,
 
-    /// An unencrypted media cache was tried to be unlocked with a passphrase.
-    #[error("The media cache is not encrypted but was tried to be opened with a passphrase")]
+    /// An unencrypted store was tried to be unlocked with a passphrase.
+    #[error("The event cache store is not encrypted but tried to be opened with a passphrase")]
     Unencrypted,
 
-    /// The media cache failed to encrypt or decrypt some data.
-    #[error("Error encrypting or decrypting data from the media cache: {0}")]
+    /// The store failed to encrypt or decrypt some data.
+    #[error("Error encrypting or decrypting data from the event cache store: {0}")]
     Encryption(#[from] StoreEncryptionError),
 
-    /// The media cache failed to encode or decode some data.
-    #[error("Error encoding or decoding data from the media cache: {0}")]
+    /// The store failed to encode or decode some data.
+    #[error("Error encoding or decoding data from the event cache store: {0}")]
     Codec(#[from] Utf8Error),
 
     /// The database format has changed in a backwards incompatible way.
     #[error(
-        "The database format changed in an incompatible way, current \
-        version: {0}, latest version: {1}"
+        "The database format of the event cache store changed in an incompatible way, \
+         current version: {0}, latest version: {1}"
     )]
     UnsupportedDatabaseVersion(usize, usize),
 }
 
-impl MediaCacheError {
+impl EventCacheStoreError {
     /// Create a new [`Backend`][Self::Backend] error.
     ///
-    /// Shorthand for `MediaCacheError::Backend(Box::new(error))`.
+    /// Shorthand for `EventCacheStoreError::Backend(Box::new(error))`.
     #[inline]
     pub fn backend<E>(error: E) -> Self
     where
@@ -81,5 +81,5 @@ impl MediaCacheError {
     }
 }
 
-/// A `MediaCache` specific result type.
-pub type Result<T, E = MediaCacheError> = std::result::Result<T, E>;
+/// An `EventCacheStore` specific result type.
+pub type Result<T, E = EventCacheStoreError> = std::result::Result<T, E>;

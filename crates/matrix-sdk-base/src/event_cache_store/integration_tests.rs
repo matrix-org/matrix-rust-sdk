@@ -12,30 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Trait and macro of integration tests for `MediaCache` implementations.
+//! Trait and macro of integration tests for `EventCacheStore` implementations.
 
 use async_trait::async_trait;
 use ruma::{
     api::client::media::get_content_thumbnail::v3::Method, events::room::MediaSource, mxc_uri, uint,
 };
 
-use super::DynMediaCache;
+use super::DynEventCacheStore;
 use crate::media::{MediaFormat, MediaRequest, MediaThumbnailSettings};
 
-/// `MediaCache` integration tests.
+/// `EventCacheStore` integration tests.
 ///
 /// This trait is not meant to be used directly, but will be used with the
-/// [`media_cache_integration_tests!`] macro.
+/// [`event_cache_store_integration_tests!`] macro.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait MediaCacheIntegrationTests {
+pub trait EventCacheStoreIntegrationTests {
     /// Test media content storage.
     async fn test_media_content(&self);
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl MediaCacheIntegrationTests for DynMediaCache {
+impl EventCacheStoreIntegrationTests for DynEventCacheStore {
     async fn test_media_content(&self) {
         let uri = mxc_uri!("mxc://localhost/media");
         let request_file =
@@ -141,52 +141,53 @@ impl MediaCacheIntegrationTests for DynMediaCache {
     }
 }
 
-/// Macro building to allow your `MediaCache` implementation to run the entire
-/// tests suite locally.
+/// Macro building to allow your `EventCacheStore` implementation to run the
+/// entire tests suite locally.
 ///
-/// You need to provide a `async fn get_media_cache() -> MediaCacheResult<impl
-/// MediaCache>` providing a fresh media cache on the same level you invoke the
-/// macro.
+/// You need to provide a `async fn get_event_cache_store() ->
+/// EventCacheStoreResult<impl EventCacheStore>` providing a fresh event cache
+/// store on the same level you invoke the macro.
 ///
 /// ## Usage Example:
 /// ```no_run
-/// # use matrix_sdk_base::media_cache::{
-/// #    MediaCache,
+/// # use matrix_sdk_base::event_cache_store::{
+/// #    EventCacheStore,
 /// #    MemoryStore as MyStore,
-/// #    Result as MediaCacheResult,
+/// #    Result as EventCacheStoreResult,
 /// # };
 ///
 /// #[cfg(test)]
 /// mod tests {
-///     use super::{MediaCache, MediaCacheResult, MyStore};
+///     use super::{EventCacheStore, EventCacheStoreResult, MyStore};
 ///
-///     async fn get_media_cache() -> MediaCacheResult<impl MediaCache> {
+///     async fn get_event_cache_store(
+///     ) -> EventCacheStoreResult<impl EventCacheStore> {
 ///         Ok(MyStore::new())
 ///     }
 ///
-///     media_cache_integration_tests!();
+///     event_cache_store_integration_tests!();
 /// }
 /// ```
 #[allow(unused_macros, unused_extern_crates)]
 #[macro_export]
-macro_rules! media_cache_integration_tests {
+macro_rules! event_cache_store_integration_tests {
     () => {
-        mod media_cache_integration_tests {
-            $crate::media_cache_integration_tests!(@inner);
+        mod event_cache_store_integration_tests {
+            $crate::event_cache_store_integration_tests!(@inner);
         }
     };
 
     (@inner) => {
         use matrix_sdk_test::async_test;
 
-        use $crate::media_cache::{IntoMediaCache, MediaCacheIntegrationTests};
+        use $crate::event_cache_store::{IntoEventCacheStore, EventCacheStoreIntegrationTests};
 
-        use super::get_media_cache;
+        use super::get_event_cache_store;
 
         #[async_test]
         async fn test_media_content() {
-            let media_cache = get_media_cache().await.unwrap().into_media_cache();
-            media_cache.test_media_content().await;
+            let event_cache_store = get_event_cache_store().await.unwrap().into_event_cache_store();
+            event_cache_store.test_media_content().await;
         }
     };
 }

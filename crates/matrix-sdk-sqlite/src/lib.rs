@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #![cfg_attr(
-    not(any(feature = "state-store", feature = "crypto-store", feature = "media-cache")),
+    not(any(feature = "state-store", feature = "crypto-store", feature = "event-cache")),
     allow(dead_code, unused_imports)
 )]
 
@@ -22,8 +22,8 @@ use matrix_sdk_store_encryption::StoreCipher;
 #[cfg(feature = "crypto-store")]
 mod crypto_store;
 mod error;
-#[cfg(feature = "media-cache")]
-mod media_cache;
+#[cfg(feature = "event-cache")]
+mod event_cache_store;
 #[cfg(feature = "state-store")]
 mod state_store;
 mod utils;
@@ -31,8 +31,8 @@ mod utils;
 #[cfg(feature = "crypto-store")]
 pub use self::crypto_store::SqliteCryptoStore;
 pub use self::error::OpenStoreError;
-#[cfg(feature = "media-cache")]
-pub use self::media_cache::SqliteMediaCache;
+#[cfg(feature = "event-cache")]
+pub use self::event_cache_store::SqliteEventCacheStore;
 #[cfg(feature = "state-store")]
 pub use self::state_store::SqliteStateStore;
 use self::utils::SqliteObjectStoreExt;

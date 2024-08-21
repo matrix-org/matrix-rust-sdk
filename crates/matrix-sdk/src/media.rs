@@ -25,8 +25,6 @@ use eyeball::SharedObservable;
 use futures_util::future::try_join;
 pub use matrix_sdk_base::media::*;
 use mime::Mime;
-#[cfg(feature = "media-cache")]
-use ruma::MxcUri;
 use ruma::{
     api::{
         client::{authenticated_media, media},
@@ -41,6 +39,7 @@ use ruma::{
         },
         ImageInfo, MediaSource, ThumbnailInfo,
     },
+    MxcUri,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
@@ -260,9 +259,7 @@ impl Media {
     ///
     /// * `request` - The `MediaRequest` of the content.
     ///
-    /// * `use_cache` - If we should use the media cache for this request. If
-    ///   the `media-cache` feature is not enabled, settings this to `true` will
-    ///   result in a warning in the logs.
+    /// * `use_cache` - If we should use the media cache for this request.
     pub async fn get_media_content(
         &self,
         request: &MediaRequest,
@@ -270,13 +267,9 @@ impl Media {
     ) -> Result<Vec<u8>> {
         // Read from the cache.
         if use_cache {
-            #[cfg(not(feature = "media-cache"))]
-            tracing::warn!(
-                "Attempting to use media cache but `media-cache` feature is not enabled"
-            );
-
-            #[cfg(feature = "media-cache")]
-            if let Some(content) = self.client.media_cache().get_media_content(request).await? {
+            if let Some(content) =
+                self.client.event_cache_store().get_media_content(request).await?
+            {
                 return Ok(content);
             }
         };
@@ -355,9 +348,8 @@ impl Media {
             }
         };
 
-        #[cfg(feature = "media-cache")]
         if use_cache {
-            self.client.media_cache().add_media_content(request, content.clone()).await?;
+            self.client.event_cache_store().add_media_content(request, content.clone()).await?;
         }
 
         Ok(content)
@@ -368,9 +360,8 @@ impl Media {
     /// # Arguments
     ///
     /// * `request` - The `MediaRequest` of the content.
-    #[cfg(feature = "media-cache")]
     pub async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        Ok(self.client.media_cache().remove_media_content(request).await?)
+        Ok(self.client.event_cache_store().remove_media_content(request).await?)
     }
 
     /// Delete all the media content corresponding to the given
@@ -379,9 +370,8 @@ impl Media {
     /// # Arguments
     ///
     /// * `uri` - The `MxcUri` of the files.
-    #[cfg(feature = "media-cache")]
     pub async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        Ok(self.client.media_cache().remove_media_content_for_uri(uri).await?)
+        Ok(self.client.event_cache_store().remove_media_content_for_uri(uri).await?)
     }
 
     /// Get the file of the given media event content.
@@ -419,7 +409,6 @@ impl Media {
     /// # Arguments
     ///
     /// * `event_content` - The media event content.
-    #[cfg(feature = "media-cache")]
     pub async fn remove_file(&self, event_content: &impl MediaEventContent) -> Result<()> {
         if let Some(source) = event_content.source() {
             self.remove_media_content(&MediaRequest { source, format: MediaFormat::File }).await?;
@@ -473,7 +462,6 @@ impl Media {
     ///
     /// * `size` - The _desired_ settings of the thumbnail. Must match the
     ///   settings requested with [`get_thumbnail`](#method.get_thumbnail).
-    #[cfg(feature = "media-cache")]
     pub async fn remove_thumbnail(
         &self,
         event_content: &impl MediaEventContent,

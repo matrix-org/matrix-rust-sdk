@@ -18,10 +18,10 @@ use async_trait::async_trait;
 use matrix_sdk_common::ring_buffer::RingBuffer;
 use ruma::{MxcUri, OwnedMxcUri};
 
-use super::{MediaCache, MediaCacheError, Result};
+use super::{EventCacheStore, EventCacheStoreError, Result};
 use crate::media::{MediaRequest, UniqueKey as _};
 
-/// In-memory, non-persistent implementation of the `MediaCache`.
+/// In-memory, non-persistent implementation of the `EventCacheStore`.
 ///
 /// Default if no other is configured at startup.
 #[allow(clippy::type_complexity)]
@@ -48,8 +48,8 @@ impl MemoryStore {
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl MediaCache for MemoryStore {
-    type Error = MediaCacheError;
+impl EventCacheStore for MemoryStore {
+    type Error = EventCacheStoreError;
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
         // Avoid duplication. Let's try to remove it first.
@@ -106,11 +106,11 @@ impl MediaCache for MemoryStore {
 
 #[cfg(test)]
 mod tests {
-    use super::{MediaCache, MemoryStore, Result};
+    use super::{EventCacheStore, MemoryStore, Result};
 
-    async fn get_media_cache() -> Result<impl MediaCache> {
+    async fn get_event_cache_store() -> Result<impl EventCacheStore> {
         Ok(MemoryStore::new())
     }
 
-    media_cache_integration_tests!();
+    event_cache_store_integration_tests!();
 }
