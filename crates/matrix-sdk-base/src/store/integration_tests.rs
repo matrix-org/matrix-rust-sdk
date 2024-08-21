@@ -1505,135 +1505,132 @@ impl StateStoreIntegrationTests for DynStateStore {
 macro_rules! statestore_integration_tests {
     () => {
         mod statestore_integration_tests {
-            $crate::statestore_integration_tests!(@inner);
-        }
-    };
+            use matrix_sdk_test::async_test;
+            use $crate::store::{
+                IntoStateStore, Result as StoreResult, StateStoreIntegrationTests,
+            };
 
-    (@inner) => {
-        use matrix_sdk_test::async_test;
+            use super::get_store;
 
-        use $crate::store::{IntoStateStore, Result as StoreResult, StateStoreIntegrationTests};
+            #[async_test]
+            async fn test_topic_redaction() -> StoreResult<()> {
+                let store = get_store().await?.into_state_store();
+                store.test_topic_redaction().await
+            }
 
-        use super::get_store;
+            #[async_test]
+            async fn test_populate_store() -> StoreResult<()> {
+                let store = get_store().await?.into_state_store();
+                store.test_populate_store().await
+            }
 
-        #[async_test]
-        async fn test_topic_redaction() -> StoreResult<()> {
-            let store = get_store().await?.into_state_store();
-            store.test_topic_redaction().await
-        }
+            #[async_test]
+            async fn test_member_saving() {
+                let store = get_store().await.unwrap().into_state_store();
+                store.test_member_saving().await
+            }
 
-        #[async_test]
-        async fn test_populate_store() -> StoreResult<()> {
-            let store = get_store().await?.into_state_store();
-            store.test_populate_store().await
-        }
+            #[async_test]
+            async fn test_filter_saving() {
+                let store = get_store().await.unwrap().into_state_store();
+                store.test_filter_saving().await
+            }
 
-        #[async_test]
-        async fn test_member_saving() {
-            let store = get_store().await.unwrap().into_state_store();
-            store.test_member_saving().await
-        }
+            #[async_test]
+            async fn test_user_avatar_url_saving() {
+                let store = get_store().await.unwrap().into_state_store();
+                store.test_user_avatar_url_saving().await
+            }
 
-        #[async_test]
-        async fn test_filter_saving() {
-            let store = get_store().await.unwrap().into_state_store();
-            store.test_filter_saving().await
-        }
+            #[async_test]
+            async fn test_server_capabilities_saving() {
+                let store = get_store().await.unwrap().into_state_store();
+                store.test_server_capabilities_saving().await
+            }
 
-        #[async_test]
-        async fn test_user_avatar_url_saving() {
-            let store = get_store().await.unwrap().into_state_store();
-            store.test_user_avatar_url_saving().await
-        }
+            #[async_test]
+            async fn test_sync_token_saving() {
+                let store = get_store().await.unwrap().into_state_store();
+                store.test_sync_token_saving().await
+            }
 
-        #[async_test]
-        async fn test_server_capabilities_saving() {
-            let store = get_store().await.unwrap().into_state_store();
-            store.test_server_capabilities_saving().await
-        }
+            #[async_test]
+            async fn test_utd_hook_manager_data_saving() {
+                let store = get_store().await.expect("creating store failed").into_state_store();
+                store.test_utd_hook_manager_data_saving().await;
+            }
 
-        #[async_test]
-        async fn test_sync_token_saving() {
-            let store = get_store().await.unwrap().into_state_store();
-            store.test_sync_token_saving().await
-        }
+            #[async_test]
+            async fn test_stripped_member_saving() {
+                let store = get_store().await.unwrap().into_state_store();
+                store.test_stripped_member_saving().await
+            }
 
-        #[async_test]
-        async fn test_utd_hook_manager_data_saving() {
-             let store = get_store().await.expect("creating store failed").into_state_store();
-             store.test_utd_hook_manager_data_saving().await;
-        }
+            #[async_test]
+            async fn test_power_level_saving() {
+                let store = get_store().await.unwrap().into_state_store();
+                store.test_power_level_saving().await
+            }
 
-        #[async_test]
-        async fn test_stripped_member_saving() {
-            let store = get_store().await.unwrap().into_state_store();
-            store.test_stripped_member_saving().await
-        }
+            #[async_test]
+            async fn test_receipts_saving() {
+                let store = get_store().await.expect("creating store failed").into_state_store();
+                store.test_receipts_saving().await;
+            }
 
-        #[async_test]
-        async fn test_power_level_saving() {
-            let store = get_store().await.unwrap().into_state_store();
-            store.test_power_level_saving().await
-        }
+            #[async_test]
+            async fn test_custom_storage() -> StoreResult<()> {
+                let store = get_store().await?.into_state_store();
+                store.test_custom_storage().await
+            }
 
-        #[async_test]
-        async fn test_receipts_saving() {
-            let store = get_store().await.expect("creating store failed").into_state_store();
-            store.test_receipts_saving().await;
-        }
+            #[async_test]
+            async fn test_persist_invited_room() -> StoreResult<()> {
+                let store = get_store().await?.into_state_store();
+                store.test_persist_invited_room().await
+            }
 
-        #[async_test]
-        async fn test_custom_storage() -> StoreResult<()> {
-            let store = get_store().await?.into_state_store();
-            store.test_custom_storage().await
-        }
+            #[async_test]
+            async fn test_stripped_non_stripped() -> StoreResult<()> {
+                let store = get_store().await.unwrap().into_state_store();
+                store.test_stripped_non_stripped().await
+            }
 
-        #[async_test]
-        async fn test_persist_invited_room() -> StoreResult<()> {
-            let store = get_store().await?.into_state_store();
-            store.test_persist_invited_room().await
-        }
+            #[async_test]
+            async fn test_room_removal() -> StoreResult<()> {
+                let store = get_store().await?.into_state_store();
+                store.test_room_removal().await
+            }
 
-        #[async_test]
-        async fn test_stripped_non_stripped() -> StoreResult<()> {
-            let store = get_store().await.unwrap().into_state_store();
-            store.test_stripped_non_stripped().await
-        }
+            #[async_test]
+            async fn test_profile_removal() -> StoreResult<()> {
+                let store = get_store().await?.into_state_store();
+                store.test_profile_removal().await
+            }
 
-        #[async_test]
-        async fn test_room_removal() -> StoreResult<()> {
-            let store = get_store().await?.into_state_store();
-            store.test_room_removal().await
-        }
+            #[async_test]
+            async fn test_presence_saving() {
+                let store = get_store().await.expect("creating store failed").into_state_store();
+                store.test_presence_saving().await;
+            }
 
-        #[async_test]
-        async fn test_profile_removal() -> StoreResult<()> {
-            let store = get_store().await?.into_state_store();
-            store.test_profile_removal().await
-        }
+            #[async_test]
+            async fn test_display_names_saving() {
+                let store = get_store().await.expect("creating store failed").into_state_store();
+                store.test_display_names_saving().await;
+            }
 
-        #[async_test]
-        async fn test_presence_saving() {
-            let store = get_store().await.expect("creating store failed").into_state_store();
-            store.test_presence_saving().await;
-        }
+            #[async_test]
+            async fn test_send_queue() {
+                let store = get_store().await.expect("creating store failed").into_state_store();
+                store.test_send_queue().await;
+            }
 
-        #[async_test]
-        async fn test_display_names_saving() {
-            let store = get_store().await.expect("creating store failed").into_state_store();
-            store.test_display_names_saving().await;
-        }
-
-        #[async_test]
-        async fn test_send_queue() {
-            let store = get_store().await.expect("creating store failed").into_state_store();
-            store.test_send_queue().await;
-        }
-
-        #[async_test]
-        async fn test_send_queue_dependents() {
-            let store = get_store().await.expect("creating store failed").into_state_store();
-            store.test_send_queue_dependents().await;
+            #[async_test]
+            async fn test_send_queue_dependents() {
+                let store = get_store().await.expect("creating store failed").into_state_store();
+                store.test_send_queue_dependents().await;
+            }
         }
     };
 }

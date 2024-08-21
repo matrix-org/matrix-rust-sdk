@@ -173,21 +173,17 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 macro_rules! event_cache_store_integration_tests {
     () => {
         mod event_cache_store_integration_tests {
-            $crate::event_cache_store_integration_tests!(@inner);
-        }
-    };
+            use matrix_sdk_test::async_test;
+            use $crate::event_cache_store::{EventCacheStoreIntegrationTests, IntoEventCacheStore};
 
-    (@inner) => {
-        use matrix_sdk_test::async_test;
+            use super::get_event_cache_store;
 
-        use $crate::event_cache_store::{IntoEventCacheStore, EventCacheStoreIntegrationTests};
-
-        use super::get_event_cache_store;
-
-        #[async_test]
-        async fn test_media_content() {
-            let event_cache_store = get_event_cache_store().await.unwrap().into_event_cache_store();
-            event_cache_store.test_media_content().await;
+            #[async_test]
+            async fn test_media_content() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_media_content().await;
+            }
         }
     };
 }
