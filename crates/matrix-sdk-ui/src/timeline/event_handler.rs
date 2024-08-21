@@ -572,11 +572,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         };
 
         if let Some((idx, event_item)) = rfind_event_by_id(self.items, reacted_to_event_id) {
-            let Some(remote_event_item) = event_item.as_remote() else {
-                error!("received reaction to a local echo");
-                return;
-            };
-
             // Ignore reactions on redacted events.
             if let TimelineItemContent::RedactedMessage = event_item.content() {
                 debug!("Ignoring reaction on redacted event");
@@ -586,7 +581,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             trace!("Added reaction");
 
             // Add the reaction to the event item's bundled reactions.
-            let mut reactions = remote_event_item.reactions.clone();
+            let mut reactions = event_item.reactions.clone();
 
             reactions.entry(c.relates_to.key.clone()).or_default().insert(
                 self.ctx.sender.clone(),
@@ -839,16 +834,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 return false;
             };
 
-            let Some(remote_event_item) = item.as_remote() else {
-                error!("inconsistent state: redaction received on a non-remote event item");
-                return false;
-            };
-
-            let mut reactions = remote_event_item.reactions.clone();
+            let mut reactions = item.reactions.clone();
             if reactions.remove_reaction(&sender, &key).is_some() {
                 trace!("Removing reaction");
-                let new_item = item.with_kind(remote_event_item.with_reactions(reactions));
-                self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
+                self.items.set(item_pos, item.with_reactions(reactions));
                 self.result.items_updated += 1;
                 return true;
             }
@@ -894,7 +883,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 RemoteEventTimelineItem {
                     event_id: event_id.clone(),
                     transaction_id: txn_id.clone(),
-                    reactions,
                     read_receipts: self.ctx.read_receipts.clone(),
                     is_own: self.ctx.is_own_event,
                     is_highlighted: self.ctx.is_highlighted,
@@ -915,6 +903,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             timestamp,
             content,
             kind,
+            reactions,
             is_room_encrypted,
         );
 
@@ -967,10 +956,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         if old_item.content.is_redacted() && !item.content.is_redacted() {
                             warn!("Got original form of an event that was previously redacted");
                             item.content = item.content.redact(&self.meta.room_version);
-                            item.as_remote_mut()
-                                .expect("Can't have a local item when flow == Remote")
-                                .reactions
-                                .clear();
+                            item.reactions.clear();
                         }
                     }
 
