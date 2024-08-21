@@ -319,11 +319,11 @@ impl PaginableRoom for TestRoomDataProvider {
 }
 
 impl PinnedEventsRoom for TestRoomDataProvider {
-    fn load_event<'a>(
+    async fn load_event_with_relations<'a>(
         &'a self,
         _event_id: &'a EventId,
-        _config: Option<RequestConfig>,
-    ) -> BoxFuture<'a, Result<SyncTimelineEvent, PaginatorError>> {
+        _request_config: Option<RequestConfig>,
+    ) -> BoxFuture<'a, Result<(SyncTimelineEvent, Vec<SyncTimelineEvent>), PaginatorError>> {
         unimplemented!();
     }
 
