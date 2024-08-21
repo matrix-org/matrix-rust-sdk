@@ -124,6 +124,14 @@ impl EventBuilder<RoomMessageEventContent> {
         self
     }
 
+    /// Adds a thread relation to the root event, setting the latest thread
+    /// event id too.
+    pub fn in_thread(mut self, root: &EventId, latest_thread_event: &EventId) -> Self {
+        self.content.relates_to =
+            Some(Relation::Thread(Thread::plain(root.to_owned(), latest_thread_event.to_owned())));
+        self
+    }
+
     /// Adds a replacement relation to the current event, with the new content
     /// passed.
     pub fn edit(
@@ -133,14 +141,6 @@ impl EventBuilder<RoomMessageEventContent> {
     ) -> Self {
         self.content.relates_to =
             Some(Relation::Replacement(Replacement::new(edited_event_id.to_owned(), new_content)));
-        self
-    }
-
-    /// Adds a thread relation to the root event, setting the latest thread
-    /// event id too.
-    pub fn in_thread(mut self, root: &EventId, latest_thread_event: &EventId) -> Self {
-        self.content.relates_to =
-            Some(Relation::Thread(Thread::plain(root.to_owned(), latest_thread_event.to_owned())));
         self
     }
 }
@@ -248,17 +248,6 @@ impl EventFactory {
         let mut builder = self.event(RoomRedactionEventContent::new_v11(event_id.to_owned()));
         builder.redacts = Some(event_id.to_owned());
         builder
-    }
-
-    /// Create a replacement message for an existing one given its id.
-    pub fn replacement_msg(
-        &self,
-        new_content: impl Into<String>,
-        original_event_id: &EventId,
-    ) -> EventBuilder<RoomMessageEventContent> {
-        let msg_content = RoomMessageEventContent::text_plain(new_content.into());
-        let builder = self.event(msg_content.clone());
-        builder.edit(original_event_id, msg_content.into())
     }
 
     /// Create a poll start event given a text, the question and the possible
