@@ -536,19 +536,39 @@ impl RoomEventCache {
         let mut relation_events = Vec::new();
 
         let cache = self.inner.all_events_cache.read().await;
-        let all_events = &cache.events;
-        let relations = &cache.relations;
-        if let Some((_, event)) = all_events.get(event_id) {
-            if let Some(rel_ids) = relations.get(event_id) {
-                for id in rel_ids {
-                    if let Some((_, ev)) = all_events.get(id) {
-                        relation_events.push(ev.clone());
-                    }
-                }
-            }
+        if let Some((_, event)) = cache.events.get(event_id) {
+            Self::related_event_ids_for_event(&cache, event_id, &mut relation_events);
             Some((event.clone(), relation_events))
         } else {
             None
+        }
+    }
+
+    /// Looks for related event ids for the passed event id, and appends them to
+    /// the `results` parameter. Then it'll recursively get the related
+    /// event ids for those too.
+    fn related_event_ids_for_event(
+        cache: &RwLockReadGuard<'_, AllEventsCache>,
+        event_id: &EventId,
+        results: &mut Vec<SyncTimelineEvent>,
+    ) {
+        if let Some(rel_ids) = cache.relations.get(event_id) {
+            for id in rel_ids {
+                // If the event was already added to the related ones, skip it.
+                if results.iter().any(|e| {
+                    if let Some(added_related_event_id) = e.event_id() {
+                        added_related_event_id == *id
+                    } else {
+                        false
+                    }
+                }) {
+                    return;
+                }
+                if let Some((_, ev)) = &cache.events.get(id) {
+                    results.push(ev.clone());
+                    Self::related_event_ids_for_event(cache, id, results);
+                }
+            }
         }
     }
 
@@ -1257,7 +1277,57 @@ mod tests {
         .await;
     }
 
-    async fn test_relations(
+    #[async_test]
+    async fn test_event_with_recursive_relation() {
+        let original_id = event_id!("$original");
+        let related_id = event_id!("$related");
+        let associated_related_id = event_id!("$recursive_related");
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let event_factory = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        let original_event = event_factory.text_msg("Original event").event_id(original_id).into();
+        let related_event = event_factory
+            .text_msg("* Edited event")
+            .edit(original_id, RoomMessageEventContentWithoutRelation::text_plain("Edited event"))
+            .event_id(related_id)
+            .into();
+        let associated_related_event =
+            event_factory.redaction(related_id).event_id(associated_related_id).into();
+
+        let client = logged_in_client(None).await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Save the original event.
+        room_event_cache.save_event(original_event).await;
+
+        // Save the related event.
+        room_event_cache.save_event(related_event).await;
+
+        // Save the associated related event, which redacts the related event.
+        room_event_cache.save_event(associated_related_event).await;
+
+        let (event, related_events) =
+            room_event_cache.event_with_relations(original_id).await.unwrap();
+        // Fetched event is the right one.
+        let cached_event_id = event.event_id().unwrap();
+        assert_eq!(cached_event_id, original_id);
+
+        // There are both the related id and the associatively related id
+        assert_eq!(related_events.len(), 2);
+
+        let related_event_id = related_events[0].event_id().unwrap();
+        assert_eq!(related_event_id, related_id);
+        let related_event_id = related_events[1].event_id().unwrap();
+        assert_eq!(related_event_id, associated_related_id);
+    }
+
     async fn assert_relations(
         room_id: &RoomId,
         original_event: SyncTimelineEvent,
