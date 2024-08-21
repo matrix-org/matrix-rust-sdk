@@ -346,6 +346,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         let can_add_to_live = match self.live_timeline_updates_type {
                             LiveTimelineUpdatesAllowed::PinnedEvents => {
                                 room_data_provider.is_pinned_event(event_id)
+                                    || room_data_provider
+                                        .is_replacement_for_pinned_event(&event_kind)
                             }
                             LiveTimelineUpdatesAllowed::All => true,
                             LiveTimelineUpdatesAllowed::None => false,
