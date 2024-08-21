@@ -49,6 +49,12 @@ pub trait StickyData {
 
     /// Apply the current data onto the request.
     fn apply(&self, request: &mut Self::Request);
+
+    /// Commit the current data, i.e. the request has been validated by a
+    /// response.
+    fn commit(&mut self) {
+        // noop
+    }
 }
 
 /// Helper data structure to manage sticky parameters, for any kind of data.
@@ -122,6 +128,7 @@ impl<D: StickyData> SlidingSyncStickyManager<D> {
     pub fn maybe_commit(&mut self, txn_id: &TransactionId) {
         if self.invalidated && self.txn_id.as_deref() == Some(txn_id) {
             self.invalidated = false;
+            self.data.commit();
         }
     }
 
@@ -135,7 +142,7 @@ impl<D: StickyData> SlidingSyncStickyManager<D> {
 mod tests {
     use super::{LazyTransactionId, SlidingSyncStickyManager, StickyData};
 
-    struct EmptyStickyData;
+    struct EmptyStickyData(u8);
 
     impl StickyData for EmptyStickyData {
         type Request = bool;
@@ -144,11 +151,15 @@ mod tests {
             // Mark that applied has had an effect.
             *req = true;
         }
+
+        fn commit(&mut self) {
+            self.0 += 1;
+        }
     }
 
     #[test]
     fn test_sticky_parameters_api_non_invalidated_no_effect() {
-        let mut sticky = SlidingSyncStickyManager::new(EmptyStickyData);
+        let mut sticky = SlidingSyncStickyManager::new(EmptyStickyData(0));
 
         // At first, it's always invalidated.
         assert!(sticky.is_invalidated());
@@ -162,10 +173,12 @@ mod tests {
 
         // Committing with the wrong transaction id won't commit.
         sticky.maybe_commit("tid456".into());
+        assert_eq!(sticky.data.0, 0);
         assert!(sticky.is_invalidated());
 
         // Providing the correct transaction id will commit.
         sticky.maybe_commit(txn_id.get().unwrap());
+        assert_eq!(sticky.data.0, 1);
         assert!(!sticky.is_invalidated());
 
         // Applying without being invalidated won't do anything, and not generate a
