@@ -20,8 +20,8 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, room::Receipts, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
-    async_test, sync_timeline_event, EphemeralTestEvent, JoinedRoomBuilder,
-    RoomAccountDataTestEvent, SyncResponseBuilder, ALICE, BOB,
+    async_test, mocks::mock_encryption_state, sync_timeline_event, EphemeralTestEvent,
+    JoinedRoomBuilder, RoomAccountDataTestEvent, SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::timeline::RoomExt;
 use ruma::{
@@ -40,7 +40,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{mock_encryption_state, mock_sync};
+use crate::mock_sync;
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
     match ev {

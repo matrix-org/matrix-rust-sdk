@@ -26,7 +26,8 @@ use matrix_sdk::{
 };
 use matrix_sdk_common::{executor::spawn, timeout::timeout};
 use matrix_sdk_test::{
-    async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
+    async_test, mocks::mock_encryption_state, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder,
+    ALICE, BOB,
 };
 use once_cell::sync::Lazy;
 use ruma::{
@@ -48,7 +49,7 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
-use crate::{logged_in_client_with_server, mock_encryption_state, mock_sync};
+use crate::{logged_in_client_with_server, mock_sync};
 
 /// Create a JSON string from a [`json!`][serde_json::json] "literal".
 #[macro_export]

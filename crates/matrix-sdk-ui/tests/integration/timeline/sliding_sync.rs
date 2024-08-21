@@ -23,7 +23,7 @@ use matrix_sdk::{
     test_utils::logged_in_client_with_server, SlidingSync, SlidingSyncList, SlidingSyncListBuilder,
     SlidingSyncMode, UpdateSummary,
 };
-use matrix_sdk_test::async_test;
+use matrix_sdk_test::{async_test, mocks::mock_encryption_state};
 use matrix_sdk_ui::{
     timeline::{TimelineItem, TimelineItemKind, VirtualTimelineItem},
     Timeline,
@@ -222,8 +222,6 @@ macro_rules! assert_timeline_stream {
 }
 
 pub(crate) use assert_timeline_stream;
-
-use crate::mock_encryption_state;
 
 async fn new_sliding_sync(lists: Vec<SlidingSyncListBuilder>) -> Result<(MockServer, SlidingSync)> {
     let (client, server) = logged_in_client_with_server().await;

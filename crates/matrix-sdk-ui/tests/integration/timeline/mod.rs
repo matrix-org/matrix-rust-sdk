@@ -23,8 +23,10 @@ use matrix_sdk::{
     test_utils::{events::EventFactory, logged_in_client_with_server},
 };
 use matrix_sdk_test::{
-    async_test, mocks::mock_redaction, sync_timeline_event, JoinedRoomBuilder,
-    RoomAccountDataTestEvent, StateTestEvent, SyncResponseBuilder,
+    async_test,
+    mocks::{mock_encryption_state, mock_redaction},
+    sync_timeline_event, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent,
+    SyncResponseBuilder,
 };
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt, TimelineItemContent, VirtualTimelineItem};
 use ruma::{
@@ -37,7 +39,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{mock_encryption_state, mock_sync};
+use crate::mock_sync;
 
 mod echo;
 mod edit;

@@ -12,7 +12,7 @@ use matrix_sdk::{
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
     async_test,
-    mocks::mock_redaction,
+    mocks::{mock_encryption_state, mock_redaction},
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
     EphemeralTestEvent, GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder,
     DEFAULT_TEST_ROOM_ID,
@@ -33,10 +33,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{
-    logged_in_client_with_server, mock_encryption_state, mock_sync, mock_sync_with_new_room,
-    synced_client,
-};
+use crate::{logged_in_client_with_server, mock_sync, mock_sync_with_new_room, synced_client};
 #[async_test]
 async fn test_invite_user_by_id() {
     let (client, server) = logged_in_client_with_server().await;

@@ -1,7 +1,7 @@
 use std::time::{Duration, UNIX_EPOCH};
 
 use matrix_sdk::{config::SyncSettings, instant::SystemTime};
-use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
+use matrix_sdk_test::{async_test, mocks::mock_encryption_state, test_json, DEFAULT_TEST_ROOM_ID};
 use ruma::event_id;
 use serde_json::json;
 use wiremock::{
@@ -9,7 +9,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client_with_server, mock_encryption_state, mock_sync};
+use crate::{logged_in_client_with_server, mock_sync};
 #[async_test]
 async fn test_send_location_beacon() {
     let (client, server) = logged_in_client_with_server().await;

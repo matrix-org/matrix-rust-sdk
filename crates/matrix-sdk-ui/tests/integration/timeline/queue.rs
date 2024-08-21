@@ -19,7 +19,10 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
-use matrix_sdk_test::{async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE};
+use matrix_sdk_test::{
+    async_test, mocks::mock_encryption_state, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder,
+    ALICE,
+};
 use matrix_sdk_ui::timeline::{EventItemOrigin, EventSendState, RoomExt};
 use ruma::{
     event_id, events::room::message::RoomMessageEventContent, room_id, MilliSecondsSinceUnixEpoch,
@@ -32,7 +35,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{mock_encryption_state, mock_sync};
+use crate::mock_sync;
 
 #[async_test]
 async fn test_message_order() {

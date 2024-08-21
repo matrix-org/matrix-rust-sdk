@@ -22,7 +22,8 @@ use futures_util::{
 };
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
-    async_test, EventBuilder, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, ALICE, BOB,
+    async_test, mocks::mock_encryption_state, EventBuilder, JoinedRoomBuilder, StateTestEvent,
+    SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::timeline::{
     AnyOtherFullStateEventContent, LiveBackPaginationStatus, RoomExt, TimelineItemContent,
@@ -46,7 +47,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{mock_encryption_state, mock_sync};
+use crate::mock_sync;
 
 #[async_test]
 async fn test_back_pagination() {

@@ -24,13 +24,14 @@ use matrix_sdk::{
     test_utils::{events::EventFactory, logged_in_client_with_server},
 };
 use matrix_sdk_test::{
-    async_test, sync_timeline_event, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
+    async_test, mocks::mock_encryption_state, sync_timeline_event, JoinedRoomBuilder,
+    SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::{timeline::TimelineFocus, Timeline};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
 use stream_assert::assert_pending;
 
-use crate::{mock_context, mock_encryption_state, mock_messages, mock_sync};
+use crate::{mock_context, mock_messages, mock_sync};
 
 #[async_test]
 async fn test_new_focused() {

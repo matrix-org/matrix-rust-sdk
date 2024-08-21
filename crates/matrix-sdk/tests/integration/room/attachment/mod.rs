@@ -10,7 +10,7 @@ use matrix_sdk::{
     config::SyncSettings,
     test_utils::logged_in_client_with_server,
 };
-use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
+use matrix_sdk_test::{async_test, mocks::mock_encryption_state, test_json, DEFAULT_TEST_ROOM_ID};
 use ruma::{event_id, events::Mentions, owned_user_id, uint};
 use serde_json::json;
 use wiremock::{
@@ -18,7 +18,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{mock_encryption_state, mock_sync};
+use crate::mock_sync;
 
 #[async_test]
 async fn test_room_attachment_send() {
@@ -474,6 +474,8 @@ async fn test_room_attachment_generate_thumbnail_not_fallback_format() {
 #[cfg(feature = "image-proc")]
 #[async_test]
 async fn test_room_attachment_generate_thumbnail_bigger_than_image() {
+    use matrix_sdk_test::mocks::mock_encryption_state;
+
     let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("PUT"))

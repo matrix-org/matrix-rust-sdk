@@ -10,7 +10,8 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_test::{
-    async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB, CAROL,
+    async_test, mocks::mock_encryption_state, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder,
+    ALICE, BOB, CAROL,
 };
 use matrix_sdk_ui::timeline::{
     Error as TimelineError, EventSendState, RoomExt, TimelineDetails, TimelineItemContent,
@@ -36,7 +37,7 @@ use wiremock::{
     Mock, Request, ResponseTemplate,
 };
 
-use crate::{mock_encryption_state, mock_sync};
+use crate::mock_sync;
 
 #[async_test]
 async fn test_in_reply_to_details() {
