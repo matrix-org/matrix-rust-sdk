@@ -1,7 +1,11 @@
 use std::{iter, time::Duration};
 
 use assert_matches2::assert_let;
-use matrix_sdk::{config::SyncSettings, room::RoomMember, DisplayName, RoomMemberships};
+use js_int::uint;
+use matrix_sdk::{
+    config::SyncSettings, room::RoomMember, test_utils::events::EventFactory, DisplayName,
+    RoomMemberships,
+};
 use matrix_sdk_test::{
     async_test, bulk_room_members, sync_state_event, sync_timeline_event, test_json,
     GlobalAccountDataTestEvent, JoinedRoomBuilder, LeftRoomBuilder, StateTestEvent,
@@ -10,14 +14,14 @@ use matrix_sdk_test::{
 use ruma::{
     event_id,
     events::{
-        room::member::MembershipState, AnyStateEvent, AnySyncStateEvent, AnyTimelineEvent,
-        StateEventType,
+        room::{member::MembershipState, message::RoomMessageEventContent},
+        AnyStateEvent, AnySyncStateEvent, AnyTimelineEvent, StateEventType,
     },
     room_id,
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{body_json, header, method, path_regex},
+    matchers::{body_json, header, method, path, path_regex},
     Mock, ResponseTemplate,
 };
 
@@ -620,6 +624,9 @@ async fn test_event() {
     let event_id = event_id!("$foun39djjod0f");
 
     let (client, server) = logged_in_client_with_server().await;
+    let cache = client.event_cache();
+    let _ = cache.subscribe();
+
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -668,6 +675,76 @@ async fn test_event() {
     let push_actions = timeline_event.push_actions.unwrap();
     assert!(push_actions.iter().any(|a| a.is_highlight()));
     assert!(push_actions.iter().any(|a| a.should_notify()));
+
+    // Requested event was saved to the cache
+    assert!(cache.event(event_id).await.is_some());
+}
+
+#[async_test]
+async fn test_event_with_context() {
+    let event_id = event_id!("$cur1234");
+    let prev_event_id = event_id!("$prev1234");
+    let next_event_id = event_id!("$next_1234");
+
+    let (client, server) = logged_in_client_with_server().await;
+    let cache = client.event_cache();
+    let _ = cache.subscribe();
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder
+        // We need the member event and power levels locally so the push rules processor works.
+        .add_joined_room(
+            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+                .add_state_event(StateTestEvent::Member)
+                .add_state_event(StateTestEvent::PowerLevels),
+        );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room_id = room.room_id();
+
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let event =
+        f.event(RoomMessageEventContent::text_plain("The requested message")).event_id(event_id);
+    let event_before =
+        f.event(RoomMessageEventContent::text_plain("A previous message")).event_id(prev_event_id);
+    let event_next =
+        f.event(RoomMessageEventContent::text_plain("A newer message")).event_id(next_event_id);
+    Mock::given(method("GET"))
+        .and(path(format!("/_matrix/client/r0/rooms/{room_id}/context/{event_id}")))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "events_before": [event_before.into_raw_timeline()],
+            "event": event.into_raw_timeline(),
+            "events_after": [event_next.into_raw_timeline()],
+            "state": [],
+        })))
+        .mount(&server)
+        .await;
+
+    let context_ret = room.event_with_context(event_id, false, uint!(1), None).await.unwrap();
+
+    assert_let!(Some(timeline_event) = context_ret.event);
+    assert_let!(Ok(event) = timeline_event.event.deserialize());
+    assert_eq!(event.event_id(), event_id);
+
+    assert_eq!(1, context_ret.events_before.len());
+    assert_let!(Ok(event) = context_ret.events_before[0].event.deserialize());
+    assert_eq!(event.event_id(), prev_event_id);
+
+    assert_eq!(1, context_ret.events_after.len());
+    assert_let!(Ok(event) = context_ret.events_after[0].event.deserialize());
+    assert_eq!(event.event_id(), next_event_id);
+
+    // Requested event and their context ones were saved to the cache
+    assert!(cache.event(event_id).await.is_some());
+    assert!(cache.event(prev_event_id).await.is_some());
+    assert!(cache.event(next_event_id).await.is_some());
 }
 
 #[async_test]
