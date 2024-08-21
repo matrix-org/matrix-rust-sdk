@@ -898,6 +898,22 @@ pub struct UpdateSummary {
     pub rooms: Vec<OwnedRoomId>,
 }
 
+/// A very basic bool-ish enum to represent the state of a
+/// [`http::request::RoomSubscription`]. A `RoomSubscription` that has been sent
+/// once should ideally not being sent again, to mostly save bandwidth.
+#[derive(Debug, Default)]
+enum RoomSubscriptionState {
+    /// The `RoomSubscription` has not been sent or received correctly from the
+    /// server, i.e. the `RoomSubscription` —which is part of the sticky
+    /// parameters— has not been committed.
+    #[default]
+    Pending,
+
+    /// The `RoomSubscription` has been sent and received correctly by the
+    /// server.
+    Applied,
+}
+
 /// The set of sticky parameters owned by the `SlidingSyncInner` instance, and
 /// sent in the request.
 #[derive(Debug)]
