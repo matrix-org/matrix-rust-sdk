@@ -570,8 +570,9 @@ impl RoomEventCache {
 
     /// Save a single event in the event cache, for further retrieval with
     /// [`Self::event`].
-    // This doesn't insert the event into the linked chunk. In the future there'll
-    // be no distinction between the linked chunk and the separate cache.
+    // TODO: This doesn't insert the event into the linked chunk. In the future
+    // there'll be no distinction between the linked chunk and the separate
+    // cache. There is a discussion in https://github.com/matrix-org/matrix-rust-sdk/issues/3886.
     pub(crate) async fn save_event(&self, event: SyncTimelineEvent) {
         if let Some(event_id) = event.event_id() {
             let mut cache = self.inner.all_events_cache.write().await;
@@ -586,8 +587,9 @@ impl RoomEventCache {
     /// Save some events in the event cache, for further retrieval with
     /// [`Self::event`]. This function will save them using a single lock,
     /// as opposed to [`Self::save_event`].
-    // This doesn't insert the event into the linked chunk. In the future there'll
-    // be no distinction between the linked chunk and the separate cache.
+    // TODO: This doesn't insert the event into the linked chunk. In the future
+    // there'll be no distinction between the linked chunk and the separate
+    // cache. There is a discussion in https://github.com/matrix-org/matrix-rust-sdk/issues/3886.
     pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = SyncTimelineEvent>) {
         let mut cache = self.inner.all_events_cache.write().await;
         for event in events {

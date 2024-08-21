@@ -319,7 +319,7 @@ impl PaginableRoom for TestRoomDataProvider {
 }
 
 impl PinnedEventsRoom for TestRoomDataProvider {
-    async fn load_event_with_relations<'a>(
+    fn load_event_with_relations<'a>(
         &'a self,
         _event_id: &'a EventId,
         _request_config: Option<RequestConfig>,

@@ -15,7 +15,10 @@ use matrix_sdk_ui::{
     timeline::{TimelineFocus, TimelineItemContent},
     Timeline,
 };
-use ruma::{event_id, owned_room_id, MilliSecondsSinceUnixEpoch, OwnedRoomId};
+use ruma::{
+    event_id, events::room::message::RoomMessageEventContentWithoutRelation, owned_room_id,
+    MilliSecondsSinceUnixEpoch, OwnedRoomId,
+};
 use serde_json::json;
 use stream_assert::assert_pending;
 use wiremock::MockServer;
@@ -402,7 +405,11 @@ async fn test_edited_events_are_reflected_in_sync() {
     test_helper.server.reset().await;
 
     let edited_event = f
-        .replacement_msg("edited message!", event_id!("$1"))
+        .text_msg("edited message!")
+        .edit(
+            event_id!("$1"),
+            RoomMessageEventContentWithoutRelation::text_plain("* edited message!"),
+        )
         .event_id(event_id!("$2"))
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_timeline();
@@ -425,7 +432,7 @@ async fn test_edited_events_are_reflected_in_sync() {
         assert_eq!(index, 1);
         match value.as_event().unwrap().content() {
             TimelineItemContent::Message(m) => {
-                assert_eq!(m.body(), "edited message!")
+                assert_eq!(m.body(), "* edited message!")
             }
             _ => panic!("Should be a message event"),
         }
@@ -547,7 +554,11 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
     test_helper.server.reset().await;
 
     let edited_pinned_event = f
-        .replacement_msg("edited message!", event_id!("$1"))
+        .text_msg("* edited message!")
+        .edit(
+            event_id!("$1"),
+            RoomMessageEventContentWithoutRelation::text_plain("edited message!"),
+        )
         .event_id(event_id!("$2"))
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_timeline();

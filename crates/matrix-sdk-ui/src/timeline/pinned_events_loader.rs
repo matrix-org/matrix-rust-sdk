@@ -17,6 +17,7 @@ use std::{fmt::Formatter, num::NonZeroUsize, sync::Arc};
 use futures_util::{future::join_all, FutureExt as _};
 use matrix_sdk::{
     config::RequestConfig, event_cache::paginator::PaginatorError, BoxFuture, Room,
+    SendOutsideWasm, SyncOutsideWasm,
 };
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
@@ -112,10 +113,10 @@ impl PinnedEventsLoader {
     }
 }
 
-pub trait PinnedEventsRoom {
+pub trait PinnedEventsRoom: SendOutsideWasm + SyncOutsideWasm {
     /// Load a single room event using the cache or network and any events
     /// related to it, if they are cached.
-    async fn load_event_with_relations<'a>(
+    fn load_event_with_relations<'a>(
         &'a self,
         event_id: &'a EventId,
         request_config: Option<RequestConfig>,
@@ -148,7 +149,7 @@ pub trait PinnedEventsRoom {
 }
 
 impl PinnedEventsRoom for Room {
-    async fn load_event_with_relations<'a>(
+    fn load_event_with_relations<'a>(
         &'a self,
         event_id: &'a EventId,
         request_config: Option<RequestConfig>,
