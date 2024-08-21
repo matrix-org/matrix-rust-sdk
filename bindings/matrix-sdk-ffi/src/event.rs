@@ -1,7 +1,8 @@
 use anyhow::{bail, Context};
 use ruma::events::{
-    room::message::Relation, AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-    AnyTimelineEvent, MessageLikeEventContent as RumaMessageLikeEventContent, RedactContent,
+    room::{message::Relation, redaction::SyncRoomRedactionEvent},
+    AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+    MessageLikeEventContent as RumaMessageLikeEventContent, RedactContent,
     RedactedStateEventContent, StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
 };
 
@@ -135,7 +136,7 @@ pub enum MessageLikeEventContent {
     ReactionContent { related_event_id: String },
     RoomEncrypted,
     RoomMessage { message_type: MessageType, in_reply_to_event_id: Option<String> },
-    RoomRedaction,
+    RoomRedaction { redacted_event_id: Option<String>, reason: Option<String> },
     Sticker,
 }
 
@@ -200,7 +201,17 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
                     in_reply_to_event_id,
                 }
             }
-            AnySyncMessageLikeEvent::RoomRedaction(_) => MessageLikeEventContent::RoomRedaction,
+            AnySyncMessageLikeEvent::RoomRedaction(c) => {
+                let (redacted_event_id, reason) = match c {
+                    SyncRoomRedactionEvent::Original(o) => {
+                        let id =
+                            if o.content.redacts.is_some() { o.content.redacts } else { o.redacts };
+                        (id.map(|id| id.to_string()), o.content.reason)
+                    }
+                    SyncRoomRedactionEvent::Redacted(_) => (None, None),
+                };
+                MessageLikeEventContent::RoomRedaction { redacted_event_id, reason }
+            }
             AnySyncMessageLikeEvent::Sticker(_) => MessageLikeEventContent::Sticker,
             _ => bail!("Unsupported Event Type"),
         };
