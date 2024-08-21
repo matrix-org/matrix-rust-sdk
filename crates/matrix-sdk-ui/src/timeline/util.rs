@@ -39,12 +39,7 @@ impl<'a> EventTimelineItemWithId<'a> {
     /// Create a clone of the underlying [`TimelineItem`] with the given
     /// reactions.
     pub fn with_reactions(&self, reactions: ReactionsByKeyBySender) -> Arc<TimelineItem> {
-        let remote_item = self
-            .inner
-            .as_remote()
-            .expect("should only be remote at the moment (TODO: local)")
-            .with_reactions(reactions);
-        let event_item = self.inner.with_kind(remote_item);
+        let event_item = self.inner.with_reactions(reactions);
         TimelineItem::new(event_item, self.internal_id.to_owned())
     }
 }

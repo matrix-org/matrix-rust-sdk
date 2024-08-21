@@ -66,6 +66,8 @@ pub struct EventTimelineItem {
     pub(super) sender: OwnedUserId,
     /// The sender's profile of the event.
     pub(super) sender_profile: TimelineDetails<Profile>,
+    /// All bundled reactions about the event.
+    pub(super) reactions: ReactionsByKeyBySender,
     /// The timestamp of the event.
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,
     /// The content of the event.
@@ -114,10 +116,11 @@ impl EventTimelineItem {
         timestamp: MilliSecondsSinceUnixEpoch,
         content: TimelineItemContent,
         kind: EventTimelineItemKind,
+        reactions: ReactionsByKeyBySender,
         is_room_encrypted: bool,
     ) -> Self {
         let is_room_encrypted = Some(is_room_encrypted);
-        Self { sender, sender_profile, timestamp, content, kind, is_room_encrypted }
+        Self { sender, sender_profile, timestamp, content, reactions, kind, is_room_encrypted }
     }
 
     /// If the supplied low-level `SyncTimelineEvent` is suitable for use as the
@@ -175,7 +178,6 @@ impl EventTimelineItem {
         let kind = RemoteEventTimelineItem {
             event_id,
             transaction_id: None,
-            reactions,
             read_receipts,
             is_own,
             is_highlighted,
@@ -199,9 +201,16 @@ impl EventTimelineItem {
         } else {
             TimelineDetails::Unavailable
         };
-        let is_room_encrypted = None;
 
-        Some(Self { sender, sender_profile, timestamp, content, kind, is_room_encrypted })
+        Some(Self {
+            sender,
+            sender_profile,
+            timestamp,
+            content,
+            kind,
+            reactions,
+            is_room_encrypted: None,
+        })
     }
 
     /// Check whether this item is a local echo.
@@ -291,12 +300,7 @@ impl EventTimelineItem {
 
     /// Get the reactions of this item.
     pub fn reactions(&self) -> &ReactionsByKeyBySender {
-        // There's not much of a point in allowing reactions to local echoes.
-        static EMPTY_REACTIONS: Lazy<ReactionsByKeyBySender> = Lazy::new(Default::default);
-        match &self.kind {
-            EventTimelineItemKind::Local(_) => &EMPTY_REACTIONS,
-            EventTimelineItemKind::Remote(remote_event) => &remote_event.reactions,
-        }
+        &self.reactions
     }
 
     /// Get the read receipts of this item.
@@ -453,6 +457,11 @@ impl EventTimelineItem {
         Self { kind: kind.into(), ..self.clone() }
     }
 
+    /// Clone the current event item, and update its `reactions`.
+    pub fn with_reactions(&self, reactions: ReactionsByKeyBySender) -> Self {
+        Self { reactions, ..self.clone() }
+    }
+
     /// Clone the current event item, and update its content.
     ///
     /// Optionally update `latest_edit_json` if the update is an edit received
@@ -490,6 +499,7 @@ impl EventTimelineItem {
             content,
             kind,
             is_room_encrypted: self.is_room_encrypted,
+            reactions: ReactionsByKeyBySender::default(),
         }
     }
 

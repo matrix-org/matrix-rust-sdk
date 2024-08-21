@@ -623,7 +623,6 @@ mod tests {
         let event_kind = EventTimelineItemKind::Remote(RemoteEventTimelineItem {
             event_id: owned_event_id!("$1"),
             transaction_id: None,
-            reactions: Default::default(),
             read_receipts: Default::default(),
             is_own: false,
             is_highlighted: false,
@@ -638,6 +637,7 @@ mod tests {
             timestamp,
             TimelineItemContent::RedactedMessage,
             event_kind,
+            Default::default(),
             false,
         )
     }
