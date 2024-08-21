@@ -145,7 +145,7 @@ impl SqliteEventCacheStore {
 
 async fn create_pool(path: &Path) -> Result<SqlitePool, OpenStoreError> {
     fs::create_dir_all(path).await.map_err(OpenStoreError::CreateDir)?;
-    let cfg = deadpool_sqlite::Config::new(path.join("matrix-sdk-media.sqlite3"));
+    let cfg = deadpool_sqlite::Config::new(path.join("matrix-sdk-event-cache.sqlite3"));
     Ok(cfg.create_pool(Runtime::Tokio1)?)
 }
 
@@ -335,7 +335,7 @@ mod tests {
         // differ.
         tokio::time::sleep(Duration::from_secs(3)).await;
 
-        // Access the file so it's last access is more recent.
+        // Access the file so its last access is more recent.
         let _ = event_cache_store
             .get_media_content(&file_request)
             .await
