@@ -17,7 +17,7 @@
 //! makes it possible to paginate forward or backward, from that event, until
 //! one end of the timeline (front or back) is reached.
 
-use std::sync::Mutex;
+use std::{future::Future, sync::Mutex};
 
 use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
@@ -431,8 +431,6 @@ impl<PR: PaginableRoom> Paginator<PR> {
 ///
 /// Not [`crate::Room`] because we may want to paginate rooms we don't belong
 /// to.
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait PaginableRoom: SendOutsideWasm + SyncOutsideWasm {
     /// Runs a /context query for the given room.
     ///
@@ -440,87 +438,113 @@ pub trait PaginableRoom: SendOutsideWasm + SyncOutsideWasm {
     ///
     /// - `event_id` is the identifier of the target event.
     /// - `lazy_load_members` controls whether room membership events are lazily
-    ///   loaded as context
-    /// state events.
+    ///   loaded as context state events.
     /// - `num_events` is the number of events (including the fetched event) to
-    /// return as context.
+    ///   return as context.
     ///
     /// ## Returns
     ///
     /// Must return [`PaginatorError::EventNotFound`] whenever the target event
     /// could not be found, instead of causing an http `Err` result.
-    async fn event_with_context(
+    fn event_with_context(
         &self,
         event_id: &EventId,
         lazy_load_members: bool,
         num_events: UInt,
-    ) -> Result<EventWithContextResponse, PaginatorError>;
+    ) -> impl Future<Output = Result<EventWithContextResponse, PaginatorError>>;
 
     /// Runs a /messages query for the given room.
-    async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError>;
+    fn messages(
+        &self,
+        opts: MessagesOptions,
+    ) -> impl Future<Output = Result<Messages, PaginatorError>>;
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl PaginableRoom for Room {
-    async fn event_with_context(
+    // This is written as a function returning a Future to avoid a performance
+    // pitfall of rustc when using async_trait. See https://github.com/matrix-org/matrix-rust-sdk/pull/3880 for
+    // details.
+    #[allow(clippy::manual_async_fn)]
+    fn event_with_context(
         &self,
         event_id: &EventId,
         lazy_load_members: bool,
         num_events: UInt,
-    ) -> Result<EventWithContextResponse, PaginatorError> {
-        let response = match self.event_with_context(event_id, lazy_load_members, num_events).await
-        {
-            Ok(result) => result,
+    ) -> impl Future<Output = Result<EventWithContextResponse, PaginatorError>> {
+        async move {
+            let response =
+                match self.event_with_context(event_id, lazy_load_members, num_events).await {
+                    Ok(result) => result,
 
-            Err(err) => {
-                // If the error was a 404, then the event wasn't found on the server; special
-                // case this to make it easy to react to such an error.
-                if let Some(error) = err.as_client_api_error() {
-                    if error.status_code == 404 {
-                        // Event not found
-                        return Err(PaginatorError::EventNotFound(event_id.to_owned()));
+                    Err(err) => {
+                        // If the error was a 404, then the event wasn't found on the server;
+                        // special case this to make it easy to react to
+                        // such an error.
+                        if let Some(error) = err.as_client_api_error() {
+                            if error.status_code == 404 {
+                                // Event not found
+                                return Err(PaginatorError::EventNotFound(event_id.to_owned()));
+                            }
+                        }
+
+                        // Otherwise, just return a wrapped error.
+                        return Err(PaginatorError::SdkError(Box::new(err)));
                     }
-                }
+                };
 
-                // Otherwise, just return a wrapped error.
-                return Err(PaginatorError::SdkError(Box::new(err)));
-            }
-        };
-
-        Ok(response)
+            Ok(response)
+        }
     }
 
-    async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError> {
-        self.messages(opts).await.map_err(|err| PaginatorError::SdkError(Box::new(err)))
+    // This is written as a function returning a Future to avoid a performance
+    // pitfall of rustc when using async_trait. See https://github.com/matrix-org/matrix-rust-sdk/pull/3880 for
+    // details.
+    #[allow(clippy::manual_async_fn)]
+    fn messages(
+        &self,
+        opts: MessagesOptions,
+    ) -> impl Future<Output = Result<Messages, PaginatorError>> {
+        async move { self.messages(opts).await.map_err(|err| PaginatorError::SdkError(Box::new(err))) }
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl PaginableRoom for WeakRoom {
-    async fn event_with_context(
+    // This is written as a function returning a Future to avoid a performance
+    // pitfall of rustc when using async_trait. See https://github.com/matrix-org/matrix-rust-sdk/pull/3880 for
+    // details.
+    #[allow(clippy::manual_async_fn)]
+    fn event_with_context(
         &self,
         event_id: &EventId,
         lazy_load_members: bool,
         num_events: UInt,
-    ) -> Result<EventWithContextResponse, PaginatorError> {
-        let Some(room) = self.get() else {
-            // Client is shutting down, return a default response.
-            return Ok(EventWithContextResponse::default());
-        };
+    ) -> impl Future<Output = Result<EventWithContextResponse, PaginatorError>> {
+        async move {
+            let Some(room) = self.get() else {
+                // Client is shutting down, return a default response.
+                return Ok(EventWithContextResponse::default());
+            };
 
-        PaginableRoom::event_with_context(&room, event_id, lazy_load_members, num_events).await
+            PaginableRoom::event_with_context(&room, event_id, lazy_load_members, num_events).await
+        }
     }
 
-    /// Runs a /messages query for the given room.
-    async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError> {
-        let Some(room) = self.get() else {
-            // Client is shutting down, return a default response.
-            return Ok(Messages::default());
-        };
+    // This is written as a function returning a Future to avoid a performance
+    // pitfall of rustc when using async_trait. See https://github.com/matrix-org/matrix-rust-sdk/pull/3880 for
+    // details.
+    #[allow(clippy::manual_async_fn)]
+    fn messages(
+        &self,
+        opts: MessagesOptions,
+    ) -> impl Future<Output = Result<Messages, PaginatorError>> {
+        async move {
+            let Some(room) = self.get() else {
+                // Client is shutting down, return a default response.
+                return Ok(Messages::default());
+            };
 
-        PaginableRoom::messages(&room, opts).await
+            PaginableRoom::messages(&room, opts).await
+        }
     }
 }
 
@@ -529,7 +553,6 @@ mod tests {
     use std::sync::Arc;
 
     use assert_matches2::assert_let;
-    use async_trait::async_trait;
     use futures_core::Future;
     use futures_util::FutureExt as _;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
@@ -589,97 +612,103 @@ mod tests {
     static ROOM_ID: Lazy<&RoomId> = Lazy::new(|| room_id!("!dune:herbert.org"));
     static USER_ID: Lazy<&UserId> = Lazy::new(|| user_id!("@paul:atreid.es"));
 
-    #[async_trait]
     impl PaginableRoom for TestRoom {
-        async fn event_with_context(
+        fn event_with_context(
             &self,
             event_id: &EventId,
             _lazy_load_members: bool,
             num_events: UInt,
-        ) -> Result<EventWithContextResponse, PaginatorError> {
-            // Wait for the room to be marked as ready first.
-            if self.wait_for_ready {
-                self.room_ready.notified().await;
+        ) -> impl Future<Output = Result<EventWithContextResponse, PaginatorError>> {
+            async move {
+                // Wait for the room to be marked as ready first.
+                if self.wait_for_ready {
+                    self.room_ready.notified().await;
+                }
+
+                let event = self
+                    .event_factory
+                    .text_msg(self.target_event_text.lock().await.clone())
+                    .event_id(event_id)
+                    .into_timeline();
+
+                // Properly simulate `num_events`: take either the closest num_events events
+                // before, or use all of the before events and then consume after events.
+                let mut num_events = u64::from(num_events) as usize;
+
+                let prev_events = self.prev_events.lock().await;
+
+                let events_before = if prev_events.is_empty() {
+                    Vec::new()
+                } else {
+                    let len = prev_events.len();
+                    let take_before = num_events.min(len);
+                    // Subtract is safe because take_before <= num_events.
+                    num_events -= take_before;
+                    // Subtract is safe because take_before <= len
+                    prev_events[len - take_before..len].to_vec()
+                };
+
+                let events_after = self.next_events.lock().await;
+                let events_after = if events_after.is_empty() {
+                    Vec::new()
+                } else {
+                    events_after[0..num_events.min(events_after.len())].to_vec()
+                };
+
+                return Ok(EventWithContextResponse {
+                    event: Some(event),
+                    events_before,
+                    events_after,
+                    prev_batch_token: self.prev_batch_token.lock().await.clone(),
+                    next_batch_token: self.next_batch_token.lock().await.clone(),
+                    state: Vec::new(),
+                });
             }
-
-            let event = self
-                .event_factory
-                .text_msg(self.target_event_text.lock().await.clone())
-                .event_id(event_id)
-                .into_timeline();
-
-            // Properly simulate `num_events`: take either the closest num_events events
-            // before, or use all of the before events and then consume after events.
-            let mut num_events = u64::from(num_events) as usize;
-
-            let prev_events = self.prev_events.lock().await;
-
-            let events_before = if prev_events.is_empty() {
-                Vec::new()
-            } else {
-                let len = prev_events.len();
-                let take_before = num_events.min(len);
-                // Subtract is safe because take_before <= num_events.
-                num_events -= take_before;
-                // Subtract is safe because take_before <= len
-                prev_events[len - take_before..len].to_vec()
-            };
-
-            let events_after = self.next_events.lock().await;
-            let events_after = if events_after.is_empty() {
-                Vec::new()
-            } else {
-                events_after[0..num_events.min(events_after.len())].to_vec()
-            };
-
-            return Ok(EventWithContextResponse {
-                event: Some(event),
-                events_before,
-                events_after,
-                prev_batch_token: self.prev_batch_token.lock().await.clone(),
-                next_batch_token: self.next_batch_token.lock().await.clone(),
-                state: Vec::new(),
-            });
         }
 
-        async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError> {
-            if self.wait_for_ready {
-                self.room_ready.notified().await;
+        fn messages(
+            &self,
+            opts: MessagesOptions,
+        ) -> impl Future<Output = Result<Messages, PaginatorError>> {
+            async move {
+                if self.wait_for_ready {
+                    self.room_ready.notified().await;
+                }
+
+                let limit = u64::from(opts.limit) as usize;
+
+                let (end, events) = match opts.dir {
+                    Direction::Backward => {
+                        let events = self.prev_events.lock().await;
+                        let events = if events.is_empty() {
+                            Vec::new()
+                        } else {
+                            let len = events.len();
+                            let take_before = limit.min(len);
+                            // Subtract is safe because take_before <= len
+                            events[len - take_before..len].to_vec()
+                        };
+                        (self.prev_batch_token.lock().await.clone(), events)
+                    }
+
+                    Direction::Forward => {
+                        let events = self.next_events.lock().await;
+                        let events = if events.is_empty() {
+                            Vec::new()
+                        } else {
+                            events[0..limit.min(events.len())].to_vec()
+                        };
+                        (self.next_batch_token.lock().await.clone(), events)
+                    }
+                };
+
+                return Ok(Messages {
+                    start: opts.from.unwrap(),
+                    end,
+                    chunk: events,
+                    state: Vec::new(),
+                });
             }
-
-            let limit = u64::from(opts.limit) as usize;
-
-            let (end, events) = match opts.dir {
-                Direction::Backward => {
-                    let events = self.prev_events.lock().await;
-                    let events = if events.is_empty() {
-                        Vec::new()
-                    } else {
-                        let len = events.len();
-                        let take_before = limit.min(len);
-                        // Subtract is safe because take_before <= len
-                        events[len - take_before..len].to_vec()
-                    };
-                    (self.prev_batch_token.lock().await.clone(), events)
-                }
-
-                Direction::Forward => {
-                    let events = self.next_events.lock().await;
-                    let events = if events.is_empty() {
-                        Vec::new()
-                    } else {
-                        events[0..limit.min(events.len())].to_vec()
-                    };
-                    (self.next_batch_token.lock().await.clone(), events)
-                }
-            };
-
-            return Ok(Messages {
-                start: opts.from.unwrap(),
-                end,
-                chunk: events,
-                state: Vec::new(),
-            });
         }
     }
 
@@ -1089,19 +1118,22 @@ mod tests {
             }
         }
 
-        #[async_trait]
         impl PaginableRoom for AbortingRoom {
-            async fn event_with_context(
+            fn event_with_context(
                 &self,
                 _event_id: &EventId,
                 _lazy_load_members: bool,
                 _num_events: UInt,
-            ) -> Result<EventWithContextResponse, PaginatorError> {
-                self.wait_abort_and_yield().await
+            ) -> impl Future<Output = Result<EventWithContextResponse, PaginatorError>>
+            {
+                async { self.wait_abort_and_yield().await }
             }
 
-            async fn messages(&self, _opts: MessagesOptions) -> Result<Messages, PaginatorError> {
-                self.wait_abort_and_yield().await
+            fn messages(
+                &self,
+                _opts: MessagesOptions,
+            ) -> impl Future<Output = Result<Messages, PaginatorError>> {
+                async { self.wait_abort_and_yield().await }
             }
         }
 

@@ -16,6 +16,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
+    future::Future,
     sync::Arc,
 };
 
@@ -303,20 +304,21 @@ impl TestRoomDataProvider {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl PaginableRoom for TestRoomDataProvider {
-    async fn event_with_context(
+    fn event_with_context(
         &self,
         _event_id: &EventId,
         _lazy_load_members: bool,
         _num_events: UInt,
-    ) -> Result<EventWithContextResponse, PaginatorError> {
-        unimplemented!();
+    ) -> impl Future<Output = Result<EventWithContextResponse, PaginatorError>> {
+        async { unimplemented!() }
     }
 
-    async fn messages(&self, _opts: MessagesOptions) -> Result<Messages, PaginatorError> {
-        unimplemented!();
+    fn messages(
+        &self,
+        _opts: MessagesOptions,
+    ) -> impl Future<Output = Result<Messages, PaginatorError>> {
+        async { unimplemented!() }
     }
 }
 
