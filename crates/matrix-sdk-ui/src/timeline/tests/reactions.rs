@@ -71,7 +71,7 @@ macro_rules! assert_reaction_is_updated {
         let reaction = reactions.get(*ALICE).unwrap();
         match reaction.status {
             ReactionStatus::LocalToRemote(_) => assert!(!$is_remote_echo),
-            ReactionStatus::Remote(_) => assert!($is_remote_echo),
+            ReactionStatus::RemoteToRemote(_) => assert!($is_remote_echo),
         };
         event
     }};

@@ -500,7 +500,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 }
             }
 
-            ReactionStatus::Remote(event_id) => {
+            ReactionStatus::RemoteToRemote(event_id) => {
                 // Assume the redaction will work; we'll re-add the reaction if it didn't.
                 let mut reactions = item.reactions().clone();
                 let reaction_info = reactions.remove_reaction(user_id, &annotation.key);
@@ -730,7 +730,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                                 .and_then(|by_user| by_user.get_mut(&reaction_key.sender))
                             {
                                 trace!("updated reaction status to sent");
-                                entry.status = ReactionStatus::Remote(event_id.to_owned());
+                                entry.status = ReactionStatus::RemoteToRemote(event_id.to_owned());
                                 txn.items.set(item_pos, event_item.with_reactions(reactions));
                                 txn.commit();
                                 return;
