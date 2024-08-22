@@ -73,7 +73,6 @@ use crate::{
 };
 
 /// When adding an event, useful information related to the source of the event.
-#[derive(Clone)]
 pub(super) enum Flow {
     /// The event was locally created.
     Local {
@@ -103,7 +102,6 @@ pub(super) enum Flow {
     },
 }
 
-#[derive(Clone)]
 pub(super) struct TimelineEventContext {
     pub(super) sender: OwnedUserId,
     pub(super) sender_profile: Option<Profile>,
@@ -693,10 +691,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
     fn handle_poll_start(&mut self, c: NewUnstablePollStartEventContent, should_add: bool) {
         let mut poll_state = PollState::new(c);
-        if let Flow::Remote { event_id, .. } = self.ctx.flow.clone() {
+        if let Flow::Remote { event_id, .. } = &self.ctx.flow {
             // Applying the cache to remote events only because local echoes
             // don't have an event ID that could be referenced by responses yet.
-            self.meta.poll_pending_events.apply(&event_id, &mut poll_state);
+            self.meta.poll_pending_events.apply(event_id, &mut poll_state);
         }
 
         if should_add {
