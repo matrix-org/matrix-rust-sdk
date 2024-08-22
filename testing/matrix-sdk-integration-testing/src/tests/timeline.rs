@@ -168,7 +168,7 @@ async fn test_toggling_reaction() -> Result<()> {
             assert_eq!(reactions.keys().count(), 1);
 
             let reaction = reactions.get(&user_id).unwrap();
-            assert_matches!(reaction.status, ReactionStatus::Remote(..));
+            assert_matches!(reaction.status, ReactionStatus::RemoteToRemote(..));
 
             // Remote event should have a timestamp <= than now.
             // Note: this can actually be equal because if the timestamp from

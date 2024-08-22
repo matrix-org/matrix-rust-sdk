@@ -620,7 +620,7 @@ pub enum ReactionStatus {
     /// The handle is missing only in testing contexts.
     LocalToRemote(Option<SendHandle>),
     /// It's a remote reaction to a remote event.
-    Remote(OwnedEventId),
+    RemoteToRemote(OwnedEventId),
 }
 
 /// Information about a single reaction stored in [`ReactionsByKeyBySender`].

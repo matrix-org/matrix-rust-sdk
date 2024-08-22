@@ -603,7 +603,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                             ReactionStatus::LocalToRemote(send_handle)
                         }
                         TimelineEventItemId::EventId(event_id) => {
-                            ReactionStatus::Remote(event_id.clone())
+                            ReactionStatus::RemoteToRemote(event_id.clone())
                         }
                     },
                 },
@@ -1070,7 +1070,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         reaction.sender_id,
                         ReactionInfo {
                             timestamp: reaction.timestamp,
-                            status: ReactionStatus::Remote(reaction_event_id),
+                            status: ReactionStatus::RemoteToRemote(reaction_event_id),
                         },
                     );
                 }
