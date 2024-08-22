@@ -188,7 +188,7 @@ impl EventTimelineItem {
 
         let room = client.get_room(room_id);
         let sender_profile = if let Some(room) = room {
-            let mut profile = room.profile_from_latest_event(&latest_event).await;
+            let mut profile = room.profile_from_latest_event(&latest_event);
 
             // Fallback to the slow path.
             if profile.is_none() {

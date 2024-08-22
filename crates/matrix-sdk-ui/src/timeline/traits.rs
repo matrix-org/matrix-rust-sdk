@@ -14,11 +14,11 @@
 
 use std::future::Future;
 
-use async_trait::async_trait;
+use futures_util::FutureExt as _;
 use indexmap::IndexMap;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
-use matrix_sdk::{event_cache::paginator::PaginableRoom, Room};
+use matrix_sdk::{event_cache::paginator::PaginableRoom, BoxFuture, Room};
 use matrix_sdk_base::latest_event::LatestEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::{events::AnySyncTimelineEvent, serde::Raw};
@@ -67,44 +67,46 @@ impl RoomExt for Room {
     }
 }
 
-#[async_trait]
 pub(super) trait RoomDataProvider:
     Clone + Send + Sync + 'static + PaginableRoom + PinnedEventsRoom
 {
     fn own_user_id(&self) -> &UserId;
     fn room_version(&self) -> RoomVersionId;
-    async fn profile_from_user_id(&self, user_id: &UserId) -> Option<Profile>;
-    async fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile>;
+
+    fn profile_from_user_id<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, Option<Profile>>;
+    fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile>;
 
     /// Loads a user receipt from the storage backend.
-    async fn load_user_receipt(
-        &self,
+    fn load_user_receipt<'a>(
+        &'a self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
-        user_id: &UserId,
-    ) -> Option<(OwnedEventId, Receipt)>;
+        user_id: &'a UserId,
+    ) -> BoxFuture<'a, Option<(OwnedEventId, Receipt)>>;
 
     /// Loads read receipts for an event from the storage backend.
-    async fn load_event_receipts(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt>;
+    fn load_event_receipts<'a>(
+        &'a self,
+        event_id: &'a EventId,
+    ) -> BoxFuture<'a, IndexMap<OwnedUserId, Receipt>>;
 
     /// Load the current fully-read event id, from storage.
-    async fn load_fully_read_marker(&self) -> Option<OwnedEventId>;
+    fn load_fully_read_marker(&self) -> BoxFuture<'_, Option<OwnedEventId>>;
 
-    async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)>;
+    fn push_rules_and_context(&self) -> BoxFuture<'_, Option<(Ruleset, PushConditionRoomCtx)>>;
 
     /// Send an event to that room.
-    async fn send(&self, content: AnyMessageLikeEventContent) -> Result<(), super::Error>;
+    fn send(&self, content: AnyMessageLikeEventContent) -> BoxFuture<'_, Result<(), super::Error>>;
 
     /// Redact an event from that room.
-    async fn redact(
-        &self,
-        event_id: &EventId,
-        reason: Option<&str>,
+    fn redact<'a>(
+        &'a self,
+        event_id: &'a EventId,
+        reason: Option<&'a str>,
         transaction_id: Option<OwnedTransactionId>,
-    ) -> Result<(), super::Error>;
+    ) -> BoxFuture<'a, Result<(), super::Error>>;
 }
 
-#[async_trait]
 impl RoomDataProvider for Room {
     fn own_user_id(&self) -> &UserId {
         (**self).own_user_id()
@@ -114,23 +116,26 @@ impl RoomDataProvider for Room {
         (**self).clone_info().room_version_or_default()
     }
 
-    async fn profile_from_user_id(&self, user_id: &UserId) -> Option<Profile> {
-        match self.get_member_no_sync(user_id).await {
-            Ok(Some(member)) => Some(Profile {
-                display_name: member.display_name().map(ToOwned::to_owned),
-                display_name_ambiguous: member.name_ambiguous(),
-                avatar_url: member.avatar_url().map(ToOwned::to_owned),
-            }),
-            Ok(None) if self.are_members_synced() => Some(Profile::default()),
-            Ok(None) => None,
-            Err(e) => {
-                error!(%user_id, "Failed to fetch room member information: {e}");
-                None
+    fn profile_from_user_id<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, Option<Profile>> {
+        async move {
+            match self.get_member_no_sync(user_id).await {
+                Ok(Some(member)) => Some(Profile {
+                    display_name: member.display_name().map(ToOwned::to_owned),
+                    display_name_ambiguous: member.name_ambiguous(),
+                    avatar_url: member.avatar_url().map(ToOwned::to_owned),
+                }),
+                Ok(None) if self.are_members_synced() => Some(Profile::default()),
+                Ok(None) => None,
+                Err(e) => {
+                    error!(%user_id, "Failed to fetch room member information: {e}");
+                    None
+                }
             }
         }
+        .boxed()
     }
 
-    async fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile> {
+    fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile> {
         if !latest_event.has_sender_profile() {
             return None;
         }
@@ -142,119 +147,141 @@ impl RoomDataProvider for Room {
         })
     }
 
-    async fn load_user_receipt(
-        &self,
+    fn load_user_receipt<'a>(
+        &'a self,
         receipt_type: ReceiptType,
         thread: ReceiptThread,
-        user_id: &UserId,
-    ) -> Option<(OwnedEventId, Receipt)> {
-        match self.load_user_receipt(receipt_type.clone(), thread.clone(), user_id).await {
-            Ok(receipt) => receipt,
-            Err(e) => {
-                error!(
-                    ?receipt_type,
-                    ?thread,
-                    ?user_id,
-                    "Failed to get read receipt for user: {e}"
-                );
-                None
-            }
-        }
-    }
-
-    async fn load_event_receipts(&self, event_id: &EventId) -> IndexMap<OwnedUserId, Receipt> {
-        let mut unthreaded_receipts = match self
-            .load_event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
-            .await
-        {
-            Ok(receipts) => receipts.into_iter().collect(),
-            Err(e) => {
-                error!(?event_id, "Failed to get unthreaded read receipts for event: {e}");
-                IndexMap::new()
-            }
-        };
-
-        let main_thread_receipts = match self
-            .load_event_receipts(ReceiptType::Read, ReceiptThread::Main, event_id)
-            .await
-        {
-            Ok(receipts) => receipts,
-            Err(e) => {
-                error!(?event_id, "Failed to get main thread read receipts for event: {e}");
-                Vec::new()
-            }
-        };
-
-        unthreaded_receipts.extend(main_thread_receipts);
-        unthreaded_receipts
-    }
-
-    async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)> {
-        match self.push_context().await {
-            Ok(Some(push_context)) => match self.client().account().push_rules().await {
-                Ok(push_rules) => Some((push_rules, push_context)),
+        user_id: &'a UserId,
+    ) -> BoxFuture<'a, Option<(OwnedEventId, Receipt)>> {
+        async move {
+            match self.load_user_receipt(receipt_type.clone(), thread.clone(), user_id).await {
+                Ok(receipt) => receipt,
                 Err(e) => {
-                    error!("Could not get push rules: {e}");
+                    error!(
+                        ?receipt_type,
+                        ?thread,
+                        ?user_id,
+                        "Failed to get read receipt for user: {e}"
+                    );
                     None
                 }
-            },
-            Ok(None) => {
-                debug!("Could not aggregate push context");
-                None
-            }
-            Err(e) => {
-                error!("Could not get push context: {e}");
-                None
             }
         }
+        .boxed()
     }
 
-    async fn load_fully_read_marker(&self) -> Option<OwnedEventId> {
-        match self.account_data_static::<FullyReadEventContent>().await {
-            Ok(Some(fully_read)) => match fully_read.deserialize() {
-                Ok(fully_read) => Some(fully_read.content.event_id),
+    fn load_event_receipts<'a>(
+        &'a self,
+        event_id: &'a EventId,
+    ) -> BoxFuture<'a, IndexMap<OwnedUserId, Receipt>> {
+        async move {
+            let mut unthreaded_receipts = match self
+                .load_event_receipts(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
+                .await
+            {
+                Ok(receipts) => receipts.into_iter().collect(),
                 Err(e) => {
-                    error!("Failed to deserialize fully-read account data: {e}");
+                    error!(?event_id, "Failed to get unthreaded read receipts for event: {e}");
+                    IndexMap::new()
+                }
+            };
+
+            let main_thread_receipts = match self
+                .load_event_receipts(ReceiptType::Read, ReceiptThread::Main, event_id)
+                .await
+            {
+                Ok(receipts) => receipts,
+                Err(e) => {
+                    error!(?event_id, "Failed to get main thread read receipts for event: {e}");
+                    Vec::new()
+                }
+            };
+
+            unthreaded_receipts.extend(main_thread_receipts);
+            unthreaded_receipts
+        }
+        .boxed()
+    }
+
+    fn push_rules_and_context(&self) -> BoxFuture<'_, Option<(Ruleset, PushConditionRoomCtx)>> {
+        async {
+            match self.push_context().await {
+                Ok(Some(push_context)) => match self.client().account().push_rules().await {
+                    Ok(push_rules) => Some((push_rules, push_context)),
+                    Err(e) => {
+                        error!("Could not get push rules: {e}");
+                        None
+                    }
+                },
+                Ok(None) => {
+                    debug!("Could not aggregate push context");
                     None
                 }
-            },
-            Err(e) => {
-                error!("Failed to get fully-read account data from the store: {e}");
-                None
+                Err(e) => {
+                    error!("Could not get push context: {e}");
+                    None
+                }
             }
-            _ => None,
         }
+        .boxed()
     }
 
-    async fn send(&self, content: AnyMessageLikeEventContent) -> Result<(), super::Error> {
-        let _ = self.send_queue().send(content).await?;
-        Ok(())
+    fn load_fully_read_marker(&self) -> BoxFuture<'_, Option<OwnedEventId>> {
+        async {
+            match self.account_data_static::<FullyReadEventContent>().await {
+                Ok(Some(fully_read)) => match fully_read.deserialize() {
+                    Ok(fully_read) => Some(fully_read.content.event_id),
+                    Err(e) => {
+                        error!("Failed to deserialize fully-read account data: {e}");
+                        None
+                    }
+                },
+                Err(e) => {
+                    error!("Failed to get fully-read account data from the store: {e}");
+                    None
+                }
+                _ => None,
+            }
+        }
+        .boxed()
     }
 
-    async fn redact(
-        &self,
-        event_id: &EventId,
-        reason: Option<&str>,
+    fn send(&self, content: AnyMessageLikeEventContent) -> BoxFuture<'_, Result<(), super::Error>> {
+        async move {
+            let _ = self.send_queue().send(content).await?;
+            Ok(())
+        }
+        .boxed()
+    }
+
+    fn redact<'a>(
+        &'a self,
+        event_id: &'a EventId,
+        reason: Option<&'a str>,
         transaction_id: Option<OwnedTransactionId>,
-    ) -> Result<(), super::Error> {
-        let _ = self
-            .redact(event_id, reason, transaction_id)
-            .await
-            .map_err(super::Error::RedactError)?;
-        Ok(())
+    ) -> BoxFuture<'a, Result<(), super::Error>> {
+        async move {
+            let _ = self
+                .redact(event_id, reason, transaction_id)
+                .await
+                .map_err(super::Error::RedactError)?;
+            Ok(())
+        }
+        .boxed()
     }
 }
 
 // Internal helper to make most of retry_event_decryption independent of a room
 // object, which is annoying to create for testing and not really needed
 #[cfg(feature = "e2e-encryption")]
-#[async_trait]
 pub(super) trait Decryptor: Clone + Send + Sync + 'static {
-    async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent>;
+    fn decrypt_event_impl(
+        &self,
+        raw: &Raw<AnySyncTimelineEvent>,
+    ) -> impl Future<Output = Result<TimelineEvent>> + Send;
 }
 
 #[cfg(feature = "e2e-encryption")]
-#[async_trait]
 impl Decryptor for Room {
     async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
         self.decrypt_event(raw.cast_ref()).await
@@ -262,7 +289,6 @@ impl Decryptor for Room {
 }
 
 #[cfg(all(test, feature = "e2e-encryption"))]
-#[async_trait]
 impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
     async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
         let (olm_machine, room_id) = self;
