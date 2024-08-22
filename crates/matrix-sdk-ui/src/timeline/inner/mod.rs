@@ -81,7 +81,7 @@ mod state;
 
 /// Data associated to the current timeline focus.
 #[derive(Debug)]
-enum TimelineFocusData {
+enum TimelineFocusData<P: RoomDataProvider> {
     /// The timeline receives live events from the sync.
     Live,
 
@@ -91,7 +91,7 @@ enum TimelineFocusData {
         /// The event id we've started to focus on.
         event_id: OwnedEventId,
         /// The paginator instance.
-        paginator: Paginator,
+        paginator: Paginator<P>,
         /// Number of context events to request for the first request.
         num_context_events: u16,
     },
@@ -107,7 +107,7 @@ pub(super) struct TimelineInner<P: RoomDataProvider = Room> {
     state: Arc<RwLock<TimelineInnerState>>,
 
     /// Inner mutable focus state.
-    focus: Arc<RwLock<TimelineFocusData>>,
+    focus: Arc<RwLock<TimelineFocusData<P>>>,
 
     /// A [`RoomDataProvider`] implementation, providing data.
     ///
@@ -239,7 +239,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let (focus_data, is_live) = match focus {
             TimelineFocus::Live => (TimelineFocusData::Live, LiveTimelineUpdatesAllowed::All),
             TimelineFocus::Event { target, num_context_events } => {
-                let paginator = Paginator::new(Box::new(room_data_provider.clone()));
+                let paginator = Paginator::new(room_data_provider.clone());
                 (
                     TimelineFocusData::Event { paginator, event_id: target, num_context_events },
                     LiveTimelineUpdatesAllowed::None,

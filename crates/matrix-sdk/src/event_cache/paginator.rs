@@ -94,9 +94,9 @@ impl From<Option<String>> for PaginationToken {
 /// forward from it.
 ///
 /// See also the module-level documentation.
-pub struct Paginator {
+pub struct Paginator<PR: PaginableRoom> {
     /// The room in which we're going to run the pagination.
-    room: Box<dyn PaginableRoom>,
+    room: PR,
 
     /// Current state of the paginator.
     state: SharedObservable<PaginatorState>,
@@ -113,7 +113,7 @@ pub struct Paginator {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for Paginator {
+impl<PR: PaginableRoom> std::fmt::Debug for Paginator<PR> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Don't include the room in the debug output.
         f.debug_struct("Paginator")
@@ -186,9 +186,9 @@ impl Drop for ResetStateGuard {
     }
 }
 
-impl Paginator {
+impl<PR: PaginableRoom> Paginator<PR> {
     /// Create a new [`Paginator`], given a room implementation.
-    pub fn new(room: Box<dyn PaginableRoom>) -> Self {
+    pub fn new(room: PR) -> Self {
         Self {
             room,
             state: SharedObservable::new(PaginatorState::Initial),
@@ -701,7 +701,7 @@ mod tests {
     #[async_test]
     async fn test_start_from() {
         // Prepare test data.
-        let room = Box::new(TestRoom::new(false, *ROOM_ID, *USER_ID));
+        let room = TestRoom::new(false, *ROOM_ID, *USER_ID);
 
         let event_id = event_id!("$yoyoyo");
         let event_factory = &room.event_factory;
@@ -749,7 +749,7 @@ mod tests {
     #[async_test]
     async fn test_start_from_with_num_events() {
         // Prepare test data.
-        let room = Box::new(TestRoom::new(false, *ROOM_ID, *USER_ID));
+        let room = TestRoom::new(false, *ROOM_ID, *USER_ID);
 
         let event_id = event_id!("$yoyoyo");
         let event_factory = &room.event_factory;
@@ -780,7 +780,7 @@ mod tests {
     #[async_test]
     async fn test_paginate_backward() {
         // Prepare test data.
-        let room = Box::new(TestRoom::new(false, *ROOM_ID, *USER_ID));
+        let room = TestRoom::new(false, *ROOM_ID, *USER_ID);
 
         let event_id = event_id!("$yoyoyo");
         let event_factory = &room.event_factory;
@@ -852,7 +852,7 @@ mod tests {
     #[async_test]
     async fn test_paginate_backward_with_limit() {
         // Prepare test data.
-        let room = Box::new(TestRoom::new(false, *ROOM_ID, *USER_ID));
+        let room = TestRoom::new(false, *ROOM_ID, *USER_ID);
 
         let event_id = event_id!("$yoyoyo");
         let event_factory = &room.event_factory;
@@ -896,7 +896,7 @@ mod tests {
     #[async_test]
     async fn test_paginate_forward() {
         // Prepare test data.
-        let room = Box::new(TestRoom::new(false, *ROOM_ID, *USER_ID));
+        let room = TestRoom::new(false, *ROOM_ID, *USER_ID);
 
         let event_id = event_id!("$yoyoyo");
         let event_factory = &room.event_factory;
@@ -967,7 +967,7 @@ mod tests {
 
     #[async_test]
     async fn test_state() {
-        let room = Box::new(TestRoom::new(true, *ROOM_ID, *USER_ID));
+        let room = TestRoom::new(true, *ROOM_ID, *USER_ID);
 
         *room.prev_batch_token.lock().await = Some("prev".to_owned());
         *room.next_batch_token.lock().await = Some("next".to_owned());
@@ -1107,7 +1107,7 @@ mod tests {
 
         #[async_test]
         async fn test_abort_while_starting_from() {
-            let room = Box::new(AbortingRoom::default());
+            let room = AbortingRoom::default();
 
             let paginator = Arc::new(Paginator::new(room.clone()));
 
@@ -1140,7 +1140,7 @@ mod tests {
 
         #[async_test]
         async fn test_abort_while_paginating() {
-            let room = Box::new(AbortingRoom::default());
+            let room = AbortingRoom::default();
 
             // Assuming a paginator ready to back- or forward- paginate,
             let paginator = Paginator::new(room.clone());
