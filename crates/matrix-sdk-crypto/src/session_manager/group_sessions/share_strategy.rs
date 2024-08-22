@@ -620,6 +620,11 @@ mod tests {
 
     #[async_test]
     async fn test_share_identity_strategy_no_cross_signing() {
+        // Test key sharing with the identity-based strategy with different
+        // states of our own verification.
+
+        // Starting off, we have not yet set up our own cross-signing, so
+        // sharing with the identity-based strategy should fail.
         let machine: OlmMachine = OlmMachine::new(
             KeyDistributionTestData::me_id(),
             KeyDistributionTestData::me_device_id(),
@@ -651,7 +656,9 @@ mod tests {
             ))
         );
 
-        // Let's now have cross-signing, but the identity is not trusted
+        // We now get our public cross-signing keys, but we don't trust them
+        // yet.  In this case, sharing the keys should still fail since our own
+        // device is still unverified.
         let keys_query = KeyDistributionTestData::me_keys_query_response();
         machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
@@ -670,7 +677,8 @@ mod tests {
             ))
         );
 
-        // If we are verified it should then work
+        // Finally, after we trust our own cross-signing keys, key sharing
+        // should succeed.
         machine
             .import_cross_signing_keys(CrossSigningKeyExport {
                 master_key: KeyDistributionTestData::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
@@ -684,19 +692,24 @@ mod tests {
             .await
             .unwrap();
 
-        let request_result = machine
+        let requests = machine
             .share_room_key(
                 fake_room_id,
                 std::iter::once(KeyDistributionTestData::dan_id()),
                 encryption_settings.clone(),
             )
-            .await;
+            .await
+            .unwrap();
 
-        assert!(request_result.is_ok());
+        // Dan has two devices, but only one is cross-signed, so there should
+        // only be one key share.
+        assert_eq!(requests.len(), 1);
     }
 
     #[async_test]
     async fn test_share_identity_strategy_report_pinning_violation() {
+        // Test that identity-based key sharing gives an error when a verified
+        // user changes their identity.
         let machine: OlmMachine = OlmMachine::new(
             KeyDistributionTestData::me_id(),
             KeyDistributionTestData::me_device_id(),
@@ -711,7 +724,7 @@ mod tests {
         let keys_query = MaloIdentityChangeDataSet::initial_key_query();
         machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
-        // Simulate pinning violation
+        // Simulate pinning violation, in which case the key sharing should fail.
         let keys_query = IdentityChangeDataSet::key_query_with_identity_b();
         machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
         machine
@@ -761,7 +774,7 @@ mod tests {
         );
         assert_eq!(2, affected_users.len());
 
-        // resolve by pinning the new identity
+        // This can be resolved by pinning the new identities.
         for user_id in affected_users {
             machine
                 .get_identity(&user_id, None)
@@ -775,6 +788,7 @@ mod tests {
                 .unwrap()
         }
 
+        // And now the key share should succeed.
         machine
             .share_room_key(
                 fake_room_id,
