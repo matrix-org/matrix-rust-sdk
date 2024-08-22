@@ -166,13 +166,6 @@ impl SenderData {
         Self::UnknownDevice { legacy_session: true, owner_check_failed: false }
     }
 
-    /// Returns true if this is SenderKnown and `master_key_verified` is true.
-    pub(crate) fn is_known(&self) -> bool {
-        matches!(self, SenderData::SenderUnverifiedButPreviouslyVerified { .. })
-            || matches!(self, SenderData::SenderUnverified { .. })
-            || matches!(self, SenderData::SenderVerified { .. })
-    }
-
     /// Returns `Greater` if this `SenderData` represents a greater level of
     /// trust than the supplied one, `Equal` if they have the same level, and
     /// `Less` if the supplied one has a greater level of trust.
@@ -354,34 +347,6 @@ mod tests {
 
         let end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
         assert_let!(SenderData::SenderVerified { .. } = end);
-    }
-
-    #[test]
-    fn known_session_is_known() {
-        let user_id = user_id!("@u:s.co");
-        let device_id = device_id!("DEV");
-        let master_key =
-            Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
-
-        assert!(!SenderData::unknown().is_known());
-        assert!(SenderData::sender_previously_verified(user_id, device_id, master_key).is_known());
-        assert!(SenderData::sender_unverified(user_id, device_id, master_key).is_known());
-        assert!(SenderData::sender_verified(user_id, device_id, master_key).is_known());
-    }
-
-    #[test]
-    fn unknown_and_device_sessions_are_not_known() {
-        // Anything that is not SenderKnown is not know and verified.
-        assert!(!SenderData::unknown().is_known());
-
-        let device_keys = DeviceKeys::new(
-            owned_user_id!("@u:s.co"),
-            owned_device_id!("DEV"),
-            Vec::new(),
-            BTreeMap::new(),
-            Signatures::new(),
-        );
-        assert!(!SenderData::device_info(device_keys).is_known());
     }
 
     #[test]

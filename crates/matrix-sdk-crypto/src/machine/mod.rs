@@ -1439,10 +1439,26 @@ impl OlmMachine {
         session: &InboundGroupSession,
         sender: &UserId,
     ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
-        let sender_data = if session.sender_data.is_known() {
-            // The existing sender_data is known, so there is no need to recalculate it.
-            session.sender_data.clone()
-        } else {
+        /// Whether we should recalculate the Megolm sender's data, given the
+        /// current sender data. We only want to recalculate if it might
+        /// increase trust and allow us to decrypt messages that we
+        /// otherwise might refuse to decrypt.
+        ///
+        /// We recalculate for all states except:
+        ///
+        /// - SenderUnverified: the sender is trusted enough that we will
+        ///   decrypt their messages in all cases, or
+        /// - SenderVerified: the sender is the most trusted they can be.
+        fn should_recalculate_sender_data(sender_data: &SenderData) -> bool {
+            matches!(
+                sender_data,
+                SenderData::UnknownDevice { .. }
+                    | SenderData::DeviceInfo { .. }
+                    | SenderData::SenderUnverifiedButPreviouslyVerified { .. }
+            )
+        }
+
+        let sender_data = if should_recalculate_sender_data(&session.sender_data) {
             // The session is not sure of the sender yet. Calculate it.
             let calculated_sender_data = SenderDataFinder::find_using_curve_key(
                 self.store(),
@@ -1465,6 +1481,8 @@ impl OlmMachine {
                 // No - use the existing data.
                 session.sender_data.clone()
             }
+        } else {
+            session.sender_data.clone()
         };
 
         Ok(sender_data_to_verification_state(sender_data, session.has_been_imported()))
