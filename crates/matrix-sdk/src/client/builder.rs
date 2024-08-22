@@ -677,9 +677,14 @@ async fn build_store_config(
     let store_config = match builder_config {
         #[cfg(feature = "sqlite")]
         BuilderStoreConfig::Sqlite { path, passphrase } => {
-            let store_config = StoreConfig::new().state_store(
-                matrix_sdk_sqlite::SqliteStateStore::open(&path, passphrase.as_deref()).await?,
-            );
+            let store_config = StoreConfig::new()
+                .state_store(
+                    matrix_sdk_sqlite::SqliteStateStore::open(&path, passphrase.as_deref()).await?,
+                )
+                .event_cache_store(
+                    matrix_sdk_sqlite::SqliteEventCacheStore::open(&path, passphrase.as_deref())
+                        .await?,
+                );
 
             #[cfg(feature = "e2e-encryption")]
             let store_config = store_config.crypto_store(
@@ -707,17 +712,24 @@ async fn build_indexeddb_store_config(
     passphrase: Option<&str>,
 ) -> Result<StoreConfig, ClientBuildError> {
     #[cfg(feature = "e2e-encryption")]
-    {
+    let store_config = {
         let (state_store, crypto_store) =
             matrix_sdk_indexeddb::open_stores_with_name(name, passphrase).await?;
-        Ok(StoreConfig::new().state_store(state_store).crypto_store(crypto_store))
-    }
+        StoreConfig::new().state_store(state_store).crypto_store(crypto_store)
+    };
 
     #[cfg(not(feature = "e2e-encryption"))]
-    {
+    let store_config = {
         let state_store = matrix_sdk_indexeddb::open_state_store(name, passphrase).await?;
-        Ok(StoreConfig::new().state_store(state_store))
-    }
+        StoreConfig::new().state_store(state_store)
+    };
+
+    let store_config = {
+        tracing::warn!("The IndexedDB backend does not implement an event cache store, falling back to the in-memory event cache store…");
+        store_config.event_cache_store(matrix_sdk_base::event_cache_store::MemoryStore::new())
+    };
+
+    Ok(store_config)
 }
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "indexeddb"))]

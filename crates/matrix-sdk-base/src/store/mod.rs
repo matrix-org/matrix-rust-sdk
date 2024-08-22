@@ -59,6 +59,7 @@ use ruma::{
 use tokio::sync::{broadcast, Mutex, RwLock};
 
 use crate::{
+    event_cache_store::{DynEventCacheStore, IntoEventCacheStore},
     rooms::{normal::RoomInfoNotableUpdate, RoomInfo, RoomState},
     MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
 };
@@ -434,8 +435,11 @@ impl StateChanges {
     }
 }
 
-/// Configuration for the state store and, when `encryption` is enabled, for the
-/// crypto store.
+/// Configuration for the various stores.
+///
+/// By default, this always includes a state store and an event cache store.
+/// When the `e2e-encryption` feature is enabled, this also includes a crypto
+/// store.
 ///
 /// # Examples
 ///
@@ -449,6 +453,7 @@ pub struct StoreConfig {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) crypto_store: Arc<DynCryptoStore>,
     pub(crate) state_store: Arc<DynStateStore>,
+    pub(crate) event_cache_store: Arc<DynEventCacheStore>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -466,6 +471,8 @@ impl StoreConfig {
             #[cfg(feature = "e2e-encryption")]
             crypto_store: matrix_sdk_crypto::store::MemoryStore::new().into_crypto_store(),
             state_store: Arc::new(MemoryStore::new()),
+            event_cache_store: crate::event_cache_store::MemoryStore::new()
+                .into_event_cache_store(),
         }
     }
 
@@ -481,6 +488,12 @@ impl StoreConfig {
     /// Set a custom implementation of a `StateStore`.
     pub fn state_store(mut self, store: impl IntoStateStore) -> Self {
         self.state_store = store.into_state_store();
+        self
+    }
+
+    /// Set a custom implementation of an `EventCacheStore`.
+    pub fn event_cache_store(mut self, event_cache_store: impl IntoEventCacheStore) -> Self {
+        self.event_cache_store = event_cache_store.into_event_cache_store();
         self
     }
 }

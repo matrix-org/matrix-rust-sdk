@@ -26,7 +26,11 @@ e2e-encryption = [
 ]
 js = ["matrix-sdk-common/js", "matrix-sdk-base/js"]
 
-sqlite = ["dep:matrix-sdk-sqlite", "matrix-sdk-sqlite?/state-store"]
+sqlite = [
+    "dep:matrix-sdk-sqlite",
+    "matrix-sdk-sqlite?/state-store",
+    "matrix-sdk-sqlite?/event-cache"
+]
 bundled-sqlite = ["sqlite", "matrix-sdk-sqlite?/bundled"]
 indexeddb = ["matrix-sdk-indexeddb/state-store"]
 

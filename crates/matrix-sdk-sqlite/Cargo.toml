@@ -8,11 +8,12 @@ license = "Apache-2.0"
 rust-version = { workspace = true }
 
 [features]
-default = ["state-store"]
+default = ["state-store", "event-cache"]
 testing = ["matrix-sdk-crypto?/testing"]
 
 bundled = ["rusqlite/bundled"]
 crypto-store = ["dep:matrix-sdk-crypto"]
+event-cache = ["dep:matrix-sdk-base"]
 state-store = ["dep:matrix-sdk-base"]
 
 [dependencies]

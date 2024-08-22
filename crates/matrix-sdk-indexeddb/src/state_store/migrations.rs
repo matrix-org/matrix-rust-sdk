@@ -46,7 +46,7 @@ use super::{
 };
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: u32 = 10;
+const CURRENT_DB_VERSION: u32 = 11;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
@@ -77,6 +77,7 @@ mod old_keys {
     pub const STRIPPED_JOINED_USER_IDS: &str = "stripped_joined_user_ids";
     pub const STRIPPED_INVITED_USER_IDS: &str = "stripped_invited_user_ids";
     pub const STRIPPED_ROOM_INFOS: &str = "stripped_room_infos";
+    pub const MEDIA: &str = "media";
 }
 
 pub async fn upgrade_meta_db(
@@ -231,6 +232,9 @@ pub async fn upgrade_inner_db(
             if old_version < 10 {
                 db = migrate_to_v10(db).await?;
             }
+            if old_version < 11 {
+                db = migrate_to_v11(db).await?;
+            }
         }
 
         db.close();
@@ -316,7 +320,7 @@ pub const V1_STORES: &[&str] = &[
     old_keys::STRIPPED_INVITED_USER_IDS,
     keys::ROOM_USER_RECEIPTS,
     keys::ROOM_EVENT_RECEIPTS,
-    keys::MEDIA,
+    old_keys::MEDIA,
     keys::CUSTOM,
     old_keys::SYNC_TOKEN,
 ];
@@ -757,6 +761,16 @@ async fn migrate_to_v10(db: IdbDatabase) -> Result<IdbDatabase> {
     apply_migration(db, 10, migration).await
 }
 
+/// Drop the [`old_keys::MEDIA`] table.
+async fn migrate_to_v11(db: IdbDatabase) -> Result<IdbDatabase> {
+    let migration = OngoingMigration {
+        drop_stores: [old_keys::MEDIA].into(),
+        create_stores: Default::default(),
+        data: Default::default(),
+    };
+    apply_migration(db, 11, migration).await
+}
+
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -814,7 +828,6 @@ mod tests {
                     keys::STRIPPED_ROOM_STATE,
                     keys::ROOM_USER_RECEIPTS,
                     keys::ROOM_EVENT_RECEIPTS,
-                    keys::MEDIA,
                     keys::CUSTOM,
                 ];
 
@@ -852,6 +865,9 @@ mod tests {
                 }
                 if version < 7 {
                     db.create_object_store(old_keys::STRIPPED_ROOM_INFOS)?;
+                }
+                if version < 11 {
+                    db.create_object_store(old_keys::MEDIA)?;
                 }
 
                 Ok(())

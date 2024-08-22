@@ -36,15 +36,14 @@ use ruma::{
         StateEventType, StaticEventContent, StaticStateEventContent,
     },
     serde::Raw,
-    EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedTransactionId, OwnedUserId,
-    RoomId, TransactionId, UserId,
+    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId,
+    TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
 use super::{StateChanges, StoreError};
 use crate::{
     deserialized_responses::{RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState},
-    media::MediaRequest,
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships,
 };
 
@@ -350,44 +349,6 @@ pub trait StateStore: AsyncTraitDeps {
     /// * `key` - The key to remove data from
     async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error>;
 
-    /// Add a media file's content in the media store.
-    ///
-    /// # Arguments
-    ///
-    /// * `request` - The `MediaRequest` of the file.
-    ///
-    /// * `content` - The content of the file.
-    async fn add_media_content(
-        &self,
-        request: &MediaRequest,
-        content: Vec<u8>,
-    ) -> Result<(), Self::Error>;
-
-    /// Get a media file's content out of the media store.
-    ///
-    /// # Arguments
-    ///
-    /// * `request` - The `MediaRequest` of the file.
-    async fn get_media_content(
-        &self,
-        request: &MediaRequest,
-    ) -> Result<Option<Vec<u8>>, Self::Error>;
-
-    /// Remove a media file's content from the media store.
-    ///
-    /// # Arguments
-    ///
-    /// * `request` - The `MediaRequest` of the file.
-    async fn remove_media_content(&self, request: &MediaRequest) -> Result<(), Self::Error>;
-
-    /// Remove all the media files' content associated to an `MxcUri` from the
-    /// media store.
-    ///
-    /// # Arguments
-    ///
-    /// * `uri` - The `MxcUri` of the media files.
-    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<(), Self::Error>;
-
     /// Remove a room and all elements associated from the state store.
     ///
     /// # Arguments
@@ -688,29 +649,6 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
 
     async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
         self.0.remove_custom_value(key).await.map_err(Into::into)
-    }
-
-    async fn add_media_content(
-        &self,
-        request: &MediaRequest,
-        content: Vec<u8>,
-    ) -> Result<(), Self::Error> {
-        self.0.add_media_content(request, content).await.map_err(Into::into)
-    }
-
-    async fn get_media_content(
-        &self,
-        request: &MediaRequest,
-    ) -> Result<Option<Vec<u8>>, Self::Error> {
-        self.0.get_media_content(request).await.map_err(Into::into)
-    }
-
-    async fn remove_media_content(&self, request: &MediaRequest) -> Result<(), Self::Error> {
-        self.0.remove_media_content(request).await.map_err(Into::into)
-    }
-
-    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<(), Self::Error> {
-        self.0.remove_media_content_for_uri(uri).await.map_err(Into::into)
     }
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error> {

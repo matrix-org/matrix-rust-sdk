@@ -10,7 +10,6 @@ use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     deserialized_responses::{RawAnySyncOrStrippedState, SyncOrStrippedState},
-    media::{MediaRequest, UniqueKey},
     store::{
         migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedEvent,
         DependentQueuedEventKind, QueuedEvent, SerializableEventContent,
@@ -58,7 +57,6 @@ mod keys {
     pub const PROFILE: &str = "profile";
     pub const RECEIPT: &str = "receipt";
     pub const DISPLAY_NAME: &str = "display_name";
-    pub const MEDIA: &str = "media";
     pub const SEND_QUEUE: &str = "send_queue_events";
     pub const DEPENDENTS_SEND_QUEUE: &str = "dependent_send_queue_events";
 }
@@ -68,7 +66,7 @@ mod keys {
 /// This is used to figure whether the sqlite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`SqliteStateStore::run_migrations`] function..
-const DATABASE_VERSION: u8 = 6;
+const DATABASE_VERSION: u8 = 7;
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -250,6 +248,15 @@ impl SqliteStateStore {
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/005_send_queue_dependent_events.sql"
                 ))?;
+                Result::<_, Error>::Ok(())
+            })
+            .await?;
+        }
+
+        if from < 7 && to >= 7 {
+            conn.with_transaction(move |txn| {
+                // Drop media table.
+                txn.execute_batch(include_str!("../migrations/state_store/006_drop_media.sql"))?;
                 Result::<_, Error>::Ok(())
             })
             .await?;
@@ -890,36 +897,6 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
                 },
             )
             .await?)
-    }
-
-    async fn set_media(&self, uri: Key, format: Key, data: Vec<u8>) -> Result<()> {
-        self.execute(
-            "INSERT OR REPLACE INTO media (uri, format, data) VALUES (?, ?, ?)",
-            (uri, format, data),
-        )
-        .await?;
-        Ok(())
-    }
-
-    async fn get_media(&self, uri: Key, format: Key) -> Result<Option<Vec<u8>>> {
-        Ok(self
-            .query_row(
-                "SELECT data FROM media WHERE uri = ? AND format = ?",
-                (uri, format),
-                |row| row.get(0),
-            )
-            .await
-            .optional()?)
-    }
-
-    async fn remove_media(&self, uri: Key, format: Key) -> Result<()> {
-        self.execute("DELETE FROM media WHERE uri = ? AND format = ?", (uri, format)).await?;
-        Ok(())
-    }
-
-    async fn remove_uri_medias(&self, uri: Key) -> Result<()> {
-        self.execute("DELETE FROM media WHERE uri = ?", (uri,)).await?;
-        Ok(())
     }
 }
 
@@ -1649,31 +1626,6 @@ impl StateStore for SqliteStateStore {
         Ok(previous)
     }
 
-    async fn add_media_content(&self, request: &MediaRequest, content: Vec<u8>) -> Result<()> {
-        let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
-        let format = self.encode_key(keys::MEDIA, request.format.unique_key());
-        let data = self.encode_value(content)?;
-        self.acquire().await?.set_media(uri, format, data).await
-    }
-
-    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
-        let format = self.encode_key(keys::MEDIA, request.format.unique_key());
-        let data = self.acquire().await?.get_media(uri, format).await?;
-        data.map(|v| self.decode_value(&v).map(Into::into)).transpose()
-    }
-
-    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
-        let format = self.encode_key(keys::MEDIA, request.format.unique_key());
-        self.acquire().await?.remove_media(uri, format).await
-    }
-
-    async fn remove_media_content_for_uri(&self, uri: &ruma::MxcUri) -> Result<()> {
-        let uri = self.encode_key(keys::MEDIA, uri);
-        self.acquire().await?.remove_uri_medias(uri).await
-    }
-
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
         let this = self.clone();
         let room_id = room_id.to_owned();
@@ -1997,7 +1949,7 @@ mod tests {
         Ok(SqliteStateStore::open(tmpdir_path.to_str().unwrap(), None).await.unwrap())
     }
 
-    statestore_integration_tests!(with_media_tests);
+    statestore_integration_tests!();
 }
 
 #[cfg(test)]
@@ -2024,7 +1976,7 @@ mod encrypted_tests {
             .unwrap())
     }
 
-    statestore_integration_tests!(with_media_tests);
+    statestore_integration_tests!();
 }
 
 #[cfg(test)]

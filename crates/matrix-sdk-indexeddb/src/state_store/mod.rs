@@ -24,7 +24,6 @@ use growable_bloom_filter::GrowableBloom;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
-    media::{MediaRequest, UniqueKey},
     store::{
         ChildTransactionId, ComposerDraft, DependentQueuedEvent, DependentQueuedEventKind,
         QueuedEvent, SerializableEventContent, ServerCapabilities, StateChanges, StateStore,
@@ -46,8 +45,8 @@ use ruma::{
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId,
-    OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
+    CanonicalJsonObject, EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedTransactionId,
+    OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::{debug, warn};
@@ -120,8 +119,6 @@ mod keys {
     pub const ROOM_USER_RECEIPTS: &str = "room_user_receipts";
     pub const ROOM_EVENT_RECEIPTS: &str = "room_event_receipts";
 
-    pub const MEDIA: &str = "media";
-
     pub const CUSTOM: &str = "custom";
     pub const KV: &str = "kv";
 
@@ -141,7 +138,6 @@ mod keys {
         ROOM_EVENT_RECEIPTS,
         ROOM_SEND_QUEUE,
         DEPENDENT_SEND_QUEUE,
-        MEDIA,
         CUSTOM,
         KV,
     ];
@@ -1239,29 +1235,6 @@ impl_state_store!({
             .collect::<Vec<_>>())
     }
 
-    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        let key = self
-            .encode_key(keys::MEDIA, (request.source.unique_key(), request.format.unique_key()));
-        let tx =
-            self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
-
-        tx.object_store(keys::MEDIA)?.put_key_val(&key, &self.serialize_value(&data)?)?;
-
-        tx.await.into_result().map_err(|e| e.into())
-    }
-
-    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        let key = self
-            .encode_key(keys::MEDIA, (request.source.unique_key(), request.format.unique_key()));
-        self.inner
-            .transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readonly)?
-            .object_store(keys::MEDIA)?
-            .get(&key)?
-            .await?
-            .map(|f| self.deserialize_value(&f))
-            .transpose()
-    }
-
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let jskey = &JsValue::from_str(core::str::from_utf8(key).map_err(StoreError::Codec)?);
         self.get_custom_value_for_js(jskey).await
@@ -1293,30 +1266,6 @@ impl_state_store!({
 
         tx.await.into_result().map_err(IndexeddbStateStoreError::from)?;
         Ok(prev)
-    }
-
-    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        let key = self
-            .encode_key(keys::MEDIA, (request.source.unique_key(), request.format.unique_key()));
-        let tx =
-            self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
-
-        tx.object_store(keys::MEDIA)?.delete(&key)?;
-
-        tx.await.into_result().map_err(|e| e.into())
-    }
-
-    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        let range = self.encode_to_range(keys::MEDIA, uri)?;
-        let tx =
-            self.inner.transaction_on_one_with_mode(keys::MEDIA, IdbTransactionMode::Readwrite)?;
-        let store = tx.object_store(keys::MEDIA)?;
-
-        for k in store.get_all_keys_with_key(&range)?.await?.iter() {
-            store.delete(&k)?;
-        }
-
-        tx.await.into_result().map_err(|e| e.into())
     }
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
@@ -1746,7 +1695,7 @@ mod tests {
         Ok(IndexeddbStateStore::builder().name(db_name).build().await?)
     }
 
-    statestore_integration_tests!(with_media_tests);
+    statestore_integration_tests!();
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -1765,5 +1714,5 @@ mod encrypted_tests {
         Ok(IndexeddbStateStore::builder().name(db_name).passphrase(passphrase).build().await?)
     }
 
-    statestore_integration_tests!(with_media_tests);
+    statestore_integration_tests!();
 }
