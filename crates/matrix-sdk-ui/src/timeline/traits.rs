@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::future::Future;
+
 use async_trait::async_trait;
 use indexmap::IndexMap;
 #[cfg(feature = "e2e-encryption")]
@@ -34,7 +36,6 @@ use tracing::{debug, error};
 use super::{Profile, TimelineBuilder};
 use crate::timeline::{self, pinned_events_loader::PinnedEventsRoom, Timeline};
 
-#[async_trait]
 pub trait RoomExt {
     /// Get a [`Timeline`] for this room.
     ///
@@ -43,7 +44,7 @@ pub trait RoomExt {
     /// independent events.
     ///
     /// This is the same as using `room.timeline_builder().build()`.
-    async fn timeline(&self) -> Result<Timeline, timeline::Error>;
+    fn timeline(&self) -> impl Future<Output = Result<Timeline, timeline::Error>> + Send;
 
     /// Get a [`TimelineBuilder`] for this room.
     ///
@@ -56,7 +57,6 @@ pub trait RoomExt {
     fn timeline_builder(&self) -> TimelineBuilder;
 }
 
-#[async_trait]
 impl RoomExt for Room {
     async fn timeline(&self) -> Result<Timeline, timeline::Error> {
         self.timeline_builder().build().await
