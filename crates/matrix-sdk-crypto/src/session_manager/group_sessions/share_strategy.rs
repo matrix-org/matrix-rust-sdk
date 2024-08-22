@@ -120,9 +120,6 @@ pub(crate) async fn collect_session_recipients(
     let users: BTreeSet<&UserId> = users.collect();
     let mut devices: BTreeMap<OwnedUserId, Vec<DeviceData>> = Default::default();
     let mut withheld_devices: Vec<(DeviceData, WithheldCode)> = Default::default();
-    let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> =
-        Default::default();
-    let mut verified_users_with_new_identities: Vec<OwnedUserId> = Default::default();
 
     trace!(?users, ?settings, "Calculating group session recipients");
 
@@ -148,17 +145,23 @@ pub(crate) async fn collect_session_recipients(
     // This is calculated in the following code and stored in this variable.
     let mut should_rotate = user_left || visibility_changed || algorithm_changed;
 
-    let own_identity = store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
+    // Get the recipient and withheld devices, based on the collection strategy.
+    match settings.sharing_strategy {
+        CollectStrategy::DeviceBasedStrategy {
+            only_allow_trusted_devices,
+            error_on_verified_user_problem,
+        } => {
+            let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> =
+                Default::default();
+            let mut verified_users_with_new_identities: Vec<OwnedUserId> = Default::default();
 
-    for user_id in users {
-        trace!("Considering recipient devices for user {}", user_id);
-        let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
+            let own_identity =
+                store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
 
-        let recipient_devices = match settings.sharing_strategy {
-            CollectStrategy::DeviceBasedStrategy {
-                only_allow_trusted_devices,
-                error_on_verified_user_problem,
-            } => {
+            for user_id in users {
+                trace!("Considering recipient devices for user {}", user_id);
+                let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
+
                 // We only need the user identity if `only_allow_trusted_devices` or
                 // `error_on_verified_user_problem` is set.
                 let device_owner_identity =
@@ -179,73 +182,91 @@ pub(crate) async fn collect_session_recipients(
                     continue;
                 }
 
-                split_devices_for_user(
+                let recipient_devices = split_devices_for_user(
                     user_devices,
                     &own_identity,
                     &device_owner_identity,
                     only_allow_trusted_devices,
                     error_on_verified_user_problem,
-                )
+                );
+
+                // If `error_on_verified_user_problem` is set, then
+                // `unsigned_of_verified_user` may be populated. If so, add an entry to the
+                // list of users with unsigned devices.
+                if !recipient_devices.unsigned_of_verified_user.is_empty() {
+                    unsigned_devices_of_verified_users.insert(
+                        user_id.to_owned(),
+                        recipient_devices
+                            .unsigned_of_verified_user
+                            .into_iter()
+                            .map(|d| d.device_id().to_owned())
+                            .collect(),
+                    );
+                }
+
+                let recipients = recipient_devices.allowed_devices;
+                let withheld_recipients = recipient_devices.denied_devices_with_code;
+
+                // If we haven't already concluded that the session should be
+                // rotated for other reasons, we also need to check whether any
+                // of the devices in the session got deleted or blacklisted in the
+                // meantime. If so, we should also rotate the session.
+                if !should_rotate {
+                    should_rotate = is_session_overshared_for_user(outbound, user_id, &recipients)
+                }
+
+                devices.entry(user_id.to_owned()).or_default().extend(recipients);
+                withheld_devices.extend(withheld_recipients);
             }
-            CollectStrategy::IdentityBasedStrategy => {
+
+            // If `error_on_verified_user_problem` is set, then
+            // `unsigned_devices_of_verified_users` may be populated. If so, we need to bail
+            // out with an error.
+            if !unsigned_devices_of_verified_users.is_empty() {
+                return Err(OlmError::SessionRecipientCollectionError(
+                    SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(
+                        unsigned_devices_of_verified_users,
+                    ),
+                ));
+            }
+
+            // Alternatively, we may have encountered previously-verified users who have
+            // changed their identities. We bail out for that, too.
+            if !verified_users_with_new_identities.is_empty() {
+                return Err(OlmError::SessionRecipientCollectionError(
+                    SessionRecipientCollectionError::VerifiedUserChangedIdentity(
+                        verified_users_with_new_identities,
+                    ),
+                ));
+            }
+        }
+        CollectStrategy::IdentityBasedStrategy => {
+            for user_id in users {
+                trace!("Considering recipient devices for user {}", user_id);
+                let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
+
                 let device_owner_identity = store.get_user_identity(user_id).await?;
-                split_recipients_withhelds_for_user_based_on_identity(
+
+                let recipient_devices = split_recipients_withhelds_for_user_based_on_identity(
                     user_devices,
                     &device_owner_identity,
-                )
+                );
+
+                let recipients = recipient_devices.allowed_devices;
+                let withheld_recipients = recipient_devices.denied_devices_with_code;
+
+                // If we haven't already concluded that the session should be
+                // rotated for other reasons, we also need to check whether any
+                // of the devices in the session got deleted or blacklisted in the
+                // meantime. If so, we should also rotate the session.
+                if !should_rotate {
+                    should_rotate = is_session_overshared_for_user(outbound, user_id, &recipients)
+                }
+
+                devices.entry(user_id.to_owned()).or_default().extend(recipients);
+                withheld_devices.extend(withheld_recipients);
             }
-        };
-
-        // If we're using a `DeviceBasedStrategy` with
-        // `error_on_verified_user_problem` set, then
-        // `unsigned_of_verified_user` may be populated. If so, add an entry to the
-        // list of users with unsigned devices.
-        if !recipient_devices.unsigned_of_verified_user.is_empty() {
-            unsigned_devices_of_verified_users.insert(
-                user_id.to_owned(),
-                recipient_devices
-                    .unsigned_of_verified_user
-                    .into_iter()
-                    .map(|d| d.device_id().to_owned())
-                    .collect(),
-            );
         }
-
-        let recipients = recipient_devices.allowed_devices;
-        let withheld_recipients = recipient_devices.denied_devices_with_code;
-
-        // If we haven't already concluded that the session should be
-        // rotated for other reasons, we also need to check whether any
-        // of the devices in the session got deleted or blacklisted in the
-        // meantime. If so, we should also rotate the session.
-        if !should_rotate {
-            should_rotate = is_session_overshared_for_user(outbound, user_id, &recipients)
-        }
-
-        devices.entry(user_id.to_owned()).or_default().extend(recipients);
-        withheld_devices.extend(withheld_recipients);
-    }
-
-    // If we're using a `DeviceBasedStrategy` with
-    // `error_on_verified_user_problem` set, then
-    // `unsigned_devices_of_verified_users` may be populated. If so, we need to bail
-    // out with an error.
-    if !unsigned_devices_of_verified_users.is_empty() {
-        return Err(OlmError::SessionRecipientCollectionError(
-            SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(
-                unsigned_devices_of_verified_users,
-            ),
-        ));
-    }
-
-    // Alternatively, we may have encountered previously-verified users who have
-    // changed their identities. We bail out for that, too.
-    if !verified_users_with_new_identities.is_empty() {
-        return Err(OlmError::SessionRecipientCollectionError(
-            SessionRecipientCollectionError::VerifiedUserChangedIdentity(
-                verified_users_with_new_identities,
-            ),
-        ));
     }
 
     if should_rotate {
