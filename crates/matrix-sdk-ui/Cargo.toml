@@ -26,7 +26,6 @@ async_cell = "0.2.2"
 async-once-cell = "0.5.2"
 async-rx = { workspace = true }
 async-stream = { workspace = true }
-async-trait = { workspace = true }
 chrono = "0.4.23"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
