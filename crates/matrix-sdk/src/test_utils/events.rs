@@ -24,7 +24,7 @@ use ruma::{
         poll::{
             end::PollEndEventContent,
             response::{PollResponseEventContent, SelectionsContentBlock},
-            start::{PollAnswers, PollContentBlock, PollStartEventContent},
+            start::{PollAnswer, PollContentBlock, PollStartEventContent},
         },
         reaction::ReactionEventContent,
         relation::{Annotation, InReplyTo, Replacement, Thread},
@@ -39,7 +39,6 @@ use ruma::{
     RoomId, UserId,
 };
 use serde::Serialize;
-use serde_json::{json, Value};
 
 #[derive(Debug)]
 pub struct EventBuilder<E: EventContent> {
@@ -259,18 +258,14 @@ impl EventFactory {
         answers: Vec<impl Into<String>>,
     ) -> EventBuilder<PollStartEventContent> {
         // PollAnswers 'constructor' is not public, so we need to deserialize them
-        let answers: Vec<Value> = answers
+        let answers: Vec<PollAnswer> = answers
             .into_iter()
             .enumerate()
             .map(|(idx, answer)| {
-                json!({
-                    "m.id": format!("{idx}"),
-                    "m.text": [{ "body": answer.into() }]
-                })
+                PollAnswer::new(idx.to_string(), TextContentBlock::plain(answer.into()))
             })
             .collect();
-        let poll_answers =
-            Raw::new(&json!(answers)).unwrap().cast::<PollAnswers>().deserialize().unwrap();
+        let poll_answers = answers.try_into().unwrap();
         let poll_start_content = PollStartEventContent::new(
             TextContentBlock::plain(content.into()),
             PollContentBlock::new(TextContentBlock::plain(poll_question.into()), poll_answers),
