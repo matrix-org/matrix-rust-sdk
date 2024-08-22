@@ -14,10 +14,10 @@
 
 use std::{fmt::Formatter, num::NonZeroUsize, sync::Arc};
 
-use futures_util::future::join_all;
+use futures_util::{future::join_all, FutureExt as _};
 use matrix_sdk::{
-    config::RequestConfig, event_cache::paginator::PaginatorError, Room, SendOutsideWasm,
-    SyncOutsideWasm,
+    config::RequestConfig, event_cache::paginator::PaginatorError, BoxFuture, Room,
+    SendOutsideWasm, SyncOutsideWasm,
 };
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
@@ -101,15 +101,13 @@ impl PinnedEventsLoader {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait PinnedEventsRoom: SendOutsideWasm + SyncOutsideWasm {
     /// Load a single room event using the cache or network.
-    async fn load_event(
-        &self,
-        event_id: &EventId,
+    fn load_event<'a>(
+        &'a self,
+        event_id: &'a EventId,
         request_config: Option<RequestConfig>,
-    ) -> Result<SyncTimelineEvent, PaginatorError>;
+    ) -> BoxFuture<'a, Result<SyncTimelineEvent, PaginatorError>>;
 
     /// Get the pinned event ids for a room.
     fn pinned_event_ids(&self) -> Vec<OwnedEventId>;
@@ -121,26 +119,27 @@ pub trait PinnedEventsRoom: SendOutsideWasm + SyncOutsideWasm {
     fn is_pinned_event(&self, event_id: &EventId) -> bool;
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl PinnedEventsRoom for Room {
-    async fn load_event(
-        &self,
-        event_id: &EventId,
+    fn load_event<'a>(
+        &'a self,
+        event_id: &'a EventId,
         request_config: Option<RequestConfig>,
-    ) -> Result<SyncTimelineEvent, PaginatorError> {
-        if let Ok((cache, _handles)) = self.event_cache().await {
-            if let Some(event) = cache.event(event_id).await {
-                debug!("Loaded pinned event {event_id} from cache");
-                return Ok(event);
+    ) -> BoxFuture<'a, Result<SyncTimelineEvent, PaginatorError>> {
+        async move {
+            if let Ok((cache, _handles)) = self.event_cache().await {
+                if let Some(event) = cache.event(event_id).await {
+                    debug!("Loaded pinned event {event_id} from cache");
+                    return Ok(event);
+                }
             }
-        }
 
-        debug!("Loading pinned event {event_id} from HS");
-        self.event(event_id, request_config)
-            .await
-            .map(|e| e.into())
-            .map_err(|err| PaginatorError::SdkError(Box::new(err)))
+            debug!("Loading pinned event {event_id} from HS");
+            self.event(event_id, request_config)
+                .await
+                .map(|e| e.into())
+                .map_err(|err| PaginatorError::SdkError(Box::new(err)))
+        }
+        .boxed()
     }
 
     fn pinned_event_ids(&self) -> Vec<OwnedEventId> {
