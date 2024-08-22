@@ -3526,7 +3526,6 @@ dependencies = [
  "async-once-cell",
  "async-rx",
  "async-stream",
- "async-trait",
  "async_cell",
  "chrono",
  "eyeball",
