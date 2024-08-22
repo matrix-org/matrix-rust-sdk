@@ -25,19 +25,19 @@ use tokio::{
 use tracing::{debug, instrument, trace};
 
 use super::{
-    paginator::{PaginationResult, Paginator, PaginatorState},
+    paginator::{PaginableRoom, PaginationResult, Paginator, PaginatorState},
     store::Gap,
     BackPaginationOutcome, Result, RoomEventCacheInner,
 };
 use crate::event_cache::{linked_chunk::ChunkContent, store::RoomEvents};
 
 #[derive(Debug)]
-pub(super) struct RoomPaginationData {
+pub(super) struct RoomPaginationData<PR: PaginableRoom> {
     /// A notifier that we received a new pagination token.
     pub token_notifier: Notify,
 
     /// The stateful paginator instance used for the integrated pagination.
-    pub paginator: Paginator,
+    pub paginator: Paginator<PR>,
 
     /// Have we ever waited for a previous-batch-token to come from sync? We do
     /// this at most once per room, the first time we try to run backward
