@@ -51,6 +51,7 @@ use ruma::{
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     RoomVersionId, TransactionId, UInt, UserId,
 };
+use tokio::sync::RwLock;
 
 use super::{
     event_handler::TimelineEventKind,
@@ -288,8 +289,21 @@ type ReadReceiptMap =
 
 #[derive(Clone, Default)]
 struct TestRoomDataProvider {
+    /// The initial list of user receipts for that room.
+    ///
+    /// Configurable at construction, static for the lifetime of the provider.
     initial_user_receipts: ReadReceiptMap,
+
+    /// Event id of the event pointed to by the fully read marker.
+    ///
+    /// Configurable at construction, static for the lifetime of the provider.
     fully_read_marker: Option<OwnedEventId>,
+
+    /// Events sent with that room data provider.
+    pub sent_events: Arc<RwLock<Vec<AnyMessageLikeEventContent>>>,
+
+    /// Events redacted with that room data providier.
+    pub redacted: Arc<RwLock<Vec<OwnedEventId>>>,
 }
 
 impl TestRoomDataProvider {
@@ -399,6 +413,21 @@ impl RoomDataProvider for TestRoomDataProvider {
 
     async fn load_fully_read_marker(&self) -> Option<OwnedEventId> {
         self.fully_read_marker.clone()
+    }
+
+    async fn send(&self, content: AnyMessageLikeEventContent) -> Result<(), super::Error> {
+        self.sent_events.write().await.push(content);
+        Ok(())
+    }
+
+    async fn redact(
+        &self,
+        event_id: &EventId,
+        _reason: Option<&str>,
+        _transaction_id: Option<OwnedTransactionId>,
+    ) -> Result<(), super::Error> {
+        self.redacted.write().await.push(event_id.to_owned());
+        Ok(())
     }
 }
 

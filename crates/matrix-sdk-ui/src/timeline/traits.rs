@@ -24,9 +24,10 @@ use ruma::{
     events::{
         fully_read::FullyReadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
+        AnyMessageLikeEventContent,
     },
     push::{PushConditionRoomCtx, Ruleset},
-    EventId, OwnedEventId, OwnedUserId, RoomVersionId, UserId,
+    EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId, UserId,
 };
 use tracing::{debug, error};
 
@@ -90,6 +91,17 @@ pub(super) trait RoomDataProvider:
     async fn load_fully_read_marker(&self) -> Option<OwnedEventId>;
 
     async fn push_rules_and_context(&self) -> Option<(Ruleset, PushConditionRoomCtx)>;
+
+    /// Send an event to that room.
+    async fn send(&self, content: AnyMessageLikeEventContent) -> Result<(), super::Error>;
+
+    /// Redact an event from that room.
+    async fn redact(
+        &self,
+        event_id: &EventId,
+        reason: Option<&str>,
+        transaction_id: Option<OwnedTransactionId>,
+    ) -> Result<(), super::Error>;
 }
 
 #[async_trait]
@@ -212,6 +224,24 @@ impl RoomDataProvider for Room {
             }
             _ => None,
         }
+    }
+
+    async fn send(&self, content: AnyMessageLikeEventContent) -> Result<(), super::Error> {
+        let _ = self.send_queue().send(content).await?;
+        Ok(())
+    }
+
+    async fn redact(
+        &self,
+        event_id: &EventId,
+        reason: Option<&str>,
+        transaction_id: Option<OwnedTransactionId>,
+    ) -> Result<(), super::Error> {
+        let _ = self
+            .redact(event_id, reason, transaction_id)
+            .await
+            .map_err(super::Error::RedactError)?;
+        Ok(())
     }
 }
 
