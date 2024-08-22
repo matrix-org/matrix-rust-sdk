@@ -17,7 +17,7 @@
 //! makes it possible to paginate forward or backward, from that event, until
 //! one end of the timeline (front or back) is reached.
 
-use std::sync::Mutex;
+use std::{future::Future, sync::Mutex};
 
 use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
@@ -431,8 +431,6 @@ impl<PR: PaginableRoom> Paginator<PR> {
 ///
 /// Not [`crate::Room`] because we may want to paginate rooms we don't belong
 /// to.
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait PaginableRoom: SendOutsideWasm + SyncOutsideWasm {
     /// Runs a /context query for the given room.
     ///
@@ -440,28 +438,28 @@ pub trait PaginableRoom: SendOutsideWasm + SyncOutsideWasm {
     ///
     /// - `event_id` is the identifier of the target event.
     /// - `lazy_load_members` controls whether room membership events are lazily
-    ///   loaded as context
-    /// state events.
+    ///   loaded as context state events.
     /// - `num_events` is the number of events (including the fetched event) to
-    /// return as context.
+    ///   return as context.
     ///
     /// ## Returns
     ///
     /// Must return [`PaginatorError::EventNotFound`] whenever the target event
     /// could not be found, instead of causing an http `Err` result.
-    async fn event_with_context(
+    fn event_with_context(
         &self,
         event_id: &EventId,
         lazy_load_members: bool,
         num_events: UInt,
-    ) -> Result<EventWithContextResponse, PaginatorError>;
+    ) -> impl Future<Output = Result<EventWithContextResponse, PaginatorError>> + SendOutsideWasm;
 
     /// Runs a /messages query for the given room.
-    async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError>;
+    fn messages(
+        &self,
+        opts: MessagesOptions,
+    ) -> impl Future<Output = Result<Messages, PaginatorError>> + SendOutsideWasm;
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl PaginableRoom for Room {
     async fn event_with_context(
         &self,
@@ -474,8 +472,9 @@ impl PaginableRoom for Room {
             Ok(result) => result,
 
             Err(err) => {
-                // If the error was a 404, then the event wasn't found on the server; special
-                // case this to make it easy to react to such an error.
+                // If the error was a 404, then the event wasn't found on the server;
+                // special case this to make it easy to react to
+                // such an error.
                 if let Some(error) = err.as_client_api_error() {
                     if error.status_code == 404 {
                         // Event not found
@@ -496,8 +495,6 @@ impl PaginableRoom for Room {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl PaginableRoom for WeakRoom {
     async fn event_with_context(
         &self,
@@ -513,7 +510,6 @@ impl PaginableRoom for WeakRoom {
         PaginableRoom::event_with_context(&room, event_id, lazy_load_members, num_events).await
     }
 
-    /// Runs a /messages query for the given room.
     async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError> {
         let Some(room) = self.get() else {
             // Client is shutting down, return a default response.
@@ -529,7 +525,6 @@ mod tests {
     use std::sync::Arc;
 
     use assert_matches2::assert_let;
-    use async_trait::async_trait;
     use futures_core::Future;
     use futures_util::FutureExt as _;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
@@ -589,7 +584,6 @@ mod tests {
     static ROOM_ID: Lazy<&RoomId> = Lazy::new(|| room_id!("!dune:herbert.org"));
     static USER_ID: Lazy<&UserId> = Lazy::new(|| user_id!("@paul:atreid.es"));
 
-    #[async_trait]
     impl PaginableRoom for TestRoom {
         async fn event_with_context(
             &self,
@@ -632,14 +626,14 @@ mod tests {
                 events_after[0..num_events.min(events_after.len())].to_vec()
             };
 
-            return Ok(EventWithContextResponse {
+            Ok(EventWithContextResponse {
                 event: Some(event),
                 events_before,
                 events_after,
                 prev_batch_token: self.prev_batch_token.lock().await.clone(),
                 next_batch_token: self.next_batch_token.lock().await.clone(),
                 state: Vec::new(),
-            });
+            })
         }
 
         async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError> {
@@ -674,12 +668,7 @@ mod tests {
                 }
             };
 
-            return Ok(Messages {
-                start: opts.from.unwrap(),
-                end,
-                chunk: events,
-                state: Vec::new(),
-            });
+            Ok(Messages { start: opts.from.unwrap(), end, chunk: events, state: Vec::new() })
         }
     }
 
@@ -1089,7 +1078,6 @@ mod tests {
             }
         }
 
-        #[async_trait]
         impl PaginableRoom for AbortingRoom {
             async fn event_with_context(
                 &self,
