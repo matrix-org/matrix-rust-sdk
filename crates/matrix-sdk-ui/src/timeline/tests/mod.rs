@@ -30,6 +30,7 @@ use matrix_sdk::{
     room::{EventWithContextResponse, Messages, MessagesOptions},
     send_queue::RoomSendQueueUpdate,
     test_utils::events::EventFactory,
+    BoxFuture,
 };
 use matrix_sdk_base::latest_event::LatestEvent;
 use matrix_sdk_test::{EventBuilder, ALICE, BOB};
@@ -318,14 +319,12 @@ impl PaginableRoom for TestRoomDataProvider {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl PinnedEventsRoom for TestRoomDataProvider {
-    async fn load_event(
-        &self,
-        _event_id: &EventId,
+    fn load_event<'a>(
+        &'a self,
+        _event_id: &'a EventId,
         _config: Option<RequestConfig>,
-    ) -> Result<SyncTimelineEvent, PaginatorError> {
+    ) -> BoxFuture<'a, Result<SyncTimelineEvent, PaginatorError>> {
         unimplemented!();
     }
 
