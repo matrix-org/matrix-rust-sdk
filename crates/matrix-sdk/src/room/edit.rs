@@ -14,7 +14,9 @@
 
 //! Facilities to edit existing events.
 
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+use std::future::Future;
+
+use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, SendOutsideWasm};
 use ruma::{
     events::{
         room::message::{Relation, ReplacementMetadata, RoomMessageEventContentWithoutRelation},
@@ -88,14 +90,13 @@ impl Room {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 trait EventSource {
-    async fn get_event(&self, event_id: &EventId) -> Result<SyncTimelineEvent, EditError>;
+    fn get_event(
+        &self,
+        event_id: &EventId,
+    ) -> impl Future<Output = Result<SyncTimelineEvent, EditError>> + SendOutsideWasm;
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<'a> EventSource for &'a Room {
     async fn get_event(&self, event_id: &EventId) -> Result<SyncTimelineEvent, EditError> {
         match self.event_cache().await {
@@ -225,8 +226,6 @@ mod tests {
         events: BTreeMap<OwnedEventId, SyncTimelineEvent>,
     }
 
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl EventSource for TestEventCache {
         async fn get_event(&self, event_id: &EventId) -> Result<SyncTimelineEvent, EditError> {
             Ok(self.events.get(event_id).unwrap().clone())
