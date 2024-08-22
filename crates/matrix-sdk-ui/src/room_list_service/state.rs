@@ -16,9 +16,7 @@
 
 use std::future::ready;
 
-use async_trait::async_trait;
 use matrix_sdk::{sliding_sync::Range, SlidingSync, SlidingSyncMode};
-use once_cell::sync::Lazy;
 
 use super::Error;
 
@@ -54,11 +52,16 @@ impl State {
     pub(super) async fn next(&self, sliding_sync: &SlidingSync) -> Result<Self, Error> {
         use State::*;
 
-        let (next_state, actions) = match self {
-            Init => (SettingUp, Actions::none()),
-            SettingUp => (Running, Actions::prepare_for_next_syncs_once_first_rooms_are_loaded()),
-            Recovering => (Running, Actions::prepare_for_next_syncs_once_recovered()),
-            Running => (Running, Actions::none()),
+        let next_state = match self {
+            Init => SettingUp,
+
+            SettingUp | Recovering => {
+                set_all_rooms_to_growing_sync_mode(sliding_sync).await?;
+                Running
+            }
+
+            Running => Running,
+
             Error { from: previous_state } | Terminated { from: previous_state } => {
                 match previous_state.as_ref() {
                     // Unreachable state.
@@ -69,130 +72,52 @@ impl State {
                     }
 
                     // If the previous state was `Running`, we enter the `Recovering` state.
-                    Running => (Recovering, Actions::prepare_to_recover()),
+                    Running => {
+                        set_all_rooms_to_selective_sync_mode(sliding_sync).await?;
+                        Recovering
+                    }
 
                     // Jump back to the previous state that led to this termination.
-                    state => (state.to_owned(), Actions::none()),
+                    state => state.to_owned(),
                 }
             }
         };
-
-        for action in actions.iter() {
-            action.run(sliding_sync).await?;
-        }
 
         Ok(next_state)
     }
 }
 
-/// A trait to define what an `Action` is.
-#[async_trait]
-trait Action {
-    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error>;
+async fn set_all_rooms_to_growing_sync_mode(sliding_sync: &SlidingSync) -> Result<(), Error> {
+    sliding_sync
+        .on_list(ALL_ROOMS_LIST_NAME, |list| {
+            list.set_sync_mode(SlidingSyncMode::new_growing(ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE));
+
+            ready(())
+        })
+        .await
+        .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
 }
 
-struct SetAllRoomsToSelectiveSyncMode;
+async fn set_all_rooms_to_selective_sync_mode(sliding_sync: &SlidingSync) -> Result<(), Error> {
+    sliding_sync
+        .on_list(ALL_ROOMS_LIST_NAME, |list| {
+            list.set_sync_mode(
+                SlidingSyncMode::new_selective().add_range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
+            );
+
+            ready(())
+        })
+        .await
+        .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))
+}
 
 /// Default `batch_size` for the selective sync-mode of the
 /// `ALL_ROOMS_LIST_NAME` list.
 pub const ALL_ROOMS_DEFAULT_SELECTIVE_RANGE: Range = 0..=19;
 
-#[async_trait]
-impl Action for SetAllRoomsToSelectiveSyncMode {
-    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
-        sliding_sync
-            .on_list(ALL_ROOMS_LIST_NAME, |list| {
-                list.set_sync_mode(
-                    SlidingSyncMode::new_selective().add_range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
-                );
-
-                ready(())
-            })
-            .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))?;
-
-        Ok(())
-    }
-}
-
-struct SetAllRoomsToGrowingSyncMode;
-
 /// Default `batch_size` for the growing sync-mode of the `ALL_ROOMS_LIST_NAME`
 /// list.
 pub const ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE: u32 = 100;
-
-#[async_trait]
-impl Action for SetAllRoomsToGrowingSyncMode {
-    async fn run(&self, sliding_sync: &SlidingSync) -> Result<(), Error> {
-        sliding_sync
-            .on_list(ALL_ROOMS_LIST_NAME, |list| {
-                list.set_sync_mode(SlidingSyncMode::new_growing(
-                    ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE,
-                ));
-
-                ready(())
-            })
-            .await
-            .ok_or_else(|| Error::UnknownList(ALL_ROOMS_LIST_NAME.to_owned()))?;
-
-        Ok(())
-    }
-}
-
-/// Type alias to represent one action.
-type OneAction = Box<dyn Action + Send + Sync>;
-
-/// Type alias to represent many actions.
-type ManyActions = Vec<OneAction>;
-
-/// A type to represent multiple actions.
-///
-/// It contains helper methods to create pre-configured set of actions.
-struct Actions {
-    actions: &'static Lazy<ManyActions>,
-}
-
-macro_rules! actions {
-    (
-        $(
-            $action_group_name:ident => [
-                $( $action_name:ident ),* $(,)?
-            ]
-        ),*
-        $(,)?
-    ) => {
-        $(
-            fn $action_group_name () -> Self {
-                static ACTIONS: Lazy<ManyActions> = Lazy::new(|| {
-                    vec![
-                        $( Box::new( $action_name ) ),*
-                    ]
-                });
-
-                Self { actions: &ACTIONS }
-            }
-        )*
-    };
-}
-
-impl Actions {
-    actions! {
-        none => [],
-        prepare_for_next_syncs_once_first_rooms_are_loaded => [
-            SetAllRoomsToGrowingSyncMode,
-        ],
-        prepare_for_next_syncs_once_recovered => [
-            SetAllRoomsToGrowingSyncMode,
-        ],
-        prepare_to_recover => [
-            SetAllRoomsToSelectiveSyncMode,
-        ],
-    }
-
-    fn iter(&self) -> &[OneAction] {
-        self.actions.as_slice()
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -316,7 +241,7 @@ mod tests {
         );
 
         // Run the action!
-        SetAllRoomsToGrowingSyncMode.run(sliding_sync).await.unwrap();
+        set_all_rooms_to_growing_sync_mode(sliding_sync).await.unwrap();
 
         // List is still present, in Growing mode.
         assert_eq!(
@@ -332,7 +257,7 @@ mod tests {
         );
 
         // Run the other action!
-        SetAllRoomsToSelectiveSyncMode.run(sliding_sync).await.unwrap();
+        set_all_rooms_to_selective_sync_mode(sliding_sync).await.unwrap();
 
         // List is still present, in Selective mode.
         assert_eq!(
