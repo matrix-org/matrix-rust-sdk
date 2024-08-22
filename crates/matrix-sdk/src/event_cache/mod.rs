@@ -543,7 +543,7 @@ struct RoomEventCacheInner {
     ///
     /// It's protected behind a lock to avoid multiple accesses to the paginator
     /// at the same time.
-    pagination: RoomPaginationData,
+    pagination: RoomPaginationData<WeakRoom>,
 }
 
 impl RoomEventCacheInner {
@@ -560,7 +560,7 @@ impl RoomEventCacheInner {
             all_events,
             sender,
             pagination: RoomPaginationData {
-                paginator: Paginator::new(Box::new(weak_room)),
+                paginator: Paginator::new(weak_room),
                 waited_for_initial_prev_token: Mutex::new(false),
                 token_notifier: Default::default(),
             },
