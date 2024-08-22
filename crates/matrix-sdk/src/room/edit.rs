@@ -14,6 +14,8 @@
 
 //! Facilities to edit existing events.
 
+use std::future::Future;
+
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use ruma::{
     events::{
@@ -88,34 +90,42 @@ impl Room {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 trait EventSource {
-    async fn get_event(&self, event_id: &EventId) -> Result<SyncTimelineEvent, EditError>;
+    fn get_event(
+        &self,
+        event_id: &EventId,
+    ) -> impl Future<Output = Result<SyncTimelineEvent, EditError>>;
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<'a> EventSource for &'a Room {
-    async fn get_event(&self, event_id: &EventId) -> Result<SyncTimelineEvent, EditError> {
-        match self.event_cache().await {
-            Ok((event_cache, _drop_handles)) => {
-                if let Some(event) = event_cache.event(event_id).await {
-                    return Ok(event);
+    // This is written as a function returning a Future to avoid a performance
+    // pitfall of rustc when using async_trait. See https://github.com/matrix-org/matrix-rust-sdk/pull/3880 for
+    // details.
+    #[allow(clippy::manual_async_fn)]
+    fn get_event(
+        &self,
+        event_id: &EventId,
+    ) -> impl Future<Output = Result<SyncTimelineEvent, EditError>> {
+        async {
+            match self.event_cache().await {
+                Ok((event_cache, _drop_handles)) => {
+                    if let Some(event) = event_cache.event(event_id).await {
+                        return Ok(event);
+                    }
+                    // Fallthrough: try with /event.
                 }
-                // Fallthrough: try with /event.
+
+                Err(err) => {
+                    debug!("error when getting the event cache: {err}");
+                }
             }
 
-            Err(err) => {
-                debug!("error when getting the event cache: {err}");
-            }
+            trace!("trying with /event now");
+            self.event(event_id, None)
+                .await
+                .map(Into::into)
+                .map_err(|err| EditError::Fetch(Box::new(err)))
         }
-
-        trace!("trying with /event now");
-        self.event(event_id, None)
-            .await
-            .map(Into::into)
-            .map_err(|err| EditError::Fetch(Box::new(err)))
     }
 }
 
@@ -200,7 +210,10 @@ async fn make_edit_event<S: EventSource>(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{
+        collections::BTreeMap,
+        future::{ready, Future},
+    };
 
     use assert_matches2::{assert_let, assert_matches};
     use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
@@ -225,11 +238,12 @@ mod tests {
         events: BTreeMap<OwnedEventId, SyncTimelineEvent>,
     }
 
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl EventSource for TestEventCache {
-        async fn get_event(&self, event_id: &EventId) -> Result<SyncTimelineEvent, EditError> {
-            Ok(self.events.get(event_id).unwrap().clone())
+        fn get_event(
+            &self,
+            event_id: &EventId,
+        ) -> impl Future<Output = Result<SyncTimelineEvent, EditError>> {
+            ready(Ok(self.events.get(event_id).unwrap().clone()))
         }
     }
 
