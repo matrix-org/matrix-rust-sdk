@@ -47,7 +47,10 @@ use matrix_sdk_ui::notification_client::{
 };
 use mime::Mime;
 use ruma::{
-    api::client::{alias::get_alias, discovery::discover_homeserver::AuthenticationServerInfo},
+    api::client::{
+        alias::get_alias, discovery::discover_homeserver::AuthenticationServerInfo,
+        uiaa::UserIdentifier,
+    },
     events::{
         ignored_user_list::IgnoredUserListEventContent,
         room::power_levels::RoomPowerLevelsEventContent, GlobalAccountDataEventType,
@@ -287,6 +290,32 @@ impl Client {
             builder = builder.device_id(device_id);
         }
         builder.send().await?;
+        Ok(())
+    }
+
+    /// Login using an email and password.
+    pub async fn login_with_email(
+        &self,
+        email: String,
+        password: String,
+        initial_device_name: Option<String>,
+        device_id: Option<String>,
+    ) -> Result<(), ClientError> {
+        let mut builder = self
+            .inner
+            .matrix_auth()
+            .login_identifier(UserIdentifier::Email { address: email }, &password);
+
+        if let Some(initial_device_name) = initial_device_name.as_ref() {
+            builder = builder.initial_device_display_name(initial_device_name);
+        }
+
+        if let Some(device_id) = device_id.as_ref() {
+            builder = builder.device_id(device_id);
+        }
+
+        builder.send().await?;
+
         Ok(())
     }
 
