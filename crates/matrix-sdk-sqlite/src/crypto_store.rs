@@ -188,7 +188,7 @@ impl SqliteCryptoStore {
         self.static_account.read().unwrap().clone()
     }
 
-    async fn acquire(&self) -> Result<deadpool_sqlite::Object> {
+    async fn acquire(&self) -> Result<SqliteConn> {
         Ok(self.pool.get().await?)
     }
 }
@@ -674,7 +674,7 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
 }
 
 #[async_trait]
-impl SqliteObjectCryptoStoreExt for deadpool_sqlite::Object {}
+impl SqliteObjectCryptoStoreExt for SqliteConn {}
 
 #[async_trait]
 impl CryptoStore for SqliteCryptoStore {

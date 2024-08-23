@@ -351,7 +351,7 @@ impl SqliteStateStore {
         self.encode_key(keys::KV_BLOB, full_key)
     }
 
-    async fn acquire(&self) -> Result<deadpool_sqlite::Object> {
+    async fn acquire(&self) -> Result<SqliteConn> {
         Ok(self.pool.get().await?)
     }
 
@@ -901,7 +901,7 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
 }
 
 #[async_trait]
-impl SqliteObjectStateStoreExt for deadpool_sqlite::Object {
+impl SqliteObjectStateStoreExt for SqliteConn {
     async fn set_kv_blob(&self, key: Key, value: Vec<u8>) -> Result<()> {
         Ok(self.interact(move |conn| conn.set_kv_blob(&key, &value)).await.unwrap()?)
     }

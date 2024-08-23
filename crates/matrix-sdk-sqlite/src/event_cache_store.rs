@@ -138,7 +138,7 @@ impl SqliteEventCacheStore {
         }
     }
 
-    async fn acquire(&self) -> Result<deadpool_sqlite::Object> {
+    async fn acquire(&self) -> Result<SqliteConn> {
         Ok(self.pool.get().await?)
     }
 }
@@ -212,7 +212,7 @@ trait SqliteObjectEventCacheStoreExt: SqliteObjectExt {
 }
 
 #[async_trait]
-impl SqliteObjectEventCacheStoreExt for deadpool_sqlite::Object {}
+impl SqliteObjectEventCacheStoreExt for SqliteConn {}
 
 #[async_trait]
 impl EventCacheStore for SqliteEventCacheStore {
