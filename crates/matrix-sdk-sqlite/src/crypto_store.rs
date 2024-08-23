@@ -16,7 +16,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     fmt,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, RwLock},
 };
 
@@ -55,7 +55,6 @@ use crate::{
 #[derive(Clone)]
 pub struct SqliteCryptoStore {
     store_cipher: Option<Arc<StoreCipher>>,
-    path: Option<PathBuf>,
     pool: SqlitePool,
 
     // DB values cached in memory
@@ -66,11 +65,7 @@ pub struct SqliteCryptoStore {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SqliteCryptoStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(path) = &self.path {
-            f.debug_struct("SqliteCryptoStore").field("path", &path).finish()
-        } else {
-            f.debug_struct("SqliteCryptoStore").field("path", &"memory store").finish()
-        }
+        f.debug_struct("SqliteCryptoStore").finish_non_exhaustive()
     }
 }
 
@@ -105,7 +100,6 @@ impl SqliteCryptoStore {
 
         Ok(SqliteCryptoStore {
             store_cipher,
-            path: None,
             pool,
             static_account: Arc::new(RwLock::new(None)),
             save_changes_lock: Default::default(),

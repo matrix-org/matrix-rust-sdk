@@ -2,7 +2,7 @@ use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     fmt, iter,
-    path::{Path, PathBuf},
+    path::Path,
     sync::Arc,
 };
 
@@ -72,18 +72,13 @@ const DATABASE_VERSION: u8 = 7;
 #[derive(Clone)]
 pub struct SqliteStateStore {
     store_cipher: Option<Arc<StoreCipher>>,
-    path: Option<PathBuf>,
     pool: SqlitePool,
 }
 
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SqliteStateStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(path) = &self.path {
-            f.debug_struct("SqliteStateStore").field("path", &path).finish()
-        } else {
-            f.debug_struct("SqliteStateStore").field("path", &"memory store").finish()
-        }
+        f.debug_struct("SqliteStateStore").finish_non_exhaustive()
     }
 }
 
@@ -117,7 +112,7 @@ impl SqliteStateStore {
             Some(p) => Some(Arc::new(get_or_create_store_cipher(p, &conn).await?)),
             None => None,
         };
-        let this = Self { store_cipher, path: None, pool };
+        let this = Self { store_cipher, pool };
         this.run_migrations(&conn, version, None).await?;
 
         Ok(this)
@@ -2023,7 +2018,7 @@ mod migration_tests {
         init(&conn).await?;
 
         let store_cipher = Some(Arc::new(get_or_create_store_cipher(SECRET, &conn).await.unwrap()));
-        let this = SqliteStateStore { store_cipher, path: None, pool };
+        let this = SqliteStateStore { store_cipher, pool };
         this.run_migrations(&conn, 1, Some(version)).await?;
 
         Ok(this)
