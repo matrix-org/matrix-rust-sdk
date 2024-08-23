@@ -1,9 +1,4 @@
-use std::{
-    borrow::Cow,
-    fmt,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{borrow::Cow, fmt, path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
@@ -39,18 +34,13 @@ const DATABASE_VERSION: u8 = 1;
 #[derive(Clone)]
 pub struct SqliteEventCacheStore {
     store_cipher: Option<Arc<StoreCipher>>,
-    path: Option<PathBuf>,
     pool: SqlitePool,
 }
 
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SqliteEventCacheStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(path) = &self.path {
-            f.debug_struct("SqliteEventCacheStore").field("path", &path).finish()
-        } else {
-            f.debug_struct("SqliteEventCacheStore").field("path", &"memory store").finish()
-        }
+        f.debug_struct("SqliteEventCacheStore").finish_non_exhaustive()
     }
 }
 
@@ -84,7 +74,7 @@ impl SqliteEventCacheStore {
             Some(p) => Some(Arc::new(get_or_create_store_cipher(p, &conn).await?)),
             None => None,
         };
-        let this = Self { store_cipher, path: None, pool };
+        let this = Self { store_cipher, pool };
         this.run_migrations(&conn, version, None).await?;
 
         Ok(this)
