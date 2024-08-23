@@ -19,7 +19,6 @@ use std::{
 
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
-use matrix_sdk_common::instant::Instant;
 use ruma::{
     canonical_json::{redact, RedactedBecause},
     events::{
@@ -30,6 +29,7 @@ use ruma::{
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
+    time::Instant,
     CanonicalJsonObject, EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedTransactionId,
     OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };

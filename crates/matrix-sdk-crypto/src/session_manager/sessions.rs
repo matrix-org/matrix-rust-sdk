@@ -832,8 +832,7 @@ mod tests {
     #[async_test]
     #[cfg(target_os = "linux")]
     async fn test_session_unwedging() {
-        use matrix_sdk_common::instant::{Duration, SystemTime};
-        use ruma::SecondsSinceUnixEpoch;
+        use ruma::{time::SystemTime, SecondsSinceUnixEpoch};
 
         let (manager, _identity_manager) = session_manager_test_helper().await;
         let mut bob = bob_account();

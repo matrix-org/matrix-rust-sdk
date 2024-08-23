@@ -16,13 +16,12 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [features]
-js = ["instant/wasm-bindgen", "wasm-bindgen-futures"]
+js = ["wasm-bindgen-futures"]
 uniffi = ["dep:uniffi"]
 
 [dependencies]
 async-trait = { workspace = true }
 futures-core = { workspace = true }
-instant = "0.1.12"
 ruma = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

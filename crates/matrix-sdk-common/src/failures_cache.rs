@@ -23,7 +23,7 @@ use std::{
     time::Duration,
 };
 
-use super::instant::Instant;
+use ruma::time::Instant;
 
 const MAX_DELAY: u64 = 15 * 60;
 const MULTIPLIER: u64 = 15;

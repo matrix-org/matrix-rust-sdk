@@ -62,7 +62,7 @@ The following crate feature flags are available:
 | `eyre`              |   No    | Better logging for event handlers that return `eyre::Result`                                                               |
 | `image-proc`        |   No    | Image processing for generating thumbnails                                                                                 |
 | `image-rayon`       |   No    | Enables faster image processing                                                                                            |
-| `js`                |   No    | Enables JavaScript API usage for things like the current system time on WASM (does nothing on other targets)               |
+| `js`                |   No    | Enables JavaScript API usage on WASM (does nothing on other targets)                                                       |
 | `markdown`          |   No    | Support for sending Markdown-formatted messages                                                                            |
 | `qrcode`            |   Yes   | QR code verification support                                                                                               |
 | `sqlite`            |   Yes   | Persistent storage of state and E2EE data (optionally, if feature `e2e-encryption` is enabled), via SQLite available on system  |

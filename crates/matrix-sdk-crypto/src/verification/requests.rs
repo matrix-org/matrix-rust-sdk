@@ -18,7 +18,6 @@ use as_variant::as_variant;
 use eyeball::{ObservableWriteGuard, SharedObservable, WeakObservable};
 use futures_core::Stream;
 use futures_util::StreamExt;
-use matrix_sdk_common::instant::Instant;
 #[cfg(feature = "qrcode")]
 use matrix_sdk_qrcode::QrVerificationData;
 use ruma::{
@@ -34,6 +33,7 @@ use ruma::{
         room::message::KeyVerificationRequestEventContent,
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
+    time::Instant,
     to_device::DeviceIdOrAllDevices,
     DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, TransactionId,
     UserId,

@@ -18,7 +18,6 @@ use std::{
     time::Duration,
 };
 
-use matrix_sdk_common::instant::Instant;
 use ruma::{
     events::{
         key::verification::{
@@ -40,6 +39,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
+    time::Instant,
     DeviceId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
