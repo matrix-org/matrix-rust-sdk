@@ -204,19 +204,23 @@ pub(crate) async fn collect_session_recipients(
                     );
                 }
 
-                let recipients = recipient_devices.allowed_devices;
-                let withheld_recipients = recipient_devices.denied_devices_with_code;
-
                 // If we haven't already concluded that the session should be
                 // rotated for other reasons, we also need to check whether any
                 // of the devices in the session got deleted or blacklisted in the
                 // meantime. If so, we should also rotate the session.
                 if !should_rotate {
-                    should_rotate = is_session_overshared_for_user(outbound, user_id, &recipients)
+                    should_rotate = is_session_overshared_for_user(
+                        outbound,
+                        user_id,
+                        &recipient_devices.allowed_devices,
+                    )
                 }
 
-                devices.entry(user_id.to_owned()).or_default().extend(recipients);
-                withheld_devices.extend(withheld_recipients);
+                devices
+                    .entry(user_id.to_owned())
+                    .or_default()
+                    .extend(recipient_devices.allowed_devices);
+                withheld_devices.extend(recipient_devices.denied_devices_with_code);
             }
 
             // If `error_on_verified_user_problem` is set, then
@@ -252,19 +256,23 @@ pub(crate) async fn collect_session_recipients(
                     &device_owner_identity,
                 );
 
-                let recipients = recipient_devices.allowed_devices;
-                let withheld_recipients = recipient_devices.denied_devices_with_code;
-
                 // If we haven't already concluded that the session should be
                 // rotated for other reasons, we also need to check whether any
                 // of the devices in the session got deleted or blacklisted in the
                 // meantime. If so, we should also rotate the session.
                 if !should_rotate {
-                    should_rotate = is_session_overshared_for_user(outbound, user_id, &recipients)
+                    should_rotate = is_session_overshared_for_user(
+                        outbound,
+                        user_id,
+                        &recipient_devices.allowed_devices,
+                    )
                 }
 
-                devices.entry(user_id.to_owned()).or_default().extend(recipients);
-                withheld_devices.extend(withheld_recipients);
+                devices
+                    .entry(user_id.to_owned())
+                    .or_default()
+                    .extend(recipient_devices.allowed_devices);
+                withheld_devices.extend(recipient_devices.denied_devices_with_code);
             }
         }
     }
@@ -336,10 +344,9 @@ fn is_session_overshared_for_user(
     should_rotate
 }
 
-/// Result type for [`split_devices_for_user`] and
-/// [`split_recipients_withhelds_for_user_based_on_identity`].
+/// Result type for [`split_devices_for_user`].
 #[derive(Default)]
-struct RecipientDevices {
+struct DeviceBasedRecipientDevices {
     /// Devices that should receive the room key.
     allowed_devices: Vec<DeviceData>,
     /// Devices that should receive a withheld code.
@@ -370,8 +377,8 @@ fn split_devices_for_user(
     device_owner_identity: &Option<UserIdentityData>,
     only_allow_trusted_devices: bool,
     error_on_verified_user_problem: bool,
-) -> RecipientDevices {
-    let mut recipient_devices: RecipientDevices = Default::default();
+) -> DeviceBasedRecipientDevices {
+    let mut recipient_devices: DeviceBasedRecipientDevices = Default::default();
     for d in user_devices.into_values() {
         if d.is_blacklisted() {
             recipient_devices.denied_devices_with_code.push((d, WithheldCode::Blacklisted));
@@ -396,21 +403,29 @@ fn split_devices_for_user(
     recipient_devices
 }
 
+/// Result type for [`split_recipients_withhelds_for_user_based_on_identity`].
+#[derive(Default)]
+struct IdentityBasedRecipientDevices {
+    /// Devices that should receive the room key.
+    allowed_devices: Vec<DeviceData>,
+    /// Devices that should receive a withheld code.
+    denied_devices_with_code: Vec<(DeviceData, WithheldCode)>,
+}
+
 fn split_recipients_withhelds_for_user_based_on_identity(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
     device_owner_identity: &Option<UserIdentityData>,
-) -> RecipientDevices {
+) -> IdentityBasedRecipientDevices {
     match device_owner_identity {
         None => {
             // withheld all the users devices, we need to have an identity for this
             // distribution mode
-            RecipientDevices {
+            IdentityBasedRecipientDevices {
                 allowed_devices: Vec::default(),
                 denied_devices_with_code: user_devices
                     .into_values()
                     .map(|d| (d, WithheldCode::Unauthorised))
                     .collect(),
-                unsigned_of_verified_user: Vec::default(),
             }
         }
         Some(device_owner_identity) => {
@@ -425,10 +440,9 @@ fn split_recipients_withhelds_for_user_based_on_identity(
                     Either::Right((d, WithheldCode::Unauthorised))
                 }
             });
-            RecipientDevices {
+            IdentityBasedRecipientDevices {
                 allowed_devices: recipients,
                 denied_devices_with_code: withheld_recipients,
-                unsigned_of_verified_user: Vec::default(),
             }
         }
     }
