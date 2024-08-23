@@ -964,7 +964,7 @@ impl StickyData for SlidingSyncStickyParameters {
         request.extensions = self.extensions.clone();
     }
 
-    fn commit(&mut self) {
+    fn on_commit(&mut self) {
         // All room subscriptions are marked as `Applied`.
         for (state, _room_subscription) in self.room_subscriptions.values_mut() {
             if matches!(state, RoomSubscriptionState::Pending) {

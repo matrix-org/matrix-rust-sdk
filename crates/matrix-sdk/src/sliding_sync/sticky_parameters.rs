@@ -50,9 +50,9 @@ pub trait StickyData {
     /// Apply the current data onto the request.
     fn apply(&self, request: &mut Self::Request);
 
-    /// Commit the current data, i.e. the request has been validated by a
-    /// response.
-    fn commit(&mut self) {
+    /// When the current are committed, i.e. when the request has been validated
+    /// by a response.
+    fn on_commit(&mut self) {
         // noop
     }
 }
@@ -128,7 +128,7 @@ impl<D: StickyData> SlidingSyncStickyManager<D> {
     pub fn maybe_commit(&mut self, txn_id: &TransactionId) {
         if self.invalidated && self.txn_id.as_deref() == Some(txn_id) {
             self.invalidated = false;
-            self.data.commit();
+            self.data.on_commit();
         }
     }
 
@@ -152,7 +152,7 @@ mod tests {
             *req = true;
         }
 
-        fn commit(&mut self) {
+        fn on_commit(&mut self) {
             self.0 += 1;
         }
     }
