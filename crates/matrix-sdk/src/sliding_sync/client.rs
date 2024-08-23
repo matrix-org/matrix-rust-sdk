@@ -4,9 +4,41 @@ use imbl::Vector;
 use matrix_sdk_base::{sliding_sync::http, sync::SyncResponse, PreviousEventsProvider};
 use ruma::{events::AnyToDeviceEvent, serde::Raw, OwnedRoomId};
 use tracing::error;
+use url::Url;
 
 use super::{SlidingSync, SlidingSyncBuilder};
 use crate::{Client, Result, SlidingSyncRoom};
+
+/// A sliding sync version.
+#[derive(Clone, Debug)]
+pub enum Version {
+    /// No version. Useful to represent that sliding sync is disable for
+    /// example, and that the version is unknown.
+    None,
+
+    /// Use the version of the sliding sync proxy, i.e. MSC3575.
+    Proxy {
+        /// URL to the proxy.
+        url: Url,
+    },
+
+    /// Use the version of the sliding sync implementation inside Synapse, i.e.
+    /// Simplified MSC3575.
+    Native,
+}
+
+impl Version {
+    pub(crate) fn is_native(&self) -> bool {
+        matches!(self, Self::Native)
+    }
+
+    pub(crate) fn overriding_url(&self) -> Option<&Url> {
+        match self {
+            Self::Proxy { url } => Some(url),
+            _ => None,
+        }
+    }
+}
 
 impl Client {
     /// Create a [`SlidingSyncBuilder`] tied to this client, with the given
