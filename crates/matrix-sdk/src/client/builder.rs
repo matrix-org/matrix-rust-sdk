@@ -240,6 +240,24 @@ impl ClientBuilder {
     ) -> Self {
         self.store_config = BuilderStoreConfig::Sqlite {
             path: path.as_ref().to_owned(),
+            cache_path: None,
+            passphrase: passphrase.map(ToOwned::to_owned),
+        };
+        self
+    }
+
+    /// Set up the store configuration for a SQLite store with cached data
+    /// separated out from state/crypto data.
+    #[cfg(feature = "sqlite")]
+    pub fn sqlite_store_with_cache_path(
+        mut self,
+        path: impl AsRef<std::path::Path>,
+        cache_path: impl AsRef<std::path::Path>,
+        passphrase: Option<&str>,
+    ) -> Self {
+        self.store_config = BuilderStoreConfig::Sqlite {
+            path: path.as_ref().to_owned(),
+            cache_path: Some(cache_path.as_ref().to_owned()),
             passphrase: passphrase.map(ToOwned::to_owned),
         };
         self
@@ -676,14 +694,17 @@ async fn build_store_config(
     #[allow(clippy::infallible_destructuring_match)]
     let store_config = match builder_config {
         #[cfg(feature = "sqlite")]
-        BuilderStoreConfig::Sqlite { path, passphrase } => {
+        BuilderStoreConfig::Sqlite { path, cache_path, passphrase } => {
             let store_config = StoreConfig::new()
                 .state_store(
                     matrix_sdk_sqlite::SqliteStateStore::open(&path, passphrase.as_deref()).await?,
                 )
                 .event_cache_store(
-                    matrix_sdk_sqlite::SqliteEventCacheStore::open(&path, passphrase.as_deref())
-                        .await?,
+                    matrix_sdk_sqlite::SqliteEventCacheStore::open(
+                        cache_path.as_ref().unwrap_or(&path),
+                        passphrase.as_deref(),
+                    )
+                    .await?,
                 );
 
             #[cfg(feature = "e2e-encryption")]
@@ -795,6 +816,7 @@ enum BuilderStoreConfig {
     #[cfg(feature = "sqlite")]
     Sqlite {
         path: std::path::PathBuf,
+        cache_path: Option<std::path::PathBuf>,
         passphrase: Option<String>,
     },
     #[cfg(feature = "indexeddb")]
