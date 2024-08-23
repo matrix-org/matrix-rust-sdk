@@ -15,12 +15,16 @@ use matrix_sdk::{
 };
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::{debug, error};
+use url::Url;
 use zeroize::Zeroizing;
 
 use super::{client::Client, RUNTIME};
 use crate::{
-    authentication::OidcConfiguration, client::ClientSessionDelegate, error::ClientError,
-    helpers::unwrap_or_clone_arc, task_handle::TaskHandle,
+    authentication::OidcConfiguration,
+    client::{ClientSessionDelegate, SlidingSyncVersion},
+    error::ClientError,
+    helpers::unwrap_or_clone_arc,
+    task_handle::TaskHandle,
 };
 
 /// A list of bytes containing a certificate in DER or PEM form.
@@ -251,9 +255,7 @@ pub struct ClientBuilder {
     homeserver_cfg: Option<HomeserverConfig>,
     passphrase: Zeroizing<Option<String>>,
     user_agent: Option<String>,
-    requires_sliding_sync: bool,
-    sliding_sync_proxy: Option<String>,
-    is_simplified_sliding_sync_enabled: bool,
+    sliding_sync_version: SlidingSyncVersion,
     proxy: Option<String>,
     disable_ssl_verification: bool,
     disable_automatic_token_refresh: bool,
@@ -276,10 +278,7 @@ impl ClientBuilder {
             homeserver_cfg: None,
             passphrase: Zeroizing::new(None),
             user_agent: None,
-            requires_sliding_sync: false,
-            sliding_sync_proxy: None,
-            // By default, Simplified MSC3575 is turned off.
-            is_simplified_sliding_sync_enabled: false,
+            sliding_sync_version: SlidingSyncVersion::None,
             proxy: None,
             disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
@@ -366,21 +365,9 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn requires_sliding_sync(self: Arc<Self>) -> Arc<Self> {
+    pub fn sliding_sync_version(self: Arc<Self>, version: SlidingSyncVersion) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.requires_sliding_sync = true;
-        Arc::new(builder)
-    }
-
-    pub fn sliding_sync_proxy(self: Arc<Self>, sliding_sync_proxy: Option<String>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.sliding_sync_proxy = sliding_sync_proxy;
-        Arc::new(builder)
-    }
-
-    pub fn simplified_sliding_sync(self: Arc<Self>, enable: bool) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.is_simplified_sliding_sync_enabled = enable;
+        builder.sliding_sync_version = version;
         Arc::new(builder)
     }
 
@@ -559,15 +546,15 @@ impl ClientBuilder {
             .with_encryption_settings(builder.encryption_settings)
             .with_room_key_recipient_strategy(builder.room_key_recipient_strategy);
 
-        if let Some(sliding_sync_proxy) = builder.sliding_sync_proxy {
-            inner_builder = inner_builder.sliding_sync_proxy(sliding_sync_proxy);
-        }
-
-        inner_builder =
-            inner_builder.simplified_sliding_sync(builder.is_simplified_sliding_sync_enabled);
-
-        if builder.requires_sliding_sync {
-            inner_builder = inner_builder.requires_sliding_sync();
+        match builder.sliding_sync_version {
+            SlidingSyncVersion::None => {}
+            SlidingSyncVersion::Proxy { url } => {
+                inner_builder = inner_builder.sliding_sync_proxy(
+                    Url::parse(&url)
+                        .map_err(|e| ClientBuildError::Generic { message: e.to_string() })?,
+                )
+            }
+            SlidingSyncVersion::Native => inner_builder = inner_builder.sliding_sync_native(),
         }
 
         if let Some(config) = builder.request_config {

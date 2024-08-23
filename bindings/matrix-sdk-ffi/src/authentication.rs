@@ -19,12 +19,12 @@ use matrix_sdk::{
 };
 use url::Url;
 
-use crate::client::Client;
+use crate::client::{Client, SlidingSyncVersion};
 
 #[derive(uniffi::Object)]
 pub struct HomeserverLoginDetails {
     pub(crate) url: String,
-    pub(crate) sliding_sync_proxy: Option<String>,
+    pub(crate) sliding_sync_version: SlidingSyncVersion,
     pub(crate) supports_oidc_login: bool,
     pub(crate) supports_password_login: bool,
 }
@@ -36,10 +36,9 @@ impl HomeserverLoginDetails {
         self.url.clone()
     }
 
-    /// The URL of the discovered or manually set sliding sync proxy,
-    /// if any.
-    pub fn sliding_sync_proxy(&self) -> Option<String> {
-        self.sliding_sync_proxy.clone()
+    /// The sliding sync version.
+    pub fn sliding_sync_version(&self) -> SlidingSyncVersion {
+        self.sliding_sync_version.clone()
     }
 
     /// Whether the current homeserver supports login using OIDC.

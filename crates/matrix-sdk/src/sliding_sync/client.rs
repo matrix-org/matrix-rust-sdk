@@ -62,7 +62,7 @@ impl Client {
     ) -> Result<SyncResponse> {
         let response = self
             .base_client()
-            .process_sliding_sync(response, &(), self.is_simplified_sliding_sync_enabled())
+            .process_sliding_sync(response, &(), self.sliding_sync_version().is_native())
             .await?;
 
         tracing::debug!("done processing on base_client");
@@ -119,14 +119,18 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
         Ok(())
     }
 
-    pub async fn handle_room_response(&mut self, response: &http::Response) -> Result<()> {
+    pub async fn handle_room_response(
+        &mut self,
+        response: &http::Response,
+        from_simplified_sliding_sync: bool,
+    ) -> Result<()> {
         self.response = Some(
             self.client
                 .base_client()
                 .process_sliding_sync(
                     response,
                     &SlidingSyncPreviousEventsProvider(self.rooms),
-                    self.client.is_simplified_sliding_sync_enabled(),
+                    from_simplified_sliding_sync,
                 )
                 .await?,
         );

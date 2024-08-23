@@ -39,6 +39,7 @@ use matrix_sdk::{
         serde::Raw,
         EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
     },
+    sliding_sync::Version as SdkSlidingSyncVersion,
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
 };
 use matrix_sdk_ui::notification_client::{
@@ -264,11 +265,11 @@ impl Client {
     pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
         let supports_oidc_login = self.inner.oidc().fetch_authentication_issuer().await.is_ok();
         let supports_password_login = self.supports_password_login().await.ok().unwrap_or(false);
-        let sliding_sync_proxy = self.sliding_sync_proxy().map(|proxy_url| proxy_url.to_string());
+        let sliding_sync_version = self.sliding_sync_version();
 
         Arc::new(HomeserverLoginDetails {
             url: self.homeserver(),
-            sliding_sync_proxy,
+            sliding_sync_version,
             supports_oidc_login,
             supports_password_login,
         })
@@ -412,19 +413,11 @@ impl Client {
 
     /// Restores the client from a `Session`.
     pub async fn restore_session(&self, session: Session) -> Result<(), ClientError> {
-        let sliding_sync_proxy = session.sliding_sync_proxy.clone();
+        let sliding_sync_version = session.sliding_sync_version.clone();
         let auth_session: AuthSession = session.try_into()?;
 
         self.restore_session_inner(auth_session).await?;
-
-        if !self.inner.is_simplified_sliding_sync_enabled() {
-            if let Some(sliding_sync_proxy) = sliding_sync_proxy {
-                let sliding_sync_proxy = Url::parse(&sliding_sync_proxy)
-                    .map_err(|error| ClientError::Generic { msg: error.to_string() })?;
-
-                self.inner.set_sliding_sync_proxy(Some(sliding_sync_proxy));
-            }
-        }
+        self.inner.set_sliding_sync_version(sliding_sync_version.try_into()?);
 
         Ok(())
     }
@@ -496,11 +489,9 @@ impl Client {
         Ok(())
     }
 
-    /// The sliding sync proxy of the homeserver. It is either set automatically
-    /// during discovery or manually via `set_sliding_sync_proxy` or `None`
-    /// when not configured.
-    pub fn sliding_sync_proxy(&self) -> Option<Url> {
-        self.inner.sliding_sync_proxy()
+    /// The sliding sync version.
+    pub fn sliding_sync_version(&self) -> SlidingSyncVersion {
+        self.inner.sliding_sync_version().into()
     }
 
     /// Whether or not the client's homeserver supports the password login flow.
@@ -1112,9 +1103,9 @@ impl Client {
         let auth_api = client.auth_api().context("Missing authentication API")?;
 
         let homeserver_url = client.homeserver().into();
-        let sliding_sync_proxy = client.sliding_sync_proxy().map(|url| url.to_string());
+        let sliding_sync_version = client.sliding_sync_version();
 
-        Session::new(auth_api, homeserver_url, sliding_sync_proxy)
+        Session::new(auth_api, homeserver_url, sliding_sync_version.into())
     }
 
     fn save_session(
@@ -1341,15 +1332,15 @@ pub struct Session {
     /// Additional data for this session if OpenID Connect was used for
     /// authentication.
     pub oidc_data: Option<String>,
-    /// The URL for the sliding sync proxy used for this session.
-    pub sliding_sync_proxy: Option<String>,
+    /// The sliding sync version used for this session.
+    pub sliding_sync_version: SlidingSyncVersion,
 }
 
 impl Session {
     fn new(
         auth_api: AuthApi,
         homeserver_url: String,
-        sliding_sync_proxy: Option<String>,
+        sliding_sync_version: SlidingSyncVersion,
     ) -> Result<Session, ClientError> {
         match auth_api {
             // Build the session from the regular Matrix Auth Session.
@@ -1367,7 +1358,7 @@ impl Session {
                     device_id: device_id.to_string(),
                     homeserver_url,
                     oidc_data: None,
-                    sliding_sync_proxy,
+                    sliding_sync_version,
                 })
             }
             // Build the session from the OIDC UserSession.
@@ -1404,7 +1395,7 @@ impl Session {
                     device_id: device_id.to_string(),
                     homeserver_url,
                     oidc_data,
-                    sliding_sync_proxy,
+                    sliding_sync_version,
                 })
             }
             _ => Err(anyhow!("Unknown authentication API").into()),
@@ -1422,7 +1413,7 @@ impl TryFrom<Session> for AuthSession {
             device_id,
             homeserver_url: _,
             oidc_data,
-            sliding_sync_proxy: _,
+            sliding_sync_version: _,
         } = value;
 
         if let Some(oidc_data) = oidc_data {
@@ -1608,5 +1599,36 @@ impl MediaFileHandle {
                 }
             },
         )
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum SlidingSyncVersion {
+    None,
+    Proxy { url: String },
+    Native,
+}
+
+impl From<SdkSlidingSyncVersion> for SlidingSyncVersion {
+    fn from(value: SdkSlidingSyncVersion) -> Self {
+        match value {
+            SdkSlidingSyncVersion::None => Self::None,
+            SdkSlidingSyncVersion::Proxy { url } => Self::Proxy { url: url.to_string() },
+            SdkSlidingSyncVersion::Native => Self::Native,
+        }
+    }
+}
+
+impl TryFrom<SlidingSyncVersion> for SdkSlidingSyncVersion {
+    type Error = ClientError;
+
+    fn try_from(value: SlidingSyncVersion) -> Result<Self, Self::Error> {
+        Ok(match value {
+            SlidingSyncVersion::None => Self::None,
+            SlidingSyncVersion::Proxy { url } => Self::Proxy {
+                url: Url::parse(&url).map_err(|e| ClientError::Generic { msg: e.to_string() })?,
+            },
+            SlidingSyncVersion::Native => Self::Native,
+        })
     }
 }

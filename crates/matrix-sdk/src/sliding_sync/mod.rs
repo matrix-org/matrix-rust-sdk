@@ -33,6 +33,7 @@ use std::{
 };
 
 use async_stream::stream;
+pub use client::Version;
 use futures_core::stream::Stream;
 pub use matrix_sdk_base::sliding_sync::http;
 use matrix_sdk_common::timer;
@@ -46,7 +47,6 @@ use tokio::{
     sync::{broadcast::Sender, Mutex as AsyncMutex, OwnedMutexGuard, RwLock as AsyncRwLock},
 };
 use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
-use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
 use self::utils::JoinHandleExt as _;
@@ -74,8 +74,7 @@ pub(super) struct SlidingSyncInner {
     /// Used to distinguish different connections to the sliding sync proxy.
     id: String,
 
-    /// Customize the sliding sync proxy URL.
-    sliding_sync_proxy: Option<Url>,
+    version: Version,
 
     /// The HTTP Matrix client.
     client: Client,
@@ -264,7 +263,7 @@ impl SlidingSync {
 
         // Compute `limited` for the SS proxy only, if we're interested in a room list
         // query.
-        if !self.inner.client.is_simplified_sliding_sync_enabled() && must_process_rooms_response {
+        if !self.inner.version.is_native() && must_process_rooms_response {
             let known_rooms = self.inner.rooms.read().await;
             compute_limited(&known_rooms, &mut sliding_sync_response.rooms);
         }
@@ -297,7 +296,9 @@ impl SlidingSync {
             //
             // NOTE: SS proxy workaround.
             if must_process_rooms_response {
-                response_processor.handle_room_response(&sliding_sync_response).await?;
+                response_processor
+                    .handle_room_response(&sliding_sync_response, self.inner.version.is_native())
+                    .await?;
             }
 
             response_processor.process_and_take_response().await?
@@ -537,7 +538,7 @@ impl SlidingSync {
         // Prepare the request.
         let request =
             self.inner.client.send(request, Some(request_config)).with_homeserver_override(
-                self.inner.sliding_sync_proxy.as_ref().map(ToString::to_string),
+                self.inner.version.overriding_url().map(ToString::to_string),
             );
 
         // Send the request and get a response with end-to-end encryption support.
@@ -670,7 +671,7 @@ impl SlidingSync {
         // because it's the future standard. If
         // `Client::is_simplified_sliding_sync_enabled` is turned off, the
         // Simplified MSC3575 `Request` must be transformed into a MSC3575 `Request`.
-        if !self.inner.client.is_simplified_sliding_sync_enabled() {
+        if !self.inner.version.is_native() {
             self.send_sync_request(
                 Into::<http::msc3575::Request>::into(request),
                 request_config,
@@ -837,9 +838,9 @@ impl SlidingSync {
         position_lock.pos = Some(new_pos);
     }
 
-    /// Get the URL to Sliding Sync.
-    pub fn sliding_sync_proxy(&self) -> Option<Url> {
-        self.inner.sliding_sync_proxy.clone()
+    /// Get the sliding sync version used by this instance.
+    pub fn version(&self) -> &Version {
+        &self.inner.version
     }
 
     /// Read the static extension configuration for this Sliding Sync.
@@ -1051,7 +1052,6 @@ fn compute_limited(
 #[cfg(test)]
 #[allow(clippy::dbg_macro)]
 mod tests {
-
     use std::{
         collections::BTreeMap,
         future::ready,
@@ -1077,7 +1077,7 @@ mod tests {
         compute_limited, http,
         sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager},
         FrozenSlidingSync, SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
-        SlidingSyncRoom, SlidingSyncStickyParameters,
+        SlidingSyncRoom, SlidingSyncStickyParameters, Version,
     };
     use crate::{
         sliding_sync::cache::restore_sliding_sync_state, test_utils::logged_in_client, Result,
@@ -1991,42 +1991,56 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_sliding_sync_proxy_url() -> Result<()> {
+    async fn test_sliding_sync_version() -> Result<()> {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
+        // By default, sliding sync inherits its version from the client, which is
+        // `Native`.
         {
-            // A server that doesn't expose a sliding sync proxy gets and transmits none, by
-            // default.
-            let sync = client.sliding_sync("no-proxy")?.build().await?;
+            let sync = client.sliding_sync("default")?.build().await?;
 
-            assert!(sync.sliding_sync_proxy().is_none());
+            assert_matches!(sync.version(), Version::Native);
         }
 
+        // Sliding can override the configuration from the client.
         {
-            // The sliding sync builder can be used to customize a proxy, though.
             let url = Url::parse("https://bar.matrix/").unwrap();
-            let sync =
-                client.sliding_sync("own-proxy")?.sliding_sync_proxy(url.clone()).build().await?;
-            assert_eq!(sync.sliding_sync_proxy(), Some(url));
+            let sync = client
+                .sliding_sync("own-proxy")?
+                .version(Version::Proxy { url: url.clone() })
+                .build()
+                .await?;
+
+            assert_matches!(
+                sync.version(),
+                Version::Proxy { url: given_url } => {
+                    assert_eq!(&url, given_url);
+                }
+            );
         }
 
-        // Set the client's proxy, that will be inherited by sliding sync.
+        // Sliding sync inherits from the client…
         let url = Url::parse("https://foo.matrix/").unwrap();
-        client.set_sliding_sync_proxy(Some(url.clone()));
+        client.set_sliding_sync_version(Version::Proxy { url: url.clone() });
 
         {
             // The sliding sync inherits the client's sliding sync proxy URL.
             let sync = client.sliding_sync("client-proxy")?.build().await?;
-            assert_eq!(sync.sliding_sync_proxy(), Some(url));
+
+            assert_matches!(
+                sync.version(),
+                Version::Proxy { url: given_url } => {
+                    assert_eq!(&url, given_url);
+                }
+            );
         }
 
         {
-            // …unless we override it.
-            let url = Url::parse("https://bar.matrix/").unwrap();
-            let sync =
-                client.sliding_sync("own-proxy")?.sliding_sync_proxy(url.clone()).build().await?;
-            assert_eq!(sync.sliding_sync_proxy(), Some(url));
+            // …unless we override it afterwards.
+            let sync = client.sliding_sync("own-proxy")?.version(Version::Native).build().await?;
+
+            assert_matches!(sync.version(), Version::Native);
         }
 
         Ok(())
