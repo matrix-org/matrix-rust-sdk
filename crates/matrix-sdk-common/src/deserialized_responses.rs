@@ -24,6 +24,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::debug::{DebugRawEvent, DebugStructExt};
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
 const AUTHENTICITY_NOT_GUARANTEED: &str =
     "The authenticity of this encrypted message can't be guaranteed on this device.";
 const UNVERIFIED_IDENTITY: &str = "Encrypted by an unverified user.";
@@ -225,8 +228,9 @@ pub enum ShieldState {
 }
 
 /// A machine-readable representation of the authenticity for a `ShieldState`.
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub enum ShieldStateCode {
     /// Not enough information available to check the authenticity.
     AuthenticityNotGuaranteed,
