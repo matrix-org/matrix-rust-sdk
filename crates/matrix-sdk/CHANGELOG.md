@@ -24,6 +24,7 @@ Breaking changes:
 - `Room::event` now takes an optional `RequestConfig` to allow for tweaking the network behavior.
 - `NotificationSettings::subscribe_to_changes` has been removed.
 - The `instant` module was removed, use the `ruma::time` module instead.
+- Add `ClientBuilder::sqlite_store_with_cache_path` to build a client that stores caches in a different directory to state/crypto.
 
 Additions:
 

@@ -246,7 +246,7 @@ impl From<ClientError> for ClientBuildError {
 
 #[derive(Clone, uniffi::Object)]
 pub struct ClientBuilder {
-    session_path: Option<String>,
+    session_paths: Option<SessionPaths>,
     username: Option<String>,
     homeserver_cfg: Option<HomeserverConfig>,
     passphrase: Zeroizing<Option<String>>,
@@ -271,7 +271,7 @@ impl ClientBuilder {
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
-            session_path: None,
+            session_paths: None,
             username: None,
             homeserver_cfg: None,
             passphrase: Zeroizing::new(None),
@@ -318,14 +318,15 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    /// Sets the path that the client will use to store its data once logged in.
-    /// This path **must** be unique per session as the data stores aren't
-    /// capable of handling multiple users.
+    /// Sets the paths that the client will use to store its data and caches.
+    /// Both paths **must** be unique per session as the SDK stores aren't
+    /// capable of handling multiple users, however it is valid to use the
+    /// same path for both stores on a single session.
     ///
     /// Leaving this unset tells the client to use an in-memory data store.
-    pub fn session_path(self: Arc<Self>, path: String) -> Arc<Self> {
+    pub fn session_paths(self: Arc<Self>, data_path: String, cache_path: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.session_path = Some(path);
+        builder.session_paths = Some(SessionPaths { data_path, cache_path });
         Arc::new(builder)
     }
 
@@ -468,16 +469,24 @@ impl ClientBuilder {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = MatrixClient::builder();
 
-        if let Some(session_path) = &builder.session_path {
-            let data_path = PathBuf::from(session_path);
+        if let Some(session_paths) = &builder.session_paths {
+            let data_path = PathBuf::from(&session_paths.data_path);
+            let cache_path = PathBuf::from(&session_paths.cache_path);
 
             debug!(
                 data_path = %data_path.to_string_lossy(),
-                "Creating directory and using it as the store path."
+                cache_path = %cache_path.to_string_lossy(),
+                "Creating directories for data and cache stores.",
             );
 
             fs::create_dir_all(&data_path)?;
-            inner_builder = inner_builder.sqlite_store(&data_path, builder.passphrase.as_deref());
+            fs::create_dir_all(&cache_path)?;
+
+            inner_builder = inner_builder.sqlite_store_with_cache_path(
+                &data_path,
+                &cache_path,
+                builder.passphrase.as_deref(),
+            );
         } else {
             debug!("Not using a store path.");
         }
@@ -646,6 +655,16 @@ impl ClientBuilder {
 
         Ok(client)
     }
+}
+
+#[derive(Clone)]
+/// The store paths the client will use when built.
+struct SessionPaths {
+    /// The path that the client will use to store its data.
+    data_path: String,
+    /// The path that the client will use to store its caches. This path can be
+    /// the same as the data path if you prefer to keep everything in one place.
+    cache_path: String,
 }
 
 #[derive(Clone, uniffi::Record)]
