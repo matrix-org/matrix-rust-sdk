@@ -71,7 +71,6 @@ futures-executor = { workspace = true }
 http = { workspace = true }
 matrix-sdk-test = { workspace = true }
 stream_assert = { workspace = true }
-web-time = "1.1.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

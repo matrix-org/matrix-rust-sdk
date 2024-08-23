@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use as_variant::as_variant;
 #[cfg(test)]
-use matrix_sdk_common::instant::Instant;
+use ruma::time::Instant;
 use ruma::{
     events::key::verification::{cancel::CancelCode, ShortAuthenticationString},
     TransactionId, UserId,

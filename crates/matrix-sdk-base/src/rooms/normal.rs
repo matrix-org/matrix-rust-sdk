@@ -1659,6 +1659,7 @@ mod tests {
         ops::{Not, Sub},
         str::FromStr,
         sync::Arc,
+        time::Duration,
     };
 
     use assign::assign;
@@ -1687,12 +1688,12 @@ mod tests {
         },
         owned_event_id, room_alias_id, room_id,
         serde::Raw,
+        time::SystemTime,
         user_id, EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
         UserId,
     };
     use serde_json::json;
     use stream_assert::{assert_pending, assert_ready};
-    use web_time::{Duration, SystemTime};
 
     use super::{compute_display_name_from_heroes, Room, RoomHero, RoomInfo, RoomState, SyncInfo};
     #[cfg(any(feature = "experimental-sliding-sync", feature = "e2e-encryption"))]

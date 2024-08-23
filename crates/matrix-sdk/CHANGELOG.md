@@ -22,6 +22,7 @@ Breaking changes:
 - The widget capabilities in the FFI now need two additional flags: `update_delayed_event`, `send_delayed_event`.
 - `Room::event` now takes an optional `RequestConfig` to allow for tweaking the network behavior.
 - `NotificationSettings::subscribe_to_changes` has been removed.
+- The `instant` module was removed, use the `ruma::time` module instead.
 
 Additions:
 

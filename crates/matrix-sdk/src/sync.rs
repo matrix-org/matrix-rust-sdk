@@ -23,13 +23,13 @@ use std::{
 pub use matrix_sdk_base::sync::*;
 use matrix_sdk_base::{
     debug::{DebugInvitedRoom, DebugListOfRawEventsNoId},
-    instant::Instant,
     sync::SyncResponse as BaseSyncResponse,
 };
 use ruma::{
     api::client::sync::sync_events::{self, v3::InvitedRoom},
     events::{presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyToDeviceEvent},
     serde::Raw,
+    time::Instant,
     OwnedRoomId, RoomId,
 };
 use tracing::{debug, error, warn};

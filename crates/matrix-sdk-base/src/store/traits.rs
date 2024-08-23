@@ -23,7 +23,7 @@ use std::{
 use as_variant::as_variant;
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
-use matrix_sdk_common::{instant, AsyncTraitDeps};
+use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
     api::MatrixVersion,
     events::{
@@ -36,6 +36,7 @@ use ruma::{
         StateEventType, StaticEventContent, StaticStateEventContent,
     },
     serde::Raw,
+    time::SystemTime,
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
 };
@@ -951,7 +952,7 @@ impl ServerCapabilities {
         Self {
             versions: versions.iter().map(|item| item.to_string()).collect(),
             unstable_features,
-            last_fetch_ts: instant::now(),
+            last_fetch_ts: now_timestamp_ms(),
         }
     }
 
@@ -961,7 +962,7 @@ impl ServerCapabilities {
     /// [`Self::STALE_THRESHOLD`] milliseconds since the last time we stored
     /// it.
     pub fn maybe_decode(&self) -> Option<(Vec<MatrixVersion>, BTreeMap<String, bool>)> {
-        if instant::now() - self.last_fetch_ts >= Self::STALE_THRESHOLD {
+        if now_timestamp_ms() - self.last_fetch_ts >= Self::STALE_THRESHOLD {
             None
         } else {
             Some((
@@ -970,6 +971,15 @@ impl ServerCapabilities {
             ))
         }
     }
+}
+
+/// Get the current timestamp as the number of milliseconds since Unix Epoch.
+fn now_timestamp_ms() -> f64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("System clock was before 1970.")
+        .as_secs_f64()
+        * 1000.0
 }
 
 /// A value for key-value data that should be persisted into the store.
@@ -1276,23 +1286,21 @@ impl fmt::Debug for QueuedEvent {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_common::instant;
-
-    use super::ServerCapabilities;
+    use super::{now_timestamp_ms, ServerCapabilities};
 
     #[test]
     fn test_stale_server_capabilities() {
         let mut caps = ServerCapabilities {
             versions: Default::default(),
             unstable_features: Default::default(),
-            last_fetch_ts: instant::now() - ServerCapabilities::STALE_THRESHOLD - 1.0,
+            last_fetch_ts: now_timestamp_ms() - ServerCapabilities::STALE_THRESHOLD - 1.0,
         };
 
         // Definitely stale.
         assert!(caps.maybe_decode().is_none());
 
         // Definitely not stale.
-        caps.last_fetch_ts = instant::now() - 1.0;
+        caps.last_fetch_ts = now_timestamp_ms() - 1.0;
         assert!(caps.maybe_decode().is_some());
     }
 }

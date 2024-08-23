@@ -308,7 +308,7 @@ impl Sas {
 
     #[cfg(test)]
     #[allow(dead_code)]
-    pub(crate) fn set_creation_time(&self, time: matrix_sdk_common::instant::Instant) {
+    pub(crate) fn set_creation_time(&self, time: ruma::time::Instant) {
         self.inner.update(|inner| {
             inner.set_creation_time(time);
         });

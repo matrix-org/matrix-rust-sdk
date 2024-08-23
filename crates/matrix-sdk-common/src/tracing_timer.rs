@@ -114,7 +114,7 @@ mod tests {
         mod time123 {
             pub async fn run() {
                 let _timer_guard = timer!(tracing::Level::DEBUG, "test");
-                tokio::time::sleep(instant::Duration::from_millis(123)).await;
+                tokio::time::sleep(ruma::time::Duration::from_millis(123)).await;
                 // Displays: 2023-08-25T15:18:31.169498Z DEBUG
                 // matrix_sdk_common::tracing_timer::tests: test finished in
                 // 124ms
@@ -127,7 +127,7 @@ mod tests {
         let _guard = span.enter();
 
         let _timer_guard = timer!("in span");
-        tokio::time::sleep(instant::Duration::from_millis(256)).await;
+        tokio::time::sleep(ruma::time::Duration::from_millis(256)).await;
 
         tracing::warn!("Test about to finish.");
         // Displays: 2023-08-25T15:18:31.427070Z DEBUG le 256ms span:
