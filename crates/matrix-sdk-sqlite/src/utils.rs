@@ -16,6 +16,7 @@ use core::fmt;
 use std::{borrow::Borrow, cmp::min, future::Future, iter, ops::Deref};
 
 use async_trait::async_trait;
+use deadpool_sqlite::Object as SqliteConn;
 use itertools::Itertools;
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
 
@@ -106,7 +107,7 @@ pub(crate) trait SqliteObjectExt {
 }
 
 #[async_trait]
-impl SqliteObjectExt for deadpool_sqlite::Object {
+impl SqliteObjectExt for SqliteConn {
     async fn execute<P>(
         &self,
         sql: impl AsRef<str> + Send + 'static,
@@ -245,7 +246,7 @@ pub(crate) trait SqliteObjectStoreExt: SqliteObjectExt {
 }
 
 #[async_trait]
-impl SqliteObjectStoreExt for deadpool_sqlite::Object {
+impl SqliteObjectStoreExt for SqliteConn {
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()> {
         let key = key.to_owned();
         self.interact(move |conn| conn.set_kv(&key, &value)).await.unwrap()?;
@@ -255,7 +256,7 @@ impl SqliteObjectStoreExt for deadpool_sqlite::Object {
 }
 
 /// Load the version of the database with the given connection.
-pub(crate) async fn load_db_version(conn: &deadpool_sqlite::Object) -> Result<u8, OpenStoreError> {
+pub(crate) async fn load_db_version(conn: &SqliteConn) -> Result<u8, OpenStoreError> {
     let kv_exists = conn
         .query_row(
             "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'kv'",
