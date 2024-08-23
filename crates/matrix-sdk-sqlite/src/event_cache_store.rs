@@ -155,18 +155,30 @@ async fn init(conn: &SqliteConn) -> Result<()> {
 }
 
 #[async_trait]
-trait SqliteObjectEventCacheStoreExt: SqliteObjectExt {
-    async fn set_media(&self, uri: Key, format: Key, data: Vec<u8>) -> Result<()> {
-        self.execute(
+impl EventCacheStore for SqliteEventCacheStore {
+    type Error = Error;
+
+    async fn add_media_content(&self, request: &MediaRequest, content: Vec<u8>) -> Result<()> {
+        let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
+        let format = self.encode_key(keys::MEDIA, request.format.unique_key());
+        let data = self.encode_value(content)?;
+
+        let conn = self.acquire().await?;
+        conn.execute(
             "INSERT OR REPLACE INTO media (uri, format, data, last_access) VALUES (?, ?, ?, CAST(strftime('%s') as INT))",
             (uri, format, data),
         )
         .await?;
+
         Ok(())
     }
 
-    async fn get_media(&self, uri: Key, format: Key) -> Result<Option<Vec<u8>>> {
-        Ok(self
+    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+        let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
+        let format = self.encode_key(keys::MEDIA, request.format.unique_key());
+
+        let conn = self.acquire().await?;
+        let data = conn
             .with_transaction::<_, rusqlite::Error, _>(move |txn| {
                 let Some(media) = txn
                     .query_row::<Vec<u8>, _, _>(
@@ -176,61 +188,40 @@ trait SqliteObjectEventCacheStoreExt: SqliteObjectExt {
                     )
                     .optional()?
                 else {
-                    return rusqlite::Result::Ok(None);
+                    return Ok(None);
                 };
 
                 // Update the last access.
                 txn.execute(
-                    "UPDATE media SET last_access = CAST(strftime('%s') as INT) WHERE uri = ? AND format = ?",
+                    "UPDATE media SET last_access = CAST(strftime('%s') as INT) \
+                     WHERE uri = ? AND format = ?",
                     (uri, format),
                 )?;
 
-                rusqlite::Result::Ok(Some(media))
+                Ok(Some(media))
             })
-            .await?)
-    }
+            .await?;
 
-    async fn remove_media(&self, uri: Key, format: Key) -> Result<()> {
-        self.execute("DELETE FROM media WHERE uri = ? AND format = ?", (uri, format)).await?;
-        Ok(())
-    }
-
-    async fn remove_uri_medias(&self, uri: Key) -> Result<()> {
-        self.execute("DELETE FROM media WHERE uri = ?", (uri,)).await?;
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl SqliteObjectEventCacheStoreExt for SqliteConn {}
-
-#[async_trait]
-impl EventCacheStore for SqliteEventCacheStore {
-    type Error = Error;
-
-    async fn add_media_content(&self, request: &MediaRequest, content: Vec<u8>) -> Result<()> {
-        let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
-        let format = self.encode_key(keys::MEDIA, request.format.unique_key());
-        let data = self.encode_value(content)?;
-        self.acquire().await?.set_media(uri, format, data).await
-    }
-
-    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
-        let format = self.encode_key(keys::MEDIA, request.format.unique_key());
-        let data = self.acquire().await?.get_media(uri, format).await?;
         data.map(|v| self.decode_value(&v).map(Into::into)).transpose()
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
         let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
         let format = self.encode_key(keys::MEDIA, request.format.unique_key());
-        self.acquire().await?.remove_media(uri, format).await
+
+        let conn = self.acquire().await?;
+        conn.execute("DELETE FROM media WHERE uri = ? AND format = ?", (uri, format)).await?;
+
+        Ok(())
     }
 
     async fn remove_media_content_for_uri(&self, uri: &ruma::MxcUri) -> Result<()> {
         let uri = self.encode_key(keys::MEDIA, uri);
-        self.acquire().await?.remove_uri_medias(uri).await
+
+        let conn = self.acquire().await?;
+        conn.execute("DELETE FROM media WHERE uri = ?", (uri,)).await?;
+
+        Ok(())
     }
 }
 
