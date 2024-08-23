@@ -173,7 +173,7 @@ pub enum TimelineFocus {
     Event { target: OwnedEventId, num_context_events: u16 },
 
     /// Only show pinned events.
-    PinnedEvents { max_events_to_load: u16 },
+    PinnedEvents { max_events_to_load: u16, max_concurrent_requests: u16 },
 }
 
 impl Timeline {

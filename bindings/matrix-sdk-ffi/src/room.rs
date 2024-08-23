@@ -233,6 +233,7 @@ impl Room {
         &self,
         internal_id_prefix: Option<String>,
         max_events_to_load: u16,
+        max_concurrent_requests: u16,
     ) -> Result<Arc<Timeline>, ClientError> {
         let room = &self.inner;
 
@@ -242,8 +243,10 @@ impl Room {
             builder = builder.with_internal_id_prefix(internal_id_prefix);
         }
 
-        let timeline =
-            builder.with_focus(TimelineFocus::PinnedEvents { max_events_to_load }).build().await?;
+        let timeline = builder
+            .with_focus(TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests })
+            .build()
+            .await?;
 
         Ok(Timeline::new(timeline))
     }

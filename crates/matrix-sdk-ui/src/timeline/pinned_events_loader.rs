@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Formatter, num::NonZeroUsize, sync::Arc};
+use std::{fmt::Formatter, sync::Arc};
 
-use futures_util::{future::join_all, FutureExt as _};
+use futures_util::{stream, FutureExt as _, StreamExt};
 use matrix_sdk::{
     config::RequestConfig, event_cache::paginator::PaginatorError, BoxFuture, Room,
     SendOutsideWasm, SyncOutsideWasm,
@@ -24,8 +24,6 @@ use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
 use thiserror::Error;
 use tracing::{debug, warn};
 
-const MAX_CONCURRENT_REQUESTS: usize = 10;
-
 /// Utility to load the pinned events in a room.
 pub struct PinnedEventsLoader {
     /// Backend to load pinned events.
@@ -34,12 +32,21 @@ pub struct PinnedEventsLoader {
     /// Maximum number of pinned events to load (either from network or the
     /// cache).
     max_events_to_load: usize,
+
+    /// Number of requests to load pinned events that can run concurrently. This
+    /// is used to avoid overwhelming a home server with dozens or hundreds
+    /// of concurrent requests.
+    max_concurrent_requests: usize,
 }
 
 impl PinnedEventsLoader {
     /// Creates a new `PinnedEventsLoader` instance.
-    pub fn new(room: Arc<dyn PinnedEventsRoom>, max_events_to_load: usize) -> Self {
-        Self { room, max_events_to_load }
+    pub fn new(
+        room: Arc<dyn PinnedEventsRoom>,
+        max_events_to_load: usize,
+        max_concurrent_requests: usize,
+    ) -> Self {
+        Self { room, max_events_to_load, max_concurrent_requests }
     }
 
     /// Loads the pinned events in this room, using the cache first and then
@@ -64,37 +71,33 @@ impl PinnedEventsLoader {
             return Ok(Vec::new());
         }
 
-        let request_config = Some(
-            RequestConfig::default()
-                .retry_limit(3)
-                .max_concurrent_requests(NonZeroUsize::new(MAX_CONCURRENT_REQUESTS)),
-        );
+        let request_config = Some(RequestConfig::default().retry_limit(3));
 
-        let new_events = join_all(pinned_event_ids.into_iter().map(|event_id| {
-            let provider = self.room.clone();
-            async move {
-                match provider.load_event_with_relations(&event_id, request_config).await {
-                    Ok((event, related_events)) => {
-                        let mut events = vec![event];
-                        events.extend(related_events);
-                        Some(events)
-                    }
-                    Err(err) => {
-                        warn!("error when loading pinned event: {err}");
-                        None
+        let mut loaded_events: Vec<SyncTimelineEvent> =
+            stream::iter(pinned_event_ids.into_iter().map(|event_id| {
+                let provider = self.room.clone();
+                async move {
+                    match provider.load_event_with_relations(&event_id, request_config).await {
+                        Ok((event, related_events)) => {
+                            let mut events = vec![event];
+                            events.extend(related_events);
+                            Some(events)
+                        }
+                        Err(err) => {
+                            warn!("error when loading pinned event: {err}");
+                            None
+                        }
                     }
                 }
-            }
-        }))
-        .await;
-
-        let mut loaded_events = new_events
-            .into_iter()
+            }))
+            .buffer_unordered(self.max_concurrent_requests)
             // Get only the `Some<Vec<_>>` results
-            .flatten()
+            .flat_map(stream::iter)
             // Flatten the `Vec`s into a single one containing all their items
-            .flatten()
-            .collect::<Vec<SyncTimelineEvent>>();
+            .flat_map(stream::iter)
+            .collect()
+            .await;
+
         if loaded_events.is_empty() {
             return Err(PinnedEventsLoaderError::TimelineReloadFailed);
         }

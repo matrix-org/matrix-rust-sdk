@@ -12,7 +12,7 @@ use matrix_sdk::{
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, BOB};
 use matrix_sdk_ui::{
-    timeline::{TimelineFocus, TimelineItemContent},
+    timeline::{RoomExt, TimelineFocus, TimelineItemContent},
     Timeline,
 };
 use ruma::{
@@ -21,7 +21,11 @@ use ruma::{
 };
 use serde_json::json;
 use stream_assert::assert_pending;
-use wiremock::MockServer;
+use tokio::time::sleep;
+use wiremock::{
+    matchers::{header, method, path_regex},
+    Mock, MockServer, ResponseTemplate,
+};
 
 use crate::{mock_event, mock_sync};
 
@@ -46,11 +50,8 @@ async fn test_new_pinned_events_are_added_on_sync() {
     let _ = test_helper.setup_sync_response(vec![(event_1, false)], Some(vec!["$1", "$2"])).await;
 
     let room = test_helper.client.get_room(&room_id).unwrap();
-    let timeline = Timeline::builder(&room)
-        .with_focus(TimelineFocus::PinnedEvents { max_events_to_load: 100 })
-        .build()
-        .await
-        .unwrap();
+    let timeline =
+        Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
     test_helper.server.reset().await;
 
     assert!(
@@ -131,11 +132,8 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
         .await;
 
     let room = test_helper.client.get_room(&room_id).unwrap();
-    let timeline = Timeline::builder(&room)
-        .with_focus(TimelineFocus::PinnedEvents { max_events_to_load: 100 })
-        .build()
-        .await
-        .unwrap();
+    let timeline =
+        Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
@@ -203,10 +201,7 @@ async fn test_max_events_to_load_is_honored() {
         test_helper.setup_sync_response(vec![(pinned_event, false)], Some(vec!["$1", "$2"])).await;
 
     let room = test_helper.client.get_room(&room_id).unwrap();
-    let ret = Timeline::builder(&room)
-        .with_focus(TimelineFocus::PinnedEvents { max_events_to_load: 1 })
-        .build()
-        .await;
+    let ret = Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await;
 
     // We're only taking the last event id, `$2`, and it's not available so the
     // timeline fails to initialise.
@@ -242,11 +237,8 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
 
     let room = test_helper.client.get_room(&room_id).unwrap();
     let (room_cache, _drop_handles) = room.event_cache().await.unwrap();
-    let timeline = Timeline::builder(&room)
-        .with_focus(TimelineFocus::PinnedEvents { max_events_to_load: 2 })
-        .build()
-        .await
-        .unwrap();
+    let timeline =
+        Timeline::builder(&room).with_focus(pinned_events_focus(2)).build().await.unwrap();
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
@@ -274,11 +266,8 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     let room = test_helper.client.get_room(&room_id).unwrap();
 
     // And a new timeline one
-    let timeline = Timeline::builder(&room)
-        .with_focus(TimelineFocus::PinnedEvents { max_events_to_load: 2 })
-        .build()
-        .await
-        .unwrap();
+    let timeline =
+        Timeline::builder(&room).with_focus(pinned_events_focus(2)).build().await.unwrap();
 
     let (items, _) = timeline.subscribe().await;
     assert!(!items.is_empty()); // These events came from the cache
@@ -298,10 +287,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     let room = test_helper.client.get_room(&room_id).unwrap();
 
     // And a new timeline one
-    let ret = Timeline::builder(&room)
-        .with_focus(TimelineFocus::PinnedEvents { max_events_to_load: 2 })
-        .build()
-        .await;
+    let ret = Timeline::builder(&room).with_focus(pinned_events_focus(2)).build().await;
 
     // Since the events are no longer in the cache the timeline couldn't load them
     // and can't be initialised.
@@ -324,10 +310,7 @@ async fn test_pinned_timeline_with_pinned_event_ids_and_empty_result_fails() {
     let _ = test_helper.setup_sync_response(Vec::new(), Some(vec!["$1", "$2"])).await;
 
     let room = test_helper.client.get_room(&room_id).unwrap();
-    let ret = Timeline::builder(&room)
-        .with_focus(TimelineFocus::PinnedEvents { max_events_to_load: 1 })
-        .build()
-        .await;
+    let ret = Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await;
 
     // The timeline couldn't load any events so it fails to initialise
     assert!(ret.is_err());
@@ -348,11 +331,8 @@ async fn test_pinned_timeline_with_no_pinned_event_ids_is_just_empty() {
     let _ = test_helper.setup_sync_response(Vec::new(), Some(Vec::new())).await;
 
     let room = test_helper.client.get_room(&room_id).unwrap();
-    let timeline = Timeline::builder(&room)
-        .with_focus(TimelineFocus::PinnedEvents { max_events_to_load: 1 })
-        .build()
-        .await
-        .unwrap();
+    let timeline =
+        Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
 
     // The timeline couldn't load any events, but it expected none, so it just
     // returns an empty list
@@ -383,11 +363,8 @@ async fn test_edited_events_are_reflected_in_sync() {
     let _ = test_helper.setup_sync_response(vec![(pinned_event, false)], Some(vec!["$1"])).await;
 
     let room = test_helper.client.get_room(&room_id).unwrap();
-    let timeline = Timeline::builder(&room)
-        .with_focus(TimelineFocus::PinnedEvents { max_events_to_load: 100 })
-        .build()
-        .await
-        .unwrap();
+    let timeline =
+        Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
     test_helper.server.reset().await;
 
     assert!(
@@ -462,11 +439,8 @@ async fn test_redacted_events_are_reflected_in_sync() {
     let _ = test_helper.setup_sync_response(vec![(pinned_event, false)], Some(vec!["$1"])).await;
 
     let room = test_helper.client.get_room(&room_id).unwrap();
-    let timeline = Timeline::builder(&room)
-        .with_focus(TimelineFocus::PinnedEvents { max_events_to_load: 100 })
-        .build()
-        .await
-        .unwrap();
+    let timeline =
+        Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
     test_helper.server.reset().await;
 
     assert!(
@@ -532,11 +506,8 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
     let _ = test_helper.setup_sync_response(vec![(pinned_event, false)], Some(vec!["$1"])).await;
 
     let room = test_helper.client.get_room(&room_id).unwrap();
-    let timeline = Timeline::builder(&room)
-        .with_focus(TimelineFocus::PinnedEvents { max_events_to_load: 100 })
-        .build()
-        .await
-        .unwrap();
+    let timeline =
+        Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
     test_helper.server.reset().await;
 
     assert!(
@@ -635,6 +606,78 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
     assert_pending!(timeline_stream);
 }
 
+#[async_test]
+async fn test_ensure_max_concurrency_is_observed() {
+    let (client, server) = logged_in_client_with_server().await;
+    let room_id = owned_room_id!("!a_room:example.org");
+
+    let pinned_event_ids: Vec<String> = (0..100).map(|idx| format!("${idx}")).collect();
+
+    let max_concurrent_requests: u16 = 10;
+
+    let joined_room_builder = JoinedRoomBuilder::new(&room_id)
+        // Set up encryption
+        .add_state_event(StateTestEvent::Encryption)
+        // Add 100 pinned events
+        .add_state_event(StateTestEvent::Custom(json!(
+            {
+                "content": {
+                    "pinned": pinned_event_ids
+                },
+                "event_id": "$15139375513VdeRF:localhost",
+                "origin_server_ts": 151393755,
+                "sender": "@example:localhost",
+                "state_key": "",
+                "type": "m.room.pinned_events",
+                "unsigned": {
+                    "age": 703422
+                }
+            }
+        )));
+
+    // Amount of time to delay the response of an /event mock request, in ms.
+    let request_delay = 50;
+    let pinned_event =
+        EventFactory::new().room(&room_id).sender(*BOB).text_msg("A message").into_raw_timeline();
+    Mock::given(method("GET"))
+        .and(path_regex(r"/_matrix/client/r0/rooms/.*/event/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_millis(request_delay))
+                .set_body_json(pinned_event.json()),
+        )
+        // Verify this endpoint is only called the max concurrent amount of times.
+        .expect(max_concurrent_requests as u64)
+        .mount(&server)
+        .await;
+
+    let mut sync_response_builder = SyncResponseBuilder::new();
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let json_response =
+        sync_response_builder.add_joined_room(joined_room_builder).build_json_sync_response();
+    mock_sync(&server, json_response, None).await;
+    let _ = client.sync_once(sync_settings.clone()).await;
+
+    let room = client.get_room(&room_id).unwrap();
+
+    // Start loading the pinned event timeline asynchronously.
+    let handle = tokio::spawn({
+        let timeline_builder = room.timeline_builder().with_focus(pinned_events_focus(100));
+        async {
+            let _ = timeline_builder.build().await;
+        }
+    });
+
+    // Give it time to load events. As each request takes `request_delay`, we should
+    // have exactly `MAX_PINNED_EVENTS_CONCURRENT_REQUESTS` if the max
+    // concurrency setting is honoured.
+    sleep(Duration::from_millis(request_delay / 2)).await;
+
+    // Abort handle to stop requests from being processed.
+    handle.abort();
+}
+
 struct TestHelper {
     pub client: Client,
     pub server: MockServer,
@@ -720,4 +763,8 @@ impl TestHelper {
         mock_sync(&self.server, json_response, None).await;
         self.client.sync_once(self.sync_settings.clone()).await
     }
+}
+
+fn pinned_events_focus(max_events_to_load: u16) -> TimelineFocus {
+    TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests: 10 }
 }

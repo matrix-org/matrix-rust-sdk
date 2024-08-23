@@ -253,11 +253,12 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 )
             }
 
-            TimelineFocus::PinnedEvents { max_events_to_load } => (
+            TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => (
                 TimelineFocusData::PinnedEvents {
                     loader: PinnedEventsLoader::new(
                         Arc::new(room_data_provider.clone()),
                         max_events_to_load as usize,
+                        max_concurrent_requests as usize,
                     ),
                 },
                 TimelineFocusKind::PinnedEvents,
