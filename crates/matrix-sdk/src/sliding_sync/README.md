@@ -39,14 +39,14 @@ A unique identifier, less than 16 chars long, is required for each instance
 of Sliding Sync, and must be provided when getting a builder:
 
 ```rust,no_run
-# use matrix_sdk::Client;
+# use matrix_sdk::{Client, sliding_sync::Version};
 # use url::Url;
 # async {
 # let homeserver = Url::parse("http://example.com")?;
 # let client = Client::new(homeserver).await?;
 let sliding_sync_builder = client
     .sliding_sync("main-sync")?
-    .sliding_sync_proxy(Url::parse("http://sliding-sync.example.org")?);
+    .version(Version::Proxy { url: Url::parse("http://sliding-sync.example.org")? });
 
 # anyhow::Ok(())
 # };
@@ -332,7 +332,7 @@ whenever a new set of timeline items is received by the server.
 # Full example
 
 ```rust,no_run
-use matrix_sdk::{Client, sliding_sync::{SlidingSyncList, SlidingSyncMode}};
+use matrix_sdk::{Client, sliding_sync::{SlidingSyncList, SlidingSyncMode, Version}};
 use matrix_sdk_base::sliding_sync::http;
 use ruma::{assign, events::StateEventType};
 use tracing::{warn, error, info, debug};
@@ -346,7 +346,7 @@ let full_sync_list_name = "full-sync".to_owned();
 let active_list_name = "active-list".to_owned();
 let sliding_sync_builder = client
     .sliding_sync("main-sync")?
-    .sliding_sync_proxy(Url::parse("http://sliding-sync.example.org")?) // our proxy server
+    .version(Version::Proxy { url: Url::parse("http://sliding-sync.example.org")? }) // our proxy server
     .with_account_data_extension(
         assign!(http::request::AccountData::default(), { enabled: Some(true) }),
     ) // we enable the account-data extension

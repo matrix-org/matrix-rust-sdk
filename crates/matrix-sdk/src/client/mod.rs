@@ -77,6 +77,8 @@ use url::Url;
 use self::futures::SendRequest;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::Oidc;
+#[cfg(feature = "experimental-sliding-sync")]
+use crate::sliding_sync::Version as SlidingSyncVersion;
 use crate::{
     authentication::{AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback},
     config::RequestConfig,
@@ -229,15 +231,8 @@ pub(crate) struct ClientInner {
     /// The URL of the homeserver to connect to.
     homeserver: StdRwLock<Url>,
 
-    /// The sliding sync proxy that is trusted by the homeserver.
     #[cfg(feature = "experimental-sliding-sync")]
-    sliding_sync_proxy: StdRwLock<Option<Url>>,
-
-    /// Whether Simplified MSC3575 is used or not.
-    ///
-    /// This value must not be changed during the lifetime of the `Client`.
-    #[cfg(feature = "experimental-sliding-sync")]
-    is_simplified_sliding_sync_enabled: bool,
+    sliding_sync_version: StdRwLock<SlidingSyncVersion>,
 
     /// The underlying HTTP client.
     pub(crate) http_client: HttpClient,
@@ -311,8 +306,7 @@ impl ClientInner {
     async fn new(
         auth_ctx: Arc<AuthCtx>,
         homeserver: Url,
-        #[cfg(feature = "experimental-sliding-sync")] sliding_sync_proxy: Option<Url>,
-        #[cfg(feature = "experimental-sliding-sync")] is_simplified_sliding_sync_enabled: bool,
+        #[cfg(feature = "experimental-sliding-sync")] sliding_sync_version: SlidingSyncVersion,
         http_client: HttpClient,
         base_client: BaseClient,
         server_capabilities: ClientServerCapabilities,
@@ -325,9 +319,7 @@ impl ClientInner {
             homeserver: StdRwLock::new(homeserver),
             auth_ctx,
             #[cfg(feature = "experimental-sliding-sync")]
-            sliding_sync_proxy: StdRwLock::new(sliding_sync_proxy),
-            #[cfg(feature = "experimental-sliding-sync")]
-            is_simplified_sliding_sync_enabled,
+            sliding_sync_version: StdRwLock::new(sliding_sync_version),
             http_client,
             base_client,
             locks: Default::default(),
@@ -467,24 +459,17 @@ impl Client {
         self.inner.homeserver.read().unwrap().clone()
     }
 
-    /// The sliding sync proxy that is trusted by the homeserver.
+    /// Get the sliding version.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub fn sliding_sync_proxy(&self) -> Option<Url> {
-        let server = self.inner.sliding_sync_proxy.read().unwrap();
-        Some(server.as_ref()?.clone())
+    pub fn sliding_sync_version(&self) -> SlidingSyncVersion {
+        self.inner.sliding_sync_version.read().unwrap().clone()
     }
 
-    /// Force to set the sliding sync proxy URL.
+    /// Override the sliding version.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub fn set_sliding_sync_proxy(&self, sliding_sync_proxy: Option<Url>) {
-        let mut lock = self.inner.sliding_sync_proxy.write().unwrap();
-        *lock = sliding_sync_proxy;
-    }
-
-    /// Check whether Simplified MSC3575 must be used.
-    #[cfg(feature = "experimental-sliding-sync")]
-    pub fn is_simplified_sliding_sync_enabled(&self) -> bool {
-        self.inner.is_simplified_sliding_sync_enabled
+    pub fn set_sliding_sync_version(&self, version: SlidingSyncVersion) {
+        let mut lock = self.inner.sliding_sync_version.write().unwrap();
+        *lock = version;
     }
 
     /// Get the Matrix user session meta information.
@@ -2187,17 +2172,12 @@ impl Client {
 
     /// Create a new specialized `Client` that can process notifications.
     pub async fn notification_client(&self) -> Result<Client> {
-        #[cfg(feature = "experimental-sliding-sync")]
-        let sliding_sync_proxy = self.inner.sliding_sync_proxy.read().unwrap().clone();
-
         let client = Client {
             inner: ClientInner::new(
                 self.inner.auth_ctx.clone(),
                 self.homeserver(),
                 #[cfg(feature = "experimental-sliding-sync")]
-                sliding_sync_proxy,
-                #[cfg(feature = "experimental-sliding-sync")]
-                self.inner.is_simplified_sliding_sync_enabled,
+                self.sliding_sync_version(),
                 self.inner.http_client.clone(),
                 self.inner.base_client.clone_with_in_memory_state_store(),
                 self.inner.server_capabilities.read().await.clone(),

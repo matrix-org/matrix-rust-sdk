@@ -9,12 +9,12 @@ use matrix_sdk_base::sliding_sync::http;
 use matrix_sdk_common::timer;
 use ruma::OwnedRoomId;
 use tokio::sync::{broadcast::channel, Mutex as AsyncMutex, RwLock as AsyncRwLock};
-use url::Url;
 
 use super::{
     cache::{format_storage_key_prefix, restore_sliding_sync_state},
     sticky_parameters::SlidingSyncStickyManager,
     Error, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
+    Version,
 };
 use crate::{sliding_sync::SlidingSyncStickyParameters, Client, Result};
 
@@ -26,7 +26,7 @@ use crate::{sliding_sync::SlidingSyncStickyParameters, Client, Result};
 pub struct SlidingSyncBuilder {
     id: String,
     storage_key: String,
-    sliding_sync_proxy: Option<Url>,
+    version: Option<Version>,
     client: Client,
     lists: Vec<SlidingSyncListBuilder>,
     extensions: Option<http::request::Extensions>,
@@ -48,7 +48,7 @@ impl SlidingSyncBuilder {
             Ok(Self {
                 id,
                 storage_key,
-                sliding_sync_proxy: None,
+                version: None,
                 client,
                 lists: Vec::new(),
                 extensions: None,
@@ -61,14 +61,9 @@ impl SlidingSyncBuilder {
         }
     }
 
-    /// Set the sliding sync proxy URL.
-    ///
-    /// Note you might not need that in general, since the client uses the
-    /// `.well-known` endpoint to automatically find the sliding sync proxy
-    /// URL. This method should only be called if the proxy is at a
-    /// different URL than the one publicized in the `.well-known` endpoint.
-    pub fn sliding_sync_proxy(mut self, value: Url) -> Self {
-        self.sliding_sync_proxy = Some(value);
+    /// Set a specific version that will override the one from the [`Client`].
+    pub fn version(mut self, version: Version) -> Self {
+        self.version = Some(version);
         self
     }
 
@@ -235,6 +230,12 @@ impl SlidingSyncBuilder {
     pub async fn build(self) -> Result<SlidingSync> {
         let client = self.client;
 
+        let version = self.version.unwrap_or_else(|| client.sliding_sync_version());
+
+        if matches!(version, Version::None) {
+            return Err(crate::error::Error::SlidingSync(Error::VersionIsMissing));
+        }
+
         let (internal_channel_sender, _internal_channel_receiver) = channel(8);
 
         let mut lists = BTreeMap::new();
@@ -268,13 +269,9 @@ impl SlidingSyncBuilder {
         let rooms = AsyncRwLock::new(rooms);
         let lists = AsyncRwLock::new(lists);
 
-        // Use the configured sliding sync proxy, or if not set, try to use the one
-        // auto-discovered by the client, if any.
-        let sliding_sync_proxy = self.sliding_sync_proxy.or_else(|| client.sliding_sync_proxy());
-
         Ok(SlidingSync::new(SlidingSyncInner {
             id: self.id,
-            sliding_sync_proxy,
+            version,
 
             client,
             storage_key: self.storage_key,

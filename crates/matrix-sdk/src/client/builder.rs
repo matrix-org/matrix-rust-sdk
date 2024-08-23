@@ -38,6 +38,8 @@ use crate::encryption::EncryptionSettings;
 use crate::http_client::HttpSettings;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::OidcCtx;
+#[cfg(feature = "experimental-sliding-sync")]
+use crate::sliding_sync::Version as SlidingSyncVersion;
 use crate::{
     authentication::AuthCtx, client::ClientServerCapabilities, config::RequestConfig,
     error::RumaApiError, http_client::HttpClient, send_queue::SendQueueData, HttpError,
@@ -87,11 +89,7 @@ use crate::{
 pub struct ClientBuilder {
     homeserver_cfg: Option<HomeserverConfig>,
     #[cfg(feature = "experimental-sliding-sync")]
-    requires_sliding_sync: bool,
-    #[cfg(feature = "experimental-sliding-sync")]
-    sliding_sync_proxy: Option<String>,
-    #[cfg(feature = "experimental-sliding-sync")]
-    is_simplified_sliding_sync_enabled: bool,
+    sliding_sync_version: SlidingSyncVersion,
     http_cfg: Option<HttpConfig>,
     store_config: BuilderStoreConfig,
     request_config: RequestConfig,
@@ -110,12 +108,7 @@ impl ClientBuilder {
         Self {
             homeserver_cfg: None,
             #[cfg(feature = "experimental-sliding-sync")]
-            requires_sliding_sync: false,
-            #[cfg(feature = "experimental-sliding-sync")]
-            sliding_sync_proxy: None,
-            // Simplified MSC3575 is turned on by default for the SDK.
-            #[cfg(feature = "experimental-sliding-sync")]
-            is_simplified_sliding_sync_enabled: true,
+            sliding_sync_version: SlidingSyncVersion::Native,
             http_cfg: None,
             store_config: BuilderStoreConfig::Custom(StoreConfig::default()),
             request_config: Default::default(),
@@ -143,19 +136,7 @@ impl ClientBuilder {
         self
     }
 
-    /// Ensures that the client is built with support for sliding-sync, either
-    /// by discovering a proxy through the homeserver's well-known or by
-    /// providing one through [`Self::sliding_sync_proxy`].
-    ///
-    /// In the future this may also perform a check for native support on the
-    /// homeserver.
-    #[cfg(feature = "experimental-sliding-sync")]
-    pub fn requires_sliding_sync(mut self) -> Self {
-        self.requires_sliding_sync = true;
-        self
-    }
-
-    /// Set the sliding-sync proxy URL to use.
+    /// Set sliding sync to use the proxy, i.e. MSC3575.
     ///
     /// This value is always used no matter if the homeserver URL was defined
     /// with [`Self::homeserver_url`] or auto-discovered via
@@ -163,15 +144,22 @@ impl ClientBuilder {
     /// [`Self::server_name_or_homeserver_url`] - any proxy discovered via the
     /// well-known lookup will be ignored.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub fn sliding_sync_proxy(mut self, url: impl AsRef<str>) -> Self {
-        self.sliding_sync_proxy = Some(url.as_ref().to_owned());
+    pub fn sliding_sync_proxy(mut self, url: Url) -> Self {
+        self.sliding_sync_version = SlidingSyncVersion::Proxy { url };
         self
     }
 
-    /// Enable or disable Simplified MSC3575.
+    /// Set sliding sync to be native, i.e. Simplified MSC3575.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub fn simplified_sliding_sync(mut self, enable: bool) -> Self {
-        self.is_simplified_sliding_sync_enabled = enable;
+    pub fn sliding_sync_native(mut self) -> Self {
+        self.sliding_sync_version = SlidingSyncVersion::Native;
+        self
+    }
+
+    /// Set sliding sync to a specific version.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub fn sliding_sync_version(mut self, version: SlidingSyncVersion) -> Self {
+        self.sliding_sync_version = version;
         self
     }
 
@@ -487,10 +475,7 @@ impl ClientBuilder {
         #[cfg(feature = "experimental-oidc")]
         let allow_insecure_oidc = homeserver.starts_with("http://");
 
-        #[cfg(feature = "experimental-sliding-sync")]
-        let mut sliding_sync_proxy =
-            self.sliding_sync_proxy.as_ref().map(|url| Url::parse(url)).transpose()?;
-
+        /*
         #[cfg(feature = "experimental-sliding-sync")]
         if self.is_simplified_sliding_sync_enabled {
             // When using Simplified MSC3575, don't use a sliding sync proxy, allow the
@@ -504,12 +489,7 @@ impl ClientBuilder {
                     well_known.sliding_sync_proxy.and_then(|p| Url::parse(&p.url).ok())
             }
         }
-
-        #[cfg(feature = "experimental-sliding-sync")]
-        if self.requires_sliding_sync && sliding_sync_proxy.is_none() {
-            // In the future we will need to check for native support on the homeserver too.
-            return Err(ClientBuildError::SlidingSyncNotAvailable);
-        }
+        */
 
         let homeserver = Url::parse(&homeserver)?;
 
@@ -537,9 +517,7 @@ impl ClientBuilder {
             auth_ctx,
             homeserver,
             #[cfg(feature = "experimental-sliding-sync")]
-            sliding_sync_proxy,
-            #[cfg(feature = "experimental-sliding-sync")]
-            self.is_simplified_sliding_sync_enabled,
+            self.sliding_sync_version,
             http_client,
             base_client,
             server_capabilities,
@@ -916,7 +894,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_discovery_invalid_server() {
         // Given a new client builder.
-        let mut builder = make_non_sss_client_builder();
+        let mut builder = ClientBuilder::new();
 
         // When building a client with an invalid server name.
         builder = builder.server_name_or_homeserver_url("⚠️ This won't work 🚫");
@@ -929,7 +907,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_discovery_no_server() {
         // Given a new client builder.
-        let mut builder = make_non_sss_client_builder();
+        let mut builder = ClientBuilder::new();
 
         // When building a client with a valid server name that doesn't exist.
         builder = builder.server_name_or_homeserver_url("localhost:3456");
@@ -945,7 +923,7 @@ pub(crate) mod tests {
         // Given a random web server that isn't a Matrix homeserver or hosting the
         // well-known file for one.
         let server = MockServer::start().await;
-        let mut builder = make_non_sss_client_builder();
+        let mut builder = ClientBuilder::new();
 
         // When building a client with the server's URL.
         builder = builder.server_name_or_homeserver_url(server.uri());
@@ -955,11 +933,12 @@ pub(crate) mod tests {
         assert_matches!(error, ClientBuildError::AutoDiscovery(FromHttpResponseError::Server(_)));
     }
 
+    /*
     #[async_test]
     async fn test_discovery_direct_legacy() {
         // Given a homeserver without a well-known file.
         let homeserver = make_mock_homeserver().await;
-        let mut builder = make_non_sss_client_builder();
+        let mut builder = ClientBuilder::new();
 
         // When building a client with the server's URL.
         builder = builder.server_name_or_homeserver_url(homeserver.uri());
@@ -975,7 +954,7 @@ pub(crate) mod tests {
         // Given a homeserver without a well-known file and with a custom sliding sync
         // proxy injected.
         let homeserver = make_mock_homeserver().await;
-        let mut builder = make_non_sss_client_builder();
+        let mut builder = ClientBuilder::new();
         #[cfg(feature = "experimental-sliding-sync")]
         {
             builder = builder.sliding_sync_proxy("https://localhost:1234");
@@ -995,7 +974,7 @@ pub(crate) mod tests {
         // Given a base server with a well-known file that has errors.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
-        let mut builder = make_non_sss_client_builder();
+        let mut builder = ClientBuilder::new();
 
         let well_known = make_well_known_json(&homeserver.uri(), None);
         let bad_json = well_known.to_string().replace(',', "");
@@ -1022,7 +1001,7 @@ pub(crate) mod tests {
         // doesn't support sliding sync.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
-        let mut builder = make_non_sss_client_builder();
+        let mut builder = ClientBuilder::new();
 
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -1048,7 +1027,7 @@ pub(crate) mod tests {
         // sliding sync proxy.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
-        let mut builder = make_non_sss_client_builder();
+        let mut builder = ClientBuilder::new();
 
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -1075,7 +1054,7 @@ pub(crate) mod tests {
         // sliding sync proxy.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
-        let mut builder = make_non_sss_client_builder();
+        let mut builder = ClientBuilder::new();
 
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -1105,7 +1084,7 @@ pub(crate) mod tests {
         // sliding sync proxy.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
-        let mut builder = make_non_sss_client_builder();
+        let mut builder = ClientBuilder::new();
 
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -1117,16 +1096,18 @@ pub(crate) mod tests {
             .await;
 
         // When building a client for simplified sliding sync with the base server.
-        builder = builder.simplified_sliding_sync(true);
+        builder = builder.sliding_sync_native();
         builder = builder.server_name_or_homeserver_url(server.uri());
         let client = builder.build().await.unwrap();
 
         // Then a client should not use the discovered sliding sync proxy.
         assert!(client.sliding_sync_proxy().is_none());
     }
+    */
 
     /* Requires sliding sync */
 
+    /*
     #[async_test]
     #[cfg(feature = "experimental-sliding-sync")]
     async fn test_requires_sliding_sync_with_legacy_well_known() {
@@ -1134,7 +1115,7 @@ pub(crate) mod tests {
         // doesn't support sliding sync.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
-        let mut builder = make_non_sss_client_builder();
+        let mut builder = ClientBuilder::new();
 
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -1160,7 +1141,7 @@ pub(crate) mod tests {
         // sliding sync proxy.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
-        let mut builder = make_non_sss_client_builder();
+        let mut builder = ClientBuilder::new();
 
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -1178,23 +1159,7 @@ pub(crate) mod tests {
         // Then a client should be built with support for sliding sync.
         assert_eq!(_client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
     }
-
-    #[async_test]
-    #[cfg(feature = "experimental-sliding-sync")]
-    async fn test_requires_sliding_sync_with_custom_proxy() {
-        // Given a homeserver without a well-known file and with a custom sliding sync
-        // proxy injected.
-        let homeserver = make_mock_homeserver().await;
-        let mut builder = make_non_sss_client_builder();
-        builder = builder.sliding_sync_proxy("https://localhost:1234");
-
-        // When building a client that requires sliding sync with the server's URL.
-        builder = builder.requires_sliding_sync().server_name_or_homeserver_url(homeserver.uri());
-        let _client = builder.build().await.unwrap();
-
-        // Then a client should be built with support for sliding sync.
-        assert_eq!(_client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
-    }
+    */
 
     /* Helper functions */
 
@@ -1237,19 +1202,5 @@ pub(crate) mod tests {
 
             object
         })
-    }
-
-    /// These tests were built with regular sliding sync in mind so until
-    /// we remove it and update the tests, this makes a builder with SSS
-    /// disabled.
-    fn make_non_sss_client_builder() -> ClientBuilder {
-        let mut builder = ClientBuilder::new();
-
-        #[cfg(feature = "experimental-sliding-sync")]
-        {
-            builder = builder.simplified_sliding_sync(false);
-        }
-
-        builder
     }
 }

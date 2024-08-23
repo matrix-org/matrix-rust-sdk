@@ -725,7 +725,6 @@ async fn incremental_upload_of_keys_sliding_sync() -> Result<()> {
     let server = wiremock::MockServer::start().await;
     let builder = Client::builder()
         .homeserver_url(server.uri())
-        .sliding_sync_proxy(server.uri())
         .server_versions([ruma::api::MatrixVersion::V1_0]);
 
     let client =

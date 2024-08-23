@@ -7,6 +7,11 @@ use tokio::task::JoinError;
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
+    /// Sliding sync has been configured with a missing version. See
+    /// [`crate::sliding_sync::Version`].
+    #[error("Sliding sync version is missing")]
+    VersionIsMissing,
+
     /// The response we've received from the server can't be parsed or doesn't
     /// match up with the current expectations on the client side. A
     /// `sync`-restart might be required.
