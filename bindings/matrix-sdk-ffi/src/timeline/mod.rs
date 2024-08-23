@@ -827,6 +827,10 @@ impl TimelineDiff {
         let this = unwrap_or_clone_arc(self);
         as_variant!(this, Self::Reset { values } => values)
     }
+
+    pub fn truncate(&self) -> Option<u32> {
+        as_variant!(self, Self::Truncate { length } => (*length).try_into().unwrap())
+    }
 }
 
 #[derive(uniffi::Record)]
