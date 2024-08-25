@@ -676,15 +676,17 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
     async fn get_kv_blobs(&self, keys: Vec<Key>) -> Result<Vec<Vec<u8>>> {
         let keys_length = keys.len();
 
-        self.chunk_large_query_over(keys, Some(keys_length), |keys| {
+        self.chunk_large_query_over(keys, Some(keys_length), |txn, keys| {
             let sql_params = repeat_vars(keys.len());
             let sql = format!("SELECT value FROM kv_blob WHERE key IN ({sql_params})");
 
             let params = rusqlite::params_from_iter(keys);
 
-            self.prepare(sql, move |mut stmt| {
-                stmt.query(params)?.mapped(|row| row.get(0)).collect()
-            })
+            Ok(txn
+                .prepare(&sql)?
+                .query(params)?
+                .mapped(|row| row.get(0))
+                .collect::<Result<_, _>>()?)
         })
         .await
     }
@@ -704,15 +706,15 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
                 })
                 .await?)
         } else {
-            self.chunk_large_query_over(states, None, |states| {
+            self.chunk_large_query_over(states, None, |txn, states| {
                 let sql_params = repeat_vars(states.len());
                 let sql = format!("SELECT data FROM room_info WHERE state IN ({sql_params})");
 
-                self.prepare(sql, move |mut stmt| {
-                    stmt.query(rusqlite::params_from_iter(states))?
-                        .mapped(|row| row.get(0))
-                        .collect()
-                })
+                Ok(txn
+                    .prepare(&sql)?
+                    .query(rusqlite::params_from_iter(states))?
+                    .mapped(|row| row.get(0))
+                    .collect::<Result<_, _>>()?)
             })
             .await
         }
@@ -724,7 +726,7 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
         event_type: Key,
         state_keys: Vec<Key>,
     ) -> Result<Vec<(bool, Vec<u8>)>> {
-        self.chunk_large_query_over(state_keys, None, move |state_keys: Vec<Key>| {
+        self.chunk_large_query_over(state_keys, None, move |txn, state_keys: Vec<Key>| {
             let sql_params = repeat_vars(state_keys.len());
             let sql = format!(
                 "SELECT stripped, data FROM state_event
@@ -735,9 +737,11 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
                 [room_id.clone(), event_type.clone()].into_iter().chain(state_keys),
             );
 
-            self.prepare(sql, |mut stmt| {
-                stmt.query(params)?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect()
-            })
+            Ok(txn
+                .prepare(&sql)?
+                .query(params)?
+                .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                .collect::<Result<_, _>>()?)
         })
         .await
     }
@@ -767,7 +771,7 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let user_ids_length = user_ids.len();
 
-        self.chunk_large_query_over(user_ids, Some(user_ids_length), move |user_ids| {
+        self.chunk_large_query_over(user_ids, Some(user_ids_length), move |txn, user_ids| {
             let sql_params = repeat_vars(user_ids.len());
             let sql = format!(
                 "SELECT user_id, data FROM profile WHERE room_id = ? AND user_id IN ({sql_params})"
@@ -775,9 +779,11 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
 
             let params = rusqlite::params_from_iter(iter::once(room_id.clone()).chain(user_ids));
 
-            self.prepare(sql, move |mut stmt| {
-                stmt.query(params)?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect()
-            })
+            Ok(txn
+                .prepare(&sql)?
+                .query(params)?
+                .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                .collect::<Result<_, _>>()?)
         })
         .await
     }
@@ -789,7 +795,7 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
             })
             .await?
         } else {
-            self.chunk_large_query_over(memberships, None, move |memberships| {
+            self.chunk_large_query_over(memberships, None, move |txn, memberships| {
                 let sql_params = repeat_vars(memberships.len());
                 let sql = format!(
                     "SELECT data FROM member WHERE room_id = ? AND membership IN ({sql_params})"
@@ -798,9 +804,11 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
                 let params =
                     rusqlite::params_from_iter(iter::once(room_id.clone()).chain(memberships));
 
-                self.prepare(sql, move |mut stmt| {
-                    stmt.query(params)?.mapped(|row| row.get(0)).collect()
-                })
+                Ok(txn
+                    .prepare(&sql)?
+                    .query(params)?
+                    .mapped(|row| row.get(0))
+                    .collect::<Result<_, _>>()?)
             })
             .await?
         };
@@ -841,7 +849,7 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let names_length = names.len();
 
-        self.chunk_large_query_over(names, Some(names_length), move |names| {
+        self.chunk_large_query_over(names, Some(names_length), move |txn, names| {
             let sql_params = repeat_vars(names.len());
             let sql = format!(
                 "SELECT name, data FROM display_name WHERE room_id = ? AND name IN ({sql_params})"
@@ -849,9 +857,11 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
 
             let params = rusqlite::params_from_iter(iter::once(room_id.clone()).chain(names));
 
-            self.prepare(sql, move |mut stmt| {
-                stmt.query(params)?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect()
-            })
+            Ok(txn
+                .prepare(&sql)?
+                .query(params)?
+                .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                .collect::<Result<_, _>>()?)
         })
         .await
     }

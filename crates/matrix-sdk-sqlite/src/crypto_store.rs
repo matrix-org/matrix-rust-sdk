@@ -504,15 +504,13 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
 
         let session_ids_len = session_ids.len();
 
-        self.chunk_large_query_over(session_ids, None, move |session_ids| {
-            async move {
-                // Safety: placeholders is not generated using any user input except the number
-                // of session IDs, so it is safe from injection.
-                let sql_params = repeat_vars(session_ids_len);
-                let query = format!("UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({sql_params})");
-                self.prepare(query, move |mut stmt| stmt.execute(params_from_iter(session_ids.iter()))).await?;
-                Ok(Vec::<&str>::new())
-            }
+        self.chunk_large_query_over(session_ids, None, move |txn, session_ids| {
+            // Safety: placeholders is not generated using any user input except the number
+            // of session IDs, so it is safe from injection.
+            let sql_params = repeat_vars(session_ids_len);
+            let query = format!("UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({sql_params})");
+            txn.prepare(&query)?.execute(params_from_iter(session_ids.iter()))?;
+            Ok(Vec::<()>::new())
         }).await?;
 
         Ok(())

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use core::fmt;
-use std::{borrow::Borrow, cmp::min, future::Future, iter, ops::Deref};
+use std::{borrow::Borrow, cmp::min, iter, ops::Deref};
 
 use async_trait::async_trait;
 use deadpool_sqlite::Object as SqliteConn;
@@ -92,18 +92,15 @@ pub(crate) trait SqliteObjectExt {
         E: From<rusqlite::Error> + Send + 'static,
         F: FnOnce(&Transaction<'_>) -> Result<T, E> + Send + 'static;
 
-    async fn limit(&self, limit: Limit) -> i32;
-
-    async fn chunk_large_query_over<Query, Fut, Res>(
+    async fn chunk_large_query_over<Query, Res>(
         &self,
         mut keys_to_chunk: Vec<Key>,
         result_capacity: Option<usize>,
         do_query: Query,
     ) -> Result<Vec<Res>>
     where
-        Query: Fn(Vec<Key>) -> Fut + Send + Sync,
-        Fut: Future<Output = Result<Vec<Res>, rusqlite::Error>> + Send,
-        Res: Send;
+        Res: Send + 'static,
+        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
 }
 
 #[async_trait]
@@ -165,57 +162,26 @@ impl SqliteObjectExt for SqliteConn {
         .unwrap()
     }
 
-    async fn limit(&self, limit: Limit) -> i32 {
-        self.interact(move |conn| conn.limit(limit)).await.expect("Failed to fetch limit")
-    }
-
     /// Chunk a large query over some keys.
     ///
     /// Imagine there is a _dynamic_ query that runs potentially large number of
     /// parameters, so much that the maximum number of parameters can be hit.
     /// Then, this helper is for you. It will execute the query on chunks of
     /// parameters.
-    async fn chunk_large_query_over<Query, Fut, Res>(
+    async fn chunk_large_query_over<Query, Res>(
         &self,
-        mut keys_to_chunk: Vec<Key>,
+        keys_to_chunk: Vec<Key>,
         result_capacity: Option<usize>,
         do_query: Query,
     ) -> Result<Vec<Res>>
     where
-        Query: Fn(Vec<Key>) -> Fut + Send + Sync,
-        Fut: Future<Output = Result<Vec<Res>, rusqlite::Error>> + Send,
-        Res: Send,
+        Res: Send + 'static,
+        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static,
     {
-        // Divide by 2 to allow space for more static parameters (not part of
-        // `keys_to_chunk`).
-        let maximum_chunk_size = self.limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER).await / 2;
-        let maximum_chunk_size: usize = maximum_chunk_size
-            .try_into()
-            .map_err(|_| Error::SqliteMaximumVariableNumber(maximum_chunk_size))?;
-
-        if keys_to_chunk.len() < maximum_chunk_size {
-            // Chunking isn't necessary.
-            let chunk = keys_to_chunk;
-
-            Ok(do_query(chunk).await?)
-        } else {
-            // Chunking _is_ necessary.
-
-            // Define the accumulator.
-            let capacity = result_capacity.unwrap_or_default();
-            let mut all_results = Vec::with_capacity(capacity);
-
-            while !keys_to_chunk.is_empty() {
-                // Chunk and run the query.
-                let tail = keys_to_chunk.split_off(min(keys_to_chunk.len(), maximum_chunk_size));
-                let chunk = keys_to_chunk;
-                keys_to_chunk = tail;
-
-                all_results.extend(do_query(chunk).await?);
-            }
-
-            Ok(all_results)
-        }
+        self.with_transaction(move |txn| {
+            txn.chunk_large_query_over(keys_to_chunk, result_capacity, do_query)
+        })
+        .await
     }
 }
 
@@ -230,6 +196,62 @@ impl SqliteConnectionExt for rusqlite::Connection {
             (key, value),
         )?;
         Ok(())
+    }
+}
+
+pub(crate) trait SqliteTransactionExt {
+    fn chunk_large_query_over<Query, Res>(
+        &self,
+        keys_to_chunk: Vec<Key>,
+        result_capacity: Option<usize>,
+        do_query: Query,
+    ) -> Result<Vec<Res>>
+    where
+        Res: Send + 'static,
+        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
+}
+
+impl<'a> SqliteTransactionExt for Transaction<'a> {
+    fn chunk_large_query_over<Query, Res>(
+        &self,
+        mut keys_to_chunk: Vec<Key>,
+        result_capacity: Option<usize>,
+        do_query: Query,
+    ) -> Result<Vec<Res>>
+    where
+        Res: Send + 'static,
+        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static,
+    {
+        // Divide by 2 to allow space for more static parameters (not part of
+        // `keys_to_chunk`).
+        let maximum_chunk_size = self.limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER) / 2;
+        let maximum_chunk_size: usize = maximum_chunk_size
+            .try_into()
+            .map_err(|_| Error::SqliteMaximumVariableNumber(maximum_chunk_size))?;
+
+        if keys_to_chunk.len() < maximum_chunk_size {
+            // Chunking isn't necessary.
+            let chunk = keys_to_chunk;
+
+            Ok(do_query(self, chunk)?)
+        } else {
+            // Chunking _is_ necessary.
+
+            // Define the accumulator.
+            let capacity = result_capacity.unwrap_or_default();
+            let mut all_results = Vec::with_capacity(capacity);
+
+            while !keys_to_chunk.is_empty() {
+                // Chunk and run the query.
+                let tail = keys_to_chunk.split_off(min(keys_to_chunk.len(), maximum_chunk_size));
+                let chunk = keys_to_chunk;
+                keys_to_chunk = tail;
+
+                all_results.extend(do_query(self, chunk)?);
+            }
+
+            Ok(all_results)
+        }
     }
 }
 
