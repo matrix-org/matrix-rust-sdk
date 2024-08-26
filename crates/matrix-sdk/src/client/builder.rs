@@ -39,7 +39,7 @@ use crate::http_client::HttpSettings;
 #[cfg(feature = "experimental-oidc")]
 use crate::oidc::OidcCtx;
 #[cfg(feature = "experimental-sliding-sync")]
-use crate::sliding_sync::Version as SlidingSyncVersion;
+use crate::sliding_sync::VersionBuilder as SlidingSyncVersionBuilder;
 use crate::{
     authentication::AuthCtx, client::ClientServerCapabilities, config::RequestConfig,
     error::RumaApiError, http_client::HttpClient, send_queue::SendQueueData, HttpError,
@@ -89,7 +89,7 @@ use crate::{
 pub struct ClientBuilder {
     homeserver_cfg: Option<HomeserverConfig>,
     #[cfg(feature = "experimental-sliding-sync")]
-    sliding_sync_version: SlidingSyncVersion,
+    sliding_sync_version_builder: SlidingSyncVersionBuilder,
     http_cfg: Option<HttpConfig>,
     store_config: BuilderStoreConfig,
     request_config: RequestConfig,
@@ -108,7 +108,7 @@ impl ClientBuilder {
         Self {
             homeserver_cfg: None,
             #[cfg(feature = "experimental-sliding-sync")]
-            sliding_sync_version: SlidingSyncVersion::Native,
+            sliding_sync_version_builder: SlidingSyncVersionBuilder::Native,
             http_cfg: None,
             store_config: BuilderStoreConfig::Custom(StoreConfig::default()),
             request_config: Default::default(),
@@ -136,30 +136,13 @@ impl ClientBuilder {
         self
     }
 
-    /// Set sliding sync to use the proxy, i.e. MSC3575.
-    ///
-    /// This value is always used no matter if the homeserver URL was defined
-    /// with [`Self::homeserver_url`] or auto-discovered via
-    /// [`Self::server_name`], [`Self::insecure_server_name_no_tls`], or
-    /// [`Self::server_name_or_homeserver_url`] - any proxy discovered via the
-    /// well-known lookup will be ignored.
-    #[cfg(feature = "experimental-sliding-sync")]
-    pub fn sliding_sync_proxy(mut self, url: Url) -> Self {
-        self.sliding_sync_version = SlidingSyncVersion::Proxy { url };
-        self
-    }
-
-    /// Set sliding sync to be native, i.e. Simplified MSC3575.
-    #[cfg(feature = "experimental-sliding-sync")]
-    pub fn sliding_sync_native(mut self) -> Self {
-        self.sliding_sync_version = SlidingSyncVersion::Native;
-        self
-    }
-
     /// Set sliding sync to a specific version.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub fn sliding_sync_version(mut self, version: SlidingSyncVersion) -> Self {
-        self.sliding_sync_version = version;
+    pub fn sliding_sync_version_builder(
+        mut self,
+        version_builder: SlidingSyncVersionBuilder,
+    ) -> Self {
+        self.sliding_sync_version_builder = version_builder;
         self
     }
 
@@ -476,7 +459,7 @@ impl ClientBuilder {
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         #[allow(unused_variables)]
-        let (homeserver, well_known, versions) = match homeserver_cfg {
+        let (homeserver, well_known, supported_versions) = match homeserver_cfg {
             HomeserverConfig::Url(url) => (Url::parse(&url)?, None, None),
 
             HomeserverConfig::ServerName { server: server_name, protocol } => {
@@ -491,22 +474,24 @@ impl ClientBuilder {
             }
         };
 
-        /*
         #[cfg(feature = "experimental-sliding-sync")]
-        if self.is_simplified_sliding_sync_enabled {
-            // When using Simplified MSC3575, don't use a sliding sync proxy, allow the
-            // requests to be sent directly to the homeserver.
-            tracing::info!("Simplified MSC3575 is enabled, ignoring any sliding sync proxy.");
-            sliding_sync_proxy = None;
-        } else if let Some(well_known) = well_known {
-            // Otherwise, if a proxy wasn't set, use the one discovered from the well-known.
-            if sliding_sync_proxy.is_none() {
-                sliding_sync_proxy =
-                    well_known.sliding_sync_proxy.and_then(|p| Url::parse(&p.url).ok())
-            }
-        }
-        */
+        let sliding_sync_version = {
+            let supported_versions = match supported_versions {
+                Some(versions) => Some(versions),
+                None if self.sliding_sync_version_builder.needs_get_supported_versions() => {
+                    Some(get_supported_versions(&homeserver, &http_client).await?)
+                }
+                None => None,
+            };
 
+            let version = self
+                .sliding_sync_version_builder
+                .build(well_known.as_ref(), supported_versions.as_ref())?;
+
+            tracing::info!(?version, "selected sliding sync version");
+
+            version
+        };
 
         #[cfg(feature = "experimental-oidc")]
         let allow_insecure_oidc = homeserver.scheme() == "http";
@@ -535,7 +520,7 @@ impl ClientBuilder {
             auth_ctx,
             homeserver,
             #[cfg(feature = "experimental-sliding-sync")]
-            self.sliding_sync_version,
+            sliding_sync_version,
             http_client,
             base_client,
             server_capabilities,
@@ -841,9 +826,10 @@ pub enum ClientBuildError {
     #[error("Error looking up the .well-known endpoint on auto-discovery")]
     AutoDiscovery(FromHttpResponseError<RumaApiError>),
 
-    /// The builder requires support for sliding sync but it isn't available.
-    #[error("The homeserver doesn't support sliding sync and a custom proxy wasn't configured.")]
-    SlidingSyncNotAvailable,
+    /// Error from sliding sync.
+    #[cfg(feature = "experimental-sliding-sync")]
+    #[error(transparent)]
+    SlidingSync(#[from] crate::sliding_sync::Error),
 
     /// An error encountered when trying to parse the homeserver url.
     #[error(transparent)]
