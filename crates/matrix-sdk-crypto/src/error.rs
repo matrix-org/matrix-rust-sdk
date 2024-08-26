@@ -391,7 +391,7 @@ pub enum SessionRecipientCollectionError {
     ///
     /// Happens only with [`CollectStrategy::DeviceBasedStrategy`] when
     /// [`error_on_verified_user_problem`](`CollectStrategy::DeviceBasedStrategy::error_on_verified_user_problem`)
-    /// is true.
+    /// is true, or with [`CollectStrategy::IdentityBasedStrategy`].
     ///
     /// In order to resolve this, the user can:
     ///
@@ -407,4 +407,15 @@ pub enum SessionRecipientCollectionError {
     /// The caller can then retry the encryption operation.
     #[error("one or more users that were verified have changed their identity")]
     VerifiedUserChangedIdentity(Vec<OwnedUserId>),
+
+    /// Cross-signing is required for encryption when using
+    /// [`CollectStrategy::IdentityBased`].
+    #[error("Encryption failed because cross-signing is not setup on your account")]
+    CrossSigningNotSetup,
+
+    /// The current device needs to be verified when encrypting using
+    /// [`CollectStrategy::IdentityBased`]. Apps should prevent sending in the
+    /// UI to avoid hitting this case.
+    #[error("Encryption failed because your device is not verified")]
+    SendingFromUnverifiedDevice,
 }
