@@ -18,6 +18,7 @@ use std::{borrow::Borrow, cmp::min, iter, ops::Deref};
 use async_trait::async_trait;
 use deadpool_sqlite::Object as SqliteAsyncConn;
 use itertools::Itertools;
+use matrix_sdk_store_encryption::StoreCipher;
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
 
 use crate::{
@@ -280,6 +281,16 @@ impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
 /// ```
 #[async_trait]
 pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
+    /// Whether the `kv` table exists in this database.
+    async fn kv_table_exists(&self) -> rusqlite::Result<bool> {
+        self.query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'kv')",
+            (),
+            |row| row.get(0),
+        )
+        .await
+    }
+
     /// Get the stored value for the given key.
     async fn get_kv(&self, key: &str) -> rusqlite::Result<Option<Vec<u8>>> {
         let key = key.to_owned();
@@ -290,6 +301,48 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
 
     /// Store the given value for the given key.
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()>;
+
+    /// Get the version of the database.
+    async fn db_version(&self) -> Result<u8, OpenStoreError> {
+        let kv_exists = self.kv_table_exists().await.map_err(OpenStoreError::LoadVersion)?;
+
+        if kv_exists {
+            match self.get_kv("version").await.map_err(OpenStoreError::LoadVersion)?.as_deref() {
+                Some([v]) => Ok(*v),
+                Some(_) => Err(OpenStoreError::InvalidVersion),
+                None => Err(OpenStoreError::MissingVersion),
+            }
+        } else {
+            Ok(0)
+        }
+    }
+
+    /// Set the version of the database.
+    async fn set_db_version(&self, version: u8) -> rusqlite::Result<()> {
+        self.set_kv("version", vec![version]).await
+    }
+
+    /// Get the [`StoreCipher`] of the database or create it.
+    async fn get_or_create_store_cipher(
+        &self,
+        passphrase: &str,
+    ) -> Result<StoreCipher, OpenStoreError> {
+        let encrypted_cipher = self.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
+
+        let cipher = if let Some(encrypted) = encrypted_cipher {
+            StoreCipher::import(passphrase, &encrypted)?
+        } else {
+            let cipher = StoreCipher::new()?;
+            #[cfg(not(test))]
+            let export = cipher.export(passphrase);
+            #[cfg(test)]
+            let export = cipher._insecure_export_fast_for_testing(passphrase);
+            self.set_kv("cipher", export?).await.map_err(OpenStoreError::SaveCipher)?;
+            cipher
+        };
+
+        Ok(cipher)
+    }
 }
 
 #[async_trait]
@@ -299,29 +352,6 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
         self.interact(move |conn| conn.set_kv(&key, &value)).await.unwrap()?;
 
         Ok(())
-    }
-}
-
-/// Load the version of the database with the given connection.
-pub(crate) async fn load_db_version(conn: &SqliteAsyncConn) -> Result<u8, OpenStoreError> {
-    let kv_exists = conn
-        .query_row(
-            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'kv'",
-            (),
-            |row| row.get::<_, u32>(0),
-        )
-        .await
-        .map_err(OpenStoreError::LoadVersion)?
-        > 0;
-
-    if kv_exists {
-        match conn.get_kv("version").await.map_err(OpenStoreError::LoadVersion)?.as_deref() {
-            Some([v]) => Ok(*v),
-            Some(_) => Err(OpenStoreError::InvalidVersion),
-            None => Err(OpenStoreError::MissingVersion),
-        }
-    } else {
-        Ok(0)
     }
 }
 
