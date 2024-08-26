@@ -875,6 +875,8 @@ pub(crate) mod tests {
     };
 
     use super::*;
+    #[cfg(feature = "experimental-sliding-sync")]
+    use crate::sliding_sync::Version as SlidingSyncVersion;
 
     #[test]
     fn test_sanitize_server_name() {
@@ -944,7 +946,6 @@ pub(crate) mod tests {
         assert_matches!(error, ClientBuildError::AutoDiscovery(FromHttpResponseError::Server(_)));
     }
 
-    /*
     #[async_test]
     async fn test_discovery_direct_legacy() {
         // Given a homeserver without a well-known file.
@@ -955,9 +956,9 @@ pub(crate) mod tests {
         builder = builder.server_name_or_homeserver_url(homeserver.uri());
         let _client = builder.build().await.unwrap();
 
-        // Then a client should be built without support for sliding sync or OIDC.
+        // Then a client should be built with native support for sliding sync.
         #[cfg(feature = "experimental-sliding-sync")]
-        assert!(_client.sliding_sync_proxy().is_none());
+        assert!(_client.sliding_sync_version().is_native());
     }
 
     #[async_test]
@@ -967,9 +968,14 @@ pub(crate) mod tests {
         let homeserver = make_mock_homeserver().await;
         let mut builder = ClientBuilder::new();
         #[cfg(feature = "experimental-sliding-sync")]
-        {
-            builder = builder.sliding_sync_proxy("https://localhost:1234");
-        }
+        let url = {
+            let url = Url::parse("https://localhost:1234").unwrap();
+            builder = builder.sliding_sync_version_builder(SlidingSyncVersionBuilder::Proxy {
+                url: url.clone(),
+            });
+
+            url
+        };
 
         // When building a client with the server's URL.
         builder = builder.server_name_or_homeserver_url(homeserver.uri());
@@ -977,7 +983,12 @@ pub(crate) mod tests {
 
         // Then a client should be built with support for sliding sync.
         #[cfg(feature = "experimental-sliding-sync")]
-        assert_eq!(_client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
+        assert_matches!(
+            _client.sliding_sync_version(),
+            SlidingSyncVersion::Proxy { url: given_url } => {
+                assert_eq!(given_url, url);
+            }
+        );
     }
 
     #[async_test]
@@ -1027,9 +1038,10 @@ pub(crate) mod tests {
         builder = builder.server_name_or_homeserver_url(server.uri());
         let _client = builder.build().await.unwrap();
 
-        // Then a client should be built without support for sliding sync or OIDC.
+        // Then a client should be built with native support for sliding sync.
+        // It's native support because it's the default. Nothing is checked here.
         #[cfg(feature = "experimental-sliding-sync")]
-        assert!(_client.sliding_sync_proxy().is_none());
+        assert!(_client.sliding_sync_version().is_native());
     }
 
     #[async_test]
@@ -1049,13 +1061,21 @@ pub(crate) mod tests {
             .mount(&server)
             .await;
 
-        // When building a client with the base server.
-        builder = builder.server_name_or_homeserver_url(server.uri());
+        // When building a client with the base server, with sliding sync to
+        // auto-discover the proxy.
+        builder = builder
+            .server_name_or_homeserver_url(server.uri())
+            .sliding_sync_version_builder(SlidingSyncVersionBuilder::DiscoverProxy);
         let _client = builder.build().await.unwrap();
 
         // Then a client should be built with support for sliding sync.
         #[cfg(feature = "experimental-sliding-sync")]
-        assert_eq!(_client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
+        assert_matches!(
+            _client.sliding_sync_version(),
+            SlidingSyncVersion::Proxy { url } => {
+                assert_eq!(url, Url::parse("https://localhost:1234").unwrap());
+            }
+        );
     }
 
     #[async_test]
@@ -1078,99 +1098,23 @@ pub(crate) mod tests {
 
         // When building a client with the base server and a custom sliding sync proxy
         // set.
-        builder = builder.sliding_sync_proxy("https://localhost:9012");
-        builder = builder.server_name_or_homeserver_url(server.uri());
+        let url = Url::parse("https://localhost:9012").unwrap();
+
+        builder = builder
+            .sliding_sync_version_builder(SlidingSyncVersionBuilder::Proxy { url: url.clone() })
+            .server_name_or_homeserver_url(server.uri());
+
         let client = builder.build().await.unwrap();
 
         // Then a client should be built and configured with the custom sliding sync
         // proxy.
-        #[cfg(feature = "experimental-sliding-sync")]
-        assert_eq!(client.sliding_sync_proxy(), Some("https://localhost:9012".parse().unwrap()));
+        assert_matches!(
+            client.sliding_sync_version(),
+            SlidingSyncVersion::Proxy { url: given_url } => {
+                assert_eq!(url, given_url);
+            }
+        );
     }
-
-    #[async_test]
-    #[cfg(feature = "experimental-sliding-sync")]
-    async fn test_discovery_well_known_with_simplified_sliding_sync() {
-        // Given a base server with a well-known file that points to a homeserver with a
-        // sliding sync proxy.
-        let server = MockServer::start().await;
-        let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
-
-        Mock::given(method("GET"))
-            .and(path("/.well-known/matrix/client"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(make_well_known_json(
-                &homeserver.uri(),
-                Some("https://localhost:1234"),
-            )))
-            .mount(&server)
-            .await;
-
-        // When building a client for simplified sliding sync with the base server.
-        builder = builder.sliding_sync_native();
-        builder = builder.server_name_or_homeserver_url(server.uri());
-        let client = builder.build().await.unwrap();
-
-        // Then a client should not use the discovered sliding sync proxy.
-        assert!(client.sliding_sync_proxy().is_none());
-    }
-    */
-
-    /* Requires sliding sync */
-
-    /*
-    #[async_test]
-    #[cfg(feature = "experimental-sliding-sync")]
-    async fn test_requires_sliding_sync_with_legacy_well_known() {
-        // Given a base server with a well-known file that points to a homeserver that
-        // doesn't support sliding sync.
-        let server = MockServer::start().await;
-        let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
-
-        Mock::given(method("GET"))
-            .and(path("/.well-known/matrix/client"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(make_well_known_json(&homeserver.uri(), None)),
-            )
-            .mount(&server)
-            .await;
-
-        // When building a client that requires sliding sync with the base server.
-        builder = builder.requires_sliding_sync().server_name_or_homeserver_url(server.uri());
-        let error = builder.build().await.unwrap_err();
-
-        // Then the operation should fail due to the lack of sliding sync support.
-        assert_matches!(error, ClientBuildError::SlidingSyncNotAvailable);
-    }
-
-    #[async_test]
-    #[cfg(feature = "experimental-sliding-sync")]
-    async fn test_requires_sliding_sync_with_well_known() {
-        // Given a base server with a well-known file that points to a homeserver with a
-        // sliding sync proxy.
-        let server = MockServer::start().await;
-        let homeserver = make_mock_homeserver().await;
-        let mut builder = ClientBuilder::new();
-
-        Mock::given(method("GET"))
-            .and(path("/.well-known/matrix/client"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(make_well_known_json(
-                &homeserver.uri(),
-                Some("https://localhost:1234"),
-            )))
-            .mount(&server)
-            .await;
-
-        // When building a client that requires sliding sync with the base server.
-        builder = builder.requires_sliding_sync().server_name_or_homeserver_url(server.uri());
-        let _client = builder.build().await.unwrap();
-
-        // Then a client should be built with support for sliding sync.
-        assert_eq!(_client.sliding_sync_proxy(), Some("https://localhost:1234".parse().unwrap()));
-    }
-    */
 
     /* Helper functions */
 
