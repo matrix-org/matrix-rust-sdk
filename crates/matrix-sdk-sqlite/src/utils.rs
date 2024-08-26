@@ -16,7 +16,7 @@ use core::fmt;
 use std::{borrow::Borrow, cmp::min, iter, ops::Deref};
 
 use async_trait::async_trait;
-use deadpool_sqlite::Object as SqliteConn;
+use deadpool_sqlite::Object as SqliteAsyncConn;
 use itertools::Itertools;
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
 
@@ -55,7 +55,7 @@ impl rusqlite::ToSql for Key {
 }
 
 #[async_trait]
-pub(crate) trait SqliteObjectExt {
+pub(crate) trait SqliteAsyncConnExt {
     async fn execute<P>(
         &self,
         sql: impl AsRef<str> + Send + 'static,
@@ -104,7 +104,7 @@ pub(crate) trait SqliteObjectExt {
 }
 
 #[async_trait]
-impl SqliteObjectExt for SqliteConn {
+impl SqliteAsyncConnExt for SqliteAsyncConn {
     async fn execute<P>(
         &self,
         sql: impl AsRef<str> + Send + 'static,
@@ -256,7 +256,7 @@ impl<'a> SqliteTransactionExt for Transaction<'a> {
 }
 
 #[async_trait]
-pub(crate) trait SqliteObjectStoreExt: SqliteObjectExt {
+pub(crate) trait SqliteObjectStoreExt: SqliteAsyncConnExt {
     async fn get_kv(&self, key: &str) -> rusqlite::Result<Option<Vec<u8>>> {
         let key = key.to_owned();
         self.query_row("SELECT value FROM kv WHERE key = ?", (key,), |row| row.get(0))
@@ -268,7 +268,7 @@ pub(crate) trait SqliteObjectStoreExt: SqliteObjectExt {
 }
 
 #[async_trait]
-impl SqliteObjectStoreExt for SqliteConn {
+impl SqliteObjectStoreExt for SqliteAsyncConn {
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()> {
         let key = key.to_owned();
         self.interact(move |conn| conn.set_kv(&key, &value)).await.unwrap()?;
@@ -278,7 +278,7 @@ impl SqliteObjectStoreExt for SqliteConn {
 }
 
 /// Load the version of the database with the given connection.
-pub(crate) async fn load_db_version(conn: &SqliteConn) -> Result<u8, OpenStoreError> {
+pub(crate) async fn load_db_version(conn: &SqliteAsyncConn) -> Result<u8, OpenStoreError> {
     let kv_exists = conn
         .query_row(
             "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'kv'",

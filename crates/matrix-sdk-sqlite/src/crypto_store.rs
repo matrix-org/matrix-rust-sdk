@@ -21,7 +21,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
+use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_crypto::{
     olm::{
         InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
@@ -45,7 +45,7 @@ use crate::{
     error::{Error, Result},
     get_or_create_store_cipher,
     utils::{
-        load_db_version, repeat_vars, Key, SqliteConnectionExt as _, SqliteObjectExt,
+        load_db_version, repeat_vars, Key, SqliteAsyncConnExt, SqliteConnectionExt as _,
         SqliteObjectStoreExt as _,
     },
     OpenStoreError,
@@ -182,7 +182,7 @@ impl SqliteCryptoStore {
         self.static_account.read().unwrap().clone()
     }
 
-    async fn acquire(&self) -> Result<SqliteConn> {
+    async fn acquire(&self) -> Result<SqliteAsyncConn> {
         Ok(self.pool.get().await?)
     }
 }
@@ -190,7 +190,7 @@ impl SqliteCryptoStore {
 const DATABASE_VERSION: u8 = 8;
 
 /// Run migrations for the given version of the database.
-async fn run_migrations(conn: &SqliteConn, version: u8) -> Result<()> {
+async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     if version == 0 {
         debug!("Creating database");
     } else if version < DATABASE_VERSION {
@@ -438,7 +438,7 @@ impl SqliteConnectionExt for rusqlite::Connection {
 }
 
 #[async_trait]
-trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
+trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
     async fn get_sessions_for_sender_key(&self, sender_key: Key) -> Result<Vec<Vec<u8>>> {
         Ok(self
             .prepare("SELECT data FROM session WHERE sender_key = ?", |mut stmt| {
@@ -666,7 +666,7 @@ trait SqliteObjectCryptoStoreExt: SqliteObjectExt {
 }
 
 #[async_trait]
-impl SqliteObjectCryptoStoreExt for SqliteConn {}
+impl SqliteObjectCryptoStoreExt for SqliteAsyncConn {}
 
 #[async_trait]
 impl CryptoStore for SqliteCryptoStore {
