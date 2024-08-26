@@ -14,8 +14,8 @@ use tracing::debug;
 use crate::{
     error::{Error, Result},
     get_or_create_store_cipher,
-    utils::{load_db_version, Key, SqliteAsyncConnExt},
-    OpenStoreError, SqliteObjectStoreExt,
+    utils::{load_db_version, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
+    OpenStoreError,
 };
 
 mod keys {
