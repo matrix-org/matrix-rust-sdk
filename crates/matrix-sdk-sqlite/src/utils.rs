@@ -185,20 +185,6 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
     }
 }
 
-pub(crate) trait SqliteConnectionExt {
-    fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()>;
-}
-
-impl SqliteConnectionExt for rusqlite::Connection {
-    fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()> {
-        self.execute(
-            "INSERT INTO kv VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = ?2",
-            (key, value),
-        )?;
-        Ok(())
-    }
-}
-
 pub(crate) trait SqliteTransactionExt {
     fn chunk_large_query_over<Query, Res>(
         &self,
@@ -252,6 +238,32 @@ impl<'a> SqliteTransactionExt for Transaction<'a> {
 
             Ok(all_results)
         }
+    }
+}
+
+/// Extension trait for a [`rusqlite::Connection`] that contains a key-value
+/// table named `kv`.
+///
+/// The table should be created like this:
+///
+/// ```sql
+/// CREATE TABLE "kv" (
+///     "key" TEXT PRIMARY KEY NOT NULL,
+///     "value" BLOB NOT NULL
+/// );
+/// ```
+pub(crate) trait SqliteKeyValueStoreConnExt {
+    /// Store the given value for the given key.
+    fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()>;
+}
+
+impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
+    fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()> {
+        self.execute(
+            "INSERT INTO kv VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = ?2",
+            (key, value),
+        )?;
+        Ok(())
     }
 }
 

@@ -45,7 +45,7 @@ use crate::{
     error::{Error, Result},
     get_or_create_store_cipher,
     utils::{
-        load_db_version, repeat_vars, Key, SqliteAsyncConnExt, SqliteConnectionExt as _,
+        load_db_version, repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreConnExt,
         SqliteObjectStoreExt as _,
     },
     OpenStoreError,
