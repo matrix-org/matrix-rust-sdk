@@ -33,7 +33,7 @@ use std::{
 };
 
 use async_stream::stream;
-pub use client::Version;
+pub use client::{Version, VersionBuilder};
 use futures_core::stream::Stream;
 pub use matrix_sdk_base::sliding_sync::http;
 use matrix_sdk_common::timer;
