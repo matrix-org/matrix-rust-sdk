@@ -476,12 +476,13 @@ impl ClientBuilder {
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         #[allow(unused_variables)]
-        let (homeserver, well_known) = match homeserver_cfg {
-            HomeserverConfig::Url(url) => (url, None),
+        let (homeserver, well_known, versions) = match homeserver_cfg {
+            HomeserverConfig::Url(url) => (Url::parse(&url)?, None, None),
 
             HomeserverConfig::ServerName { server: server_name, protocol } => {
                 let well_known = discover_homeserver(server_name, protocol, &http_client).await?;
-                (well_known.homeserver.base_url.clone(), Some(well_known))
+
+                (Url::parse(&well_known.homeserver.base_url)?, Some(well_known), None)
             }
 
             HomeserverConfig::ServerNameOrUrl(server_name_or_url) => {
@@ -489,9 +490,6 @@ impl ClientBuilder {
                     .await?
             }
         };
-
-        #[cfg(feature = "experimental-oidc")]
-        let allow_insecure_oidc = homeserver.starts_with("http://");
 
         /*
         #[cfg(feature = "experimental-sliding-sync")]
@@ -509,7 +507,9 @@ impl ClientBuilder {
         }
         */
 
-        let homeserver = Url::parse(&homeserver)?;
+
+        #[cfg(feature = "experimental-oidc")]
+        let allow_insecure_oidc = homeserver.scheme() == "http";
 
         let auth_ctx = Arc::new(AuthCtx {
             handle_refresh_tokens: self.handle_refresh_tokens,
@@ -559,7 +559,10 @@ impl ClientBuilder {
 async fn discover_homeserver_from_server_name_or_url(
     mut server_name_or_url: String,
     http_client: &HttpClient,
-) -> Result<(String, Option<discover_homeserver::Response>), ClientBuildError> {
+) -> Result<
+    (Url, Option<discover_homeserver::Response>, Option<get_supported_versions::Response>),
+    ClientBuildError,
+> {
     let mut discovery_error: Option<ClientBuildError> = None;
 
     // Attempt discovery as a server name first.
@@ -574,7 +577,7 @@ async fn discover_homeserver_from_server_name_or_url(
 
         match discover_homeserver(server_name.clone(), protocol, http_client).await {
             Ok(well_known) => {
-                return Ok((well_known.homeserver.base_url.clone(), Some(well_known)));
+                return Ok((Url::parse(&well_known.homeserver.base_url)?, Some(well_known), None));
             }
             Err(e) => {
                 debug!(error = %e, "Well-known discovery failed.");
@@ -593,8 +596,13 @@ async fn discover_homeserver_from_server_name_or_url(
     // trying a homeserver URL.
     if let Ok(homeserver_url) = Url::parse(&server_name_or_url) {
         // Make sure the URL is definitely for a homeserver.
-        if check_is_homeserver(&homeserver_url, http_client).await {
-            return Ok((homeserver_url.to_string(), None));
+        match get_supported_versions(&homeserver_url, http_client).await {
+            Ok(_) => {
+                return Ok((homeserver_url, None, None));
+            }
+            Err(e) => {
+                debug!(error = %e, "Checking supported versions failed.");
+            }
         }
     }
 
@@ -644,9 +652,11 @@ async fn discover_homeserver(
     Ok(well_known)
 }
 
-/// Checks if the given URL represents a valid homeserver.
-async fn check_is_homeserver(homeserver_url: &Url, http_client: &HttpClient) -> bool {
-    match http_client
+async fn get_supported_versions(
+    homeserver_url: &Url,
+    http_client: &HttpClient,
+) -> Result<get_supported_versions::Response, HttpError> {
+    http_client
         .send(
             get_supported_versions::Request::new(),
             Some(RequestConfig::short_retry()),
@@ -656,13 +666,6 @@ async fn check_is_homeserver(homeserver_url: &Url, http_client: &HttpClient) -> 
             Default::default(),
         )
         .await
-    {
-        Ok(_) => true,
-        Err(e) => {
-            debug!(error = %e, "Checking supported versions failed.");
-            false
-        }
-    }
 }
 
 #[allow(clippy::unused_async)] // False positive when building with !sqlite & !indexeddb
