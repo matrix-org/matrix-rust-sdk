@@ -41,7 +41,6 @@ use ruma::{
             UnstablePollStartEventContent,
         },
         receipt::{Receipt, ReceiptThread},
-        relation::Annotation,
         room::{
             message::{
                 AddMentions, ForwardThread, OriginalRoomMessageEvent, RoomMessageEventContent,
@@ -548,17 +547,20 @@ impl Timeline {
         Ok(())
     }
 
-    /// Toggle a reaction on an event
+    /// Toggle a reaction on an event.
+    ///
+    /// The `unique_id` parameter is a string returned by
+    /// [`TimelineItem::unique_id()`].
     ///
     /// Adds or redacts a reaction based on the state of the reaction at the
     /// time it is called.
     ///
-    /// When redacting an event, the redaction reason is not sent.
+    /// When redacting a previous reaction, the redaction reason is not set.
     ///
     /// Ensures that only one reaction is sent at a time to avoid race
     /// conditions and spamming the homeserver with requests.
-    pub async fn toggle_reaction(&self, annotation: &Annotation) -> Result<(), Error> {
-        self.inner.toggle_reaction_local(annotation).await?;
+    pub async fn toggle_reaction(&self, unique_id: &str, reaction_key: &str) -> Result<(), Error> {
+        self.inner.toggle_reaction_local(unique_id, reaction_key).await?;
         Ok(())
     }
 

@@ -1371,6 +1371,11 @@ impl SendReactionHandle {
 
         handle.abort().await
     }
+
+    /// The transaction id that will be used to send this reaction later.
+    pub fn transaction_id(&self) -> &TransactionId {
+        &self.transaction_id
+    }
 }
 
 /// From a given source of [`DependentQueuedEvent`], return only the most
