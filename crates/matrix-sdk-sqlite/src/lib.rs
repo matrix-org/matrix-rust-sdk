@@ -35,7 +35,7 @@ pub use self::error::OpenStoreError;
 pub use self::event_cache_store::SqliteEventCacheStore;
 #[cfg(feature = "state-store")]
 pub use self::state_store::SqliteStateStore;
-use self::utils::SqliteObjectStoreExt;
+use self::utils::SqliteKeyValueStoreAsyncConnExt;
 
 async fn get_or_create_store_cipher(
     passphrase: &str,

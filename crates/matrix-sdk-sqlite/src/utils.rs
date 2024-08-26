@@ -267,8 +267,20 @@ impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
     }
 }
 
+/// Extension trait for an [`SqliteAsyncConn`] that contains a key-value
+/// table named `kv`.
+///
+/// The table should be created like this:
+///
+/// ```sql
+/// CREATE TABLE "kv" (
+///     "key" TEXT PRIMARY KEY NOT NULL,
+///     "value" BLOB NOT NULL
+/// );
+/// ```
 #[async_trait]
-pub(crate) trait SqliteObjectStoreExt: SqliteAsyncConnExt {
+pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
+    /// Get the stored value for the given key.
     async fn get_kv(&self, key: &str) -> rusqlite::Result<Option<Vec<u8>>> {
         let key = key.to_owned();
         self.query_row("SELECT value FROM kv WHERE key = ?", (key,), |row| row.get(0))
@@ -276,11 +288,12 @@ pub(crate) trait SqliteObjectStoreExt: SqliteAsyncConnExt {
             .optional()
     }
 
+    /// Store the given value for the given key.
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()>;
 }
 
 #[async_trait]
-impl SqliteObjectStoreExt for SqliteAsyncConn {
+impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()> {
         let key = key.to_owned();
         self.interact(move |conn| conn.set_kv(&key, &value)).await.unwrap()?;
