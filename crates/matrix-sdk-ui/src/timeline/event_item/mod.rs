@@ -21,7 +21,7 @@ use as_variant::as_variant;
 use indexmap::IndexMap;
 use matrix_sdk::{
     deserialized_responses::{EncryptionInfo, ShieldState},
-    send_queue::SendHandle,
+    send_queue::{SendHandle, SendReactionHandle},
     Client, Error,
 };
 use matrix_sdk_base::{
@@ -625,6 +625,10 @@ pub enum EventItemOrigin {
 /// What's the status of a reaction?
 #[derive(Clone, Debug)]
 pub enum ReactionStatus {
+    /// It's a local reaction to a local echo.
+    ///
+    /// The handle is missing only in testing contexts.
+    LocalToLocal(Option<SendReactionHandle>),
     /// It's a local reaction to a remote event.
     ///
     /// The handle is missing only in testing contexts.

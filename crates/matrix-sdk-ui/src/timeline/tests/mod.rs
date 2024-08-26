@@ -257,10 +257,24 @@ impl TestTimeline {
         self.inner.handle_read_receipts(ev_content).await;
     }
 
-    async fn toggle_reaction_local(&self, annotation: &Annotation) -> Result<(), super::Error> {
-        if self.inner.toggle_reaction_local(annotation).await? {
-            // Fake a local echo, for new reactions.
-            self.handle_local_event(ReactionEventContent::new(annotation.clone()).into()).await;
+    async fn toggle_reaction_local(&self, unique_id: &str, key: &str) -> Result<(), super::Error> {
+        if self.inner.toggle_reaction_local(unique_id, key).await? {
+            // TODO(bnjbvr): hacky?
+            if let Some(event_id) = self
+                .inner
+                .items()
+                .await
+                .iter()
+                .rfind(|item| item.unique_id() == unique_id)
+                .and_then(|item| item.as_event()?.as_remote())
+                .map(|event_item| event_item.event_id.clone())
+            {
+                // Fake a local echo, for new reactions.
+                self.handle_local_event(
+                    ReactionEventContent::new(Annotation::new(event_id, key.to_owned())).into(),
+                )
+                .await;
+            }
         }
         Ok(())
     }

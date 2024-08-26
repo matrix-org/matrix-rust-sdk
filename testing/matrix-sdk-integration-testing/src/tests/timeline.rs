@@ -22,8 +22,7 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::ruma::{
     api::client::room::create_room::v3::Request as CreateRoomRequest,
-    events::{relation::Annotation, room::message::RoomMessageEventContent},
-    MilliSecondsSinceUnixEpoch,
+    events::room::message::RoomMessageEventContent, MilliSecondsSinceUnixEpoch,
 };
 use matrix_sdk_ui::timeline::{EventSendState, ReactionStatus, RoomExt, TimelineItem};
 use tokio::{
@@ -85,15 +84,17 @@ async fn test_toggling_reaction() -> Result<()> {
             items.iter().find_map(|item| {
                 let event = item.as_event()?;
                 if !event.is_local_echo() && event.content().as_message()?.body().trim() == "hi!" {
-                    event.event_id().map(|event_id| event_id.to_owned())
+                    event
+                        .event_id()
+                        .map(|event_id| (item.unique_id().to_owned(), event_id.to_owned()))
                 } else {
                     None
                 }
             })
         };
 
-        if let Some(event_id) = find_event_id(&items) {
-            return Ok(event_id);
+        if let Some(pair) = find_event_id(&items) {
+            return Ok(pair);
         }
 
         warn!(?items, "Waiting for updates…");
@@ -101,8 +102,8 @@ async fn test_toggling_reaction() -> Result<()> {
         while let Some(diff) = stream.next().await {
             warn!(?diff, "received a diff");
             diff.apply(&mut items);
-            if let Some(event_id) = find_event_id(&items) {
-                return Ok(event_id);
+            if let Some(pair) = find_event_id(&items) {
+                return Ok(pair);
             }
         }
 
@@ -117,7 +118,7 @@ async fn test_toggling_reaction() -> Result<()> {
     debug!("Sending initial message…");
     timeline.send(RoomMessageEventContent::text_plain("hi!").into()).await.unwrap();
 
-    let event_id = timeout(Duration::from_secs(10), event_id_task)
+    let (msg_uid, event_id) = timeout(Duration::from_secs(10), event_id_task)
         .await
         .expect("timeout")
         .expect("failed to join tokio task")
@@ -143,19 +144,19 @@ async fn test_toggling_reaction() -> Result<()> {
         .find_map(|(i, item)| (item.as_event()?.event_id()? == event_id).then_some(i))
         .expect("couldn't find the final position for the event id");
 
-    let reaction = Annotation::new(event_id.clone(), "👍".to_owned());
+    let reaction_key = "👍".to_owned();
 
     // Toggle reaction multiple times.
     for _ in 0..3 {
         debug!("Starting the toggle reaction tests…");
 
         // Add the reaction.
-        timeline.toggle_reaction(&reaction).await.expect("toggling reaction");
+        timeline.toggle_reaction(&msg_uid, &reaction_key).await.expect("toggling reaction");
 
         // Local echo is added.
         {
             let event = assert_event_is_updated!(stream, event_id, message_position);
-            let reactions = event.reactions().get(&reaction.key).unwrap();
+            let reactions = event.reactions().get(&reaction_key).unwrap();
             let reaction = reactions.get(&user_id).unwrap();
             assert_matches!(reaction.status, ReactionStatus::LocalToRemote(..));
         }
@@ -164,7 +165,7 @@ async fn test_toggling_reaction() -> Result<()> {
         {
             let event = assert_event_is_updated!(stream, event_id, message_position);
 
-            let reactions = event.reactions().get(&reaction.key).unwrap();
+            let reactions = event.reactions().get(&reaction_key).unwrap();
             assert_eq!(reactions.keys().count(), 1);
 
             let reaction = reactions.get(&user_id).unwrap();
@@ -178,7 +179,10 @@ async fn test_toggling_reaction() -> Result<()> {
         }
 
         // Redact the reaction.
-        timeline.toggle_reaction(&reaction).await.expect("toggling reaction the second time");
+        timeline
+            .toggle_reaction(&msg_uid, &reaction_key)
+            .await
+            .expect("toggling reaction the second time");
 
         // The reaction is removed.
         let event = assert_event_is_updated!(stream, event_id, message_position);

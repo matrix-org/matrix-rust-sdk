@@ -45,7 +45,6 @@ use ruma::{
             },
         },
         receipt::ReceiptThread,
-        relation::Annotation,
         room::message::{
             ForwardThread, LocationMessageEventContent, MessageType,
             RoomMessageEventContentWithoutRelation,
@@ -538,9 +537,21 @@ impl Timeline {
         let _ = self.send(Arc::new(room_message_event_content)).await;
     }
 
-    pub async fn toggle_reaction(&self, event_id: String, key: String) -> Result<(), ClientError> {
-        let event_id = EventId::parse(event_id)?;
-        self.inner.toggle_reaction(&Annotation::new(event_id, key)).await?;
+    /// Toggle a reaction on an event.
+    ///
+    /// The `unique_id` parameter is a string returned by
+    /// the `TimelineItem::unique_id()` method. As such, this method works both
+    /// on local echoes and remote items.
+    ///
+    /// Adds or redacts a reaction based on the state of the reaction at the
+    /// time it is called.
+    ///
+    /// When redacting a previous reaction, the redaction reason is not set.
+    ///
+    /// Ensures that only one reaction is sent at a time to avoid race
+    /// conditions and spamming the homeserver with requests.
+    pub async fn toggle_reaction(&self, unique_id: String, key: String) -> Result<(), ClientError> {
+        self.inner.toggle_reaction(&unique_id, &key).await?;
         Ok(())
     }
 
