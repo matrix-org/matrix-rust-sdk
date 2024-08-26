@@ -2,11 +2,16 @@ use std::collections::BTreeMap;
 
 use imbl::Vector;
 use matrix_sdk_base::{sliding_sync::http, sync::SyncResponse, PreviousEventsProvider};
-use ruma::{events::AnyToDeviceEvent, serde::Raw, OwnedRoomId};
+use ruma::{
+    api::client::discovery::{discover_homeserver, get_supported_versions},
+    events::AnyToDeviceEvent,
+    serde::Raw,
+    OwnedRoomId,
+};
 use tracing::error;
 use url::Url;
 
-use super::{SlidingSync, SlidingSyncBuilder};
+use super::{Error, SlidingSync, SlidingSyncBuilder};
 use crate::{Client, Result, SlidingSyncRoom};
 
 /// A sliding sync version.
@@ -37,6 +42,97 @@ impl Version {
             Self::Proxy { url } => Some(url),
             _ => None,
         }
+    }
+}
+
+/// A builder for [`Version`].
+#[derive(Clone, Debug)]
+pub enum VersionBuilder {
+    /// Build a [`Version::None`].
+    None,
+
+    /// Build a [`Version::Proxy`].
+    Proxy {
+        /// Coerced URL to the proxy.
+        url: Url,
+    },
+
+    /// Build a [`Version::Native`].
+    Native,
+
+    /// Build a [`Version::Proxy`] by auto-discovering it.
+    ///
+    /// It is available if the server enables it via `.well-known`.
+    DiscoverProxy,
+
+    /// Build a [`Version::Native`] by auto-discovering it.
+    ///
+    /// It is available if the server enables it via `/versions`.
+    DiscoverNative,
+}
+
+impl VersionBuilder {
+    pub(crate) fn needs_get_supported_versions(&self) -> bool {
+        matches!(self, Self::DiscoverNative)
+    }
+
+    /// Build a [`Version`].
+    ///
+    /// It can fail if auto-discovering fails, e.g. if `.well-known`
+    /// or `/versions` do contain invalid data.
+    pub fn build(
+        self,
+        well_known: Option<&discover_homeserver::Response>,
+        versions: Option<&get_supported_versions::Response>,
+    ) -> Result<Version, Error> {
+        Ok(match self {
+            Self::None => Version::None,
+
+            Self::Proxy { url } => Version::Proxy { url },
+
+            Self::Native => Version::Native,
+
+            Self::DiscoverProxy => {
+                let Some(well_known) = well_known else {
+                    return Err(Error::VersionCannotBeDiscovered(
+                        "`.well-known` is `None`".to_owned(),
+                    ));
+                };
+
+                let Some(info) = &well_known.sliding_sync_proxy else {
+                    return Err(Error::VersionCannotBeDiscovered(
+                        "`.well-known` does not contain a `sliding_sync_proxy` entry".to_owned(),
+                    ));
+                };
+
+                let url = Url::parse(&info.url).map_err(|e| {
+                    Error::VersionCannotBeDiscovered(format!(
+                        "`.well-known` contains an invalid `sliding_sync_proxy` entry ({e})"
+                    ))
+                })?;
+
+                Version::Proxy { url }
+            }
+
+            Self::DiscoverNative => {
+                let Some(versions) = versions else {
+                    return Err(Error::VersionCannotBeDiscovered(
+                        "`/versions` is `None`".to_owned(),
+                    ));
+                };
+
+                match versions.unstable_features.get("org.matrix.simplified_msc3575") {
+                    Some(value) if *value => Version::Native,
+                    _ => {
+                        return Err(Error::VersionCannotBeDiscovered(
+                            "`/versions` does not contain `org.matrix.simplified_msc3575` in its \
+                            `unstable_features`"
+                                .to_owned(),
+                        ))
+                    }
+                }
+            }
+        })
     }
 }
 
@@ -178,15 +274,136 @@ async fn update_in_memory_caches(client: &Client, response: &SyncResponse) -> Re
 mod tests {
     use std::collections::BTreeMap;
 
+    use assert_matches::assert_matches;
     use matrix_sdk_base::notification_settings::RoomNotificationMode;
     use matrix_sdk_test::async_test;
     use ruma::{assign, room_id, serde::Raw};
     use serde_json::json;
+    use url::Url;
 
     use crate::{
         error::Result, sliding_sync::http, test_utils::logged_in_client_with_server,
         SlidingSyncList, SlidingSyncMode,
     };
+
+    use super::{discover_homeserver, get_supported_versions, Error, Version, VersionBuilder};
+
+    #[test]
+    fn test_version_builder_none() {
+        assert_matches!(VersionBuilder::None.build(None, None), Ok(Version::None));
+    }
+
+    #[test]
+    fn test_version_builder_proxy() {
+        let expected_url = Url::parse("https://matrix.org:1234").unwrap();
+
+        assert_matches!(
+            VersionBuilder::Proxy { url: expected_url.clone() }.build(None, None),
+            Ok(Version::Proxy { url }) => {
+                assert_eq!(url, expected_url);
+            }
+        );
+    }
+
+    #[test]
+    fn test_version_builder_native() {
+        assert_matches!(VersionBuilder::Native.build(None, None), Ok(Version::Native));
+    }
+
+    #[test]
+    fn test_version_builder_discover_proxy() {
+        let expected_url = Url::parse("https://matrix.org:1234").unwrap();
+        let mut response = discover_homeserver::Response::new(
+            discover_homeserver::HomeserverInfo::new("matrix.org".to_owned()),
+        );
+        response.sliding_sync_proxy =
+            Some(discover_homeserver::SlidingSyncProxyInfo::new(expected_url.to_string()));
+
+        assert_matches!(
+            VersionBuilder::DiscoverProxy.build(Some(&response), None),
+            Ok(Version::Proxy { url }) => {
+                assert_eq!(url, expected_url);
+            }
+        );
+    }
+
+    #[test]
+    fn test_version_builder_discover_proxy_no_well_known() {
+        assert_matches!(
+            VersionBuilder::DiscoverProxy.build(None, None),
+            Err(Error::VersionCannotBeDiscovered(msg)) => {
+                assert_eq!(msg, "`.well-known` is `None`");
+            }
+        );
+    }
+
+    #[test]
+    fn test_version_builder_discover_proxy_no_sliding_sync_proxy_in_well_known() {
+        let mut response = discover_homeserver::Response::new(
+            discover_homeserver::HomeserverInfo::new("matrix.org".to_owned()),
+        );
+        response.sliding_sync_proxy = None; // already `None` but the test is clearer now.
+
+        assert_matches!(
+            VersionBuilder::DiscoverProxy.build(Some(&response), None),
+            Err(Error::VersionCannotBeDiscovered(msg)) => {
+                assert_eq!(msg, "`.well-known` does not contain a `sliding_sync_proxy` entry");
+            }
+        );
+    }
+
+    #[test]
+    fn test_version_builder_discover_proxy_invalid_sliding_sync_proxy_in_well_known() {
+        let mut response = discover_homeserver::Response::new(
+            discover_homeserver::HomeserverInfo::new("matrix.org".to_owned()),
+        );
+        response.sliding_sync_proxy =
+            Some(discover_homeserver::SlidingSyncProxyInfo::new("💥".to_owned()));
+
+        assert_matches!(
+            VersionBuilder::DiscoverProxy.build(Some(&response), None),
+            Err(Error::VersionCannotBeDiscovered(msg)) => {
+                assert_eq!(msg, "`.well-known` contains an invalid `sliding_sync_proxy` entry (relative URL without a base)");
+            }
+        );
+    }
+
+    #[test]
+    fn test_version_builder_discover_native() {
+        let mut response = get_supported_versions::Response::new(vec![]);
+        response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), true)].into();
+
+        assert_matches!(
+            VersionBuilder::DiscoverNative.build(None, Some(&response)),
+            Ok(Version::Native)
+        );
+    }
+
+    #[test]
+    fn test_version_builder_discover_native_no_supported_versions() {
+        assert_matches!(
+            VersionBuilder::DiscoverNative.build(None, None),
+            Err(Error::VersionCannotBeDiscovered(msg)) => {
+                assert_eq!(msg, "`/versions` is `None`".to_owned());
+            }
+        );
+    }
+
+    #[test]
+    fn test_version_builder_discover_native_unstable_features_is_disabled() {
+        let mut response = get_supported_versions::Response::new(vec![]);
+        response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), false)].into();
+
+        assert_matches!(
+            VersionBuilder::DiscoverNative.build(None, Some(&response)),
+            Err(Error::VersionCannotBeDiscovered(msg)) => {
+                assert_eq!(
+                    msg,
+                    "`/versions` does not contain `org.matrix.simplified_msc3575` in its `unstable_features`".to_owned()
+                );
+            }
+        );
+    }
 
     #[async_test]
     async fn test_cache_user_defined_notification_mode() -> Result<()> {
