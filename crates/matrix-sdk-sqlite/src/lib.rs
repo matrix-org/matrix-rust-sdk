@@ -16,9 +16,6 @@
     allow(dead_code, unused_imports)
 )]
 
-use deadpool_sqlite::Object as SqliteConn;
-use matrix_sdk_store_encryption::StoreCipher;
-
 #[cfg(feature = "crypto-store")]
 mod crypto_store;
 mod error;
@@ -35,28 +32,6 @@ pub use self::error::OpenStoreError;
 pub use self::event_cache_store::SqliteEventCacheStore;
 #[cfg(feature = "state-store")]
 pub use self::state_store::SqliteStateStore;
-use self::utils::SqliteKeyValueStoreAsyncConnExt;
-
-async fn get_or_create_store_cipher(
-    passphrase: &str,
-    conn: &SqliteConn,
-) -> Result<StoreCipher, OpenStoreError> {
-    let encrypted_cipher = conn.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
-
-    let cipher = if let Some(encrypted) = encrypted_cipher {
-        StoreCipher::import(passphrase, &encrypted)?
-    } else {
-        let cipher = StoreCipher::new()?;
-        #[cfg(not(test))]
-        let export = cipher.export(passphrase);
-        #[cfg(test)]
-        let export = cipher._insecure_export_fast_for_testing(passphrase);
-        conn.set_kv("cipher", export?).await.map_err(OpenStoreError::SaveCipher)?;
-        cipher
-    };
-
-    Ok(cipher)
-}
 
 #[cfg(test)]
 matrix_sdk_test::init_tracing_for_tests!();

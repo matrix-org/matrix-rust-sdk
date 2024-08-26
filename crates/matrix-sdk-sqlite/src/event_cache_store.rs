@@ -13,8 +13,7 @@ use tracing::debug;
 
 use crate::{
     error::{Error, Result},
-    get_or_create_store_cipher,
-    utils::{load_db_version, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
+    utils::{Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
     OpenStoreError,
 };
 
@@ -63,7 +62,7 @@ impl SqliteEventCacheStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
-        let mut version = load_db_version(&conn).await?;
+        let mut version = conn.db_version().await?;
 
         if version == 0 {
             init(&conn).await?;
@@ -71,7 +70,7 @@ impl SqliteEventCacheStore {
         }
 
         let store_cipher = match passphrase {
-            Some(p) => Some(Arc::new(get_or_create_store_cipher(p, &conn).await?)),
+            Some(p) => Some(Arc::new(conn.get_or_create_store_cipher(p).await?)),
             None => None,
         };
         let this = Self { store_cipher, pool };
@@ -95,7 +94,7 @@ impl SqliteEventCacheStore {
 
         // There is no migration currently since it's the first version of the database.
 
-        conn.set_kv("version", vec![to]).await?;
+        conn.set_db_version(to).await?;
 
         Ok(())
     }
@@ -149,7 +148,7 @@ async fn init(conn: &SqliteAsyncConn) -> Result<()> {
     })
     .await?;
 
-    conn.set_kv("version", vec![1]).await?;
+    conn.set_db_version(1).await?;
 
     Ok(())
 }

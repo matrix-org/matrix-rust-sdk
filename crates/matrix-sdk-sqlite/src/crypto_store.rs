@@ -43,9 +43,8 @@ use tracing::{debug, instrument, warn};
 
 use crate::{
     error::{Error, Result},
-    get_or_create_store_cipher,
     utils::{
-        load_db_version, repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
+        repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
         SqliteKeyValueStoreConnExt,
     },
     OpenStoreError,
@@ -91,10 +90,10 @@ impl SqliteCryptoStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
-        let version = load_db_version(&conn).await?;
+        let version = conn.db_version().await?;
         run_migrations(&conn, version).await?;
         let store_cipher = match passphrase {
-            Some(p) => Some(Arc::new(get_or_create_store_cipher(p, &conn).await?)),
+            Some(p) => Some(Arc::new(conn.get_or_create_store_cipher(p).await?)),
             None => None,
         };
 
@@ -262,7 +261,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
-    conn.set_kv("version", vec![DATABASE_VERSION]).await?;
+    conn.set_db_version(DATABASE_VERSION).await?;
 
     Ok(())
 }

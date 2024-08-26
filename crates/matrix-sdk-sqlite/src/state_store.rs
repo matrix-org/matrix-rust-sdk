@@ -41,10 +41,7 @@ use tracing::{debug, warn};
 
 use crate::{
     error::{Error, Result},
-    get_or_create_store_cipher,
-    utils::{
-        load_db_version, repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-    },
+    utils::{repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
     OpenStoreError,
 };
 
@@ -103,7 +100,7 @@ impl SqliteStateStore {
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
-        let mut version = load_db_version(&conn).await?;
+        let mut version = conn.db_version().await?;
 
         if version == 0 {
             init(&conn).await?;
@@ -111,7 +108,7 @@ impl SqliteStateStore {
         }
 
         let store_cipher = match passphrase {
-            Some(p) => Some(Arc::new(get_or_create_store_cipher(p, &conn).await?)),
+            Some(p) => Some(Arc::new(conn.get_or_create_store_cipher(p).await?)),
             None => None,
         };
         let this = Self { store_cipher, pool };
@@ -259,7 +256,7 @@ impl SqliteStateStore {
             .await?;
         }
 
-        conn.set_kv("version", vec![to]).await?;
+        conn.set_db_version(to).await?;
 
         Ok(())
     }
@@ -382,7 +379,7 @@ async fn init(conn: &SqliteAsyncConn) -> Result<()> {
     })
     .await?;
 
-    conn.set_kv("version", vec![1]).await?;
+    conn.set_db_version(1).await?;
 
     Ok(())
 }
@@ -2010,8 +2007,7 @@ mod migration_tests {
     use super::{create_pool, init, keys, SqliteStateStore};
     use crate::{
         error::{Error, Result},
-        get_or_create_store_cipher,
-        utils::SqliteAsyncConnExt,
+        utils::{SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
     };
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
@@ -2029,7 +2025,7 @@ mod migration_tests {
 
         init(&conn).await?;
 
-        let store_cipher = Some(Arc::new(get_or_create_store_cipher(SECRET, &conn).await.unwrap()));
+        let store_cipher = Some(Arc::new(conn.get_or_create_store_cipher(SECRET).await.unwrap()));
         let this = SqliteStateStore { store_cipher, pool };
         this.run_migrations(&conn, 1, Some(version)).await?;
 
