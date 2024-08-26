@@ -1045,6 +1045,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    #[cfg(feature = "experimental-sliding-sync")]
     async fn test_discovery_well_known_with_sliding_sync() {
         // Given a base server with a well-known file that points to a homeserver with a
         // sliding sync proxy.
@@ -1114,6 +1115,60 @@ pub(crate) mod tests {
                 assert_eq!(url, given_url);
             }
         );
+    }
+
+    #[async_test]
+    #[cfg(feature = "experimental-sliding-sync")]
+    async fn test_sliding_sync_discover_proxy() {
+        // Given a homeserver with a `.well-known` file.
+        let homeserver = make_mock_homeserver().await;
+        let mut builder = ClientBuilder::new();
+
+        let expected_url = Url::parse("https://localhost:1234").unwrap();
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(make_well_known_json(
+                &homeserver.uri(),
+                Some(expected_url.as_str()),
+            )))
+            .mount(&homeserver)
+            .await;
+
+        // When building the client with sliding sync to auto-discover the
+        // proxy version.
+        builder = builder
+            .server_name_or_homeserver_url(homeserver.uri())
+            .sliding_sync_version_builder(SlidingSyncVersionBuilder::DiscoverProxy);
+
+        let client = builder.build().await.unwrap();
+
+        // Then, sliding sync has the correct proxy URL.
+        assert_matches!(
+            client.sliding_sync_version(),
+            SlidingSyncVersion::Proxy { url } => {
+                assert_eq!(url, expected_url);
+            }
+        );
+    }
+
+    #[async_test]
+    #[cfg(feature = "experimental-sliding-sync")]
+    async fn test_sliding_sync_discover_native() {
+        // Given a homeserver with a `/versions` file.
+        let homeserver = make_mock_homeserver().await;
+        let mut builder = ClientBuilder::new();
+
+        // When building the client with sliding sync to auto-discover the
+        // native version.
+        builder = builder
+            .server_name_or_homeserver_url(homeserver.uri())
+            .sliding_sync_version_builder(SlidingSyncVersionBuilder::DiscoverNative);
+
+        let client = builder.build().await.unwrap();
+
+        // Then, sliding sync has the correct native version.
+        assert_matches!(client.sliding_sync_version(), SlidingSyncVersion::Native);
     }
 
     /* Helper functions */

@@ -281,12 +281,11 @@ mod tests {
     use serde_json::json;
     use url::Url;
 
+    use super::{discover_homeserver, get_supported_versions, Error, Version, VersionBuilder};
     use crate::{
         error::Result, sliding_sync::http, test_utils::logged_in_client_with_server,
         SlidingSyncList, SlidingSyncMode,
     };
-
-    use super::{discover_homeserver, get_supported_versions, Error, Version, VersionBuilder};
 
     #[test]
     fn test_version_builder_none() {
