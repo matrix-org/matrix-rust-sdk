@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fmt, path::Path, sync::Arc};
 
 use async_trait::async_trait;
-use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
+use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     event_cache_store::EventCacheStore,
     media::{MediaRequest, UniqueKey},
@@ -14,7 +14,7 @@ use tracing::debug;
 use crate::{
     error::{Error, Result},
     get_or_create_store_cipher,
-    utils::{load_db_version, Key, SqliteObjectExt},
+    utils::{load_db_version, Key, SqliteAsyncConnExt},
     OpenStoreError, SqliteObjectStoreExt,
 };
 
@@ -84,7 +84,7 @@ impl SqliteEventCacheStore {
     /// version
     ///
     /// If `to` is `None`, the current database version will be used.
-    async fn run_migrations(&self, conn: &SqliteConn, from: u8, to: Option<u8>) -> Result<()> {
+    async fn run_migrations(&self, conn: &SqliteAsyncConn, from: u8, to: Option<u8>) -> Result<()> {
         let to = to.unwrap_or(DATABASE_VERSION);
 
         if from < to {
@@ -128,7 +128,7 @@ impl SqliteEventCacheStore {
         }
     }
 
-    async fn acquire(&self) -> Result<SqliteConn> {
+    async fn acquire(&self) -> Result<SqliteAsyncConn> {
         Ok(self.pool.get().await?)
     }
 }
@@ -140,7 +140,7 @@ async fn create_pool(path: &Path) -> Result<SqlitePool, OpenStoreError> {
 }
 
 /// Initialize the database.
-async fn init(conn: &SqliteConn) -> Result<()> {
+async fn init(conn: &SqliteAsyncConn) -> Result<()> {
     // First turn on WAL mode, this can't be done in the transaction, it fails with
     // the error message: "cannot change into wal mode from within a transaction".
     conn.execute_batch("PRAGMA journal_mode = wal;").await?;
@@ -243,7 +243,7 @@ mod tests {
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteEventCacheStore;
-    use crate::utils::SqliteObjectExt;
+    use crate::utils::SqliteAsyncConnExt;
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);

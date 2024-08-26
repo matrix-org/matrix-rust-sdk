@@ -7,7 +7,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use deadpool_sqlite::{Object as SqliteConn, Pool as SqlitePool, Runtime};
+use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     deserialized_responses::{RawAnySyncOrStrippedState, SyncOrStrippedState},
     store::{
@@ -42,7 +42,7 @@ use tracing::{debug, warn};
 use crate::{
     error::{Error, Result},
     get_or_create_store_cipher,
-    utils::{load_db_version, repeat_vars, Key, SqliteObjectExt},
+    utils::{load_db_version, repeat_vars, Key, SqliteAsyncConnExt},
     OpenStoreError, SqliteObjectStoreExt,
 };
 
@@ -122,7 +122,7 @@ impl SqliteStateStore {
     /// version
     ///
     /// If `to` is `None`, the current database version will be used.
-    async fn run_migrations(&self, conn: &SqliteConn, from: u8, to: Option<u8>) -> Result<()> {
+    async fn run_migrations(&self, conn: &SqliteAsyncConn, from: u8, to: Option<u8>) -> Result<()> {
         let to = to.unwrap_or(DATABASE_VERSION);
 
         if from < to {
@@ -346,7 +346,7 @@ impl SqliteStateStore {
         self.encode_key(keys::KV_BLOB, full_key)
     }
 
-    async fn acquire(&self) -> Result<SqliteConn> {
+    async fn acquire(&self) -> Result<SqliteAsyncConn> {
         Ok(self.pool.get().await?)
     }
 
@@ -371,7 +371,7 @@ async fn create_pool(path: &Path) -> Result<SqlitePool, OpenStoreError> {
 }
 
 /// Initialize the database.
-async fn init(conn: &SqliteConn) -> Result<()> {
+async fn init(conn: &SqliteAsyncConn) -> Result<()> {
     // First turn on WAL mode, this can't be done in the transaction, it fails with
     // the error message: "cannot change into wal mode from within a transaction".
     conn.execute_batch("PRAGMA journal_mode = wal;").await?;
@@ -665,7 +665,7 @@ impl SqliteConnectionStateStoreExt for rusqlite::Connection {
 }
 
 #[async_trait]
-trait SqliteObjectStateStoreExt: SqliteObjectExt {
+trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
     async fn get_kv_blob(&self, key: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
             .query_row("SELECT value FROM kv_blob WHERE key = ?", (key,), |row| row.get(0))
@@ -906,7 +906,7 @@ trait SqliteObjectStateStoreExt: SqliteObjectExt {
 }
 
 #[async_trait]
-impl SqliteObjectStateStoreExt for SqliteConn {
+impl SqliteObjectStateStoreExt for SqliteAsyncConn {
     async fn set_kv_blob(&self, key: Key, value: Vec<u8>) -> Result<()> {
         Ok(self.interact(move |conn| conn.set_kv_blob(&key, &value)).await.unwrap()?)
     }
@@ -2009,7 +2009,7 @@ mod migration_tests {
     use crate::{
         error::{Error, Result},
         get_or_create_store_cipher,
-        utils::SqliteObjectExt,
+        utils::SqliteAsyncConnExt,
     };
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
