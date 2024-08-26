@@ -2,11 +2,7 @@
 
 #![allow(dead_code)]
 
-use std::{fmt::Debug, time::Duration};
-
 use assert_matches2::assert_let;
-use futures_core::Stream;
-use futures_util::StreamExt;
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, SessionMeta};
 use ruma::{
     api::MatrixVersion,
@@ -14,7 +10,6 @@ use ruma::{
     events::{room::message::MessageType, AnySyncMessageLikeEvent, AnySyncTimelineEvent},
     user_id,
 };
-use tokio::time::timeout;
 use url::Url;
 
 pub mod events;
@@ -105,24 +100,17 @@ pub async fn logged_in_client_with_server() -> (Client, wiremock::MockServer) {
     (client, server)
 }
 
-/// Loads the next item in a [`Stream`] with a timeout in milliseconds.
-pub async fn next_with_timeout<I: Debug>(
-    stream: &mut (impl Stream<Item = I> + Unpin),
-    timeout_ms: u64,
-) -> I {
-    timeout(Duration::from_millis(timeout_ms), stream.next())
-        .await
-        .expect("Next event timed out")
-        .expect("No next event received")
-}
-
 /// Asserts the next item in a [`Stream`] can be loaded in the given timeout in
 /// the given timeout in milliseconds.
 #[macro_export]
 macro_rules! assert_next_with_timeout {
-    ($stream:expr, $timeout_ms:expr) => {
-        $crate::test_utils::next_with_timeout($stream, $timeout_ms).await
-    };
+    ($stream:expr, $timeout_ms:expr) => {{
+        use futures_util::StreamExt as _;
+        tokio::time::timeout(std::time::Duration::from_millis($timeout_ms), $stream.next())
+            .await
+            .expect("Next event timed out")
+            .expect("No next event received")
+    }};
 }
 
 /// Assert the next item in a [`Stream`] matches the provided pattern in the
