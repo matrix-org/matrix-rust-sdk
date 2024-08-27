@@ -388,7 +388,34 @@ impl CryptoStore for MemoryStore {
         after_session_id: Option<String>,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
-        todo!()
+        let matches_device = |session: &InboundGroupSession| {
+            session.creator_info.curve25519_key == sender_key
+                && session.sender_data.to_type() == sender_data_type
+        };
+
+        let mut seen_previous_batch = false;
+        let earlier_batch = |session: &InboundGroupSession| {
+            if let Some(sid) = &after_session_id {
+                if seen_previous_batch {
+                    false // Seen it: don't skip
+                } else {
+                    if session.session_id() == sid {
+                        seen_previous_batch = true;
+                        // Skip this one, but after that don't skip
+                    }
+                    true // Not seen it yet: skip
+                }
+            } else {
+                false // No after_session_id provided: don't skip any
+            }
+        };
+
+        let mut sessions: Vec<_> =
+            self.get_inbound_group_sessions().await?.into_iter().filter(matches_device).collect();
+
+        sessions.sort_by_key(|s| s.session_id().to_owned());
+
+        Ok(sessions.into_iter().skip_while(earlier_batch).take(limit).collect())
     }
 
     async fn inbound_group_sessions_for_backup(
