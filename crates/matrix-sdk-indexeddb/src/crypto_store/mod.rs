@@ -1704,12 +1704,7 @@ mod wasm_unit_tests {
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
-    use matrix_sdk_crypto::{
-        cryptostore_integration_tests,
-        store::{Changes, CryptoStore as _, DeviceChanges, PendingChanges},
-        DeviceData,
-    };
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_crypto::cryptostore_integration_tests;
 
     use super::IndexeddbCryptoStore;
 
@@ -1732,6 +1727,8 @@ mod tests {
                 .expect("Can't create store without passphrase"),
         }
     }
+
+    cryptostore_integration_tests!();
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
