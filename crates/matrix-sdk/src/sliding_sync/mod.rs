@@ -956,10 +956,8 @@ impl StickyData for SlidingSyncStickyParameters {
         request.room_subscriptions = self
             .room_subscriptions
             .iter()
-            .filter_map(|(room_id, (state, room_subscription))| {
-                matches!(state, RoomSubscriptionState::Pending)
-                    .then(|| (room_id.clone(), room_subscription.clone()))
-            })
+            .filter(|(_, (state, _))| matches!(state, RoomSubscriptionState::Pending))
+            .map(|(room_id, (_, room_subscription))| (room_id.clone(), room_subscription.clone()))
             .collect();
         request.extensions = self.extensions.clone();
     }
