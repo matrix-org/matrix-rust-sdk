@@ -41,7 +41,10 @@ use tracing::{debug, warn};
 
 use crate::{
     error::{Error, Result},
-    utils::{repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
+    utils::{
+        repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
+        SqliteKeyValueStoreConnExt,
+    },
     OpenStoreError,
 };
 
@@ -161,6 +164,7 @@ impl SqliteStateStore {
                     "../migrations/state_store/002_b_replace_room_info.sql"
                 ))?;
 
+                txn.set_db_version(2)?;
                 Result::<_, Error>::Ok(())
             })
             .await?;
@@ -211,6 +215,7 @@ impl SqliteStateStore {
                         .execute((data, room_id))?;
                 }
 
+                txn.set_db_version(3)?;
                 Result::<_, Error>::Ok(())
             })
             .await?;
@@ -220,7 +225,7 @@ impl SqliteStateStore {
             conn.with_transaction(move |txn| {
                 // Create new table.
                 txn.execute_batch(include_str!("../migrations/state_store/003_send_queue.sql"))?;
-                Result::<_, Error>::Ok(())
+                txn.set_db_version(4)
             })
             .await?;
         }
@@ -231,7 +236,7 @@ impl SqliteStateStore {
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/004_send_queue_with_roomid_value.sql"
                 ))?;
-                Result::<_, Error>::Ok(())
+                txn.set_db_version(4)
             })
             .await?;
         }
@@ -242,7 +247,7 @@ impl SqliteStateStore {
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/005_send_queue_dependent_events.sql"
                 ))?;
-                Result::<_, Error>::Ok(())
+                txn.set_db_version(6)
             })
             .await?;
         }
@@ -251,12 +256,10 @@ impl SqliteStateStore {
             conn.with_transaction(move |txn| {
                 // Drop media table.
                 txn.execute_batch(include_str!("../migrations/state_store/006_drop_media.sql"))?;
-                Result::<_, Error>::Ok(())
+                txn.set_db_version(7)
             })
             .await?;
         }
-
-        conn.set_db_version(to).await?;
 
         Ok(())
     }
@@ -375,13 +378,12 @@ async fn init(conn: &SqliteAsyncConn) -> Result<()> {
     // the error message: "cannot change into wal mode from within a transaction".
     conn.execute_batch("PRAGMA journal_mode = wal;").await?;
     conn.with_transaction(|txn| {
-        txn.execute_batch(include_str!("../migrations/state_store/001_init.sql"))
+        txn.execute_batch(include_str!("../migrations/state_store/001_init.sql"))?;
+        txn.set_db_version(1)?;
+
+        Ok(())
     })
-    .await?;
-
-    conn.set_db_version(1).await?;
-
-    Ok(())
+    .await
 }
 
 trait SqliteConnectionStateStoreExt {

@@ -13,7 +13,7 @@ use tracing::debug;
 
 use crate::{
     error::{Error, Result},
-    utils::{Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
+    utils::{Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt, SqliteKeyValueStoreConnExt},
     OpenStoreError,
 };
 
@@ -83,7 +83,12 @@ impl SqliteEventCacheStore {
     /// version
     ///
     /// If `to` is `None`, the current database version will be used.
-    async fn run_migrations(&self, conn: &SqliteAsyncConn, from: u8, to: Option<u8>) -> Result<()> {
+    async fn run_migrations(
+        &self,
+        _conn: &SqliteAsyncConn,
+        from: u8,
+        to: Option<u8>,
+    ) -> Result<()> {
         let to = to.unwrap_or(DATABASE_VERSION);
 
         if from < to {
@@ -93,8 +98,6 @@ impl SqliteEventCacheStore {
         }
 
         // There is no migration currently since it's the first version of the database.
-
-        conn.set_db_version(to).await?;
 
         Ok(())
     }
@@ -144,11 +147,10 @@ async fn init(conn: &SqliteAsyncConn) -> Result<()> {
     // the error message: "cannot change into wal mode from within a transaction".
     conn.execute_batch("PRAGMA journal_mode = wal;").await?;
     conn.with_transaction(|txn| {
-        txn.execute_batch(include_str!("../migrations/event_cache_store/001_init.sql"))
+        txn.execute_batch(include_str!("../migrations/event_cache_store/001_init.sql"))?;
+        txn.set_db_version(1)
     })
     .await?;
-
-    conn.set_db_version(1).await?;
 
     Ok(())
 }

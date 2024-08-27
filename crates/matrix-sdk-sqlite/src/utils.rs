@@ -256,6 +256,11 @@ impl<'a> SqliteTransactionExt for Transaction<'a> {
 pub(crate) trait SqliteKeyValueStoreConnExt {
     /// Store the given value for the given key.
     fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()>;
+
+    /// Set the version of the database.
+    fn set_db_version(&self, version: u8) -> rusqlite::Result<()> {
+        self.set_kv("version", &[version])
+    }
 }
 
 impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
@@ -315,11 +320,6 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
         } else {
             Ok(0)
         }
-    }
-
-    /// Set the version of the database.
-    async fn set_db_version(&self, version: u8) -> rusqlite::Result<()> {
-        self.set_kv("version", vec![version]).await
     }
 
     /// Get the [`StoreCipher`] of the database or create it.

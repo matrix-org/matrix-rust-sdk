@@ -203,21 +203,24 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         // the error message: "cannot change into wal mode from within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/crypto_store/001_init.sql"))
+            txn.execute_batch(include_str!("../migrations/crypto_store/001_init.sql"))?;
+            txn.set_db_version(1)
         })
         .await?;
     }
 
     if version < 2 {
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/crypto_store/002_reset_olm_hash.sql"))
+            txn.execute_batch(include_str!("../migrations/crypto_store/002_reset_olm_hash.sql"))?;
+            txn.set_db_version(2)
         })
         .await?;
     }
 
     if version < 3 {
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/crypto_store/003_room_settings.sql"))
+            txn.execute_batch(include_str!("../migrations/crypto_store/003_room_settings.sql"))?;
+            txn.set_db_version(3)
         })
         .await?;
     }
@@ -226,14 +229,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/004_drop_outbound_group_sessions.sql"
-            ))
+            ))?;
+            txn.set_db_version(4)
         })
         .await?;
     }
 
     if version < 5 {
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/crypto_store/005_withheld_code.sql"))
+            txn.execute_batch(include_str!("../migrations/crypto_store/005_withheld_code.sql"))?;
+            txn.set_db_version(5)
         })
         .await?;
     }
@@ -242,26 +247,27 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/006_drop_outbound_group_sessions.sql"
-            ))
+            ))?;
+            txn.set_db_version(6)
         })
         .await?;
     }
 
     if version < 7 {
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/crypto_store/007_lock_leases.sql"))
+            txn.execute_batch(include_str!("../migrations/crypto_store/007_lock_leases.sql"))?;
+            txn.set_db_version(7)
         })
         .await?;
     }
 
     if version < 8 {
         conn.with_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/crypto_store/008_secret_inbox.sql"))
+            txn.execute_batch(include_str!("../migrations/crypto_store/008_secret_inbox.sql"))?;
+            txn.set_db_version(8)
         })
         .await?;
     }
-
-    conn.set_db_version(DATABASE_VERSION).await?;
 
     Ok(())
 }
