@@ -489,11 +489,6 @@ impl Client {
         Ok(())
     }
 
-    /// The sliding sync version.
-    pub fn sliding_sync_version(&self) -> SlidingSyncVersion {
-        self.inner.sliding_sync_version().into()
-    }
-
     /// Whether or not the client's homeserver supports the password login flow.
     pub(crate) async fn supports_password_login(&self) -> anyhow::Result<bool> {
         let login_types = self.inner.matrix_auth().get_login_types().await?;
@@ -507,6 +502,22 @@ impl Client {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl Client {
+    /// The sliding sync version.
+    pub fn sliding_sync_version(&self) -> SlidingSyncVersion {
+        self.inner.sliding_sync_version().into()
+    }
+
+    /// Find all sliding sync versions that are available.
+    ///
+    /// Be careful: This method may hit the store and will send new requests for
+    /// each call. It can be costly to call it repeatedly.
+    ///
+    /// If `.well-known` or `/versions` is unreachable, it will simply move
+    /// potential sliding sync versions aside. No error will be reported.
+    pub async fn available_sliding_sync_versions(&self) -> Vec<SlidingSyncVersion> {
+        self.inner.available_sliding_sync_versions().await.into_iter().map(Into::into).collect()
+    }
+
     pub fn set_delegate(
         self: Arc<Self>,
         delegate: Option<Box<dyn ClientDelegate>>,
