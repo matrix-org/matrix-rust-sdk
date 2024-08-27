@@ -1584,7 +1584,7 @@ struct GossipRequestIndexedDbObject {
     unsent: bool,
 }
 
-/// The objects we store in the inbound_group_sessions2 indexeddb object store
+/// The objects we store in the inbound_group_sessions3 indexeddb object store
 #[derive(serde::Serialize, serde::Deserialize)]
 struct InboundGroupSessionIndexedDbObject {
     /// Possibly encrypted
