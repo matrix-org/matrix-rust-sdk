@@ -397,10 +397,8 @@ impl IndexeddbCryptoStore {
         &self,
         session: &InboundGroupSession,
     ) -> Result<JsValue> {
-        let obj = InboundGroupSessionIndexedDbObject::new(
-            self.serializer.maybe_encrypt_value(session.pickle().await)?,
-            !session.backed_up(),
-        );
+        let obj =
+            InboundGroupSessionIndexedDbObject::from_session(session, &self.serializer).await?;
         Ok(serde_wasm_bindgen::to_value(&obj)?)
     }
 
@@ -1622,6 +1620,19 @@ struct InboundGroupSessionIndexedDbObject {
 impl InboundGroupSessionIndexedDbObject {
     pub fn new(pickled_session: MaybeEncrypted, needs_backup: bool) -> Self {
         Self { pickled_session, needs_backup, backed_up_to: -1 }
+    }
+
+    /// Build an [`InboundGroupSessionIndexedDbObject`] wrapping the given
+    /// session.
+    pub async fn from_session(
+        session: &InboundGroupSession,
+        serializer: &IndexeddbSerializer,
+    ) -> Result<Self, CryptoStoreError> {
+        Ok(InboundGroupSessionIndexedDbObject {
+            pickled_session: serializer.maybe_encrypt_value(session.pickle().await)?,
+            needs_backup: !session.backed_up(),
+            backed_up_to: -1,
+        })
     }
 }
 

@@ -99,11 +99,8 @@ pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -
             );
 
             // Serialize the session in the new format
-            // This is much the same as [`IndexeddbStore::serialize_inbound_group_session`].
-            let new_value = InboundGroupSessionIndexedDbObject::new(
-                serializer.maybe_encrypt_value(session.pickle().await)?,
-                !session.backed_up(),
-            );
+            let new_value =
+                InboundGroupSessionIndexedDbObject::from_session(&session, serializer).await?;
 
             // Write it to the new store
             inbound_group_sessions3
