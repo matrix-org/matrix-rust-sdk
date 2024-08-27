@@ -459,13 +459,13 @@ impl Client {
         self.inner.homeserver.read().unwrap().clone()
     }
 
-    /// Get the sliding version.
+    /// Get the sliding sync version.
     #[cfg(feature = "experimental-sliding-sync")]
     pub fn sliding_sync_version(&self) -> SlidingSyncVersion {
         self.inner.sliding_sync_version.read().unwrap().clone()
     }
 
-    /// Override the sliding version.
+    /// Override the sliding sync version.
     #[cfg(feature = "experimental-sliding-sync")]
     pub fn set_sliding_sync_version(&self, version: SlidingSyncVersion) {
         let mut lock = self.inner.sliding_sync_version.write().unwrap();

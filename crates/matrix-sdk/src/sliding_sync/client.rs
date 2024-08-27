@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use as_variant::as_variant;
 use imbl::Vector;
 use matrix_sdk_base::{sliding_sync::http, sync::SyncResponse, PreviousEventsProvider};
 use ruma::{
@@ -14,13 +15,13 @@ use ruma::{
 use tracing::error;
 use url::Url;
 
-use super::{Error, SlidingSync, SlidingSyncBuilder};
+use super::{SlidingSync, SlidingSyncBuilder};
 use crate::{config::RequestConfig, Client, Result, SlidingSyncRoom};
 
 /// A sliding sync version.
 #[derive(Clone, Debug)]
 pub enum Version {
-    /// No version. Useful to represent that sliding sync is disable for
+    /// No version. Useful to represent that sliding sync is disabled for
     /// example, and that the version is unknown.
     None,
 
@@ -41,11 +42,33 @@ impl Version {
     }
 
     pub(crate) fn overriding_url(&self) -> Option<&Url> {
-        match self {
-            Self::Proxy { url } => Some(url),
-            _ => None,
-        }
+        as_variant!(self, Self::Proxy { url } => url)
     }
+}
+
+/// An error when building a version.
+#[derive(thiserror::Error, Debug)]
+pub enum VersionBuilderError {
+    /// The `.well-known` response is not set.
+    #[error("`.well-known` is not set")]
+    WellKnownNotSet,
+
+    /// `.well-known` does not contain a `sliding_sync_proxy` entry.
+    #[error("`.well-known` does not contain a `sliding_sync_proxy` entry")]
+    NoSlidingSyncInWellKnown,
+
+    /// The `sliding_sync_proxy` URL in .well-known` is not valid ({0}).
+    #[error("the `sliding_sync_proxy` URL in .well-known` is not valid ({0})")]
+    UnparsableSlidingSyncUrl(url::ParseError),
+
+    /// The `/versions` response is not set.
+    #[error("The `/versions` response is not set")]
+    MissingVersionsResponse,
+
+    /// `/versions` does not contain `org.matrix.simplified_msc3575` in its
+    /// `unstable_features`, or it's not set to true.
+    #[error("`/versions` does not contain `org.matrix.simplified_msc3575` in its `unstable_features`, or it's not set to true.")]
+    NativeVersionIsUnset,
 }
 
 /// A builder for [`Version`].
@@ -87,7 +110,7 @@ impl VersionBuilder {
         self,
         well_known: Option<&discover_homeserver::Response>,
         versions: Option<&get_supported_versions::Response>,
-    ) -> Result<Version, Error> {
+    ) -> Result<Version, VersionBuilderError> {
         Ok(match self {
             Self::None => Version::None,
 
@@ -97,42 +120,27 @@ impl VersionBuilder {
 
             Self::DiscoverProxy => {
                 let Some(well_known) = well_known else {
-                    return Err(Error::VersionCannotBeDiscovered(
-                        "`.well-known` is `None`".to_owned(),
-                    ));
+                    return Err(VersionBuilderError::WellKnownNotSet);
                 };
 
                 let Some(info) = &well_known.sliding_sync_proxy else {
-                    return Err(Error::VersionCannotBeDiscovered(
-                        "`.well-known` does not contain a `sliding_sync_proxy` entry".to_owned(),
-                    ));
+                    return Err(VersionBuilderError::NoSlidingSyncInWellKnown);
                 };
 
-                let url = Url::parse(&info.url).map_err(|e| {
-                    Error::VersionCannotBeDiscovered(format!(
-                        "`.well-known` contains an invalid `sliding_sync_proxy` entry ({e})"
-                    ))
-                })?;
+                let url =
+                    Url::parse(&info.url).map_err(VersionBuilderError::UnparsableSlidingSyncUrl)?;
 
                 Version::Proxy { url }
             }
 
             Self::DiscoverNative => {
                 let Some(versions) = versions else {
-                    return Err(Error::VersionCannotBeDiscovered(
-                        "`/versions` is `None`".to_owned(),
-                    ));
+                    return Err(VersionBuilderError::MissingVersionsResponse);
                 };
 
                 match versions.unstable_features.get("org.matrix.simplified_msc3575") {
                     Some(value) if *value => Version::Native,
-                    _ => {
-                        return Err(Error::VersionCannotBeDiscovered(
-                            "`/versions` does not contain `org.matrix.simplified_msc3575` in its \
-                            `unstable_features`"
-                                .to_owned(),
-                        ))
-                    }
+                    _ => return Err(VersionBuilderError::NativeVersionIsUnset),
                 }
             }
         })
@@ -324,9 +332,11 @@ mod tests {
         Mock, ResponseTemplate,
     };
 
-    use super::{discover_homeserver, get_supported_versions, Error, Version, VersionBuilder};
+    use super::{discover_homeserver, get_supported_versions, Version, VersionBuilder};
     use crate::{
-        error::Result, sliding_sync::http, test_utils::logged_in_client_with_server,
+        error::Result,
+        sliding_sync::{http, VersionBuilderError},
+        test_utils::logged_in_client_with_server,
         SlidingSyncList, SlidingSyncMode,
     };
 
@@ -373,9 +383,7 @@ mod tests {
     fn test_version_builder_discover_proxy_no_well_known() {
         assert_matches!(
             VersionBuilder::DiscoverProxy.build(None, None),
-            Err(Error::VersionCannotBeDiscovered(msg)) => {
-                assert_eq!(msg, "`.well-known` is `None`");
-            }
+            Err(VersionBuilderError::WellKnownNotSet)
         );
     }
 
@@ -388,9 +396,7 @@ mod tests {
 
         assert_matches!(
             VersionBuilder::DiscoverProxy.build(Some(&response), None),
-            Err(Error::VersionCannotBeDiscovered(msg)) => {
-                assert_eq!(msg, "`.well-known` does not contain a `sliding_sync_proxy` entry");
-            }
+            Err(VersionBuilderError::NoSlidingSyncInWellKnown)
         );
     }
 
@@ -404,8 +410,8 @@ mod tests {
 
         assert_matches!(
             VersionBuilder::DiscoverProxy.build(Some(&response), None),
-            Err(Error::VersionCannotBeDiscovered(msg)) => {
-                assert_eq!(msg, "`.well-known` contains an invalid `sliding_sync_proxy` entry (relative URL without a base)");
+            Err(VersionBuilderError::UnparsableSlidingSyncUrl(err)) => {
+                assert_eq!(err.to_string(), "relative URL without a base");
             }
         );
     }
@@ -425,9 +431,7 @@ mod tests {
     fn test_version_builder_discover_native_no_supported_versions() {
         assert_matches!(
             VersionBuilder::DiscoverNative.build(None, None),
-            Err(Error::VersionCannotBeDiscovered(msg)) => {
-                assert_eq!(msg, "`/versions` is `None`".to_owned());
-            }
+            Err(VersionBuilderError::MissingVersionsResponse)
         );
     }
 
@@ -438,12 +442,7 @@ mod tests {
 
         assert_matches!(
             VersionBuilder::DiscoverNative.build(None, Some(&response)),
-            Err(Error::VersionCannotBeDiscovered(msg)) => {
-                assert_eq!(
-                    msg,
-                    "`/versions` does not contain `org.matrix.simplified_msc3575` in its `unstable_features`".to_owned()
-                );
-            }
+            Err(VersionBuilderError::NativeVersionIsUnset)
         );
     }
 
