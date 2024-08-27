@@ -12,6 +12,7 @@ use matrix_sdk::{
     ruma::{ServerName, UserId},
     sliding_sync::{
         Error as MatrixSlidingSyncError, VersionBuilder as MatrixSlidingSyncVersionBuilder,
+        VersionBuilderError,
     },
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
     RumaApiError,
@@ -195,7 +196,10 @@ pub enum ClientBuildError {
     #[error(transparent)]
     WellKnownDeserializationError(DeserializationError),
     #[error(transparent)]
+    #[allow(dead_code)] // rustc's drunk, this is used
     SlidingSync(MatrixSlidingSyncError),
+    #[error(transparent)]
+    SlidingSyncVersion(VersionBuilderError),
     #[error(transparent)]
     Sdk(MatrixClientBuildError),
     #[error("Failed to build the client: {message}")]
@@ -213,7 +217,9 @@ impl From<MatrixClientBuildError> for ClientBuildError {
             MatrixClientBuildError::AutoDiscovery(FromHttpResponseError::Deserialization(e)) => {
                 ClientBuildError::WellKnownDeserializationError(e)
             }
-            MatrixClientBuildError::SlidingSync(e) => ClientBuildError::SlidingSync(e),
+            MatrixClientBuildError::SlidingSyncVersion(e) => {
+                ClientBuildError::SlidingSyncVersion(e)
+            }
             _ => ClientBuildError::Sdk(e),
         }
     }

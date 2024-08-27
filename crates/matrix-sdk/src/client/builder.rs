@@ -582,8 +582,8 @@ async fn discover_homeserver_from_server_name_or_url(
     if let Ok(homeserver_url) = Url::parse(&server_name_or_url) {
         // Make sure the URL is definitely for a homeserver.
         match get_supported_versions(&homeserver_url, http_client).await {
-            Ok(_) => {
-                return Ok((homeserver_url, None, None));
+            Ok(response) => {
+                return Ok((homeserver_url, None, Some(response)));
             }
             Err(e) => {
                 debug!(error = %e, "Checking supported versions failed.");
@@ -826,10 +826,10 @@ pub enum ClientBuildError {
     #[error("Error looking up the .well-known endpoint on auto-discovery")]
     AutoDiscovery(FromHttpResponseError<RumaApiError>),
 
-    /// Error from sliding sync.
+    /// Error when building the sliding sync version.
     #[cfg(feature = "experimental-sliding-sync")]
     #[error(transparent)]
-    SlidingSync(#[from] crate::sliding_sync::Error),
+    SlidingSyncVersion(#[from] crate::sliding_sync::VersionBuilderError),
 
     /// An error encountered when trying to parse the homeserver url.
     #[error(transparent)]

@@ -12,11 +12,6 @@ pub enum Error {
     #[error("Sliding sync version is missing")]
     VersionIsMissing,
 
-    /// Sliding sync version has been configured to be discovered,
-    /// but it has failed. See [`crate::sliding_sync::Version`].
-    #[error("Sliding sync version cannot be discovered: {0}")]
-    VersionCannotBeDiscovered(String),
-
     /// The response we've received from the server can't be parsed or doesn't
     /// match up with the current expectations on the client side. A
     /// `sync`-restart might be required.

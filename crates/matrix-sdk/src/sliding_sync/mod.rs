@@ -50,7 +50,7 @@ use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
 
 #[cfg(feature = "e2e-encryption")]
 use self::utils::JoinHandleExt as _;
-pub use self::{builder::*, error::*, list::*, room::*};
+pub use self::{builder::*, client::VersionBuilderError, error::*, list::*, room::*};
 use self::{
     cache::restore_sliding_sync_state,
     client::SlidingSyncResponseProcessor,
@@ -74,6 +74,8 @@ pub(super) struct SlidingSyncInner {
     /// Used to distinguish different connections to the sliding sync proxy.
     id: String,
 
+    /// Either an overridden sliding sync [`Version`], or one inherited from the
+    /// client.
     version: Version,
 
     /// The HTTP Matrix client.
@@ -2003,7 +2005,7 @@ mod tests {
             assert_matches!(sync.version(), Version::Native);
         }
 
-        // Sliding can override the configuration from the client.
+        // Sliding sync can override the configuration from the client.
         {
             let url = Url::parse("https://bar.matrix/").unwrap();
             let sync = client
