@@ -187,7 +187,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 8;
+const DATABASE_VERSION: u8 = 9;
 
 /// Run migrations for the given version of the database.
 async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
@@ -270,6 +270,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 9 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/009_inbound_group_session_sender_key_sender_data_type.sql"
+            ))?;
+            txn.set_db_version(9)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -287,6 +297,8 @@ trait SqliteConnectionExt {
         session_id: &[u8],
         data: &[u8],
         backed_up: bool,
+        sender_key: Option<&[u8]>,
+        sender_data_type: Option<u8>,
     ) -> rusqlite::Result<()>;
 
     fn set_outbound_group_session(&self, room_id: &[u8], data: &[u8]) -> rusqlite::Result<()>;
@@ -339,12 +351,14 @@ impl SqliteConnectionExt for rusqlite::Connection {
         session_id: &[u8],
         data: &[u8],
         backed_up: bool,
+        sender_key: Option<&[u8]>,
+        sender_data_type: Option<u8>,
     ) -> rusqlite::Result<()> {
         self.execute(
-            "INSERT INTO inbound_group_session (session_id, room_id, data, backed_up) \
-             VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT (session_id) DO UPDATE SET data = ?3, backed_up = ?4",
-            (session_id, room_id, data, backed_up),
+            "INSERT INTO inbound_group_session (session_id, room_id, data, backed_up, sender_key, sender_data_type) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT (session_id) DO UPDATE SET data = ?3, backed_up = ?4, sender_key = ?5, sender_data_type = ?6",
+            (session_id, room_id, data, backed_up, sender_key, sender_data_type),
         )?;
         Ok(())
     }
@@ -757,7 +771,9 @@ impl CryptoStore for SqliteCryptoStore {
             let room_id = self.encode_key("inbound_group_session", session.room_id().as_bytes());
             let session_id = self.encode_key("inbound_group_session", session.session_id());
             let pickle = session.pickle().await;
-            inbound_session_changes.push((room_id, session_id, pickle));
+            let sender_key =
+                self.encode_key("inbound_group_session", session.sender_key().to_base64());
+            inbound_session_changes.push((room_id, session_id, pickle, sender_key));
         }
 
         let mut outbound_session_changes = Vec::new();
@@ -816,13 +832,15 @@ impl CryptoStore for SqliteCryptoStore {
                     txn.set_session(session_id, sender_key, &serialized_session)?;
                 }
 
-                for (room_id, session_id, pickle) in &inbound_session_changes {
+                for (room_id, session_id, pickle, sender_key) in &inbound_session_changes {
                     let serialized_session = this.serialize_value(&pickle)?;
                     txn.set_inbound_group_session(
                         room_id,
                         session_id,
                         &serialized_session,
                         pickle.backed_up,
+                        Some(sender_key),
+                        Some(pickle.sender_data.to_type() as u8),
                     )?;
                 }
 
