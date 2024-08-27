@@ -36,7 +36,7 @@ use ruma::{
     events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
     RoomId, TransactionId, UserId,
 };
-use rusqlite::{params_from_iter, OptionalExtension};
+use rusqlite::{named_params, params_from_iter, OptionalExtension};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{fs, sync::Mutex};
 use tracing::{debug, instrument, warn};
@@ -506,6 +506,44 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         Ok(RoomKeyCounts { total, backed_up })
     }
 
+    async fn get_inbound_group_sessions_for_device_batch(
+        &self,
+        sender_key: Key,
+        sender_data_type: SenderDataType,
+        after_session_id: Option<Key>,
+        limit: usize,
+    ) -> Result<Vec<(Vec<u8>, bool)>> {
+        Ok(self
+            .prepare(
+                "
+                SELECT data, backed_up
+                FROM inbound_group_session
+                WHERE sender_key = :sender_key
+                    AND sender_data_type = :sender_data_type
+                    AND session_id > :after_session_id
+                ORDER BY session_id
+                LIMIT :limit
+                ",
+                move |mut stmt| {
+                    let sender_data_type = sender_data_type as u8;
+
+                    // If we are not provided with an `after_session_id`, use a key which will sort
+                    // before all real keys: the empty string.
+                    let after_session_id = after_session_id.unwrap_or(Key::Plain(Vec::new()));
+
+                    stmt.query(named_params! {
+                        ":sender_key": sender_key,
+                        ":sender_data_type": sender_data_type,
+                        ":after_session_id": after_session_id,
+                        ":limit": limit,
+                    })?
+                    .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                    .collect()
+                },
+            )
+            .await?)
+    }
+
     async fn get_inbound_group_sessions_for_backup(&self, limit: usize) -> Result<Vec<Vec<u8>>> {
         Ok(self
             .prepare(
@@ -973,7 +1011,24 @@ impl CryptoStore for SqliteCryptoStore {
         after_session_id: Option<String>,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>, Self::Error> {
-        todo!()
+        let after_session_id =
+            after_session_id.map(|session_id| self.encode_key("inbound_group_session", session_id));
+        let sender_key = self.encode_key("inbound_group_session", sender_key.to_base64());
+
+        self.acquire()
+            .await?
+            .get_inbound_group_sessions_for_device_batch(
+                sender_key,
+                sender_data_type,
+                after_session_id,
+                limit,
+            )
+            .await?
+            .into_iter()
+            .map(|(value, backed_up)| {
+                self.deserialize_and_unpickle_inbound_group_session(value, backed_up)
+            })
+            .collect()
     }
 
     async fn inbound_group_session_counts(
