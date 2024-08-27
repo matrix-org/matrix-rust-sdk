@@ -19,14 +19,17 @@ use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId,
 };
+use vodozemac::Curve25519PublicKey;
 
 use super::{
     BackupKeys, Changes, CryptoStoreError, PendingChanges, Result, RoomKeyCounts, RoomSettings,
 };
+#[cfg(doc)]
+use crate::olm::SenderData;
 use crate::{
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
-        Session,
+        SenderDataType, Session,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
@@ -120,6 +123,40 @@ pub trait CryptoStore: AsyncTraitDeps {
         &self,
         backup_version: Option<&str>,
     ) -> Result<RoomKeyCounts, Self::Error>;
+
+    /// Get a batch of inbound group sessions for the device with the supplied
+    /// curve key, whose sender data is of the supplied type.
+    ///
+    /// Sessions are not necessarily returned in any specific order, but the
+    /// returned batches are consistent: if this function is called repeatedly
+    /// with `after_session_id` set to the session ID from the last result
+    /// from the previous call, until an empty result is returned, then
+    /// eventually all matching sessions are returned. (New sessions that are
+    /// added in the course of iteration may or may not be returned.)
+    ///
+    /// This function is used when the device information is updated via a
+    /// `/keys/query` response and we want to update the sender data based
+    /// on the new information.
+    ///
+    /// # Arguments
+    ///
+    /// * `curve_key` - only return sessions created by the device with this
+    ///   curve key.
+    ///
+    /// * `sender_data_type` - only return sessions whose [`SenderData`] record
+    ///   is in this state.
+    ///
+    /// * `after_session_id` - return the sessions after this id, or start at
+    ///   the earliest if this is None.
+    ///
+    /// * `limit` - return a maximum of this many sessions.
+    async fn get_inbound_group_sessions_for_device_batch(
+        &self,
+        curve_key: Curve25519PublicKey,
+        sender_data_type: SenderDataType,
+        after_session_id: Option<String>,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>, Self::Error>;
 
     /// Return a batch of ['InboundGroupSession'] ("room keys") that have not
     /// yet been backed up in the supplied backup version.
@@ -375,6 +412,24 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
         self.0.get_inbound_group_sessions().await.map_err(Into::into)
+    }
+
+    async fn get_inbound_group_sessions_for_device_batch(
+        &self,
+        curve_key: Curve25519PublicKey,
+        sender_data_type: SenderDataType,
+        after_session_id: Option<String>,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>> {
+        self.0
+            .get_inbound_group_sessions_for_device_batch(
+                curve_key,
+                sender_data_type,
+                after_session_id,
+                limit,
+            )
+            .await
+            .map_err(Into::into)
     }
 
     async fn inbound_group_session_counts(

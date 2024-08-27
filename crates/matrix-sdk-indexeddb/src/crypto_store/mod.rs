@@ -21,10 +21,12 @@ use async_trait::async_trait;
 use gloo_utils::format::JsValueSerdeExt;
 use hkdf::Hkdf;
 use indexed_db_futures::prelude::*;
+use js_sys::Array;
 use matrix_sdk_crypto::{
     olm::{
-        InboundGroupSession, OlmMessageHash, OutboundGroupSession, PickledInboundGroupSession,
-        PrivateCrossSigningIdentity, Session, StaticAccountData,
+        Curve25519PublicKey, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
+        PickledInboundGroupSession, PrivateCrossSigningIdentity, SenderDataType, Session,
+        StaticAccountData,
     },
     store::{
         BackupKeys, Changes, CryptoStore, CryptoStoreError, PendingChanges, RoomKeyCounts,
@@ -936,6 +938,16 @@ impl_crypto_store! {
             |value| self.deserialize_inbound_group_session(value),
             INBOUND_GROUP_SESSIONS_BATCH_SIZE
         ).await
+    }
+
+    async fn get_inbound_group_sessions_for_device_batch(
+        &self,
+        sender_key: Curve25519PublicKey,
+        sender_data_type: SenderDataType,
+        after_session_id: Option<String>,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>> {
+        todo!();
     }
 
     async fn inbound_group_session_counts(&self, _backup_version: Option<&str>) -> Result<RoomKeyCounts> {
