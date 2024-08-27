@@ -1601,6 +1601,16 @@ struct InboundGroupSessionIndexedDbObject {
     /// [`matrix_sdk_crypto::olm::group_sessions::PickledInboundGroupSession`]
     pickled_session: MaybeEncrypted,
 
+    /// The (hashed) session ID of this session. This is somewhat redundant, but
+    /// we have to pull it out to its own object so that we can do batched
+    /// queries such as
+    /// [`IndexeddbStore::get_inbound_group_sessions_for_device_batch`].
+    ///
+    /// Added in database schema v12, and lazily populated, so it is only
+    /// present for sessions received or modified since DB schema v12.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    session_id: Option<String>,
+
     /// Whether the session data has yet to be backed up.
     ///
     /// Since we only need to be able to find entries where this is `true`, we
@@ -1627,6 +1637,22 @@ struct InboundGroupSessionIndexedDbObject {
     /// "refer to the `needs_backup` property". See:
     /// https://github.com/element-hq/element-web/issues/26892#issuecomment-1906336076
     backed_up_to: i32,
+
+    /// The (hashed) curve25519 key of the device that sent us this room key,
+    /// base64-encoded.
+    ///
+    /// Added in database schema v12, and lazily populated, so it is only
+    /// present for sessions received or modified since DB schema v12.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sender_key: Option<String>,
+
+    /// The type of the [`SenderData`] within this session, converted to a u8
+    /// from [`SenderDataType`].
+    ///
+    /// Added in database schema v12, and lazily populated, so it is only
+    /// present for sessions received or modified since DB schema v12.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sender_data_type: Option<u8>,
 }
 
 impl InboundGroupSessionIndexedDbObject {
@@ -1636,20 +1662,38 @@ impl InboundGroupSessionIndexedDbObject {
         session: &InboundGroupSession,
         serializer: &IndexeddbSerializer,
     ) -> Result<Self, CryptoStoreError> {
+        let session_id =
+            serializer.encode_key_as_string(keys::INBOUND_GROUP_SESSIONS_V3, session.session_id());
+
+        let sender_key = serializer.encode_key_as_string(
+            keys::INBOUND_GROUP_SESSIONS_V3,
+            session.sender_key().to_base64(),
+        );
+
         Ok(InboundGroupSessionIndexedDbObject {
             pickled_session: serializer.maybe_encrypt_value(session.pickle().await)?,
+            session_id: Some(session_id),
             needs_backup: !session.backed_up(),
             backed_up_to: -1,
+            sender_key: Some(sender_key),
+            sender_data_type: Some(session.sender_data_type() as u8),
         })
     }
 }
 
 #[cfg(test)]
 mod unit_tests {
+    use matrix_sdk_crypto::{
+        olm::{Curve25519PublicKey, InboundGroupSession, SenderData, SessionKey},
+        types::EventEncryptionAlgorithm,
+        vodozemac::Ed25519Keypair,
+    };
     use matrix_sdk_store_encryption::EncryptedValueBase64;
+    use matrix_sdk_test::async_test;
+    use ruma::{device_id, room_id, user_id};
 
     use super::InboundGroupSessionIndexedDbObject;
-    use crate::crypto_store::indexeddb_serializer::MaybeEncrypted;
+    use crate::crypto_store::indexeddb_serializer::{IndexeddbSerializer, MaybeEncrypted};
 
     #[test]
     fn needs_backup_is_serialized_as_a_u8_in_json() {
@@ -1676,16 +1720,75 @@ mod unit_tests {
     pub fn backup_test_session(needs_backup: bool) -> InboundGroupSessionIndexedDbObject {
         InboundGroupSessionIndexedDbObject {
             pickled_session: MaybeEncrypted::Encrypted(EncryptedValueBase64::new(1, "", "")),
+            session_id: None,
             needs_backup,
             backed_up_to: -1,
+            sender_key: None,
+            sender_data_type: None,
         }
+    }
+
+    #[async_test]
+    async fn test_sender_key_and_sender_data_type_are_serialized_in_json() {
+        let sender_key = Curve25519PublicKey::from_bytes([0; 32]);
+
+        let sender_data = SenderData::sender_verified(
+            user_id!("@test:user"),
+            device_id!("ABC"),
+            Ed25519Keypair::new().public_key(),
+        );
+
+        let db_object = sender_data_test_session(sender_key, sender_data).await;
+        let serialized = serde_json::to_string(&db_object).unwrap();
+
+        assert!(
+            serialized.contains(r#""sender_key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA""#)
+        );
+        assert!(serialized.contains(r#""sender_data_type":5"#));
+    }
+
+    pub async fn sender_data_test_session(
+        sender_key: Curve25519PublicKey,
+        sender_data: SenderData,
+    ) -> InboundGroupSessionIndexedDbObject {
+        let session = InboundGroupSession::new(
+            sender_key,
+            Ed25519Keypair::new().public_key(),
+            room_id!("!test:localhost"),
+            // Arbitrary session data
+            &SessionKey::from_base64(
+                "AgAAAABTyn3CR8mzAxhsHH88td5DrRqfipJCnNbZeMrfzhON6O1Cyr9ewx/sDFLO6\
+                 +NvyW92yGvMub7nuAEQb+SgnZLm7nwvuVvJgSZKpoJMVliwg8iY9TXKFT286oBtT2\
+                 /8idy6TcpKax4foSHdMYlZXu5zOsGDdd9eYnYHpUEyDT0utuiaakZM3XBMNLEVDj9\
+                 Ps929j1FGgne1bDeFVoty2UAOQK8s/0JJigbKSu6wQ/SzaCYpE/LD4Egk2Nxs1JE2\
+                 33ii9J8RGPYOp7QWl0kTEc8mAlqZL7mKppo9AwgtmYweAg",
+            )
+            .unwrap(),
+            sender_data,
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            None,
+        )
+        .unwrap();
+
+        InboundGroupSessionIndexedDbObject::from_session(&session, &IndexeddbSerializer::new(None))
+            .await
+            .unwrap()
     }
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod wasm_unit_tests {
+    use std::collections::BTreeMap;
+
+    use matrix_sdk_crypto::{
+        olm::{Curve25519PublicKey, SenderData},
+        types::{DeviceKeys, Signatures},
+    };
     use matrix_sdk_test::async_test;
+    use ruma::{device_id, user_id};
     use wasm_bindgen::JsValue;
+
+    use crate::crypto_store::unit_tests::sender_data_test_session;
 
     fn assert_field_equals(js_value: &JsValue, field: &str, expected: u32) {
         assert_eq!(
@@ -1711,6 +1814,29 @@ mod wasm_unit_tests {
         let js_value = serde_wasm_bindgen::to_value(&session_backed_up).unwrap();
 
         assert!(!js_sys::Reflect::has(&js_value, &"needs_backup".into()).unwrap());
+    }
+
+    #[async_test]
+    async fn test_sender_key_and_device_type_are_serialized_in_js() {
+        let sender_key = Curve25519PublicKey::from_bytes([0; 32]);
+
+        let sender_data = SenderData::device_info(DeviceKeys::new(
+            user_id!("@test:user").to_owned(),
+            device_id!("ABC").to_owned(),
+            vec![],
+            BTreeMap::new(),
+            Signatures::new(),
+        ));
+        let db_object = sender_data_test_session(sender_key, sender_data).await;
+
+        let js_value = serde_wasm_bindgen::to_value(&db_object).unwrap();
+
+        assert!(js_value.is_object());
+        assert_field_equals(&js_value, "sender_data_type", 2);
+        assert_eq!(
+            js_sys::Reflect::get(&js_value, &"sender_key".into()).unwrap(),
+            JsValue::from_str("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+        );
     }
 }
 

@@ -410,8 +410,11 @@ mod tests {
 
         let session_dbo = InboundGroupSessionIndexedDbObject {
             pickled_session: serializer.maybe_encrypt_value(pickled_session).unwrap(),
+            session_id: None,
             needs_backup: false,
             backed_up_to: -1,
+            sender_key: None,
+            sender_data_type: None,
         };
         let session_js: JsValue = serde_wasm_bindgen::to_value(&session_dbo).unwrap();
 
@@ -477,22 +480,25 @@ mod tests {
     /// Test migrating `inbound_group_sessions` data from store v5 to latest,
     /// on a store with encryption disabled.
     #[async_test]
-    async fn test_v8_v10_migration_unencrypted() {
-        test_v8_v10_migration_with_cipher("test_v8_migration_unencrypted", None).await
+    async fn test_v8_v10_v12_migration_unencrypted() {
+        test_v8_v10_v12_migration_with_cipher("test_v8_migration_unencrypted", None).await
     }
 
     /// Test migrating `inbound_group_sessions` data from store v5 to store v8,
     /// on a store with encryption enabled.
     #[async_test]
-    async fn test_v8_v10_migration_encrypted() {
+    async fn test_v8_v10_v12_migration_encrypted() {
         let cipher = StoreCipher::new().unwrap();
-        test_v8_v10_migration_with_cipher("test_v8_migration_encrypted", Some(Arc::new(cipher)))
-            .await;
+        test_v8_v10_v12_migration_with_cipher(
+            "test_v8_migration_encrypted",
+            Some(Arc::new(cipher)),
+        )
+        .await;
     }
 
-    /// Helper function for `test_v8_v10_migration_{un,}encrypted`: test
-    /// migrating `inbound_group_sessions` data from store v5 to store v10.
-    async fn test_v8_v10_migration_with_cipher(
+    /// Helper function for `test_v8_v10_v12_migration_{un,}encrypted`: test
+    /// migrating `inbound_group_sessions` data from store v5 to store v12.
+    async fn test_v8_v10_v12_migration_with_cipher(
         db_prefix: &str,
         store_cipher: Option<Arc<StoreCipher>>,
     ) {
@@ -536,13 +542,16 @@ mod tests {
         assert!(!fetched_not_backed_up_session.backed_up());
 
         // For v10: they have the backed_up_to property and it is indexed
-        assert_matches_v10_schema(db_name, store, fetched_backed_up_session).await;
+        assert_matches_v10_schema(&db_name, &store, &fetched_backed_up_session).await;
+
+        // For v12: they have the session_id, sender_key and sender_data_type properties
+        assert_matches_v12_schema(&db_name, &store, &fetched_backed_up_session).await;
     }
 
     async fn assert_matches_v10_schema(
-        db_name: String,
-        store: IndexeddbCryptoStore,
-        fetched_backed_up_session: InboundGroupSession,
+        db_name: &str,
+        store: &IndexeddbCryptoStore,
+        fetched_backed_up_session: &InboundGroupSession,
     ) {
         let db = IdbDatabase::open(&db_name).unwrap().await.unwrap();
         assert!(db.version() >= 10.0);
@@ -559,6 +568,41 @@ mod tests {
         assert_eq!(idb_object.backed_up_to, -1);
         assert!(raw_store.index_names().find(|idx| idx == "backed_up_to").is_some());
 
+        db.close();
+    }
+
+    async fn assert_matches_v12_schema(
+        db_name: &str,
+        store: &IndexeddbCryptoStore,
+        session: &InboundGroupSession,
+    ) {
+        let db = IdbDatabase::open(&db_name).unwrap().await.unwrap();
+        assert!(db.version() >= 10.0);
+        let transaction = db.transaction_on_one("inbound_group_sessions3").unwrap();
+        let raw_store = transaction.object_store("inbound_group_sessions3").unwrap();
+        let key = store
+            .serializer
+            .encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (session.room_id(), session.session_id()));
+        let idb_object: InboundGroupSessionIndexedDbObject =
+            serde_wasm_bindgen::from_value(raw_store.get(&key).unwrap().await.unwrap().unwrap())
+                .unwrap();
+
+        assert_eq!(
+            idb_object.session_id,
+            Some(
+                store
+                    .serializer
+                    .encode_key_as_string(keys::INBOUND_GROUP_SESSIONS_V3, session.session_id())
+            )
+        );
+        assert_eq!(
+            idb_object.sender_key,
+            Some(store.serializer.encode_key_as_string(
+                keys::INBOUND_GROUP_SESSIONS_V3,
+                session.sender_key().to_base64()
+            ))
+        );
+        assert_eq!(idb_object.sender_data_type, Some(session.sender_data_type() as u8));
         db.close();
     }
 
