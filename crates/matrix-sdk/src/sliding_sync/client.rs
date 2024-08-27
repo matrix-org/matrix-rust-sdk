@@ -3,7 +3,10 @@ use std::collections::BTreeMap;
 use imbl::Vector;
 use matrix_sdk_base::{sliding_sync::http, sync::SyncResponse, PreviousEventsProvider};
 use ruma::{
-    api::client::discovery::{discover_homeserver, get_supported_versions},
+    api::{
+        client::discovery::{discover_homeserver, get_supported_versions},
+        MatrixVersion,
+    },
     events::AnyToDeviceEvent,
     serde::Raw,
     OwnedRoomId,
@@ -12,7 +15,7 @@ use tracing::error;
 use url::Url;
 
 use super::{Error, SlidingSync, SlidingSyncBuilder};
-use crate::{Client, Result, SlidingSyncRoom};
+use crate::{config::RequestConfig, Client, Result, SlidingSyncRoom};
 
 /// A sliding sync version.
 #[derive(Clone, Debug)]
@@ -137,6 +140,42 @@ impl VersionBuilder {
 }
 
 impl Client {
+    /// Find all sliding sync versions that are available.
+    ///
+    /// Be careful: This method may hit the store and will send new requests for
+    /// each call. It can be costly to call it repeatedly.
+    ///
+    /// If `.well-known` or `/versions` is unreachable, it will simply move
+    /// potential sliding sync versions aside. No error will be reported.
+    pub async fn available_sliding_sync_versions(&self) -> Vec<Version> {
+        let well_known = self
+            .inner
+            .http_client
+            .send(
+                discover_homeserver::Request::new(),
+                Some(RequestConfig::short_retry()),
+                self.homeserver().to_string(),
+                None,
+                &[MatrixVersion::V1_0],
+                Default::default(),
+            )
+            .await
+            .ok();
+        let supported_versions = self.unstable_features().await.ok().map(|unstable_features| {
+            let mut response = get_supported_versions::Response::new(vec![]);
+            response.unstable_features = unstable_features;
+
+            response
+        });
+
+        [VersionBuilder::DiscoverNative, VersionBuilder::DiscoverProxy]
+            .into_iter()
+            .filter_map(|version_builder| {
+                version_builder.build(well_known.as_ref(), supported_versions.as_ref()).ok()
+            })
+            .collect()
+    }
+
     /// Create a [`SlidingSyncBuilder`] tied to this client, with the given
     /// identifier.
     ///
@@ -280,6 +319,10 @@ mod tests {
     use ruma::{assign, room_id, serde::Raw};
     use serde_json::json;
     use url::Url;
+    use wiremock::{
+        matchers::{method, path},
+        Mock, ResponseTemplate,
+    };
 
     use super::{discover_homeserver, get_supported_versions, Error, Version, VersionBuilder};
     use crate::{
@@ -402,6 +445,67 @@ mod tests {
                 );
             }
         );
+    }
+
+    #[async_test]
+    async fn test_available_sliding_sync_versions_none() {
+        let (client, _server) = logged_in_client_with_server().await;
+        let available_versions = client.available_sliding_sync_versions().await;
+
+        // `.well-known` and `/versions` aren't available. It's impossible to find any
+        // versions.
+        assert!(available_versions.is_empty());
+    }
+
+    #[async_test]
+    async fn test_available_sliding_sync_versions_proxy() {
+        let (client, server) = logged_in_client_with_server().await;
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "m.homeserver": {
+                    "base_url": "https://matrix.org",
+                },
+                "org.matrix.msc3575.proxy": {
+                    "url": "https://proxy.matrix.org",
+                },
+            })))
+            .mount(&server)
+            .await;
+
+        let available_versions = client.available_sliding_sync_versions().await;
+
+        // `.well-known` is available.
+        assert_eq!(available_versions.len(), 1);
+        assert_matches!(
+            &available_versions[0],
+            Version::Proxy { url } => {
+                assert_eq!(url, &Url::parse("https://proxy.matrix.org").unwrap());
+            }
+        );
+    }
+
+    #[async_test]
+    async fn test_available_sliding_sync_versions_native() {
+        let (client, server) = logged_in_client_with_server().await;
+
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "versions": [],
+                "unstable_features": {
+                    "org.matrix.simplified_msc3575": true,
+                },
+            })))
+            .mount(&server)
+            .await;
+
+        let available_versions = client.available_sliding_sync_versions().await;
+
+        // `/versions` is available.
+        assert_eq!(available_versions.len(), 1);
+        assert_matches!(available_versions[0], Version::Native);
     }
 
     #[async_test]
