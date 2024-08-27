@@ -48,7 +48,7 @@ macro_rules! cryptostore_integration_tests {
             use $crate::{
                 olm::{
                     Account, Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
-                    PrivateCrossSigningIdentity, Session,
+                    PrivateCrossSigningIdentity, SenderData, SenderDataType, Session
                 },
                 store::{
                     BackupDecryptionKey, Changes, CryptoStore, DeviceChanges, GossipRequest,
@@ -71,6 +71,9 @@ macro_rules! cryptostore_integration_tests {
                     EventEncryptionAlgorithm,
                 },
                 GossippedSecret, LocalTrust, DeviceData, SecretInfo, ToDeviceRequest, TrackedUser,
+                vodozemac::{
+                    megolm::{GroupSession, SessionConfig},
+                },
             };
 
             use super::get_store;
@@ -559,6 +562,113 @@ macro_rules! cryptostore_integration_tests {
 
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 1);
                 assert_eq!(store.inbound_group_session_counts(None).await.unwrap().total, 1);
+            }
+
+            #[async_test]
+            async fn fetch_inbound_group_sessions_for_device() {
+                // Given a store exists, containing inbound group sessions from different devices
+                let (account, store) =
+                    get_loaded_store("fetch_inbound_group_sessions_for_device").await;
+
+                let dev1 = Curve25519PublicKey::from_base64(
+                    "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4"
+                ).unwrap();
+                let dev2 = Curve25519PublicKey::from_base64(
+                    "LTpv2DGMhggPAXO02+7f68CNEp6A40F0Yl8B094Y8gc"
+                ).unwrap();
+
+                let (dev_1_unknown_a, dev_1_unknown_b, _, _) = create_sessions(
+                    &account, &dev1, SenderDataType::UnknownDevice).await;
+
+                let (dev_1_keys_a, dev_1_keys_b, dev_1_keys_c, dev_1_keys_d) = create_sessions(
+                    &account, &dev1, SenderDataType::DeviceInfo).await;
+
+                let dev_2_unknown = create_session(
+                    &account, &dev2, SenderDataType::UnknownDevice).await;
+
+                let dev_2_keys = create_session(
+                    &account, &dev2, SenderDataType::DeviceInfo).await;
+
+                let sessions = vec![
+                    dev_1_unknown_a.clone(),
+                    dev_1_unknown_b.clone(),
+                    dev_1_keys_a.clone(),
+                    dev_1_keys_b.clone(),
+                    dev_1_keys_c.clone(),
+                    dev_1_keys_d.clone(),
+                    dev_2_unknown.clone(),
+                    dev_2_keys.clone(),
+                ];
+
+                let changes = Changes {
+                    inbound_group_sessions: sessions,
+                    ..Default::default()
+                };
+                store.save_changes(changes).await.expect("Can't save group session");
+
+                // When we fetch the list of sessions for device 1, unknown
+                let sessions_1_u = store.get_inbound_group_sessions_for_device_batch(
+                    dev1,
+                    SenderDataType::UnknownDevice,
+                    None,
+                    10
+                ).await.expect("Failed to get sessions for dev1");
+
+                // Then the expected sessions are returned
+                assert_session_lists_eq(sessions_1_u, [dev_1_unknown_a, dev_1_unknown_b], "device 1 sessions");
+
+                // And when we ask for the list of sessions for device 2, with device keys
+                let sessions_2_d = store
+                    .get_inbound_group_sessions_for_device_batch(dev2, SenderDataType::DeviceInfo, None, 10)
+                    .await
+                    .expect("Failed to get sessions for dev2");
+
+                // Then the matching session is returned
+                assert_eq!(sessions_2_d, vec![dev_2_keys], "device 2 sessions");
+
+                // And we can fetch device 1, keys in batches.
+                // We call the batch function repeatedly, to ensure it terminates correctly.
+                let mut sessions_1_k = Vec::new();
+                let mut previous_last_session_id: Option<String> = None;
+                while true {
+                    let mut sessions_1_k_batch = store.get_inbound_group_sessions_for_device_batch(
+                        dev1,
+                        SenderDataType::DeviceInfo,
+                        previous_last_session_id,
+                        2
+                    ).await.expect("Failed to get batch 1");
+
+                    let Some(last_session) = sessions_1_k_batch.last() else {
+                        // end of the results
+                        break;
+                    };
+
+                    previous_last_session_id = Some(last_session.session_id().to_owned());
+                    sessions_1_k.append(&mut sessions_1_k_batch);
+                }
+
+                assert_session_lists_eq(
+                    sessions_1_k,
+                    [dev_1_keys_a, dev_1_keys_b, dev_1_keys_c, dev_1_keys_d],
+                    "device 1 batched results"
+                );
+            }
+
+            /// Assert that two lists of sessions are the same, modulo ordering.
+            ///
+            /// There is no requirement for `get_inbound_group_sessions_for_device_batch` to
+            /// return the results in a specific order. This helper ensures that the two lists
+            /// of inbound group sessions are equivalent, without worrying about the ordering.
+            fn assert_session_lists_eq<I, J>(actual: I, expected: J, message: &str)
+                where I: IntoIterator<Item = InboundGroupSession>, J: IntoIterator<Item = InboundGroupSession>
+            {
+                let sorter = |a: &InboundGroupSession, b: &InboundGroupSession| Ord::cmp(a.session_id(), b.session_id());
+
+                let mut actual = Vec::from_iter(actual);
+                actual.sort_unstable_by(sorter);
+                let mut expected = Vec::from_iter(expected);
+                expected.sort_unstable_by(sorter);
+                assert_eq!(actual, expected, "{}", message);
             }
 
             #[async_test]
@@ -1111,6 +1221,57 @@ macro_rules! cryptostore_integration_tests {
 
             fn session_info(session: &InboundGroupSession) -> (&RoomId, &str) {
                 (&session.room_id(), &session.session_id())
+            }
+
+            /// Create 4 `InboundGroupSession`s, sorted in order of session id.
+            /// All the created sessions are for the same account and device, and have the supplied
+            /// sender data type.
+            async fn create_sessions(
+                account: &Account,
+                device_curve_key: &Curve25519PublicKey,
+                sender_data_type: SenderDataType,
+            ) -> (InboundGroupSession, InboundGroupSession, InboundGroupSession, InboundGroupSession) {
+                let mut sessions = [
+                    create_session(account, device_curve_key, sender_data_type).await,
+                    create_session(account, device_curve_key, sender_data_type).await,
+                    create_session(account, device_curve_key, sender_data_type).await,
+                    create_session(account, device_curve_key, sender_data_type).await,
+                ];
+                sessions.sort_by_key(|s| s.session_id().to_owned());
+                sessions.into()
+            }
+
+            async fn create_session(
+                account: &Account,
+                device_curve_key: &Curve25519PublicKey,
+                sender_data_type: SenderDataType,
+            ) -> InboundGroupSession {
+                let sender_data = match sender_data_type {
+                    SenderDataType::UnknownDevice => {
+                        SenderData::UnknownDevice { legacy_session: false, owner_check_failed: false }
+                    }
+                    SenderDataType::DeviceInfo => SenderData::DeviceInfo {
+                        device_keys: account.device_keys().clone(),
+                        legacy_session: false,
+                    },
+                    SenderDataType::SenderUnverifiedButPreviouslyVerified =>
+                        panic!("SenderUnverifiedButPreviouslyVerified not supported"),
+                    SenderDataType::SenderUnverified=> panic!("SenderUnverified not supported"),
+                    SenderDataType::SenderVerified => panic!("SenderVerified not supported"),
+                };
+
+                let session_key = GroupSession::new(SessionConfig::default()).session_key();
+
+                InboundGroupSession::new(
+                    device_curve_key.clone(),
+                    account.device_keys().ed25519_key().unwrap(),
+                    room_id!("!r:s.co"),
+                    &session_key,
+                    sender_data,
+                    EventEncryptionAlgorithm::MegolmV1AesSha2,
+                    None,
+                )
+                .unwrap()
             }
         }
     };
