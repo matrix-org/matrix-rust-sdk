@@ -1618,10 +1618,6 @@ struct InboundGroupSessionIndexedDbObject {
 }
 
 impl InboundGroupSessionIndexedDbObject {
-    pub fn new(pickled_session: MaybeEncrypted, needs_backup: bool) -> Self {
-        Self { pickled_session, needs_backup, backed_up_to: -1 }
-    }
-
     /// Build an [`InboundGroupSessionIndexedDbObject`] wrapping the given
     /// session.
     pub async fn from_session(
@@ -1645,10 +1641,7 @@ mod unit_tests {
 
     #[test]
     fn needs_backup_is_serialized_as_a_u8_in_json() {
-        let session_needs_backup = InboundGroupSessionIndexedDbObject::new(
-            MaybeEncrypted::Encrypted(EncryptedValueBase64::new(1, "", "")),
-            true,
-        );
+        let session_needs_backup = backup_test_session(true);
 
         // Testing the exact JSON here is theoretically flaky in the face of
         // serialization changes in serde_json but it seems unlikely, and it's
@@ -1660,25 +1653,27 @@ mod unit_tests {
 
     #[test]
     fn doesnt_need_backup_is_serialized_with_missing_field_in_json() {
-        let session_backed_up = InboundGroupSessionIndexedDbObject::new(
-            MaybeEncrypted::Encrypted(EncryptedValueBase64::new(1, "", "")),
-            false,
-        );
+        let session_backed_up = backup_test_session(false);
 
         assert!(
             !serde_json::to_string(&session_backed_up).unwrap().contains("needs_backup"),
             "The needs_backup field should be missing!"
         );
     }
+
+    pub fn backup_test_session(needs_backup: bool) -> InboundGroupSessionIndexedDbObject {
+        InboundGroupSessionIndexedDbObject {
+            pickled_session: MaybeEncrypted::Encrypted(EncryptedValueBase64::new(1, "", "")),
+            needs_backup,
+            backed_up_to: -1,
+        }
+    }
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod wasm_unit_tests {
-    use matrix_sdk_store_encryption::EncryptedValueBase64;
     use matrix_sdk_test::async_test;
     use wasm_bindgen::JsValue;
-
-    use super::{indexeddb_serializer::MaybeEncrypted, InboundGroupSessionIndexedDbObject};
 
     fn assert_field_equals(js_value: &JsValue, field: &str, expected: u32) {
         assert_eq!(
@@ -1689,10 +1684,7 @@ mod wasm_unit_tests {
 
     #[async_test]
     fn needs_backup_is_serialized_as_a_u8_in_js() {
-        let session_needs_backup = InboundGroupSessionIndexedDbObject::new(
-            MaybeEncrypted::Encrypted(EncryptedValueBase64::new(3, "", "")),
-            true,
-        );
+        let session_needs_backup = super::unit_tests::backup_test_session(true);
 
         let js_value = serde_wasm_bindgen::to_value(&session_needs_backup).unwrap();
 
@@ -1702,10 +1694,7 @@ mod wasm_unit_tests {
 
     #[async_test]
     fn doesnt_need_backup_is_serialized_with_missing_field_in_js() {
-        let session_backed_up = InboundGroupSessionIndexedDbObject::new(
-            MaybeEncrypted::Encrypted(EncryptedValueBase64::new(3, "", "")),
-            false,
-        );
+        let session_backed_up = super::unit_tests::backup_test_session(false);
 
         let js_value = serde_wasm_bindgen::to_value(&session_backed_up).unwrap();
 
