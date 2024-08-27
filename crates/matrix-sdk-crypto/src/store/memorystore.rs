@@ -388,7 +388,39 @@ impl CryptoStore for MemoryStore {
         after_session_id: Option<String>,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
-        todo!()
+        // First, find all InboundGroupSessions, filtering for those that match the
+        // device and sender_data type.
+        let mut sessions: Vec<_> = self
+            .get_inbound_group_sessions()
+            .await?
+            .into_iter()
+            .filter(|session: &InboundGroupSession| {
+                session.creator_info.curve25519_key == sender_key
+                    && session.sender_data.to_type() == sender_data_type
+            })
+            .collect();
+
+        // Then, sort the sessions in order of ascending session ID...
+        sessions.sort_by_key(|s| s.session_id().to_owned());
+
+        // Figure out where in the array to start returning results from
+        let start_index = {
+            match after_session_id {
+                None => 0,
+                Some(id) => {
+                    let idx = sessions
+                        .iter()
+                        .position(|session| session.session_id() == id)
+                        .map(|idx| idx + 1);
+
+                    // If `after_session_id` was not found in the array, go to the end of the array
+                    idx.unwrap_or(sessions.len())
+                }
+            }
+        };
+
+        // Return up to `limit` items from the array, starting from `start_index`
+        Ok(sessions.drain(start_index..).take(limit).collect())
     }
 
     async fn inbound_group_sessions_for_backup(
