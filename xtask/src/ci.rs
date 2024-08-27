@@ -293,7 +293,7 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
             WasmFeatureSet::MatrixSdkNoDefault,
             "-p matrix-sdk --no-default-features --features js,rustls-tls",
         ),
-        (WasmFeatureSet::MatrixSdkBase, "-p matrix-sdk-base --features js"),
+        (WasmFeatureSet::MatrixSdkBase, "-p matrix-sdk-base --features js,test-send-sync"),
         (WasmFeatureSet::MatrixSdkCommon, "-p matrix-sdk-common --features js"),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
