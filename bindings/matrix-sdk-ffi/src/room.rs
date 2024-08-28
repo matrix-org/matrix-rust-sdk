@@ -734,7 +734,7 @@ impl Room {
             .make_edit_event(&event_id, EditedContent::RoomMessage((*new_content).clone()))
             .await?;
 
-        self.inner.send(replacement_event).await?;
+        self.inner.send_queue().send(replacement_event).await?;
         Ok(())
     }
 }
