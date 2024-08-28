@@ -25,7 +25,7 @@ async-trait = { workspace = true }
 base64 = { workspace = true }
 gloo-utils = { version = "0.2.0", features = ["serde"] }
 growable-bloom-filter = { workspace = true, optional = true }
-indexed_db_futures = "0.4.1"
+indexed_db_futures = "0.5.0"
 js-sys = { version = "0.3.58" }
 matrix-sdk-base = { workspace = true, features = ["js"], optional = true }
 matrix-sdk-crypto = { workspace = true, features = ["js"], optional = true }
