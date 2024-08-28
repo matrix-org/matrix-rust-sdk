@@ -60,15 +60,29 @@ impl HttpClient {
                     false
                 };
 
-                // Turn errors into permanent errors when the retry limit is reached
-                let error_type = if stop {
-                    RetryError::Permanent
-                } else {
-                    |err: HttpError| match err.retry_kind() {
-                        RetryKind::Transient { retry_after } => {
-                            RetryError::Transient { err, retry_after }
+                // Turn errors into permanent errors when the retry limit is reached.
+                let error_type = |err: HttpError| {
+                    if stop {
+                        RetryError::Permanent(err)
+                    } else {
+                        let has_retry_limit = config.retry_limit.is_some();
+                        match err.retry_kind() {
+                            RetryKind::Transient { retry_after } => {
+                                RetryError::Transient { err, retry_after }
+                            }
+                            RetryKind::Permanent => RetryError::Permanent(err),
+                            RetryKind::NetworkFailure => {
+                                // If we ran into a network failure, only retry if there's some
+                                // retry limit associated to this request's configuration;
+                                // otherwise, we would end up running an infinite loop of network
+                                // requests in offline mode.
+                                if has_retry_limit {
+                                    RetryError::Transient { err, retry_after: None }
+                                } else {
+                                    RetryError::Permanent(err)
+                                }
+                            }
                         }
-                        RetryKind::Permanent => RetryError::Permanent(err),
                     }
                 };
 
@@ -260,7 +274,7 @@ mod tests {
     use super::BytesChunks;
 
     #[test]
-    fn bytes_chunks() {
+    fn test_bytes_chunks() {
         let bytes = Bytes::new();
         assert!(BytesChunks::new(bytes, 1).collect::<Vec<_>>().is_empty());
 

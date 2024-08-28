@@ -2288,7 +2288,9 @@ pub(crate) mod tests {
     use crate::{
         client::WeakClient,
         config::{RequestConfig, SyncSettings},
-        test_utils::{logged_in_client, no_retry_test_client, test_client_builder},
+        test_utils::{
+            logged_in_client, no_retry_test_client, set_client_session, test_client_builder,
+        },
         Error,
     };
 
@@ -2722,5 +2724,18 @@ pub(crate) mod tests {
             .unwrap()
             .iter()
             .any(|version| *version == MatrixVersion::V1_0));
+    }
+
+    #[async_test]
+    async fn test_no_network_doesnt_cause_infinite_retries() {
+        // Note: not `no_retry_test_client` or `logged_in_client` which uses the former,
+        // since we want infinite retries for transient errors.
+        let client =
+            test_client_builder(None).request_config(RequestConfig::new()).build().await.unwrap();
+        set_client_session(&client).await;
+
+        // We don't define a mock server on purpose here, so that the error is really a
+        // network error.
+        client.whoami().await.unwrap_err();
     }
 }
