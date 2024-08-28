@@ -228,7 +228,22 @@ pub(crate) struct ClientInner {
     /// All the data related to authentication and authorization.
     pub(crate) auth_ctx: Arc<AuthCtx>,
 
+    /// The URL of the server.
+    ///
+    /// Not to be confused with the `Self::homeserver`. `server` is usually
+    /// the server part in a user ID, e.g. with `@mnt_io:matrix.org`, here
+    /// `matrix.org` is the server, whilst `matrix-client.matrix.org` is the
+    /// homeserver (at the time of writing — 2024-08-28).
+    ///
+    /// This value is optional depending on how the `Client` has been built.
+    /// If it's been built from a homeserver URL directly, we don't know the
+    /// server. However, if the `Client` has been built from a server URL or
+    /// name, then the homeserver has been discovered, and we know both.
+    server: Option<Url>,
+
     /// The URL of the homeserver to connect to.
+    ///
+    /// This is the URL for the client-server Matrix API.
     homeserver: StdRwLock<Url>,
 
     #[cfg(feature = "experimental-sliding-sync")]
@@ -305,6 +320,7 @@ impl ClientInner {
     #[allow(clippy::too_many_arguments)]
     async fn new(
         auth_ctx: Arc<AuthCtx>,
+        server: Option<Url>,
         homeserver: Url,
         #[cfg(feature = "experimental-sliding-sync")] sliding_sync_version: SlidingSyncVersion,
         http_client: HttpClient,
@@ -316,6 +332,7 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
     ) -> Arc<Self> {
         let client = Self {
+            server,
             homeserver: StdRwLock::new(homeserver),
             auth_ctx,
             #[cfg(feature = "experimental-sliding-sync")]
@@ -454,7 +471,14 @@ impl Client {
         self.inner.base_client.logged_in()
     }
 
-    /// The Homeserver of the client.
+    /// The server used by the client.
+    ///
+    /// See `Self::server` to learn more.
+    fn server(&self) -> Option<&Url> {
+        self.inner.server.as_ref()
+    }
+
+    /// The homeserver of the client.
     pub fn homeserver(&self) -> Url {
         self.inner.homeserver.read().unwrap().clone()
     }
@@ -2175,6 +2199,7 @@ impl Client {
         let client = Client {
             inner: ClientInner::new(
                 self.inner.auth_ctx.clone(),
+                self.server().cloned(),
                 self.homeserver(),
                 #[cfg(feature = "experimental-sliding-sync")]
                 self.sliding_sync_version(),
@@ -2323,32 +2348,42 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_successful_discovery() {
+        // Imagine this is `matrix.org`.
         let server = MockServer::start().await;
+
+        // Imagine this is `matrix-client.matrix.org`.
+        let homeserver = MockServer::start().await;
+
+        // Imagine Alice has the user ID `@alice:matrix.org`.
         let server_url = server.uri();
         let domain = server_url.strip_prefix("http://").unwrap();
         let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
 
+        // The `.well-known` is on the server (e.g. `matrix.org`).
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
-                test_json::WELL_KNOWN.to_string().replace("HOMESERVER_URL", server_url.as_ref()),
+                test_json::WELL_KNOWN.to_string().replace("HOMESERVER_URL", &homeserver.uri()),
                 "application/json",
             ))
             .mount(&server)
             .await;
 
+        // The `/versions` is on the homeserver (e.g. `matrix-client.matrix.org`).
         Mock::given(method("GET"))
             .and(path("/_matrix/client/versions"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
-            .mount(&server)
+            .mount(&homeserver)
             .await;
+
         let client = Client::builder()
             .insecure_server_name_no_tls(alice.server_name())
             .build()
             .await
             .unwrap();
 
-        assert_eq!(client.homeserver(), Url::parse(server_url.as_ref()).unwrap());
+        assert_eq!(client.server().unwrap(), &Url::parse(&server.uri()).unwrap());
+        assert_eq!(client.homeserver(), Url::parse(&homeserver.uri()).unwrap());
     }
 
     #[async_test]
