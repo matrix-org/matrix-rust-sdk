@@ -10,10 +10,11 @@ license = "Apache-2.0"
 publish = false
 
 [lib]
+name = "matrix_sdk_crypto_ffi"
 crate-type = ["cdylib", "staticlib"]
 
 [[bin]]
-name = "matrix_sdk_crypto_ffi"
+name = "uniffi-bindgen"
 path = "uniffi-bindgen.rs"
 
 [features]

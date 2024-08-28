@@ -4,3 +4,6 @@ cdylib_name = "matrix_sdk_crypto_ffi"
 
 [bindings.swift]
 module_name = "MatrixSDKCrypto"
+
+[bindings.python]
+cdylib_name = "matrix_sdk_crypto_ffi"

@@ -10,7 +10,12 @@ rust-version = { workspace = true }
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 
 [lib]
+name = "matrix_sdk_ffi"
 crate-type = ["cdylib", "staticlib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
 
 [features]
 default = ["bundled-sqlite"]
@@ -41,7 +46,7 @@ tracing-core = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing-appender = { version = "0.2.2" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-uniffi = { workspace = true, features = ["tokio"] }
+uniffi = { workspace = true, features = ["cli", "tokio"] }
 url = { workspace = true }
 zeroize = { workspace = true }
 uuid = { version = "1.4.1", features = ["v4"] }
