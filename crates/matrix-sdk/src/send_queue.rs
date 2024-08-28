@@ -572,12 +572,6 @@ struct RoomSendQueueInner {
     /// When an event has been sent to the server, it is removed from that queue
     /// *after* being sent. That way, we will retry sending upon failure, in
     /// the same order events have been inserted in the first place.
-    ///
-    /// In the future, this will be replaced by a database, and this field may
-    /// be removed. Instead of appending to that queue / updating its
-    /// content / deleting entries, all that will be required will be to
-    /// manipulate the on-disk storage. In other words, the storage will become
-    /// the one source of truth.
     queue: QueueStorage,
 
     /// A notifier that's updated any time common data is touched (stopped or
