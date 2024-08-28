@@ -949,7 +949,42 @@ impl_crypto_store! {
         after_session_id: Option<String>,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
-        todo!();
+        let sender_key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, sender_key.to_base64());
+
+        // The empty string is before all keys in Indexed DB - first batch starts there.
+        let after_session_id = after_session_id.map(|s| self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, s)).unwrap_or("".into());
+
+        let lower_bound: Array = [sender_key.clone(), (sender_data_type as u8).into(), after_session_id].iter().collect();
+        let upper_bound: Array = [sender_key, ((sender_data_type as u8) + 1).into()].iter().collect();
+        let key = IdbKeyRange::bound_with_lower_open_and_upper_open(
+            &lower_bound,
+            &upper_bound,
+            true, true
+        ).expect("Key was not valid!");
+
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(
+                keys::INBOUND_GROUP_SESSIONS_V3,
+                IdbTransactionMode::Readonly,
+            )?;
+
+        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+        let idx = store.index(keys::INBOUND_GROUP_SESSIONS_SENDER_KEY_INDEX)?;
+        let serialized_sessions = idx.get_all_with_key_and_limit_owned(key, limit as u32)?.await?;
+
+        // Deserialize and decrypt after the transaction is complete.
+        let result = serialized_sessions.into_iter()
+            .filter_map(|v| match self.deserialize_inbound_group_session(v) {
+                Ok(session) => Some(session),
+                Err(e) => {
+                    warn!("Failed to deserialize inbound group session: {e}");
+                    None
+                }
+            })
+            .collect::<Vec<InboundGroupSession>>();
+
+        Ok(result)
     }
 
     async fn inbound_group_session_counts(&self, _backup_version: Option<&str>) -> Result<RoomKeyCounts> {
