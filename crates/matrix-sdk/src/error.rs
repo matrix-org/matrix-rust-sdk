@@ -157,7 +157,8 @@ impl HttpError {
         match self {
             // If it was a plain network error, it's either that we're disconnected from the
             // internet, or that the remote is, so retry a few times.
-            HttpError::Reqwest(_) => RetryKind::Transient { retry_after: None },
+            HttpError::Reqwest(_) => RetryKind::NetworkFailure,
+
             HttpError::Api(FromHttpResponseError::Server(api_error)) => {
                 RetryKind::from_api_error(api_error)
             }
@@ -169,12 +170,20 @@ impl HttpError {
 /// How should we behave with respect to retry behavior after an [`HttpError`]
 /// happened?
 pub(crate) enum RetryKind {
+    /// The request failed because of an error at the network layer.
+    NetworkFailure,
+
+    /// The request failed with a "transient" error, meaning it could be retried
+    /// either soon, or after a given amount of time expressed in
+    /// `retry_after`.
     Transient {
         // This is used only for attempts to retry, so on non-wasm32 code (in the `native` module).
         #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
         retry_after: Option<Duration>,
     },
 
+    /// The request failed with a non-transient error, and retrying it would
+    /// likely cause the same error again, so it's not worth retrying.
     Permanent,
 }
 
