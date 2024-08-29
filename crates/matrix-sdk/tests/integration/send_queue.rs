@@ -1399,6 +1399,94 @@ async fn test_unrecoverable_errors() {
 }
 
 #[async_test]
+async fn test_unwedge_unrecoverable_errors() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let mut errors = client.send_queue().subscribe_errors();
+
+    assert!(errors.is_empty());
+
+    // Start with an enabled sending queue.
+    client.send_queue().set_enabled(true).await;
+
+    assert!(client.send_queue().is_enabled());
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+
+    let respond_with_unrecoverable = AtomicBool::new(true);
+
+    // Respond to the first /send with an unrecoverable error.
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(move |_req: &Request| {
+            // The first message gets M_TOO_LARGE, subsequent messages will encounter a
+            // great success.
+            if respond_with_unrecoverable.swap(false, Ordering::SeqCst) {
+                ResponseTemplate::new(413).set_body_json(json!({
+                    // From https://spec.matrix.org/v1.10/client-server-api/#standard-error-response
+                    "errcode": "M_TOO_LARGE",
+                }))
+            } else {
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "event_id": "$42",
+                }))
+            }
+        })
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    // Queue the unrecoverable message.
+    q.send(RoomMessageEventContent::text_plain("i'm too big for ya").into()).await.unwrap();
+
+    // Message is seen as a local echo.
+    let (txn1, _) = assert_update!(watch => local echo { body = "i'm too big for ya" });
+
+    // There will be an error report for the first message, indicating that the
+    // error is unrecoverable.
+    let report = errors.recv().await.unwrap();
+    assert_eq!(report.room_id, room.room_id());
+    assert!(!report.is_recoverable);
+
+    // The room updates will report the error for the first message as unrecoverable
+    // too.
+    assert_update!(watch => error { recoverable=false, txn=txn1 });
+
+    // No queue is being disabled, because the error was unrecoverable.
+    assert!(room.send_queue().is_enabled());
+    assert!(client.send_queue().is_enabled());
+
+    // Unwedge the previously failed message and try sending it again
+    let _ = q.unwedge(&txn1).await;
+
+    // The message will be sent and a remote echo received
+    assert_update!(watch => sent { txn=txn1, event_id=event_id!("$42") });
+}
+
+#[async_test]
 async fn test_no_network_access_error_is_recoverable() {
     // This is subtle, but for the `drop(server)` below to be effectful, it needs to
     // not be a pooled wiremock server (the default), which will keep the dropped
