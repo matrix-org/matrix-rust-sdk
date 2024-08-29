@@ -88,7 +88,7 @@ async fn mount_once(
 }
 
 #[async_test]
-async fn create() {
+async fn test_create() {
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {
@@ -164,7 +164,7 @@ async fn create() {
 }
 
 #[async_test]
-async fn creation_failure() {
+async fn test_creation_failure() {
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {
@@ -245,7 +245,7 @@ async fn creation_failure() {
 }
 
 #[async_test]
-async fn disabling() {
+async fn test_disabling() {
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {
@@ -332,7 +332,7 @@ async fn disabling() {
 }
 
 #[async_test]
-async fn disable_if_only_enabled_remotely() {
+async fn test_disable_if_only_enabled_remotely() {
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {
@@ -364,7 +364,7 @@ async fn disable_if_only_enabled_remotely() {
 
 #[async_test]
 #[cfg(feature = "sqlite")]
-async fn backup_resumption() {
+async fn test_backup_resumption() {
     use tempfile::tempdir;
 
     let dir = tempdir().unwrap();
@@ -458,7 +458,7 @@ async fn setup_backups(client: &Client, server: &wiremock::MockServer) {
 }
 
 #[async_test]
-async fn steady_state_waiting() {
+async fn test_steady_state_waiting() {
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {
@@ -642,7 +642,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
 /// outbound room key is created. But it would work for a key received via a to
 /// device event as well.
 #[async_test]
-async fn incremental_upload_of_keys() -> Result<()> {
+async fn test_incremental_upload_of_keys() -> Result<()> {
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {
@@ -715,7 +715,7 @@ async fn incremental_upload_of_keys() -> Result<()> {
 
 #[async_test]
 #[cfg(feature = "experimental-sliding-sync")]
-async fn incremental_upload_of_keys_sliding_sync() -> Result<()> {
+async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {
@@ -822,7 +822,7 @@ async fn incremental_upload_of_keys_sliding_sync() -> Result<()> {
 }
 
 #[async_test]
-async fn steady_state_waiting_errors() {
+async fn test_steady_state_waiting_errors() {
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {
@@ -904,7 +904,7 @@ async fn steady_state_waiting_errors() {
 }
 
 #[async_test]
-async fn enable_from_secret_storage() {
+async fn test_enable_from_secret_storage() {
     const SECRET_STORE_KEY: &str = "mypassphrase";
     const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
 
@@ -1047,7 +1047,7 @@ async fn enable_from_secret_storage() {
 }
 
 #[async_test]
-async fn enable_from_secret_storage_no_existing_backup() {
+async fn test_enable_from_secret_storage_no_existing_backup() {
     let user_id = user_id!("@example2:morpheus.localhost");
 
     let session = MatrixSession {
@@ -1090,7 +1090,7 @@ async fn enable_from_secret_storage_no_existing_backup() {
 }
 
 #[async_test]
-async fn enable_from_secret_storage_mismatched_key() {
+async fn test_enable_from_secret_storage_mismatched_key() {
     let user_id = user_id!("@example2:morpheus.localhost");
 
     let session = MatrixSession {
@@ -1142,7 +1142,7 @@ async fn enable_from_secret_storage_mismatched_key() {
 }
 
 #[async_test]
-async fn enable_from_secret_storage_manual_download() {
+async fn test_enable_from_secret_storage_manual_download() {
     let user_id = user_id!("@example2:morpheus.localhost");
 
     let session = MatrixSession {
@@ -1173,7 +1173,7 @@ async fn enable_from_secret_storage_manual_download() {
 }
 
 #[async_test]
-async fn enable_from_secret_storage_and_manual_download() {
+async fn test_enable_from_secret_storage_and_manual_download() {
     let user_id = user_id!("@example2:morpheus.localhost");
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
 
@@ -1294,7 +1294,7 @@ async fn enable_from_secret_storage_and_manual_download() {
 }
 
 #[async_test]
-async fn enable_from_secret_storage_and_download_after_utd() {
+async fn test_enable_from_secret_storage_and_download_after_utd() {
     let user_id = user_id!("@example2:morpheus.localhost");
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
     let event_id = event_id!("$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM");
@@ -1409,7 +1409,7 @@ async fn enable_from_secret_storage_and_download_after_utd() {
 /// Even if we have a key to the session, we should still attempt a backup
 /// download if the UTD message has a lower megolm ratchet index than we have.
 #[async_test]
-async fn enable_from_secret_storage_and_download_after_utd_from_old_message_index() {
+async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message_index() {
     let user_id = user_id!("@example2:morpheus.localhost");
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
     let event_id = event_id!("$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM");

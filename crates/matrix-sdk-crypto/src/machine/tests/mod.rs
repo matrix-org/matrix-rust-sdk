@@ -1006,7 +1006,7 @@ async fn test_room_key_with_fake_identity_keys() {
 }
 
 #[async_test]
-async fn importing_private_cross_signing_keys_verifies_the_public_identity() {
+async fn test_importing_private_cross_signing_keys_verifies_the_public_identity() {
     async fn create_additional_machine(machine: &OlmMachine) -> OlmMachine {
         let second_machine = OlmMachine::new(machine.user_id(), "ADDITIONAL_MACHINE".into()).await;
 

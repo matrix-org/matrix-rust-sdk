@@ -365,7 +365,7 @@ mod test {
     use crate::machine::test_helpers::get_machine_pair_with_setup_sessions_test_helper;
 
     #[async_test]
-    async fn cache_cleared_after_device_update() {
+    async fn test_cache_cleared_after_device_update() {
         let user_id = user_id!("@alice:example.com");
         let (first, second) =
             get_machine_pair_with_setup_sessions_test_helper(user_id, user_id, false).await;

@@ -833,7 +833,7 @@ mod tests {
         const TWO_HOURS: Duration = Duration::from_secs(60 * 60 * 2);
 
         #[async_test]
-        async fn session_is_not_expired_if_no_messages_sent_and_no_time_passed() {
+        async fn test_session_is_not_expired_if_no_messages_sent_and_no_time_passed() {
             // Given a session that expires after one message
             let session = create_session(EncryptionSettings {
                 rotation_period_msgs: 1,
@@ -848,7 +848,7 @@ mod tests {
         }
 
         #[async_test]
-        async fn session_is_expired_if_we_rotate_every_message_and_one_was_sent(
+        async fn test_session_is_expired_if_we_rotate_every_message_and_one_was_sent(
         ) -> Result<(), MegolmError> {
             // Given a session that expires after one message
             let session = create_session(EncryptionSettings {
@@ -872,7 +872,7 @@ mod tests {
         }
 
         #[async_test]
-        async fn session_with_rotation_period_is_not_expired_after_no_time() {
+        async fn test_session_with_rotation_period_is_not_expired_after_no_time() {
             // Given a session with a 2h expiration
             let session = create_session(EncryptionSettings {
                 rotation_period: TWO_HOURS,
@@ -887,7 +887,7 @@ mod tests {
         }
 
         #[async_test]
-        async fn session_is_expired_after_rotation_period() {
+        async fn test_session_is_expired_after_rotation_period() {
             // Given a session with a 2h expiration
             let mut session = create_session(EncryptionSettings {
                 rotation_period: TWO_HOURS,
@@ -905,7 +905,7 @@ mod tests {
 
         #[async_test]
         #[cfg(not(feature = "_disable-minimum-rotation-period-ms"))]
-        async fn session_does_not_expire_under_one_hour_even_if_we_ask_for_shorter() {
+        async fn test_session_does_not_expire_under_one_hour_even_if_we_ask_for_shorter() {
             // Given a session with a 100ms expiration
             let mut session = create_session(EncryptionSettings {
                 rotation_period: Duration::from_millis(100),
@@ -929,7 +929,7 @@ mod tests {
 
         #[async_test]
         #[cfg(feature = "_disable-minimum-rotation-period-ms")]
-        async fn with_disable_minrotperiod_feature_sessions_can_expire_quickly() {
+        async fn test_with_disable_minrotperiod_feature_sessions_can_expire_quickly() {
             // Given a session with a 100ms expiration
             let mut session = create_session(EncryptionSettings {
                 rotation_period: Duration::from_millis(100),
@@ -947,7 +947,7 @@ mod tests {
         }
 
         #[async_test]
-        async fn session_with_zero_msgs_rotation_is_not_expired_initially() {
+        async fn test_session_with_zero_msgs_rotation_is_not_expired_initially() {
             // Given a session that is supposed to expire after zero messages
             let session = create_session(EncryptionSettings {
                 rotation_period_msgs: 0,
@@ -963,7 +963,7 @@ mod tests {
         }
 
         #[async_test]
-        async fn session_with_zero_msgs_rotation_expires_after_one_message(
+        async fn test_session_with_zero_msgs_rotation_expires_after_one_message(
         ) -> Result<(), MegolmError> {
             // Given a session that is supposed to expire after zero messages
             let session = create_session(EncryptionSettings {
@@ -988,7 +988,7 @@ mod tests {
         }
 
         #[async_test]
-        async fn session_expires_after_10k_messages_even_if_we_ask_for_more() {
+        async fn test_session_expires_after_10k_messages_even_if_we_ask_for_more() {
             // Given we asked to expire after 100K messages
             let session = create_session(EncryptionSettings {
                 rotation_period_msgs: 100_000,

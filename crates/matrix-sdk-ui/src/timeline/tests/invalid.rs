@@ -25,7 +25,7 @@ use super::TestTimeline;
 use crate::timeline::TimelineItemContent;
 
 #[async_test]
-async fn invalid_edit() {
+async fn test_invalid_edit() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
@@ -52,7 +52,7 @@ async fn invalid_edit() {
 }
 
 #[async_test]
-async fn invalid_event_content() {
+async fn test_invalid_event_content() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
 
@@ -100,7 +100,7 @@ async fn invalid_event_content() {
 }
 
 #[async_test]
-async fn invalid_event() {
+async fn test_invalid_event() {
     let timeline = TestTimeline::new();
 
     // This event is missing the sender field which the homeserver must add to

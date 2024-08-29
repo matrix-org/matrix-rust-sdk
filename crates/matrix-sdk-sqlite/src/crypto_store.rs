@@ -1336,7 +1336,7 @@ mod tests {
     /// Test that we didn't regress in our storage layer by loading data from a
     /// pre-filled database, or in other words use a test vector for this.
     #[async_test]
-    async fn open_test_vector_store() {
+    async fn test_open_test_vector_store() {
         let TestDb { dir: _, database } = get_test_db().await;
 
         let account = database

@@ -18,7 +18,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::{logged_in_client_with_server, mock_sync};
 
 #[async_test]
-async fn notifications_joined() {
+async fn test_notifications_joined() {
     let (client, server) = logged_in_client_with_server().await;
     let room_id = room_id!("!joined_room:localhost");
     let user_id = client.user_id().unwrap();
@@ -102,7 +102,7 @@ async fn notifications_joined() {
 }
 
 #[async_test]
-async fn notifications_invite() {
+async fn test_notifications_invite() {
     let (client, server) = logged_in_client_with_server().await;
     let room_id = room_id!("!invited_room:localhost");
     let user_id = client.user_id().unwrap();

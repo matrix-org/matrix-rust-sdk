@@ -293,7 +293,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn search_success() {
+    async fn test_search_success() {
         let (server, client) = new_server_and_client().await;
 
         let mut room_directory_search = RoomDirectorySearch::new(client);
@@ -312,7 +312,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn search_success_paginated() {
+    async fn test_search_success_paginated() {
         let (server, client) = new_server_and_client().await;
 
         let mut room_directory_search = RoomDirectorySearch::new(client);
@@ -348,7 +348,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn search_fails() {
+    async fn test_search_fails() {
         let (server, client) = new_server_and_client().await;
 
         let mut room_directory_search = RoomDirectorySearch::new(client);
@@ -367,7 +367,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn search_fails_when_paginating() {
+    async fn test_search_fails_when_paginating() {
         let (server, client) = new_server_and_client().await;
 
         let mut room_directory_search = RoomDirectorySearch::new(client);
@@ -401,7 +401,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn search_success_paginated_with_filter() {
+    async fn test_search_success_paginated_with_filter() {
         let (server, client) = new_server_and_client().await;
 
         let mut room_directory_search = RoomDirectorySearch::new(client);
@@ -441,7 +441,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn search_followed_by_another_search_with_filter() {
+    async fn test_search_followed_by_another_search_with_filter() {
         let (server, client) = new_server_and_client().await;
 
         let mut room_directory_search = RoomDirectorySearch::new(client);

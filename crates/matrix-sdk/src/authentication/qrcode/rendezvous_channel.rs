@@ -315,7 +315,7 @@ mod test {
     }
 
     #[async_test]
-    async fn creation() {
+    async fn test_creation() {
         let server = MockServer::start().await;
         let url =
             Url::parse(&server.uri()).expect("We should be able to parse the example homeserver");
@@ -436,7 +436,7 @@ mod test {
     }
 
     #[async_test]
-    async fn retry_mechanism() {
+    async fn test_retry_mechanism() {
         let server = MockServer::start().await;
         let url =
             Url::parse(&server.uri()).expect("We should be able to parse the example homeserver");
@@ -493,7 +493,7 @@ mod test {
     }
 
     #[async_test]
-    async fn receive_error() {
+    async fn test_receive_error() {
         let server = MockServer::start().await;
         let url =
             Url::parse(&server.uri()).expect("We should be able to parse the example homeserver");

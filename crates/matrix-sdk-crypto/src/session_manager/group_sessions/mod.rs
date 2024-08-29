@@ -1047,7 +1047,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn ratcheted_sharing() {
+    async fn test_ratcheted_sharing() {
         let machine = machine_with_shared_room_key_test_helper().await;
 
         let room_id = room_id!("!test:localhost");
@@ -1075,7 +1075,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn changing_encryption_settings() {
+    async fn test_changing_encryption_settings() {
         let machine = machine_with_shared_room_key_test_helper().await;
         let room_id = room_id!("!test:localhost");
         let keys_claim = keys_claim_response();

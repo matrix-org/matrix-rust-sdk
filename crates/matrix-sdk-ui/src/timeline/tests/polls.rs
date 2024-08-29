@@ -19,7 +19,7 @@ use crate::timeline::{
 };
 
 #[async_test]
-async fn poll_is_displayed() {
+async fn test_poll_is_displayed() {
     let timeline = TestTimeline::new();
 
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
@@ -30,7 +30,7 @@ async fn poll_is_displayed() {
 }
 
 #[async_test]
-async fn edited_poll_is_displayed() {
+async fn test_edited_poll_is_displayed() {
     let timeline = TestTimeline::new();
 
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
@@ -47,7 +47,7 @@ async fn edited_poll_is_displayed() {
 }
 
 #[async_test]
-async fn voting_adds_the_vote_to_the_results() {
+async fn test_voting_adds_the_vote_to_the_results() {
     let timeline = TestTimeline::new();
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
@@ -61,7 +61,7 @@ async fn voting_adds_the_vote_to_the_results() {
 }
 
 #[async_test]
-async fn ending_a_poll_sets_end_time_to_results() {
+async fn test_ending_a_poll_sets_end_time_to_results() {
     let timeline = TestTimeline::new();
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
@@ -74,7 +74,7 @@ async fn ending_a_poll_sets_end_time_to_results() {
 }
 
 #[async_test]
-async fn only_the_last_vote_from_a_user_is_counted() {
+async fn test_only_the_last_vote_from_a_user_is_counted() {
     let timeline = TestTimeline::new();
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
@@ -91,7 +91,7 @@ async fn only_the_last_vote_from_a_user_is_counted() {
 }
 
 #[async_test]
-async fn votes_after_end_are_discarded() {
+async fn test_votes_after_end_are_discarded() {
     let timeline = TestTimeline::new();
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
@@ -108,7 +108,7 @@ async fn votes_after_end_are_discarded() {
 }
 
 #[async_test]
-async fn multiple_end_events_are_discarded() {
+async fn test_multiple_end_events_are_discarded() {
     let timeline = TestTimeline::new();
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
@@ -128,7 +128,7 @@ async fn multiple_end_events_are_discarded() {
 }
 
 #[async_test]
-async fn a_somewhat_complex_voting_session_yields_the_expected_outcome() {
+async fn test_a_somewhat_complex_voting_session_yields_the_expected_outcome() {
     let timeline = TestTimeline::new();
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
@@ -160,7 +160,7 @@ async fn a_somewhat_complex_voting_session_yields_the_expected_outcome() {
 }
 
 #[async_test]
-async fn events_received_before_start_are_not_lost() {
+async fn test_events_received_before_start_are_not_lost() {
     let timeline = TestTimeline::new();
     let poll_id: OwnedEventId = EventId::new(server_name!("dummy.server"));
 

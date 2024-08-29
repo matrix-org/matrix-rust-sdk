@@ -65,7 +65,7 @@ async fn mock_secret_store_key(
 }
 
 #[async_test]
-async fn secret_store_create_default_key() {
+async fn test_secret_store_create_default_key() {
     let (client, server) = logged_in_client_with_server().await;
 
     let user_id = client.user_id().expect("We should know our user ID by now");
@@ -140,7 +140,7 @@ async fn secret_store_create_default_key() {
 }
 
 #[async_test]
-async fn secret_store_missing_key_info() {
+async fn test_secret_store_missing_key_info() {
     let (client, server) = logged_in_client_with_server().await;
 
     let user_id = client.user_id().expect("We should know our user ID by now");
@@ -190,7 +190,7 @@ async fn secret_store_missing_key_info() {
 }
 
 #[async_test]
-async fn secret_store_not_setup() {
+async fn test_secret_store_not_setup() {
     let (client, server) = logged_in_client_with_server().await;
 
     let user_id = client.user_id().expect("We should know our user ID by now");
@@ -221,7 +221,7 @@ async fn secret_store_not_setup() {
 }
 
 #[async_test]
-async fn secret_store_opening() {
+async fn test_secret_store_opening() {
     let (client, server) = logged_in_client_with_server().await;
 
     mock_secret_store_key(
@@ -269,7 +269,7 @@ async fn secret_store_opening() {
 }
 
 #[async_test]
-async fn set_in_secret_store() {
+async fn test_set_in_secret_store() {
     let (client, server) = logged_in_client_with_server().await;
 
     mock_secret_store_key(
@@ -366,7 +366,7 @@ async fn set_in_secret_store() {
 }
 
 #[async_test]
-async fn restore_cross_signing_from_secret_store() {
+async fn test_restore_cross_signing_from_secret_store() {
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {
@@ -567,7 +567,7 @@ async fn restore_cross_signing_from_secret_store() {
 }
 
 #[async_test]
-async fn is_secret_storage_enabled() {
+async fn test_is_secret_storage_enabled() {
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {

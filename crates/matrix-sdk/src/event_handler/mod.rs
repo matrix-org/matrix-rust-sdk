@@ -602,7 +602,7 @@ mod tests {
     });
 
     #[async_test]
-    async fn add_event_handler() -> crate::Result<()> {
+    async fn test_add_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
         let member_count = Arc::new(AtomicU8::new(0));
@@ -693,7 +693,7 @@ mod tests {
 
     #[async_test]
     #[allow(dependency_on_unit_never_type_fallback)]
-    async fn add_room_event_handler() -> crate::Result<()> {
+    async fn test_add_room_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
         let room_id_a = room_id!("!foo:example.org");
@@ -755,7 +755,7 @@ mod tests {
 
     #[async_test]
     #[allow(dependency_on_unit_never_type_fallback)]
-    async fn remove_event_handler() -> crate::Result<()> {
+    async fn test_remove_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
         let member_count = Arc::new(AtomicU8::new(0));
@@ -800,7 +800,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn event_handler_drop_guard() {
+    async fn test_event_handler_drop_guard() {
         let client = no_retry_test_client(None).await;
 
         let handle = client.add_event_handler(|_ev: OriginalSyncRoomMemberEvent| async {});
@@ -816,7 +816,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn use_client_in_handler() {
+    async fn test_use_client_in_handler() {
         // This used to not work because we were requiring `Send` of event
         // handler futures even on WASM, where practically all futures that do
         // I/O aren't.
@@ -832,7 +832,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn raw_event_handler() -> crate::Result<()> {
+    async fn test_raw_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
         let counter = Arc::new(AtomicU8::new(0));
         client.add_event_handler_context(counter.clone());
@@ -852,7 +852,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn enum_event_handler() -> crate::Result<()> {
+    async fn test_enum_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
         let counter = Arc::new(AtomicU8::new(0));
         client.add_event_handler_context(counter.clone());

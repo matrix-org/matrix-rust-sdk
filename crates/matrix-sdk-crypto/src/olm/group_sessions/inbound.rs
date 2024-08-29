@@ -840,7 +840,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn session_comparison() {
+    async fn test_session_comparison() {
         let alice = Account::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 

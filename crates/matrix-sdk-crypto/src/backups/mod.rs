@@ -745,7 +745,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn memory_store_backups() -> Result<(), OlmError> {
+    async fn test_memory_store_backups() -> Result<(), OlmError> {
         let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
 
         backup_flow(machine).await
@@ -831,7 +831,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn import_backed_up_room_keys() {
+    async fn test_import_backed_up_room_keys() {
         let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
         let backup_machine = machine.backup_machine();
 
@@ -880,7 +880,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn sign_backup_info() {
+    async fn test_sign_backup_info() {
         let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
         let backup_machine = machine.backup_machine();
 

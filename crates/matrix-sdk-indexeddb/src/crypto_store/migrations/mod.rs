@@ -256,7 +256,7 @@ mod tests {
 
     /// Make lots of sessions and see how long it takes to count them in v8
     #[async_test]
-    async fn count_lots_of_sessions_v8() {
+    async fn test_count_lots_of_sessions_v8() {
         let cipher = Arc::new(StoreCipher::new().unwrap());
         let serializer = IndexeddbSerializer::new(Some(cipher.clone()));
         // Session keys are slow to create, so make one upfront and use it for every
@@ -294,7 +294,7 @@ mod tests {
 
     /// Make lots of sessions and see how long it takes to count them in v10
     #[async_test]
-    async fn count_lots_of_sessions_v10() {
+    async fn test_count_lots_of_sessions_v10() {
         let serializer = IndexeddbSerializer::new(Some(Arc::new(StoreCipher::new().unwrap())));
 
         // Session keys are slow to create, so make one upfront and use it for every
@@ -693,7 +693,7 @@ mod tests {
     /// Opening a db that has been upgraded to MAX_SUPPORTED_SCHEMA_VERSION
     /// should be ok
     #[async_test]
-    async fn can_open_max_supported_schema_version() {
+    async fn test_can_open_max_supported_schema_version() {
         let _ = make_tracing_subscriber(None).try_init();
 
         let db_prefix = "test_can_open_max_supported_schema_version";
@@ -707,7 +707,7 @@ mod tests {
     /// Opening a db that has been upgraded beyond MAX_SUPPORTED_SCHEMA_VERSION
     /// should throw an error
     #[async_test]
-    async fn can_not_open_too_new_db() {
+    async fn test_can_not_open_too_new_db() {
         let _ = make_tracing_subscriber(None).try_init();
 
         let db_prefix = "test_can_not_open_too_new_db";
