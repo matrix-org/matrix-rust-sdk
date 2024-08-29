@@ -22,7 +22,6 @@ use std::{
 use ruma::{
     events::{
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
-        relation::Annotation,
         AnySyncTimelineEvent, AnyTimelineEvent, MessageLikeEventContent,
         RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
     },
@@ -176,27 +175,6 @@ impl EventBuilder {
             "sender": sender,
             "origin_server_ts": self.next_server_ts(),
             "unsigned": self.make_redacted_unsigned(sender),
-        })
-    }
-
-    pub fn make_sync_reaction(
-        &self,
-        sender: &UserId,
-        annotation: &Annotation,
-        timestamp: MilliSecondsSinceUnixEpoch,
-    ) -> Raw<AnySyncTimelineEvent> {
-        sync_timeline_event!({
-            "event_id": EventId::new(server_name!("dummy.server")),
-            "content": {
-                "m.relates_to": {
-                    "event_id": annotation.event_id,
-                    "key": annotation.key,
-                    "rel_type": "m.annotation"
-                }
-            },
-            "sender": sender,
-            "type": "m.reaction",
-            "origin_server_ts": timestamp
         })
     }
 
