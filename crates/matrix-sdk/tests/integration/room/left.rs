@@ -12,7 +12,7 @@ use wiremock::{
 use crate::{logged_in_client_with_server, mock_sync};
 
 #[async_test]
-async fn forget_room() {
+async fn test_forget_room() {
     let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))
@@ -34,7 +34,7 @@ async fn forget_room() {
 }
 
 #[async_test]
-async fn rejoin_room() {
+async fn test_rejoin_room() {
     let (client, server) = logged_in_client_with_server().await;
 
     Mock::given(method("POST"))

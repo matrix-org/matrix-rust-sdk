@@ -101,7 +101,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn partial_eq_cross_signing_keys() {
+    async fn test_partial_eq_cross_signing_keys() {
         macro_rules! test_partial_eq {
             ($key_type:ident, $key_field:ident, $field:ident, $usage:expr) => {
                 let user_id = user_id!("@example:localhost");

@@ -75,7 +75,7 @@ async fn test_login_username_refresh_token() {
 
 #[async_test]
 #[cfg(feature = "sso-login")]
-async fn login_sso_refresh_token() {
+async fn test_login_sso_refresh_token() {
     let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("POST"))
@@ -119,7 +119,7 @@ async fn login_sso_refresh_token() {
 }
 
 #[async_test]
-async fn register_refresh_token() {
+async fn test_register_refresh_token() {
     let (client, server) = no_retry_test_client_with_server().await;
 
     Mock::given(method("POST"))
@@ -148,7 +148,7 @@ async fn register_refresh_token() {
 }
 
 #[async_test]
-async fn no_refresh_token() {
+async fn test_no_refresh_token() {
     let (client, server) = logged_in_client_with_server().await;
 
     // Refresh token doesn't change.
@@ -238,7 +238,7 @@ async fn test_refresh_token() {
 }
 
 #[async_test]
-async fn refresh_token_not_handled() {
+async fn test_refresh_token_not_handled() {
     let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
@@ -272,7 +272,7 @@ async fn refresh_token_not_handled() {
 }
 
 #[async_test]
-async fn refresh_token_handled_success() {
+async fn test_refresh_token_handled_success() {
     let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
@@ -332,7 +332,7 @@ async fn refresh_token_handled_success() {
 }
 
 #[async_test]
-async fn refresh_token_handled_failure() {
+async fn test_refresh_token_handled_failure() {
     let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
@@ -382,7 +382,7 @@ async fn refresh_token_handled_failure() {
 }
 
 #[async_test]
-async fn refresh_token_handled_multi_success() {
+async fn test_refresh_token_handled_multi_success() {
     let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
@@ -455,7 +455,7 @@ async fn refresh_token_handled_multi_success() {
 }
 
 #[async_test]
-async fn refresh_token_handled_multi_failure() {
+async fn test_refresh_token_handled_multi_failure() {
     let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
@@ -528,7 +528,7 @@ async fn refresh_token_handled_multi_failure() {
 }
 
 #[async_test]
-async fn refresh_token_handled_other_error() {
+async fn test_refresh_token_handled_other_error() {
     let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())

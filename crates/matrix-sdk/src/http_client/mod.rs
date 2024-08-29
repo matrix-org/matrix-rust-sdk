@@ -308,7 +308,7 @@ mod tests {
     };
 
     #[async_test]
-    async fn ensure_concurrent_request_limit_is_observed() {
+    async fn test_ensure_concurrent_request_limit_is_observed() {
         let (client_builder, server) = test_client_builder_with_server().await;
         let client = client_builder
             .request_config(RequestConfig::default().max_concurrent_requests(NonZeroUsize::new(5)))
@@ -353,7 +353,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn ensure_no_max_concurrent_request_does_not_limit() {
+    async fn test_ensure_no_max_concurrent_request_does_not_limit() {
         let (client_builder, server) = test_client_builder_with_server().await;
         let client = client_builder
             .request_config(RequestConfig::default().max_concurrent_requests(None))

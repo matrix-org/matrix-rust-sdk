@@ -1667,7 +1667,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn fallback_key_signature_verification() -> Result<()> {
+    async fn test_fallback_key_signature_verification() -> Result<()> {
         let fallback_key = json!({
             "fallback": true,
             "key": "XPFqtLvBepBmW6jSAbBuJbhEpprBhQOX1IjUu+cnMF4",

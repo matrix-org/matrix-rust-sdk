@@ -572,7 +572,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn create() {
+    async fn test_create() {
         let alice = Account::with_device_id(alice_id(), alice_device_id());
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let _ = VerificationMachine::new(
@@ -583,7 +583,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn full_flow() {
+    async fn test_full_flow() {
         let (alice_machine, bob) = setup_verification_machine().await;
 
         let alice = alice_machine.get_sas(bob.user_id(), bob.flow_id().as_str()).unwrap();
@@ -639,7 +639,7 @@ mod tests {
     #[cfg(not(target_os = "macos"))]
     #[allow(unknown_lints, clippy::unchecked_duration_subtraction)]
     #[async_test]
-    async fn timing_out() {
+    async fn test_timing_out() {
         use std::time::Duration;
 
         use ruma::time::Instant;
@@ -663,7 +663,7 @@ mod tests {
     /// Test to ensure that we cancel both verifications if a second one gets
     /// started while another one is going on.
     #[async_test]
-    async fn double_verification_cancellation() {
+    async fn test_double_verification_cancellation() {
         let (machine, bob_store) = verification_machine().await;
 
         let alice_device =
@@ -705,7 +705,7 @@ mod tests {
     /// Test to ensure that we cancel both verification requests if a second one
     /// gets started while another one is going on.
     #[async_test]
-    async fn double_verification_request_cancellation() {
+    async fn test_double_verification_request_cancellation() {
         let (machine, bob_store) = verification_machine().await;
 
         // Start the first verification request.
@@ -767,7 +767,7 @@ mod tests {
     /// flow_id) the existing request is not cancelled and the new one is
     /// ignored
     #[async_test]
-    async fn ignore_identical_verification_request() {
+    async fn test_ignore_identical_verification_request() {
         let (machine, bob_store) = verification_machine().await;
 
         // Start the first verification request.

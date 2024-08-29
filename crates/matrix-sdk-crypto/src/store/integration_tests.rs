@@ -123,7 +123,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn save_account_via_generic_save() {
+            async fn test_save_account_via_generic_save() {
                 let store = get_store("save_account_via_generic", None, true).await;
                 assert!(store.get_static_account().is_none());
                 assert!(store.load_account().await.unwrap().is_none());
@@ -137,7 +137,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn save_account() {
+            async fn test_save_account() {
                 let store = get_store("save_account", None, true).await;
                 assert!(store.get_static_account().is_none());
                 assert!(store.load_account().await.unwrap().is_none());
@@ -151,7 +151,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn load_account() {
+            async fn test_load_account() {
                 let store = get_store("load_account", None, true).await;
                 let account = get_account();
 
@@ -167,7 +167,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn load_account_with_passphrase() {
+            async fn test_load_account_with_passphrase() {
                 let passphrase = Some("secret_passphrase");
                 let store = get_store("load_account_with_passphrase", passphrase, true).await;
                 let account = get_account();
@@ -184,7 +184,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn save_and_share_account() {
+            async fn test_save_and_share_account() {
                 let store = get_store("save_and_share_account", None, true).await;
                 let mut account = get_account();
 
@@ -209,7 +209,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn load_sessions() {
+            async fn test_load_sessions() {
                 let store = get_store("load_sessions", None, true).await;
                 let (account, session) = get_account_and_session().await;
                 store
@@ -236,7 +236,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn add_and_save_session() {
+            async fn test_add_and_save_session() {
                 let store_name = "add_and_save_session";
 
                 // Given we created a session and saved it in the store
@@ -288,7 +288,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn load_outbound_group_session() {
+            async fn test_load_outbound_group_session() {
                 let dir = "load_outbound_group_session";
                 let room_id = room_id!("!test:localhost");
 
@@ -338,7 +338,7 @@ macro_rules! cryptostore_integration_tests {
 
             /// Test that we can import an inbound group session via [`CryptoStore::save_changes`]
             #[async_test]
-            async fn save_changes_save_inbound_group_session() {
+            async fn test_save_changes_save_inbound_group_session() {
                 let (account, store) = get_loaded_store("save_inbound_group_session").await;
 
                 let room_id = &room_id!("!test:localhost");
@@ -353,7 +353,7 @@ macro_rules! cryptostore_integration_tests {
             /// Test that we can import a backed-up group session via
             /// [`CryptoStore::save_inbound_group_sessions`]
             #[async_test]
-            async fn save_inbound_group_session_from_backup() {
+            async fn test_save_inbound_group_session_from_backup() {
                 let (account, store) =
                     get_loaded_store("save_inbound_group_session_from_backup").await;
 
@@ -390,7 +390,7 @@ macro_rules! cryptostore_integration_tests {
             /// are waiting for more work on https://github.com/element-hq/element-web/issues/26892.
             #[ignore]
             #[async_test]
-            async fn save_inbound_group_session_from_old_backup() {
+            async fn test_save_inbound_group_session_from_old_backup() {
                 let (account, store) =
                     get_loaded_store("save_inbound_group_session_from_old_backup").await;
 
@@ -415,7 +415,7 @@ macro_rules! cryptostore_integration_tests {
             /// Test that we can import a not-backed-up group session via
             /// [`CryptoStore::save_inbound_group_sessions`]
             #[async_test]
-            async fn save_inbound_group_session_from_import() {
+            async fn test_save_inbound_group_session_from_import() {
                 let (account, store) =
                     get_loaded_store("save_inbound_group_session_from_import").await;
 
@@ -443,7 +443,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn mark_inbound_group_sessions_as_backed_up() {
+            async fn test_mark_inbound_group_sessions_as_backed_up() {
                 // Given a store exists with multiple unbacked-up sessions
                 let (account, store) =
                     get_loaded_store("mark_inbound_group_sessions_as_backed_up").await;
@@ -486,7 +486,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn reset_inbound_group_session_for_backup() {
+            async fn test_reset_inbound_group_session_for_backup() {
                 // Given a store exists where all sessions are backed up to backup_1
                 let (account, store) =
                     get_loaded_store("reset_inbound_group_session_for_backup").await;
@@ -526,7 +526,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn load_inbound_group_session() {
+            async fn test_load_inbound_group_session() {
                 let dir = "load_inbound_group_session";
                 let (account, store) = get_loaded_store(dir).await;
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 0);
@@ -679,7 +679,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn device_deleting() {
+            async fn test_device_deleting() {
                 let dir = "device_deleting";
                 let (_account, store) = get_loaded_store(dir.clone()).await;
                 let device = get_device();
@@ -785,7 +785,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn private_identity_saving() {
+            async fn test_private_identity_saving() {
                 let (_, store) = get_loaded_store("private_identity_saving").await;
                 assert!(store.load_identity().await.unwrap().is_none());
                 let identity = PrivateCrossSigningIdentity::new(alice_id().to_owned());
@@ -799,7 +799,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn olm_hash_saving() {
+            async fn test_olm_hash_saving() {
                 let (_, store) = get_loaded_store("olm_hash_saving").await;
 
                 let hash = OlmMessageHash {
@@ -816,7 +816,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn key_request_saving() {
+            async fn test_key_request_saving() {
                 let (account, store) = get_loaded_store("key_request_saving").await;
                 let sender_key =
                     Curve25519PublicKey::from_base64("Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw")
@@ -878,7 +878,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn gossipped_secret_saving() {
+            async fn test_gossipped_secret_saving() {
                 let (account, store) = get_loaded_store("gossipped_secret_saving").await;
 
                 let secret = "It is a secret to everybody";
@@ -955,7 +955,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn withheld_info_storage() {
+            async fn test_withheld_info_storage() {
                 let (account, store) = get_loaded_store("withheld_info_storage").await;
 
                 let mut info_list: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
@@ -1033,7 +1033,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn room_settings_saving() {
+            async fn test_room_settings_saving() {
                 let (_, store) = get_loaded_store("room_settings_saving").await;
 
                 let room_1 = room_id!("!test_1:localhost");
@@ -1074,7 +1074,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn backup_keys_saving() {
+            async fn test_backup_keys_saving() {
                 let (_account, store) = get_loaded_store("backup_keys_saving").await;
 
                 let restored = store.load_backup_keys().await.unwrap();
@@ -1098,7 +1098,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn custom_value_saving() {
+            async fn test_custom_value_saving() {
                 let (_, store) = get_loaded_store("custom_value_saving").await;
                 store.set_custom_value("A", "Hello".as_bytes().to_vec()).await.unwrap();
 

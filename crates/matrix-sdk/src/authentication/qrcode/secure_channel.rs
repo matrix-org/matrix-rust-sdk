@@ -347,7 +347,7 @@ pub(super) mod test {
     }
 
     #[async_test]
-    async fn creation() {
+    async fn test_creation() {
         let server = MockServer::start().await;
         let rendezvous_server = MockedRendezvousServer::new(&server, "abcdEFG12345").await;
 

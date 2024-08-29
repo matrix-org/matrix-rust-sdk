@@ -1425,7 +1425,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn own_device_with_private_identity() {
+    async fn test_own_device_with_private_identity() {
         let response = own_key_query();
         let (_, device) = device(&response);
 
@@ -1542,7 +1542,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn resolve_identity_pin_violation_with_verification() {
+    async fn test_resolve_identity_pin_violation_with_verification() {
         use test_json::keys_query_sets::IdentityChangeDataSet as DataSet;
 
         let my_user_id = user_id!("@me:localhost");
@@ -1610,7 +1610,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn resolve_identity_verification_violation_with_withdraw() {
+    async fn test_resolve_identity_verification_violation_with_withdraw() {
         use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
 
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
@@ -1650,7 +1650,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn reset_own_keys_creates_verification_violation() {
+    async fn test_reset_own_keys_creates_verification_violation() {
         use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
 
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
@@ -1691,7 +1691,7 @@ pub(crate) mod tests {
     /// Test that receiving new public keys for our own identity causes a
     /// verification violation on our own identity.
     #[async_test]
-    async fn own_keys_update_creates_own_identity_verification_violation() {
+    async fn test_own_keys_update_creates_own_identity_verification_violation() {
         use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
 
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;

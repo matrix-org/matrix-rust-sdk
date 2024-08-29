@@ -1064,7 +1064,7 @@ mod test {
     }
 
     #[async_test]
-    async fn backup_disabling_after_remote_deletion() {
+    async fn test_backup_disabling_after_remote_deletion() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
@@ -1104,7 +1104,7 @@ mod test {
     }
 
     #[async_test]
-    async fn exists_on_server() {
+    async fn test_exists_on_server() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
@@ -1194,7 +1194,7 @@ mod test {
     }
 
     #[async_test]
-    async fn waiting_for_steady_state_resets_the_delay() {
+    async fn test_waiting_for_steady_state_resets_the_delay() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 

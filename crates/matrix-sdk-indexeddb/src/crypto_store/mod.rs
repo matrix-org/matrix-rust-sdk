@@ -1683,7 +1683,7 @@ mod wasm_unit_tests {
     }
 
     #[async_test]
-    fn needs_backup_is_serialized_as_a_u8_in_js() {
+    fn test_needs_backup_is_serialized_as_a_u8_in_js() {
         let session_needs_backup = super::unit_tests::backup_test_session(true);
 
         let js_value = serde_wasm_bindgen::to_value(&session_needs_backup).unwrap();
@@ -1693,7 +1693,7 @@ mod wasm_unit_tests {
     }
 
     #[async_test]
-    fn doesnt_need_backup_is_serialized_with_missing_field_in_js() {
+    fn test_doesnt_need_backup_is_serialized_with_missing_field_in_js() {
         let session_backed_up = super::unit_tests::backup_test_session(false);
 
         let js_value = serde_wasm_bindgen::to_value(&session_backed_up).unwrap();
@@ -1765,7 +1765,7 @@ mod encrypted_tests {
     /// Test that we can migrate a store created with a passphrase, to being
     /// encrypted with a key instead.
     #[async_test]
-    async fn migrate_passphrase_to_key() {
+    async fn test_migrate_passphrase_to_key() {
         let store_name = "test_migrate_passphrase_to_key";
         let passdata: [u8; 32] = rand::random();
         let b64_passdata = base64_encode(passdata);

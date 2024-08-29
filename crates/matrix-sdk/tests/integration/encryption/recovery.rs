@@ -155,14 +155,14 @@ async fn mock_put_new_default_secret_storage_key(user_id: &UserId, server: &wire
 }
 
 #[async_test]
-async fn recovery_status_server_unavailable() {
+async fn test_recovery_status_server_unavailable() {
     let (client, _) = logged_in_client_with_server().await;
     client.encryption().wait_for_e2ee_initialization_tasks().await;
     assert_eq!(client.encryption().recovery().state(), RecoveryState::Unknown);
 }
 
 #[async_test]
-async fn recovery_status_secret_storage_set_up() {
+async fn test_recovery_status_secret_storage_set_up() {
     const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
     let user_id = user_id!("@example:morpheus.localhost");
 
@@ -184,7 +184,7 @@ async fn recovery_status_secret_storage_set_up() {
 }
 
 #[async_test]
-async fn recovery_status_secret_storage_not_set_up() {
+async fn test_recovery_status_secret_storage_not_set_up() {
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {
@@ -444,7 +444,7 @@ async fn enable(
 }
 
 #[async_test]
-async fn recovery_setup() {
+async fn test_recovery_setup() {
     let user_id = user_id!("@example:morpheus.localhost");
     let (client, server) = test_client(user_id).await;
 
@@ -457,7 +457,7 @@ async fn recovery_setup() {
 }
 
 #[async_test]
-async fn recovery_setup_without_wait() {
+async fn test_recovery_setup_without_wait() {
     let user_id = user_id!("@example:morpheus.localhost");
     let (client, server) = test_client(user_id).await;
 
@@ -470,7 +470,7 @@ async fn recovery_setup_without_wait() {
 }
 
 #[async_test]
-async fn backups_enabling() {
+async fn test_backups_enabling() {
     let user_id = user_id!("@example:morpheus.localhost");
     let (client, server) = test_client(user_id).await;
 
@@ -529,7 +529,7 @@ async fn backups_enabling() {
 }
 
 #[async_test]
-async fn backups_enabling_already_enabled() {
+async fn test_backups_enabling_already_enabled() {
     let user_id = user_id!("@example:morpheus.localhost");
     let (client, server) = test_client(user_id).await;
 
@@ -564,7 +564,7 @@ async fn backups_enabling_already_enabled() {
 }
 
 #[async_test]
-async fn recovery_disabling() {
+async fn test_recovery_disabling() {
     let user_id = user_id!("@example:morpheus.localhost");
     let (client, server) = test_client(user_id).await;
 
@@ -656,7 +656,7 @@ async fn recovery_disabling() {
 }
 
 #[async_test]
-async fn reset_recovery_key() {
+async fn test_reset_recovery_key() {
     let user_id = user_id!("@example:morpheus.localhost");
     let (client, server) = test_client(user_id).await;
 
@@ -702,7 +702,7 @@ async fn reset_recovery_key() {
 }
 
 #[async_test]
-async fn recover_and_reset() {
+async fn test_recover_and_reset() {
     let user_id = user_id!("@example:morpheus.localhost");
     const SECRET_STORE_KEY: &str = "mypassphrase";
     const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";

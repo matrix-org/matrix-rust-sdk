@@ -7,6 +7,11 @@ use syn::parse_macro_input;
 #[proc_macro_attribute]
 pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let fun = parse_macro_input!(item as syn::ItemFn);
+
+    if !fun.sig.ident.to_string().starts_with("test_") {
+        panic!("test function names must start with test_");
+    }
+
     // on the regular return-case, we can just use cfg_attr and quit early
     if fun.sig.output == syn::ReturnType::Default {
         let attrs = r#"

@@ -1359,14 +1359,14 @@ mod tests {
     }
 
     #[async_test]
-    async fn create_machine() {
+    async fn test_create_machine() {
         let machine = get_machine_test_helper().await;
 
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
     }
 
     #[async_test]
-    async fn re_request_keys() {
+    async fn test_re_request_keys() {
         let machine = get_machine_test_helper().await;
         let account = account();
 
@@ -1389,7 +1389,7 @@ mod tests {
 
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn create_key_request() {
+    async fn test_create_key_request() {
         let machine = get_machine_test_helper().await;
         let account = account();
         let second_account = alice_2_account();
@@ -1422,7 +1422,7 @@ mod tests {
     /// We should *not* request keys if that has been disabled
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn create_key_request_requests_disabled() {
+    async fn test_create_key_request_requests_disabled() {
         let machine = get_machine_test_helper().await;
         let account = account();
         let second_account = alice_2_account();
@@ -1450,7 +1450,7 @@ mod tests {
 
     #[async_test]
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn receive_forwarded_key() {
+    async fn test_receive_forwarded_key() {
         let machine = get_machine_test_helper().await;
         let account = account();
 

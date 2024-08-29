@@ -933,7 +933,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn sas_wrapper_full() {
+    async fn test_sas_wrapper_full() {
         let (alice_store, alice_device, bob_store, bob_device) = machine_pair_test_helper();
 
         let identities = alice_store.get_identities(bob_device).await.unwrap();
@@ -1007,7 +1007,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn sas_with_restricted_methods() {
+    async fn test_sas_with_restricted_methods() {
         let (alice_store, alice_device, bob_store, bob_device) = machine_pair_test_helper();
         let identities = alice_store.get_identities(bob_device).await.unwrap();
 

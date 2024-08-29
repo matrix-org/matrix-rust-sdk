@@ -70,14 +70,14 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     #[async_test]
-    async fn without_timeout() {
+    async fn test_without_timeout() {
         timeout(future::ready(()), Duration::from_millis(100))
             .await
             .expect("future should have completed without ElapsedError");
     }
 
     #[async_test]
-    async fn with_timeout() {
+    async fn test_with_timeout() {
         timeout(future::pending::<()>(), Duration::from_millis(100))
             .await
             .expect_err("future should return an ElapsedError");
