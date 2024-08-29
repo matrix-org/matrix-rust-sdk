@@ -157,7 +157,6 @@ impl TimelineBuilder {
         let (room_event_cache, event_cache_drop) = room.event_cache().await?;
         let (_, mut event_subscriber) = room_event_cache.subscribe().await?;
 
-        let is_live = matches!(focus, TimelineFocus::Live);
         let is_pinned_events = matches!(focus, TimelineFocus::PinnedEvents { .. });
         let is_room_encrypted =
             room.is_encrypted().await.map_err(|_| Error::UnknownEncryptionState)?;
@@ -292,11 +291,11 @@ impl TimelineBuilder {
             .instrument(span)
         });
 
-        let local_echo_listener_handle = if is_live {
+        let local_echo_listener_handle = {
             let timeline = inner.clone();
             let (local_echoes, mut listener) = room.send_queue().subscribe().await?;
 
-            Some(spawn({
+            spawn({
                 // Handles existing local echoes first.
                 for echo in local_echoes {
                     timeline.handle_local_echo(echo).await;
@@ -325,9 +324,7 @@ impl TimelineBuilder {
                     }
                 }
                 .instrument(span)
-            }))
-        } else {
-            None
+            })
         };
 
         // Not using room.add_event_handler here because RoomKey events are

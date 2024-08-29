@@ -242,8 +242,9 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
     ) -> Self {
-        let (focus_data, is_live) = match focus {
+        let (focus_data, allowed_live_updates) = match focus {
             TimelineFocus::Live => (TimelineFocusData::Live, LiveTimelineUpdatesAllowed::All),
+
             TimelineFocus::Event { target, num_context_events } => {
                 let paginator = Paginator::new(room_data_provider.clone());
                 (
@@ -251,6 +252,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     LiveTimelineUpdatesAllowed::None,
                 )
             }
+
             TimelineFocus::PinnedEvents { max_events_to_load } => (
                 TimelineFocusData::PinnedEvents {
                     loader: PinnedEventsLoader::new(
@@ -264,7 +266,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let state = TimelineInnerState::new(
             room_data_provider.room_version(),
-            is_live,
+            allowed_live_updates,
             internal_id_prefix,
             unable_to_decrypt_hook,
             is_room_encrypted,
