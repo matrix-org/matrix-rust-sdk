@@ -61,7 +61,7 @@ pub(crate) enum TimelineEnd {
 #[derive(Debug)]
 pub(in crate::timeline) struct TimelineInnerState {
     pub items: ObservableVector<Arc<TimelineItem>>,
-    pub meta: TimelineInnerMetadata,
+    pub meta: TimelineMetadata,
 
     /// The kind of focus of this timeline.
     timeline_focus: TimelineFocusKind,
@@ -80,7 +80,7 @@ impl TimelineInnerState {
             // sliding-sync tests with 20 events lag. This should still be
             // small enough.
             items: ObservableVector::with_capacity(32),
-            meta: TimelineInnerMetadata::new(
+            meta: TimelineMetadata::new(
                 room_version,
                 internal_id_prefix,
                 unable_to_decrypt_hook,
@@ -284,10 +284,10 @@ pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
     /// A clone of the previous meta, that we're operating on during the
     /// transaction, and that will be committed to the previous meta location in
     /// [`Self::commit`].
-    pub meta: TimelineInnerMetadata,
+    pub meta: TimelineMetadata,
 
     /// Pointer to the previous meta, only used during [`Self::commit`].
-    previous_meta: &'a mut TimelineInnerMetadata,
+    previous_meta: &'a mut TimelineMetadata,
 
     /// The kind of focus of this timeline.
     timeline_focus: TimelineFocusKind,
@@ -589,7 +589,7 @@ impl TimelineInnerStateTransaction<'_> {
         items.commit();
     }
 
-    /// Add or update an event in the [`TimelineInnerMeta::all_events`]
+    /// Add or update an event in the [`TimelineMetadata::all_events`]
     /// collection.
     ///
     /// This method also adjusts read receipt if needed.
@@ -604,7 +604,7 @@ impl TimelineInnerStateTransaction<'_> {
         room_data_provider: &P,
         settings: &TimelineInnerSettings,
     ) -> bool {
-        // Detect if an event already exists in [`TimelineInnerMeta::all_events`].
+        // Detect if an event already exists in [`TimelineMetadata::all_events`].
         //
         // Returns its position, in this case.
         fn event_already_exists(
@@ -671,7 +671,7 @@ impl TimelineInnerStateTransaction<'_> {
 }
 
 #[derive(Clone, Debug)]
-pub(in crate::timeline) struct TimelineInnerMetadata {
+pub(in crate::timeline) struct TimelineMetadata {
     // **** CONSTANT FIELDS ****
     /// An optional prefix for internal IDs, defined during construction of the
     /// timeline.
@@ -715,7 +715,7 @@ pub(in crate::timeline) struct TimelineInnerMetadata {
     pub read_receipts: ReadReceipts,
 }
 
-impl TimelineInnerMetadata {
+impl TimelineMetadata {
     pub(crate) fn new(
         room_version: RoomVersionId,
         internal_id_prefix: Option<String>,

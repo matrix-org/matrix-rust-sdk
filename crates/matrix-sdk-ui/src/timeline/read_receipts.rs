@@ -28,8 +28,8 @@ use tracing::{debug, error, warn};
 
 use super::{
     inner::{
-        EventMeta, FullEventMeta, TimelineInnerMetadata, TimelineInnerState,
-        TimelineInnerStateTransaction,
+        EventMeta, FullEventMeta, TimelineInnerState, TimelineInnerStateTransaction,
+        TimelineMetadata,
     },
     traits::RoomDataProvider,
     util::{rfind_event_by_id, RelativePosition},
@@ -577,7 +577,7 @@ impl TimelineInnerState {
     }
 }
 
-impl TimelineInnerMetadata {
+impl TimelineMetadata {
     /// Get the latest receipt of the given type for the given user in the
     /// timeline.
     ///

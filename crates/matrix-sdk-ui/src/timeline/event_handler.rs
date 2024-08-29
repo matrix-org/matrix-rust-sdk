@@ -53,7 +53,7 @@ use super::{
         LocalEventTimelineItem, Profile, ReactionsByKeyBySender, RemoteEventOrigin,
         RemoteEventTimelineItem, TimelineEventItemId,
     },
-    inner::{TimelineInnerMetadata, TimelineInnerStateTransaction},
+    inner::{TimelineInnerStateTransaction, TimelineMetadata},
     polls::PollState,
     reactions::FullReactionKey,
     util::{rfind_event_by_id, rfind_event_item},
@@ -264,7 +264,7 @@ pub(super) struct HandleEventResult {
 /// updating the reactive Vec).
 pub(super) struct TimelineEventHandler<'a, 'o> {
     items: &'a mut ObservableVectorTransaction<'o, Arc<TimelineItem>>,
-    meta: &'a mut TimelineInnerMetadata,
+    meta: &'a mut TimelineMetadata,
     ctx: TimelineEventContext,
     result: HandleEventResult,
 }
