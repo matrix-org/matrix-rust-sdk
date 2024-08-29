@@ -64,6 +64,8 @@ mod keys {
     pub const INBOUND_GROUP_SESSIONS_V3: &str = "inbound_group_sessions3";
     pub const INBOUND_GROUP_SESSIONS_BACKUP_INDEX: &str = "backup";
     pub const INBOUND_GROUP_SESSIONS_BACKED_UP_TO_INDEX: &str = "backed_up_to";
+    pub const INBOUND_GROUP_SESSIONS_SENDER_KEY_INDEX: &str =
+        "inbound_group_session_sender_key_sender_data_type_idx";
 
     pub const OUTBOUND_GROUP_SESSIONS: &str = "outbound_group_sessions";
 
