@@ -122,6 +122,16 @@ macro_rules! assert_update {
         assert_eq!(txn, $transaction_id);
     }};
 
+    // Check the next stream event is a retry event, with optional checks on txn=$txn
+    ($watch:ident => retry { $(txn=$txn:expr)? }) => {
+        assert_let!(
+            Ok(Ok(RoomSendQueueUpdate::RetryEvent { transaction_id: _txn })) =
+                timeout(Duration::from_secs(1), $watch.recv()).await
+        );
+
+        $(assert_eq!(_txn, $txn);)?
+    };
+
     // Check the next stream event is a sent event, with optional checks on txn=$txn and
     // event_id=$event_id.
     ($watch:ident => sent { $(txn=$txn:expr,)? $(event_id=$event_id:expr)? }) => {
@@ -1482,7 +1492,10 @@ async fn test_unwedge_unrecoverable_errors() {
     // Unwedge the previously failed message and try sending it again
     let _ = q.unwedge(&txn1).await;
 
-    // The message will be sent and a remote echo received
+    // The message should be retried
+    assert_update!(watch => retry { txn=txn1 });
+
+    // Then eventually sent and a remote echo received
     assert_update!(watch => sent { txn=txn1, event_id=event_id!("$42") });
 }
 
