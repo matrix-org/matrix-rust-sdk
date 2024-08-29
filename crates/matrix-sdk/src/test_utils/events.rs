@@ -17,7 +17,6 @@
 use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
 
 use matrix_sdk_base::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
-use matrix_sdk_test::{sync_timeline_event, timeline_event};
 use ruma::{
     events::{
         message::TextContentBlock,
@@ -35,10 +34,16 @@ use ruma::{
         AnySyncTimelineEvent, AnyTimelineEvent, EventContent,
     },
     serde::Raw,
-    server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId,
-    RoomId, UserId,
+    server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
+    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use serde::Serialize;
+use serde_json::json;
+
+#[derive(Debug, Default, Serialize)]
+struct Unsigned {
+    transaction_id: Option<OwnedTransactionId>,
+}
 
 #[derive(Debug)]
 pub struct EventBuilder<E: EventContent> {
@@ -48,6 +53,7 @@ pub struct EventBuilder<E: EventContent> {
     redacts: Option<OwnedEventId>,
     content: E,
     server_ts: MilliSecondsSinceUnixEpoch,
+    unsigned: Option<Unsigned>,
 }
 
 impl<E: EventContent> EventBuilder<E>
@@ -74,20 +80,48 @@ where
         self
     }
 
-    pub fn into_raw_timeline(self) -> Raw<AnyTimelineEvent> {
-        let room_id = self.room.expect("we should have a room id at this point");
-        let event_id =
-            self.event_id.unwrap_or_else(|| EventId::new(room_id.server_name().unwrap()));
+    pub fn unsigned_transaction_id(mut self, transaction_id: &TransactionId) -> Self {
+        self.unsigned.get_or_insert_with(Default::default).transaction_id =
+            Some(transaction_id.to_owned());
+        self
+    }
 
-        timeline_event!({
+    #[inline(always)]
+    fn construct_json<T>(self, requires_room: bool) -> Raw<T> {
+        let event_id = self
+            .event_id
+            .or_else(|| {
+                self.room.as_ref().map(|room_id| EventId::new(room_id.server_name().unwrap()))
+            })
+            .unwrap_or_else(|| EventId::new(server_name!("dummy.org")));
+
+        let mut json = json!({
             "type": self.content.event_type(),
             "content": self.content,
             "event_id": event_id,
             "sender": self.sender.expect("we should have a sender user id at this point"),
-            "room_id": room_id,
             "origin_server_ts": self.server_ts,
-            "redacts": self.redacts,
-        })
+        });
+
+        let map = json.as_object_mut().unwrap();
+
+        if requires_room {
+            let room_id = self.room.expect("TimelineEvent requires a room id");
+            map.insert("room_id".to_owned(), json!(room_id));
+        }
+
+        if let Some(redacts) = self.redacts {
+            map.insert("redacts".to_owned(), json!(redacts));
+        }
+        if let Some(unsigned) = self.unsigned {
+            map.insert("unsigned".to_owned(), json!(unsigned));
+        }
+
+        Raw::new(map).unwrap().cast()
+    }
+
+    pub fn into_raw_timeline(self) -> Raw<AnyTimelineEvent> {
+        self.construct_json(true)
     }
 
     pub fn into_timeline(self) -> TimelineEvent {
@@ -95,19 +129,7 @@ where
     }
 
     pub fn into_raw_sync(self) -> Raw<AnySyncTimelineEvent> {
-        let event_id = self
-            .event_id
-            .or_else(|| self.room.map(|room_id| EventId::new(room_id.server_name().unwrap())))
-            .unwrap_or_else(|| EventId::new(server_name!("dummy.org")));
-
-        sync_timeline_event!({
-            "type": self.content.event_type(),
-            "content": self.content,
-            "event_id": event_id,
-            "sender": self.sender.expect("we should have a sender user id at this point"),
-            "origin_server_ts": self.server_ts,
-            "redacts": self.redacts,
-        })
+        self.construct_json(false)
     }
 
     pub fn into_sync(self) -> SyncTimelineEvent {
@@ -211,6 +233,7 @@ impl EventFactory {
             event_id: None,
             redacts: None,
             content,
+            unsigned: None,
         }
     }
 
