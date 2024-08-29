@@ -120,11 +120,11 @@ pub(super) struct TimelineInner<P: RoomDataProvider = Room> {
     pub(crate) room_data_provider: P,
 
     /// Settings applied to this timeline.
-    settings: TimelineInnerSettings,
+    settings: TimelineSettings,
 }
 
 #[derive(Clone)]
-pub(super) struct TimelineInnerSettings {
+pub(super) struct TimelineSettings {
     /// Should the read receipts and read markers be handled?
     pub(super) track_read_receipts: bool,
     /// Event filter that controls what's rendered as a timeline item (and thus
@@ -135,16 +135,16 @@ pub(super) struct TimelineInnerSettings {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl fmt::Debug for TimelineInnerSettings {
+impl fmt::Debug for TimelineSettings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TimelineInnerSettings")
+        f.debug_struct("TimelineSettings")
             .field("track_read_receipts", &self.track_read_receipts)
             .field("add_failed_to_parse", &self.add_failed_to_parse)
             .finish_non_exhaustive()
     }
 }
 
-impl Default for TimelineInnerSettings {
+impl Default for TimelineSettings {
     fn default() -> Self {
         Self {
             track_read_receipts: false,
@@ -416,7 +416,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         matches!(&*self.focus.read().await, TimelineFocusData::Live)
     }
 
-    pub(super) fn with_settings(mut self, settings: TimelineInnerSettings) -> Self {
+    pub(super) fn with_settings(mut self, settings: TimelineSettings) -> Self {
         self.settings = settings;
         self
     }
