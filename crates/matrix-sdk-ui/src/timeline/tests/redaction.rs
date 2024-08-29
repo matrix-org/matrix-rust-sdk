@@ -29,7 +29,7 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    event_item::RemoteEventOrigin, inner::TimelineEnd, AnyOtherFullStateEventContent,
+    controller::TimelineEnd, event_item::RemoteEventOrigin, AnyOtherFullStateEventContent,
     TimelineDetails, TimelineItemContent,
 };
 
@@ -139,7 +139,7 @@ async fn test_reaction_redaction_timeline_filter() {
 
     // Initialise a timeline with a redacted reaction.
     timeline
-        .inner
+        .controller
         .add_events_at(
             vec![SyncTimelineEvent::new(
                 timeline
@@ -151,17 +151,17 @@ async fn test_reaction_redaction_timeline_filter() {
         )
         .await;
     // Timeline items are actually empty.
-    assert_eq!(timeline.inner.items().await.len(), 0);
+    assert_eq!(timeline.controller.items().await.len(), 0);
 
     // Adding a live redacted reaction does nothing.
     timeline.handle_live_redacted_message_event(&ALICE, RedactedReactionEventContent::new()).await;
-    assert_eq!(timeline.inner.items().await.len(), 0);
+    assert_eq!(timeline.controller.items().await.len(), 0);
 
     // Adding a room message
     timeline.handle_live_event(f.text_msg("hi!").sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     // Creates a day divider and the message.
-    assert_eq!(timeline.inner.items().await.len(), 2);
+    assert_eq!(timeline.controller.items().await.len(), 2);
 
     // Reaction is attached to the message and doesn't add a timeline item.
     timeline
@@ -169,13 +169,13 @@ async fn test_reaction_redaction_timeline_filter() {
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     let reaction_event_id = item.event_id().unwrap();
-    assert_eq!(timeline.inner.items().await.len(), 2);
+    assert_eq!(timeline.controller.items().await.len(), 2);
 
     // Redacting the reaction doesn't add a timeline item.
     timeline.handle_live_event(f.redaction(reaction_event_id).sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert_eq!(item.reactions().len(), 0);
-    assert_eq!(timeline.inner.items().await.len(), 2);
+    assert_eq!(timeline.controller.items().await.len(), 2);
 }
 
 #[async_test]
@@ -191,12 +191,12 @@ async fn test_receive_unredacted() {
         .await;
 
     // redact the first one as well
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     assert!(items[0].is_day_divider());
     let fst = items[1].as_event().unwrap();
     timeline.handle_live_event(f.redaction(fst.event_id().unwrap()).sender(&ALICE)).await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     assert_eq!(items.len(), 3);
     let fst = items[1].as_event().unwrap();
     let snd = items[2].as_event().unwrap();
@@ -225,7 +225,7 @@ async fn test_receive_unredacted() {
         .await;
 
     // make sure we still have two redacted events
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     assert_eq!(items.len(), 3);
     assert!(items[1].as_event().unwrap().content.is_redacted());
     assert!(items[2].as_event().unwrap().content.is_redacted());

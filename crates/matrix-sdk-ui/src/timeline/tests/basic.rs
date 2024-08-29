@@ -33,8 +33,8 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
+    controller::{TimelineEnd, TimelineSettings},
     event_item::{AnyOtherFullStateEventContent, RemoteEventOrigin},
-    inner::{TimelineEnd, TimelineSettings},
     tests::{ReadReceiptMap, TestRoomDataProvider},
     MembershipChange, TimelineDetails, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
@@ -46,7 +46,7 @@ async fn test_initial_events() {
 
     let f = &timeline.factory;
     timeline
-        .inner
+        .controller
         .add_events_at(
             vec![f.text_msg("A").sender(*ALICE), f.text_msg("B").sender(*BOB)],
             TimelineEnd::Back,
@@ -89,17 +89,17 @@ async fn test_replace_with_initial_events_and_read_marker() {
     let f = &timeline.factory;
     let ev = f.text_msg("hey").sender(*ALICE).into_sync();
 
-    timeline.inner.add_events_at(vec![ev], TimelineEnd::Back, RemoteEventOrigin::Sync).await;
+    timeline.controller.add_events_at(vec![ev], TimelineEnd::Back, RemoteEventOrigin::Sync).await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     assert_eq!(items.len(), 2);
     assert!(items[0].is_day_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "hey");
 
     let ev = f.text_msg("yo").sender(*BOB).into_sync();
-    timeline.inner.replace_with_initial_remote_events(vec![ev], RemoteEventOrigin::Sync).await;
+    timeline.controller.replace_with_initial_remote_events(vec![ev], RemoteEventOrigin::Sync).await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     assert_eq!(items.len(), 2);
     assert!(items[0].is_day_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "yo");
@@ -284,7 +284,7 @@ async fn test_dedup_pagination() {
     // `Raw<AnySyncTimelineEvent>` before attempting to deserialize.
     timeline.handle_back_paginated_event(event.cast()).await;
 
-    let timeline_items = timeline.inner.items().await;
+    let timeline_items = timeline.controller.items().await;
     assert_eq!(timeline_items.len(), 2);
     assert_matches!(
         timeline_items[0].kind,
@@ -303,7 +303,7 @@ async fn test_dedup_initial() {
     let event_c = f.text_msg("C").sender(*CAROL).into_sync();
 
     timeline
-        .inner
+        .controller
         .add_events_at(
             vec![
                 // two events
@@ -320,7 +320,7 @@ async fn test_dedup_initial() {
         )
         .await;
 
-    let timeline_items = timeline.inner.items().await;
+    let timeline_items = timeline.controller.items().await;
     assert_eq!(timeline_items.len(), 4);
 
     assert!(timeline_items[0].is_day_divider());
@@ -351,11 +351,11 @@ async fn test_internal_id_prefix() {
     let ev_c = f.text_msg("C").sender(*CAROL).into_sync();
 
     timeline
-        .inner
+        .controller
         .add_events_at(vec![ev_a, ev_b, ev_c], TimelineEnd::Back, RemoteEventOrigin::Sync)
         .await;
 
-    let timeline_items = timeline.inner.items().await;
+    let timeline_items = timeline.controller.items().await;
     assert_eq!(timeline_items.len(), 4);
 
     assert!(timeline_items[0].is_day_divider());

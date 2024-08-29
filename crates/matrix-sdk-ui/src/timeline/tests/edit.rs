@@ -52,7 +52,7 @@ async fn test_live_redacted() {
         )
         .await;
 
-    assert_eq!(timeline.inner.items().await.len(), 2);
+    assert_eq!(timeline.controller.items().await.len(), 2);
 
     let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
@@ -187,7 +187,7 @@ async fn test_edit_updates_encryption_info() {
 
     timeline.handle_live_event(original_event).await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     let first_event = items[1].as_event().unwrap();
 
     assert_eq!(
@@ -210,7 +210,7 @@ async fn test_edit_updates_encryption_info() {
 
     timeline.handle_live_event(edit_event).await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     let first_event = items[1].as_event().unwrap();
 
     assert_eq!(

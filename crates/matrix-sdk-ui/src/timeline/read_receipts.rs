@@ -27,7 +27,9 @@ use ruma::{
 use tracing::{debug, error, warn};
 
 use super::{
-    inner::{EventMeta, FullEventMeta, TimelineMetadata, TimelineState, TimelineStateTransaction},
+    controller::{
+        EventMeta, FullEventMeta, TimelineMetadata, TimelineState, TimelineStateTransaction,
+    },
     traits::RoomDataProvider,
     util::{rfind_event_by_id, RelativePosition},
     TimelineItem,

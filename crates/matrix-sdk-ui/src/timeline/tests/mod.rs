@@ -55,11 +55,11 @@ use ruma::{
 use tokio::sync::RwLock;
 
 use super::{
+    controller::{TimelineEnd, TimelineSettings},
     event_handler::TimelineEventKind,
     event_item::RemoteEventOrigin,
-    inner::{TimelineEnd, TimelineSettings},
     traits::RoomDataProvider,
-    EventTimelineItem, Profile, TimelineFocus, TimelineInner, TimelineItem,
+    EventTimelineItem, Profile, TimelineController, TimelineFocus, TimelineItem,
 };
 use crate::{
     timeline::pinned_events_loader::PinnedEventsRoom, unable_to_decrypt_hook::UtdHookManager,
@@ -80,7 +80,7 @@ mod shields;
 mod virt;
 
 struct TestTimeline {
-    inner: TimelineInner<TestRoomDataProvider>,
+    controller: TimelineController<TestRoomDataProvider>,
     event_builder: EventBuilder,
     /// An [`EventFactory`] that can be used for creating events in this
     /// timeline.
@@ -94,12 +94,12 @@ impl TestTimeline {
 
     /// Returns the associated inner data from that [`TestTimeline`].
     fn data(&self) -> &TestRoomDataProvider {
-        &self.inner.room_data_provider
+        &self.controller.room_data_provider
     }
 
     fn with_internal_id_prefix(prefix: String) -> Self {
         Self {
-            inner: TimelineInner::new(
+            controller: TimelineController::new(
                 TestRoomDataProvider::default(),
                 TimelineFocus::Live,
                 Some(prefix),
@@ -113,7 +113,13 @@ impl TestTimeline {
 
     fn with_room_data_provider(room_data_provider: TestRoomDataProvider) -> Self {
         Self {
-            inner: TimelineInner::new(room_data_provider, TimelineFocus::Live, None, None, false),
+            controller: TimelineController::new(
+                room_data_provider,
+                TimelineFocus::Live,
+                None,
+                None,
+                false,
+            ),
             event_builder: EventBuilder::new(),
             factory: EventFactory::new(),
         }
@@ -121,7 +127,7 @@ impl TestTimeline {
 
     fn with_unable_to_decrypt_hook(hook: Arc<UtdHookManager>) -> Self {
         Self {
-            inner: TimelineInner::new(
+            controller: TimelineController::new(
                 TestRoomDataProvider::default(),
                 TimelineFocus::Live,
                 None,
@@ -136,7 +142,7 @@ impl TestTimeline {
     // TODO: this is wrong, see also #3850.
     fn with_is_room_encrypted(encrypted: bool) -> Self {
         Self {
-            inner: TimelineInner::new(
+            controller: TimelineController::new(
                 TestRoomDataProvider::default(),
                 TimelineFocus::Live,
                 None,
@@ -149,25 +155,25 @@ impl TestTimeline {
     }
 
     fn with_settings(mut self, settings: TimelineSettings) -> Self {
-        self.inner = self.inner.with_settings(settings);
+        self.controller = self.controller.with_settings(settings);
         self
     }
 
     async fn subscribe(&self) -> impl Stream<Item = VectorDiff<Arc<TimelineItem>>> {
-        let (items, stream) = self.inner.subscribe().await;
+        let (items, stream) = self.controller.subscribe().await;
         assert_eq!(items.len(), 0, "Please subscribe to TestTimeline before adding items to it");
         stream
     }
 
     async fn subscribe_events(&self) -> impl Stream<Item = VectorDiff<EventTimelineItem>> {
         let (items, stream) =
-            self.inner.subscribe_filter_map(|item| item.as_event().cloned()).await;
+            self.controller.subscribe_filter_map(|item| item.as_event().cloned()).await;
         assert_eq!(items.len(), 0, "Please subscribe to TestTimeline before adding items to it");
         stream
     }
 
     async fn len(&self) -> usize {
-        self.inner.items().await.len()
+        self.controller.items().await.len()
     }
 
     async fn handle_live_redacted_message_event<C>(&self, sender: &UserId, content: C)
@@ -227,12 +233,14 @@ impl TestTimeline {
 
     async fn handle_live_event(&self, event: impl Into<SyncTimelineEvent>) {
         let event = event.into();
-        self.inner.add_events_at(vec![event], TimelineEnd::Back, RemoteEventOrigin::Sync).await;
+        self.controller
+            .add_events_at(vec![event], TimelineEnd::Back, RemoteEventOrigin::Sync)
+            .await;
     }
 
     async fn handle_local_event(&self, content: AnyMessageLikeEventContent) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
-        self.inner
+        self.controller
             .handle_local_event(
                 txn_id.clone(),
                 TimelineEventKind::Message { content, relations: Default::default() },
@@ -244,7 +252,7 @@ impl TestTimeline {
 
     async fn handle_back_paginated_event(&self, event: Raw<AnyTimelineEvent>) {
         let timeline_event = TimelineEvent::new(event.cast());
-        self.inner
+        self.controller
             .add_events_at(vec![timeline_event], TimelineEnd::Front, RemoteEventOrigin::Pagination)
             .await;
     }
@@ -254,14 +262,14 @@ impl TestTimeline {
         receipts: impl IntoIterator<Item = (OwnedEventId, ReceiptType, OwnedUserId, ReceiptThread)>,
     ) {
         let ev_content = self.event_builder.make_receipt_event_content(receipts);
-        self.inner.handle_read_receipts(ev_content).await;
+        self.controller.handle_read_receipts(ev_content).await;
     }
 
     async fn toggle_reaction_local(&self, unique_id: &str, key: &str) -> Result<(), super::Error> {
-        if self.inner.toggle_reaction_local(unique_id, key).await? {
+        if self.controller.toggle_reaction_local(unique_id, key).await? {
             // TODO(bnjbvr): hacky?
             if let Some(event_id) = self
-                .inner
+                .controller
                 .items()
                 .await
                 .iter()
@@ -280,7 +288,7 @@ impl TestTimeline {
     }
 
     async fn handle_room_send_queue_update(&self, update: RoomSendQueueUpdate) {
-        self.inner.handle_room_send_queue_update(update).await
+        self.controller.handle_room_send_queue_update(update).await
     }
 }
 

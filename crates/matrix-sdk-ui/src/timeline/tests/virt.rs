@@ -101,7 +101,7 @@ async fn test_update_read_marker() {
     let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
-    timeline.inner.handle_fully_read_marker(first_event_id.clone()).await;
+    timeline.controller.handle_fully_read_marker(first_event_id.clone()).await;
 
     // Nothing should happen, the marker cannot be added at the end.
 
@@ -113,7 +113,7 @@ async fn test_update_read_marker() {
     let item = assert_next_matches!(stream, VectorDiff::Insert { index: 2, value } => value);
     assert_matches!(item.as_virtual(), Some(VirtualTimelineItem::ReadMarker));
 
-    timeline.inner.handle_fully_read_marker(second_event_id.clone()).await;
+    timeline.controller.handle_fully_read_marker(second_event_id.clone()).await;
 
     // The read marker is removed but not reinserted, because it cannot be added at
     // the end.
@@ -128,20 +128,20 @@ async fn test_update_read_marker() {
     assert_matches!(marker.kind, TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker));
 
     // Nothing should happen if the fully read event is set back to an older event.
-    timeline.inner.handle_fully_read_marker(first_event_id).await;
+    timeline.controller.handle_fully_read_marker(first_event_id).await;
 
     // Nothing should happen if the fully read event isn't found.
-    timeline.inner.handle_fully_read_marker(event_id!("$fake_event_id").to_owned()).await;
+    timeline.controller.handle_fully_read_marker(event_id!("$fake_event_id").to_owned()).await;
 
     // Nothing should happen if the fully read event is referring to an event
     // that has already been marked as fully read.
-    timeline.inner.handle_fully_read_marker(second_event_id).await;
+    timeline.controller.handle_fully_read_marker(second_event_id).await;
 
     timeline.handle_live_event(f.text_msg("D").sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     item.as_event().unwrap();
 
-    timeline.inner.handle_fully_read_marker(third_event_id).await;
+    timeline.controller.handle_fully_read_marker(third_event_id).await;
 
     // The read marker is moved after the third event.
     assert_next_matches!(stream, VectorDiff::Remove { index: 3 });

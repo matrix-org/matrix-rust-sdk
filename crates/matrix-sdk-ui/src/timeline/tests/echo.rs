@@ -30,8 +30,8 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
+    controller::TimelineSettings,
     event_item::{EventSendState, RemoteEventOrigin},
-    inner::TimelineSettings,
     tests::TestRoomDataProvider,
 };
 
@@ -68,7 +68,7 @@ async fn test_remote_echo_full_trip() {
     {
         let some_io_error = Error::Io(io::Error::new(io::ErrorKind::Other, "this is a test"));
         timeline
-            .inner
+            .controller
             .update_event_send_state(
                 &txn_id,
                 EventSendState::SendingFailed {
@@ -93,7 +93,7 @@ async fn test_remote_echo_full_trip() {
     let event_id = event_id!("$W6mZSLWMmfuQQ9jhZWeTxFIM");
     let timestamp = {
         timeline
-            .inner
+            .controller
             .update_event_send_state(
                 &txn_id,
                 EventSendState::Sent { event_id: event_id.to_owned() },
@@ -192,7 +192,7 @@ async fn test_day_divider_duplication() {
         ))
         .await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     assert_eq!(items.len(), 5);
     assert!(items[0].is_day_divider());
     assert!(items[1].is_remote_event());
@@ -209,7 +209,7 @@ async fn test_day_divider_duplication() {
         .await;
 
     // … it should not impact the day dividers.
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     assert_eq!(items.len(), 5);
     assert!(items[0].is_day_divider());
     assert!(items[1].is_remote_event());
@@ -232,7 +232,7 @@ async fn test_day_divider_removed_after_local_echo_disappeared() {
         )
         .await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
 
     assert_eq!(items.len(), 2);
     assert!(items[0].is_day_divider());
@@ -244,7 +244,7 @@ async fn test_day_divider_removed_after_local_echo_disappeared() {
     let txn_id =
         timeline.handle_local_event(RoomMessageEventContent::text_plain("local echo").into()).await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
 
     assert_eq!(items.len(), 4);
     assert!(items[0].is_day_divider());
@@ -259,7 +259,7 @@ async fn test_day_divider_removed_after_local_echo_disappeared() {
         })
         .await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
 
     assert_eq!(items.len(), 2);
     assert!(items[0].is_day_divider());
@@ -280,7 +280,7 @@ async fn test_read_marker_removed_after_local_echo_disappeared() {
     // Use `replace_with_initial_remote_events` which initializes the read marker;
     // other methods don't, by default.
     timeline
-        .inner
+        .controller
         .replace_with_initial_remote_events(
             vec![f
                 .text_msg("msg1")
@@ -292,7 +292,7 @@ async fn test_read_marker_removed_after_local_echo_disappeared() {
         )
         .await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
 
     assert_eq!(items.len(), 2);
     assert!(items[0].is_day_divider());
@@ -304,7 +304,7 @@ async fn test_read_marker_removed_after_local_echo_disappeared() {
     let txn_id =
         timeline.handle_local_event(RoomMessageEventContent::text_plain("local echo").into()).await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
 
     assert_eq!(items.len(), 4);
     assert!(items[0].is_day_divider());
@@ -319,7 +319,7 @@ async fn test_read_marker_removed_after_local_echo_disappeared() {
         })
         .await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
 
     assert_eq!(items.len(), 2);
     assert!(items[0].is_day_divider());
@@ -384,7 +384,7 @@ async fn test_no_reuse_of_counters() {
     assert_next_matches_with_timeout!(stream, VectorDiff::Remove { index: 2 });
 
     // When clearing the timeline, the local echo remains.
-    timeline.inner.clear().await;
+    timeline.controller.clear().await;
 
     assert_next_matches_with_timeout!(stream, VectorDiff::Remove { index: 1 });
 

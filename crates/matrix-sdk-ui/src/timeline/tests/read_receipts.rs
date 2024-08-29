@@ -29,7 +29,7 @@ use ruma::{
 use stream_assert::{assert_next_matches, assert_pending};
 
 use super::{ReadReceiptMap, TestRoomDataProvider, TestTimeline};
-use crate::timeline::inner::TimelineSettings;
+use crate::timeline::controller::TimelineSettings;
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
     match ev {
@@ -123,7 +123,7 @@ async fn test_read_receipts_updates_on_back_paginated_events() {
         )
         .await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     assert_eq!(items.len(), 3);
     assert!(items[0].is_day_divider());
 
@@ -405,7 +405,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
         )
         .await;
 
-    assert_eq!(timeline.inner.items().await.len(), 3);
+    assert_eq!(timeline.controller.items().await.len(), 3);
 
     // The first event only has Carol's receipt.
     let clear_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -437,7 +437,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
     olm_machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
 
     timeline
-        .inner
+        .controller
         .retry_event_decryption_test(
             room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
             olm_machine,
@@ -445,7 +445,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
         )
         .await;
 
-    assert_eq!(timeline.inner.items().await.len(), 2);
+    assert_eq!(timeline.controller.items().await.len(), 2);
 
     // The first event now has both receipts.
     let clear_item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
@@ -482,7 +482,7 @@ async fn test_initial_public_unthreaded_receipt() {
     )
     .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
 
-    let (receipt_event_id, _) = timeline.inner.latest_user_read_receipt(*ALICE).await.unwrap();
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
 
@@ -507,7 +507,7 @@ async fn test_initial_public_main_thread_receipt() {
     )
     .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
 
-    let (receipt_event_id, _) = timeline.inner.latest_user_read_receipt(*ALICE).await.unwrap();
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
 
@@ -532,7 +532,7 @@ async fn test_initial_private_unthreaded_receipt() {
     )
     .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
 
-    let (receipt_event_id, _) = timeline.inner.latest_user_read_receipt(*ALICE).await.unwrap();
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
 
@@ -557,7 +557,7 @@ async fn test_initial_private_main_thread_receipt() {
     )
     .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
 
-    let (receipt_event_id, _) = timeline.inner.latest_user_read_receipt(*ALICE).await.unwrap();
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
 
@@ -576,7 +576,7 @@ async fn test_clear_read_receipts() {
         .handle_live_event(f.event(event_a_content.clone()).sender(*BOB).event_id(event_a_id))
         .await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     assert_eq!(items.len(), 2);
 
     // Implicit read receipt of Bob.
@@ -585,7 +585,7 @@ async fn test_clear_read_receipts() {
     assert!(event_a.read_receipts().get(*BOB).is_some());
 
     // We received a limited timeline.
-    timeline.inner.clear().await;
+    timeline.controller.clear().await;
 
     // New message via sync.
     timeline.handle_live_event(f.text_msg("B").sender(*BOB).event_id(event_b_id)).await;
@@ -601,7 +601,7 @@ async fn test_clear_read_receipts() {
         )
         .await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     assert_eq!(items.len(), 3);
 
     // Old implicit read receipt of Bob is gone.

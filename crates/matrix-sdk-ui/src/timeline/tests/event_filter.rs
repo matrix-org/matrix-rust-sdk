@@ -31,8 +31,8 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    inner::TimelineSettings, AnyOtherFullStateEventContent, TimelineEventTypeFilter, TimelineItem,
-    TimelineItemContent, TimelineItemKind,
+    controller::TimelineSettings, AnyOtherFullStateEventContent, TimelineEventTypeFilter,
+    TimelineItem, TimelineItemContent, TimelineItemKind,
 };
 
 #[async_test]
@@ -88,7 +88,7 @@ async fn test_default_filter() {
 
     // TODO: After adding raw timeline items, check for one here.
 
-    assert_eq!(timeline.inner.items().await.len(), 4);
+    assert_eq!(timeline.controller.items().await.len(), 4);
 }
 
 #[async_test]
@@ -118,7 +118,7 @@ async fn test_filter_always_false() {
         .handle_live_state_event(&ALICE, RoomNameEventContent::new("Alice's room".to_owned()), None)
         .await;
 
-    assert_eq!(timeline.inner.items().await.len(), 0);
+    assert_eq!(timeline.controller.items().await.len(), 0);
 }
 
 #[async_test]
@@ -153,7 +153,7 @@ async fn test_custom_filter() {
         .handle_live_state_event(&ALICE, RoomNameEventContent::new("Alice's room".to_owned()), None)
         .await;
 
-    assert_eq!(timeline.inner.items().await.len(), 3);
+    assert_eq!(timeline.controller.items().await.len(), 3);
 }
 
 #[async_test]
@@ -186,7 +186,7 @@ async fn test_hide_failed_to_parse() {
         }))
         .await;
 
-    assert_eq!(timeline.inner.items().await.len(), 0);
+    assert_eq!(timeline.controller.items().await.len(), 0);
 }
 
 #[async_test]
@@ -287,7 +287,7 @@ async fn test_event_type_filter_exclude_messages() {
 
 impl TestTimeline {
     async fn get_event_items(&self) -> Vec<Arc<TimelineItem>> {
-        self.inner
+        self.controller
             .items()
             .await
             .into_iter()

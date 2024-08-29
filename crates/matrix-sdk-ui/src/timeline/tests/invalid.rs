@@ -48,7 +48,7 @@ async fn test_invalid_edit() {
 
     // Can't easily test the non-arrival of an item using the stream. Instead
     // just assert that there is still just a couple items in the timeline.
-    assert_eq!(timeline.inner.items().await.len(), 2);
+    assert_eq!(timeline.controller.items().await.len(), 2);
 }
 
 #[async_test]
@@ -116,5 +116,5 @@ async fn test_invalid_event() {
             "type": "m.room.message",
         }))
         .await;
-    assert_eq!(timeline.inner.items().await.len(), 0);
+    assert_eq!(timeline.controller.items().await.len(), 0);
 }
