@@ -26,6 +26,7 @@ use crate::{
 mod old_keys;
 mod v0_to_v5;
 mod v10_to_v11;
+mod v11_to_v12;
 mod v5_to_v7;
 mod v7;
 mod v7_to_v8;
@@ -156,6 +157,10 @@ pub async fn open_and_upgrade_db(
         v10_to_v11::schema_bump(name).await?;
     }
 
+    if old_version < 12 {
+        v11_to_v12::schema_add(name).await?;
+    }
+
     // If you add more migrations here, you'll need to update
     // `tests::EXPECTED_SCHEMA_VERSION`.
 
@@ -260,7 +265,7 @@ mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     /// The schema version we expect after we open the store.
-    const EXPECTED_SCHEMA_VERSION: u32 = 11;
+    const EXPECTED_SCHEMA_VERSION: u32 = 12;
 
     /// Adjust this to test do a more comprehensive perf test
     const NUM_RECORDS_FOR_PERF: usize = 2_000;
@@ -545,6 +550,7 @@ mod tests {
         assert_matches_v10_schema(&db_name, &store, &fetched_backed_up_session).await;
 
         // For v12: they have the session_id, sender_key and sender_data_type properties
+        // and they are indexed
         assert_matches_v12_schema(&db_name, &store, &fetched_backed_up_session).await;
     }
 
@@ -577,7 +583,7 @@ mod tests {
         session: &InboundGroupSession,
     ) {
         let db = IdbDatabase::open(&db_name).unwrap().await.unwrap();
-        assert!(db.version() >= 10.0);
+        assert!(db.version() >= 12.0);
         let transaction = db.transaction_on_one("inbound_group_sessions3").unwrap();
         let raw_store = transaction.object_store("inbound_group_sessions3").unwrap();
         let key = store
@@ -603,6 +609,11 @@ mod tests {
             ))
         );
         assert_eq!(idb_object.sender_data_type, Some(session.sender_data_type() as u8));
+        assert!(raw_store
+            .index_names()
+            .find(|idx| idx == "inbound_group_session_sender_key_sender_data_type_idx")
+            .is_some());
+
         db.close();
     }
 
