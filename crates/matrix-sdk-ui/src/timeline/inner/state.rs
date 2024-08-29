@@ -483,12 +483,14 @@ impl TimelineInnerStateTransaction<'_> {
     }
 
     fn clear(&mut self) {
+        let has_local_echoes = self.items.iter().any(|item| item.is_local_echo());
+
         // By first checking if there are any local echoes first, we do a bit
         // more work in case some are found, but it should be worth it because
         // there will often not be any, and only emitting a single
         // `VectorDiff::Clear` should be much more efficient to process for
         // subscribers.
-        if self.items.iter().any(|item| item.is_local_echo()) {
+        if has_local_echoes {
             // Remove all remote events and the read marker
             self.items.for_each(|entry| {
                 if entry.is_remote_event() || entry.is_read_marker() {
@@ -512,7 +514,11 @@ impl TimelineInnerStateTransaction<'_> {
             self.items.clear();
         }
 
-        self.meta.clear();
+        // Only clear the internal counter if there are no local echoes. Otherwise, we
+        // might end up reusing the same internal id for a local echo and
+        // another item.
+        let reset_internal_id = !has_local_echoes;
+        self.meta.clear(reset_internal_id);
 
         debug!(remaining_items = self.items.len(), "Timeline cleared");
     }
@@ -687,8 +693,10 @@ impl TimelineInnerMetadata {
         }
     }
 
-    pub(crate) fn clear(&mut self) {
-        self.next_internal_id = 0;
+    pub(crate) fn clear(&mut self, reset_internal_id: bool) {
+        if reset_internal_id {
+            self.next_internal_id = 0;
+        }
         self.all_events.clear();
         self.reactions.clear();
         self.poll_pending_events.clear();
