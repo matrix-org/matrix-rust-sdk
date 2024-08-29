@@ -56,8 +56,8 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 use tracing::{field, info_span, Instrument as _};
 
 pub(super) use self::state::{
-    EventMeta, FullEventMeta, TimelineEnd, TimelineInnerState, TimelineInnerStateTransaction,
-    TimelineMetadata,
+    EventMeta, FullEventMeta, TimelineEnd, TimelineInnerStateTransaction, TimelineMetadata,
+    TimelineState,
 };
 #[cfg(feature = "e2e-encryption")]
 use super::traits::Decryptor;
@@ -109,7 +109,7 @@ enum TimelineFocusData<P: RoomDataProvider> {
 #[derive(Clone, Debug)]
 pub(super) struct TimelineInner<P: RoomDataProvider = Room> {
     /// Inner mutable state.
-    state: Arc<RwLock<TimelineInnerState>>,
+    state: Arc<RwLock<TimelineState>>,
 
     /// Inner mutable focus state.
     focus: Arc<RwLock<TimelineFocusData<P>>>,
@@ -270,7 +270,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             ),
         };
 
-        let state = TimelineInnerState::new(
+        let state = TimelineState::new(
             focus_kind,
             room_data_provider.room_version(),
             internal_id_prefix,
@@ -1505,7 +1505,7 @@ pub(super) struct HandleManyEventsResult {
 }
 
 async fn fetch_replied_to_event(
-    mut state: RwLockWriteGuard<'_, TimelineInnerState>,
+    mut state: RwLockWriteGuard<'_, TimelineState>,
     index: usize,
     item: &EventTimelineItem,
     internal_id: String,

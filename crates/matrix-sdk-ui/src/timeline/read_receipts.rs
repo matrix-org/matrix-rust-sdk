@@ -28,8 +28,7 @@ use tracing::{debug, error, warn};
 
 use super::{
     inner::{
-        EventMeta, FullEventMeta, TimelineInnerState, TimelineInnerStateTransaction,
-        TimelineMetadata,
+        EventMeta, FullEventMeta, TimelineInnerStateTransaction, TimelineMetadata, TimelineState,
     },
     traits::RoomDataProvider,
     util::{rfind_event_by_id, RelativePosition},
@@ -492,7 +491,7 @@ impl TimelineInnerStateTransaction<'_> {
     }
 }
 
-impl TimelineInnerState {
+impl TimelineState {
     /// Populates our own latest read receipt in the in-memory by-user read
     /// receipt cache.
     pub(super) async fn populate_initial_user_receipt<P: RoomDataProvider>(
