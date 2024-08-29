@@ -1490,7 +1490,7 @@ async fn test_unwedge_unrecoverable_errors() {
     assert!(client.send_queue().is_enabled());
 
     // Unwedge the previously failed message and try sending it again
-    let _ = q.unwedge(&txn1).await;
+    q.unwedge(&txn1).await.unwrap();
 
     // The message should be retried
     assert_update!(watch => retry { txn=txn1 });
