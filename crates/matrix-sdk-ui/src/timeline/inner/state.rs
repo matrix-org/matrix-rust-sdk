@@ -59,7 +59,7 @@ pub(crate) enum TimelineEnd {
 }
 
 #[derive(Debug)]
-pub(in crate::timeline) struct TimelineInnerState {
+pub(in crate::timeline) struct TimelineState {
     pub items: ObservableVector<Arc<TimelineItem>>,
     pub meta: TimelineMetadata,
 
@@ -67,7 +67,7 @@ pub(in crate::timeline) struct TimelineInnerState {
     timeline_focus: TimelineFocusKind,
 }
 
-impl TimelineInnerState {
+impl TimelineState {
     pub(super) fn new(
         timeline_focus: TimelineFocusKind,
         room_version: RoomVersionId,
