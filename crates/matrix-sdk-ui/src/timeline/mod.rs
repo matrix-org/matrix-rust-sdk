@@ -171,14 +171,10 @@ pub enum TimelineFocus {
     Live,
 
     /// Focus on a specific event, e.g. after clicking a permalink.
-    Event {
-        target: OwnedEventId,
-        num_context_events: u16,
-    },
+    Event { target: OwnedEventId, num_context_events: u16 },
 
-    PinnedEvents {
-        max_events_to_load: u16,
-    },
+    /// Only show pinned events.
+    PinnedEvents { max_events_to_load: u16 },
 }
 
 impl Timeline {
