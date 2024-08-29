@@ -16,7 +16,10 @@ use std::{io, sync::Arc};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use matrix_sdk::{send_queue::RoomSendQueueUpdate, test_utils::events::EventFactory, Error};
+use matrix_sdk::{
+    assert_next_matches_with_timeout, send_queue::RoomSendQueueUpdate,
+    test_utils::events::EventFactory, Error,
+};
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     event_id,
@@ -321,4 +324,82 @@ async fn test_read_marker_removed_after_local_echo_disappeared() {
     assert_eq!(items.len(), 2);
     assert!(items[0].is_day_divider());
     assert!(items[1].is_remote_event());
+}
+
+#[async_test]
+async fn test_no_reuse_of_counters() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe().await;
+
+    let now = MilliSecondsSinceUnixEpoch::now();
+
+    // Given a local event…
+    timeline
+        .handle_local_event(AnyMessageLikeEventContent::RoomMessage(
+            RoomMessageEventContent::text_plain("echo"),
+        ))
+        .await;
+
+    // It gets added with a unique id
+    // Timeline = [local]
+    let local_id = assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { value: item } => {
+        let event_item = item.as_event().unwrap();
+        assert!(event_item.is_local_echo());
+        assert_matches!(event_item.send_state(), Some(EventSendState::NotSentYet));
+        assert!(!event_item.can_be_replied_to());
+        item.unique_id().to_owned()
+    });
+
+    // The day divider comes in late.
+    // Timeline = [day-divider local]
+    assert_next_matches_with_timeout!(stream, VectorDiff::PushFront { value } => {
+        assert!(value.is_day_divider());
+    });
+
+    // Add a remote event now.
+    timeline
+        .handle_live_event(
+            timeline
+                .factory
+                .text_msg("hey")
+                .sender(&ALICE)
+                .event_id(event_id!("$1"))
+                .server_ts(now),
+        )
+        .await;
+
+    // Timeline = [remote day-divider local]
+    assert_next_matches_with_timeout!(stream, VectorDiff::PushFront { value: item } => {
+        assert!(!item.as_event().unwrap().is_local_echo());
+        // Both items have a different unique id.
+        assert_ne!(local_id, item.unique_id().to_owned());
+    });
+
+    // Day divider shenanigans.
+    // Timeline = [day-divider remote day-divider local]
+    assert_next_matches_with_timeout!(stream, VectorDiff::PushFront { value } => {
+        assert!(value.is_day_divider());
+    });
+    // Timeline = [day-divider remote local]
+    assert_next_matches_with_timeout!(stream, VectorDiff::Remove { index: 2 });
+
+    // When clearing the timeline, the local echo remains.
+    timeline.inner.clear().await;
+
+    assert_next_matches_with_timeout!(stream, VectorDiff::Remove { index: 1 });
+
+    // The next timeline item comes with a different unique id.
+    timeline
+        .handle_live_event(
+            timeline.factory.text_msg("yo").sender(&ALICE).event_id(event_id!("$2")).server_ts(now),
+        )
+        .await;
+
+    let remote_id = assert_next_matches_with_timeout!(stream, VectorDiff::PushFront { value: item } => {
+        assert!(!item.as_event().unwrap().is_local_echo());
+        item.unique_id().to_owned()
+    });
+
+    // The remote id still isn't the same as the local id.
+    assert_ne!(local_id, remote_id);
 }
