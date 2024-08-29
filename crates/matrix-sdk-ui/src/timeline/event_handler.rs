@@ -267,7 +267,7 @@ pub(super) struct TimelineEventHandler<'a, 'o> {
 }
 
 /// Types of live updates expected in this timeline.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum LiveTimelineUpdatesAllowed {
     All,
     PinnedEvents,
@@ -284,7 +284,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             items,
             meta,
             ctx,
-            live_timeline_updates_type: live_timeline_updates_type.clone(),
+            live_timeline_updates_type: *live_timeline_updates_type,
             result: HandleEventResult::default(),
         }
     }
@@ -312,8 +312,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 span.record("txn_id", debug(txn_id));
                 debug!("Handling local event");
 
-                // Only add new timeline items if we're in the live mode, i.e. not in the
-                // event-focused mode.
+                // Only add new timeline items if we're in the live mode.
                 matches!(self.live_timeline_updates_type, LiveTimelineUpdatesAllowed::All)
             }
 

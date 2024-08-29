@@ -271,7 +271,7 @@ impl TimelineInnerState {
             items,
             previous_meta: &mut self.meta,
             meta,
-            live_timeline_updates_type: self.live_timeline_updates_type.clone(),
+            live_timeline_updates_type: self.live_timeline_updates_type,
         }
     }
 }
