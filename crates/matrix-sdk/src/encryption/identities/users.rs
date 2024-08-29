@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_base::{
-    crypto::{types::MasterPubkey, UserIdentities as CryptoUserIdentities},
+    crypto::{types::MasterPubkey, CryptoStoreError, UserIdentities as CryptoUserIdentities},
     RoomMemberships,
 };
 use ruma::{
@@ -351,6 +351,15 @@ impl UserIdentity {
     /// ```
     pub fn is_verified(&self) -> bool {
         self.inner.identity.is_verified()
+    }
+
+    /// Remove the requirement for this identity to be verified.
+    ///
+    /// If an identity was previously verified and is not any more it will be
+    /// reported to the user. In order to remove this notice users have to
+    /// verify again or to withdraw the verification requirement.
+    pub async fn withdraw_verification(&self) -> Result<(), CryptoStoreError> {
+        self.inner.identity.withdraw_verification().await
     }
 
     /// Get the public part of the Master key of this user identity.

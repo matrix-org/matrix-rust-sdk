@@ -134,14 +134,14 @@ impl From<EventCacheError> for ClientError {
     }
 }
 
-impl From<RoomSendQueueError> for ClientError {
-    fn from(e: RoomSendQueueError) -> Self {
+impl From<EditError> for ClientError {
+    fn from(e: EditError) -> Self {
         Self::new(e)
     }
 }
 
-impl From<EditError> for ClientError {
-    fn from(e: EditError) -> Self {
+impl From<RoomSendQueueError> for ClientError {
+    fn from(e: RoomSendQueueError) -> Self {
         Self::new(e)
     }
 }

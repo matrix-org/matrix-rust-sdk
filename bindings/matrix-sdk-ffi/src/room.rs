@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
 use matrix_sdk::{
+    crypto::LocalTrust,
     event_cache::paginator::PaginatorError,
     room::{
         edit::EditedContent, power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole,
@@ -23,7 +24,7 @@ use ruma::{
         },
         TimelineEventType,
     },
-    EventId, Int, RoomAliasId, UserId,
+    EventId, Int, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomAliasId, UserId,
 };
 use tokio::sync::RwLock;
 use tracing::error;
@@ -735,6 +736,75 @@ impl Room {
             .await?;
 
         self.inner.send_queue().send(replacement_event).await?;
+        Ok(())
+    }
+
+    /// Remove verification requirements for the given users and
+    /// resend messages that failed to send because their identities were no
+    /// longer verified (in response to
+    /// `SessionRecipientCollectionError::VerifiedUserChangedIdentity`)
+    ///
+    /// # Arguments
+    ///
+    /// * `user_ids` - The list of users identifiers received in the error
+    /// * `transaction_id` - The send queue transaction identifier of the local
+    ///   echo the send error applies to
+    pub async fn withdraw_verification_and_resend(
+        &self,
+        user_ids: Vec<String>,
+        transaction_id: String,
+    ) -> Result<(), ClientError> {
+        let transaction_id: OwnedTransactionId = transaction_id.into();
+
+        let user_ids: Vec<OwnedUserId> =
+            user_ids.iter().map(UserId::parse).collect::<Result<_, _>>()?;
+
+        let encryption = self.inner.client().encryption();
+
+        for user_id in user_ids {
+            if let Some(user_identity) = encryption.get_user_identity(&user_id).await? {
+                user_identity.withdraw_verification().await?;
+            }
+        }
+
+        self.inner.send_queue().unwedge(&transaction_id).await?;
+
+        Ok(())
+    }
+
+    /// Set the local trust for the given devices to `LocalTrust::Ignored`
+    /// and resend messages that failed to send because said devices are
+    /// unverified (in response to
+    /// `SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice`).
+    /// # Arguments
+    ///
+    /// * `devices` - The map of users identifiers to device identifiers
+    ///   received in the error
+    /// * `transaction_id` - The send queue transaction identifier of the local
+    ///   echo the send error applies to
+    pub async fn ignore_device_trust_and_resend(
+        &self,
+        devices: HashMap<String, Vec<String>>,
+        transaction_id: String,
+    ) -> Result<(), ClientError> {
+        let transaction_id: OwnedTransactionId = transaction_id.into();
+
+        let encryption = self.inner.client().encryption();
+
+        for (user_id, device_ids) in devices.iter() {
+            let user_id = UserId::parse(user_id)?;
+
+            for device_id in device_ids {
+                let device_id: OwnedDeviceId = device_id.as_str().into();
+
+                if let Some(device) = encryption.get_device(&user_id, &device_id).await? {
+                    device.set_local_trust(LocalTrust::Ignored).await?;
+                }
+            }
+        }
+
+        self.inner.send_queue().unwedge(&transaction_id).await?;
+
         Ok(())
     }
 }

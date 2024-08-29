@@ -566,6 +566,7 @@ impl RoomSendQueue {
             .await
             .map_err(RoomSendQueueError::StorageError)?;
 
+        // Wake up the queue, in case the room was asleep before unwedging the event.
         self.inner.notifier.notify_one();
 
         let _ = self
@@ -693,7 +694,7 @@ impl QueueStorage {
     }
 
     /// Marks an event identified with the given transaction id as being now
-    /// unwedged and adds it back to the queue
+    /// unwedged and adds it back to the queue.
     async fn mark_as_unwedged(
         &self,
         transaction_id: &TransactionId,
