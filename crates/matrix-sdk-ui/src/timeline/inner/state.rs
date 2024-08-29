@@ -26,14 +26,14 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
-use super::{HandleManyEventsResult, TimelineInnerSettings};
+use super::{HandleManyEventsResult, TimelineFocusKind, TimelineInnerSettings};
 use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
         day_dividers::DayDividerAdjuster,
         event_handler::{
-            Flow, HandleEventResult, LiveTimelineUpdatesAllowed, TimelineEventContext,
-            TimelineEventHandler, TimelineEventKind, TimelineItemPosition,
+            Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
+            TimelineItemPosition,
         },
         event_item::RemoteEventOrigin,
         polls::PollPendingEvents,
@@ -63,14 +63,14 @@ pub(in crate::timeline) struct TimelineInnerState {
     pub items: ObservableVector<Arc<TimelineItem>>,
     pub meta: TimelineInnerMetadata,
 
-    /// Which timeline live updates are allowed.
-    pub live_timeline_updates_type: LiveTimelineUpdatesAllowed,
+    /// The kind of focus of this timeline.
+    timeline_focus: TimelineFocusKind,
 }
 
 impl TimelineInnerState {
     pub(super) fn new(
+        timeline_focus: TimelineFocusKind,
         room_version: RoomVersionId,
-        live_timeline_updates_type: LiveTimelineUpdatesAllowed,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
@@ -86,7 +86,7 @@ impl TimelineInnerState {
                 unable_to_decrypt_hook,
                 is_room_encrypted,
             ),
-            live_timeline_updates_type,
+            timeline_focus,
         }
     }
 
@@ -271,7 +271,7 @@ impl TimelineInnerState {
             items,
             previous_meta: &mut self.meta,
             meta,
-            live_timeline_updates_type: self.live_timeline_updates_type,
+            timeline_focus: self.timeline_focus,
         }
     }
 }
@@ -286,11 +286,11 @@ pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
     /// [`Self::commit`].
     pub meta: TimelineInnerMetadata,
 
-    /// Which timeline live updates are allowed.
-    pub live_timeline_updates_type: LiveTimelineUpdatesAllowed,
-
     /// Pointer to the previous meta, only used during [`Self::commit`].
     previous_meta: &'a mut TimelineInnerMetadata,
+
+    /// The kind of focus of this timeline.
+    timeline_focus: TimelineFocusKind,
 }
 
 impl TimelineInnerStateTransaction<'_> {
@@ -381,20 +381,29 @@ impl TimelineInnerStateTransaction<'_> {
 
                     match origin {
                         RemoteEventOrigin::Sync | RemoteEventOrigin::Unknown => {
-                            // If the event comes the sync (or is unknown), consider adding it only
-                            // if the timeline is in live mode; we don't want to display arbitrary
-                            // sync events in an event-focused timeline.
-                            should_add = match self.live_timeline_updates_type {
-                                LiveTimelineUpdatesAllowed::PinnedEvents => {
+                            should_add = match self.timeline_focus {
+                                TimelineFocusKind::PinnedEvents => {
+                                    // Only insert timeline items for pinned events, if the event
+                                    // came from the sync.
                                     room_data_provider.is_pinned_event(&event_id)
                                 }
-                                LiveTimelineUpdatesAllowed::All => true,
-                                LiveTimelineUpdatesAllowed::None => false,
+
+                                TimelineFocusKind::Live => {
+                                    // Always add new items to a live timeline receiving items from
+                                    // sync.
+                                    true
+                                }
+
+                                TimelineFocusKind::Event => {
+                                    // Never add any item to a focused timeline when the item comes
+                                    // down from the sync.
+                                    false
+                                }
                             };
                         }
+
                         RemoteEventOrigin::Pagination | RemoteEventOrigin::Cache => {
-                            // Otherwise, forward the previous decision to add
-                            // it.
+                            // Forward the previous decision to add it.
                         }
                     }
                 }

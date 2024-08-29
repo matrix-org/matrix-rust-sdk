@@ -73,7 +73,6 @@ use super::{
 use crate::{
     timeline::{
         day_dividers::DayDividerAdjuster,
-        event_handler::LiveTimelineUpdatesAllowed,
         event_item::EventTimelineItemKind,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
         reactions::FullReactionKey,
@@ -153,6 +152,13 @@ impl Default for TimelineInnerSettings {
             add_failed_to_parse: true,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum TimelineFocusKind {
+    Live,
+    Event,
+    PinnedEvents,
 }
 
 /// The default event filter for
@@ -242,14 +248,14 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
     ) -> Self {
-        let (focus_data, allowed_live_updates) = match focus {
-            TimelineFocus::Live => (TimelineFocusData::Live, LiveTimelineUpdatesAllowed::All),
+        let (focus_data, focus_kind) = match focus {
+            TimelineFocus::Live => (TimelineFocusData::Live, TimelineFocusKind::Live),
 
             TimelineFocus::Event { target, num_context_events } => {
                 let paginator = Paginator::new(room_data_provider.clone());
                 (
                     TimelineFocusData::Event { paginator, event_id: target, num_context_events },
-                    LiveTimelineUpdatesAllowed::None,
+                    TimelineFocusKind::Event,
                 )
             }
 
@@ -260,13 +266,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                         max_events_to_load as usize,
                     ),
                 },
-                LiveTimelineUpdatesAllowed::PinnedEvents,
+                TimelineFocusKind::PinnedEvents,
             ),
         };
 
         let state = TimelineInnerState::new(
+            focus_kind,
             room_data_provider.room_version(),
-            allowed_live_updates,
             internal_id_prefix,
             unable_to_decrypt_hook,
             is_room_encrypted,

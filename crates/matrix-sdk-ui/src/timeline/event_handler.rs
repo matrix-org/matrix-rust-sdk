@@ -263,14 +263,6 @@ pub(super) struct TimelineEventHandler<'a, 'o> {
     result: HandleEventResult,
 }
 
-/// Types of live updates expected in this timeline.
-#[derive(Debug, Clone, Copy)]
-pub enum LiveTimelineUpdatesAllowed {
-    All,
-    PinnedEvents,
-    None,
-}
-
 impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     pub(super) fn new(
         state: &'a mut TimelineInnerStateTransaction<'o>,
