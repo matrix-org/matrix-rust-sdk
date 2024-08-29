@@ -156,14 +156,14 @@ impl TimelineInnerState {
 
     /// Adds a local echo (for an event) to the timeline.
     #[instrument(skip_all)]
-    pub(super) async fn handle_local_event<P: RoomDataProvider>(
+    pub(super) async fn handle_local_event(
         &mut self,
         own_user_id: OwnedUserId,
         own_profile: Option<Profile>,
+        should_add_new_items: bool,
         txn_id: OwnedTransactionId,
         send_handle: Option<SendHandle>,
         content: TimelineEventKind,
-        room_data_provider: &P,
     ) {
         let ctx = TimelineEventContext {
             sender: own_user_id,
@@ -174,6 +174,7 @@ impl TimelineInnerState {
             // An event sent by ourselves is never matched against push rules.
             is_highlighted: false,
             flow: Flow::Local { txn_id, send_handle },
+            should_add_new_items,
         };
 
         let mut txn = self.transaction();
@@ -187,7 +188,6 @@ impl TimelineInnerState {
                 // Local events are never UTD, so no need to pass in a raw_event - this is only
                 // used to determine the type of UTD if there is one.
                 None,
-                room_data_provider,
             )
             .await;
 
@@ -360,10 +360,47 @@ impl TimelineInnerStateTransaction<'_> {
         let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
         {
             Ok(event) => {
+                let event_id = event.event_id().to_owned();
                 let room_version = room_data_provider.room_version();
-                let should_add = (settings.event_filter)(&event, &room_version);
+
+                let mut should_add = (settings.event_filter)(&event, &room_version);
+
+                if should_add {
+                    // Retrieve the origin of the event.
+                    let origin = match position {
+                        TimelineItemPosition::End { origin }
+                        | TimelineItemPosition::Start { origin } => origin,
+
+                        TimelineItemPosition::Update(idx) => self
+                            .items
+                            .get(idx)
+                            .and_then(|item| item.as_event())
+                            .and_then(|item| item.as_remote())
+                            .map_or(RemoteEventOrigin::Unknown, |item| item.origin),
+                    };
+
+                    match origin {
+                        RemoteEventOrigin::Sync | RemoteEventOrigin::Unknown => {
+                            // If the event comes the sync (or is unknown), consider adding it only
+                            // if the timeline is in live mode; we don't want to display arbitrary
+                            // sync events in an event-focused timeline.
+                            should_add = match self.live_timeline_updates_type {
+                                LiveTimelineUpdatesAllowed::PinnedEvents => {
+                                    room_data_provider.is_pinned_event(&event_id)
+                                }
+                                LiveTimelineUpdatesAllowed::All => true,
+                                LiveTimelineUpdatesAllowed::None => false,
+                            };
+                        }
+                        RemoteEventOrigin::Pagination | RemoteEventOrigin::Cache => {
+                            // Otherwise, forward the previous decision to add
+                            // it.
+                        }
+                    }
+                }
+
                 (
-                    event.event_id().to_owned(),
+                    event_id,
                     event.sender().to_owned(),
                     event.origin_server_ts(),
                     event.transaction_id().map(ToOwned::to_owned),
@@ -473,12 +510,12 @@ impl TimelineInnerStateTransaction<'_> {
                 encryption_info: event.encryption_info,
                 txn_id,
                 position,
-                should_add,
             },
+            should_add_new_items: should_add,
         };
 
         TimelineEventHandler::new(self, ctx)
-            .handle_event(day_divider_adjuster, event_kind, Some(&raw), room_data_provider)
+            .handle_event(day_divider_adjuster, event_kind, Some(&raw))
             .await
     }
 

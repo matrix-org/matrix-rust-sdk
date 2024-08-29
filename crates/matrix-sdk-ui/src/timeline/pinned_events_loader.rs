@@ -24,8 +24,6 @@ use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
 use thiserror::Error;
 use tracing::{debug, warn};
 
-use crate::timeline::event_handler::TimelineEventKind;
-
 const MAX_CONCURRENT_REQUESTS: usize = 10;
 
 /// Utility to load the pinned events in a room.
@@ -130,22 +128,6 @@ pub trait PinnedEventsRoom: SendOutsideWasm + SyncOutsideWasm {
     /// It avoids having to clone the whole list of event ids to check a single
     /// value.
     fn is_pinned_event(&self, event_id: &EventId) -> bool;
-
-    /// Returns whether the passed `event_kind` is either an edit or a redaction
-    /// of a pinned event.
-    fn is_replacement_for_pinned_event(&self, event_kind: &TimelineEventKind) -> bool {
-        match event_kind {
-            TimelineEventKind::Message { relations, .. } => {
-                if let Some(orig_ev) = &relations.replace {
-                    self.is_pinned_event(orig_ev.event_id())
-                } else {
-                    false
-                }
-            }
-            TimelineEventKind::Redaction { redacts } => self.is_pinned_event(redacts),
-            _ => false,
-        }
-    }
 }
 
 impl PinnedEventsRoom for Room {

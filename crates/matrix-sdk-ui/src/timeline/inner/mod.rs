@@ -691,16 +691,12 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         let sender = self.room_data_provider.own_user_id().to_owned();
         let profile = self.room_data_provider.profile_from_user_id(&sender).await;
 
+        // Only add new items if the timeline is live.
+        let should_add_new_items = self.is_live().await;
+
         let mut state = self.state.write().await;
         state
-            .handle_local_event(
-                sender,
-                profile,
-                txn_id,
-                send_handle,
-                content,
-                &self.room_data_provider,
-            )
+            .handle_local_event(sender, profile, should_add_new_items, txn_id, send_handle, content)
             .await;
     }
 
