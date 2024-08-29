@@ -53,7 +53,7 @@ use super::{
         LocalEventTimelineItem, Profile, ReactionsByKeyBySender, RemoteEventOrigin,
         RemoteEventTimelineItem, TimelineEventItemId,
     },
-    inner::{TimelineInnerStateTransaction, TimelineMetadata},
+    inner::{TimelineMetadata, TimelineStateTransaction},
     polls::PollState,
     reactions::FullReactionKey,
     util::{rfind_event_by_id, rfind_event_item},
@@ -271,10 +271,10 @@ pub(super) struct TimelineEventHandler<'a, 'o> {
 
 impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     pub(super) fn new(
-        state: &'a mut TimelineInnerStateTransaction<'o>,
+        state: &'a mut TimelineStateTransaction<'o>,
         ctx: TimelineEventContext,
     ) -> Self {
-        let TimelineInnerStateTransaction { items, meta, .. } = state;
+        let TimelineStateTransaction { items, meta, .. } = state;
         Self { items, meta, ctx, result: HandleEventResult::default() }
     }
 

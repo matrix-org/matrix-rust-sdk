@@ -27,9 +27,7 @@ use ruma::{
 use tracing::{debug, error, warn};
 
 use super::{
-    inner::{
-        EventMeta, FullEventMeta, TimelineInnerStateTransaction, TimelineMetadata, TimelineState,
-    },
+    inner::{EventMeta, FullEventMeta, TimelineMetadata, TimelineState, TimelineStateTransaction},
     traits::RoomDataProvider,
     util::{rfind_event_by_id, RelativePosition},
     TimelineItem,
@@ -343,7 +341,7 @@ impl ReadReceiptTimelineUpdate {
     }
 }
 
-impl TimelineInnerStateTransaction<'_> {
+impl TimelineStateTransaction<'_> {
     pub(super) fn handle_explicit_read_receipts(
         &mut self,
         receipt_event_content: ReceiptEventContent,
