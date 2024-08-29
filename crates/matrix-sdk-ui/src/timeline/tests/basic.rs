@@ -34,7 +34,7 @@ use stream_assert::assert_next_matches;
 use super::TestTimeline;
 use crate::timeline::{
     event_item::{AnyOtherFullStateEventContent, RemoteEventOrigin},
-    inner::{TimelineEnd, TimelineInnerSettings},
+    inner::{TimelineEnd, TimelineSettings},
     tests::{ReadReceiptMap, TestRoomDataProvider},
     MembershipChange, TimelineDetails, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
@@ -84,7 +84,7 @@ async fn test_replace_with_initial_events_and_read_marker() {
             .with_fully_read_marker(event_id)
             .with_initial_user_receipts(receipts),
     )
-    .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
+    .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
 
     let f = &timeline.factory;
     let ev = f.text_msg("hey").sender(*ALICE).into_sync();

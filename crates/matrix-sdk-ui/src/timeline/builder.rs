@@ -27,7 +27,7 @@ use tracing::{info, info_span, trace, warn, Instrument, Span};
 #[cfg(feature = "e2e-encryption")]
 use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
 use super::{
-    inner::{TimelineInner, TimelineInnerSettings},
+    inner::{TimelineInner, TimelineSettings},
     Error, Timeline, TimelineDropHandle, TimelineFocus,
 };
 use crate::{
@@ -41,7 +41,7 @@ use crate::{
 #[derive(Debug)]
 pub struct TimelineBuilder {
     room: Room,
-    settings: TimelineInnerSettings,
+    settings: TimelineSettings,
     focus: TimelineFocus,
 
     /// An optional hook to call whenever we run into an unable-to-decrypt or a
@@ -56,7 +56,7 @@ impl TimelineBuilder {
     pub(super) fn new(room: &Room) -> Self {
         Self {
             room: room.clone(),
-            settings: TimelineInnerSettings::default(),
+            settings: TimelineSettings::default(),
             unable_to_decrypt_hook: None,
             focus: TimelineFocus::Live,
             internal_id_prefix: None,

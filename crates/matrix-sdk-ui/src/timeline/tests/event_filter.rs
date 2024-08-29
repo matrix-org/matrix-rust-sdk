@@ -31,8 +31,8 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    inner::TimelineInnerSettings, AnyOtherFullStateEventContent, TimelineEventTypeFilter,
-    TimelineItem, TimelineItemContent, TimelineItemKind,
+    inner::TimelineSettings, AnyOtherFullStateEventContent, TimelineEventTypeFilter, TimelineItem,
+    TimelineItemContent, TimelineItemKind,
 };
 
 #[async_test]
@@ -93,7 +93,7 @@ async fn test_default_filter() {
 
 #[async_test]
 async fn test_filter_always_false() {
-    let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
+    let timeline = TestTimeline::new().with_settings(TimelineSettings {
         event_filter: Arc::new(|_, _| false),
         ..Default::default()
     });
@@ -124,7 +124,7 @@ async fn test_filter_always_false() {
 #[async_test]
 async fn test_custom_filter() {
     // Filter out all state events.
-    let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
+    let timeline = TestTimeline::new().with_settings(TimelineSettings {
         event_filter: Arc::new(|ev, _| matches!(ev, AnySyncTimelineEvent::MessageLike(_))),
         ..Default::default()
     });
@@ -159,7 +159,7 @@ async fn test_custom_filter() {
 #[async_test]
 async fn test_hide_failed_to_parse() {
     let timeline = TestTimeline::new()
-        .with_settings(TimelineInnerSettings { add_failed_to_parse: false, ..Default::default() });
+        .with_settings(TimelineSettings { add_failed_to_parse: false, ..Default::default() });
 
     // m.room.message events must have a msgtype and body in content, so this
     // event with an empty content object should fail to deserialize.
@@ -194,7 +194,7 @@ async fn test_event_type_filter_include_only_room_names() {
     // Only return room name events
     let event_filter = TimelineEventTypeFilter::Include(vec![TimelineEventType::RoomName]);
 
-    let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
+    let timeline = TestTimeline::new().with_settings(TimelineSettings {
         event_filter: Arc::new(move |event, _| event_filter.filter(event)),
         ..Default::default()
     });
@@ -242,7 +242,7 @@ async fn test_event_type_filter_exclude_messages() {
     // Don't return any messages
     let event_filter = TimelineEventTypeFilter::Exclude(vec![TimelineEventType::RoomMessage]);
 
-    let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
+    let timeline = TestTimeline::new().with_settings(TimelineSettings {
         event_filter: Arc::new(move |event, _| event_filter.filter(event)),
         ..Default::default()
     });

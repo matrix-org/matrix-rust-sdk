@@ -31,7 +31,7 @@ use stream_assert::assert_next_matches;
 use super::TestTimeline;
 use crate::timeline::{
     event_item::{EventSendState, RemoteEventOrigin},
-    inner::TimelineInnerSettings,
+    inner::TimelineSettings,
     tests::TestRoomDataProvider,
 };
 
@@ -273,7 +273,7 @@ async fn test_read_marker_removed_after_local_echo_disappeared() {
     let timeline = TestTimeline::with_room_data_provider(
         TestRoomDataProvider::default().with_fully_read_marker(event_id.to_owned()),
     )
-    .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
+    .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
 
     let f = &timeline.factory;
 

@@ -29,7 +29,7 @@ use ruma::{
 use stream_assert::{assert_next_matches, assert_pending};
 
 use super::{ReadReceiptMap, TestRoomDataProvider, TestTimeline};
-use crate::timeline::inner::TimelineInnerSettings;
+use crate::timeline::inner::TimelineSettings;
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
     match ev {
@@ -43,7 +43,7 @@ fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bo
 #[async_test]
 async fn test_read_receipts_updates_on_live_events() {
     let timeline = TestTimeline::new()
-        .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
+        .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -104,7 +104,7 @@ async fn test_read_receipts_updates_on_live_events() {
 #[async_test]
 async fn test_read_receipts_updates_on_back_paginated_events() {
     let timeline = TestTimeline::new()
-        .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
+        .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
     let room_id = room_id!("!room:localhost");
 
     let f = EventFactory::new().room(room_id);
@@ -140,7 +140,7 @@ async fn test_read_receipts_updates_on_back_paginated_events() {
 
 #[async_test]
 async fn test_read_receipts_updates_on_filtered_events() {
-    let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
+    let timeline = TestTimeline::new().with_settings(TimelineSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_notice),
         ..Default::default()
@@ -221,7 +221,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
 
 #[async_test]
 async fn test_read_receipts_updates_on_filtered_events_with_stored() {
-    let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
+    let timeline = TestTimeline::new().with_settings(TimelineSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_notice),
         ..Default::default()
@@ -273,7 +273,7 @@ async fn test_read_receipts_updates_on_filtered_events_with_stored() {
 
 #[async_test]
 async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
-    let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
+    let timeline = TestTimeline::new().with_settings(TimelineSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_notice),
         ..Default::default()
@@ -370,7 +370,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
         HztoSJUr/2Y\n\
         -----END MEGOLM SESSION DATA-----";
 
-    let timeline = TestTimeline::new().with_settings(TimelineInnerSettings {
+    let timeline = TestTimeline::new().with_settings(TimelineSettings {
         track_read_receipts: true,
         event_filter: Arc::new(filter_text_msg),
         ..Default::default()
@@ -480,7 +480,7 @@ async fn test_initial_public_unthreaded_receipt() {
     let timeline = TestTimeline::with_room_data_provider(
         TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts),
     )
-    .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
+    .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
 
     let (receipt_event_id, _) = timeline.inner.latest_user_read_receipt(*ALICE).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
@@ -505,7 +505,7 @@ async fn test_initial_public_main_thread_receipt() {
     let timeline = TestTimeline::with_room_data_provider(
         TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts),
     )
-    .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
+    .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
 
     let (receipt_event_id, _) = timeline.inner.latest_user_read_receipt(*ALICE).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
@@ -530,7 +530,7 @@ async fn test_initial_private_unthreaded_receipt() {
     let timeline = TestTimeline::with_room_data_provider(
         TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts),
     )
-    .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
+    .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
 
     let (receipt_event_id, _) = timeline.inner.latest_user_read_receipt(*ALICE).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
@@ -555,7 +555,7 @@ async fn test_initial_private_main_thread_receipt() {
     let timeline = TestTimeline::with_room_data_provider(
         TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts),
     )
-    .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
+    .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
 
     let (receipt_event_id, _) = timeline.inner.latest_user_read_receipt(*ALICE).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
@@ -568,7 +568,7 @@ async fn test_clear_read_receipts() {
     let event_b_id = event_id!("$event_b");
 
     let timeline = TestTimeline::new()
-        .with_settings(TimelineInnerSettings { track_read_receipts: true, ..Default::default() });
+        .with_settings(TimelineSettings { track_read_receipts: true, ..Default::default() });
     let f = &timeline.factory;
 
     let event_a_content = RoomMessageEventContent::text_plain("A");

@@ -57,7 +57,7 @@ use tokio::sync::RwLock;
 use super::{
     event_handler::TimelineEventKind,
     event_item::RemoteEventOrigin,
-    inner::{TimelineEnd, TimelineInnerSettings},
+    inner::{TimelineEnd, TimelineSettings},
     traits::RoomDataProvider,
     EventTimelineItem, Profile, TimelineFocus, TimelineInner, TimelineItem,
 };
@@ -148,7 +148,7 @@ impl TestTimeline {
         }
     }
 
-    fn with_settings(mut self, settings: TimelineInnerSettings) -> Self {
+    fn with_settings(mut self, settings: TimelineSettings) -> Self {
         self.inner = self.inner.with_settings(settings);
         self
     }

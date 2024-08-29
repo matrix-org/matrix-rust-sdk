@@ -26,7 +26,7 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
-use super::{HandleManyEventsResult, TimelineFocusKind, TimelineInnerSettings};
+use super::{HandleManyEventsResult, TimelineFocusKind, TimelineSettings};
 use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
@@ -102,7 +102,7 @@ impl TimelineInnerState {
         position: TimelineEnd,
         origin: RemoteEventOrigin,
         room_data_provider: &P,
-        settings: &TimelineInnerSettings,
+        settings: &TimelineSettings,
     ) -> HandleManyEventsResult {
         if events.is_empty() {
             return Default::default();
@@ -203,7 +203,7 @@ impl TimelineInnerState {
         retry_indices: Vec<usize>,
         push_rules_context: Option<(ruma::push::Ruleset, ruma::push::PushConditionRoomCtx)>,
         room_data_provider: &P,
-        settings: &TimelineInnerSettings,
+        settings: &TimelineSettings,
     ) where
         Fut: Future<Output = Option<TimelineEvent>>,
     {
@@ -306,7 +306,7 @@ impl TimelineInnerStateTransaction<'_> {
         position: TimelineEnd,
         origin: RemoteEventOrigin,
         room_data_provider: &P,
-        settings: &TimelineInnerSettings,
+        settings: &TimelineSettings,
     ) -> HandleManyEventsResult {
         let mut total = HandleManyEventsResult::default();
 
@@ -353,7 +353,7 @@ impl TimelineInnerStateTransaction<'_> {
         event: SyncTimelineEvent,
         position: TimelineItemPosition,
         room_data_provider: &P,
-        settings: &TimelineInnerSettings,
+        settings: &TimelineSettings,
         day_divider_adjuster: &mut DayDividerAdjuster,
     ) -> HandleEventResult {
         let raw = event.event;
@@ -602,7 +602,7 @@ impl TimelineInnerStateTransaction<'_> {
         event_meta: FullEventMeta<'_>,
         position: TimelineItemPosition,
         room_data_provider: &P,
-        settings: &TimelineInnerSettings,
+        settings: &TimelineSettings,
     ) -> bool {
         // Detect if an event already exists in [`TimelineMetadata::all_events`].
         //
