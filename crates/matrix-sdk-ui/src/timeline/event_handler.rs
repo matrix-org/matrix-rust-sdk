@@ -65,7 +65,6 @@ use crate::{
     timeline::{
         event_item::{ReactionInfo, ReactionStatus},
         reactions::PendingReaction,
-        traits::RoomDataProvider,
     },
     DEFAULT_SANITIZER_MODE,
 };
@@ -95,8 +94,6 @@ pub(super) enum Flow {
         position: TimelineItemPosition,
         /// Information about the encryption for this event.
         encryption_info: Option<EncryptionInfo>,
-        /// Should this event actually be added, based on the event filters.
-        should_add: bool,
     },
 }
 
@@ -108,6 +105,7 @@ pub(super) struct TimelineEventContext {
     pub(super) read_receipts: IndexMap<OwnedUserId, Receipt>,
     pub(super) is_highlighted: bool,
     pub(super) flow: Flow,
+    pub(super) should_add_new_items: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -263,7 +261,6 @@ pub(super) struct TimelineEventHandler<'a, 'o> {
     meta: &'a mut TimelineInnerMetadata,
     ctx: TimelineEventContext,
     result: HandleEventResult,
-    live_timeline_updates_type: LiveTimelineUpdatesAllowed,
 }
 
 /// Types of live updates expected in this timeline.
@@ -279,14 +276,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         state: &'a mut TimelineInnerStateTransaction<'o>,
         ctx: TimelineEventContext,
     ) -> Self {
-        let TimelineInnerStateTransaction { items, meta, live_timeline_updates_type, .. } = state;
-        Self {
-            items,
-            meta,
-            ctx,
-            live_timeline_updates_type: *live_timeline_updates_type,
-            result: HandleEventResult::default(),
-        }
+        let TimelineInnerStateTransaction { items, meta, .. } = state;
+        Self { items, meta, ctx, result: HandleEventResult::default() }
     }
 
     /// Handle an event.
@@ -296,70 +287,33 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// `raw_event` is only needed to determine the cause of any UTDs,
     /// so if we know this is not a UTD it can be None.
     #[instrument(skip_all, fields(txn_id, event_id, position))]
-    pub(super) async fn handle_event<P: RoomDataProvider>(
+    pub(super) async fn handle_event(
         mut self,
         day_divider_adjuster: &mut DayDividerAdjuster,
         event_kind: TimelineEventKind,
         raw_event: Option<&Raw<AnySyncTimelineEvent>>,
-        room_data_provider: &P,
     ) -> HandleEventResult {
         let span = tracing::Span::current();
 
         day_divider_adjuster.mark_used();
 
-        let should_add = match &self.ctx.flow {
+        match &self.ctx.flow {
             Flow::Local { txn_id, .. } => {
                 span.record("txn_id", debug(txn_id));
                 debug!("Handling local event");
-
-                // Only add new timeline items if we're in the live mode.
-                matches!(self.live_timeline_updates_type, LiveTimelineUpdatesAllowed::All)
             }
 
-            Flow::Remote { event_id, txn_id, position, should_add, .. } => {
+            Flow::Remote { event_id, txn_id, position, .. } => {
                 span.record("event_id", debug(event_id));
                 span.record("position", debug(position));
                 if let Some(txn_id) = txn_id {
                     span.record("txn_id", debug(txn_id));
                 }
                 trace!("Handling remote event");
-
-                // Retrieve the origin of the event.
-                let origin = match position {
-                    TimelineItemPosition::End { origin }
-                    | TimelineItemPosition::Start { origin } => *origin,
-
-                    TimelineItemPosition::Update(idx) => self
-                        .items
-                        .get(*idx)
-                        .and_then(|item| item.as_event())
-                        .and_then(|item| item.as_remote())
-                        .map_or(RemoteEventOrigin::Unknown, |item| item.origin),
-                };
-
-                match origin {
-                    RemoteEventOrigin::Sync | RemoteEventOrigin::Unknown => {
-                        // If the event comes the sync (or is unknown), consider adding it only if
-                        // the timeline is in live mode; we don't want to display arbitrary sync
-                        // events in an event-focused timeline.
-                        let can_add_to_live = match self.live_timeline_updates_type {
-                            LiveTimelineUpdatesAllowed::PinnedEvents => {
-                                room_data_provider.is_pinned_event(event_id)
-                                    || room_data_provider
-                                        .is_replacement_for_pinned_event(&event_kind)
-                            }
-                            LiveTimelineUpdatesAllowed::All => true,
-                            LiveTimelineUpdatesAllowed::None => false,
-                        };
-                        can_add_to_live && *should_add
-                    }
-                    RemoteEventOrigin::Pagination | RemoteEventOrigin::Cache => {
-                        // Otherwise, forward the previous decision to add it.
-                        *should_add
-                    }
-                }
             }
         };
+
+        let should_add = self.ctx.should_add_new_items;
 
         match event_kind {
             TimelineEventKind::Message { content, relations } => match content {
