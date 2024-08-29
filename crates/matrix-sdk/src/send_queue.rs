@@ -556,6 +556,20 @@ impl RoomSendQueue {
             self.inner.notifier.notify_one();
         }
     }
+
+    /// Unwedge a local echo identified by its transaction identifier and try to
+    /// resend it.
+    pub async fn unwedge(&self, transaction_id: &TransactionId) -> Result<(), RoomSendQueueError> {
+        self.inner
+            .queue
+            .mark_as_unwedged(transaction_id)
+            .await
+            .map_err(RoomSendQueueError::StorageError)?;
+
+        self.inner.notifier.notify_one();
+
+        Ok(())
+    }
 }
 
 struct RoomSendQueueInner {
@@ -670,6 +684,19 @@ impl QueueStorage {
             .client()?
             .store()
             .update_send_queue_event_status(&self.room_id, transaction_id, true)
+            .await?)
+    }
+
+    /// Marks an event identified with the given transaction id as being now
+    /// unwedged and adds it back to the queue
+    async fn mark_as_unwedged(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> Result<(), RoomSendQueueStorageError> {
+        Ok(self
+            .client()?
+            .store()
+            .update_send_queue_event_status(&self.room_id, transaction_id, false)
             .await?)
     }
 
