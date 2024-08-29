@@ -568,6 +568,11 @@ impl RoomSendQueue {
 
         self.inner.notifier.notify_one();
 
+        let _ = self
+            .inner
+            .updates
+            .send(RoomSendQueueUpdate::RetryEvent { transaction_id: transaction_id.to_owned() });
+
         Ok(())
     }
 }
@@ -1192,6 +1197,12 @@ pub enum RoomSendQueueUpdate {
         /// while an unrecoverable error will be parked, until the user
         /// decides to cancel sending it.
         is_recoverable: bool,
+    },
+
+    /// The event has been unwedged and sending is now being retried.
+    RetryEvent {
+        /// Transaction id used to identify this event.
+        transaction_id: OwnedTransactionId,
     },
 
     /// The event has been sent to the server, and the query returned

@@ -1331,6 +1331,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .await;
             }
 
+            RoomSendQueueUpdate::RetryEvent { transaction_id } => {
+                self.update_event_send_state(&transaction_id, EventSendState::NotSentYet).await;
+            }
+
             RoomSendQueueUpdate::SentEvent { transaction_id, event_id } => {
                 self.update_event_send_state(&transaction_id, EventSendState::Sent { event_id })
                     .await;
