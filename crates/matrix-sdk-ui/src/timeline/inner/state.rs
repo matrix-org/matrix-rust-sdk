@@ -264,10 +264,10 @@ impl TimelineState {
         txn.commit();
     }
 
-    pub(super) fn transaction(&mut self) -> TimelineInnerStateTransaction<'_> {
+    pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_> {
         let items = self.items.transaction();
         let meta = self.meta.clone();
-        TimelineInnerStateTransaction {
+        TimelineStateTransaction {
             items,
             previous_meta: &mut self.meta,
             meta,
@@ -276,7 +276,7 @@ impl TimelineState {
     }
 }
 
-pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
+pub(in crate::timeline) struct TimelineStateTransaction<'a> {
     /// A vector transaction over the items themselves. Holds temporary state
     /// until committed.
     pub items: ObservableVectorTransaction<'a, Arc<TimelineItem>>,
@@ -293,7 +293,7 @@ pub(in crate::timeline) struct TimelineInnerStateTransaction<'a> {
     timeline_focus: TimelineFocusKind,
 }
 
-impl TimelineInnerStateTransaction<'_> {
+impl TimelineStateTransaction<'_> {
     /// Add the given remote events at the given end of the timeline.
     ///
     /// Note: when the `position` is [`TimelineEnd::Front`], prepended events

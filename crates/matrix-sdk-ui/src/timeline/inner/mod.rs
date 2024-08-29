@@ -56,8 +56,8 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 use tracing::{field, info_span, Instrument as _};
 
 pub(super) use self::state::{
-    EventMeta, FullEventMeta, TimelineEnd, TimelineInnerStateTransaction, TimelineMetadata,
-    TimelineState,
+    EventMeta, FullEventMeta, TimelineEnd, TimelineMetadata, TimelineState,
+    TimelineStateTransaction,
 };
 #[cfg(feature = "e2e-encryption")]
 use super::traits::Decryptor;
