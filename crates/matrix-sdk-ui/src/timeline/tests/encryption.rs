@@ -111,7 +111,7 @@ async fn test_retry_message_decryption() {
         )
         .await;
 
-    assert_eq!(timeline.inner.items().await.len(), 2);
+    assert_eq!(timeline.controller.items().await.len(), 2);
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
@@ -141,7 +141,7 @@ async fn test_retry_message_decryption() {
     olm_machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
 
     timeline
-        .inner
+        .controller
         .retry_event_decryption_test(
             room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
             olm_machine,
@@ -149,7 +149,7 @@ async fn test_retry_message_decryption() {
         )
         .await;
 
-    assert_eq!(timeline.inner.items().await.len(), 2);
+    assert_eq!(timeline.controller.items().await.len(), 2);
 
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let event = item.as_event().unwrap();
@@ -221,7 +221,7 @@ async fn test_retry_edit_decryption() {
         .await;
 
     let event_id =
-        timeline.inner.items().await[1].as_event().unwrap().event_id().unwrap().to_owned();
+        timeline.controller.items().await[1].as_event().unwrap().event_id().unwrap().to_owned();
 
     let encrypted = EncryptedEventScheme::MegolmV1AesSha2(
         MegolmV1AesSha2ContentInit {
@@ -248,7 +248,7 @@ async fn test_retry_edit_decryption() {
         )
         .await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     assert_eq!(items.len(), 3);
 
     let mut keys = decrypt_room_key_export(Cursor::new(SESSION1_KEY), "1234").unwrap();
@@ -259,7 +259,7 @@ async fn test_retry_edit_decryption() {
     olm_machine.store().import_exported_room_keys(keys, |_, _| {}).await.unwrap();
 
     timeline
-        .inner
+        .controller
         .retry_event_decryption_test(
             room_id!("!bdsREiCPHyZAPkpXer:morpheus.localhost"),
             olm_machine,
@@ -267,7 +267,7 @@ async fn test_retry_edit_decryption() {
         )
         .await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     assert_eq!(items.len(), 2);
 
     let item = items[1].as_event().unwrap();
@@ -328,7 +328,7 @@ async fn test_retry_edit_and_more() {
         .await;
 
     let event_id =
-        timeline.inner.items().await[1].as_event().unwrap().event_id().unwrap().to_owned();
+        timeline.controller.items().await[1].as_event().unwrap().event_id().unwrap().to_owned();
 
     let msg2 = encrypted_message(
         "AwgEErABt7svMEHDYJTjCQEHypR21l34f9IZLNyFaAbI+EiCIN7C8X5iKmkzuYSmGUodyGKbFRYrW9l5dLj\
@@ -355,14 +355,14 @@ async fn test_retry_edit_and_more() {
         )
         .await;
 
-    assert_eq!(timeline.inner.items().await.len(), 4);
+    assert_eq!(timeline.controller.items().await.len(), 4);
 
     let olm_machine = OlmMachine::new(user_id!("@jptest:matrix.org"), DEVICE_ID.into()).await;
     let keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "testing").unwrap();
     olm_machine.store().import_exported_room_keys(keys, |_, _| {}).await.unwrap();
 
     timeline
-        .inner
+        .controller
         .retry_event_decryption_test(
             room_id!("!wFnAUSQbxMcfIMgvNX:flipdot.org"),
             olm_machine,
@@ -370,7 +370,7 @@ async fn test_retry_edit_and_more() {
         )
         .await;
 
-    let timeline_items = timeline.inner.items().await;
+    let timeline_items = timeline.controller.items().await;
     assert_eq!(timeline_items.len(), 3);
     assert!(timeline_items[0].is_day_divider());
     assert_eq!(
@@ -428,7 +428,7 @@ async fn test_retry_message_decryption_highlighted() {
         )
         .await;
 
-    assert_eq!(timeline.inner.items().await.len(), 2);
+    assert_eq!(timeline.controller.items().await.len(), 2);
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event = item.as_event().unwrap();
@@ -450,7 +450,7 @@ async fn test_retry_message_decryption_highlighted() {
     olm_machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
 
     timeline
-        .inner
+        .controller
         .retry_event_decryption_test(
             room_id!("!rYtFvMGENJleNQVJzb:matrix.org"),
             olm_machine,
@@ -458,7 +458,7 @@ async fn test_retry_message_decryption_highlighted() {
         )
         .await;
 
-    assert_eq!(timeline.inner.items().await.len(), 2);
+    assert_eq!(timeline.controller.items().await.len(), 2);
 
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let event = item.as_event().unwrap();

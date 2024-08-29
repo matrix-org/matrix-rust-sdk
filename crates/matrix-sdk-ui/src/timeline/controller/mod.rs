@@ -107,7 +107,7 @@ enum TimelineFocusData<P: RoomDataProvider> {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct TimelineInner<P: RoomDataProvider = Room> {
+pub(super) struct TimelineController<P: RoomDataProvider = Room> {
     /// Inner mutable state.
     state: Arc<RwLock<TimelineState>>,
 
@@ -240,7 +240,7 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
     }
 }
 
-impl<P: RoomDataProvider> TimelineInner<P> {
+impl<P: RoomDataProvider> TimelineController<P> {
     pub(super) fn new(
         room_data_provider: P,
         focus: TimelineFocus,
@@ -1339,7 +1339,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     }
 }
 
-impl TimelineInner {
+impl TimelineController {
     pub(super) fn room(&self) -> &Room {
         &self.room_data_provider
     }

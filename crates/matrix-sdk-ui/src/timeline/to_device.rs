@@ -21,31 +21,31 @@ use ruma::{
 };
 use tracing::{debug_span, error, trace, Instrument};
 
-use super::inner::TimelineInner;
+use super::controller::TimelineController;
 
 pub(super) fn handle_room_key_event(
-    inner: TimelineInner,
+    timeline: TimelineController,
     room_id: OwnedRoomId,
 ) -> impl EventHandler<ToDeviceRoomKeyEvent, (Client,)> {
     move |event: ToDeviceRoomKeyEvent, client: Client| {
         async move {
             let event_room_id = event.content.room_id;
             let session_id = event.content.session_id;
-            retry_decryption(client, inner, room_id, event_room_id, session_id).await;
+            retry_decryption(client, timeline, room_id, event_room_id, session_id).await;
         }
         .instrument(debug_span!("handle_room_key_event"))
     }
 }
 
 pub(super) fn handle_forwarded_room_key_event(
-    inner: TimelineInner,
+    timeline: TimelineController,
     room_id: OwnedRoomId,
 ) -> impl EventHandler<ToDeviceForwardedRoomKeyEvent, (Client,)> {
     move |event: ToDeviceForwardedRoomKeyEvent, client: Client| {
         async move {
             let event_room_id = event.content.room_id;
             let session_id = event.content.session_id;
-            retry_decryption(client, inner, room_id, event_room_id, session_id).await;
+            retry_decryption(client, timeline, room_id, event_room_id, session_id).await;
         }
         .instrument(debug_span!("handle_forwarded_room_key_event"))
     }
@@ -53,7 +53,7 @@ pub(super) fn handle_forwarded_room_key_event(
 
 async fn retry_decryption(
     client: Client,
-    inner: TimelineInner,
+    timeline: TimelineController,
     room_id: OwnedRoomId,
     event_room_id: OwnedRoomId,
     session_id: String,
@@ -71,5 +71,5 @@ async fn retry_decryption(
         return;
     };
 
-    inner.retry_event_decryption(&room, Some(iter::once(session_id).collect())).await;
+    timeline.retry_event_decryption(&room, Some(iter::once(session_id).collect())).await;
 }

@@ -26,7 +26,7 @@ use matrix_sdk::event_cache::{
 use tracing::{instrument, trace, warn};
 
 use super::Error;
-use crate::timeline::{event_item::RemoteEventOrigin, inner::TimelineEnd};
+use crate::timeline::{controller::TimelineEnd, event_item::RemoteEventOrigin};
 
 impl super::Timeline {
     /// Add more events to the start of the timeline.
@@ -34,7 +34,7 @@ impl super::Timeline {
     /// Returns whether we hit the start of the timeline.
     #[instrument(skip_all, fields(room_id = ?self.room().room_id()))]
     pub async fn paginate_backwards(&self, num_events: u16) -> Result<bool, Error> {
-        if self.inner.is_live().await {
+        if self.controller.is_live().await {
             Ok(self.live_paginate_backwards(num_events).await?)
         } else {
             Ok(self.focused_paginate_backwards(num_events).await?)
@@ -47,7 +47,7 @@ impl super::Timeline {
     /// Returns whether we hit the end of the timeline.
     #[instrument(skip_all)]
     pub async fn focused_paginate_forwards(&self, num_events: u16) -> Result<bool, Error> {
-        Ok(self.inner.focused_paginate_forwards(num_events).await?)
+        Ok(self.controller.focused_paginate_forwards(num_events).await?)
     }
 
     /// Assuming the timeline is focused on an event, starts a backwards
@@ -56,7 +56,7 @@ impl super::Timeline {
     /// Returns whether we hit the start of the timeline.
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub async fn focused_paginate_backwards(&self, num_events: u16) -> Result<bool, Error> {
-        Ok(self.inner.focused_paginate_backwards(num_events).await?)
+        Ok(self.controller.focused_paginate_backwards(num_events).await?)
     }
 
     /// Paginate backwards in live mode.
@@ -80,7 +80,7 @@ impl super::Timeline {
                     // TODO(hywan): Remove, and let spread events via
                     // `matrix_sdk::event_cache::RoomEventCacheUpdate` from
                     // `matrix_sdk::event_cache::RoomPagination::run_backwards`.
-                    self.inner
+                    self.controller
                         .add_events_at(events, TimelineEnd::Front, RemoteEventOrigin::Pagination)
                         .await;
 
@@ -118,7 +118,7 @@ impl super::Timeline {
     pub async fn live_back_pagination_status(
         &self,
     ) -> Option<(LiveBackPaginationStatus, impl Stream<Item = LiveBackPaginationStatus>)> {
-        if !self.inner.is_live().await {
+        if !self.controller.is_live().await {
             return None;
         }
 

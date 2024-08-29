@@ -74,7 +74,7 @@ async fn test_local_sent_in_clear_shield() {
 
     // When the event is sent (but without a remote echo).
     timeline
-        .inner
+        .controller
         .update_event_send_state(&txn_id, EventSendState::Sent { event_id: event_id.to_owned() })
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { value, index: 1 } => value);

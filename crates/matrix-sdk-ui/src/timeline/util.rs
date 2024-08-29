@@ -19,7 +19,7 @@ use imbl::Vector;
 use ruma::{EventId, MilliSecondsSinceUnixEpoch};
 
 #[cfg(doc)]
-use super::inner::TimelineMetadata;
+use super::controller::TimelineMetadata;
 use super::{
     event_item::EventTimelineItemKind, EventTimelineItem, ReactionsByKeyBySender, TimelineItem,
 };

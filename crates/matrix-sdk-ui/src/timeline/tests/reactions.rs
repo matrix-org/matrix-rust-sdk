@@ -28,7 +28,7 @@ use stream_assert::assert_next_matches;
 use tokio::time::timeout;
 
 use crate::timeline::{
-    event_item::RemoteEventOrigin, inner::TimelineEnd, tests::TestTimeline, ReactionStatus,
+    controller::TimelineEnd, event_item::RemoteEventOrigin, tests::TestTimeline, ReactionStatus,
     TimelineItem,
 };
 
@@ -190,7 +190,7 @@ async fn test_initial_reaction_timestamp_is_stored() {
     let reaction_timestamp = MilliSecondsSinceUnixEpoch(uint!(39845));
 
     timeline
-        .inner
+        .controller
         .add_events_at(
             vec![
                 // Reaction comes first.
@@ -205,7 +205,7 @@ async fn test_initial_reaction_timestamp_is_stored() {
         )
         .await;
 
-    let items = timeline.inner.items().await;
+    let items = timeline.controller.items().await;
     let reactions = items.last().unwrap().as_event().unwrap().reactions();
     let entry = reactions.get(&REACTION_KEY.to_owned()).unwrap();
 

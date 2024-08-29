@@ -22,7 +22,7 @@ use ruma::MilliSecondsSinceUnixEpoch;
 use tracing::{error, event_enabled, instrument, trace, warn, Level};
 
 use super::{
-    inner::TimelineMetadata, util::timestamp_to_date, TimelineItem, TimelineItemKind,
+    controller::TimelineMetadata, util::timestamp_to_date, TimelineItem, TimelineItemKind,
     VirtualTimelineItem,
 };
 
@@ -613,8 +613,8 @@ mod tests {
 
     use super::DayDividerAdjuster;
     use crate::timeline::{
+        controller::TimelineMetadata,
         event_item::{EventTimelineItemKind, RemoteEventTimelineItem},
-        inner::TimelineMetadata,
         util::timestamp_to_date,
         EventTimelineItem, TimelineItemContent, VirtualTimelineItem,
     };
