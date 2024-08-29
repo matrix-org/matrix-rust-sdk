@@ -25,8 +25,7 @@ use matrix_sdk::{
     test_utils::{events::EventFactory, logged_in_client_with_server},
 };
 use matrix_sdk_test::{
-    async_test, mocks::mock_encryption_state, sync_timeline_event, JoinedRoomBuilder,
-    SyncResponseBuilder, ALICE, BOB,
+    async_test, mocks::mock_encryption_state, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::{timeline::TimelineFocus, Timeline};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
@@ -242,22 +241,7 @@ async fn test_focused_timeline_reacts() {
         // This event must be ignored.
         f.text_msg("this is a sync event").sender(*ALICE).into(),
         // This event must not be ignored.
-        sync_timeline_event!({
-            "content": {
-                "m.relates_to": {
-                    "event_id": "$1",
-                    "key": "👍",
-                    "rel_type": "m.annotation"
-                }
-            },
-            "event_id": "$15275047031IXQRi:localhost",
-            "origin_server_ts": 159027581000000_u64,
-            "sender": *BOB,
-            "type": "m.reaction",
-            "unsigned": {
-                "age": 85
-            }
-        }),
+        f.reaction(target_event, "👍".to_owned()).sender(*BOB).into(),
     ]));
 
     // Sync the room.
