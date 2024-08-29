@@ -17,11 +17,11 @@ use std::{io, sync::Arc};
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{send_queue::RoomSendQueueUpdate, test_utils::events::EventFactory, Error};
-use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
+use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     event_id,
     events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
-    user_id, MilliSecondsSinceUnixEpoch,
+    uint, user_id, MilliSecondsSinceUnixEpoch,
 };
 use stream_assert::assert_next_matches;
 
@@ -109,16 +109,14 @@ async fn test_remote_echo_full_trip() {
     // Now, a sync has been run against the server, and an event with the same ID
     // comes in.
     timeline
-        .handle_live_event(sync_timeline_event!({
-            "content": {
-                "body": "echo",
-                "msgtype": "m.text",
-            },
-            "sender": &*ALICE,
-            "event_id": event_id,
-            "origin_server_ts": timestamp,
-            "type": "m.room.message",
-        }))
+        .handle_live_event(
+            timeline
+                .factory
+                .text_msg("echo")
+                .sender(*ALICE)
+                .event_id(event_id)
+                .server_ts(timestamp),
+        )
         .await;
 
     // The local echo is replaced with the remote echo.
@@ -159,19 +157,13 @@ async fn test_remote_echo_new_position() {
 
     // When the remote echo comes in…
     timeline
-        .handle_live_event(sync_timeline_event!({
-            "content": {
-                "body": "echo",
-                "msgtype": "m.text",
-            },
-            "sender": &*ALICE,
-            "event_id": "$eeG0HA0FAZ37wP8kXlNkxx3I",
-            "origin_server_ts": 6,
-            "type": "m.room.message",
-            "unsigned": {
-                "transaction_id": txn_id,
-            },
-        }))
+        .handle_live_event(
+            f.text_msg("echo")
+                .sender(*ALICE)
+                .event_id(event_id!("$eeG0HA0FAZ37wP8kXlNkxx3I"))
+                .server_ts(MilliSecondsSinceUnixEpoch(uint!(6)))
+                .unsigned_transaction_id(&txn_id),
+        )
         .await;
 
     // … the remote echo replaces the previous event.
@@ -208,16 +200,9 @@ async fn test_day_divider_duplication() {
     // … when the second remote event is re-received (day still the same)
     let event_id = items[2].as_event().unwrap().event_id().unwrap();
     timeline
-        .handle_live_event(sync_timeline_event!({
-            "content": {
-                "body": "B",
-                "msgtype": "m.text",
-            },
-            "sender": &*BOB,
-            "event_id": event_id,
-            "origin_server_ts": 1,
-            "type": "m.room.message",
-        }))
+        .handle_live_event(
+            f.text_msg("B").event_id(event_id).server_ts(MilliSecondsSinceUnixEpoch(uint!(1))),
+        )
         .await;
 
     // … it should not impact the day dividers.
