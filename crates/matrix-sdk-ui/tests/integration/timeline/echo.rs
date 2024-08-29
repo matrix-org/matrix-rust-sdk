@@ -19,18 +19,20 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    config::SyncSettings, executor::spawn, ruma::MilliSecondsSinceUnixEpoch,
-    test_utils::logged_in_client_with_server,
+    assert_next_matches_with_timeout,
+    config::SyncSettings,
+    executor::spawn,
+    ruma::MilliSecondsSinceUnixEpoch,
+    test_utils::{events::EventFactory, logged_in_client_with_server},
 };
 use matrix_sdk_test::{
-    async_test, mocks::mock_encryption_state, sync_timeline_event, JoinedRoomBuilder,
-    SyncResponseBuilder,
+    async_test, mocks::mock_encryption_state, JoinedRoomBuilder, SyncResponseBuilder,
 };
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt, TimelineItemContent};
 use ruma::{
     event_id,
     events::room::message::{MessageType, RoomMessageEventContent},
-    room_id, uint,
+    room_id, uint, user_id,
 };
 use serde_json::json;
 use stream_assert::assert_next_matches;
@@ -99,19 +101,16 @@ async fn test_echo() {
     let item = sent_confirmation.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::Sent { .. }));
 
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        sync_timeline_event!({
-            "content": {
-                "body": "Hello, World!",
-                "msgtype": "m.text",
-            },
-            "event_id": "$7at8sd:localhost",
-            "origin_server_ts": 152038280,
-            "sender": "@example:localhost",
-            "type": "m.room.message",
-            "unsigned": { "transaction_id": txn_id, },
-        }),
-    ));
+    let f = EventFactory::new();
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.text_msg("Hello, World!")
+                .sender(user_id!("@example:localhost"))
+                .event_id(event_id!("$7at8sd:localhost"))
+                .server_ts(MilliSecondsSinceUnixEpoch(uint!(152038280)))
+                .unsigned_transaction_id(txn_id),
+        ),
+    );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -237,50 +236,53 @@ async fn test_dedup_by_event_id_late() {
             ResponseTemplate::new(200)
                 .set_body_json(json!({ "event_id": event_id }))
                 // Not great to use a timer for this, but it's what wiremock gives us right now.
-                // Ideally we'd wait on a channel to produce a value or sth. like that.
-                .set_delay(Duration::from_millis(100)),
+                // Ideally we'd wait on a channel to produce a value or sth. like that, but
+                // wiremock doesn't allow to handle multiple queries at the same time.
+                .set_delay(Duration::from_millis(500)),
         )
         .mount(&server)
         .await;
 
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await.unwrap();
 
-    assert_let!(Some(VectorDiff::PushBack { value: local_echo }) = timeline_stream.next().await);
+    // Timeline: [local echo]
+    let local_echo =
+        assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => value);
     let item = local_echo.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
-    let day_divider =
-        assert_next_matches!( timeline_stream, VectorDiff::PushFront { value } => value);
+    // Timeline: [day-divider, local echo]
+    let day_divider = assert_next_matches_with_timeout!( timeline_stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        sync_timeline_event!({
-            "content": {
-                "body": "Hello, World!",
-                "msgtype": "m.text",
-            },
-            "event_id": event_id,
-            "origin_server_ts": 123456,
-            "sender": "@example:localhost",
-            "type": "m.room.message",
-            // no transaction ID
-        }),
-    ));
+    let f = EventFactory::new();
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            // Note: no transaction id.
+            f.text_msg("Hello, World!")
+                .sender(user_id!("@example:localhost"))
+                .event_id(event_id)
+                .server_ts(MilliSecondsSinceUnixEpoch(uint!(123456))),
+        ),
+    );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
 
+    // Timeline: [remote-echo, day-divider, local echo]
     let remote_echo =
         assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => value);
     let item = remote_echo.as_event().unwrap();
     assert_eq!(item.event_id(), Some(event_id));
 
-    let day_divider =
-        assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => value);
+    // Timeline: [day-divider, remote-echo, day-divider, local echo]
+    let day_divider = assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
     // Local echo and its day divider are removed.
+    // Timeline: [day-divider, remote-echo, day-divider]
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 3 }));
+    // Timeline: [day-divider, remote-echo]
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 2 }));
 }
 
