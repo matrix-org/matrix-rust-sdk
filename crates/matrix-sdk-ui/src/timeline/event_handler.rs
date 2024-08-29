@@ -105,6 +105,12 @@ pub(super) struct TimelineEventContext {
     pub(super) read_receipts: IndexMap<OwnedUserId, Receipt>,
     pub(super) is_highlighted: bool,
     pub(super) flow: Flow,
+
+    /// If the event represents a new item, should it be added to the timeline?
+    ///
+    /// This controls whether a new timeline *may* be added. If the update kind
+    /// is about an update to an existing timeline item (redaction, edit,
+    /// reaction, etc.), it's always handled by default.
     pub(super) should_add_new_items: bool,
 }
 
