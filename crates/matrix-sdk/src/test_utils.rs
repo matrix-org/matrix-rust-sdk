@@ -137,3 +137,17 @@ macro_rules! assert_next_matches_with_timeout {
         }
     };
 }
+
+/// Like `assert_let`, but with the possibility to add an optional timeout.
+///
+/// If not provided, a timeout value of 100 milliseconds is used.
+#[macro_export]
+macro_rules! assert_let_timeout {
+    ($timeout:expr, $pat:pat = $future:expr) => {
+        assert_matches2::assert_let!(Ok($pat) = tokio::time::timeout($timeout, $future).await);
+    };
+
+    ($pat:pat = $future:expr) => {
+        assert_let_timeout!(std::time::Duration::from_millis(100), $pat = $future);
+    };
+}

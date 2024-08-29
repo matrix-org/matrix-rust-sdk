@@ -20,6 +20,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
+    assert_let_timeout,
     config::SyncSettings,
     test_utils::{events::EventFactory, logged_in_client_with_server},
 };
@@ -264,7 +265,7 @@ async fn test_focused_timeline_reacts() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    assert_let!(Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next().await);
+    assert_let_timeout!(Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next());
 
     let event_item = item.as_event().unwrap();
     // Text hasn't changed.
