@@ -18,9 +18,7 @@ use vodozemac::Curve25519PublicKey;
 
 use super::{InboundGroupSession, KnownSenderData, SenderData};
 use crate::{
-    error::MismatchedIdentityKeysError,
-    store::Store,
-    types::{events::olm_v1::DecryptedRoomKeyEvent, DeviceKeys},
+    error::MismatchedIdentityKeysError, store::Store, types::events::olm_v1::DecryptedRoomKeyEvent,
     CryptoStoreError, Device, DeviceData, MegolmError, OlmError, SignatureError,
 };
 
@@ -144,14 +142,14 @@ impl<'a> SenderDataFinder<'a> {
         finder.have_event(sender_curve_key, room_key_event).await
     }
 
-    /// Use the supplied device keys to decide whether we trust the sender.
-    pub(crate) async fn find_using_device_keys(
+    /// Use the supplied device data to decide whether we trust the sender.
+    pub(crate) async fn find_using_device_data(
         store: &'a Store,
-        device_keys: DeviceKeys,
+        device_data: DeviceData,
         session: &'a InboundGroupSession,
-    ) -> Result<SenderData, SessionDeviceKeysCheckError> {
+    ) -> Result<SenderData, SessionDeviceCheckError> {
         let finder = Self { store, session };
-        finder.have_device_keys(&device_keys).await
+        finder.have_device_data(device_data).await
     }
 
     /// Find the device using the curve key provided, and decide whether we
@@ -174,8 +172,11 @@ impl<'a> SenderDataFinder<'a> {
     ) -> Result<SenderData, SessionDeviceKeysCheckError> {
         // Does the to-device message contain the device_keys property from MSC4147?
         if let Some(sender_device_keys) = &room_key_event.device_keys {
-            // Yes: use the device keys to continue
-            self.have_device_keys(sender_device_keys).await
+            // Yes: use the device keys to continue.
+
+            // Validate the signature of the DeviceKeys supplied.
+            let sender_device_data = DeviceData::try_from(sender_device_keys)?;
+            Ok(self.have_device_data(sender_device_data).await?)
         } else {
             // No: look for the device in the store
             Ok(self.search_for_device(sender_curve_key, &room_key_event.sender).await?)
@@ -213,14 +214,12 @@ impl<'a> SenderDataFinder<'a> {
         }
     }
 
-    async fn have_device_keys(
+    async fn have_device_data(
         &self,
-        sender_device_keys: &DeviceKeys,
-    ) -> Result<SenderData, SessionDeviceKeysCheckError> {
-        // Validate the signature of the DeviceKeys supplied.
-        let sender_device_data = DeviceData::try_from(sender_device_keys)?;
+        sender_device_data: DeviceData,
+    ) -> Result<SenderData, SessionDeviceCheckError> {
         let sender_device = self.store.wrap_device_data(sender_device_data).await?;
-        Ok(self.have_device(sender_device)?)
+        self.have_device(sender_device)
     }
 
     /// Step D (we have a device)
@@ -766,8 +765,7 @@ mod tests {
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
         // When we supply the device keys directly while asking for the sender data
-        let sender_data =
-            finder.have_device_keys(setup.sender_device.as_device_keys()).await.unwrap();
+        let sender_data = finder.have_device_data(setup.sender_device.inner.clone()).await.unwrap();
 
         // Then it is found using the device we supplied
         assert_let!(
