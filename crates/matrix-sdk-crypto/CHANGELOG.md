@@ -2,6 +2,10 @@
 
 Changes:
 
+- Update `SenderData` on existing inbound group sessions when we receive
+  updates via `/keys/query`.
+  ([#3849](https://github.com/matrix-org/matrix-rust-sdk/pull/3849))
+
 - Add message IDs to all outgoing to-device messages encrypted by
   `matrix-sdk-crypto`. The `message-ids` feature of `matrix-sdk-crypto` and
   `matrix-sdk-base` is now a no-op.
