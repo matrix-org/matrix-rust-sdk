@@ -392,9 +392,9 @@ impl GroupSessionManager {
             // InboundGroupSession that we create as a pair to the OutboundGroupSession we
             // are sending out.
             let own_sender_data = if let Some(device) = own_device {
-                SenderDataFinder::find_using_device_keys(
+                SenderDataFinder::find_using_device_data(
                     &self.store,
-                    device.as_device_keys().clone(),
+                    device.inner.clone(),
                     &inbound,
                 )
                 .await?
@@ -668,9 +668,9 @@ impl GroupSessionManager {
             // InboundGroupSession that we create as a pair to the OutboundGroupSession we
             // are sending out.
             let own_sender_data = if let Some(device) = &device {
-                SenderDataFinder::find_using_device_keys(
+                SenderDataFinder::find_using_device_data(
                     &self.store,
-                    device.as_device_keys().clone(),
+                    device.inner.clone(),
                     &inbound,
                 )
                 .await?
