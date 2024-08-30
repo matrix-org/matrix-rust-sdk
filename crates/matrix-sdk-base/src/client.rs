@@ -13,13 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "e2e-encryption")]
-use std::ops::Deref;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt, iter,
-    sync::Arc,
 };
+#[cfg(feature = "e2e-encryption")]
+use std::{ops::Deref, sync::Arc};
 
 use eyeball::{SharedObservable, Subscriber};
 #[cfg(not(target_arch = "wasm32"))]
@@ -71,7 +70,7 @@ use crate::RoomMemberships;
 use crate::{
     deserialized_responses::{RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent},
     error::{Error, Result},
-    event_cache_store::DynEventCacheStore,
+    event_cache_store::EventCacheStoreWrapper,
     rooms::{
         normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons},
         Room, RoomInfo, RoomState,
@@ -93,7 +92,7 @@ pub struct BaseClient {
     /// Database
     pub(crate) store: Store,
     /// The store used by the event cache.
-    event_cache_store: Arc<DynEventCacheStore>,
+    event_cache_store: EventCacheStoreWrapper,
     /// The store used for encryption.
     ///
     /// This field is only meant to be used for `OlmMachine` initialization.
@@ -147,7 +146,7 @@ impl BaseClient {
 
         BaseClient {
             store: Store::new(config.state_store),
-            event_cache_store: config.event_cache_store,
+            event_cache_store: EventCacheStoreWrapper::new(config.event_cache_store),
             #[cfg(feature = "e2e-encryption")]
             crypto_store: config.crypto_store,
             #[cfg(feature = "e2e-encryption")]
@@ -222,8 +221,8 @@ impl BaseClient {
     }
 
     /// Get a reference to the event cache store.
-    pub fn event_cache_store(&self) -> &DynEventCacheStore {
-        &*self.event_cache_store
+    pub fn event_cache_store(&self) -> &EventCacheStoreWrapper {
+        &self.event_cache_store
     }
 
     /// Is the client logged in.

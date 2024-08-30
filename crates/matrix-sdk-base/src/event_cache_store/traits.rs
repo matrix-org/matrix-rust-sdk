@@ -16,9 +16,9 @@ use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_common::AsyncTraitDeps;
-use ruma::MxcUri;
+use ruma::{time::SystemTime, MxcUri};
 
-use super::EventCacheStoreError;
+use super::{EventCacheStoreError, MediaRetentionPolicy};
 use crate::media::MediaRequest;
 
 /// An abstract trait that can be used to implement different store backends
@@ -29,30 +29,54 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// The error type used by this event cache store.
     type Error: fmt::Debug + Into<EventCacheStoreError>;
 
-    /// Add a media file's content in the media store.
+    /// The retention policy set to cleanup the media cache.
+    async fn media_retention_policy(&self) -> Result<Option<MediaRetentionPolicy>, Self::Error>;
+
+    /// Set the retention policy used to cleanup the media cache.
+    ///
+    /// If the store implementation is persistent, this setting should be
+    /// persisted by the store.
+    async fn set_media_retention_policy(
+        &self,
+        policy: MediaRetentionPolicy,
+    ) -> Result<(), Self::Error>;
+
+    /// Add a media file's content in the media cache.
     ///
     /// # Arguments
     ///
     /// * `request` - The `MediaRequest` of the file.
     ///
     /// * `content` - The content of the file.
+    ///
+    /// * `current_time` - The current time, to be used as the last access time
+    ///   of the media.
+    ///
+    /// * `policy` - The media retention policy, to check whether the media is
+    ///   too big to be cached.
     async fn add_media_content(
         &self,
         request: &MediaRequest,
         content: Vec<u8>,
+        current_time: SystemTime,
+        policy: MediaRetentionPolicy,
     ) -> Result<(), Self::Error>;
 
-    /// Get a media file's content out of the media store.
+    /// Get a media file's content out of the media cache.
     ///
     /// # Arguments
     ///
     /// * `request` - The `MediaRequest` of the file.
+    ///
+    /// * `current_time` - The current time, to be used as the last access time
+    ///   of the media.
     async fn get_media_content(
         &self,
         request: &MediaRequest,
+        current_time: SystemTime,
     ) -> Result<Option<Vec<u8>>, Self::Error>;
 
-    /// Remove a media file's content from the media store.
+    /// Remove a media file's content from the media cache.
     ///
     /// # Arguments
     ///
@@ -60,12 +84,26 @@ pub trait EventCacheStore: AsyncTraitDeps {
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<(), Self::Error>;
 
     /// Remove all the media files' content associated to an `MxcUri` from the
-    /// media store.
+    /// media cache.
     ///
     /// # Arguments
     ///
     /// * `uri` - The `MxcUri` of the media files.
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<(), Self::Error>;
+
+    /// Clean up the media cache with the given policy.
+    ///
+    /// # Arguments
+    ///
+    /// * `policy` - The media retention policy to use for the cleanup. The
+    ///   `cleanup_frequency` will be ignored.
+    /// * `current_time` - The current time, to be used to check for expired
+    ///   content.
+    async fn clean_up_media_cache(
+        &self,
+        policy: MediaRetentionPolicy,
+        current_time: SystemTime,
+    ) -> Result<(), Self::Error>;
 }
 
 #[repr(transparent)]
@@ -83,19 +121,33 @@ impl<T: fmt::Debug> fmt::Debug for EraseEventCacheStoreError<T> {
 impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
     type Error = EventCacheStoreError;
 
+    async fn media_retention_policy(&self) -> Result<Option<MediaRetentionPolicy>, Self::Error> {
+        self.0.media_retention_policy().await.map_err(Into::into)
+    }
+
+    async fn set_media_retention_policy(
+        &self,
+        policy: MediaRetentionPolicy,
+    ) -> Result<(), Self::Error> {
+        self.0.set_media_retention_policy(policy).await.map_err(Into::into)
+    }
+
     async fn add_media_content(
         &self,
         request: &MediaRequest,
         content: Vec<u8>,
+        current_time: SystemTime,
+        policy: MediaRetentionPolicy,
     ) -> Result<(), Self::Error> {
-        self.0.add_media_content(request, content).await.map_err(Into::into)
+        self.0.add_media_content(request, content, current_time, policy).await.map_err(Into::into)
     }
 
     async fn get_media_content(
         &self,
         request: &MediaRequest,
+        current_time: SystemTime,
     ) -> Result<Option<Vec<u8>>, Self::Error> {
-        self.0.get_media_content(request).await.map_err(Into::into)
+        self.0.get_media_content(request, current_time).await.map_err(Into::into)
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<(), Self::Error> {
@@ -104,6 +156,14 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<(), Self::Error> {
         self.0.remove_media_content_for_uri(uri).await.map_err(Into::into)
+    }
+
+    async fn clean_up_media_cache(
+        &self,
+        policy: MediaRetentionPolicy,
+        current_time: SystemTime,
+    ) -> Result<(), Self::Error> {
+        self.0.clean_up_media_cache(policy, current_time).await.map_err(Into::into)
     }
 }
 

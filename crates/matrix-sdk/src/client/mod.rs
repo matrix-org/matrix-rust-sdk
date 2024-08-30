@@ -33,7 +33,7 @@ use imbl::Vector;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
-    event_cache_store::DynEventCacheStore,
+    event_cache_store::EventCacheStoreWrapper,
     store::{DynStateStore, ServerCapabilities},
     sync::{Notification, RoomUpdates},
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
@@ -584,7 +584,7 @@ impl Client {
     }
 
     /// Get a reference to the event cache store.
-    pub(crate) fn event_cache_store(&self) -> &DynEventCacheStore {
+    pub fn event_cache_store(&self) -> &EventCacheStoreWrapper {
         self.base_client().event_cache_store()
     }
 
