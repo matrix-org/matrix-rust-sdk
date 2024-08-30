@@ -1122,11 +1122,14 @@ impl IdentityManager {
         session: &mut InboundGroupSession,
         device: &DeviceData,
     ) -> Result<(), CryptoStoreError> {
-        debug!("Updating existing InboundGroupSession with new SenderData");
         use crate::olm::sender_data_finder::SessionDeviceCheckError::*;
 
         match SenderDataFinder::find_using_device_data(&self.store, device.clone(), session).await {
             Ok(sender_data) => {
+                debug!(
+                    "Updating existing InboundGroupSession with new SenderData {:?}",
+                    sender_data
+                );
                 session.sender_data = sender_data;
             }
             Err(CryptoStoreError(e)) => {
