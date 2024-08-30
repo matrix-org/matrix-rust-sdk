@@ -26,13 +26,16 @@ use serde_json::json;
 
 use crate::{
     machine::{
-        test_helpers::get_machine_pair_with_setup_sessions_test_helper,
+        test_helpers::{
+            bootstrap_requests_to_keys_query_response,
+            get_machine_pair_with_setup_sessions_test_helper,
+        },
         tests::to_device_requests_to_content,
     },
     olm::{InboundGroupSession, SenderData},
     store::RoomKeyInfo,
     types::events::{room::encrypted::ToDeviceEncryptedEventContent, EventType, ToDeviceEvent},
-    EncryptionSettings, EncryptionSyncChanges, OlmMachine, Session,
+    DeviceData, EncryptionSettings, EncryptionSyncChanges, OlmMachine, Session,
 };
 
 /// Test the behaviour when a megolm session is received from an unknown device,
@@ -103,6 +106,105 @@ async fn test_receive_megolm_session_from_known_device() {
             assert!(legacy_session); // TODO: change when https://github.com/matrix-org/matrix-rust-sdk/pull/3785 lands
         }
     );
+}
+
+/// If we have a megolm session from an unknown device, test what happens when
+/// we get a /keys/query response that includes that device.
+#[async_test]
+async fn test_update_unknown_device_senderdata_on_keys_query() {
+    // Given we have a megolm session from an unknown device
+
+    let (alice, bob) = get_machine_pair().await;
+    let mut bob_room_keys_received_stream = Box::pin(bob.store().room_keys_received_stream());
+
+    // `get_machine_pair_with_setup_sessions_test_helper` tells Bob about Alice's
+    // device keys, so to run this test, we need to make him forget them.
+    forget_devices_for_user(&bob, alice.user_id()).await;
+
+    // Alice starts a megolm session and shares the key with Bob, *without* sending
+    // the sender data.
+    let room_id = room_id!("!test:example.org");
+    let event = create_and_share_session_without_sender_data(&alice, &bob, room_id).await;
+
+    // Bob receives the to-device message
+    receive_to_device_event(&bob, &event).await;
+
+    // and now Bob should know about the session.
+    let room_key_info = get_room_key_received_update(&mut bob_room_keys_received_stream);
+    let session = get_inbound_group_session_or_panic(&bob, &room_key_info).await;
+
+    // Double-check that it is, in fact, an unknown device session.
+    assert_matches!(session.sender_data, SenderData::UnknownDevice { .. });
+
+    // When Bob gets a /keys/query response for Alice, that includes the
+    // sending device...
+
+    let alice_device = DeviceData::from_machine_test_helper(&alice).await.unwrap();
+    let kq_response = json!({
+        "device_keys": { alice.user_id() : { alice.device_id():  alice_device.as_device_keys()}}
+    });
+    bob.receive_keys_query_response(
+        &TransactionId::new(),
+        &matrix_sdk_test::ruma_response_from_json(&kq_response),
+    )
+    .await
+    .unwrap();
+
+    // Then Bob should have received an update about the session, and it should now
+    // be `SenderData::DeviceInfo`
+    let room_key_info = get_room_key_received_update(&mut bob_room_keys_received_stream);
+    let session = get_inbound_group_session_or_panic(&bob, &room_key_info).await;
+
+    assert_matches!(
+        session.sender_data,
+        SenderData::DeviceInfo {legacy_session, ..} => {
+            assert!(legacy_session); // TODO: change when https://github.com/matrix-org/matrix-rust-sdk/pull/3785 lands
+        }
+    );
+}
+
+/// If we have a megolm session from an unsigned device, test what happens when
+/// we get a /keys/query response that includes that device.
+#[async_test]
+async fn test_update_device_info_senderdata_on_keys_query() {
+    // Given we have a megolm session from an unsigned device
+
+    let (alice, bob) = get_machine_pair().await;
+    let mut bob_room_keys_received_stream = Box::pin(bob.store().room_keys_received_stream());
+
+    // Alice starts a megolm session and shares the key with Bob
+    let room_id = room_id!("!test:example.org");
+
+    let to_device_requests = alice
+        .share_room_key(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
+        .await
+        .unwrap();
+    let event = ToDeviceEvent::new(
+        alice.user_id().to_owned(),
+        to_device_requests_to_content(to_device_requests),
+    );
+    // Bob receives the to-device message
+    receive_to_device_event(&bob, &event).await;
+
+    // and now Bob should know about the session.
+    let room_key_info = get_room_key_received_update(&mut bob_room_keys_received_stream);
+    let session = get_inbound_group_session_or_panic(&bob, &room_key_info).await;
+
+    // Double-check that it is, in fact, an unverified device session.
+    assert_matches!(session.sender_data, SenderData::DeviceInfo { .. });
+
+    // When Bob receives a /keys/query response for Alice that includes a verifiable
+    // signature for her device
+    let bootstrap_requests = alice.bootstrap_cross_signing(false).await.unwrap();
+    let kq_response = bootstrap_requests_to_keys_query_response(bootstrap_requests);
+    bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
+
+    // Then Bob should have received an update about the session, and it should now
+    // be `SenderData::SenderUnverified`
+    let room_key_info = get_room_key_received_update(&mut bob_room_keys_received_stream);
+    let session = get_inbound_group_session_or_panic(&bob, &room_key_info).await;
+
+    assert_matches!(session.sender_data, SenderData::SenderUnverified(_));
 }
 
 /// Convenience wrapper for [`get_machine_pair_with_setup_sessions_test_helper`]

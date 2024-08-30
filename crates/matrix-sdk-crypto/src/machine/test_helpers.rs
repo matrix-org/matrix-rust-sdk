@@ -17,17 +17,24 @@
 
 use std::collections::BTreeMap;
 
+use as_variant::as_variant;
 use matrix_sdk_test::{ruma_response_from_json, test_json};
 use ruma::{
-    api::client::keys::{claim_keys, get_keys, upload_keys},
+    api::client::keys::{
+        claim_keys, get_keys, get_keys::v3::Response as KeysQueryResponse, upload_keys,
+    },
     device_id,
     encryption::OneTimeKey,
     events::dummy::ToDeviceDummyEventContent,
     serde::Raw,
     user_id, DeviceId, OwnedDeviceKeyId, TransactionId, UserId,
 };
+use serde_json::json;
 
-use crate::{store::Changes, types::events::ToDeviceEvent, DeviceData, OlmMachine};
+use crate::{
+    store::Changes, types::events::ToDeviceEvent, CrossSigningBootstrapRequests, DeviceData,
+    OlmMachine, OutgoingRequests,
+};
 
 /// These keys need to be periodically uploaded to the server.
 type OneTimeKeys = BTreeMap<OwnedDeviceKeyId, Raw<OneTimeKey>>;
@@ -181,4 +188,37 @@ pub async fn create_session(
 
     let response = claim_keys::v3::Response::new(one_time_keys);
     machine.inner.session_manager.create_sessions(&response).await.unwrap();
+}
+
+/// Given a set of requests returned by `bootstrap_cross_signing` for one user,
+/// return a `/keys/query` response which might be returned to another user/
+pub fn bootstrap_requests_to_keys_query_response(
+    bootstrap_requests: CrossSigningBootstrapRequests,
+) -> KeysQueryResponse {
+    let mut kq_response = json!({});
+
+    // If we have a master key, add that to the response
+    if let Some(key) = bootstrap_requests.upload_signing_keys_req.master_key {
+        let user_id = key.user_id.clone();
+        kq_response["master_keys"] = json!({user_id: key});
+    }
+
+    // If we have a self-signing key, add that
+    if let Some(key) = bootstrap_requests.upload_signing_keys_req.self_signing_key {
+        let user_id = key.user_id.clone();
+        kq_response["self_signing_keys"] = json!({user_id: key});
+    }
+
+    // And if we have a device, add that
+    if let Some(dk) = bootstrap_requests
+        .upload_keys_req
+        .and_then(|req| as_variant!(req.request.as_ref(), OutgoingRequests::KeysUpload).cloned())
+        .and_then(|keys_upload_request| keys_upload_request.device_keys)
+    {
+        let user_id: String = dk.get_field("user_id").unwrap().unwrap();
+        let device_id: String = dk.get_field("device_id").unwrap().unwrap();
+        kq_response["device_keys"] = json!({user_id: { device_id: dk }});
+    }
+
+    ruma_response_from_json(&kq_response)
 }
