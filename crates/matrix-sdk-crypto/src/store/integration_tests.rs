@@ -648,12 +648,13 @@ macro_rules! cryptostore_integration_tests {
                     // Check that there are exactly two results in the batch
                     assert_eq!(sessions_1_k_batch.len(), 2);
 
+                    previous_last_session_id = Some(last_session.session_id().to_owned());
+
                     // Modify one of the results, to check that that doesn't break iteration
                     let mut last_session = last_session.clone();
                     last_session.sender_data = SenderData::unknown();
                     store.save_inbound_group_sessions(vec![last_session], None).await.unwrap();
 
-                    previous_last_session_id = Some(last_session.session_id().to_owned());
                     sessions_1_k.append(&mut sessions_1_k_batch);
                 }
 
