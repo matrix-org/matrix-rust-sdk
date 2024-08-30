@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 mod inbound;
 mod outbound;
 mod sender_data;
-mod sender_data_finder;
+pub(crate) mod sender_data_finder;
 
 pub use inbound::{InboundGroupSession, PickledInboundGroupSession};
 pub(crate) use outbound::ShareState;
@@ -26,7 +26,6 @@ pub use outbound::{
     EncryptionSettings, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
 };
 pub use sender_data::{KnownSenderData, SenderData, SenderDataType};
-pub(crate) use sender_data_finder::SenderDataFinder;
 use thiserror::Error;
 pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};
 use vodozemac::{megolm::SessionKeyDecodeError, Curve25519PublicKey};
