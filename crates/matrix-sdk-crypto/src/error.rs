@@ -408,14 +408,23 @@ pub enum SessionRecipientCollectionError {
     #[error("one or more users that were verified have changed their identity")]
     VerifiedUserChangedIdentity(Vec<OwnedUserId>),
 
-    /// Cross-signing is required for encryption when using
-    /// [`CollectStrategy::IdentityBasedStrategy`].
+    /// Cross-signing has not been configured on our own identity.
+    ///
+    /// Happens only with [`CollectStrategy::IdentityBasedStrategy`].
+    /// (Cross-signing is required for encryption when using
+    /// `IdentityBasedStrategy`.) Apps should detect this condition and prevent
+    /// sending in the UI rather than waiting for this error to be returned when
+    /// encrypting.
     #[error("Encryption failed because cross-signing is not set up on your account")]
     CrossSigningNotSetup,
 
-    /// The current device needs to be verified when encrypting using
-    /// [`CollectStrategy::IdentityBasedStrategy`]. Apps should prevent sending
-    /// in the UI to avoid hitting this case.
+    /// The current device has not been cross-signed by our own identity.
+    ///
+    /// Happens only with [`CollectStrategy::IdentityBasedStrategy`].
+    /// (Cross-signing is required for encryption when using
+    /// `IdentityBasedStrategy`.) Apps should detect this condition and prevent
+    /// sending in the UI rather than waiting for this error to be returned when
+    /// encrypting.
     #[error("Encryption failed because your device is not verified")]
     SendingFromUnverifiedDevice,
 }

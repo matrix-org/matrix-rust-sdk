@@ -234,7 +234,7 @@ pub(crate) async fn collect_session_recipients(
             }
         }
         CollectStrategy::IdentityBasedStrategy => {
-            // We require our own cross-signing to be properly set-up for the
+            // We require our own cross-signing to be properly set up for the
             // identity-based strategy, so return an error if it isn't.
             match &own_identity {
                 None => {
@@ -1150,11 +1150,10 @@ mod tests {
         assert_eq!(code, &WithheldCode::Unauthorised);
     }
 
+    /// Test key sharing with the identity-based strategy with different
+    /// states of our own verification.
     #[async_test]
     async fn test_share_identity_strategy_no_cross_signing() {
-        // Test key sharing with the identity-based strategy with different
-        // states of our own verification.
-
         // Starting off, we have not yet set up our own cross-signing, so
         // sharing with the identity-based strategy should fail.
         let machine: OlmMachine = OlmMachine::new(
@@ -1238,10 +1237,11 @@ mod tests {
         assert_eq!(requests.len(), 1);
     }
 
+    /// Test that identity-based key sharing gives an error when a verified
+    /// user changes their identity, and that the key can be shared when the
+    /// identity change is resolved.
     #[async_test]
-    async fn test_share_identity_strategy_report_pinning_violation() {
-        // Test that identity-based key sharing gives an error when a verified
-        // user changes their identity.
+    async fn test_share_identity_strategy_report_verification_violation() {
         let machine: OlmMachine = OlmMachine::new(
             KeyDistributionTestData::me_id(),
             KeyDistributionTestData::me_device_id(),
@@ -1250,17 +1250,24 @@ mod tests {
 
         machine.bootstrap_cross_signing(false).await.unwrap();
 
+        // We will try sending a key to two different users.
+        let user1 = IdentityChangeDataSet::user_id();
+        let user2 = MaloIdentityChangeDataSet::user_id();
+
+        // We first get both users' initial device and identity keys.
         let keys_query = IdentityChangeDataSet::key_query_with_identity_a();
         machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
         let keys_query = MaloIdentityChangeDataSet::initial_key_query();
         machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
-        // Simulate pinning violation, in which case the key sharing should fail.
+        // And then we get both user' changed identity keys.  We simulate a
+        // verification violation by marking both users as having been
+        // previously verified, in which case the key sharing should fail.
         let keys_query = IdentityChangeDataSet::key_query_with_identity_b();
         machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
         machine
-            .get_identity(IdentityChangeDataSet::user_id(), None)
+            .get_identity(user1, None)
             .await
             .unwrap()
             .unwrap()
@@ -1273,7 +1280,7 @@ mod tests {
         let keys_query = MaloIdentityChangeDataSet::updated_key_query();
         machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
         machine
-            .get_identity(MaloIdentityChangeDataSet::user_id(), None)
+            .get_identity(user2, None)
             .await
             .unwrap()
             .unwrap()
@@ -1285,6 +1292,7 @@ mod tests {
 
         let fake_room_id = room_id!("!roomid:localhost");
 
+        // We share the key using the identity-based strategy.
         let encryption_settings = EncryptionSettings {
             sharing_strategy: CollectStrategy::new_identity_based(),
             ..Default::default()
@@ -1293,38 +1301,102 @@ mod tests {
         let request_result = machine
             .share_room_key(
                 fake_room_id,
-                vec![IdentityChangeDataSet::user_id(), MaloIdentityChangeDataSet::user_id()]
-                    .into_iter(),
+                vec![user1, user2].into_iter(),
                 encryption_settings.clone(),
             )
             .await;
 
+        // The key share should fail with an error indicating that recipients
+        // were previously verified.
         assert_let!(
             Err(OlmError::SessionRecipientCollectionError(
                 SessionRecipientCollectionError::VerifiedUserChangedIdentity(affected_users)
             )) = request_result
         );
+        // Both our recipients should be in `affected_users`.
         assert_eq!(2, affected_users.len());
 
-        // This can be resolved by withdrawing verification.
-        for user_id in affected_users {
-            machine
-                .get_identity(&user_id, None)
-                .await
-                .unwrap()
-                .unwrap()
-                .other()
-                .unwrap()
-                .withdraw_verification()
-                .await
-                .unwrap()
+        // We resolve this for user1 by withdrawing their verification.
+        machine
+            .get_identity(user1, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap()
+            .withdraw_verification()
+            .await
+            .unwrap();
+
+        // We resolve this for user2 by re-verifying.
+        let verification_request = machine
+            .get_identity(user2, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap()
+            .verify()
+            .await
+            .unwrap();
+        let raw_extracted =
+            verification_request.signed_keys.get(user2).unwrap().iter().next().unwrap().1.get();
+        dbg!(raw_extracted);
+        let signed_key: crate::types::CrossSigningKey =
+            serde_json::from_str(raw_extracted).unwrap();
+        let new_signatures = signed_key.signatures.get(KeyDistributionTestData::me_id()).unwrap();
+        let mut master_key = machine
+            .get_identity(user2, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap()
+            .master_key
+            .as_ref()
+            .clone();
+
+        for (key_id, signature) in new_signatures.iter() {
+            master_key.as_mut().signatures.add_signature(
+                KeyDistributionTestData::me_id().to_owned(),
+                key_id.to_owned(),
+                signature.as_ref().unwrap().ed25519().unwrap(),
+            );
         }
+        let json = serde_json::json!({
+            "device_keys": {},
+            "failures": {},
+            "master_keys": {
+                user2: master_key,
+            },
+            "user_signing_keys": {},
+            "self_signing_keys": MaloIdentityChangeDataSet::updated_key_query().self_signing_keys,
+        }
+        );
+
+        let kq_response = matrix_sdk_test::ruma_response_from_json(dbg!(&json));
+        machine
+            .mark_request_as_sent(
+                &TransactionId::new(),
+                crate::IncomingResponse::KeysQuery(&kq_response),
+            )
+            .await
+            .unwrap();
+
+        assert!(machine
+            .get_identity(user2, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap()
+            .is_verified());
 
         // And now the key share should succeed.
         machine
             .share_room_key(
                 fake_room_id,
-                iter::once(IdentityChangeDataSet::user_id()),
+                vec![user1, user2].into_iter(),
                 encryption_settings.clone(),
             )
             .await
