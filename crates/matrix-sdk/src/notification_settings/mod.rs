@@ -25,7 +25,10 @@ use ruma::{
     push::{Action, PredefinedUnderrideRuleId, RuleKind, Ruleset, Tweak},
     RoomId,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{
+    broadcast::{self, Receiver},
+    RwLock,
+};
 use tracing::{debug, error};
 
 use self::{command::Command, rule_commands::RuleCommands, rules::Rules};
@@ -88,29 +91,40 @@ pub struct NotificationSettings {
     rules: Arc<RwLock<Rules>>,
     /// Drop guard of event handler for push rules event.
     _push_rules_event_handler_guard: Arc<EventHandlerDropGuard>,
+    changes_sender: broadcast::Sender<()>,
 }
 
 impl NotificationSettings {
-    /// Build a new `NotificationSettings`.
+    /// Build a new `NotificationSettings``
     ///
     /// # Arguments
     ///
     /// * `client` - A `Client` used to perform API calls
     /// * `ruleset` - A `Ruleset` containing account's owner push rules
     pub(crate) fn new(client: Client, ruleset: Ruleset) -> Self {
+        let changes_sender = broadcast::Sender::new(100);
         let rules = Arc::new(RwLock::new(Rules::new(ruleset)));
 
         // Listen for PushRulesEvent
         let push_rules_event_handler_handle = client.add_event_handler({
+            let changes_sender = changes_sender.clone();
             let rules = Arc::clone(&rules);
             move |ev: PushRulesEvent| async move {
                 *rules.write().await = Rules::new(ev.content.global);
+                let _ = changes_sender.send(());
             }
         });
         let _push_rules_event_handler_guard =
             client.event_handler_drop_guard(push_rules_event_handler_handle).into();
 
-        Self { client, rules, _push_rules_event_handler_guard }
+        Self { client, rules, _push_rules_event_handler_guard, changes_sender }
+    }
+
+    /// Subscribe to changes in the `NotificationSettings`.
+    ///
+    /// Changes can happen due to local changes or changes in another session.
+    pub fn subscribe_to_changes(&self) -> Receiver<()> {
+        self.changes_sender.subscribe()
     }
 
     /// Get the user defined notification mode for a room.
@@ -514,6 +528,7 @@ mod tests {
     use matrix_sdk_test::{
         async_test,
         notification_settings::{build_ruleset, get_server_default_ruleset},
+        test_json,
     };
     use ruma::{
         push::{
@@ -522,12 +537,16 @@ mod tests {
         },
         OwnedRoomId, RoomId,
     };
+    use serde_json::json;
+    use stream_assert::{assert_next_eq, assert_pending};
+    use tokio_stream::wrappers::BroadcastStream;
     use wiremock::{
-        matchers::{method, path, path_regex},
+        matchers::{header, method, path, path_regex},
         Mock, MockServer, ResponseTemplate,
     };
 
     use crate::{
+        config::SyncSettings,
         error::NotificationSettingsError,
         notification_settings::{
             IsEncrypted, IsOneToOne, NotificationSettings, RoomNotificationMode,
@@ -553,6 +572,36 @@ mod tests {
         room_id: &RoomId,
     ) -> Vec<(RuleKind, String)> {
         settings.rules.read().await.get_custom_rules_for_room(room_id)
+    }
+
+    #[async_test]
+    async fn subscribe_to_changes() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        let settings = client.notification_settings().await;
+
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/r0/sync"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "next_batch": "1234",
+                "account_data": {
+                    "events": [*test_json::PUSH_RULES]
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let subscriber = settings.subscribe_to_changes();
+        let mut stream = BroadcastStream::new(subscriber);
+
+        assert_pending!(stream);
+
+        client.sync_once(SyncSettings::default()).await.unwrap();
+
+        assert_next_eq!(stream, Ok(()));
+        assert_pending!(stream);
     }
 
     #[async_test]
