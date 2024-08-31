@@ -1341,7 +1341,6 @@ mod tests {
             .unwrap();
         let raw_extracted =
             verification_request.signed_keys.get(user2).unwrap().iter().next().unwrap().1.get();
-        dbg!(raw_extracted);
         let signed_key: crate::types::CrossSigningKey =
             serde_json::from_str(raw_extracted).unwrap();
         let new_signatures = signed_key.signatures.get(KeyDistributionTestData::me_id()).unwrap();
@@ -1374,7 +1373,7 @@ mod tests {
         }
         );
 
-        let kq_response = matrix_sdk_test::ruma_response_from_json(dbg!(&json));
+        let kq_response = matrix_sdk_test::ruma_response_from_json(&json);
         machine
             .mark_request_as_sent(
                 &TransactionId::new(),
