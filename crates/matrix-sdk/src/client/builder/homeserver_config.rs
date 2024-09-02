@@ -30,14 +30,14 @@ use crate::{
 /// Configuration for the homeserver.
 #[derive(Clone, Debug)]
 pub(super) enum HomeserverConfig {
-    /// A precise URL, including the protocol.
+    /// A homeserver name URL, including the protocol.
     Url(String),
 
-    /// A host/port pair representing a server URL.
+    /// A server name, with the protocol put apart.
     ServerName { server: OwnedServerName, protocol: UrlScheme },
 
-    /// First attempts to build as a server URL, then falls back to a
-    /// homeserver URL, failing if no valid homeserver is found.
+    /// A server name with or without the protocol (it will fallback to `https`
+    /// if absent), or a homeserver URL.
     ServerNameOrUrl(String),
 }
 
