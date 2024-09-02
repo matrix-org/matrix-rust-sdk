@@ -24,8 +24,11 @@ use zeroize::Zeroizing;
 
 use super::{client::Client, RUNTIME};
 use crate::{
-    authentication::OidcConfiguration, client::ClientSessionDelegate, error::ClientError,
-    helpers::unwrap_or_clone_arc, task_handle::TaskHandle,
+    authentication::OidcConfiguration,
+    client::{ClientDelegate, ClientSessionDelegate},
+    error::ClientError,
+    helpers::unwrap_or_clone_arc,
+    task_handle::TaskHandle,
 };
 
 /// A list of bytes containing a certificate in DER or PEM form.
@@ -267,12 +270,13 @@ pub struct ClientBuilder {
     encryption_settings: EncryptionSettings,
     room_key_recipient_strategy: CollectStrategy,
     request_config: Option<RequestConfig>,
+    delegate: Arc<dyn ClientDelegate>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl ClientBuilder {
     #[uniffi::constructor]
-    pub fn new() -> Arc<Self> {
+    pub fn new(delegate: Box<dyn ClientDelegate>) -> Arc<Self> {
         Arc::new(Self {
             session_paths: None,
             username: None,
@@ -295,6 +299,7 @@ impl ClientBuilder {
             },
             room_key_recipient_strategy: Default::default(),
             request_config: Default::default(),
+            delegate: delegate.into(),
         })
     }
 
@@ -603,6 +608,7 @@ impl ClientBuilder {
         Ok(Arc::new(
             Client::new(
                 sdk_client,
+                builder.delegate,
                 builder.cross_process_refresh_lock_id,
                 builder.session_delegate,
             )

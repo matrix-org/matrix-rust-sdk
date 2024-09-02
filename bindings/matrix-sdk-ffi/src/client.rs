@@ -61,7 +61,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::broadcast::error::RecvError;
+use tokio::{sync::broadcast::error::RecvError, task::JoinHandle};
 use tracing::{debug, error};
 use url::Url;
 
@@ -182,9 +182,9 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 #[derive(uniffi::Object)]
 pub struct Client {
     pub(crate) inner: ManuallyDrop<MatrixClient>,
-    delegate: RwLock<Option<Arc<dyn ClientDelegate>>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
+    delegate_task_handle: Arc<JoinHandle<()>>,
 }
 
 impl Drop for Client {
@@ -198,12 +198,15 @@ impl Drop for Client {
         unsafe {
             ManuallyDrop::drop(&mut self.inner);
         }
+
+        self.delegate_task_handle.abort();
     }
 }
 
 impl Client {
     pub async fn new(
         sdk_client: MatrixClient,
+        delegate: Arc<dyn ClientDelegate>,
         cross_process_refresh_lock_id: Option<String>,
         session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     ) -> Result<Self, ClientError> {
@@ -220,10 +223,36 @@ impl Client {
             }
         });
 
+        let mut session_change_receiver = sdk_client.subscribe_to_session_changes();
+
+        let delegate_task_handle = RUNTIME.spawn(async move {
+            loop {
+                match session_change_receiver.recv().await {
+                    Ok(session_change) => {
+                        debug!("Applying session change: {session_change:?}");
+                        let delegate = delegate.clone();
+                        RUNTIME.spawn_blocking(move || match session_change {
+                            SessionChange::UnknownToken { soft_logout } => {
+                                delegate.did_receive_auth_error(soft_logout);
+                            }
+                            SessionChange::TokensRefreshed => {
+                                delegate.did_refresh_tokens();
+                            }
+                        });
+                    }
+                    Err(receive_error) => {
+                        if let RecvError::Closed = receive_error {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
         let client = Client {
             inner: ManuallyDrop::new(sdk_client),
-            delegate: RwLock::new(None),
             session_verification_controller,
+            delegate_task_handle: Arc::new(delegate_task_handle),
         };
 
         if let Some(process_id) = cross_process_refresh_lock_id {
@@ -516,31 +545,6 @@ impl Client {
     /// potential sliding sync versions aside. No error will be reported.
     pub async fn available_sliding_sync_versions(&self) -> Vec<SlidingSyncVersion> {
         self.inner.available_sliding_sync_versions().await.into_iter().map(Into::into).collect()
-    }
-
-    pub fn set_delegate(
-        self: Arc<Self>,
-        delegate: Option<Box<dyn ClientDelegate>>,
-    ) -> Option<Arc<TaskHandle>> {
-        delegate.map(|delegate| {
-            let mut session_change_receiver = self.inner.subscribe_to_session_changes();
-            let client_clone = self.clone();
-            let session_change_task = RUNTIME.spawn(async move {
-                loop {
-                    match session_change_receiver.recv().await {
-                        Ok(session_change) => client_clone.process_session_change(session_change),
-                        Err(receive_error) => {
-                            if let RecvError::Closed = receive_error {
-                                break;
-                            }
-                        }
-                    }
-                }
-            });
-
-            *self.delegate.write().unwrap() = Some(Arc::from(delegate));
-            Arc::new(TaskHandle::new(session_change_task))
-        })
     }
 
     pub fn session(&self) -> Result<Session, ClientError> {
@@ -1079,24 +1083,6 @@ impl From<&search_users::v3::User> for UserProfile {
 }
 
 impl Client {
-    fn process_session_change(&self, session_change: SessionChange) {
-        if let Some(delegate) = self.delegate.read().unwrap().clone() {
-            debug!("Applying session change: {session_change:?}");
-            RUNTIME.spawn_blocking(move || match session_change {
-                SessionChange::UnknownToken { soft_logout } => {
-                    delegate.did_receive_auth_error(soft_logout);
-                }
-                SessionChange::TokensRefreshed => {
-                    delegate.did_refresh_tokens();
-                }
-            });
-        } else {
-            debug!(
-                "No client delegate found, session change couldn't be applied: {session_change:?}"
-            );
-        }
-    }
-
     fn retrieve_session(
         session_delegate: Arc<dyn ClientSessionDelegate>,
         user_id: &UserId,
