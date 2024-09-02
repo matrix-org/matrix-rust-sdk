@@ -162,25 +162,20 @@ impl EventCacheStore for SqliteEventCacheStore {
         let conn = self.acquire().await?;
         let data = conn
             .with_transaction::<_, rusqlite::Error, _>(move |txn| {
-                let Some(media) = txn
-                    .query_row::<Vec<u8>, _, _>(
-                        "SELECT data FROM media WHERE uri = ? AND format = ?",
-                        (&uri, &format),
-                        |row| row.get(0),
-                    )
-                    .optional()?
-                else {
-                    return Ok(None);
-                };
-
                 // Update the last access.
+                // We need to do this first so the transaction is in write mode right away.
                 txn.execute(
                     "UPDATE media SET last_access = CAST(strftime('%s') as INT) \
                      WHERE uri = ? AND format = ?",
-                    (uri, format),
+                    (&uri, &format),
                 )?;
 
-                Ok(Some(media))
+                txn.query_row::<Vec<u8>, _, _>(
+                    "SELECT data FROM media WHERE uri = ? AND format = ?",
+                    (&uri, &format),
+                    |row| row.get(0),
+                )
+                .optional()
             })
             .await?;
 
