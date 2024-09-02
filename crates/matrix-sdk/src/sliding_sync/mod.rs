@@ -25,7 +25,7 @@ mod sticky_parameters;
 mod utils;
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{btree_map::Entry, BTreeMap, HashSet},
     fmt::Debug,
     future::Future,
     sync::{Arc, RwLock as StdRwLock},
@@ -145,6 +145,8 @@ impl SlidingSync {
     ///
     /// If the associated `Room`s exist, it will be marked as
     /// members are missing, so that it ensures to re-fetch all members.
+    ///
+    /// A subscription to an already subscribed room is ignored.
     pub fn subscribe_to_rooms(
         &self,
         room_ids: &[&RoomId],
@@ -154,20 +156,31 @@ impl SlidingSync {
         let mut sticky = self.inner.sticky.write().unwrap();
         let room_subscriptions = &mut sticky.data_mut().room_subscriptions;
 
-        for room_id in room_ids {
-            if let Some(room) = self.inner.client.get_room(room_id) {
-                room.mark_members_missing();
-            }
+        let mut skip_sync_loop = false;
 
-            room_subscriptions.insert(
-                (*room_id).to_owned(),
-                (RoomSubscriptionState::default(), settings.clone()),
-            );
+        for room_id in room_ids {
+            // If the room subscription already exists, let's not
+            // override it with a new one. First, it would reset its
+            // state (`RoomSubscriptionState`), and second it would try to
+            // re-subscribe with the next request. We don't want that. A room
+            // subscription should happen once, and next subscriptions should
+            // be ignored.
+            if let Entry::Vacant(entry) = room_subscriptions.entry((*room_id).to_owned()) {
+                if let Some(room) = self.inner.client.get_room(room_id) {
+                    room.mark_members_missing();
+                }
+
+                entry.insert((RoomSubscriptionState::default(), settings.clone()));
+
+                skip_sync_loop = true;
+            }
         }
 
-        self.inner.internal_channel_send_if_possible(
-            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
-        );
+        if skip_sync_loop {
+            self.inner.internal_channel_send_if_possible(
+                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+            );
+        }
     }
 
     /// Lookup a specific room
@@ -1196,6 +1209,38 @@ mod tests {
             assert!(room_subscriptions.contains_key(room_id_1));
             assert!(!room_subscriptions.contains_key(room_id_2));
         }
+
+        // Subscribing to the same room doesn't reset the member sync state.
+
+        {
+            struct MemberMatcher(OwnedRoomId);
+
+            impl Match for MemberMatcher {
+                fn matches(&self, request: &Request) -> bool {
+                    request.url.path()
+                        == format!("/_matrix/client/r0/rooms/{room_id}/members", room_id = self.0)
+                        && request.method == Method::GET
+                }
+            }
+
+            let _mock_guard = Mock::given(MemberMatcher(room_id_0.to_owned()))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "chunk": [],
+                })))
+                .mount_as_scoped(&server)
+                .await;
+
+            assert_matches!(room0.request_members().await, Ok(()));
+        }
+
+        // Members are synced, good, good.
+        assert!(room0.are_members_synced());
+
+        sliding_sync.subscribe_to_rooms(&[room_id_0], None);
+
+        // Members are still synced: because we have already subscribed to the
+        // room, the members aren't marked as unsynced.
+        assert!(room0.are_members_synced());
 
         Ok(())
     }
