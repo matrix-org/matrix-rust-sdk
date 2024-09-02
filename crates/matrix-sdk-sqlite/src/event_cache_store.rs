@@ -164,6 +164,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .with_transaction::<_, rusqlite::Error, _>(move |txn| {
                 // Update the last access.
                 // We need to do this first so the transaction is in write mode right away.
+                // See: https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
                 txn.execute(
                     "UPDATE media SET last_access = CAST(strftime('%s') as INT) \
                      WHERE uri = ? AND format = ?",
