@@ -2211,6 +2211,46 @@ async fn test_room_subscription() -> Result<(), Error> {
         },
     };
 
+    // Subscribe to an already subscribed room. Nothing happens.
+
+    room_list.subscribe_to_rooms(
+        &[room_id_1],
+        Some(assign!(RoomSubscription::default(), {
+            required_state: vec![
+                (StateEventType::RoomName, "".to_owned()),
+                (StateEventType::RoomTopic, "".to_owned()),
+                (StateEventType::RoomAvatar, "".to_owned()),
+                (StateEventType::RoomCanonicalAlias, "".to_owned()),
+            ],
+            timeline_limit: Some(uint!(30)),
+        })),
+    );
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        // strict comparison (with `=`) because we want to ensure
+        // the absence of `room_subscriptions`.
+        assert request = {
+            "conn_id": "room-list",
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 2]],
+                },
+            },
+            // NO `room_subscriptions`!
+            "extensions": {
+                "account_data": { "enabled": true },
+                "receipts": { "enabled": true, "rooms": [ "*" ] },
+                "typing": { "enabled": true },
+            },
+        },
+        respond with = {
+            "pos": "3",
+            "lists": {},
+            "rooms": {},
+        },
+    };
+
     Ok(())
 }
 
