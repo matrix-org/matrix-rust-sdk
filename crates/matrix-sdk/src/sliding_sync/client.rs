@@ -156,19 +156,22 @@ impl Client {
     /// If `.well-known` or `/versions` is unreachable, it will simply move
     /// potential sliding sync versions aside. No error will be reported.
     pub async fn available_sliding_sync_versions(&self) -> Vec<Version> {
-        let well_known = self
-            .inner
-            .http_client
-            .send(
-                discover_homeserver::Request::new(),
-                Some(RequestConfig::short_retry()),
-                self.homeserver().to_string(),
-                None,
-                &[MatrixVersion::V1_0],
-                Default::default(),
-            )
-            .await
-            .ok();
+        let well_known = match self.server().map(ToString::to_string) {
+            None => None,
+            Some(server) => self
+                .inner
+                .http_client
+                .send(
+                    discover_homeserver::Request::new(),
+                    Some(RequestConfig::short_retry()),
+                    server,
+                    None,
+                    &[MatrixVersion::V1_0],
+                    Default::default(),
+                )
+                .await
+                .ok(),
+        };
         let supported_versions = self.unstable_features().await.ok().map(|unstable_features| {
             let mut response = get_supported_versions::Response::new(vec![]);
             response.unstable_features = unstable_features;
@@ -324,12 +327,12 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_base::notification_settings::RoomNotificationMode;
     use matrix_sdk_test::async_test;
-    use ruma::{assign, room_id, serde::Raw};
+    use ruma::{api::MatrixVersion, assign, room_id, serde::Raw, ServerName};
     use serde_json::json;
     use url::Url;
     use wiremock::{
         matchers::{method, path},
-        Mock, ResponseTemplate,
+        Mock, MockServer, ResponseTemplate,
     };
 
     use super::{discover_homeserver, get_supported_versions, Version, VersionBuilder};
@@ -337,7 +340,7 @@ mod tests {
         error::Result,
         sliding_sync::{http, VersionBuilderError},
         test_utils::logged_in_client_with_server,
-        SlidingSyncList, SlidingSyncMode,
+        Client, SlidingSyncList, SlidingSyncMode,
     };
 
     #[test]
@@ -458,7 +461,7 @@ mod tests {
 
     #[async_test]
     async fn test_available_sliding_sync_versions_proxy() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MockServer::start().await;
 
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -472,6 +475,15 @@ mod tests {
             })))
             .mount(&server)
             .await;
+
+        let client = Client::builder()
+            .insecure_server_name_no_tls(
+                <&ServerName>::try_from(server.address().to_string().as_str()).unwrap(),
+            )
+            .server_versions([MatrixVersion::V1_0])
+            .build()
+            .await
+            .unwrap();
 
         let available_versions = client.available_sliding_sync_versions().await;
 
