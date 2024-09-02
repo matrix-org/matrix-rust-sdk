@@ -31,14 +31,14 @@ use crate::{
 #[derive(Clone, Debug)]
 pub(super) enum HomeserverConfig {
     /// A homeserver name URL, including the protocol.
-    Url(String),
+    HomeserverUrl(String),
 
     /// A server name, with the protocol put apart.
     ServerName { server: OwnedServerName, protocol: UrlScheme },
 
     /// A server name with or without the protocol (it will fallback to `https`
     /// if absent), or a homeserver URL.
-    ServerNameOrUrl(String),
+    ServerNameOrHomeserverUrl(String),
 }
 
 /// A simple helper to represent `http` or `https` in a URL.
@@ -62,7 +62,7 @@ impl HomeserverConfig {
         http_client: &HttpClient,
     ) -> Result<HomeserverDiscoveryResult, ClientBuildError> {
         Ok(match self {
-            Self::Url(url) => {
+            Self::HomeserverUrl(url) => {
                 let homeserver = Url::parse(url)?;
 
                 HomeserverDiscoveryResult {
@@ -85,7 +85,7 @@ impl HomeserverConfig {
                 }
             }
 
-            Self::ServerNameOrUrl(server_name_or_url) => {
+            Self::ServerNameOrHomeserverUrl(server_name_or_url) => {
                 let (server, homeserver, well_known, supported_versions) =
                     discover_homeserver_from_server_name_or_url(
                         server_name_or_url.to_owned(),
@@ -233,7 +233,7 @@ mod tests {
         let http_client =
             HttpClient::new(HttpSettings::default().make_client().unwrap(), Default::default());
 
-        let result = HomeserverConfig::Url("https://matrix-client.matrix.org".to_owned())
+        let result = HomeserverConfig::HomeserverUrl("https://matrix-client.matrix.org".to_owned())
             .discover(&http_client)
             .await
             .unwrap();
@@ -294,7 +294,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let result = HomeserverConfig::ServerNameOrUrl(server.uri().to_string())
+        let result = HomeserverConfig::ServerNameOrHomeserverUrl(server.uri().to_string())
             .discover(&http_client)
             .await
             .unwrap();
@@ -320,7 +320,7 @@ mod tests {
             .mount(&homeserver)
             .await;
 
-        let result = HomeserverConfig::ServerNameOrUrl(homeserver.uri().to_string())
+        let result = HomeserverConfig::ServerNameOrHomeserverUrl(homeserver.uri().to_string())
             .discover(&http_client)
             .await
             .unwrap();

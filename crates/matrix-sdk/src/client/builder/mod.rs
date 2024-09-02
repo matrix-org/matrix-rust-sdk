@@ -123,24 +123,12 @@ impl ClientBuilder {
 
     /// Set the homeserver URL to use.
     ///
-    /// The following methods are mutually exclusive:
-    /// [`homeserver_url()`][Self::homeserver_url]
-    /// [`server_name()`][Self::server_name]
-    /// [`insecure_server_name_no_tls()`][Self::insecure_server_name_no_tls]
-    /// [`server_name_or_homeserver_url()`][Self::server_name_or_homeserver_url],
+    /// The following methods are mutually exclusive: [`Self::homeserver_url`],
+    /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
+    /// [`Self::server_name_or_homeserver_url`].
     /// If you set more than one, then whatever was set last will be used.
     pub fn homeserver_url(mut self, url: impl AsRef<str>) -> Self {
-        self.homeserver_cfg = Some(HomeserverConfig::Url(url.as_ref().to_owned()));
-        self
-    }
-
-    /// Set sliding sync to a specific version.
-    #[cfg(feature = "experimental-sliding-sync")]
-    pub fn sliding_sync_version_builder(
-        mut self,
-        version_builder: SlidingSyncVersionBuilder,
-    ) -> Self {
-        self.sliding_sync_version_builder = version_builder;
+        self.homeserver_cfg = Some(HomeserverConfig::HomeserverUrl(url.as_ref().to_owned()));
         self
     }
 
@@ -149,11 +137,9 @@ impl ClientBuilder {
     /// We assume we can connect in HTTPS to that server. If that's not the
     /// case, prefer using [`Self::insecure_server_name_no_tls`].
     ///
-    /// The following methods are mutually exclusive:
-    /// [`homeserver_url()`][Self::homeserver_url]
-    /// [`server_name()`][Self::server_name]
-    /// [`insecure_server_name_no_tls()`][Self::insecure_server_name_no_tls]
-    /// [`server_name_or_homeserver_url()`][Self::server_name_or_homeserver_url],
+    /// The following methods are mutually exclusive: [`Self::homeserver_url`],
+    /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
+    /// [`Self::server_name_or_homeserver_url`].
     /// If you set more than one, then whatever was set last will be used.
     pub fn server_name(mut self, server_name: &ServerName) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::ServerName {
@@ -168,11 +154,9 @@ impl ClientBuilder {
     /// (not secured) scheme. This also relaxes OIDC discovery checks to allow
     /// HTTP schemes.
     ///
-    /// The following methods are mutually exclusive:
-    /// [`homeserver_url()`][Self::homeserver_url]
-    /// [`server_name()`][Self::server_name]
-    /// [`insecure_server_name_no_tls()`][Self::insecure_server_name_no_tls]
-    /// [`server_name_or_homeserver_url()`][Self::server_name_or_homeserver_url],
+    /// The following methods are mutually exclusive: [`Self::homeserver_url`],
+    /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
+    /// [`Self::server_name_or_homeserver_url`].
     /// If you set more than one, then whatever was set last will be used.
     pub fn insecure_server_name_no_tls(mut self, server_name: &ServerName) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::ServerName {
@@ -185,18 +169,27 @@ impl ClientBuilder {
     /// Set the server name to discover the homeserver from, falling back to
     /// using it as a homeserver URL if discovery fails. When falling back to a
     /// homeserver URL, a check is made to ensure that the server exists (unlike
-    /// [`homeserver_url()`][Self::homeserver_url]), so you can guarantee that
-    /// the client is ready to use.
+    /// [`Self::homeserver_url`], so you can guarantee that the client is ready
+    /// to use.
     ///
-    /// The following methods are mutually exclusive:
-    /// [`homeserver_url()`][Self::homeserver_url]
-    /// [`server_name()`][Self::server_name]
-    /// [`insecure_server_name_no_tls()`][Self::insecure_server_name_no_tls]
-    /// [`server_name_or_homeserver_url()`][Self::server_name_or_homeserver_url],
+    /// The following methods are mutually exclusive: [`Self::homeserver_url`],
+    /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
+    /// [`Self::server_name_or_homeserver_url`].
     /// If you set more than one, then whatever was set last will be used.
     pub fn server_name_or_homeserver_url(mut self, server_name_or_url: impl AsRef<str>) -> Self {
-        self.homeserver_cfg =
-            Some(HomeserverConfig::ServerNameOrUrl(server_name_or_url.as_ref().to_owned()));
+        self.homeserver_cfg = Some(HomeserverConfig::ServerNameOrHomeserverUrl(
+            server_name_or_url.as_ref().to_owned(),
+        ));
+        self
+    }
+
+    /// Set sliding sync to a specific version.
+    #[cfg(feature = "experimental-sliding-sync")]
+    pub fn sliding_sync_version_builder(
+        mut self,
+        version_builder: SlidingSyncVersionBuilder,
+    ) -> Self {
+        self.sliding_sync_version_builder = version_builder;
         self
     }
 
