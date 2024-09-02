@@ -2769,13 +2769,7 @@ impl Room {
     pub async fn event_cache(
         &self,
     ) -> event_cache::Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
-        let global_event_cache = self.client.event_cache();
-
-        global_event_cache.for_room(self.room_id()).await.map(|(maybe_room, drop_handles)| {
-            // SAFETY: the `RoomEventCache` must always been found, since we're constructing
-            // from a `Room`.
-            (maybe_room.unwrap(), drop_handles)
-        })
+        self.client.event_cache().for_room(self.room_id()).await
     }
 
     /// This will only send a call notification event if appropriate.

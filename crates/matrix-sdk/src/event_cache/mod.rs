@@ -282,7 +282,7 @@ impl EventCache {
     pub(crate) async fn for_room(
         &self,
         room_id: &RoomId,
-    ) -> Result<(Option<RoomEventCache>, Arc<EventCacheDropHandles>)> {
+    ) -> Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
         let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
             return Err(EventCacheError::NotSubscribedYet);
         };
@@ -303,10 +303,7 @@ impl EventCache {
         events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
     ) -> Result<()> {
-        let Some(room_cache) = self.inner.for_room(room_id).await? else {
-            warn!("unknown room, skipping");
-            return Ok(());
-        };
+        let room_cache = self.inner.for_room(room_id).await?;
 
         // We could have received events during a previous sync; remove them all, since
         // we can't know where to insert the "initial events" with respect to
@@ -399,10 +396,7 @@ impl EventCacheInner {
 
         // Left rooms.
         for (room_id, left_room_update) in updates.leave {
-            let Some(room) = self.for_room(&room_id).await? else {
-                warn!(%room_id, "missing left room");
-                continue;
-            };
+            let room = self.for_room(&room_id).await?;
 
             if let Err(err) = room.inner.handle_left_room_update(left_room_update).await {
                 // Non-fatal error, try to continue to the next room.
@@ -412,10 +406,7 @@ impl EventCacheInner {
 
         // Joined rooms.
         for (room_id, joined_room_update) in updates.join {
-            let Some(room) = self.for_room(&room_id).await? else {
-                warn!(%room_id, "missing joined room");
-                continue;
-            };
+            let room = self.for_room(&room_id).await?;
 
             if let Err(err) = room.inner.handle_joined_room_update(joined_room_update).await {
                 // Non-fatal error, try to continue to the next room.
@@ -433,13 +424,13 @@ impl EventCacheInner {
     ///
     /// It may not be found, if the room isn't known to the client, in which
     /// case it'll return None.
-    async fn for_room(&self, room_id: &RoomId) -> Result<Option<RoomEventCache>> {
+    async fn for_room(&self, room_id: &RoomId) -> Result<RoomEventCache> {
         // Fast path: the entry exists; let's acquire a read lock, it's cheaper than a
         // write lock.
         let by_room_guard = self.by_room.read().await;
 
         match by_room_guard.get(room_id) {
-            Some(room) => Ok(Some(room.clone())),
+            Some(room) => Ok(room.clone()),
 
             None => {
                 // Slow-path: the entry doesn't exist; let's acquire a write lock.
@@ -449,7 +440,7 @@ impl EventCacheInner {
                 // In the meanwhile, some other caller might have obtained write access and done
                 // the same, so check for existence again.
                 if let Some(room) = by_room_guard.get(room_id) {
-                    return Ok(Some(room.clone()));
+                    return Ok(room.clone());
                 }
 
                 let room_event_cache = RoomEventCache::new(
@@ -460,7 +451,7 @@ impl EventCacheInner {
 
                 by_room_guard.insert(room_id.to_owned(), room_event_cache.clone());
 
-                Ok(Some(room_event_cache))
+                Ok(room_event_cache)
             }
         }
     }
@@ -1032,7 +1023,6 @@ mod tests {
         event_cache.subscribe().unwrap();
 
         let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
-        let room_event_cache = room_event_cache.unwrap();
 
         let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
