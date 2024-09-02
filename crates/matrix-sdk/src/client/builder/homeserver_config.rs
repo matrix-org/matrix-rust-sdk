@@ -36,8 +36,8 @@ pub(super) enum HomeserverConfig {
     /// A host/port pair representing a server URL.
     ServerName { server: OwnedServerName, protocol: UrlScheme },
 
-    /// First attempts to build as a server name, then falls back to a URL,
-    /// failing if no valid homeserver is found.
+    /// First attempts to build as a server URL, then falls back to a
+    /// homeserver URL, failing if no valid homeserver is found.
     ServerNameOrUrl(String),
 }
 
@@ -213,4 +213,121 @@ pub(super) async fn get_supported_versions(
             Default::default(),
         )
         .await
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use matrix_sdk_test::async_test;
+    use ruma::OwnedServerName;
+    use serde_json::json;
+    use wiremock::{
+        matchers::{method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
+
+    use super::*;
+    use crate::http_client::HttpSettings;
+
+    #[async_test]
+    async fn test_url() {
+        let http_client =
+            HttpClient::new(HttpSettings::default().make_client().unwrap(), Default::default());
+
+        let result = HomeserverConfig::Url("https://matrix-client.matrix.org".to_owned())
+            .discover(&http_client)
+            .await
+            .unwrap();
+
+        assert_eq!(result.server, None);
+        assert_eq!(result.homeserver, Url::parse("https://matrix-client.matrix.org").unwrap());
+        assert!(result.well_known.is_none());
+        assert!(result.supported_versions.is_none());
+    }
+
+    #[async_test]
+    async fn test_server_name() {
+        let http_client =
+            HttpClient::new(HttpSettings::default().make_client().unwrap(), Default::default());
+
+        let server = MockServer::start().await;
+        let homeserver = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "m.homeserver": {
+                    "base_url": homeserver.uri(),
+                },
+            })))
+            .mount(&server)
+            .await;
+
+        let result = HomeserverConfig::ServerName {
+            server: OwnedServerName::try_from(server.address().to_string()).unwrap(),
+            protocol: UrlScheme::Http,
+        }
+        .discover(&http_client)
+        .await
+        .unwrap();
+
+        assert_eq!(result.server, Some(Url::parse(&server.uri()).unwrap()));
+        assert_eq!(result.homeserver, Url::parse(&homeserver.uri()).unwrap());
+        assert!(result.well_known.is_some());
+        assert!(result.supported_versions.is_none());
+    }
+
+    #[async_test]
+    async fn test_server_name_or_url_with_name() {
+        let http_client =
+            HttpClient::new(HttpSettings::default().make_client().unwrap(), Default::default());
+
+        let server = MockServer::start().await;
+        let homeserver = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "m.homeserver": {
+                    "base_url": homeserver.uri(),
+                },
+            })))
+            .mount(&server)
+            .await;
+
+        let result = HomeserverConfig::ServerNameOrUrl(server.uri().to_string())
+            .discover(&http_client)
+            .await
+            .unwrap();
+
+        assert_eq!(result.server, Some(Url::parse(&server.uri()).unwrap()));
+        assert_eq!(result.homeserver, Url::parse(&homeserver.uri()).unwrap());
+        assert!(result.well_known.is_some());
+        assert!(result.supported_versions.is_none());
+    }
+
+    #[async_test]
+    async fn test_server_name_or_url_with_url() {
+        let http_client =
+            HttpClient::new(HttpSettings::default().make_client().unwrap(), Default::default());
+
+        let homeserver = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "versions": [],
+            })))
+            .mount(&homeserver)
+            .await;
+
+        let result = HomeserverConfig::ServerNameOrUrl(homeserver.uri().to_string())
+            .discover(&http_client)
+            .await
+            .unwrap();
+
+        assert_eq!(result.server, Some(Url::parse(&homeserver.uri()).unwrap()));
+        assert_eq!(result.homeserver, Url::parse(&homeserver.uri()).unwrap());
+        assert!(result.well_known.is_none());
+        assert!(result.supported_versions.is_some());
+    }
 }
