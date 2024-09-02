@@ -352,7 +352,6 @@ mod tests {
             event_cache.subscribe().unwrap();
 
             let (room_event_cache, _drop_handlers) = event_cache.for_room(room_id).await.unwrap();
-            let room_event_cache = room_event_cache.unwrap();
 
             // When I only have events in a room,
             {
@@ -405,7 +404,6 @@ mod tests {
             event_cache.subscribe().unwrap();
 
             let (room_event_cache, _drop_handlers) = event_cache.for_room(room_id).await.unwrap();
-            let room_event_cache = room_event_cache.unwrap();
 
             let expected_token = "old".to_owned();
 
@@ -460,7 +458,6 @@ mod tests {
             event_cache.subscribe().unwrap();
 
             let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
-            let room_event_cache = room_event_cache.unwrap();
 
             let expected_token = "old".to_owned();
 
