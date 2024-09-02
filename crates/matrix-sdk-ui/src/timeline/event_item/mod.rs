@@ -381,6 +381,11 @@ impl EventTimelineItem {
             return None;
         }
 
+        // An unable-to-decrypt message has no authenticity shield.
+        if let TimelineItemContent::UnableToDecrypt(_) = self.content() {
+            return None;
+        }
+
         match self.encryption_info() {
             Some(info) => {
                 if strict {
