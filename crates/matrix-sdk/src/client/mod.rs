@@ -474,7 +474,7 @@ impl Client {
     /// The server used by the client.
     ///
     /// See `Self::server` to learn more.
-    fn server(&self) -> Option<&Url> {
+    pub fn server(&self) -> Option<&Url> {
         self.inner.server.as_ref()
     }
 
