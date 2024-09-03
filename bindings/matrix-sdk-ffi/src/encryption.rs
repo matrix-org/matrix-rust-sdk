@@ -462,15 +462,12 @@ impl From<&matrix_sdk::encryption::CrossSigningResetAuthType> for CrossSigningRe
 
 #[derive(uniffi::Record)]
 pub struct OidcCrossSigningResetInfo {
-    /// The error message we received from the homeserver after we attempted to
-    /// reset the cross-signing keys.
-    pub error: String,
     /// The URL where the user can approve the reset of the cross-signing keys.
     pub approval_url: String,
 }
 
 impl From<&matrix_sdk::encryption::OidcCrossSigningResetInfo> for OidcCrossSigningResetInfo {
     fn from(value: &matrix_sdk::encryption::OidcCrossSigningResetInfo) -> Self {
-        Self { error: value.error.to_owned(), approval_url: value.approval_url.to_string() }
+        Self { approval_url: value.approval_url.to_string() }
     }
 }

@@ -36,7 +36,6 @@ use matrix_sdk_base::crypto::{
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     api::client::{
-        error::{ErrorBody, ErrorKind},
         keys::{
             get_keys, upload_keys, upload_signatures::v3::Request as UploadSignaturesRequest,
             upload_signing_keys::v3::Request as UploadSigningKeysRequest,
@@ -57,6 +56,7 @@ use ruma::{
     },
     DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
+use serde::Deserialize;
 use tokio::sync::{Mutex, RwLockReadGuard};
 use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
@@ -279,13 +279,12 @@ impl CrossSigningResetHandle {
         let mut upload_request = self.upload_request.clone();
         upload_request.auth = auth;
 
-        // TODO: Do we want to put a limit on this infinite loop? 🤷
         while let Err(e) = self.client.send(upload_request.clone(), None).await {
             if *self.is_cancelled.lock().await {
                 return Ok(());
             }
 
-            if e.client_api_error_kind() != Some(&ErrorKind::Unrecognized) {
+            if e.as_uiaa_response().is_none() {
                 return Err(e.into());
             }
         }
@@ -313,15 +312,22 @@ pub enum CrossSigningResetAuthType {
 }
 
 impl CrossSigningResetAuthType {
-    async fn new(client: &Client, error: &HttpError) -> Result<Option<Self>> {
+    #[allow(clippy::unused_async)]
+    async fn new(
+        #[allow(unused_variables)] client: &Client,
+        error: &HttpError,
+    ) -> Result<Option<Self>> {
         if let Some(auth_info) = error.as_uiaa_response() {
+            #[cfg(feature = "experimental-oidc")]
+            if client.oidc().issuer().is_some() {
+                OidcCrossSigningResetInfo::from_auth_info(client, auth_info)
+                    .map(|t| Some(CrossSigningResetAuthType::Oidc(t)))
+            } else {
+                Ok(Some(CrossSigningResetAuthType::Uiaa(auth_info.clone())))
+            }
+
+            #[cfg(not(feature = "experimental-oidc"))]
             Ok(Some(CrossSigningResetAuthType::Uiaa(auth_info.clone())))
-        } else if let Some(ErrorBody::Standard { kind, message }) =
-            error.as_client_api_error().map(|e| &e.body)
-        {
-            OidcCrossSigningResetInfo::from_matrix_error(client, kind, message)
-                .await
-                .map(|t| t.map(CrossSigningResetAuthType::Oidc))
         } else {
             Ok(None)
         }
@@ -330,45 +336,43 @@ impl CrossSigningResetAuthType {
 
 /// OIDC specific information about the required authentication for the upload
 /// of cross-signing keys.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct OidcCrossSigningResetInfo {
-    /// The error message we received from the homeserver after we attempted to
-    /// reset the cross-signing keys.
-    pub error: String,
     /// The URL where the user can approve the reset of the cross-signing keys.
     pub approval_url: Url,
 }
 
 impl OidcCrossSigningResetInfo {
-    #[allow(clippy::unused_async)]
-    async fn from_matrix_error(
+    #[cfg(feature = "experimental-oidc")]
+    fn from_auth_info(
         // This is used if the OIDC feature is enabled.
         #[allow(unused_variables)] client: &Client,
-        kind: &ErrorKind,
-        message: &str,
-    ) -> Result<Option<Self>> {
-        #[cfg(feature = "experimental-oidc")]
-        use mas_oidc_client::requests::account_management::AccountManagementActionFull;
+        auth_info: &UiaaInfo,
+    ) -> Result<Self> {
+        let parameters =
+            serde_json::from_str::<OidcCrossSigningResetUiaaParameters>(auth_info.params.get())?;
 
-        if kind == &ErrorKind::Unrecognized {
-            #[cfg(feature = "experimental-oidc")]
-            let approval_url = client
-                .oidc()
-                .account_management_url(Some(AccountManagementActionFull::CrossSigningReset))
-                .await?;
-
-            #[cfg(not(feature = "experimental-oidc"))]
-            let approval_url = None;
-
-            if let Some(approval_url) = approval_url {
-                Ok(Some(OidcCrossSigningResetInfo { error: message.to_owned(), approval_url }))
-            } else {
-                Ok(None)
-            }
-        } else {
-            Ok(None)
-        }
+        Ok(OidcCrossSigningResetInfo { approval_url: parameters.reset.url })
     }
+}
+
+/// The parsed `parameters` part of a [`ruma::api::client::uiaa::UiaaInfo`]
+/// response
+#[cfg(feature = "experimental-oidc")]
+#[derive(Debug, Deserialize)]
+struct OidcCrossSigningResetUiaaParameters {
+    /// The URL where the user can approve the reset of the cross-signing keys.
+    #[serde(rename = "org.matrix.cross_signing_reset")]
+    reset: OidcCrossSigningResetUiaaResetParameter,
+}
+
+/// The `org.matrix.cross_signing_reset` part of the Uiaa response `parameters``
+/// dictionary.
+#[cfg(feature = "experimental-oidc")]
+#[derive(Debug, Deserialize)]
+struct OidcCrossSigningResetUiaaResetParameter {
+    /// The URL where the user can approve the reset of the cross-signing keys.
+    url: Url,
 }
 
 impl Client {
