@@ -37,7 +37,7 @@ where
             // as shallow clones of each others. In practice it's really great: a `Room` can
             // never be outdated. However, for the case of sorting rooms, it breaks the
             // search algorithm. `left` and `right` will have the exact same recency
-            // timestamp, so `left` and `right` will always be `Ordering::Equal`. This is
+            // stamp, so `left` and `right` will always be `Ordering::Equal`. This is
             // wrong: if `left` is compared with `right` and if they are both the same room,
             // it means that one of them (either `left`, or `right`, it's not important) has
             // received an update. The room position is very likely to change. But if they
@@ -50,9 +50,7 @@ where
         }
 
         match (self.recency_stamps)(left, right) {
-            (Some(left_timestamp), Some(right_timestamp)) => {
-                left_timestamp.cmp(&right_timestamp).reverse()
-            }
+            (Some(left_stamp), Some(right_stamp)) => left_stamp.cmp(&right_stamp).reverse(),
 
             (Some(_), None) => Ordering::Less,
 
