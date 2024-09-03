@@ -141,32 +141,6 @@ async fn test_reset_oidc() {
 
     let (client, server) = no_retry_test_client_with_server().await;
 
-    let auth_issuer_body = json!({
-      "issuer": server.uri(),
-      "authorization_endpoint": format!("{}/authorize", server.uri()),
-      "token_endpoint": format!("{}/oauth2/token", server.uri()),
-      "jwks_uri": format!("{}/oauth2/keys.json", server.uri()),
-      "response_types_supported": [
-        "code",
-      ],
-      "response_modes_supported": [
-        "fragment"
-      ],
-      "subject_types_supported": [
-        "public"
-      ],
-      "id_token_signing_alg_values_supported": [
-        "RS256",
-      ],
-      "claim_types_supported": [
-        "normal"
-      ],
-      "account_management_uri": format!("{}/account/", server.uri()),
-      "account_management_actions_supported": [
-        "org.matrix.cross_signing_reset"
-      ]
-    });
-
     pub fn mock_registered_client_data() -> (ClientCredentials, VerifiedClientMetadata) {
         (
             ClientCredentials::None { client_id: CLIENT_ID.to_owned() },
@@ -227,21 +201,23 @@ async fn test_reset_oidc() {
         .mount(&server)
         .await;
 
-    Mock::given(method("GET"))
-        .and(path(".well-known/openid-configuration"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(auth_issuer_body))
-        .expect(1)
-        .named("Auth issuer discovery")
-        .mount(&server)
-        .await;
+    let uiaa_response_body = json!({
+        "session": "dummy",
+        "flows": [{
+            "stages": [ "org.matrix.cross_signing_reset" ]
+        }],
+        "params": {
+            "org.matrix.cross_signing_reset": {
+                "url": format!("{}/account/?action=org.matrix.cross_signing_reset", server.uri())
+            }
+        },
+        "msg": "To reset your end-to-end encryption cross-signing identity, you first need to approve it and then try again."
+    });
 
     let reset_handle = {
         let _guard = Mock::given(method("POST"))
             .and(path("/_matrix/client/unstable/keys/device_signing/upload"))
-            .respond_with(ResponseTemplate::new(501).set_body_json(json!({
-                "errcode": "M_UNRECOGNIZED",
-                "error": "To reset your cross-signing keys you first need to approve it in your auth issuer settings",
-            })))
+            .respond_with(ResponseTemplate::new(401).set_body_json(uiaa_response_body.clone()))
             .expect(1)
             .named("Initial cross-signing upload attempt")
             .mount_as_scoped(&server)
@@ -279,10 +255,7 @@ async fn test_reset_oidc() {
                 if current_value >= 4 {
                     ResponseTemplate::new(200).set_body_json(json!({}))
                 } else {
-                    ResponseTemplate::new(501).set_body_json(json!({
-                        "errcode": "M_UNRECOGNIZED",
-                        "error": "",
-                    }))
+                    ResponseTemplate::new(401).set_body_json(uiaa_response_body.clone())
                 }
             }
         })
