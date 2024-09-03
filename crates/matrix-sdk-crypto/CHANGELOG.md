@@ -56,6 +56,11 @@ Breaking changes:
   `OlmMachine::share_room_key` to fail with an error if any verified users on
   the recipient list have unsigned devices, or are no lonver verified.
 
+  When `CallectStrategy::IdentityBasedStrategy` is used,
+  `OlmMachine::share_room_key` will fail with an error if any verified users on
+  the recipient list are no longer verified, or if our own device is not
+  properly cross-signed.
+
   Also remove `CollectStrategy::new_device_based`: callers should construct a
   `CollectStrategy::DeviceBasedStrategy` directly.
 
@@ -63,6 +68,7 @@ Breaking changes:
   a list of booleans.
   ([#3810](https://github.com/matrix-org/matrix-rust-sdk/pull/3810))
   ([#3816](https://github.com/matrix-org/matrix-rust-sdk/pull/3816))
+  ([#3896](https://github.com/matrix-org/matrix-rust-sdk/pull/3896))
 
 - Remove the method `OlmMachine::clear_crypto_cache()`, crypto stores are not
   supposed to have any caches anymore.

@@ -929,11 +929,20 @@ pub enum EventSendState {
     ///
     /// Happens only when the room key recipient strategy (as set by
     /// [`ClientBuilder::room_key_recipient_strategy`]) has
-    /// [`error_on_verified_user_problem`](CollectStrategy::DeviceBasedStrategy::error_on_verified_user_problem) set.
+    /// [`error_on_verified_user_problem`](CollectStrategy::DeviceBasedStrategy::error_on_verified_user_problem)
+    /// set, or when using [`CollectStrategy::IdentityBasedStrategy`].
     VerifiedUserChangedIdentity {
         /// The users that were previously verified, but are no longer
         users: Vec<String>,
     },
+
+    /// The user does not have cross-signing set up, but
+    /// [`CollectStrategy::IdentityBasedStrategy`] was used.
+    CrossSigningNotSetup,
+
+    /// The current device is not verified, but
+    /// [`CollectStrategy::IdentityBasedStrategy`] was used.
+    SendingFromUnverifiedDevice,
 
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
@@ -988,6 +997,10 @@ fn event_send_state_from_sending_failed(error: &Error, is_recoverable: bool) -> 
             VerifiedUserChangedIdentity(bad_users) => EventSendState::VerifiedUserChangedIdentity {
                 users: bad_users.iter().map(|user_id| user_id.to_string()).collect(),
             },
+
+            CrossSigningNotSetup => EventSendState::CrossSigningNotSetup,
+
+            SendingFromUnverifiedDevice => EventSendState::SendingFromUnverifiedDevice,
         },
 
         _ => EventSendState::SendingFailed { error: error.to_string(), is_recoverable },

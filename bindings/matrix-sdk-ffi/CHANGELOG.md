@@ -2,6 +2,16 @@
 
 Breaking changes:
 
+- `EventSendState` now has two additional variants: `CrossSigningNotSetup` and
+  `SendingFromUnverifiedDevice`. These indicate that your own device is not
+  properly cross-signed, which is a requirement when using the identity-based
+  strategy, and can only be returned when using the identity-based strategy.
+
+  In addition, the `VerifiedUserHasUnsignedDevice` and
+  `VerifiedUserChangedIdentity` variants can be returned when using the
+  identity-based strategy, in addition to when using the device-based strategy
+  with `error_on_verified_user_problem` is set.
+
 - `EventSendState` now has two additional variants: `VerifiedUserHasUnsignedDevice` and
   `VerifiedUserChangedIdentity`. These reflect problems with verified users in the room
   and as such can only be returned when the room key recipient strategy has
