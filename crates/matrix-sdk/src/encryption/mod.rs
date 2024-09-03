@@ -279,7 +279,6 @@ impl CrossSigningResetHandle {
         let mut upload_request = self.upload_request.clone();
         upload_request.auth = auth;
 
-        // TODO: Do we want to put a limit on this infinite loop? 🤷
         while let Err(e) = self.client.send(upload_request.clone(), None).await {
             if *self.is_cancelled.lock().await {
                 return Ok(());
@@ -357,20 +356,20 @@ impl OidcCrossSigningResetInfo {
     }
 }
 
-#[cfg(feature = "experimental-oidc")]
-#[derive(Debug, Deserialize)]
 /// The parsed `parameters` part of a [`ruma::api::client::uiaa::UiaaInfo`]
 /// response
+#[cfg(feature = "experimental-oidc")]
+#[derive(Debug, Deserialize)]
 struct OidcCrossSigningResetUiaaParameters {
     /// The URL where the user can approve the reset of the cross-signing keys.
     #[serde(rename = "org.matrix.cross_signing_reset")]
     reset: OidcCrossSigningResetUiaaResetParameter,
 }
 
-#[cfg(feature = "experimental-oidc")]
-#[derive(Debug, Deserialize)]
 /// The `org.matrix.cross_signing_reset` part of the Uiaa response `parameters``
 /// dictionary.
+#[cfg(feature = "experimental-oidc")]
+#[derive(Debug, Deserialize)]
 struct OidcCrossSigningResetUiaaResetParameter {
     /// The URL where the user can approve the reset of the cross-signing keys.
     url: Url,
