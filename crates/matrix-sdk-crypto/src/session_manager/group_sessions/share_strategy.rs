@@ -1322,8 +1322,6 @@ mod tests {
             .await
             .unwrap()
             .unwrap()
-            .other()
-            .unwrap()
             .withdraw_verification()
             .await
             .unwrap();
@@ -1382,14 +1380,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(machine
-            .get_identity(user2, None)
-            .await
-            .unwrap()
-            .unwrap()
-            .other()
-            .unwrap()
-            .is_verified());
+        assert!(machine.get_identity(user2, None).await.unwrap().unwrap().is_verified());
 
         // And now the key share should succeed.
         machine
