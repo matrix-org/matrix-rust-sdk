@@ -47,7 +47,7 @@ use ruma::{
 };
 pub use sas::{AcceptSettings, AcceptedProtocols, EmojiShortAuthString, Sas, SasState};
 use tokio::sync::Mutex;
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     error::SignatureError,
@@ -502,7 +502,7 @@ impl IdentitiesBeingVerified {
             self.mark_identity_as_verified(verified_identities).await?;
 
         if device.is_none() && identity.is_none() {
-            // Something wen't wrong if nothing was verified, we use key
+            // Something went wrong if nothing was verified. We use key
             // mismatch here, since it's the closest to nothing was verified
             return Ok(VerificationResult::Cancel(CancelCode::KeyMismatch));
         }
@@ -634,9 +634,10 @@ impl IdentitiesBeingVerified {
                 if verified_identities.is_some_and(|i| {
                     i.iter().any(|verified| verified.user_id() == identity.user_id())
                 }) {
-                    trace!(
+                    info!(
                         user_id = ?self.other_user_id(),
-                        "Marking the user identity of as verified."
+                        "The interactive verification process verified the identity of \
+                        the remote user: marking as verified."
                     );
 
                     let should_request_secrets = if let UserIdentityData::Own(i) = &identity {
@@ -648,7 +649,10 @@ impl IdentitiesBeingVerified {
 
                     (Some(identity), should_request_secrets)
                 } else {
-                    info!(
+                    // Note, this is normal. For example, if we're an existing device in a device
+                    // verification, we don't need to verify our identity: instead the verification
+                    // process should verify the new device.
+                    debug!(
                         user_id = ?self.other_user_id(),
                         "The interactive verification process didn't verify \
                          the user identity of the user that participated in \
@@ -703,20 +707,24 @@ impl IdentitiesBeingVerified {
         }
 
         if verified_devices.is_some_and(|v| v.contains(&device)) {
-            trace!(
+            info!(
                 user_id = ?device.user_id(),
                 device_id = ?device.device_id(),
-                "Marking device as verified.",
+                "The interactive verification process verified the remote device: marking as verified.",
             );
 
             device.set_trust_state(LocalTrust::Verified);
 
             Ok(Some(device))
         } else {
-            info!(
+            // Note, this is normal. For example, if we're a new device in a QR code device
+            // verification, we'll verify the master key but not (directly) the
+            // remote device. Likewise, in a QR code identity verification, we'll verify the
+            // master key of the remote user but not (directly) their device.
+            debug!(
                 user_id = ?device.user_id(),
                 device_id = ?device.device_id(),
-                "The interactive verification process didn't verify the device",
+                "The interactive verification process didn't verify the remote device",
             );
 
             Ok(None)
