@@ -36,7 +36,7 @@ use crate::{
             TimelineItemPosition,
         },
         event_item::RemoteEventOrigin,
-        polls::PollPendingEvents,
+        polls::PendingPollEvents,
         reactions::Reactions,
         read_receipts::ReadReceipts,
         traits::RoomDataProvider,
@@ -701,7 +701,7 @@ pub(in crate::timeline) struct TimelineMetadata {
     pub all_events: VecDeque<EventMeta>,
 
     pub reactions: Reactions,
-    pub poll_pending_events: PollPendingEvents,
+    pub pending_poll_events: PendingPollEvents,
     pub fully_read_event: Option<OwnedEventId>,
 
     /// Whether we have a fully read-marker item in the timeline, that's up to
@@ -726,7 +726,7 @@ impl TimelineMetadata {
             all_events: Default::default(),
             next_internal_id: Default::default(),
             reactions: Default::default(),
-            poll_pending_events: Default::default(),
+            pending_poll_events: Default::default(),
             fully_read_event: Default::default(),
             // It doesn't make sense to set this to false until we fill the `fully_read_event`
             // field, otherwise we'll keep on exiting early in `Self::update_read_marker`.
@@ -745,7 +745,7 @@ impl TimelineMetadata {
         }
         self.all_events.clear();
         self.reactions.clear();
-        self.poll_pending_events.clear();
+        self.pending_poll_events.clear();
         self.fully_read_event = None;
         // We forgot about the fully read marker right above, so wait for a new one
         // before attempting to update it for each new timeline item.
