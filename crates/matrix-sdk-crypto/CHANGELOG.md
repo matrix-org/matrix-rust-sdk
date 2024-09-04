@@ -2,6 +2,10 @@
 
 Changes:
 
+- Miscellaneous improvements to logging for verification and `OwnUserIdentity`
+  updates.
+  ([#3949](https://github.com/matrix-org/matrix-rust-sdk/pull/3949))
+
 - Update `SenderData` on existing inbound group sessions when we receive
   updates via `/keys/query`.
   ([#3849](https://github.com/matrix-org/matrix-rust-sdk/pull/3849))
