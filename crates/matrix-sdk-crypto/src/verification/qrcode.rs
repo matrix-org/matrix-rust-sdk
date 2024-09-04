@@ -41,7 +41,7 @@ use ruma::{
     DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use thiserror::Error;
-use tracing::trace;
+use tracing::{debug, trace};
 use vodozemac::Ed25519PublicKey;
 
 use super::{
@@ -328,6 +328,7 @@ impl QrVerification {
 
     /// Confirm that the other side has scanned our QR code.
     pub fn confirm_scanning(&self) -> Option<OutgoingVerificationRequest> {
+        debug!("User confirmed other side scanned our QR code");
         let mut state = self.state.write();
 
         match &*state {
