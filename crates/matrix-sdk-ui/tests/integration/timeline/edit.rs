@@ -18,26 +18,27 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt};
-use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
+use matrix_sdk::{
+    config::SyncSettings,
+    test_utils::{events::EventFactory, logged_in_client_with_server},
+};
 use matrix_sdk_test::{
-    async_test, mocks::mock_encryption_state, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder,
-    ALICE, BOB,
+    async_test, mocks::mock_encryption_state, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt, TimelineDetails, TimelineItemContent};
 use ruma::{
-    assign, event_id,
+    event_id,
     events::{
         poll::unstable_start::{
             NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollAnswers,
             UnstablePollStartContentBlock,
         },
-        relation::InReplyTo,
         room::message::{
-            MessageType, Relation, ReplacementMetadata, RoomMessageEventContent,
-            RoomMessageEventContentWithoutRelation, TextMessageEventContent,
+            MessageType, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+            TextMessageEventContent,
         },
     },
-    room_id, user_id,
+    room_id,
 };
 use serde_json::json;
 use stream_assert::assert_next_matches;
@@ -53,8 +54,9 @@ use crate::mock_sync;
 async fn test_edit() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let f = EventFactory::new();
 
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
@@ -70,13 +72,10 @@ async fn test_edit() {
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let event_id = event_id!("$msda7m:localhost");
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        event_builder.make_sync_message_event_with_id(
-            &ALICE,
-            event_id,
-            RoomMessageEventContent::text_plain("hello"),
-        ),
-    ));
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id)),
+    );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -95,18 +94,11 @@ async fn test_edit() {
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(event_builder.make_sync_message_event(
-                &BOB,
-                RoomMessageEventContent::text_html("Test", "<em>Test</em>"),
-            ))
+            .add_timeline_event(f.text_html("Test", "<em>Test</em>").sender(&BOB))
             .add_timeline_event(
-                event_builder.make_sync_message_event(
-                    &ALICE,
-                    RoomMessageEventContent::text_plain("hi").make_replacement(
-                        ReplacementMetadata::new(event_id.to_owned(), None),
-                        None,
-                    ),
-                ),
+                f.text_msg("* hi")
+                    .sender(&ALICE)
+                    .edit(event_id, RoomMessageEventContent::text_plain("hi").into()),
             ),
     );
 
@@ -271,7 +263,6 @@ async fn test_edit_local_echo() {
 async fn test_send_edit() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -288,14 +279,14 @@ async fn test_send_edit() {
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        event_builder.make_sync_message_event_with_id(
-            // Same user as the logged_in_client
-            user_id!("@example:localhost"),
-            event_id!("$original_event"),
-            RoomMessageEventContent::text_plain("Hello, World!"),
+    let f = EventFactory::new();
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.text_msg("Hello, World!")
+                .sender(client.user_id().unwrap())
+                .event_id(event_id!("$original_event")),
         ),
-    ));
+    );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -347,7 +338,6 @@ async fn test_send_edit() {
 async fn test_send_reply_edit() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -364,23 +354,16 @@ async fn test_send_reply_edit() {
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
+    let f = EventFactory::new();
     let fst_event_id = event_id!("$original_event");
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(event_builder.make_sync_message_event_with_id(
-                &ALICE,
-                fst_event_id,
-                RoomMessageEventContent::text_plain("Hello, World!"),
-            ))
-            .add_timeline_event(event_builder.make_sync_message_event(
-                // Same user as the logged_in_client
-                user_id!("@example:localhost"),
-                assign!(RoomMessageEventContent::text_plain("Hello, Alice!"), {
-                    relates_to: Some(Relation::Reply {
-                        in_reply_to: InReplyTo::new(fst_event_id.to_owned()),
-                    })
-                }),
-            )),
+            .add_timeline_event(f.text_msg("Hello, World!").sender(&ALICE).event_id(fst_event_id))
+            .add_timeline_event(
+                f.text_msg("Hello, Alice!")
+                    .reply_to(fst_event_id)
+                    .sender(client.user_id().unwrap()),
+            ),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -442,7 +425,6 @@ async fn test_send_reply_edit() {
 async fn test_send_edit_poll() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -464,17 +446,18 @@ async fn test_send_edit_poll() {
         UnstablePollAnswer::new("1", "no"),
     ])
     .unwrap();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        event_builder.make_sync_message_event_with_id(
-            // Same user as the logged_in_client
-            user_id!("@example:localhost"),
-            event_id!("$original_event"),
-            NewUnstablePollStartEventContent::new(UnstablePollStartContentBlock::new(
+
+    let f = EventFactory::new();
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.event(NewUnstablePollStartEventContent::new(UnstablePollStartContentBlock::new(
                 "Test",
                 poll_answers,
-            )),
+            )))
+            .sender(client.user_id().unwrap())
+            .event_id(event_id!("$original_event")),
         ),
-    ));
+    );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -535,7 +518,6 @@ async fn test_send_edit_poll() {
 async fn test_send_edit_when_timeline_is_clear() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let event_builder = EventBuilder::new();
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -552,12 +534,12 @@ async fn test_send_edit_when_timeline_is_clear() {
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
-    let raw_original_event = event_builder.make_sync_message_event_with_id(
-        // Same user as the logged_in_client
-        user_id!("@example:localhost"),
-        event_id!("$original_event"),
-        RoomMessageEventContent::text_plain("Hello, World!"),
-    );
+    let f = EventFactory::new();
+    let raw_original_event = f
+        .text_msg("Hello, World!")
+        .sender(client.user_id().unwrap())
+        .event_id(event_id!("$original_event"))
+        .into_raw_sync();
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id).add_timeline_event(raw_original_event.clone()),
     );
