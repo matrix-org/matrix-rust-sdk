@@ -272,6 +272,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         let state = TimelineState::new(
             focus_kind,
+            room_data_provider.own_user_id().to_owned(),
             room_data_provider.room_version(),
             internal_id_prefix,
             unable_to_decrypt_hook,

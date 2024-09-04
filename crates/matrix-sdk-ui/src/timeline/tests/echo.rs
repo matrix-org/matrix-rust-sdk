@@ -267,7 +267,7 @@ async fn test_day_divider_removed_after_local_echo_disappeared() {
 }
 
 #[async_test]
-async fn test_read_marker_removed_after_local_echo_disappeared() {
+async fn test_no_read_marker_with_local_echo() {
     let event_id = event_id!("$1");
 
     let timeline = TestTimeline::with_room_data_provider(
@@ -306,11 +306,10 @@ async fn test_read_marker_removed_after_local_echo_disappeared() {
 
     let items = timeline.controller.items().await;
 
-    assert_eq!(items.len(), 4);
+    assert_eq!(items.len(), 3);
     assert!(items[0].is_day_divider());
     assert!(items[1].is_remote_event());
-    assert!(items[2].is_read_marker());
-    assert!(items[3].is_local_echo());
+    assert!(items[2].is_local_echo());
 
     // Cancel the local echo.
     timeline

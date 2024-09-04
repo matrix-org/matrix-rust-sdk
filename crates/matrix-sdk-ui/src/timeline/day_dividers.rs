@@ -642,12 +642,16 @@ mod tests {
         )
     }
 
+    fn test_metadata() -> TimelineMetadata {
+        TimelineMetadata::new(owned_user_id!("@a:b.c"), ruma::RoomVersionId::V11, None, None, false)
+    }
+
     #[test]
     fn test_no_trailing_day_divider() {
         let mut items = ObservableVector::new();
         let mut txn = items.transaction();
 
-        let mut meta = TimelineMetadata::new(ruma::RoomVersionId::V11, None, None, false);
+        let mut meta = test_metadata();
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
         let timestamp_next_day =
@@ -681,7 +685,7 @@ mod tests {
         let mut items = ObservableVector::new();
         let mut txn = items.transaction();
 
-        let mut meta = TimelineMetadata::new(ruma::RoomVersionId::V11, None, None, false);
+        let mut meta = test_metadata();
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
         let timestamp_next_day =
@@ -713,7 +717,7 @@ mod tests {
         let mut items = ObservableVector::new();
         let mut txn = items.transaction();
 
-        let mut meta = TimelineMetadata::new(ruma::RoomVersionId::V11, None, None, false);
+        let mut meta = test_metadata();
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
         let timestamp_next_day =
@@ -747,7 +751,7 @@ mod tests {
         let mut items = ObservableVector::new();
         let mut txn = items.transaction();
 
-        let mut meta = TimelineMetadata::new(ruma::RoomVersionId::V11, None, None, false);
+        let mut meta = test_metadata();
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
         let timestamp_next_day =
@@ -777,7 +781,7 @@ mod tests {
         let mut items = ObservableVector::new();
         let mut txn = items.transaction();
 
-        let mut meta = TimelineMetadata::new(ruma::RoomVersionId::V11, None, None, false);
+        let mut meta = test_metadata();
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
 
@@ -803,7 +807,7 @@ mod tests {
         let mut items = ObservableVector::new();
         let mut txn = items.transaction();
 
-        let mut meta = TimelineMetadata::new(ruma::RoomVersionId::V11, None, None, false);
+        let mut meta = test_metadata();
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
 
@@ -827,8 +831,7 @@ mod tests {
         let mut items = ObservableVector::new();
         let mut txn = items.transaction();
 
-        let mut meta = TimelineMetadata::new(ruma::RoomVersionId::V11, None, None, false);
-
+        let mut meta = test_metadata();
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
 
         txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker));
