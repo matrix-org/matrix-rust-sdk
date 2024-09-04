@@ -934,8 +934,6 @@ impl OlmMachine {
         &self,
         room_id: &RoomId,
     ) -> OlmResult<()> {
-        use crate::olm::SenderData;
-
         let (_, session) = self
             .inner
             .group_session_manager
@@ -957,8 +955,6 @@ impl OlmMachine {
         &self,
         room_id: &RoomId,
     ) -> OlmResult<InboundGroupSession> {
-        use crate::olm::SenderData;
-
         let (_, session) = self
             .inner
             .group_session_manager
@@ -1613,6 +1609,13 @@ impl OlmMachine {
         match result {
             Ok((decrypted_event, _)) => {
                 let encryption_info = self.get_encryption_info(&session, &event.sender).await?;
+
+                self.check_sender_trust_requirement(
+                    &session,
+                    &encryption_info,
+                    &decryption_settings.sender_device_trust_requirement,
+                )?;
+
                 Ok((decrypted_event, encryption_info))
             }
             Err(error) => Err(
@@ -1634,6 +1637,55 @@ impl OlmMachine {
                     error
                 },
             ),
+        }
+    }
+
+    /// Check that the sender of a Megolm session satisfies the trust
+    /// requirement from the decryption settings.
+    fn check_sender_trust_requirement(
+        &self,
+        session: &InboundGroupSession,
+        encryption_info: &EncryptionInfo,
+        trust_requirement: &TrustRequirement,
+    ) -> MegolmResult<()> {
+        /// Get the error from the encryption information.
+        fn encryption_info_to_error(encryption_info: &EncryptionInfo) -> MegolmResult<()> {
+            // When this is called, the verification state *must* be unverified,
+            // otherwise the sender_data would have been SenderVerified
+            let VerificationState::Unverified(verification_level) =
+                &encryption_info.verification_state
+            else {
+                unreachable!("inconsistent verification state");
+            };
+            Err(MegolmError::SenderIdentityNotTrusted(verification_level.clone()))
+        }
+
+        match trust_requirement {
+            TrustRequirement::Untrusted => Ok(()),
+
+            TrustRequirement::CrossSignedOrLegacy => match &session.sender_data {
+                // Reject if the sender was previously verified, but changed
+                // their identity and is not verified any more.
+                SenderData::SenderUnverifiedButPreviouslyVerified(..) => Err(
+                    MegolmError::SenderIdentityNotTrusted(VerificationLevel::PreviouslyVerified),
+                ),
+                SenderData::SenderUnverified(..) => Ok(()),
+                SenderData::SenderVerified(..) => Ok(()),
+                SenderData::DeviceInfo { legacy_session: true, .. } => Ok(()),
+                SenderData::UnknownDevice { legacy_session: true, .. } => Ok(()),
+                _ => encryption_info_to_error(encryption_info),
+            },
+
+            TrustRequirement::CrossSigned => match &session.sender_data {
+                // Reject if the sender was previously verified, but changed
+                // their identity and is not verified any more.
+                SenderData::SenderUnverifiedButPreviouslyVerified(..) => Err(
+                    MegolmError::SenderIdentityNotTrusted(VerificationLevel::PreviouslyVerified),
+                ),
+                SenderData::SenderUnverified(..) => Ok(()),
+                SenderData::SenderVerified(..) => Ok(()),
+                _ => encryption_info_to_error(encryption_info),
+            },
         }
     }
 
