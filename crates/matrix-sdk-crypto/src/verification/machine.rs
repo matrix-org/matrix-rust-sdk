@@ -27,7 +27,7 @@ use ruma::{
     SecondsSinceUnixEpoch, TransactionId, UInt, UserId,
 };
 use tokio::sync::Mutex;
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, info, instrument, trace, warn, Span};
 
 use super::{
     cache::{RequestInfo, VerificationCache},
@@ -306,7 +306,7 @@ impl VerificationMachine {
         Ok(())
     }
 
-    #[instrument(skip_all)]
+    #[instrument(skip_all, fields(flow_id))]
     pub async fn receive_any_event(
         &self,
         event: impl Into<AnyEvent<'_>>,
@@ -317,6 +317,7 @@ impl VerificationMachine {
             // This isn't a verification event, return early.
             return Ok(());
         };
+        Span::current().record("flow_id", flow_id.as_str());
 
         let flow_id_mismatch = || {
             warn!(
