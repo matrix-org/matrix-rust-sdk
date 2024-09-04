@@ -70,8 +70,8 @@ use crate::{
     },
     utilities::json_convert,
     verification::tests::bob_id,
-    Account, DeviceData, EncryptionSettings, MegolmError, OlmError, OutgoingRequests,
-    ToDeviceRequest,
+    Account, DecryptionSettings, DeviceData, EncryptionSettings, MegolmError, OlmError,
+    OutgoingRequests, ToDeviceRequest, TrustRequirement,
 };
 
 mod decryption_verification_state;
@@ -553,8 +553,15 @@ async fn test_megolm_encryption() {
 
     let event = json_convert(&event).unwrap();
 
-    let decrypted_event =
-        bob.decrypt_room_event(&event, room_id).await.unwrap().event.deserialize().unwrap();
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+    let decrypted_event = bob
+        .decrypt_room_event(&event, room_id, &decryption_settings)
+        .await
+        .unwrap()
+        .event
+        .deserialize()
+        .unwrap();
 
     if let AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
         MessageLikeEvent::Original(OriginalMessageLikeEvent { sender, content, .. }),
@@ -663,7 +670,9 @@ async fn test_withheld_unverified() {
     });
     let room_event = json_convert(&room_event).unwrap();
 
-    let decrypt_result = bob.decrypt_room_event(&room_event, room_id).await;
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+    let decrypt_result = bob.decrypt_room_event(&room_event, room_id, &decryption_settings).await;
 
     assert_matches!(&decrypt_result, Err(MegolmError::MissingRoomKey(Some(_))));
 
@@ -690,7 +699,12 @@ async fn test_decrypt_unencrypted_event() {
     let event = json_convert(&event).unwrap();
 
     // decrypt_room_event should return an error
-    assert_matches!(bob.decrypt_room_event(&event, room_id).await, Err(MegolmError::JsonError(..)));
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+    assert_matches!(
+        bob.decrypt_room_event(&event, room_id, &decryption_settings).await,
+        Err(MegolmError::JsonError(..))
+    );
 
     // so should get_room_event_encryption_info
     assert_matches!(
@@ -871,7 +885,10 @@ async fn test_query_ratcheted_key() {
 
     let room_event = json_convert(&room_event).unwrap();
 
-    let decrypt_error = bob.decrypt_room_event(&room_event, room_id).await.unwrap_err();
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+    let decrypt_error =
+        bob.decrypt_room_event(&room_event, room_id, &decryption_settings).await.unwrap_err();
 
     if let MegolmError::Decryption(vodo_error) = decrypt_error {
         if let vodozemac::megolm::DecryptionError::UnknownMessageIndex(_, _) = vodo_error {
@@ -1000,8 +1017,10 @@ async fn test_room_key_with_fake_identity_keys() {
     });
     let event = json_convert(&event).unwrap();
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
     assert_matches!(
-        alice.decrypt_room_event(&event, room_id).await,
+        alice.decrypt_room_event(&event, room_id, &decryption_settings).await,
         Err(MegolmError::MismatchedIdentityKeys { .. })
     );
 }
@@ -1266,7 +1285,10 @@ async fn test_unsigned_decryption() {
     let raw_encrypted_event = json_convert(&first_message_encrypted_event).unwrap();
 
     // Bob has the room key, so first message should be decrypted successfully.
-    let raw_decrypted_event = bob.decrypt_room_event(&raw_encrypted_event, room_id).await.unwrap();
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+    let raw_decrypted_event =
+        bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
     assert_matches!(
@@ -1318,7 +1340,8 @@ async fn test_unsigned_decryption() {
 
     // Bob does not have the second room key, so second message should fail to
     // decrypt.
-    let raw_decrypted_event = bob.decrypt_room_event(&raw_encrypted_event, room_id).await.unwrap();
+    let raw_decrypted_event =
+        bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
     assert_matches!(
@@ -1361,7 +1384,8 @@ async fn test_unsigned_decryption() {
     bob.store().save_inbound_group_sessions(&[group_session]).await.unwrap();
 
     // Second message should decrypt now.
-    let raw_decrypted_event = bob.decrypt_room_event(&raw_encrypted_event, room_id).await.unwrap();
+    let raw_decrypted_event =
+        bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
     assert_matches!(
@@ -1425,7 +1449,8 @@ async fn test_unsigned_decryption() {
 
     // Bob does not have the third room key, so third message should fail to
     // decrypt.
-    let raw_decrypted_event = bob.decrypt_room_event(&raw_encrypted_event, room_id).await.unwrap();
+    let raw_decrypted_event =
+        bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
     assert_matches!(
@@ -1472,7 +1497,8 @@ async fn test_unsigned_decryption() {
     bob.store().save_inbound_group_sessions(&[group_session]).await.unwrap();
 
     // Third message should decrypt now.
-    let raw_decrypted_event = bob.decrypt_room_event(&raw_encrypted_event, room_id).await.unwrap();
+    let raw_decrypted_event =
+        bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
     assert_matches!(
