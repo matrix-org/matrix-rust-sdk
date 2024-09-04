@@ -14,6 +14,7 @@
 
 use std::collections::BTreeMap;
 
+use matrix_sdk_common::deserialized_responses::VerificationLevel;
 use ruma::{CanonicalJsonError, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde::{ser::SerializeMap, Serializer};
 use serde_json::Error as SerdeError;
@@ -115,6 +116,12 @@ pub enum MegolmError {
     /// The storage layer returned an error.
     #[error(transparent)]
     Store(#[from] CryptoStoreError),
+
+    /// An encrypted message wasn't decrypted, because the sender's
+    /// cross-signing identity did not satisfy the requested
+    /// [`crate::TrustRequirement`].
+    #[error("decryption failed because trust requirement not satisfied: {0}")]
+    SenderIdentityNotTrusted(VerificationLevel),
 }
 
 /// Decryption failed because of a mismatch between the identity keys of the

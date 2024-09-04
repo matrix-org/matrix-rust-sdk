@@ -189,6 +189,22 @@ pub enum VerificationLevel {
     None(DeviceLinkProblem),
 }
 
+impl fmt::Display for VerificationLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let display = match self {
+            VerificationLevel::UnverifiedIdentity => "The sender's identity was not verified",
+            VerificationLevel::PreviouslyVerified => {
+                "The sender's identity was previously verified but has changed"
+            }
+            VerificationLevel::UnsignedDevice => {
+                "The sending device was not signed by the user's identity"
+            }
+            VerificationLevel::None(..) => "The sending device is not known",
+        };
+        write!(f, "{}", display)
+    }
+}
+
 /// The sub-enum containing detailed information on why we were not able to link
 /// a message back to a device.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
