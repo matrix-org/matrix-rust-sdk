@@ -601,3 +601,77 @@ async fn test_send_edit_when_timeline_is_clear() {
 
     server.verify().await;
 }
+
+#[async_test]
+async fn test_pending_edit() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let f = EventFactory::new();
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    // When I receive an edit event for an event I don't know about…
+    let original_event_id = event_id!("$edited");
+    let edit_event_id = event_id!("$original");
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.text_msg("* hello")
+                .sender(&ALICE)
+                .event_id(edit_event_id)
+                .edit(original_event_id, RoomMessageEventContent::text_plain("[edit]").into()),
+        ),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // Nothing happens.
+    assert!(timeline_stream.next().now_or_never().is_none());
+
+    // But when I receive the original event after a bit…
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(f.text_msg("hi").sender(&ALICE).event_id(&original_event_id)),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // Then I get the content as original first…
+    assert_let!(Some(VectorDiff::PushBack { value }) = timeline_stream.next().await);
+    let item = value.as_event().unwrap();
+    assert!(item.event_id().is_some());
+    assert!(!item.is_own());
+    assert_eq!(item.content().as_message().unwrap().body(), "hi");
+
+    // And then the edit.
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
+        let item = value.as_event().unwrap();
+        assert!(item.event_id().is_some());
+        assert!(!item.is_own());
+        assert_eq!(item.content().as_message().unwrap().body(), "[edit]");
+    });
+
+    // The day divider.
+    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
+        assert!(value.is_day_divider());
+    });
+
+    // And nothing else.
+    assert!(timeline_stream.next().now_or_never().is_none());
+}

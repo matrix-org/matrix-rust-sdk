@@ -453,7 +453,39 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         replacement: Replacement<RoomMessageEventContentWithoutRelation>,
     ) {
         let Some((item_pos, item)) = rfind_event_by_id(self.items, &replacement.event_id) else {
-            debug!("Timeline item not found, discarding edit");
+            if let Flow::Remote { position, .. } = &self.ctx.flow {
+                match position {
+                    TimelineItemPosition::Start { .. } => {
+                        // Only insert the edit if there wasn't any other edit
+                        // before.
+                        if self.meta.pending_edits.get(&replacement.event_id).is_none() {
+                            self.meta
+                                .pending_edits
+                                .insert(replacement.event_id.clone(), replacement);
+                            debug!("Timeline item not found, stashing edit");
+                        } else {
+                            debug!("Timeline item not found, but there was a previous edit for the event: discarding");
+                        }
+                    }
+
+                    TimelineItemPosition::End { .. } => {
+                        // This is a more recent edit: it's fine to overwrite the previous one, if
+                        // available.
+                        self.meta.pending_edits.insert(replacement.event_id.clone(), replacement);
+                        debug!("Timeline item not found, stashing edit");
+                    }
+
+                    TimelineItemPosition::Update(_) => {
+                        // This is not trivial: we don't really have any recency information about
+                        // the edit. Maybe there was another edit that's more recent and could be
+                        // decrypted, or maybe it's the opposite. Discard.
+                        debug!("Timeline item not found, but discarding as we don't know the relative position of this edit event");
+                    }
+                }
+            } else {
+                debug!("Local edit for a timeline item not found, discarding");
+            }
+
             return;
         };
 
@@ -966,6 +998,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 trace!("Updating timeline item at position {idx}");
                 let id = self.items[*idx].internal_id.clone();
                 self.items.set(*idx, TimelineItem::new(item, id));
+            }
+        }
+
+        if let Flow::Remote { event_id, .. } = &self.ctx.flow {
+            if let Some(edit) = self.meta.pending_edits.remove(event_id) {
+                self.handle_room_message_edit(edit);
             }
         }
 
