@@ -28,8 +28,8 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    store::DynCryptoStore, CollectStrategy, EncryptionSettings, EncryptionSyncChanges, OlmError,
-    OlmMachine, ToDeviceRequest,
+    store::DynCryptoStore, CollectStrategy, DecryptionSettings, EncryptionSettings,
+    EncryptionSyncChanges, OlmError, OlmMachine, ToDeviceRequest, TrustRequirement,
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -324,8 +324,10 @@ impl BaseClient {
         let olm = self.olm_machine().await;
         let Some(olm) = olm.as_ref() else { return Ok(None) };
 
+        let decryption_settings =
+            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
         let event: SyncTimelineEvent =
-            olm.decrypt_room_event(event.cast_ref(), room_id).await?.into();
+            olm.decrypt_room_event(event.cast_ref(), room_id, &decryption_settings).await?.into();
 
         if let Ok(AnySyncTimelineEvent::MessageLike(e)) = event.event.deserialize() {
             match &e {

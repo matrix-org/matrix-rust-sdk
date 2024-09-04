@@ -45,7 +45,8 @@ use crate::{
         CrossSigningKey, EventEncryptionAlgorithm,
     },
     utilities::json_convert,
-    CryptoStoreError, EncryptionSettings, LocalTrust, OlmMachine, UserIdentities,
+    CryptoStoreError, DecryptionSettings, EncryptionSettings, LocalTrust, OlmMachine,
+    TrustRequirement, UserIdentities,
 };
 
 #[async_test]
@@ -110,8 +111,14 @@ async fn test_decryption_verification_state() {
 
     let event = json_convert(&event).unwrap();
 
-    let encryption_info =
-        bob.decrypt_room_event(&event, room_id).await.unwrap().encryption_info.unwrap();
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+    let encryption_info = bob
+        .decrypt_room_event(&event, room_id, &decryption_settings)
+        .await
+        .unwrap()
+        .encryption_info
+        .unwrap();
 
     assert_eq!(
         VerificationState::Unverified(VerificationLevel::UnsignedDevice),

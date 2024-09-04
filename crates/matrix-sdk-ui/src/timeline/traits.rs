@@ -16,6 +16,8 @@ use std::future::Future;
 
 use futures_util::FutureExt as _;
 use indexmap::IndexMap;
+#[cfg(all(test, feature = "e2e-encryption"))]
+use matrix_sdk::crypto::{DecryptionSettings, TrustRequirement};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use matrix_sdk::{event_cache::paginator::PaginableRoom, BoxFuture, Room};
@@ -292,7 +294,10 @@ impl Decryptor for Room {
 impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
     async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
         let (olm_machine, room_id) = self;
-        let event = olm_machine.decrypt_room_event(raw.cast_ref(), room_id).await?;
+        let decryption_settings =
+            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+        let event =
+            olm_machine.decrypt_room_event(raw.cast_ref(), room_id, &decryption_settings).await?;
         Ok(event)
     }
 }

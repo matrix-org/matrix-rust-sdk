@@ -93,8 +93,8 @@ use crate::{
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, CryptoStoreError, DeviceData, KeysQueryRequest, LocalTrust,
-    SignatureError, ToDeviceRequest,
+    CrossSigningKeyExport, CryptoStoreError, DecryptionSettings, DeviceData, KeysQueryRequest,
+    LocalTrust, SignatureError, ToDeviceRequest, TrustRequirement,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -1593,6 +1593,7 @@ impl OlmMachine {
         room_id: &RoomId,
         event: &EncryptedEvent,
         content: &SupportedEventEncryptionSchemes<'_>,
+        decryption_settings: &DecryptionSettings,
     ) -> MegolmResult<(JsonObject, EncryptionInfo)> {
         let session =
             self.get_inbound_group_session_or_error(room_id, content.session_id()).await?;
@@ -1666,8 +1667,9 @@ impl OlmMachine {
         &self,
         event: &Raw<EncryptedEvent>,
         room_id: &RoomId,
+        decryption_settings: &DecryptionSettings,
     ) -> MegolmResult<TimelineEvent> {
-        self.decrypt_room_event_inner(event, room_id, true).await
+        self.decrypt_room_event_inner(event, room_id, true, decryption_settings).await
     }
 
     #[instrument(name = "decrypt_room_event", skip_all, fields(?room_id, event_id, origin_server_ts, sender, algorithm, session_id, sender_key))]
@@ -1676,6 +1678,7 @@ impl OlmMachine {
         event: &Raw<EncryptedEvent>,
         room_id: &RoomId,
         decrypt_unsigned: bool,
+        decryption_settings: &DecryptionSettings,
     ) -> MegolmResult<TimelineEvent> {
         let event = event.deserialize()?;
 
@@ -1703,7 +1706,8 @@ impl OlmMachine {
         };
 
         Span::current().record("session_id", content.session_id());
-        let result = self.decrypt_megolm_events(room_id, &event, &content).await;
+        let result =
+            self.decrypt_megolm_events(room_id, &event, &content, decryption_settings).await;
 
         if let Err(e) = &result {
             #[cfg(feature = "automatic-room-key-forwarding")]
@@ -1728,8 +1732,9 @@ impl OlmMachine {
         let mut unsigned_encryption_info = None;
         if decrypt_unsigned {
             // Try to decrypt encrypted unsigned events.
-            unsigned_encryption_info =
-                self.decrypt_unsigned_events(&mut decrypted_event, room_id).await;
+            unsigned_encryption_info = self
+                .decrypt_unsigned_events(&mut decrypted_event, room_id, decryption_settings)
+                .await;
         }
 
         let event = serde_json::from_value::<Raw<AnyTimelineEvent>>(decrypted_event.into())?;
@@ -1755,6 +1760,7 @@ impl OlmMachine {
         &self,
         main_event: &mut JsonObject,
         room_id: &RoomId,
+        decryption_settings: &DecryptionSettings,
     ) -> Option<BTreeMap<UnsignedEventLocation, UnsignedDecryptionResult>> {
         let unsigned = main_event.get_mut("unsigned")?.as_object_mut()?;
         let mut unsigned_encryption_info: Option<
@@ -1764,7 +1770,9 @@ impl OlmMachine {
         // Search for an encrypted event in `m.replace`, an edit.
         let location = UnsignedEventLocation::RelationsReplace;
         let replace = location.find_mut(unsigned);
-        if let Some(decryption_result) = self.decrypt_unsigned_event(replace, room_id).await {
+        if let Some(decryption_result) =
+            self.decrypt_unsigned_event(replace, room_id, decryption_settings).await
+        {
             unsigned_encryption_info
                 .get_or_insert_with(Default::default)
                 .insert(location, decryption_result);
@@ -1775,7 +1783,7 @@ impl OlmMachine {
         let location = UnsignedEventLocation::RelationsThreadLatestEvent;
         let thread_latest_event = location.find_mut(unsigned);
         if let Some(decryption_result) =
-            self.decrypt_unsigned_event(thread_latest_event, room_id).await
+            self.decrypt_unsigned_event(thread_latest_event, room_id, decryption_settings).await
         {
             unsigned_encryption_info
                 .get_or_insert_with(Default::default)
@@ -1796,6 +1804,7 @@ impl OlmMachine {
         &'a self,
         event: Option<&'a mut Value>,
         room_id: &'a RoomId,
+        decryption_settings: &'a DecryptionSettings,
     ) -> BoxFuture<'a, Option<UnsignedDecryptionResult>> {
         Box::pin(async move {
             let event = event?;
@@ -1809,7 +1818,10 @@ impl OlmMachine {
             }
 
             let raw_event = serde_json::from_value(event.clone()).ok()?;
-            match self.decrypt_room_event_inner(&raw_event, room_id, false).await {
+            match self
+                .decrypt_room_event_inner(&raw_event, room_id, false, decryption_settings)
+                .await
+            {
                 Ok(decrypted_event) => {
                     // Replace the encrypted event.
                     *event = serde_json::to_value(decrypted_event.event).ok()?;
