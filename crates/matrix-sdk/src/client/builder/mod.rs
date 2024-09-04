@@ -443,7 +443,9 @@ impl ClientBuilder {
             let mut client =
                 BaseClient::with_store_config(build_store_config(self.store_config).await?);
             #[cfg(feature = "e2e-encryption")]
-            (client.room_key_recipient_strategy = self.room_key_recipient_strategy.clone());
+            {
+                client.room_key_recipient_strategy = self.room_key_recipient_strategy;
+            }
             client
         };
 
