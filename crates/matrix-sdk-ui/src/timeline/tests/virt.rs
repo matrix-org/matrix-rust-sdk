@@ -25,7 +25,7 @@ use ruma::{
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
-use crate::timeline::{traits::RoomDataProvider as _, TimelineItemKind, VirtualTimelineItem};
+use crate::timeline::{traits::RoomDataProvider as _, VirtualTimelineItem};
 
 #[async_test]
 async fn test_day_divider() {
@@ -84,7 +84,7 @@ async fn test_day_divider() {
     // The other events are in the past so a local event always creates a new day
     // divider.
     let day_divider = assert_next_matches!(stream, VectorDiff::Insert { index: 5, value } => value);
-    assert_matches!(day_divider.as_virtual().unwrap(), VirtualTimelineItem::DayDivider { .. });
+    assert!(day_divider.is_day_divider());
 }
 
 #[async_test]
@@ -127,7 +127,7 @@ async fn test_update_read_marker() {
 
     // Now the read marker is reinserted after the second event.
     let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 3, value } => value);
-    assert_matches!(marker.kind, TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker));
+    assert!(marker.is_read_marker());
 
     // Nothing should happen if the fully read event is set back to an older event
     // sent by another user.
@@ -152,7 +152,7 @@ async fn test_update_read_marker() {
     // The read marker is moved after the third event (sent by another user).
     assert_next_matches!(stream, VectorDiff::Remove { index: 3 });
     let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 4, value } => value);
-    assert_matches!(marker.kind, TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker));
+    assert!(marker.is_read_marker());
 
     // If the current user sends an event afterwards, the read marker doesn't move.
     timeline.handle_live_event(f.text_msg("E").sender(&own_user)).await;
@@ -186,5 +186,5 @@ async fn test_update_read_marker() {
     item.as_event().unwrap();
 
     let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 8, value } => value);
-    assert_matches!(marker.kind, TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker));
+    assert!(marker.is_read_marker());
 }
