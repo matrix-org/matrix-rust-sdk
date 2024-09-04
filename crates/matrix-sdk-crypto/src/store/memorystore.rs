@@ -408,13 +408,12 @@ impl CryptoStore for MemoryStore {
             match after_session_id {
                 None => 0,
                 Some(id) => {
-                    let idx = sessions
+                    // We're looking for the first session with a session ID strictly after `id`; if
+                    // there are none, the end of the array.
+                    sessions
                         .iter()
-                        .position(|session| session.session_id() == id)
-                        .map(|idx| idx + 1);
-
-                    // If `after_session_id` was not found in the array, go to the end of the array
-                    idx.unwrap_or(sessions.len())
+                        .position(|session| session.session_id() > id.as_str())
+                        .unwrap_or(sessions.len())
                 }
             }
         };
