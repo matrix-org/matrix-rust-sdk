@@ -36,6 +36,14 @@ Breaking changes:
   the CryptoStore, meaning that, once upgraded, it will not be possible to roll
   back applications to earlier versions without breaking user sessions.
 
+- `OlmMachine::decrypt_room_event` now takes a `DecryptionSettings` argument,
+  which includes a `TrustRequirement` indicating the required trust level for
+  the sending device.  When it is called with `TrustRequirement` other than
+  `TrustRequirement::Unverified`, it may return the new
+  `MegolmError::SenderIdentityNotTrusted` variant if the sending device does not
+  satisfy the required trust level.
+  ([#3899](https://github.com/matrix-org/matrix-rust-sdk/pull/3899))
+
 - Change the structure of the `SenderData` enum to separate variants for
   previously-verified, unverified and verified.
   ([#3877](https://github.com/matrix-org/matrix-rust-sdk/pull/3877))
