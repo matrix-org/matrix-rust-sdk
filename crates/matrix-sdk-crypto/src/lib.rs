@@ -91,6 +91,7 @@ pub use requests::{
     IncomingResponse, KeysBackupRequest, KeysQueryRequest, OutgoingRequest, OutgoingRequests,
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,
 };
+use serde::{Deserialize, Serialize};
 pub use session_manager::CollectStrategy;
 pub use store::{
     CrossSigningKeyExport, CryptoStoreError, SecretImportError, SecretInfo, TrackedUser,
@@ -112,3 +113,25 @@ matrix_sdk_test::init_tracing_for_tests!();
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
+
+/// The trust level in the sender's device that is required to decrypt an
+/// event.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub enum TrustRequirement {
+    /// Decrypt events from everyone regardless of trust.
+    Untrusted,
+    /// Only decrypt events from cross-signed devices or legacy sessions (Megolm
+    /// sessions created before we started collecting trust information).
+    CrossSignedOrLegacy,
+    /// Only decrypt events from cross-signed devices.
+    CrossSigned,
+}
+
+/// Settings for decrypting messages
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DecryptionSettings {
+    /// The trust level in the sender's device that is required to decrypt the
+    /// event. If the sender's device is not sufficiently trusted,
+    /// [`MegolmError::SenderIdentityNotTrusted`] will be returned.
+    pub sender_device_trust_requirement: TrustRequirement,
+}
