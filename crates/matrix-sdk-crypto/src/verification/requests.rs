@@ -449,18 +449,8 @@ impl VerificationRequest {
             .get_qr(qr_verification.other_user_id(), qr_verification.flow_id().as_str())
             .is_some()
         {
-            debug!(
-                user_id = ?self.other_user(),
-                flow_id = self.flow_id().as_str(),
-                "Replacing existing QR verification"
-            );
             self.verification_cache.replace_qr(qr_verification.clone());
         } else {
-            debug!(
-                user_id = ?self.other_user(),
-                flow_id = self.flow_id().as_str(),
-                "Inserting new QR verification"
-            );
             self.verification_cache.insert_qr(qr_verification.clone());
         }
 

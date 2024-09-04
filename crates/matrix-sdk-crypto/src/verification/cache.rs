@@ -19,6 +19,8 @@ use std::{
 
 use as_variant::as_variant;
 use ruma::{DeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId};
+#[cfg(feature = "qrcode")]
+use tracing::debug;
 use tracing::{trace, warn};
 
 use super::{event_enums::OutgoingContent, FlowId, Sas, Verification};
@@ -105,11 +107,21 @@ impl VerificationCache {
 
     #[cfg(feature = "qrcode")]
     pub fn insert_qr(&self, qr: QrVerification) {
+        debug!(
+            user_id = ?qr.other_user_id(),
+            flow_id = qr.flow_id().as_str(),
+            "Inserting new QR verification"
+        );
         self.insert(qr)
     }
 
     #[cfg(feature = "qrcode")]
     pub fn replace_qr(&self, qr: QrVerification) {
+        debug!(
+            user_id = ?qr.other_user_id(),
+            flow_id = qr.flow_id().as_str(),
+            "Replacing existing QR verification"
+        );
         let verification: Verification = qr.into();
         self.replace(verification);
     }
