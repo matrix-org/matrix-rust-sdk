@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::VecDeque, future::Future, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    future::Future,
+    sync::Arc,
+};
 
 use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use itertools::Itertools as _;
@@ -21,9 +25,14 @@ use matrix_sdk_base::deserialized_responses::TimelineEvent;
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
-    events::AnySyncEphemeralRoomEvent, push::Action, serde::Raw, EventId,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
-    UserId,
+    events::{
+        relation::Replacement, room::message::RoomMessageEventContentWithoutRelation,
+        AnySyncEphemeralRoomEvent,
+    },
+    push::Action,
+    serde::Raw,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    RoomVersionId, UserId,
 };
 use tracing::{debug, instrument, trace, warn};
 
@@ -727,7 +736,10 @@ pub(in crate::timeline) struct TimelineMetadata {
     pub all_events: VecDeque<EventMeta>,
 
     pub reactions: Reactions,
+
     pub pending_poll_events: PendingPollEvents,
+    pub pending_edits: HashMap<OwnedEventId, Replacement<RoomMessageEventContentWithoutRelation>>,
+
     pub fully_read_event: Option<OwnedEventId>,
 
     /// Whether we have a fully read-marker item in the timeline, that's up to
@@ -755,6 +767,7 @@ impl TimelineMetadata {
             next_internal_id: Default::default(),
             reactions: Default::default(),
             pending_poll_events: Default::default(),
+            pending_edits: Default::default(),
             fully_read_event: Default::default(),
             // It doesn't make sense to set this to false until we fill the `fully_read_event`
             // field, otherwise we'll keep on exiting early in `Self::update_read_marker`.
@@ -774,6 +787,7 @@ impl TimelineMetadata {
         self.all_events.clear();
         self.reactions.clear();
         self.pending_poll_events.clear();
+        self.pending_edits.clear();
         self.fully_read_event = None;
         // We forgot about the fully read marker right above, so wait for a new one
         // before attempting to update it for each new timeline item.
