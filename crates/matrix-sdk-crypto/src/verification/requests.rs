@@ -1438,7 +1438,7 @@ async fn receive_start<T: Clone>(
                 if let Some(request) = qr_verification.receive_reciprocation(content) {
                     request_state.verification_cache.add_request(request.into())
                 }
-                trace!(
+                debug!(
                     sender = ?identities.device_being_verified.user_id(),
                     device_id = ?identities.device_being_verified.device_id(),
                     verification = ?qr_verification,
@@ -1447,6 +1447,7 @@ async fn receive_start<T: Clone>(
 
                 Ok(None)
             } else {
+                warn!("Received a QR code reciprocation for an unknown flow");
                 Ok(None)
             }
         }
