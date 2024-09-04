@@ -2,6 +2,7 @@ use std::collections::btree_map::Iter;
 
 use ruma::{encryption::KeyUsage, OwnedDeviceKeyId, UserId};
 use serde::{Deserialize, Serialize};
+use vodozemac::Ed25519PublicKey;
 
 use super::{CrossSigningKey, MasterPubkey, SigningKey};
 use crate::{olm::VerifyJson, types::SigningKeys, SignatureError};
@@ -27,6 +28,14 @@ impl UserSigningPubkey {
     /// Get the keys map of containing the user signing keys.
     pub fn keys(&self) -> &SigningKeys<OwnedDeviceKeyId> {
         &self.0.keys
+    }
+
+    /// Get the first available user-signing key.
+    ///
+    /// There's usually only a single key so this will usually fetch the
+    /// only key.
+    pub fn get_first_key(&self) -> Option<Ed25519PublicKey> {
+        self.0.get_first_key_and_id().map(|(_, k)| k)
     }
 
     /// Check if the given master key is signed by this user signing key.

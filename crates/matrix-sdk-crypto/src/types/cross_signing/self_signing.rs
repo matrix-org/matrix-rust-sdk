@@ -2,6 +2,7 @@ use std::collections::btree_map::Iter;
 
 use ruma::{encryption::KeyUsage, OwnedDeviceKeyId, UserId};
 use serde::{Deserialize, Serialize};
+use vodozemac::Ed25519PublicKey;
 
 use super::{CrossSigningKey, SigningKey};
 use crate::{
@@ -31,6 +32,14 @@ impl SelfSigningPubkey {
     /// Get the list of `KeyUsage` that is set for this key.
     pub fn usage(&self) -> &[KeyUsage] {
         &self.0.usage
+    }
+
+    /// Get the first available self signing key.
+    ///
+    /// There's usually only a single key so this will usually fetch the
+    /// only key.
+    pub fn get_first_key(&self) -> Option<Ed25519PublicKey> {
+        self.0.get_first_key_and_id().map(|(_, k)| k)
     }
 
     /// Verify that the [`DeviceKeys`] have a valid signature from this
