@@ -36,17 +36,17 @@ use crate::{
         tests,
     },
     olm::{InboundGroupSession, OutboundGroupSession, SenderData},
-    store::Changes,
+    store::{Changes, IdentityChanges},
     types::{
         events::{
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
             ToDeviceEvent,
         },
-        CrossSigningKey, EventEncryptionAlgorithm,
+        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, SelfSigningPubkey,
     },
     utilities::json_convert,
-    CryptoStoreError, DecryptionSettings, EncryptionSettings, LocalTrust, OlmMachine,
-    TrustRequirement, UserIdentities,
+    CryptoStoreError, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, OlmMachine,
+    OtherUserIdentityData, OutgoingRequests, TrustRequirement, UserIdentities,
 };
 
 #[async_test]
@@ -379,4 +379,230 @@ async fn test_verification_states_multiple_device() {
         .unwrap();
 
     assert_eq!(VerificationState::Unverified(VerificationLevel::UnverifiedIdentity), state);
+}
+
+/// Test that the trust requirement is checked when decrypting an event.
+///
+/// Set the sender data to various values, and test that we can or can't
+/// decrypt, depending on what the trust requirement is.
+#[async_test]
+async fn test_decryption_trust_requirement() {
+    let (alice, bob) = get_machine_pair_with_setup_sessions_test_helper(
+        tests::alice_id(),
+        tests::user_id(),
+        false,
+    )
+    .await;
+    let room_id = room_id!("!test:example.org");
+    let (event, session_id) = encrypt_message(&alice, room_id, &bob, "Secret message").await;
+
+    // Set the SenderData on the megolm session used to encrypt `event` to
+    // `DeviceInfo` (ie,  we have the device keys but no cross-signing
+    // information). Events sent on such a session should be decryptable only
+    // when the trust requirement allows untrusted or legacy sessions.
+    let mut session =
+        bob.store().get_inbound_group_session(room_id, &session_id).await.unwrap().unwrap();
+    session.sender_data = SenderData::DeviceInfo {
+        device_keys: alice
+            .get_device(alice.user_id(), alice.device_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .as_device_keys()
+            .clone(),
+        legacy_session: false,
+    };
+    bob.store().save_inbound_group_sessions(&[session.clone()]).await.unwrap();
+
+    check_decryption_trust_requirement(
+        &bob,
+        &event,
+        room_id,
+        &[
+            (TrustRequirement::Untrusted, true),
+            (TrustRequirement::CrossSignedOrLegacy, false),
+            (TrustRequirement::CrossSigned, false),
+        ],
+    )
+    .await;
+
+    // Bob later gets Alice's identity and cross-signed device keys
+    bob.bootstrap_cross_signing(false).await.unwrap();
+    set_up_alice_cross_signing(&alice, &bob).await;
+
+    // Since the sending device is now cross-signed by Alice, it should be
+    // decryptable in all modes
+    check_decryption_trust_requirement(
+        &bob,
+        &event,
+        room_id,
+        &[
+            (TrustRequirement::Untrusted, true),
+            (TrustRequirement::CrossSignedOrLegacy, true),
+            (TrustRequirement::CrossSigned, true),
+        ],
+    )
+    .await;
+}
+
+/// Test that the trust requirement is correctly handled when a user's
+/// cross-signing identity changes.
+#[async_test]
+async fn test_decryption_trust_with_identity_change() {
+    let (alice, bob) = get_machine_pair_with_setup_sessions_test_helper(
+        tests::alice_id(),
+        tests::user_id(),
+        false,
+    )
+    .await;
+    bob.bootstrap_cross_signing(false).await.unwrap();
+    let room_id = room_id!("!test:example.org");
+    let (event, session_id) = encrypt_message(&alice, room_id, &bob, "Secret message").await;
+    set_up_alice_cross_signing(&alice, &bob).await;
+
+    // Simulate Alice's cross-signing key changing after having been verified by
+    // setting the `previously_verified` flag
+    let alice_identity =
+        bob.store().get_identity(alice.user_id()).await.unwrap().unwrap().other().unwrap();
+    alice_identity.mark_as_previously_verified().await.unwrap();
+
+    // Bob receives the Megolm session and message
+    let mut session =
+        bob.store().get_inbound_group_session(room_id, &session_id).await.unwrap().unwrap();
+    session.sender_data =
+        SenderData::UnknownDevice { legacy_session: false, owner_check_failed: false };
+    bob.store().save_inbound_group_sessions(&[session.clone()]).await.unwrap();
+
+    // In this case, the message should not be decryptable except for when we
+    // accept untrusted devices
+    check_decryption_trust_requirement(
+        &bob,
+        &event,
+        room_id,
+        &[
+            (TrustRequirement::Untrusted, true),
+            (TrustRequirement::CrossSignedOrLegacy, false),
+            (TrustRequirement::CrossSigned, false),
+        ],
+    )
+    .await;
+}
+
+/// Helper function to set up Alice's cross-signing, and save her keys in Bob's
+/// storage.
+async fn set_up_alice_cross_signing(alice: &OlmMachine, bob: &OlmMachine) {
+    let cross_signing_requests = alice.bootstrap_cross_signing(false).await.unwrap();
+    let upload_signing_keys_req = cross_signing_requests.upload_signing_keys_req;
+    let alice_msk: MasterPubkey = upload_signing_keys_req.master_key.unwrap().try_into().unwrap();
+    let alice_ssk: SelfSigningPubkey =
+        upload_signing_keys_req.self_signing_key.unwrap().try_into().unwrap();
+    let upload_keys_req = cross_signing_requests.upload_keys_req.unwrap().clone();
+    assert_let!(
+        OutgoingRequests::KeysUpload(device_upload_request) = upload_keys_req.request.as_ref()
+    );
+    bob.store()
+        .save_device_data(&[DeviceData::try_from(
+            &device_upload_request
+                .device_keys
+                .as_ref()
+                .unwrap()
+                .deserialize_as::<DeviceKeys>()
+                .unwrap(),
+        )
+        .unwrap()])
+        .await
+        .unwrap();
+    bob.store()
+        .save_changes(Changes {
+            identities: IdentityChanges {
+                new: vec![OtherUserIdentityData::new(alice_msk.clone(), alice_ssk.clone())
+                    .unwrap()
+                    .into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+}
+
+/// Helper function that encrypts a message and shares the Megolm session
+/// with a recipient.
+async fn encrypt_message(
+    sender: &OlmMachine,
+    room_id: &RoomId,
+    recipient: &OlmMachine,
+    plaintext: &str,
+) -> (Raw<EncryptedEvent>, String) {
+    let to_device_requests = sender
+        .share_room_key(room_id, iter::once(recipient.user_id()), EncryptionSettings::default())
+        .await
+        .unwrap();
+
+    let event = ToDeviceEvent::new(
+        sender.user_id().to_owned(),
+        tests::to_device_requests_to_content(to_device_requests),
+    );
+
+    let group_session = recipient
+        .store()
+        .with_transaction(|mut tr| async {
+            let res =
+                recipient.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
+            Ok((tr, res))
+        })
+        .await
+        .unwrap()
+        .inbound_group_session
+        .unwrap();
+    recipient.store().save_inbound_group_sessions(&[group_session.clone()]).await.unwrap();
+
+    let content = RoomMessageEventContent::text_plain(plaintext);
+
+    let encrypted_content = sender
+        .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
+        .await
+        .unwrap();
+
+    let event = json!({
+        "event_id": "$xxxxx:example.org",
+        "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+        "sender": sender.user_id(),
+        "type": "m.room.encrypted",
+        "content": encrypted_content,
+    });
+    let event = json_convert(&event).unwrap();
+
+    (event, group_session.session_id().to_owned())
+}
+
+/// Helper function that checks whether a message is decryptable under different
+/// trust requirements.
+///
+/// `tests` is a list of tuples, where the first element of the tuple is the
+/// trust requirement to check, and the second element indicates whether
+/// decryption should succeed (`true`) or fail (`false`).
+async fn check_decryption_trust_requirement(
+    bob: &OlmMachine,
+    event: &Raw<EncryptedEvent>,
+    room_id: &RoomId,
+    tests: &[(TrustRequirement, bool)],
+) {
+    for (trust_requirement, is_ok) in tests {
+        let decryption_settings =
+            DecryptionSettings { sender_device_trust_requirement: *trust_requirement };
+        if *is_ok {
+            assert!(
+                bob.decrypt_room_event(event, room_id, &decryption_settings).await.is_ok(),
+                "Decryption did not succeed with {:?}",
+                trust_requirement,
+            );
+        } else {
+            assert!(
+                bob.decrypt_room_event(event, room_id, &decryption_settings).await.is_err(),
+                "Decryption succeeded with {:?}",
+                trust_requirement,
+            );
+        }
+    }
 }
