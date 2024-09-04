@@ -70,6 +70,7 @@ pub(in crate::timeline) struct TimelineState {
 impl TimelineState {
     pub(super) fn new(
         timeline_focus: TimelineFocusKind,
+        own_user_id: OwnedUserId,
         room_version: RoomVersionId,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
@@ -81,6 +82,7 @@ impl TimelineState {
             // small enough.
             items: ObservableVector::with_capacity(32),
             meta: TimelineMetadata::new(
+                own_user_id,
                 room_version,
                 internal_id_prefix,
                 unable_to_decrypt_hook,
@@ -691,6 +693,9 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// This value is constant over the lifetime of the metadata.
     pub room_version: RoomVersionId,
 
+    /// The own [`OwnedUserId`] of the client who opened the timeline.
+    own_user_id: OwnedUserId,
+
     // **** DYNAMIC FIELDS ****
     /// The next internal identifier for timeline items, used for both local and
     /// remote echoes.
@@ -717,12 +722,14 @@ pub(in crate::timeline) struct TimelineMetadata {
 
 impl TimelineMetadata {
     pub(crate) fn new(
+        own_user_id: OwnedUserId,
         room_version: RoomVersionId,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
     ) -> Self {
         Self {
+            own_user_id,
             all_events: Default::default(),
             next_internal_id: Default::default(),
             reactions: Default::default(),
@@ -805,7 +812,38 @@ impl TimelineMetadata {
         trace!(?fully_read_event, "Updating read marker");
 
         let read_marker_idx = items.iter().rposition(|item| item.is_read_marker());
-        let fully_read_event_idx = rfind_event_by_id(items, fully_read_event).map(|(idx, _)| idx);
+
+        let mut fully_read_event_idx =
+            rfind_event_by_id(items, fully_read_event).map(|(idx, _)| idx);
+
+        if let Some(i) = &mut fully_read_event_idx {
+            // The item at position `i` is the first item that's fully read, we're about to
+            // insert a read marker just after it.
+            //
+            // Do another forward pass to skip all the events we've sent too.
+
+            // Find the position of the first element…
+            let next = items
+                .iter()
+                .enumerate()
+                // …strictly *after* the fully read event…
+                .skip(*i + 1)
+                // …that's not virtual and not sent by us…
+                .find(|(_, item)| {
+                    item.as_event().map_or(false, |event| event.sender() != self.own_user_id)
+                })
+                .map(|(i, _)| i);
+
+            if let Some(next) = next {
+                // `next` point to the first item that's not sent by us, so the *previous* of
+                // next is the right place where to insert the fully read marker.
+                *i = next.wrapping_sub(1);
+            } else {
+                // There's no event after the read marker that's not sent by us, i.e. the full
+                // timeline has been read: the fully read marker goes to the end.
+                *i = items.len().wrapping_sub(1);
+            }
+        }
 
         match (read_marker_idx, fully_read_event_idx) {
             (None, None) => {

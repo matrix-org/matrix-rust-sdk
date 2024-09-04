@@ -16,6 +16,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use chrono::{Datelike, Local, TimeZone};
 use eyeball_im::VectorDiff;
+use futures_util::{FutureExt, StreamExt as _};
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     event_id,
@@ -24,7 +25,7 @@ use ruma::{
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
-use crate::timeline::{TimelineItemKind, VirtualTimelineItem};
+use crate::timeline::{traits::RoomDataProvider as _, TimelineItemKind, VirtualTimelineItem};
 
 #[async_test]
 async fn test_day_divider() {
@@ -91,60 +92,99 @@ async fn test_update_read_marker() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
-    let f = &timeline.factory;
+    let own_user = timeline.controller.room_data_provider.own_user_id().to_owned();
 
-    timeline.handle_live_event(f.text_msg("A").sender(&ALICE)).await;
+    let f = &timeline.factory;
+    timeline.handle_live_event(f.text_msg("A").sender(&own_user)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let first_event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
+    let event_id1 = item.as_event().unwrap().event_id().unwrap().to_owned();
 
     let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
-    timeline.controller.handle_fully_read_marker(first_event_id.clone()).await;
+    timeline.controller.handle_fully_read_marker(event_id1.to_owned()).await;
 
     // Nothing should happen, the marker cannot be added at the end.
 
     timeline.handle_live_event(f.text_msg("B").sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let second_event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
+    let event_id2 = item.as_event().unwrap().event_id().unwrap().to_owned();
 
     // Now the read marker appears after the first event.
     let item = assert_next_matches!(stream, VectorDiff::Insert { index: 2, value } => value);
     assert_matches!(item.as_virtual(), Some(VirtualTimelineItem::ReadMarker));
 
-    timeline.controller.handle_fully_read_marker(second_event_id.clone()).await;
+    timeline.controller.handle_fully_read_marker(event_id2.clone()).await;
 
     // The read marker is removed but not reinserted, because it cannot be added at
     // the end.
     assert_next_matches!(stream, VectorDiff::Remove { index: 2 });
 
-    timeline.handle_live_event(f.text_msg("C").sender(&ALICE)).await;
+    timeline.handle_live_event(f.text_msg("C").sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let third_event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
+    let event_id3 = item.as_event().unwrap().event_id().unwrap().to_owned();
 
     // Now the read marker is reinserted after the second event.
     let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 3, value } => value);
     assert_matches!(marker.kind, TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker));
 
-    // Nothing should happen if the fully read event is set back to an older event.
-    timeline.controller.handle_fully_read_marker(first_event_id).await;
+    // Nothing should happen if the fully read event is set back to an older event
+    // sent by another user.
+    timeline.controller.handle_fully_read_marker(event_id1.to_owned()).await;
+    assert!(stream.next().now_or_never().is_none());
 
     // Nothing should happen if the fully read event isn't found.
     timeline.controller.handle_fully_read_marker(event_id!("$fake_event_id").to_owned()).await;
+    assert!(stream.next().now_or_never().is_none());
 
     // Nothing should happen if the fully read event is referring to an event
     // that has already been marked as fully read.
-    timeline.controller.handle_fully_read_marker(second_event_id).await;
+    timeline.controller.handle_fully_read_marker(event_id2).await;
+    assert!(stream.next().now_or_never().is_none());
 
-    timeline.handle_live_event(f.text_msg("D").sender(&ALICE)).await;
+    timeline.handle_live_event(f.text_msg("D").sender(&BOB)).await;
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let event_id4 = item.as_event().unwrap().event_id().unwrap().to_owned();
+
+    timeline.controller.handle_fully_read_marker(event_id3).await;
+
+    // The read marker is moved after the third event (sent by another user).
+    assert_next_matches!(stream, VectorDiff::Remove { index: 3 });
+    let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 4, value } => value);
+    assert_matches!(marker.kind, TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker));
+
+    // If the current user sends an event afterwards, the read marker doesn't move.
+    timeline.handle_live_event(f.text_msg("E").sender(&own_user)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     item.as_event().unwrap();
 
-    timeline.controller.handle_fully_read_marker(third_event_id).await;
+    assert!(stream.next().now_or_never().is_none());
 
-    // The read marker is moved after the third event.
-    assert_next_matches!(stream, VectorDiff::Remove { index: 3 });
-    let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 4, value } => value);
+    // If the marker moved forward to another user's event, and there's no other
+    // event sent from another user, then it will be removed.
+    timeline.controller.handle_fully_read_marker(event_id4).await;
+    assert_next_matches!(stream, VectorDiff::Remove { index: 4 });
+
+    assert!(stream.next().now_or_never().is_none());
+
+    // When a last event is inserted by ourselves, still no read marker.
+    timeline.handle_live_event(f.text_msg("F").sender(&own_user)).await;
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    item.as_event().unwrap();
+
+    timeline.handle_live_event(f.text_msg("G").sender(&own_user)).await;
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    item.as_event().unwrap();
+
+    assert!(stream.next().now_or_never().is_none());
+
+    // But when it's another user who sent the event, then we get a read marker for
+    // their message.
+    timeline.handle_live_event(f.text_msg("H").sender(&BOB)).await;
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    item.as_event().unwrap();
+
+    let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 8, value } => value);
     assert_matches!(marker.kind, TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker));
 }
