@@ -126,6 +126,26 @@ impl CryptoStoreWrapper {
 
         self.store.save_changes(changes).await?;
 
+        // If we updated our own public identity, log it for debugging purposes
+        if tracing::level_enabled!(tracing::Level::DEBUG) {
+            for updated_identity in
+                identities.new.iter().chain(identities.changed.iter()).filter_map(|id| id.own())
+            {
+                let master_key = updated_identity.master_key().get_first_key();
+                let user_signing_key = updated_identity.user_signing_key().get_first_key();
+                let self_signing_key = updated_identity.self_signing_key().get_first_key();
+
+                debug!(
+                    ?master_key,
+                    ?user_signing_key,
+                    ?self_signing_key,
+                    previously_verified = updated_identity.was_previously_verified(),
+                    verified = updated_identity.is_verified(),
+                    "Stored our own identity"
+                );
+            }
+        }
+
         if !room_key_updates.is_empty() {
             // Ignore the result. It can only fail if there are no listeners.
             let _ = self.room_keys_received_sender.send(room_key_updates);
