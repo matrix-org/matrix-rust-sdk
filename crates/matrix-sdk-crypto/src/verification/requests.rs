@@ -1337,6 +1337,7 @@ async fn receive_start<T: Clone>(
     info!(
         ?sender,
         device = ?content.from_device(),
+        method = ?content.method(),
         "Received a new verification start event",
     );
 
