@@ -639,7 +639,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         if let Flow::Remote { event_id, .. } = &self.ctx.flow {
             // Applying the cache to remote events only because local echoes
             // don't have an event ID that could be referenced by responses yet.
-            self.meta.poll_pending_events.apply(event_id, &mut poll_state);
+            self.meta.pending_poll_events.apply_pending(event_id, &mut poll_state);
         }
 
         if should_add {
@@ -649,7 +649,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
     fn handle_poll_response(&mut self, c: UnstablePollResponseEventContent) {
         let Some((item_pos, item)) = rfind_event_by_id(self.items, &c.relates_to.event_id) else {
-            self.meta.poll_pending_events.add_response(
+            self.meta.pending_poll_events.add_response(
                 &c.relates_to.event_id,
                 &self.ctx.sender,
                 self.ctx.timestamp,
@@ -678,7 +678,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
     fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
         let Some((item_pos, item)) = rfind_event_by_id(self.items, &c.relates_to.event_id) else {
-            self.meta.poll_pending_events.add_end(&c.relates_to.event_id, self.ctx.timestamp);
+            self.meta.pending_poll_events.mark_as_ended(&c.relates_to.event_id, self.ctx.timestamp);
             return;
         };
 

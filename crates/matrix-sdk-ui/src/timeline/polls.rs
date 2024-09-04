@@ -139,23 +139,26 @@ impl From<PollState> for NewUnstablePollStartEventContent {
     }
 }
 
-/// Acts as a cache for poll response and poll end events handled before their
-/// start event has been handled.
+/// Cache holding poll response and end events handled before their poll start
+/// event has been handled.
 #[derive(Clone, Debug, Default)]
-pub(super) struct PollPendingEvents {
-    pub(super) pending_poll_responses: HashMap<OwnedEventId, Vec<ResponseData>>,
-    pub(super) pending_poll_ends: HashMap<OwnedEventId, MilliSecondsSinceUnixEpoch>,
+pub(super) struct PendingPollEvents {
+    /// Responses to a poll (identified by the poll's start event id).
+    responses: HashMap<OwnedEventId, Vec<ResponseData>>,
+
+    /// Mapping of a poll (identified by its start event's id) to its end date.
+    end_dates: HashMap<OwnedEventId, MilliSecondsSinceUnixEpoch>,
 }
 
-impl PollPendingEvents {
+impl PendingPollEvents {
     pub(super) fn add_response(
         &mut self,
-        start_id: &EventId,
+        start_event_id: &EventId,
         sender: &UserId,
         timestamp: MilliSecondsSinceUnixEpoch,
         content: &UnstablePollResponseEventContent,
     ) {
-        self.pending_poll_responses.entry(start_id.to_owned()).or_default().push(ResponseData {
+        self.responses.entry(start_event_id.to_owned()).or_default().push(ResponseData {
             sender: sender.to_owned(),
             timestamp,
             answers: content.poll_response.answers.clone(),
@@ -163,22 +166,27 @@ impl PollPendingEvents {
     }
 
     pub(super) fn clear(&mut self) {
-        self.pending_poll_ends.clear();
-        self.pending_poll_responses.clear();
+        self.end_dates.clear();
+        self.responses.clear();
     }
 
-    pub(super) fn add_end(&mut self, start_id: &EventId, timestamp: MilliSecondsSinceUnixEpoch) {
-        self.pending_poll_ends.insert(start_id.to_owned(), timestamp);
+    /// Mark a poll as finished by inserting its poll date.
+    pub(super) fn mark_as_ended(
+        &mut self,
+        start_event_id: &EventId,
+        timestamp: MilliSecondsSinceUnixEpoch,
+    ) {
+        self.end_dates.insert(start_event_id.to_owned(), timestamp);
     }
 
     /// Dumps all response and end events present in the cache that belong to
     /// the given start_event_id into the given poll_state.
-    pub(super) fn apply(&mut self, start_event_id: &EventId, poll_state: &mut PollState) {
-        if let Some(pending_responses) = self.pending_poll_responses.get_mut(start_event_id) {
-            poll_state.response_data.append(pending_responses);
+    pub(super) fn apply_pending(&mut self, start_event_id: &EventId, poll_state: &mut PollState) {
+        if let Some(pending_responses) = self.responses.remove(start_event_id) {
+            poll_state.response_data.extend(pending_responses);
         }
-        if let Some(pending_end) = self.pending_poll_ends.get(start_event_id) {
-            poll_state.end_event_timestamp = Some(*pending_end)
+        if let Some(pending_end) = self.end_dates.remove(start_event_id) {
+            poll_state.end_event_timestamp = Some(pending_end);
         }
     }
 }
