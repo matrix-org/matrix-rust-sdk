@@ -370,14 +370,13 @@ impl<P: RoomDataProvider> TimelineController<P> {
         num_events: u16,
     ) -> Result<bool, PaginationError> {
         let pagination = match &*self.focus.read().await {
-            TimelineFocusData::Live => return Err(PaginationError::NotEventFocusMode),
+            TimelineFocusData::Live | TimelineFocusData::PinnedEvents { .. } => {
+                return Err(PaginationError::NotEventFocusMode)
+            }
             TimelineFocusData::Event { paginator, .. } => paginator
                 .paginate_backward(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
-            TimelineFocusData::PinnedEvents { .. } => {
-                return Err(PaginationError::NotEventFocusMode)
-            }
         };
 
         self.add_events_at(pagination.events, TimelineEnd::Front, RemoteEventOrigin::Pagination)
@@ -395,14 +394,13 @@ impl<P: RoomDataProvider> TimelineController<P> {
         num_events: u16,
     ) -> Result<bool, PaginationError> {
         let pagination = match &*self.focus.read().await {
-            TimelineFocusData::Live => return Err(PaginationError::NotEventFocusMode),
+            TimelineFocusData::Live | TimelineFocusData::PinnedEvents { .. } => {
+                return Err(PaginationError::NotEventFocusMode)
+            }
             TimelineFocusData::Event { paginator, .. } => paginator
                 .paginate_forward(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
-            TimelineFocusData::PinnedEvents { .. } => {
-                return Err(PaginationError::NotEventFocusMode)
-            }
         };
 
         self.add_events_at(pagination.events, TimelineEnd::Back, RemoteEventOrigin::Pagination)
@@ -799,7 +797,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
         // The event was already marked as sent, that's a broken state, let's
         // emit an error but also override to the given sent state.
         if let EventSendState::Sent { event_id: existing_event_id } = &local_item.send_state {
-            let new_event_id = new_event_id.map(debug);
             error!(?existing_event_id, ?new_event_id, "Local echo already marked as sent");
         }
 
