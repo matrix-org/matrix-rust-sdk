@@ -19,6 +19,10 @@ use std::future::Future;
 use matrix_sdk_base::{deserialized_responses::SyncTimelineEvent, SendOutsideWasm};
 use ruma::{
     events::{
+        poll::unstable_start::{
+            ReplacementUnstablePollStartEventContent, UnstablePollStartContentBlock,
+            UnstablePollStartEventContent,
+        },
         room::message::{Relation, ReplacementMetadata, RoomMessageEventContentWithoutRelation},
         AnyMessageLikeEvent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent,
         AnySyncTimelineEvent, AnyTimelineEvent, MessageLikeEvent, SyncMessageLikeEvent,
@@ -34,6 +38,9 @@ use crate::Room;
 pub enum EditedContent {
     /// The content is a `m.room.message`.
     RoomMessage(RoomMessageEventContentWithoutRelation),
+
+    /// The content is a fallback text and an `org.matrix.msc3381.poll.start`.
+    PollStart(String, UnstablePollStartContentBlock),
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -41,6 +48,7 @@ impl std::fmt::Debug for EditedContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::RoomMessage(_) => f.debug_tuple("RoomMessage").finish(),
+            Self::PollStart(_, _) => f.debug_tuple("PollStart").finish(),
         }
     }
 }
@@ -189,12 +197,30 @@ async fn make_edit_event<S: EventSource>(
                     }
                 });
 
-            return Ok(new_content
+            Ok(new_content
                 .make_replacement(
                     ReplacementMetadata::new(event_id.to_owned(), mentions),
                     replied_to_original_room_msg.as_ref(),
                 )
-                .into());
+                .into())
+        }
+        EditedContent::PollStart(text, new_content) => {
+            let AnySyncMessageLikeEvent::UnstablePollStart(SyncMessageLikeEvent::Original(_)) =
+                message_like_event
+            else {
+                return Err(EditError::IncompatibleEditType {
+                    target: message_like_event.event_type().to_string(),
+                    new_content: "poll start",
+                });
+            };
+            let replacement = UnstablePollStartEventContent::Replacement(
+                ReplacementUnstablePollStartEventContent::plain_text(
+                    text,
+                    new_content,
+                    event_id.to_owned(),
+                ),
+            );
+            Ok(AnyMessageLikeEventContent::UnstablePollStart(replacement))
         }
     }
 }

@@ -27,6 +27,7 @@ use matrix_sdk::{
         BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
     },
     deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
+    room::edit::EditedContent,
     Error,
 };
 use matrix_sdk_ui::timeline::{
@@ -488,25 +489,10 @@ impl Timeline {
     pub async fn edit(
         &self,
         item: Arc<EventTimelineItem>,
-        new_content: Arc<RoomMessageEventContentWithoutRelation>,
+        new_content: EditContent,
     ) -> Result<bool, ClientError> {
-        self.inner.edit(&item.0, (*new_content).clone()).await.map_err(ClientError::from)
-    }
-
-    pub async fn edit_poll(
-        &self,
-        question: String,
-        answers: Vec<String>,
-        max_selections: u8,
-        poll_kind: PollKind,
-        edit_item: Arc<EventTimelineItem>,
-    ) -> Result<(), ClientError> {
-        let poll_data = PollData { question, answers, max_selections, poll_kind };
-        self.inner
-            .edit_poll(poll_data.fallback_text(), poll_data.try_into()?, &edit_item.0)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))?;
-        Ok(())
+        let new_content: EditedContent = new_content.try_into()?;
+        self.inner.edit(&item.0, new_content).await.map_err(ClientError::from)
     }
 
     pub async fn send_location(
@@ -1169,7 +1155,8 @@ impl From<&TimelineDetails<Profile>> for ProfileDetails {
     }
 }
 
-struct PollData {
+#[derive(Clone, uniffi::Record)]
+pub struct PollData {
     question: String,
     answers: Vec<String>,
     max_selections: u8,
@@ -1261,6 +1248,30 @@ impl From<ReceiptType> for ruma::api::client::receipt::create_receipt::v3::Recei
             ReceiptType::Read => Self::Read,
             ReceiptType::ReadPrivate => Self::ReadPrivate,
             ReceiptType::FullyRead => Self::FullyRead,
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum EditContent {
+    RoomMessage(Arc<RoomMessageEventContentWithoutRelation>),
+    PollStart(PollData),
+}
+
+impl TryFrom<EditContent> for matrix_sdk::room::edit::EditedContent {
+    type Error = ClientError;
+    fn try_from(value: EditContent) -> Result<Self, Self::Error> {
+        match value {
+            EditContent::RoomMessage(content) => {
+                Ok(matrix_sdk::room::edit::EditedContent::RoomMessage((*content).clone()))
+            }
+            EditContent::PollStart(poll_data) => {
+                let block: UnstablePollStartContentBlock = poll_data.clone().try_into()?;
+                Ok(matrix_sdk::room::edit::EditedContent::PollStart(
+                    poll_data.fallback_text(),
+                    block,
+                ))
+            }
         }
     }
 }
