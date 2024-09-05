@@ -15,6 +15,7 @@
 use std::{collections::VecDeque, future::Future, sync::Arc};
 
 use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
+use itertools::Itertools as _;
 use matrix_sdk::{deserialized_responses::SyncTimelineEvent, send_queue::SendHandle};
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 #[cfg(test)]
@@ -343,7 +344,29 @@ impl TimelineStateTransaction<'_> {
 
         self.adjust_day_dividers(day_divider_adjuster);
 
+        self.check_no_unused_unique_ids();
         total
+    }
+
+    fn check_no_unused_unique_ids(&self) {
+        let duplicates = self
+            .items
+            .iter()
+            .duplicates_by(|item| item.unique_id())
+            .map(|item| item.unique_id())
+            .collect::<Vec<_>>();
+
+        if !duplicates.is_empty() {
+            #[cfg(any(debug_assertions, test))]
+            panic!("duplicate unique ids in this timeline:{:?}\n{:?}", duplicates, self.items);
+
+            #[cfg(not(any(debug_assertions, test)))]
+            tracing::error!(
+                "duplicate unique ids in this timeline:{:?}\n{:?}",
+                duplicates,
+                self.items
+            );
+        }
     }
 
     /// Handle a remote event.
