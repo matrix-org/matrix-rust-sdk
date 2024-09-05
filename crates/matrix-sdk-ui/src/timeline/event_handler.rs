@@ -489,12 +489,36 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return;
         };
 
+        let Some(new_item) = self.apply_msg_edit(&item, replacement) else {
+            return;
+        };
+
+        trace!("Applying edit");
+        self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
+        self.result.items_updated += 1;
+    }
+
+    /// If there's a pending edit for an item, applies it immediately, returning
+    /// an updated [`EventTimelineItem`]. Otherwise, return the original event
+    /// item.
+    fn maybe_apply_pending_edit(&mut self, item: EventTimelineItem) -> EventTimelineItem {
+        let Flow::Remote { event_id, .. } = &self.ctx.flow else { return item };
+        let Some(edit) = self.meta.pending_edits.remove(event_id) else { return item };
+        self.apply_msg_edit(&item, edit).unwrap_or(item)
+    }
+
+    /// Applies an edit to an existing [`EventTimelineItem`].
+    fn apply_msg_edit(
+        &self,
+        item: &EventTimelineItem,
+        replacement: Replacement<RoomMessageEventContentWithoutRelation>,
+    ) -> Option<EventTimelineItem> {
         if self.ctx.sender != item.sender() {
             info!(
                 original_sender = ?item.sender(), edit_sender = ?self.ctx.sender,
                 "Edit event applies to another user's timeline item, discarding"
             );
-            return;
+            return None;
         }
 
         let TimelineItemContent::Message(msg) = item.content() else {
@@ -502,7 +526,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 "Edit of message event applies to {:?}, discarding",
                 item.content().debug_string(),
             );
-            return;
+            return None;
         };
 
         let mut msgtype = replacement.new_content.msgtype;
@@ -532,9 +556,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         }
 
-        trace!("Applying edit");
-        self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
-        self.result.items_updated += 1;
+        Some(new_item)
     }
 
     // Redacted reaction events are no-ops so don't need to be handled
@@ -876,7 +898,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let is_room_encrypted = self.meta.is_room_encrypted;
 
-        let mut item = EventTimelineItem::new(
+        let mut event_item = EventTimelineItem::new(
             sender,
             sender_profile,
             timestamp,
@@ -890,7 +912,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Flow::Local { .. } => {
                 trace!("Adding new local timeline item");
 
-                let item = self.meta.new_timeline_item(item);
+                let item = self.meta.new_timeline_item(event_item);
                 self.items.push_back(item);
             }
 
@@ -907,7 +929,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 trace!("Adding new remote timeline item at the start");
 
-                let item = self.meta.new_timeline_item(item);
+                let event_item = self.maybe_apply_pending_edit(event_item);
+                let item = self.meta.new_timeline_item(event_item);
                 self.items.push_front(item);
             }
 
@@ -930,19 +953,19 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         // normally, but with the sliding- sync proxy, it is actually very
                         // common.
                         // NOTE: SS proxy workaround.
-                        trace!(?item, old_item = ?*old_item, "Received duplicate event");
+                        trace!(?event_item, old_item = ?*old_item, "Received duplicate event");
 
-                        if old_item.content.is_redacted() && !item.content.is_redacted() {
+                        if old_item.content.is_redacted() && !event_item.content.is_redacted() {
                             warn!("Got original form of an event that was previously redacted");
-                            item.content = item.content.redact(&self.meta.room_version);
-                            item.reactions.clear();
+                            event_item.content = event_item.content.redact(&self.meta.room_version);
+                            event_item.reactions.clear();
                         }
                     }
 
                     // TODO: Check whether anything is different about the
                     //       old and new item?
 
-                    transfer_details(&mut item, &old_item);
+                    transfer_details(&mut event_item, &old_item);
 
                     let old_item_id = old_item.internal_id;
 
@@ -950,7 +973,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         // If the old item is the last one and no day divider
                         // changes need to happen, replace and return early.
                         trace!(idx, "Replacing existing event");
-                        self.items.set(idx, TimelineItem::new(item, old_item_id.to_owned()));
+                        let old_item_id = old_item_id.to_owned();
+                        let event_item = self.maybe_apply_pending_edit(event_item);
+                        self.items.set(idx, TimelineItem::new(event_item, old_item_id));
                         return;
                     }
 
@@ -976,12 +1001,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let insert_idx = latest_event_idx.map_or(0, |idx| idx + 1);
 
                 trace!("Adding new remote timeline item after all non-pending events");
+                let event_item = self.maybe_apply_pending_edit(event_item);
                 let new_item = match removed_event_item_id {
                     // If a previous version of the same item (usually a local
                     // echo) was removed and we now need to add it again, reuse
                     // the previous item's ID.
-                    Some(id) => TimelineItem::new(item, id),
-                    None => self.meta.new_timeline_item(item),
+                    Some(id) => TimelineItem::new(event_item, id),
+                    None => self.meta.new_timeline_item(event_item),
                 };
 
                 // Keep push semantics, if we're inserting at the front or the back.
@@ -996,14 +1022,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             Flow::Remote { position: TimelineItemPosition::Update(idx), .. } => {
                 trace!("Updating timeline item at position {idx}");
-                let id = self.items[*idx].internal_id.clone();
-                self.items.set(*idx, TimelineItem::new(item, id));
-            }
-        }
-
-        if let Flow::Remote { event_id, .. } = &self.ctx.flow {
-            if let Some(edit) = self.meta.pending_edits.remove(event_id) {
-                self.handle_room_message_edit(edit);
+                let idx = *idx;
+                let internal_id = self.items[idx].internal_id.clone();
+                let event_item = self.maybe_apply_pending_edit(event_item);
+                self.items.set(idx, TimelineItem::new(event_item, internal_id));
             }
         }
 

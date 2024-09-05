@@ -652,20 +652,14 @@ async fn test_pending_edit() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    // Then I get the content as original first…
+    // Then I get the edited content immediately.
     assert_let!(Some(VectorDiff::PushBack { value }) = timeline_stream.next().await);
     let item = value.as_event().unwrap();
     assert!(item.event_id().is_some());
     assert!(!item.is_own());
-    assert_eq!(item.content().as_message().unwrap().body(), "hi");
-
-    // And then the edit.
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
-        let item = value.as_event().unwrap();
-        assert!(item.event_id().is_some());
-        assert!(!item.is_own());
-        assert_eq!(item.content().as_message().unwrap().body(), "[edit]");
-    });
+    let msg = item.content().as_message().unwrap();
+    assert!(msg.is_edited());
+    assert_eq!(msg.body(), "[edit]");
 
     // The day divider.
     assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
