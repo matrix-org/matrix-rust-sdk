@@ -26,6 +26,7 @@ use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
     events::{
+        poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
         relation::Replacement, room::message::RoomMessageEventContentWithoutRelation,
         AnySyncEphemeralRoomEvent,
     },
@@ -702,6 +703,22 @@ impl TimelineStateTransaction<'_> {
     }
 }
 
+#[derive(Clone)]
+pub(in crate::timeline) enum PendingEdit {
+    RoomMessage(Replacement<RoomMessageEventContentWithoutRelation>),
+    Poll(Replacement<NewUnstablePollStartEventContentWithoutRelation>),
+}
+
+#[cfg(not(tarpaulin_include))]
+impl std::fmt::Debug for PendingEdit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RoomMessage(_) => f.debug_struct("RoomMessage").finish_non_exhaustive(),
+            Self::Poll(_) => f.debug_struct("Poll").finish_non_exhaustive(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(in crate::timeline) struct TimelineMetadata {
     // **** CONSTANT FIELDS ****
@@ -738,7 +755,7 @@ pub(in crate::timeline) struct TimelineMetadata {
     pub reactions: Reactions,
 
     pub pending_poll_events: PendingPollEvents,
-    pub pending_edits: HashMap<OwnedEventId, Replacement<RoomMessageEventContentWithoutRelation>>,
+    pub pending_edits: HashMap<OwnedEventId, PendingEdit>,
 
     pub fully_read_event: Option<OwnedEventId>,
 

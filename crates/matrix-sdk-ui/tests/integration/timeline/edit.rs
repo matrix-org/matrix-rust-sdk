@@ -14,6 +14,7 @@
 
 use std::time::Duration;
 
+use as_variant::as_variant;
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
@@ -30,8 +31,8 @@ use ruma::{
     event_id,
     events::{
         poll::unstable_start::{
-            NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollAnswers,
-            UnstablePollStartContentBlock,
+            NewUnstablePollStartEventContent, ReplacementUnstablePollStartEventContent,
+            UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock,
         },
         room::message::{
             MessageType, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
@@ -660,6 +661,100 @@ async fn test_pending_edit() {
     let msg = item.content().as_message().unwrap();
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "[edit]");
+
+    // The day divider.
+    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
+        assert!(value.is_day_divider());
+    });
+
+    // And nothing else.
+    assert!(timeline_stream.next().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_pending_poll_edit() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let f = EventFactory::new();
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    // When I receive an edit event for an event I don't know about…
+    let original_event_id = event_id!("$edited");
+    let edit_event_id = event_id!("$original");
+
+    let new_start = UnstablePollStartContentBlock::new(
+        "Edited poll",
+        UnstablePollAnswers::try_from(vec![
+            UnstablePollAnswer::new("0", "Yes"),
+            UnstablePollAnswer::new("1", "No"),
+        ])
+        .unwrap(),
+    );
+
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.event(ReplacementUnstablePollStartEventContent::new(
+                new_start,
+                original_event_id.to_owned(),
+            ))
+            .sender(&ALICE)
+            .event_id(edit_event_id),
+        ),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // Nothing happens.
+    assert!(timeline_stream.next().now_or_never().is_none());
+
+    // But when I receive the original event after a bit…
+    let event_content = NewUnstablePollStartEventContent::new(UnstablePollStartContentBlock::new(
+        "Original poll",
+        UnstablePollAnswers::try_from(vec![
+            UnstablePollAnswer::new("0", "f yeah"),
+            UnstablePollAnswer::new("1", "noooope"),
+        ])
+        .unwrap(),
+    ));
+
+    sync_builder
+        .add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.event(event_content).sender(&ALICE).event_id(&original_event_id),
+        ));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // Then I get the edited content immediately.
+    assert_let!(Some(VectorDiff::PushBack { value }) = timeline_stream.next().await);
+    let item = value.as_event().unwrap();
+    assert!(item.event_id().is_some());
+    assert!(!item.is_own());
+
+    let poll = as_variant!(item.content(), TimelineItemContent::Poll).unwrap();
+    assert!(poll.is_edit());
+
+    let results = poll.results();
+    assert_eq!(results.question, "Edited poll");
+    assert_eq!(results.answers[0].text, "Yes");
+    assert_eq!(results.answers[1].text, "No");
 
     // The day divider.
     assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
