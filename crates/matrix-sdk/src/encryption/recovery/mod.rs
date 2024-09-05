@@ -28,7 +28,7 @@
 //! this file is the secret storage key.
 //!
 //! You should configure your client to bootstrap cross-signing automatically
-//! and may chose to let your client automatically create a backup, if it
+//! and may choose to let your client automatically create a backup, if it
 //! doesn't exist, as well:
 //!
 //! ```no_run
