@@ -42,7 +42,7 @@ use tokio::{
     time::{sleep, timeout},
 };
 use tracing::{debug, warn};
-
+use matrix_sdk::room::edit::EditedContent;
 use crate::helpers::TestClientBuilder;
 
 /// Checks that there a timeline update, and returns the EventTimelineItem.
@@ -289,7 +289,7 @@ async fn test_stale_local_echo_time_abort_edit() {
 
     // Now do a crime: try to edit the local echo.
     let did_edit = timeline
-        .edit(&local_echo, RoomMessageEventContent::text_plain("bonjour").into())
+        .edit(&local_echo, EditedContent::RoomMessage(RoomMessageEventContent::text_plain("bonjour").into()))
         .await
         .unwrap();
 

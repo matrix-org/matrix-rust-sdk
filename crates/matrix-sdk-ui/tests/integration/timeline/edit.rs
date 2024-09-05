@@ -21,6 +21,7 @@ use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
     config::SyncSettings,
+    room::edit::EditedContent,
     test_utils::{events::EventFactory, logged_in_client_with_server},
     Client,
 };
@@ -233,7 +234,10 @@ async fn test_edit_local_echo() {
 
     // Let's edit the local echo.
     let did_edit = timeline
-        .edit(item, RoomMessageEventContent::text_plain("hello, world").into())
+        .edit(
+            item,
+            EditedContent::RoomMessage(RoomMessageEventContent::text_plain("hello, world").into()),
+        )
         .await
         .unwrap();
 
@@ -317,7 +321,12 @@ async fn test_send_edit() {
         .await;
 
     timeline
-        .edit(&hello_world_item, RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"))
+        .edit(
+            &hello_world_item,
+            EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(
+                "Hello, Room!",
+            )),
+        )
         .await
         .unwrap();
 
@@ -399,7 +408,12 @@ async fn test_send_reply_edit() {
         .await;
 
     timeline
-        .edit(&reply_item, RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"))
+        .edit(
+            &reply_item,
+            EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(
+                "Hello, Room!",
+            )),
+        )
         .await
         .unwrap();
 
@@ -494,7 +508,10 @@ async fn test_send_edit_poll() {
     .unwrap();
     let edited_poll =
         UnstablePollStartContentBlock::new("Edited Test".to_owned(), edited_poll_answers);
-    timeline.edit_poll("poll_fallback_text", edited_poll, &poll_event).await.unwrap();
+    timeline
+        .edit(&poll_event, EditedContent::PollStart("poll_fallback_text".to_owned(), edited_poll))
+        .await
+        .unwrap();
 
     // Let the send queue handle the event.
     yield_now().await;
@@ -591,7 +608,12 @@ async fn test_send_edit_when_timeline_is_clear() {
         .await;
 
     timeline
-        .edit(&hello_world_item, RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"))
+        .edit(
+            &hello_world_item,
+            EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(
+                "Hello, Room!",
+            )),
+        )
         .await
         .unwrap();
 

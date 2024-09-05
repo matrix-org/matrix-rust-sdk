@@ -834,7 +834,7 @@ impl From<&RumaFileInfo> for FileInfo {
     }
 }
 
-#[derive(uniffi::Enum)]
+#[derive(Clone, uniffi::Enum)]
 pub enum PollKind {
     Disclosed,
     Undisclosed,
