@@ -125,6 +125,11 @@ impl PollState {
             has_been_edited: self.has_been_edited,
         }
     }
+
+    /// Returns true whether this poll has been edited.
+    pub fn is_edit(&self) -> bool {
+        self.has_been_edited
+    }
 }
 
 impl From<PollState> for NewUnstablePollStartEventContent {
