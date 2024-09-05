@@ -22,11 +22,15 @@ use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
     config::SyncSettings,
     test_utils::{events::EventFactory, logged_in_client_with_server},
+    Client,
 };
 use matrix_sdk_test::{
     async_test, mocks::mock_encryption_state, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
 };
-use matrix_sdk_ui::timeline::{EventSendState, RoomExt, TimelineDetails, TimelineItemContent};
+use matrix_sdk_ui::{
+    timeline::{EventSendState, RoomExt, TimelineDetails, TimelineItemContent},
+    Timeline,
+};
 use ruma::{
     event_id,
     events::{
@@ -38,15 +42,18 @@ use ruma::{
             MessageType, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             TextMessageEventContent,
         },
+        AnyTimelineEvent,
     },
     room_id,
+    serde::Raw,
+    OwnedRoomId,
 };
 use serde_json::json;
 use stream_assert::assert_next_matches;
 use tokio::{task::yield_now, time::sleep};
 use wiremock::{
     matchers::{header, method, path_regex},
-    Mock, ResponseTemplate,
+    Mock, MockServer, ResponseTemplate,
 };
 
 use crate::mock_sync;
@@ -356,14 +363,12 @@ async fn test_send_reply_edit() {
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
     let f = EventFactory::new();
-    let fst_event_id = event_id!("$original_event");
+    let event_id = event_id!("$original_event");
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(f.text_msg("Hello, World!").sender(&ALICE).event_id(fst_event_id))
+            .add_timeline_event(f.text_msg("Hello, World!").sender(&ALICE).event_id(event_id))
             .add_timeline_event(
-                f.text_msg("Hello, Alice!")
-                    .reply_to(fst_event_id)
-                    .sender(client.user_id().unwrap()),
+                f.text_msg("Hello, Alice!").reply_to(event_id).sender(client.user_id().unwrap()),
             ),
     );
 
@@ -380,7 +385,7 @@ async fn test_send_reply_edit() {
     assert!(!reply_message.is_edited());
     assert!(reply_item.is_editable());
     let in_reply_to = reply_message.in_reply_to().unwrap();
-    assert_eq!(in_reply_to.event_id, fst_event_id);
+    assert_eq!(in_reply_to.event_id, event_id);
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
     mock_encryption_state(&server, false).await;
@@ -411,7 +416,7 @@ async fn test_send_reply_edit() {
     assert_eq!(edit_message.body(), "Hello, Room!");
     assert!(edit_message.is_edited());
     let in_reply_to = reply_message.in_reply_to().unwrap();
-    assert_eq!(in_reply_to.event_id, fst_event_id);
+    assert_eq!(in_reply_to.event_id, event_id);
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
     // The response to the mocked endpoint does not generate further timeline
@@ -603,62 +608,269 @@ async fn test_send_edit_when_timeline_is_clear() {
     server.verify().await;
 }
 
+struct PendingEditHelper {
+    client: Client,
+    server: MockServer,
+    timeline: Timeline,
+    sync_builder: SyncResponseBuilder,
+    sync_settings: SyncSettings,
+    room_id: OwnedRoomId,
+}
+
+impl PendingEditHelper {
+    async fn new() -> Self {
+        let room_id = room_id!("!a98sd12bjh:example.org");
+        let (client, server) = logged_in_client_with_server().await;
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let mut sync_builder = SyncResponseBuilder::new();
+        sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+        mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+        let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+        server.reset().await;
+
+        mock_encryption_state(&server, false).await;
+
+        {
+            // Fill the initial prev-batch token to avoid waiting for it later.
+            let ec = client.event_cache();
+            ec.subscribe().unwrap();
+            ec.add_initial_events(room_id, vec![], Some("prev-batch-token".to_owned()))
+                .await
+                .unwrap();
+        }
+
+        let room = client.get_room(room_id).unwrap();
+        let timeline = room.timeline().await.unwrap();
+
+        Self { client, server, timeline, sync_builder, sync_settings, room_id: room_id.to_owned() }
+    }
+
+    async fn handle_sync(&mut self, joined_room_builder: JoinedRoomBuilder) {
+        self.sync_builder.add_joined_room(joined_room_builder);
+
+        mock_sync(&self.server, self.sync_builder.build_json_sync_response(), None).await;
+        let _response = self.client.sync_once(self.sync_settings.clone()).await.unwrap();
+
+        self.server.reset().await;
+    }
+
+    async fn handle_backpagination(&mut self, events: Vec<Raw<AnyTimelineEvent>>, batch_size: u16) {
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "start": "123",
+                "end": "yolo",
+                "chunk": events,
+                "state": []
+            })))
+            .expect(1)
+            .mount(&self.server)
+            .await;
+
+        self.timeline.live_paginate_backwards(batch_size).await.unwrap();
+
+        self.server.reset().await;
+    }
+}
+
 #[async_test]
 async fn test_pending_edit() {
-    let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
+    let mut h = PendingEditHelper::new().await;
     let f = EventFactory::new();
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = h.timeline.subscribe().await;
 
     // When I receive an edit event for an event I don't know about…
-    let original_event_id = event_id!("$edited");
-    let edit_event_id = event_id!("$original");
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(
+    let original_event_id = event_id!("$original");
+    let edit_event_id = event_id!("$edit");
+
+    h.handle_sync(
+        JoinedRoomBuilder::new(&h.room_id).add_timeline_event(
             f.text_msg("* hello")
                 .sender(&ALICE)
                 .event_id(edit_event_id)
                 .edit(original_event_id, RoomMessageEventContent::text_plain("[edit]").into()),
         ),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    )
+    .await;
 
     // Nothing happens.
     assert!(timeline_stream.next().now_or_never().is_none());
 
     // But when I receive the original event after a bit…
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(f.text_msg("hi").sender(&ALICE).event_id(&original_event_id)),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    h.handle_sync(
+        JoinedRoomBuilder::new(&h.room_id)
+            .add_timeline_event(f.text_msg("hi").sender(&ALICE).event_id(original_event_id)),
+    )
+    .await;
 
     // Then I get the edited content immediately.
     assert_let!(Some(VectorDiff::PushBack { value }) = timeline_stream.next().await);
-    let item = value.as_event().unwrap();
-    assert!(item.event_id().is_some());
-    assert!(!item.is_own());
-    let msg = item.content().as_message().unwrap();
+    let msg = value.as_event().unwrap().content().as_message().unwrap();
+    assert!(msg.is_edited());
+    assert_eq!(msg.body(), "[edit]");
+
+    // The day divider.
+    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
+        assert!(value.is_day_divider());
+    });
+
+    // And nothing else.
+    assert!(timeline_stream.next().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_pending_edit_overrides() {
+    let mut h = PendingEditHelper::new().await;
+    let f = EventFactory::new();
+
+    let (_, mut timeline_stream) = h.timeline.subscribe().await;
+
+    // When I receive multiple edit events for an event I don't know about…
+    let original_event_id = event_id!("$original");
+    let edit_event_id = event_id!("$edit");
+    let edit_event_id2 = event_id!("$edit2");
+    h.handle_sync(
+        JoinedRoomBuilder::new(&h.room_id)
+            .add_timeline_event(
+                f.text_msg("* hello")
+                    .sender(&ALICE)
+                    .event_id(edit_event_id)
+                    .edit(original_event_id, RoomMessageEventContent::text_plain("hello").into()),
+            )
+            .add_timeline_event(
+                f.text_msg("* bonjour")
+                    .sender(&ALICE)
+                    .event_id(edit_event_id2)
+                    .edit(original_event_id, RoomMessageEventContent::text_plain("bonjour").into()),
+            ),
+    )
+    .await;
+
+    // Nothing happens.
+    assert!(timeline_stream.next().now_or_never().is_none());
+
+    // And then I receive the original event after a bit…
+    h.handle_sync(
+        JoinedRoomBuilder::new(&h.room_id)
+            .add_timeline_event(f.text_msg("hi").sender(&ALICE).event_id(original_event_id)),
+    )
+    .await;
+
+    // Then I get the latest edited content immediately.
+    assert_let!(Some(VectorDiff::PushBack { value }) = timeline_stream.next().await);
+    let msg = value.as_event().unwrap().content().as_message().unwrap();
+    assert!(msg.is_edited());
+    assert_eq!(msg.body(), "bonjour");
+
+    // The day divider.
+    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
+        assert!(value.is_day_divider());
+    });
+
+    // And nothing else.
+    assert!(timeline_stream.next().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_pending_edit_from_backpagination() {
+    let mut h = PendingEditHelper::new().await;
+    let f = EventFactory::new();
+
+    let (_, mut timeline_stream) = h.timeline.subscribe().await;
+
+    // When I receive an edit from a back-pagination for an event I don't know
+    // about…
+    let original_event_id = event_id!("$original");
+    let edit_event_id = event_id!("$edit");
+    h.handle_backpagination(
+        vec![f
+            .text_msg("* hello")
+            .sender(&ALICE)
+            .event_id(edit_event_id)
+            .room(&h.room_id)
+            .edit(original_event_id, RoomMessageEventContent::text_plain("hello").into())
+            .into()],
+        10,
+    )
+    .await;
+
+    // Nothing happens.
+    assert!(timeline_stream.next().now_or_never().is_none());
+
+    // And then I receive the original event after a bit…
+    h.handle_sync(
+        JoinedRoomBuilder::new(&h.room_id)
+            .add_timeline_event(f.text_msg("hi").sender(&ALICE).event_id(original_event_id)),
+    )
+    .await;
+
+    // Then I get the latest edited content immediately.
+    assert_let!(Some(VectorDiff::PushBack { value }) = timeline_stream.next().await);
+    let msg = value.as_event().unwrap().content().as_message().unwrap();
+    assert!(msg.is_edited());
+    assert_eq!(msg.body(), "hello");
+
+    // The day divider.
+    assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
+        assert!(value.is_day_divider());
+    });
+
+    // And nothing else.
+    assert!(timeline_stream.next().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_pending_edit_from_backpagination_doesnt_override_pending_edit_from_sync() {
+    let mut h = PendingEditHelper::new().await;
+    let f = EventFactory::new();
+
+    let (_, mut timeline_stream) = h.timeline.subscribe().await;
+
+    // When I receive an edit live from a sync for an event I don't know about…
+    let original_event_id = event_id!("$original");
+    let edit_event_id = event_id!("$edit");
+    h.handle_sync(
+        JoinedRoomBuilder::new(&h.room_id).add_timeline_event(
+            f.text_msg("* hello")
+                .sender(&ALICE)
+                .event_id(edit_event_id)
+                .edit(original_event_id, RoomMessageEventContent::text_plain("[edit]").into()),
+        ),
+    )
+    .await;
+
+    // And then I receive an edit from a back-pagination for the same event…
+    let edit_event_id2 = event_id!("$edit2");
+    h.handle_backpagination(
+        vec![f
+            .text_msg("* aloha")
+            .sender(&ALICE)
+            .event_id(edit_event_id2)
+            .room(&h.room_id)
+            .edit(original_event_id, RoomMessageEventContent::text_plain("aloha").into())
+            .into()],
+        10,
+    )
+    .await;
+
+    // Nothing happens.
+    assert!(timeline_stream.next().now_or_never().is_none());
+
+    // And then I receive the original event after a bit…
+    h.handle_sync(
+        JoinedRoomBuilder::new(&h.room_id)
+            .add_timeline_event(f.text_msg("hi").sender(&ALICE).event_id(original_event_id)),
+    )
+    .await;
+
+    // Then I get the edit from the sync, even if the back-pagination happened
+    // after.
+    assert_let!(Some(VectorDiff::PushBack { value }) = timeline_stream.next().await);
+    let msg = value.as_event().unwrap().content().as_message().unwrap();
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "[edit]");
 
@@ -673,28 +885,14 @@ async fn test_pending_edit() {
 
 #[async_test]
 async fn test_pending_poll_edit() {
-    let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
+    let mut h = PendingEditHelper::new().await;
     let f = EventFactory::new();
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
-    let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) = timeline.subscribe().await;
+    let (_, mut timeline_stream) = h.timeline.subscribe().await;
 
     // When I receive an edit event for an event I don't know about…
-    let original_event_id = event_id!("$edited");
-    let edit_event_id = event_id!("$original");
+    let original_event_id = event_id!("$original");
+    let edit_event_id = event_id!("$edit");
 
     let new_start = UnstablePollStartContentBlock::new(
         "Edited poll",
@@ -705,8 +903,8 @@ async fn test_pending_poll_edit() {
         .unwrap(),
     );
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(
+    h.handle_sync(
+        JoinedRoomBuilder::new(&h.room_id).add_timeline_event(
             f.event(ReplacementUnstablePollStartEventContent::new(
                 new_start,
                 original_event_id.to_owned(),
@@ -714,11 +912,8 @@ async fn test_pending_poll_edit() {
             .sender(&ALICE)
             .event_id(edit_event_id),
         ),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    )
+    .await;
 
     // Nothing happens.
     assert!(timeline_stream.next().now_or_never().is_none());
@@ -733,22 +928,15 @@ async fn test_pending_poll_edit() {
         .unwrap(),
     ));
 
-    sync_builder
-        .add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-            f.event(event_content).sender(&ALICE).event_id(&original_event_id),
-        ));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    h.handle_sync(
+        JoinedRoomBuilder::new(&h.room_id)
+            .add_timeline_event(f.event(event_content).sender(&ALICE).event_id(original_event_id)),
+    )
+    .await;
 
     // Then I get the edited content immediately.
     assert_let!(Some(VectorDiff::PushBack { value }) = timeline_stream.next().await);
-    let item = value.as_event().unwrap();
-    assert!(item.event_id().is_some());
-    assert!(!item.is_own());
-
-    let poll = as_variant!(item.content(), TimelineItemContent::Poll).unwrap();
+    let poll = as_variant!(value.as_event().unwrap().content(), TimelineItemContent::Poll).unwrap();
     assert!(poll.is_edit());
 
     let results = poll.results();
