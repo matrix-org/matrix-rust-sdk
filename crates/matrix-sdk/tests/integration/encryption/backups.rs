@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fs::File, io::Write, sync::Arc};
+use std::{fs::File, io::Write, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use assert_matches::assert_matches;
@@ -574,7 +574,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/keys/upload"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "one_time_key_counts": {
                 "curve25519": 50,
                 "signed_curve25519": 50
@@ -716,6 +716,8 @@ async fn test_incremental_upload_of_keys() -> Result<()> {
 #[async_test]
 #[cfg(feature = "experimental-sliding-sync")]
 async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
+    use tokio::time::sleep;
+
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {
@@ -774,8 +776,8 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
     let sliding = client
         .sliding_sync("main")?
         .with_all_extensions()
-        .poll_timeout(std::time::Duration::from_secs(3))
-        .network_timeout(std::time::Duration::from_secs(3))
+        .poll_timeout(Duration::from_secs(3))
+        .network_timeout(Duration::from_secs(3))
         .add_list(
             matrix_sdk::SlidingSyncList::builder("all")
                 .sync_mode(matrix_sdk::SlidingSyncMode::new_selective().add_range(0..=20)),
@@ -814,8 +816,8 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
         .mount(&server)
         .await;
 
-    // let the slinding sync loop run for a bit
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    // let the sliding sync loop run for a bit.
+    sleep(Duration::from_secs(1)).await;
 
     server.verify().await;
     Ok(())
@@ -1384,7 +1386,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd() {
 
     // Wait for the key to be downloaded from backup.
     {
-        let room_keys = timeout(room_key_stream.next(), std::time::Duration::from_secs(5))
+        let room_keys = timeout(room_key_stream.next(), Duration::from_secs(5))
             .await
             .expect("did not get a room key stream update within 5 seconds")
             .expect("room_key_stream.next() returned None")
@@ -1514,7 +1516,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
 
     // Wait for the key to be downloaded from backup.
     {
-        let room_keys = timeout(room_key_stream.next(), std::time::Duration::from_secs(5))
+        let room_keys = timeout(room_key_stream.next(), Duration::from_secs(5))
             .await
             .expect("did not get a room key stream update within 5 seconds")
             .expect("room_key_stream.next() returned None")
