@@ -352,7 +352,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::UnstablePollStart(
                     UnstablePollStartEventContent::Replacement(c),
-                ) => self.handle_poll_start_edit(c.relates_to),
+                ) => self.handle_poll_edit(c.relates_to),
 
                 AnyMessageLikeEventContent::UnstablePollStart(
                     UnstablePollStartEventContent::New(c),
@@ -639,7 +639,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
-    fn handle_poll_start_edit(
+    fn handle_poll_edit(
         &mut self,
         replacement: Replacement<NewUnstablePollStartEventContentWithoutRelation>,
     ) {
@@ -662,9 +662,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         };
 
         let new_content = match poll_state.edit(&replacement.new_content) {
-            Ok(edited_poll_state) => TimelineItemContent::Poll(edited_poll_state),
-            Err(e) => {
-                info!("Failed to apply poll edit: {e:?}");
+            Some(edited_poll_state) => TimelineItemContent::Poll(edited_poll_state),
+            None => {
+                info!("Not applying edit to a poll that's already ended");
                 return;
             }
         };
