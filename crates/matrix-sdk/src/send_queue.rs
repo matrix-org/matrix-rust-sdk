@@ -61,8 +61,7 @@ use matrix_sdk_base::{
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use ruma::{
     events::{
-        reaction::ReactionEventContent, relation::Annotation,
-        room::message::RoomMessageEventContentWithoutRelation, AnyMessageLikeEventContent,
+        reaction::ReactionEventContent, relation::Annotation, AnyMessageLikeEventContent,
         EventContent as _,
     },
     serde::Raw,
@@ -908,30 +907,26 @@ impl QueueStorage {
 
                     // Check the event is one we know how to edit with an edit event.
 
-                    // 1. It must be deserializable…
-                    let content = match new_content.deserialize() {
-                        Ok(c) => c,
+                    // It must be deserializable
+                    let edited_content = match new_content.deserialize() {
+                        Ok(AnyMessageLikeEventContent::RoomMessage(c)) => {
+                            EditedContent::RoomMessage(c.into())
+                        }
+                        Ok(AnyMessageLikeEventContent::UnstablePollStart(c)) => {
+                            let poll_start = c.poll_start().clone();
+                            EditedContent::PollStart(poll_start.question.text.clone(), poll_start)
+                        }
+                        Ok(c) => {
+                            warn!("Unsupported edit content type: {:?}", c.event_type());
+                            return Ok(true);
+                        }
                         Err(err) => {
                             warn!("unable to deserialize: {err}");
                             return Ok(true);
                         }
                     };
 
-                    // 2. …and a room message, at this point.
-                    let AnyMessageLikeEventContent::RoomMessage(room_message_content) = content
-                    else {
-                        warn!("trying to send an edit event for a non-room message: aborting");
-                        return Ok(true);
-                    };
-
-                    // Assume no relation.
-                    let new_content: RoomMessageEventContentWithoutRelation =
-                        room_message_content.into();
-
-                    let edit_event = match room
-                        .make_edit_event(&event_id, EditedContent::RoomMessage(new_content))
-                        .await
-                    {
+                    let edit_event = match room.make_edit_event(&event_id, edited_content).await {
                         Ok(e) => e,
                         Err(err) => {
                             warn!("couldn't create edited event: {err}");

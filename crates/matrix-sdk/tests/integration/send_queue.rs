@@ -25,7 +25,12 @@ use ruma::{
     api::MatrixVersion,
     event_id,
     events::{
-        room::message::RoomMessageEventContent, AnyMessageLikeEventContent, EventContent as _,
+        poll::unstable_start::{
+            NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollAnswers,
+            UnstablePollStartContentBlock, UnstablePollStartEventContent,
+        },
+        room::message::RoomMessageEventContent,
+        AnyMessageLikeEventContent, EventContent as _,
     },
     room_id,
     serde::Raw,
@@ -954,6 +959,155 @@ async fn test_edit() {
     // Now the server will process the messages in order.
     assert_update!(watch => sent { txn = txn1, });
     assert_update!(watch => sent { txn = txn2, });
+
+    // Let a bit of time to process the edit event sent to the server for txn1.
+    assert_update!(watch => sent {});
+
+    assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_edit_with_poll_start() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    // TODO: (#3722) if the event cache isn't available, then making the edit event
+    // will fail.
+    client.event_cache().subscribe().unwrap();
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    let lock = Arc::new(Mutex::new(()));
+    let lock_guard = lock.lock().await;
+
+    let mock_lock = lock.clone();
+
+    mock_encryption_state(&server, false).await;
+
+    let num_request = std::sync::Mutex::new(1);
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(move |_req: &Request| {
+            // Wait for the signal from the main thread that we can process this query.
+            let mock_lock = mock_lock.clone();
+            std::thread::spawn(move || {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    drop(mock_lock.lock().await);
+                });
+            })
+            .join()
+            .unwrap();
+
+            let mut num_request = num_request.lock().unwrap();
+
+            let event_id = format!("${}", *num_request);
+            *num_request += 1;
+
+            ResponseTemplate::new(200).set_body_json(json!({
+                "event_id": event_id,
+            }))
+        })
+        .named("send_event")
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    // The /event endpoint is used to retrieve the original event, during creation
+    // of the edit event.
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                EventFactory::new()
+                    .unstable_poll_start("poll_start", "question", vec!["Answer A"])
+                    .sender(client.user_id().unwrap())
+                    .room(room_id)
+                    .into_raw_timeline()
+                    .json(),
+            ),
+        )
+        .expect(1)
+        .named("get_event")
+        .mount(&server)
+        .await;
+
+    let poll_answers: UnstablePollAnswers =
+        vec![UnstablePollAnswer::new("A", "Answer A")].try_into().unwrap();
+    let poll_start_block = UnstablePollStartContentBlock::new("question", poll_answers);
+    let poll_start_content = UnstablePollStartEventContent::New(
+        NewUnstablePollStartEventContent::plain_text("poll_start", poll_start_block),
+    );
+    let handle = q.send(poll_start_content.into()).await.unwrap();
+
+    // Receiving updates for local echoes.
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+            content: LocalEchoContent::Event {
+                serialized_event,
+                // New local echoes should always start as not wedged.
+                is_wedged: false,
+                ..
+            },
+            transaction_id: txn1,
+        }))) = timeout(Duration::from_secs(1), watch.recv()).await
+    );
+
+    let content = serialized_event.deserialize().unwrap();
+    assert_let!(AnyMessageLikeEventContent::UnstablePollStart(_) = content);
+    assert!(watch.is_empty());
+
+    // Let the background task start now.
+    tokio::task::yield_now().await;
+
+    // Edit the poll start event
+    let poll_answers: UnstablePollAnswers =
+        vec![UnstablePollAnswer::new("B", "Answer B")].try_into().unwrap();
+    let poll_start_block = UnstablePollStartContentBlock::new("edited question", poll_answers);
+    let poll_start_content = UnstablePollStartEventContent::New(
+        NewUnstablePollStartEventContent::plain_text("poll_start (edited)", poll_start_block),
+    );
+    assert!(handle.edit(poll_start_content.into()).await.unwrap());
+
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::ReplacedLocalEvent {
+            transaction_id: new_txn1,
+            new_content: serialized_event,
+        })) = timeout(Duration::from_secs(1), watch.recv()).await
+    );
+    let content = serialized_event.deserialize().unwrap();
+    assert_let!(
+        AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent::New(
+            poll_start
+        )) = content
+    );
+    assert_eq!(poll_start.text.unwrap(), "poll_start (edited)");
+    assert_eq!(txn1, new_txn1);
+    assert!(watch.is_empty());
+
+    // Let the server process the responses.
+    drop(lock_guard);
+
+    // Now the server will process the events in order.
+    assert_update!(watch => sent { txn = txn1, });
 
     // Let a bit of time to process the edit event sent to the server for txn1.
     assert_update!(watch => sent {});

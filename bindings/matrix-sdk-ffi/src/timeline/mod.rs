@@ -1254,18 +1254,18 @@ impl From<ReceiptType> for ruma::api::client::receipt::create_receipt::v3::Recei
 
 #[derive(Clone, uniffi::Enum)]
 pub enum EditContent {
-    RoomMessage(Arc<RoomMessageEventContentWithoutRelation>),
-    PollStart(PollData),
+    RoomMessage { content: Arc<RoomMessageEventContentWithoutRelation> },
+    PollStart { poll_data: PollData },
 }
 
 impl TryFrom<EditContent> for matrix_sdk::room::edit::EditedContent {
     type Error = ClientError;
     fn try_from(value: EditContent) -> Result<Self, Self::Error> {
         match value {
-            EditContent::RoomMessage(content) => {
+            EditContent::RoomMessage { content } => {
                 Ok(matrix_sdk::room::edit::EditedContent::RoomMessage((*content).clone()))
             }
-            EditContent::PollStart(poll_data) => {
+            EditContent::PollStart { poll_data } => {
                 let block: UnstablePollStartContentBlock = poll_data.clone().try_into()?;
                 Ok(matrix_sdk::room::edit::EditedContent::PollStart(
                     poll_data.fallback_text(),
