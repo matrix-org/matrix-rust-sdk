@@ -344,6 +344,16 @@ impl BackupDownloadTaskListenerState {
             return false;
         };
 
+        // If backups aren't enabled, there's no point in trying to download a room key.
+        if !client.encryption().backups().are_enabled().await {
+            debug!(
+                ?download_request,
+                "Not performing backup download because backups are not enabled"
+            );
+
+            return false;
+        }
+
         // Check if the keys for this message have arrived in the meantime.
         // If we get a StoreError doing the lookup, we assume the keys haven't arrived
         // (though if the store is returning errors, probably something else is
