@@ -16,6 +16,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
+    encryption::backups::BackupState,
     event_cache::{EventsOrigin, RoomEventCacheUpdate},
     executor::spawn,
     Room,
@@ -370,6 +371,44 @@ impl TimelineBuilder {
             })
         };
 
+        let room_key_backup_enabled_join_handle = {
+            let inner = controller.clone();
+            let stream = client.encryption().backups().state_stream();
+
+            spawn(async move {
+                pin_mut!(stream);
+
+                while let Some(update) = stream.next().await {
+                    match update {
+                        // If the backup got enabled, or we lagged and thus missed that the backup
+                        // might be enabled, retry to decrypt all the events. Please note, depending
+                        // on the backup download strategy, this might do two things under the
+                        // assumption that the backup contains the relevant room keys:
+                        //
+                        // 1. It will decrypt the events, if `BackupDownloadStrategy` has been set
+                        //    to `OneShot`.
+                        // 2. It will fail to decrypt the event, but try to download the room key to
+                        //    decrypt it if the `BackupDownloadStrategy` has been set to
+                        //    `AfterDecryptionFailure`.
+                        Ok(BackupState::Enabled) | Err(_) => {
+                            let room = inner.room();
+                            inner.retry_event_decryption(room, None).await;
+                        }
+                        // The other states aren't interesting since they are either still enabling
+                        // the backup or have the backup in the disabled state.
+                        Ok(
+                            BackupState::Unknown
+                            | BackupState::Creating
+                            | BackupState::Resuming
+                            | BackupState::Disabling
+                            | BackupState::Downloading
+                            | BackupState::Enabling,
+                        ) => (),
+                    }
+                }
+            })
+        };
+
         let timeline = Timeline {
             controller,
             event_cache: room_event_cache,
@@ -379,6 +418,7 @@ impl TimelineBuilder {
                 room_update_join_handle,
                 pinned_events_join_handle,
                 room_key_from_backups_join_handle,
+                room_key_backup_enabled_join_handle,
                 local_echo_listener_handle,
                 _event_cache_drop_handle: event_cache_drop,
             }),
