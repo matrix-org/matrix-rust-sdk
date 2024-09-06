@@ -45,6 +45,14 @@ Additions:
 - WidgetDriver: Support the `"delay"` field in the `send_event` widget actions.
 This allows to send delayed events, as defined in [MSC4157](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
 
+Bug fixes:
+
+- Fix a bug where room keys were considered to be downloaded before backups were
+  enabled. This bug only affects the
+  `BackupDownloadStrategy::AfterDecryptionFailure`, where no attempt would be
+  made to download a room key, if a decryption failure with a given room key
+  would have been encountered before the backups were enabled.
+
 # 0.7.0
 
 Breaking changes:

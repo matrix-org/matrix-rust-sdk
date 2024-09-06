@@ -256,11 +256,17 @@ impl BackupDownloadTask {
         {
             let mut state = state.lock().await;
             let room_key_info = download_request.to_room_key_info();
+
             match result {
-                Ok(_) => {
+                Ok(true) => {
                     // We successfully downloaded the session. We can clear any record of previous
                     // backoffs from the failures cache, because we won't be needing them again.
                     state.failures_cache.remove(std::iter::once(&room_key_info))
+                }
+                Ok(false) => {
+                    // We did not find a valid backup decryption key or backup version, we did not
+                    // even attempt to download the room key.
+                    state.downloaded_sessions.remove(&room_key_info);
                 }
                 Err(_) => {
                     // We were unable to download the session. Update the failure cache so that we
