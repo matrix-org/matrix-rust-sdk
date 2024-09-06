@@ -888,11 +888,7 @@ impl<'a, const CAP: usize, Item, Gap> Iterator for IterBackward<'a, CAP, Item, G
     type Item = &'a Chunk<CAP, Item, Gap>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.chunk.map(|chunk| {
-            self.chunk = chunk.previous();
-
-            chunk
-        })
+        self.chunk.inspect(|chunk| self.chunk = chunk.previous())
     }
 }
 
@@ -914,11 +910,7 @@ impl<'a, const CAP: usize, Item, Gap> Iterator for Iter<'a, CAP, Item, Gap> {
     type Item = &'a Chunk<CAP, Item, Gap>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.chunk.map(|chunk| {
-            self.chunk = chunk.next();
-
-            chunk
-        })
+        self.chunk.inspect(|chunk| self.chunk = chunk.next())
     }
 }
 
