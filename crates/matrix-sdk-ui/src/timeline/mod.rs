@@ -76,7 +76,6 @@ mod reactions;
 mod read_receipts;
 #[cfg(test)]
 mod tests;
-#[cfg(feature = "e2e-encryption")]
 mod to_device;
 mod traits;
 mod util;
@@ -217,7 +216,6 @@ impl Timeline {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    #[cfg(feature = "e2e-encryption")]
     pub async fn retry_decryption<S: Into<String>>(
         &self,
         session_ids: impl IntoIterator<Item = S>,
@@ -230,7 +228,6 @@ impl Timeline {
             .await;
     }
 
-    #[cfg(feature = "e2e-encryption")]
     #[tracing::instrument(skip(self))]
     async fn retry_decryption_for_all_events(&self) {
         self.controller.retry_event_decryption(self.room(), None).await;

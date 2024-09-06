@@ -89,7 +89,6 @@ pub(in crate::timeline) enum RemoteEventOrigin {
     /// The event came from pagination.
     Pagination,
     /// We don't know.
-    #[cfg(feature = "e2e-encryption")]
     Unknown,
 }
 

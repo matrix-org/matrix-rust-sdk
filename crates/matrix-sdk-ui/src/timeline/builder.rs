@@ -24,10 +24,9 @@ use ruma::{events::AnySyncTimelineEvent, RoomVersionId};
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{info, info_span, trace, warn, Instrument, Span};
 
-#[cfg(feature = "e2e-encryption")]
-use super::to_device::{handle_forwarded_room_key_event, handle_room_key_event};
 use super::{
     controller::{TimelineController, TimelineSettings},
+    to_device::{handle_forwarded_room_key_event, handle_room_key_event},
     Error, Timeline, TimelineDropHandle, TimelineFocus,
 };
 use crate::{
@@ -330,23 +329,17 @@ impl TimelineBuilder {
         // Not using room.add_event_handler here because RoomKey events are
         // to-device events that are not received in the context of a room.
 
-        #[cfg(feature = "e2e-encryption")]
         let room_key_handle = client.add_event_handler(handle_room_key_event(
             controller.clone(),
             room.room_id().to_owned(),
         ));
-        #[cfg(feature = "e2e-encryption")]
+
         let forwarded_room_key_handle = client.add_event_handler(handle_forwarded_room_key_event(
             controller.clone(),
             room.room_id().to_owned(),
         ));
 
-        let handles = vec![
-            #[cfg(feature = "e2e-encryption")]
-            room_key_handle,
-            #[cfg(feature = "e2e-encryption")]
-            forwarded_room_key_handle,
-        ];
+        let handles = vec![room_key_handle, forwarded_room_key_handle];
 
         let room_key_from_backups_join_handle = {
             let inner = controller.clone();
@@ -391,7 +384,6 @@ impl TimelineBuilder {
             }),
         };
 
-        #[cfg(feature = "e2e-encryption")]
         if has_events {
             // The events we're injecting might be encrypted events, but we might
             // have received the room key to decrypt them while nobody was listening to the
