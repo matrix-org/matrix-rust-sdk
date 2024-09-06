@@ -12,11 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, HashSet},
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use matrix_sdk_common::failures_cache::FailuresCache;
 use ruma::{
@@ -36,6 +32,9 @@ use crate::{
     executor::{spawn, JoinHandle},
     Client,
 };
+
+/// A cache of room keys we already downloaded.
+type DownloadCache = FailuresCache<RoomKeyInfo>;
 
 #[derive(Default)]
 pub(crate) struct ClientTasks {
@@ -266,13 +265,13 @@ impl BackupDownloadTask {
                 Ok(false) => {
                     // We did not find a valid backup decryption key or backup version, we did not
                     // even attempt to download the room key.
-                    state.downloaded_sessions.remove(&room_key_info);
+                    state.downloaded_sessions.remove(std::iter::once(&room_key_info));
                 }
                 Err(_) => {
                     // We were unable to download the session. Update the failure cache so that we
                     // back off from more requests, and also remove the entry from the list of
                     // sessions that we are downloading.
-                    state.downloaded_sessions.remove(&room_key_info);
+                    state.downloaded_sessions.remove(std::iter::once(&room_key_info));
                     state.failures_cache.insert(room_key_info);
                 }
             }
@@ -300,12 +299,7 @@ struct BackupDownloadTaskListenerState {
     /// The idea here is that once we've (successfully) downloaded a session
     /// from the backup, there's not much point trying again even if we get
     /// another UTD event that uses the same session.
-    ///
-    /// TODO: that's not quite right though. In theory another client could
-    ///   update the backup with an earlier ratchet state, giving us access
-    ///   to earlier messages in the session. In which case, maybe this
-    ///   should expire?
-    downloaded_sessions: HashSet<RoomKeyInfo>,
+    downloaded_sessions: DownloadCache,
 }
 
 impl BackupDownloadTaskListenerState {
@@ -320,7 +314,10 @@ impl BackupDownloadTaskListenerState {
             client,
             failures_cache: FailuresCache::with_settings(Duration::from_secs(60 * 60 * 24), 60),
             active_tasks: Default::default(),
-            downloaded_sessions: Default::default(),
+            downloaded_sessions: DownloadCache::with_settings(
+                Duration::from_secs(60 * 60 * 24),
+                60,
+            ),
         }
     }
 
@@ -373,7 +370,7 @@ impl BackupDownloadTaskListenerState {
         if self.downloaded_sessions.contains(&room_key_info) {
             debug!(
                 ?download_request,
-                "Not performing backup download because this session has already been downloaded"
+                "Not performing backup download because this session has already been downloaded recently"
             );
             return false;
         };
