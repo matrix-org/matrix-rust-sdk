@@ -28,7 +28,7 @@ eyeball-im = { workspace = true }
 extension-trait = "1.0.1"
 futures-util = { workspace = true }
 log-panics = { version = "2", features = ["with-backtrace"] }
-matrix-sdk-ui = { workspace = true, features = ["e2e-encryption", "uniffi"] }
+matrix-sdk-ui = { workspace = true, features = ["uniffi"] }
 mime = "0.3.16"
 once_cell = { workspace = true }
 ruma = { workspace = true, features = ["html", "unstable-unspecified", "unstable-msc3488", "compat-unset-avatar", "unstable-msc3245-v1-compat"] }

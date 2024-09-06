@@ -12,16 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "e2e-encryption")]
-use std::collections::BTreeSet;
-use std::{fmt, sync::Arc};
+use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use as_variant::as_variant;
 use eyeball_im::{ObservableVectorEntry, VectorDiff};
 use eyeball_im_util::vector::VectorObserverExt;
 use futures_core::Stream;
 use imbl::Vector;
-#[cfg(all(test, feature = "e2e-encryption"))]
+#[cfg(test)]
 use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent,
@@ -31,10 +29,6 @@ use matrix_sdk::{
     },
     Result, Room,
 };
-#[cfg(test)]
-use ruma::events::receipt::ReceiptEventContent;
-#[cfg(all(test, feature = "e2e-encryption"))]
-use ruma::RoomId;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
@@ -50,21 +44,21 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomVersionId,
     TransactionId, UserId,
 };
+#[cfg(test)]
+use ruma::{events::receipt::ReceiptEventContent, RoomId};
 use tokio::sync::{RwLock, RwLockWriteGuard};
-use tracing::{debug, error, field::debug, info, instrument, trace, warn};
-#[cfg(feature = "e2e-encryption")]
-use tracing::{field, info_span, Instrument as _};
+use tracing::{
+    debug, error, field, field::debug, info, info_span, instrument, trace, warn, Instrument as _,
+};
 
 pub(super) use self::state::{
     EventMeta, FullEventMeta, TimelineEnd, TimelineMetadata, TimelineState,
     TimelineStateTransaction,
 };
-#[cfg(feature = "e2e-encryption")]
-use super::traits::Decryptor;
 use super::{
     event_handler::TimelineEventKind,
     event_item::{ReactionStatus, RemoteEventOrigin},
-    traits::RoomDataProvider,
+    traits::{Decryptor, RoomDataProvider},
     util::{rfind_event_by_id, rfind_event_item, RelativePosition},
     Error, EventSendState, EventTimelineItem, InReplyToDetails, Message, PaginationError, Profile,
     ReactionInfo, RepliedToEvent, TimelineDetails, TimelineEventItemId, TimelineFocus,
@@ -939,7 +933,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
         true
     }
 
-    #[cfg(feature = "e2e-encryption")]
     #[instrument(skip(self, room), fields(room_id = ?room.room_id()))]
     pub(super) async fn retry_event_decryption(
         &self,
@@ -949,7 +942,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         self.retry_event_decryption_inner(room.to_owned(), session_ids).await
     }
 
-    #[cfg(all(test, feature = "e2e-encryption"))]
+    #[cfg(test)]
     pub(super) async fn retry_event_decryption_test(
         &self,
         room_id: &RoomId,
@@ -959,7 +952,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
         self.retry_event_decryption_inner((olm_machine, room_id.to_owned()), session_ids).await
     }
 
-    #[cfg(feature = "e2e-encryption")]
     async fn retry_event_decryption_inner(
         &self,
         decryptor: impl Decryptor,

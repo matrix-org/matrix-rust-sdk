@@ -16,21 +16,21 @@ use std::future::Future;
 
 use futures_util::FutureExt as _;
 use indexmap::IndexMap;
-#[cfg(all(test, feature = "e2e-encryption"))]
+#[cfg(test)]
 use matrix_sdk::crypto::{DecryptionSettings, TrustRequirement};
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
-use matrix_sdk::{event_cache::paginator::PaginableRoom, BoxFuture, Room};
+use matrix_sdk::{
+    deserialized_responses::TimelineEvent, event_cache::paginator::PaginableRoom, BoxFuture,
+    Result, Room,
+};
 use matrix_sdk_base::latest_event::LatestEvent;
-#[cfg(feature = "e2e-encryption")]
-use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use ruma::{
     events::{
         fully_read::FullyReadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        AnyMessageLikeEventContent,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
     push::{PushConditionRoomCtx, Ruleset},
+    serde::Raw,
     EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId, UserId,
 };
 use tracing::{debug, error};
@@ -275,7 +275,6 @@ impl RoomDataProvider for Room {
 
 // Internal helper to make most of retry_event_decryption independent of a room
 // object, which is annoying to create for testing and not really needed
-#[cfg(feature = "e2e-encryption")]
 pub(super) trait Decryptor: Clone + Send + Sync + 'static {
     fn decrypt_event_impl(
         &self,
@@ -283,14 +282,13 @@ pub(super) trait Decryptor: Clone + Send + Sync + 'static {
     ) -> impl Future<Output = Result<TimelineEvent>> + Send;
 }
 
-#[cfg(feature = "e2e-encryption")]
 impl Decryptor for Room {
     async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
         self.decrypt_event(raw.cast_ref()).await
     }
 }
 
-#[cfg(all(test, feature = "e2e-encryption"))]
+#[cfg(test)]
 impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
     async fn decrypt_event_impl(&self, raw: &Raw<AnySyncTimelineEvent>) -> Result<TimelineEvent> {
         let (olm_machine, room_id) = self;

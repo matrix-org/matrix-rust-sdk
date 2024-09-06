@@ -198,7 +198,6 @@ impl TimelineState {
         txn.commit();
     }
 
-    #[cfg(feature = "e2e-encryption")]
     pub(super) async fn retry_event_decryption<P: RoomDataProvider, Fut>(
         &mut self,
         retry_one: impl Fn(Arc<TimelineItem>) -> Fut,
@@ -635,7 +634,6 @@ impl TimelineStateTransaction<'_> {
                 self.meta.all_events.push_back(event_meta.base_meta());
             }
 
-            #[cfg(feature = "e2e-encryption")]
             TimelineItemPosition::Update(_) => {
                 if let Some(event) =
                     self.meta.all_events.iter_mut().find(|e| e.event_id == event_meta.event_id)

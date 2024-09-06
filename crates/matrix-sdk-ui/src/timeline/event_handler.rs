@@ -234,7 +234,6 @@ pub(super) enum TimelineItemPosition {
     /// A single item is updated.
     ///
     /// This only happens when a UTD must be replaced with the decrypted event.
-    #[cfg(feature = "e2e-encryption")]
     Update(usize),
 }
 
@@ -249,7 +248,6 @@ pub(super) struct HandleEventResult {
     ///
     /// This can happen only if there was a UTD item that has been decrypted
     /// into an item that was filtered out with the event filter.
-    #[cfg(feature = "e2e-encryption")]
     pub(super) item_removed: bool,
 
     /// How many items were updated?
@@ -433,7 +431,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         if !self.result.item_added {
             trace!("No new item added");
 
-            #[cfg(feature = "e2e-encryption")]
             if let Flow::Remote { position: TimelineItemPosition::Update(idx), .. } = self.ctx.flow
             {
                 // If add was not called, that means the UTD event is one that
@@ -821,7 +818,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     | TimelineItemPosition::End { origin } => origin,
 
                     // For updates, reuse the origin of the encrypted event.
-                    #[cfg(feature = "e2e-encryption")]
                     TimelineItemPosition::Update(idx) => self.items[idx]
                         .as_event()
                         .and_then(|ev| Some(ev.as_remote()?.origin))
@@ -966,7 +962,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
             }
 
-            #[cfg(feature = "e2e-encryption")]
             Flow::Remote { position: TimelineItemPosition::Update(idx), .. } => {
                 trace!("Updating timeline item at position {idx}");
                 let id = self.items[*idx].internal_id.clone();

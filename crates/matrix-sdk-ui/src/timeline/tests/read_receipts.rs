@@ -329,7 +329,6 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
     assert_pending!(stream);
 }
 
-#[cfg(feature = "e2e-encryption")]
 #[async_test]
 async fn test_read_receipts_updates_on_message_decryption() {
     use std::{io::Cursor, iter};

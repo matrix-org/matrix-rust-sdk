@@ -68,7 +68,6 @@ use crate::{
 mod basic;
 mod echo;
 mod edit;
-#[cfg(feature = "e2e-encryption")]
 mod encryption;
 mod event_filter;
 mod invalid;
