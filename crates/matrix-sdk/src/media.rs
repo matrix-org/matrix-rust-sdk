@@ -274,15 +274,34 @@ impl Media {
             }
         };
 
-        // Use the authenticated endpoints when the server supports Matrix 1.11.
-        let use_auth = self.client.server_versions().await?.contains(&MatrixVersion::V1_11);
+        // Use the authenticated endpoints when the server supports Matrix 1.11 or the
+        // authenticated media stable feature.
+        const AUTHENTICATED_MEDIA_STABLE_FEATURE: &str = "org.matrix.msc3916.stable";
+
+        let (use_auth, request_config) =
+            if self.client.server_versions().await?.contains(&MatrixVersion::V1_11) {
+                (true, None)
+            } else if self
+                .client
+                .unstable_features()
+                .await?
+                .get(AUTHENTICATED_MEDIA_STABLE_FEATURE)
+                .is_some_and(|is_supported| *is_supported)
+            {
+                // We need to force the use of the stable endpoint with the Matrix version
+                // because Ruma does not handle stable features.
+                let request_config = self.client.request_config();
+                (true, Some(request_config.force_matrix_version(MatrixVersion::V1_11)))
+            } else {
+                (false, None)
+            };
 
         let content: Vec<u8> = match &request.source {
             MediaSource::Encrypted(file) => {
                 let content = if use_auth {
                     let request =
                         authenticated_media::get_content::v1::Request::from_uri(&file.url)?;
-                    self.client.send(request, None).await?.file
+                    self.client.send(request, request_config).await?.file
                 } else {
                     #[allow(deprecated)]
                     let request = media::get_content::v3::Request::from_url(&file.url)?;
@@ -321,7 +340,7 @@ impl Media {
                         request.method = Some(settings.size.method.clone());
                         request.animated = Some(settings.animated);
 
-                        self.client.send(request, None).await?.file
+                        self.client.send(request, request_config).await?.file
                     } else {
                         #[allow(deprecated)]
                         let request = {
@@ -339,7 +358,7 @@ impl Media {
                     }
                 } else if use_auth {
                     let request = authenticated_media::get_content::v1::Request::from_uri(uri)?;
-                    self.client.send(request, None).await?.file
+                    self.client.send(request, request_config).await?.file
                 } else {
                     #[allow(deprecated)]
                     let request = media::get_content::v3::Request::from_url(uri)?;

@@ -108,6 +108,12 @@ impl HttpClient {
     {
         trace!(request_type = type_name::<R>(), "Serializing request");
 
+        let server_versions = if config.force_matrix_version.is_some() {
+            config.force_matrix_version.as_slice()
+        } else {
+            server_versions
+        };
+
         let send_access_token = match access_token {
             Some(access_token) => {
                 if config.force_auth {
