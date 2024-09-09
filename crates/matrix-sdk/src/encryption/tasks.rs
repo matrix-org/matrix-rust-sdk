@@ -113,7 +113,7 @@ struct RoomKeyDownloadRequest {
     /// The event we could not decrypt.
     event: Raw<OriginalSyncRoomEncryptedEvent>,
 
-    /// The megolm session that the event was encrypted with.
+    /// The unique ID of the room key that the event was encrypted with.
     megolm_session_id: String,
 }
 
@@ -206,7 +206,7 @@ impl BackupDownloadTask {
         }
     }
 
-    /// Handle a request to download a session for a given event.
+    /// Handle a request to download a room key for a given event.
     ///
     /// Sleeps for a while to see if the key turns up; then checks if we still
     /// want to do a download, and does the download if so.
@@ -238,8 +238,8 @@ impl BackupDownloadTask {
             }
 
             // Before we drop the lock, indicate to other tasks that may be considering this
-            // session that we're going to go ahead and do a download.
-            state.downloaded_sessions.insert(download_request.to_room_key_info());
+            // room key, that we're going to go ahead and do a download.
+            state.downloaded_room_keys.insert(download_request.to_room_key_info());
 
             client
         };
@@ -258,20 +258,20 @@ impl BackupDownloadTask {
 
             match result {
                 Ok(true) => {
-                    // We successfully downloaded the session. We can clear any record of previous
+                    // We successfully downloaded the room key. We can clear any record of previous
                     // backoffs from the failures cache, because we won't be needing them again.
                     state.failures_cache.remove(std::iter::once(&room_key_info))
                 }
                 Ok(false) => {
                     // We did not find a valid backup decryption key or backup version, we did not
                     // even attempt to download the room key.
-                    state.downloaded_sessions.remove(std::iter::once(&room_key_info));
+                    state.downloaded_room_keys.remove(std::iter::once(&room_key_info));
                 }
                 Err(_) => {
-                    // We were unable to download the session. Update the failure cache so that we
+                    // We were unable to download the room key. Update the failure cache so that we
                     // back off from more requests, and also remove the entry from the list of
-                    // sessions that we are downloading.
-                    state.downloaded_sessions.remove(std::iter::once(&room_key_info));
+                    // room keys that we are downloading.
+                    state.downloaded_room_keys.remove(std::iter::once(&room_key_info));
                     state.failures_cache.insert(room_key_info);
                 }
             }
@@ -293,13 +293,13 @@ struct BackupDownloadTaskListenerState {
     /// Map from event ID to download task
     active_tasks: BTreeMap<OwnedEventId, JoinHandle<()>>,
 
-    /// A list of megolm sessions that we have already downloaded, or are about
-    /// to download.
+    /// A list of room keys that we have already downloaded, or are about to
+    /// download.
     ///
-    /// The idea here is that once we've (successfully) downloaded a session
+    /// The idea here is that once we've (successfully) downloaded a room key
     /// from the backup, there's not much point trying again even if we get
-    /// another UTD event that uses the same session.
-    downloaded_sessions: DownloadCache,
+    /// another UTD event that uses the same room key.
+    downloaded_room_keys: DownloadCache,
 }
 
 impl BackupDownloadTaskListenerState {
@@ -314,7 +314,7 @@ impl BackupDownloadTaskListenerState {
             client,
             failures_cache: FailuresCache::with_settings(Duration::from_secs(60 * 60 * 24), 60),
             active_tasks: Default::default(),
-            downloaded_sessions: DownloadCache::with_settings(
+            downloaded_room_keys: DownloadCache::with_settings(
                 Duration::from_secs(60 * 60 * 24),
                 60,
             ),
@@ -325,8 +325,8 @@ impl BackupDownloadTaskListenerState {
     ///
     /// Checks if:
     ///  * we already have the key,
-    ///  * we have already downloaded this session, or are about to do so, or
-    ///  * we've backed off from trying to download this session.
+    ///  * we have already downloaded this room key, or are about to do so, or
+    ///  * we've backed off from trying to download this room key.
     ///
     /// If any of the above are true, returns `false`. Otherwise, returns
     /// `true`.
@@ -364,22 +364,22 @@ impl BackupDownloadTaskListenerState {
             return false;
         }
 
-        // Check if we already downloaded this session, or another task is in the
+        // Check if we already downloaded this room key, or another task is in the
         // process of doing so.
         let room_key_info = download_request.to_room_key_info();
-        if self.downloaded_sessions.contains(&room_key_info) {
+        if self.downloaded_room_keys.contains(&room_key_info) {
             debug!(
                 ?download_request,
-                "Not performing backup download because this session has already been downloaded recently"
+                "Not performing backup download because this room key has already been downloaded recently"
             );
             return false;
         };
 
-        // Check if we're backing off from attempts to download this session
+        // Check if we're backing off from attempts to download this room key
         if self.failures_cache.contains(&room_key_info) {
             debug!(
                 ?download_request,
-                "Not performing backup download because this session failed to download recently"
+                "Not performing backup download because this room key failed to download recently"
             );
             return false;
         }
@@ -450,7 +450,7 @@ mod test {
         {
             let state = state.lock().await;
             assert!(
-                !state.downloaded_sessions.contains(&(room_id.to_owned(), session_id.to_owned())),
+                !state.downloaded_room_keys.contains(&(room_id.to_owned(), session_id.to_owned())),
                 "Backups are not enabled, we should not mark any room keys as downloaded."
             )
         }
