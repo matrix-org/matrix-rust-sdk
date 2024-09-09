@@ -454,25 +454,19 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         &mut self,
         replacement: Replacement<RoomMessageEventContentWithoutRelation>,
     ) {
-        let Some((item_pos, item)) = rfind_event_by_id(self.items, &replacement.event_id) else {
-            if let Flow::Remote { position, .. } = &self.ctx.flow {
-                let replaced_event_id = replacement.event_id.clone();
-                let replacement = PendingEdit::RoomMessage(replacement);
-                self.stash_pending_edit(*position, replaced_event_id, replacement);
-            } else {
-                debug!("Local message edit for a timeline item not found, discarding");
+        if let Some((item_pos, item)) = rfind_event_by_id(self.items, &replacement.event_id) {
+            if let Some(new_item) = self.apply_msg_edit(&item, replacement) {
+                trace!("Applied edit");
+                self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
+                self.result.items_updated += 1;
             }
-
-            return;
-        };
-
-        let Some(new_item) = self.apply_msg_edit(&item, replacement) else {
-            return;
-        };
-
-        trace!("Applying edit");
-        self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
-        self.result.items_updated += 1;
+        } else if let Flow::Remote { position, .. } = &self.ctx.flow {
+            let replaced_event_id = replacement.event_id.clone();
+            let replacement = PendingEdit::RoomMessage(replacement);
+            self.stash_pending_edit(*position, replaced_event_id, replacement);
+        } else {
+            debug!("Local message edit for a timeline item not found, discarding");
+        }
     }
 
     /// Try to stash a pending edit, if it makes sense to do so.
@@ -512,28 +506,35 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
     }
 
-    /// If there's a pending edit for an item, applies it immediately, returning
-    /// an updated [`EventTimelineItem`]. Otherwise, return the original event
-    /// item.
-    fn maybe_apply_pending_edit(&mut self, item: &EventTimelineItem) -> Option<EventTimelineItem> {
-        let Flow::Remote { event_id, .. } = &self.ctx.flow else { return None };
-
-        if matches!(item.content(), TimelineItemContent::Message(..)) {
-            let pending = self.meta.pending_edits.remove(event_id)?;
-            let edit = as_variant!(pending, PendingEdit::RoomMessage)?;
-            return self.apply_msg_edit(item, edit);
+    /// If there's a pending edit for an item, apply it immediately, returning
+    /// an updated [`EventTimelineItem`]. Otherwise, return `None`.
+    fn maybe_unstash_pending_edit(
+        &mut self,
+        item: &EventTimelineItem,
+    ) -> Option<EventTimelineItem> {
+        if let Flow::Remote { event_id, .. } = &self.ctx.flow {
+            match item.content() {
+                TimelineItemContent::Message(..) => {
+                    let pending = self.meta.pending_edits.remove(event_id)?;
+                    let edit = as_variant!(pending, PendingEdit::RoomMessage)?;
+                    self.apply_msg_edit(item, edit)
+                }
+                TimelineItemContent::Poll(..) => {
+                    let pending = self.meta.pending_edits.remove(event_id)?;
+                    let edit = as_variant!(pending, PendingEdit::Poll)?;
+                    self.apply_poll_edit(item, edit)
+                }
+                _ => None,
+            }
+        } else {
+            None
         }
-
-        if matches!(item.content(), TimelineItemContent::Poll(..)) {
-            let pending = self.meta.pending_edits.remove(event_id)?;
-            let edit = as_variant!(pending, PendingEdit::Poll)?;
-            return self.apply_poll_edit(item, edit);
-        }
-
-        None
     }
 
-    /// Applies an edit to an existing [`EventTimelineItem`].
+    /// Try applying an edit to an existing [`EventTimelineItem`].
+    ///
+    /// Return a new item if applying the edit succeeded, or `None` if there was
+    /// an error while applying it.
     fn apply_msg_edit(
         &self,
         item: &EventTimelineItem,
@@ -556,6 +557,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         };
 
         let mut msgtype = replacement.new_content.msgtype;
+
         // Edit's content is never supposed to contain the reply fallback.
         msgtype.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
 
@@ -948,7 +950,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             is_room_encrypted,
         );
 
-        if let Some(edited_item) = self.maybe_apply_pending_edit(&item) {
+        if let Some(edited_item) = self.maybe_unstash_pending_edit(&item) {
             item = edited_item;
         }
 
