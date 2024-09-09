@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::hash_map::Entry, sync::Arc};
+use std::sync::Arc;
 
 use as_variant::as_variant;
 use eyeball_im::{ObservableVectorTransaction, ObservableVectorTransactionEntry};
@@ -488,8 +488,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // For an update position, if there was a stashed edit, we can't really know
                 // which version is the more recent, without an ordering of the
                 // edit events themselves, so we discard it in that case.
-                if let Entry::Vacant(entry) = self.meta.pending_edits.entry(replaced_event_id) {
-                    entry.insert(replacement);
+                if !self
+                    .meta
+                    .pending_edits
+                    .iter()
+                    .any(|(event_id, _)| *event_id == replaced_event_id)
+                {
+                    self.meta.pending_edits.push((replaced_event_id, replacement));
                     debug!("Timeline item not found, stashing edit");
                 } else {
                     debug!("Timeline item not found, but there was a previous edit for the event: discarding");
@@ -500,7 +505,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // This is a more recent edit, coming either live from sync or from a
                 // forward-pagination: it's fine to overwrite the previous one, if
                 // available.
-                self.meta.pending_edits.insert(replaced_event_id, replacement);
+                let edits = &mut self.meta.pending_edits;
+                if let Some(pos) =
+                    edits.iter().position(|(event_id, _)| *event_id == replaced_event_id)
+                {
+                    edits.remove(pos);
+                }
+                edits.push((replaced_event_id, replacement));
                 debug!("Timeline item not found, stashing edit");
             }
         }
@@ -512,15 +523,21 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         &mut self,
         item: &EventTimelineItem,
     ) -> Option<EventTimelineItem> {
+        let mut find_and_remove_pending = |event_id| {
+            let edits = &mut self.meta.pending_edits;
+            let pos = edits.iter().position(|(prev_event_id, _)| prev_event_id == event_id)?;
+            Some(edits.remove(pos).unwrap().1)
+        };
+
         if let Flow::Remote { event_id, .. } = &self.ctx.flow {
             match item.content() {
                 TimelineItemContent::Message(..) => {
-                    let pending = self.meta.pending_edits.remove(event_id)?;
+                    let pending = find_and_remove_pending(event_id)?;
                     let edit = as_variant!(pending, PendingEdit::RoomMessage)?;
                     self.apply_msg_edit(item, edit)
                 }
                 TimelineItemContent::Poll(..) => {
-                    let pending = self.meta.pending_edits.remove(event_id)?;
+                    let pending = find_and_remove_pending(event_id)?;
                     let edit = as_variant!(pending, PendingEdit::Poll)?;
                     self.apply_poll_edit(item, edit)
                 }

@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{HashMap, VecDeque},
-    future::Future,
-    sync::Arc,
-};
+use std::{collections::VecDeque, future::Future, num::NonZeroUsize, sync::Arc};
 
 use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use itertools::Itertools as _;
-use matrix_sdk::{deserialized_responses::SyncTimelineEvent, send_queue::SendHandle};
+use matrix_sdk::{
+    deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer, send_queue::SendHandle,
+};
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
@@ -765,7 +763,7 @@ pub(in crate::timeline) struct TimelineMetadata {
     pub pending_poll_events: PendingPollEvents,
 
     /// Edit events received before the related event they're editing.
-    pub pending_edits: HashMap<OwnedEventId, PendingEdit>,
+    pub pending_edits: RingBuffer<(OwnedEventId, PendingEdit)>,
 
     /// Identifier of the fully-read event, helping knowing where to introduce
     /// the read marker.
@@ -785,6 +783,10 @@ pub(in crate::timeline) struct TimelineMetadata {
     pub read_receipts: ReadReceipts,
 }
 
+/// Maximum number of stash pending edits.
+/// SAFETY: 32 is not 0.
+const MAX_NUM_STASHED_PENDING_EDITS: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(32) };
+
 impl TimelineMetadata {
     pub(crate) fn new(
         own_user_id: OwnedUserId,
@@ -799,7 +801,7 @@ impl TimelineMetadata {
             next_internal_id: Default::default(),
             reactions: Default::default(),
             pending_poll_events: Default::default(),
-            pending_edits: Default::default(),
+            pending_edits: RingBuffer::new(MAX_NUM_STASHED_PENDING_EDITS),
             fully_read_event: Default::default(),
             // It doesn't make sense to set this to false until we fill the `fully_read_event`
             // field, otherwise we'll keep on exiting early in `Self::update_read_marker`.
