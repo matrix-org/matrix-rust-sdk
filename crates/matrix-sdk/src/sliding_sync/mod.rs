@@ -533,7 +533,7 @@ impl SlidingSync {
     /// Send a sliding sync request.
     ///
     /// This method contains the sending logic. It takes a generic `Request`
-    /// because it can be a Simplified MSC3575 or a MSC3575 `Request`.
+    /// because it can be an MSC4186 or an MSC3575 `Request`.
     async fn send_sync_request<Request>(
         &self,
         request: Request,
@@ -545,7 +545,7 @@ impl SlidingSync {
         Request::IncomingResponse: Send
             + Sync
             +
-            // This is required to get back a Simplified MSC3575 `Response` whatever the
+            // This is required to get back an MSC4186 `Response` whatever the
             // `Request` type.
             Into<http::Response>,
         HttpError: From<ruma::api::error::FromHttpResponseError<Request::EndpointError>>,
@@ -615,11 +615,10 @@ impl SlidingSync {
         #[cfg(not(feature = "e2e-encryption"))]
         let response = request.await?;
 
-        // The code manipulates `Request` and `Response` from Simplified MSC3575 because
-        // it's the future standard. But this function may have received a `Request`
-        // from Simplified MSC3575 or MSC3575. We need to get back a
-        // Simplified MSC3575 `Response`.
-        let response = Into::<http::simplified_msc3575::Response>::into(response);
+        // The code manipulates `Request` and `Response` from MSC4186 because it's the
+        // future standard. But this function may have received a `Request` from MSC4186
+        // or MSC3575. We need to get back an MSC4186 `Response`.
+        let response = Into::<http::msc4186::Response>::into(response);
 
         debug!("Received response");
 
@@ -684,10 +683,9 @@ impl SlidingSync {
         let (request, request_config, position_guard) =
             self.generate_sync_request(&mut LazyTransactionId::new()).await?;
 
-        // The code manipulates `Request` and `Response` from Simplified MSC3575
-        // because it's the future standard. If
-        // `Client::is_simplified_sliding_sync_enabled` is turned off, the
-        // Simplified MSC3575 `Request` must be transformed into a MSC3575 `Request`.
+        // The code manipulates `Request` and `Response` from MSC4186 because it's
+        // the future standard. Let's check if the generated request must be
+        // transformed into an MSC3575 `Request`.
         if !self.inner.version.is_native() {
             self.send_sync_request(
                 Into::<http::msc3575::Request>::into(request),
