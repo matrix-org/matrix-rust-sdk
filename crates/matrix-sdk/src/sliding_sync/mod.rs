@@ -507,7 +507,9 @@ impl SlidingSync {
         // Apply sticky parameters, if needs be.
         self.inner.sticky.write().unwrap().maybe_apply(&mut request, txn_id);
 
-        // Set the to-device token if the extension is enabled.
+        // Extensions are now applied (via sticky parameters).
+        //
+        // Override the to-device token if the extension is enabled.
         if to_device_enabled {
             request.extensions.to_device.since =
                 restored_fields.and_then(|fields| fields.to_device_token);
@@ -1533,11 +1535,11 @@ mod tests {
         // to-device.
         let extensions = &sticky.data().extensions;
         assert_eq!(extensions.e2ee.enabled, None);
-        assert_eq!(extensions.to_device.enabled, None,);
-        assert_eq!(extensions.to_device.since, None,);
+        assert_eq!(extensions.to_device.enabled, None);
+        assert_eq!(extensions.to_device.since, None);
 
-        // What the user explicitly enabled is... enabled.
-        assert_eq!(extensions.account_data.enabled, Some(true),);
+        // What the user explicitly enabled is… enabled.
+        assert_eq!(extensions.account_data.enabled, Some(true));
 
         let txn_id: &TransactionId = "tid123".into();
         let mut request = http::Request::default();
@@ -1562,7 +1564,7 @@ mod tests {
             .await?;
 
         // No extensions have been explicitly enabled here.
-        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.to_device.enabled, None,);
+        assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.to_device.enabled, None);
         assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.e2ee.enabled, None);
         assert_eq!(sync.inner.sticky.read().unwrap().data().extensions.account_data.enabled, None);
 
