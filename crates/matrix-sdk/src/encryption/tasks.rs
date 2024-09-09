@@ -141,6 +141,7 @@ impl Drop for BackupDownloadTask {
 }
 
 impl BackupDownloadTask {
+    #[cfg(not(test))]
     const DOWNLOAD_DELAY_MILLIS: u64 = 100;
 
     pub(crate) fn new(client: WeakClient) -> Self {
@@ -215,6 +216,7 @@ impl BackupDownloadTask {
         download_request: RoomKeyDownloadRequest,
     ) {
         // Wait a bit, perhaps the room key will arrive in the meantime.
+        #[cfg(not(test))]
         tokio::time::sleep(Duration::from_millis(Self::DOWNLOAD_DELAY_MILLIS)).await;
 
         // Now take the lock, and check that we still want to do a download. If we do,
@@ -239,6 +241,7 @@ impl BackupDownloadTask {
             // Before we drop the lock, indicate to other tasks that may be considering this
             // session that we're going to go ahead and do a download.
             state.downloaded_sessions.insert(download_request.to_room_key_info());
+
             client
         };
 
@@ -267,6 +270,7 @@ impl BackupDownloadTask {
                     state.failures_cache.insert(room_key_info);
                 }
             }
+
             state.active_tasks.remove(&download_request.event_id);
         }
     }
@@ -369,5 +373,73 @@ impl BackupDownloadTaskListenerState {
 
         debug!(?download_request, "Performing backup download");
         true
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod test {
+    use matrix_sdk_test::async_test;
+    use ruma::{event_id, room_id};
+    use serde_json::json;
+    use wiremock::MockServer;
+
+    use super::*;
+    use crate::test_utils::logged_in_client;
+
+    // Test that, if backups are not enabled, we don't incorrectly mark a room key
+    // as downloaded.
+    #[async_test]
+    async fn test_disabled_backup_does_not_mark_room_key_as_downloaded() {
+        let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
+        let event_id = event_id!("$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM");
+        let session_id = "session_id";
+
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        let weak_client = WeakClient::from_client(&client);
+
+        let event_content = json!({
+            "event_id": event_id,
+            "origin_server_ts": 1698579035927u64,
+            "sender": "@example2:morpheus.localhost",
+            "type": "m.room.encrypted",
+            "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "ciphertext": "AwgAEpABhetEzzZzyYrxtEVUtlJnZtJcURBlQUQJ9irVeklCTs06LwgTMQj61PMUS4Vy\
+                               YOX+PD67+hhU40/8olOww+Ud0m2afjMjC3wFX+4fFfSkoWPVHEmRVucfcdSF1RSB4EmK\
+                               PIP4eo1X6x8kCIMewBvxl2sI9j4VNvDvAN7M3zkLJfFLOFHbBviI4FN7hSFHFeM739Zg\
+                               iwxEs3hIkUXEiAfrobzaMEM/zY7SDrTdyffZndgJo7CZOVhoV6vuaOhmAy4X2t4UnbuV\
+                               JGJjKfV57NAhp8W+9oT7ugwO",
+                "device_id": "KIUVQQSDTM",
+                "sender_key": "LvryVyoCjdONdBCi2vvoSbI34yTOx7YrCFACUEKoXnc",
+                "session_id": "64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"
+            }
+        });
+
+        let event: Raw<OriginalSyncRoomEncryptedEvent> =
+            serde_json::from_value(event_content).expect("");
+
+        let state = Arc::new(Mutex::new(BackupDownloadTaskListenerState::new(weak_client)));
+        let download_request = RoomKeyDownloadRequest {
+            room_id: room_id.into(),
+            megolm_session_id: session_id.to_owned(),
+            event,
+            event_id: event_id.into(),
+        };
+
+        assert!(
+            !client.encryption().backups().are_enabled().await,
+            "Backups should not be enabled."
+        );
+
+        BackupDownloadTask::handle_download_request(state.clone(), download_request).await;
+
+        {
+            let state = state.lock().await;
+            assert!(
+                !state.downloaded_sessions.contains(&(room_id.to_owned(), session_id.to_owned())),
+                "Backups are not enabled, we should not mark any room keys as downloaded."
+            )
+        }
     }
 }
