@@ -1575,6 +1575,25 @@ impl Room {
             // could be quite useful if someone wants to enable encryption and
             // send a message right after it's enabled.
             _ = timeout(self.client.inner.sync_beat.listen(), SYNC_WAIT_TIME).await;
+
+            // If after waiting for a sync, we don't have the encryption state we expect,
+            // assume the local encryption state is incorrect; this will cause
+            // the SDK to re-request it later for confirmation, instead of
+            // assuming it's sync'd and correct (and not encrypted).
+            let _sync_lock = self.client.base_client().sync_lock().lock().await;
+            if !self.inner.is_encrypted() {
+                debug!("still not marked as encrypted, marking encryption state as missing");
+
+                let mut room_info = self.clone_info();
+                room_info.mark_encryption_state_missing();
+                let mut changes = StateChanges::default();
+                changes.add_room(room_info.clone());
+
+                self.client.store().save_changes(&changes).await?;
+                self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
+            } else {
+                debug!("room successfully marked as encrypted");
+            }
         }
 
         Ok(())

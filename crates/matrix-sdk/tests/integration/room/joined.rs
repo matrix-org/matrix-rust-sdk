@@ -761,3 +761,37 @@ async fn test_make_reply_event_doesnt_require_event_cache() {
     // make_edit_event works, even if the event cache hasn't been enabled.
     room.make_edit_event(resp_event_id, EditedContent::RoomMessage(new_content)).await.unwrap();
 }
+
+#[async_test]
+async fn test_enable_encryption_doesnt_stay_unencrypted() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    mock_encryption_state(&server, false).await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.*room.*encryption.?"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$1"})))
+        .mount(&server)
+        .await;
+
+    let room_id = room_id!("!a:b.c");
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    assert!(!room.is_encrypted().await.unwrap());
+
+    room.enable_encryption().await.expect("enabling encryption should work");
+
+    server.reset().await;
+    mock_encryption_state(&server, true).await;
+
+    assert!(room.is_encrypted().await.unwrap());
+}
