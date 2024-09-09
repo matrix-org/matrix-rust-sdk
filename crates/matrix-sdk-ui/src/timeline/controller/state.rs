@@ -733,6 +733,11 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// This value is constant over the lifetime of the metadata.
     pub(crate) unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
 
+    /// A boolean indicating whether the room the timeline is attached to is
+    /// actually encrypted or not.
+    /// TODO: this is misplaced, it should be part of the room provider as this
+    /// value can change over time when a room switches from non-encrypted
+    /// to encrypted, see also #3850.
     pub(crate) is_room_encrypted: bool,
 
     /// Matrix room version of the timeline's room, or a sensible default.
@@ -752,11 +757,18 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// are discarded in the timeline items.
     pub all_events: VecDeque<EventMeta>,
 
+    /// State helping matching reactions to their associated events, and
+    /// stashing pending reactions.
     pub reactions: Reactions,
 
+    /// Associated poll events received before their original poll start event.
     pub pending_poll_events: PendingPollEvents,
+
+    /// Edit events received before the related event they're editing.
     pub pending_edits: HashMap<OwnedEventId, PendingEdit>,
 
+    /// Identifier of the fully-read event, helping knowing where to introduce
+    /// the read marker.
     pub fully_read_event: Option<OwnedEventId>,
 
     /// Whether we have a fully read-marker item in the timeline, that's up to
@@ -767,6 +779,9 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// - The fully-read marker item would be the last item in the timeline.
     pub has_up_to_date_read_marker_item: bool,
 
+    /// Read receipts related state.
+    ///
+    /// TODO: move this over to the event cache (see also #3058).
     pub read_receipts: ReadReceipts,
 }
 
