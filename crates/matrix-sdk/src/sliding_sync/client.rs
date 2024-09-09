@@ -32,7 +32,7 @@ pub enum Version {
     },
 
     /// Use the version of the sliding sync implementation inside Synapse, i.e.
-    /// Simplified MSC3575.
+    /// MSC4186.
     Native,
 }
 
@@ -268,7 +268,7 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
     pub async fn handle_room_response(
         &mut self,
         response: &http::Response,
-        from_simplified_sliding_sync: bool,
+        from_msc4186: bool,
     ) -> Result<()> {
         self.response = Some(
             self.client
@@ -276,7 +276,7 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
                 .process_sliding_sync(
                     response,
                     &SlidingSyncPreviousEventsProvider(self.rooms),
-                    from_simplified_sliding_sync,
+                    from_msc4186,
                 )
                 .await?,
         );
