@@ -268,7 +268,7 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
     pub async fn handle_room_response(
         &mut self,
         response: &http::Response,
-        from_msc4186: bool,
+        with_msc4186: bool,
     ) -> Result<()> {
         self.response = Some(
             self.client
@@ -276,7 +276,7 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
                 .process_sliding_sync(
                     response,
                     &SlidingSyncPreviousEventsProvider(self.rooms),
-                    from_msc4186,
+                    with_msc4186,
                 )
                 .await?,
         );

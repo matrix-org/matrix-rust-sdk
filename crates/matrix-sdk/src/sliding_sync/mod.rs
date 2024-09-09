@@ -684,8 +684,8 @@ impl SlidingSync {
             self.generate_sync_request(&mut LazyTransactionId::new()).await?;
 
         // The code manipulates `Request` and `Response` from MSC4186 because it's
-        // the future standard. Let's check if the generated request must be
-        // transformed into an MSC3575 `Request`.
+        // the future standard (at the time of writing: 2024-09-09). Let's check if
+        // the generated request must be transformed into an MSC3575 `Request`.
         if !self.inner.version.is_native() {
             self.send_sync_request(
                 Into::<http::msc3575::Request>::into(request),
