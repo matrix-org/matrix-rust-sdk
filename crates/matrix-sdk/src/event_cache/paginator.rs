@@ -219,10 +219,18 @@ impl<PR: PaginableRoom> Paginator<PR> {
     /// (running /context or /messages).
     pub(super) fn set_idle_state(
         &self,
+        next_state: PaginatorState,
         prev_batch_token: Option<String>,
         next_batch_token: Option<String>,
     ) -> Result<(), PaginatorError> {
         let prev_state = self.state.get();
+
+        match next_state {
+            PaginatorState::Initial | PaginatorState::Idle => {}
+            PaginatorState::FetchingTargetEvent | PaginatorState::Paginating => {
+                panic!("internal error: set_idle_state only accept Initial|Idle next states");
+            }
+        }
 
         match prev_state {
             PaginatorState::Initial | PaginatorState::Idle => {}
@@ -236,7 +244,7 @@ impl<PR: PaginableRoom> Paginator<PR> {
             }
         }
 
-        self.state.set_if_not_eq(PaginatorState::Idle);
+        self.state.set_if_not_eq(next_state);
         *self.prev_batch_token.lock().unwrap() = prev_batch_token.into();
         *self.next_batch_token.lock().unwrap() = next_batch_token.into();
 
@@ -1132,7 +1140,13 @@ mod tests {
 
             // Assuming a paginator ready to back- or forward- paginate,
             let paginator = Paginator::new(room.clone());
-            paginator.set_idle_state(Some("prev".to_owned()), Some("next".to_owned())).unwrap();
+            paginator
+                .set_idle_state(
+                    PaginatorState::Idle,
+                    Some("prev".to_owned()),
+                    Some("next".to_owned()),
+                )
+                .unwrap();
 
             let paginator = Arc::new(paginator);
 

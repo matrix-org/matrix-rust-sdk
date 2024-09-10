@@ -133,12 +133,11 @@ impl RoomPagination {
     }
 
     async fn run_backwards_impl(&self, batch_size: u16) -> Result<Option<BackPaginationOutcome>> {
-        // Make sure there's at most one back-pagination request.
         let prev_token = self.get_or_wait_for_token().await;
 
         let paginator = &self.inner.pagination.paginator;
 
-        paginator.set_idle_state(prev_token.clone(), None)?;
+        paginator.set_idle_state(PaginatorState::Idle, prev_token.clone(), None)?;
 
         // Run the actual pagination.
         let PaginationResult { events, hit_end_of_timeline: reached_start } =
