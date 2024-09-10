@@ -19,7 +19,7 @@ use ruma::{
     assign,
     events::{
         beacon_info::BeaconInfoEventContent,
-        call::member::CallMemberEventContent,
+        call::member::{CallMemberEventContent, CallMemberStateKey},
         macros::EventContent,
         room::{
             avatar::RoomAvatarEventContent,
@@ -112,7 +112,8 @@ pub struct BaseRoomInfo {
     /// All minimal state events that containing one or more running matrixRTC
     /// memberships.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
-    pub(crate) rtc_member: BTreeMap<OwnedUserId, MinimalStateEvent<CallMemberEventContent>>,
+    pub(crate) rtc_member_events:
+        BTreeMap<CallMemberStateKey, MinimalStateEvent<CallMemberEventContent>>,
     /// Whether this room has been manually marked as unread.
     #[serde(default)]
     pub(crate) is_marked_unread: bool,
@@ -195,14 +196,12 @@ impl BaseRoomInfo {
                 let mut o_ev = o_ev.clone();
                 o_ev.content.set_created_ts_if_none(o_ev.origin_server_ts);
 
-                // add the new event.
-                self.rtc_member.insert(
-                    m.state_key().user_id().to_owned(),
-                    SyncStateEvent::Original(o_ev).into(),
-                );
+                // Add the new event.
+                self.rtc_member_events
+                    .insert(m.state_key().clone(), SyncStateEvent::Original(o_ev).into());
 
                 // Remove all events that don't contain any memberships anymore.
-                self.rtc_member.retain(|_, ev| {
+                self.rtc_member_events.retain(|_, ev| {
                     ev.as_original().is_some_and(|o| !o.content.active_memberships(None).is_empty())
                 });
             }
@@ -302,7 +301,8 @@ impl BaseRoomInfo {
         } else if self.topic.has_event_id(redacts) {
             self.topic.as_mut().unwrap().redact(&room_version);
         } else {
-            self.rtc_member.retain(|_, member_event| member_event.event_id() != Some(redacts));
+            self.rtc_member_events
+                .retain(|_, member_event| member_event.event_id() != Some(redacts));
         }
     }
 
@@ -367,7 +367,7 @@ impl Default for BaseRoomInfo {
             name: None,
             tombstone: None,
             topic: None,
-            rtc_member: BTreeMap::new(),
+            rtc_member_events: BTreeMap::new(),
             is_marked_unread: false,
             notable_tags: RoomNotableTags::empty(),
             pinned_events: None,

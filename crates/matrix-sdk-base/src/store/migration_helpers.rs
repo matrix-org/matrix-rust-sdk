@@ -212,7 +212,7 @@ impl BaseRoomInfoV1 {
             name,
             tombstone,
             topic,
-            rtc_member: BTreeMap::new(),
+            rtc_member_events: BTreeMap::new(),
             is_marked_unread: false,
             notable_tags: RoomNotableTags::empty(),
             pinned_events: None,
