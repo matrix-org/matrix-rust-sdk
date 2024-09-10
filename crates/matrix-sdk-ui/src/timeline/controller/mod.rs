@@ -637,8 +637,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
     ) {
         let mut state = self.state.write().await;
 
-        state.clear();
-
         let track_read_markers = self.settings.track_read_receipts;
         if track_read_markers {
             state.populate_initial_user_receipt(&self.room_data_provider, ReceiptType::Read).await;
@@ -647,9 +645,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .await;
         }
 
-        if !events.is_empty() {
+        // Replace the events if either the current event list or the new one aren't
+        // empty.
+        // Previously we just had to check the new one wasn't empty because
+        // we did a clear operation before so the current one would always be empty, but
+        // now we may want to replace a populated timeline with an empty one.
+        if !state.items.is_empty() || !events.is_empty() {
             state
-                .add_remote_events_at(
+                .replace_with_remove_events(
                     events,
                     TimelineEnd::Back,
                     origin,

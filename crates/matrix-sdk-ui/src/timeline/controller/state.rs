@@ -63,7 +63,7 @@ use crate::{
 pub(crate) enum TimelineEnd {
     /// Event should be prepended to the front of the timeline.
     Front,
-    /// Event should appended to the back of the timeline.
+    /// Event should be appended to the back of the timeline.
     Back,
 }
 
@@ -101,7 +101,7 @@ impl TimelineState {
         }
     }
 
-    /// Add the given remove events at the given end of the timeline.
+    /// Add the given remote events at the given end of the timeline.
     ///
     /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
     /// should be ordered in *reverse* topological order, that is, `events[0]`
@@ -272,6 +272,27 @@ impl TimelineState {
         let mut txn = self.transaction();
         txn.clear();
         txn.commit();
+    }
+
+    /// Replaces the existing events in the timeline with the given remote ones.
+    ///
+    /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
+    /// should be ordered in *reverse* topological order, that is, `events[0]`
+    /// is the most recent.
+    pub(super) async fn replace_with_remove_events<P: RoomDataProvider>(
+        &mut self,
+        events: Vec<SyncTimelineEvent>,
+        position: TimelineEnd,
+        origin: RemoteEventOrigin,
+        room_data_provider: &P,
+        settings: &TimelineSettings,
+    ) -> HandleManyEventsResult {
+        let mut txn = self.transaction();
+        txn.clear();
+        let result =
+            txn.add_remote_events_at(events, position, origin, room_data_provider, settings).await;
+        txn.commit();
+        result
     }
 
     pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_> {
