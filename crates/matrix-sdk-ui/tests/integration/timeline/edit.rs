@@ -38,12 +38,13 @@ use ruma::{
         poll::unstable_start::{
             NewUnstablePollStartEventContent, ReplacementUnstablePollStartEventContent,
             UnstablePollAnswer, UnstablePollAnswers, UnstablePollStartContentBlock,
+            UnstablePollStartEventContent,
         },
         room::message::{
             MessageType, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             TextMessageEventContent,
         },
-        AnyTimelineEvent,
+        AnyMessageLikeEventContent, AnyTimelineEvent,
     },
     room_id,
     serde::Raw,
@@ -628,6 +629,115 @@ async fn test_send_edit_when_timeline_is_clear() {
     sleep(Duration::from_millis(200)).await;
 
     server.verify().await;
+}
+
+#[async_test]
+async fn test_edit_local_echo_with_unsupported_content() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+    let mounted_send = Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(413).set_body_json(json!({
+            "errcode": "M_TOO_LARGE",
+        })))
+        .expect(1)
+        .mount_as_scoped(&server)
+        .await;
+
+    timeline.send(RoomMessageEventContent::text_plain("hello, just you").into()).await.unwrap();
+
+    assert_let!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next().await);
+
+    let item = item.as_event().unwrap();
+    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+
+    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
+    assert!(day_divider.is_day_divider());
+
+    // We haven't set a route for sending events, so this will fail.
+
+    assert_let!(Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next().await);
+
+    let item = item.as_event().unwrap();
+    assert!(item.is_local_echo());
+    assert!(item.is_editable());
+
+    assert_matches!(
+        item.send_state(),
+        Some(EventSendState::SendingFailed { is_recoverable: false, .. })
+    );
+
+    assert!(timeline_stream.next().now_or_never().is_none());
+
+    // Set up the success response before editing, since edit causes an immediate
+    // retry (the room's send queue is not blocked, since the one event it couldn't
+    // send failed in an unrecoverable way).
+    drop(mounted_send);
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$1" })))
+        .mount(&server)
+        .await;
+
+    let answers = vec![UnstablePollAnswer::new("A", "Answer A")].try_into().unwrap();
+    let poll_content_block = UnstablePollStartContentBlock::new("question", answers);
+    let poll_start_content =
+        EditedContent::PollStart("edited".to_owned(), poll_content_block.clone());
+
+    // Let's edit the local echo (message) with an unsupported type (poll start).
+    let did_edit = timeline.edit(item, poll_start_content).await.unwrap();
+
+    // We couldn't edit the local echo, since their content types didn't match
+    assert!(!did_edit);
+
+    timeline
+        .send(AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent::New(
+            NewUnstablePollStartEventContent::new(poll_content_block),
+        )))
+        .await
+        .unwrap();
+
+    assert_let!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next().await);
+
+    let item = item.as_event().unwrap();
+    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+
+    // Let's edit the local echo (poll start) with an unsupported type (message).
+    let did_edit = timeline
+        .edit(
+            item,
+            EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(
+                "edited",
+            )),
+        )
+        .await
+        .unwrap();
+
+    // We couldn't edit the local echo, since their content types didn't match
+    assert!(!did_edit);
 }
 
 struct PendingEditHelper {

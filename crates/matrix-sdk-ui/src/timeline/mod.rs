@@ -483,13 +483,23 @@ impl Timeline {
                             // Relations are filled by the editing code itself.
                             let new_content: AnyMessageLikeEventContent = match new_content {
                                 EditedContent::RoomMessage(message) => {
-                                    AnyMessageLikeEventContent::RoomMessage(message.into())
+                                    if matches!(item.content, TimelineItemContent::Message(_)) {
+                                        AnyMessageLikeEventContent::RoomMessage(message.into())
+                                    } else {
+                                        warn!("New content (m.room.message) doesn't match previous event content.");
+                                        return Ok(false);
+                                    }
                                 }
                                 EditedContent::PollStart(_, poll_start) => {
-                                    let content = UnstablePollStartEventContent::New(
-                                        NewUnstablePollStartEventContent::new(poll_start),
-                                    );
-                                    AnyMessageLikeEventContent::UnstablePollStart(content)
+                                    if matches!(item.content, TimelineItemContent::Poll(_)) {
+                                        let content = UnstablePollStartEventContent::New(
+                                            NewUnstablePollStartEventContent::new(poll_start),
+                                        );
+                                        AnyMessageLikeEventContent::UnstablePollStart(content)
+                                    } else {
+                                        warn!("New content (poll start) doesn't match previous event content.");
+                                        return Ok(false);
+                                    }
                                 }
                             };
                             return Ok(handle
