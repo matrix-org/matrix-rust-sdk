@@ -15,6 +15,7 @@
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
+use futures_util::StreamExt;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB, CAROL};
 use ruma::{
     events::{
@@ -504,4 +505,35 @@ async fn test_thread() {
     assert_eq!(in_reply_to.event_id, first_event_id);
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_eq!(replied_to_event.sender(), *ALICE);
+}
+
+#[async_test]
+async fn test_replace_with_initial_events_when_batched() {
+    let timeline = TestTimeline::with_room_data_provider(TestRoomDataProvider::default())
+        .with_settings(TimelineSettings::default());
+
+    let f = &timeline.factory;
+    let ev = f.text_msg("hey").sender(*ALICE).into_sync();
+
+    timeline.controller.add_events_at(vec![ev], TimelineEnd::Back, RemoteEventOrigin::Sync).await;
+
+    let (items, mut stream) = timeline.controller.subscribe_batched().await;
+    assert_eq!(items.len(), 2);
+    assert!(items[0].is_day_divider());
+    assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "hey");
+
+    let ev = f.text_msg("yo").sender(*BOB).into_sync();
+    timeline.controller.replace_with_initial_remote_events(vec![ev], RemoteEventOrigin::Sync).await;
+
+    // Assert there are more than a single Clear diff in the next batch:
+    // Clear + PushBack (event) + PushFront (day divider)
+    let batched_diffs = stream.next().await.unwrap();
+    assert_eq!(batched_diffs.len(), 3);
+    assert_matches!(batched_diffs[0], VectorDiff::Clear);
+    assert_matches!(&batched_diffs[1], VectorDiff::PushBack { value } => {
+        assert!(value.as_event().is_some());
+    });
+    assert_matches!(&batched_diffs[2], VectorDiff::PushFront { value } => {
+        assert_matches!(value.as_virtual(), Some(VirtualTimelineItem::DayDivider(_)));
+    });
 }
