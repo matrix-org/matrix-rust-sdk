@@ -19,13 +19,13 @@ use std::{
 
 use ruma::api::client::backup::EncryptedSessionData;
 use thiserror::Error;
-use vodozemac::Curve25519PublicKey;
+use vodozemac::{
+    pk_encryption::{Message, PkDecryption},
+    Curve25519PublicKey, Curve25519SecretKey,
+};
 use zeroize::{Zeroize, Zeroizing};
 
-use super::{
-    compat::{Error as DecryptionError, Message, PkDecryption},
-    MegolmV1BackupKey,
-};
+use super::MegolmV1BackupKey;
 use crate::{
     olm::BackedUpRoomKey,
     store::BackupDecryptionKey,
@@ -56,6 +56,21 @@ pub enum DecodeError {
     /// The recovery key, a Curve25519 public key, couldn't be decoded.
     #[error(transparent)]
     PublicKey(#[from] vodozemac::KeyError),
+}
+
+/// Error type describing the failure cases the Pk decryption step can have.
+#[derive(Debug, Error)]
+pub enum DecryptionError {
+    /// The message failed to decrypt.
+    #[error("The MAC of the ciphertext didn't pass validation {0}")]
+    Encryption(#[from] vodozemac::pk_encryption::Error),
+    /// The message failed to be decoded.
+    #[error("The message could not been decoded: {0}")]
+    Decoding(#[from] vodozemac::pk_encryption::MessageDecodeError),
+    /// The decrypted message should contain a backed up room key, but the
+    /// plaintext isn't valid JSON.
+    #[error("The decrypted message isn't valid JSON: {0}")]
+    Json(#[from] serde_json::error::Error),
 }
 
 impl TryFrom<String> for BackupDecryptionKey {
@@ -173,7 +188,8 @@ impl BackupDecryptionKey {
     }
 
     fn get_pk_decryption(&self) -> PkDecryption {
-        PkDecryption::from_bytes(self.inner.as_ref())
+        let secret_key = Curve25519SecretKey::from_slice(self.inner.as_ref());
+        PkDecryption::from_key(secret_key)
     }
 
     /// Extract the megolm.v1 public key from this [`BackupDecryptionKey`].
@@ -223,7 +239,8 @@ impl BackupDecryptionKey {
         let message = Message {
             ciphertext: session_data.ciphertext.into_inner(),
             mac: session_data.mac.into_inner(),
-            ephemeral_key: Curve25519PublicKey::from_slice(session_data.ephemeral.as_bytes())?,
+            ephemeral_key: Curve25519PublicKey::from_slice(session_data.ephemeral.as_bytes())
+                .map_err(vodozemac::pk_encryption::MessageDecodeError::from)?,
         };
 
         let pk = self.get_pk_decryption();

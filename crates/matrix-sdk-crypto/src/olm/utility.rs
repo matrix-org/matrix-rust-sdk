@@ -39,7 +39,7 @@ impl SignJson for Account {
     fn sign_json(&self, value: Value) -> Result<Ed25519Signature, SignatureError> {
         let serialized = to_signable_json(value)?;
 
-        Ok(self.sign(serialized.as_ref()))
+        Ok(self.sign(serialized))
     }
 }
 

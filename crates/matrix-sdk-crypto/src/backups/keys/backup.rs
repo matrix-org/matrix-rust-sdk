@@ -18,10 +18,10 @@ use ruma::{
     api::client::backup::{EncryptedSessionDataInit, KeyBackupData, KeyBackupDataInit},
     serde::Base64,
 };
-use vodozemac::Curve25519PublicKey;
+use vodozemac::{pk_encryption::PkEncryption, Curve25519PublicKey};
 use zeroize::Zeroizing;
 
-use super::{compat::PkEncryption, decryption::DecodeError};
+use super::decryption::DecodeError;
 use crate::{olm::InboundGroupSession, types::Signatures};
 
 #[derive(Debug)]
