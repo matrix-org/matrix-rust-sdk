@@ -26,7 +26,7 @@ use matrix_sdk::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
         BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
     },
-    deserialized_responses::{ShieldState as RustShieldState, ShieldStateCode},
+    deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     Error,
 };
 use matrix_sdk_ui::timeline::{
@@ -1021,16 +1021,16 @@ pub enum ShieldState {
     None,
 }
 
-impl From<RustShieldState> for ShieldState {
-    fn from(value: RustShieldState) -> Self {
+impl From<SdkShieldState> for ShieldState {
+    fn from(value: SdkShieldState) -> Self {
         match value {
-            RustShieldState::Red { code, message } => {
+            SdkShieldState::Red { code, message } => {
                 Self::Red { code, message: message.to_owned() }
             }
-            RustShieldState::Grey { code, message } => {
+            SdkShieldState::Grey { code, message } => {
                 Self::Grey { code, message: message.to_owned() }
             }
-            RustShieldState::None => Self::None,
+            SdkShieldState::None => Self::None,
         }
     }
 }
