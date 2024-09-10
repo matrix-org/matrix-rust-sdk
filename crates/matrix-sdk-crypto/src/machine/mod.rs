@@ -185,29 +185,42 @@ impl OlmMachine {
             })
             .await?;
 
+        let (verification_machine, store, identity_manager) =
+            Self::new_helper_prelude(store, static_account, self.store().private_identity());
+
         Ok(Self::new_helper(
             device_id,
             store,
-            static_account,
+            verification_machine,
+            identity_manager,
             self.store().private_identity(),
             None,
         ))
     }
 
+    fn new_helper_prelude(
+        store_wrapper: Arc<CryptoStoreWrapper>,
+        account: StaticAccountData,
+        user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
+    ) -> (VerificationMachine, Store, IdentityManager) {
+        let verification_machine =
+            VerificationMachine::new(account.clone(), user_identity.clone(), store_wrapper.clone());
+        let store = Store::new(account, user_identity, store_wrapper, verification_machine.clone());
+
+        let identity_manager = IdentityManager::new(store.clone());
+
+        (verification_machine, store, identity_manager)
+    }
+
     fn new_helper(
         device_id: &DeviceId,
-        store: Arc<CryptoStoreWrapper>,
-        account: StaticAccountData,
+        store: Store,
+        verification_machine: VerificationMachine,
+        identity_manager: IdentityManager,
         user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         maybe_backup_key: Option<MegolmV1BackupKey>,
     ) -> Self {
-        let verification_machine =
-            VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
-        let store = Store::new(account, user_identity.clone(), store, verification_machine.clone());
-
         let group_session_manager = GroupSessionManager::new(store.clone());
-
-        let identity_manager = IdentityManager::new(store.clone());
 
         let users_for_key_claim = Arc::new(StdRwLock::new(BTreeMap::new()));
         let key_request_machine = GossipMachine::new(
@@ -360,11 +373,21 @@ impl OlmMachine {
         let identity = Arc::new(Mutex::new(identity));
         let store = Arc::new(CryptoStoreWrapper::new(user_id, device_id, store));
 
+        let (verification_machine, store, identity_manager) =
+            Self::new_helper_prelude(store, static_account, identity.clone());
+
         // FIXME: We might want in the future a more generic high-level data migration
         // mechanism (at the store wrapper layer).
-        Self::migration_post_verified_latch_support(&store).await?;
+        Self::migration_post_verified_latch_support(&store, &identity_manager).await?;
 
-        Ok(OlmMachine::new_helper(device_id, store, static_account, identity, maybe_backup_key))
+        Ok(Self::new_helper(
+            device_id,
+            store,
+            verification_machine,
+            identity_manager,
+            identity,
+            maybe_backup_key,
+        ))
     }
 
     // The sdk now support verified identity change detection.
@@ -375,19 +398,15 @@ impl OlmMachine {
     //
     // pub(crate) visibility for testing.
     pub(crate) async fn migration_post_verified_latch_support(
-        store: &CryptoStoreWrapper,
+        store: &Store,
+        identity_manager: &IdentityManager,
     ) -> Result<(), CryptoStoreError> {
         let maybe_migrate_for_identity_verified_latch =
             store.get_custom_value(Self::HAS_MIGRATED_VERIFICATION_LATCH).await?.is_none();
+
         if maybe_migrate_for_identity_verified_latch {
-            // We want to mark all tracked users as dirty to ensure the verified latch is
-            // set up correctly.
-            let tracked_user = store.load_tracked_users().await?;
-            let mut store_updates = Vec::with_capacity(tracked_user.len());
-            tracked_user.iter().for_each(|tu| {
-                store_updates.push((tu.user_id.as_ref(), true));
-            });
-            store.save_tracked_users(&store_updates).await?;
+            identity_manager.mark_all_tracked_users_as_dirty(store.cache().await?).await?;
+
             store.set_custom_value(Self::HAS_MIGRATED_VERIFICATION_LATCH, vec![0]).await?
         }
         Ok(())
@@ -1992,6 +2011,17 @@ impl OlmMachine {
         self.inner.identity_manager.update_tracked_users(users).await
     }
 
+    /// Mark all tracked users as dirty.
+    ///
+    /// See `IdentityManager::mark_all_tracked_users_as_dirty()` to learn
+    /// more.
+    pub async fn mark_all_tracked_users_as_dirty(&self) -> StoreResult<()> {
+        self.inner
+            .identity_manager
+            .mark_all_tracked_users_as_dirty(self.inner.store.cache().await?)
+            .await
+    }
+
     async fn wait_if_user_pending(
         &self,
         user_id: &UserId,
@@ -2404,10 +2434,10 @@ impl OlmMachine {
         Ok(())
     }
 
-    #[cfg(any(feature = "testing", test))]
     /// Returns whether this `OlmMachine` is the same another one.
     ///
     /// Useful for testing purposes only.
+    #[cfg(any(feature = "testing", test))]
     pub fn same_as(&self, other: &OlmMachine) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
@@ -2418,6 +2448,18 @@ impl OlmMachine {
         let cache = self.inner.store.cache().await?;
         let account = cache.account().await?;
         Ok(account.uploaded_key_count())
+    }
+
+    /// Returns the identity manager.
+    #[cfg(test)]
+    pub(crate) fn identity_manager(&self) -> &IdentityManager {
+        &self.inner.identity_manager
+    }
+
+    /// Returns a store key, only useful for testing purposes.
+    #[cfg(test)]
+    pub(crate) fn key_for_has_migrated_verification_latch() -> &'static str {
+        Self::HAS_MIGRATED_VERIFICATION_LATCH
     }
 }
 

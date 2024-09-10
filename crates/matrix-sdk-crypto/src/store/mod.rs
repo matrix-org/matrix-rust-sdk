@@ -351,6 +351,10 @@ pub(crate) struct StoreCache {
 }
 
 impl StoreCache {
+    pub(crate) fn store_wrapper(&self) -> &CryptoStoreWrapper {
+        self.store.as_ref()
+    }
+
     /// Returns a reference to the `Account`.
     ///
     /// Either load the account from the cache, or the store if missing from

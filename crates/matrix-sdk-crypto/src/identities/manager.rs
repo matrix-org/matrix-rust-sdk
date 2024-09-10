@@ -36,7 +36,7 @@ use crate::{
     requests::KeysQueryRequest,
     store::{
         caches::SequenceNumber, Changes, DeviceChanges, IdentityChanges, KeyQueryManager,
-        Result as StoreResult, Store, StoreCache, UserKeyQueryResult,
+        Result as StoreResult, Store, StoreCache, StoreCacheGuard, UserKeyQueryResult,
     },
     types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     CryptoStoreError, LocalTrust, OwnUserIdentity, SignatureError, UserIdentities,
@@ -1144,6 +1144,28 @@ impl IdentityManager {
                 );
             }
         };
+
+        Ok(())
+    }
+
+    /// Mark all tracked users as dirty.
+    ///
+    /// See `SyncedKeyQueryManager::mark_tracked_users_as_changed()` to learn
+    /// more.
+    pub(crate) async fn mark_all_tracked_users_as_dirty(
+        &self,
+        store_cache: StoreCacheGuard,
+    ) -> StoreResult<()> {
+        let store_wrapper = store_cache.store_wrapper();
+        let tracked_users = store_wrapper.load_tracked_users().await?;
+
+        self.key_query_manager
+            .synced(&store_cache)
+            .await?
+            .mark_tracked_users_as_changed(
+                tracked_users.iter().map(|tracked_user| tracked_user.user_id.as_ref()),
+            )
+            .await?;
 
         Ok(())
     }

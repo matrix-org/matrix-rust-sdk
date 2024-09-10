@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, iter, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, iter, ops::Not, sync::Arc, time::Duration};
 
 use assert_matches2::assert_matches;
 use futures_util::{pin_mut, FutureExt, StreamExt};
@@ -1529,6 +1529,43 @@ async fn test_unsigned_decryption() {
 }
 
 #[async_test]
+async fn test_mark_all_tracked_users_as_dirty() {
+    let store = MemoryStore::new();
+    let account = vodozemac::olm::Account::new();
+
+    // Put some tracked users
+    let damir = user_id!("@damir:localhost");
+    let ben = user_id!("@ben:localhost");
+    let ivan = user_id!("@ivan:localhost");
+
+    // Mark them as not dirty.
+    store.save_tracked_users(&[(damir, false), (ben, false), (ivan, false)]).await.unwrap();
+
+    // Let's imagine the migration has been done: this is useful so that tracked
+    // users are not marked as dirty when creating the `OlmMachine`.
+    store
+        .set_custom_value(OlmMachine::key_for_has_migrated_verification_latch(), vec![0])
+        .await
+        .unwrap();
+
+    let alice =
+        OlmMachine::with_store(user_id(), alice_device_id(), store, Some(account)).await.unwrap();
+
+    // All users are marked as not dirty.
+    alice.store().load_tracked_users().await.unwrap().iter().for_each(|tracked_user| {
+        assert!(tracked_user.dirty.not());
+    });
+
+    // Now, mark all tracked users as dirty.
+    alice.mark_all_tracked_users_as_dirty().await.unwrap();
+
+    // All users are now marked as dirty.
+    alice.store().load_tracked_users().await.unwrap().iter().for_each(|tracked_user| {
+        assert!(tracked_user.dirty);
+    });
+}
+
+#[async_test]
 async fn test_verified_latch_migration() {
     let store = MemoryStore::new();
     let account = vodozemac::olm::Account::new();
@@ -1544,20 +1581,22 @@ async fn test_verified_latch_migration() {
     let alice =
         OlmMachine::with_store(user_id(), alice_device_id(), store, Some(account)).await.unwrap();
 
+    let alice_store = alice.store();
+
     // A migration should have occurred and all users should be marked as dirty
-    alice.store().load_tracked_users().await.unwrap().iter().for_each(|tu| {
+    alice_store.load_tracked_users().await.unwrap().iter().for_each(|tu| {
         assert!(tu.dirty);
     });
 
     // Ensure it does so only once
-    alice.store().save_tracked_users(&to_track_not_dirty).await.unwrap();
+    alice_store.save_tracked_users(&to_track_not_dirty).await.unwrap();
 
-    OlmMachine::migration_post_verified_latch_support(alice.store().crypto_store().as_ref())
+    OlmMachine::migration_post_verified_latch_support(alice_store, alice.identity_manager())
         .await
         .unwrap();
 
     // Migration already done, so user should not be marked as dirty
-    alice.store().load_tracked_users().await.unwrap().iter().for_each(|tu| {
+    alice_store.load_tracked_users().await.unwrap().iter().for_each(|tu| {
         assert!(!tu.dirty);
     });
 }
