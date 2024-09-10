@@ -53,4 +53,14 @@ pub enum Error {
         /// The original `JoinError`.
         error: JoinError,
     },
+
+    /// No Olm machine.
+    #[cfg(feature = "e2e-encryption")]
+    #[error("The Olm machine is missing")]
+    NoOlmMachine,
+
+    /// An error occurred during a E2EE operation.
+    #[cfg(feature = "e2e-encryption")]
+    #[error(transparent)]
+    CryptoStoreError(#[from] matrix_sdk_base::crypto::CryptoStoreError),
 }
