@@ -11,6 +11,7 @@ use crate::{
 #[derive(uniffi::Record)]
 pub struct RoomInfo {
     id: String,
+    creator: Option<String>,
     /// The room's name from the room state event if received from sync, or one
     /// that's been computed otherwise.
     display_name: Option<String>,
@@ -70,6 +71,7 @@ impl RoomInfo {
 
         Ok(Self {
             id: room.room_id().to_string(),
+            creator: room.creator().as_ref().map(ToString::to_string),
             display_name: room.cached_display_name().map(|name| name.to_string()),
             raw_name: room.name(),
             topic: room.topic(),
