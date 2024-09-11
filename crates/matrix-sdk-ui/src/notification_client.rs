@@ -380,6 +380,7 @@ impl NotificationClient {
                 required_state,
                 timeline_limit: Some(uint!(16))
             })),
+            true,
         );
 
         let mut remaining_attempts = 3;
