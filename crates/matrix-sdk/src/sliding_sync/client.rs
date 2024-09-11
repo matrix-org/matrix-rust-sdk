@@ -467,10 +467,10 @@ mod tests {
             .and(path("/.well-known/matrix/client"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "m.homeserver": {
-                    "base_url": "https://matrix.org",
+                    "base_url": server.uri(),
                 },
                 "org.matrix.msc3575.proxy": {
-                    "url": "https://proxy.matrix.org",
+                    "url": server.uri(),
                 },
             })))
             .mount(&server)
