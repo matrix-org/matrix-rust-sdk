@@ -98,7 +98,10 @@ fn read_request_for_non_allowed_message_like_events() {
     assert_eq!(request_id, "get-me-some-messages");
     assert_eq!(msg["api"], "fromWidget");
     assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
-    assert_eq!(msg["response"]["error"]["message"].as_str().unwrap(), "Not allowed");
+    assert_eq!(
+        msg["response"]["error"]["message"].as_str().unwrap(),
+        "Not allowed to read message like event"
+    );
 }
 
 #[test]
@@ -124,7 +127,10 @@ fn read_request_for_non_allowed_state_events() {
     assert_eq!(request_id, "get-me-some-messages");
     assert_eq!(msg["api"], "fromWidget");
     assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
-    assert_eq!(msg["response"]["error"]["message"].as_str().unwrap(), "Not allowed");
+    assert_eq!(
+        msg["response"]["error"]["message"].as_str().unwrap(),
+        "Not allowed to read state event"
+    );
 }
 
 #[test]
@@ -156,7 +162,7 @@ fn send_request_for_non_allowed_state_events() {
     assert_eq!(request_id, "send-me-a-message");
     assert_eq!(msg["api"], "fromWidget");
     assert_eq!(msg["action"], "send_event");
-    assert_eq!(msg["response"]["error"]["message"].as_str().unwrap(), "Not allowed");
+    assert_eq!(msg["response"]["error"]["message"].as_str().unwrap(), "Not allowed to send event");
 }
 
 #[test]
@@ -188,7 +194,7 @@ fn send_request_for_non_allowed_message_like_events() {
     assert_eq!(request_id, "send-me-a-message");
     assert_eq!(msg["api"], "fromWidget");
     assert_eq!(msg["action"], "send_event");
-    assert_eq!(msg["response"]["error"]["message"].as_str().unwrap(), "Not allowed");
+    assert_eq!(msg["response"]["error"]["message"].as_str().unwrap(), "Not allowed to send event");
 }
 
 #[test]
@@ -218,5 +224,8 @@ fn read_request_for_message_like_with_disallowed_msg_type_fails() {
     assert_eq!(request_id, "get-me-some-messages");
     assert_eq!(msg["api"], "fromWidget");
     assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
-    assert_eq!(msg["response"]["error"]["message"].as_str().unwrap(), "Not allowed");
+    assert_eq!(
+        msg["response"]["error"]["message"].as_str().unwrap(),
+        "Not allowed to read message like event"
+    );
 }

@@ -295,7 +295,10 @@ impl WidgetMachine {
             ReadEventRequest::ReadMessageLikeEvent { event_type, limit } => {
                 let filter_fn = |f: &EventFilter| f.matches_message_like_event_type(&event_type);
                 if !capabilities.read.iter().any(filter_fn) {
-                    return Some(self.send_from_widget_error_response(raw_request, "Not allowed"));
+                    return Some(self.send_from_widget_error_response(
+                        raw_request,
+                        "Not allowed to read message like event",
+                    ));
                 }
 
                 const DEFAULT_EVENT_LIMIT: u32 = 50;
@@ -345,7 +348,10 @@ impl WidgetMachine {
                     });
                     action
                 } else {
-                    Some(self.send_from_widget_error_response(raw_request, "Not allowed"))
+                    Some(self.send_from_widget_error_response(
+                        raw_request,
+                        "Not allowed to read state event",
+                    ))
                 }
             }
         }
@@ -381,7 +387,9 @@ impl WidgetMachine {
             ));
         }
         if !capabilities.send.iter().any(|filter| filter.matches(&filter_in)) {
-            return Some(self.send_from_widget_error_response(raw_request, "Not allowed"));
+            return Some(
+                self.send_from_widget_error_response(raw_request, "Not allowed to send event"),
+            );
         }
 
         let (request, action) = self.send_matrix_driver_request(request);
