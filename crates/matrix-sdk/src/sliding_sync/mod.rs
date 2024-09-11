@@ -151,12 +151,13 @@ impl SlidingSync {
         &self,
         room_ids: &[&RoomId],
         settings: Option<http::request::RoomSubscription>,
+        cancel_in_flight_request: bool,
     ) {
         let settings = settings.unwrap_or_default();
         let mut sticky = self.inner.sticky.write().unwrap();
         let room_subscriptions = &mut sticky.data_mut().room_subscriptions;
 
-        let mut skip_sync_loop = false;
+        let mut skip_over_current_sync_loop_iteration = false;
 
         for room_id in room_ids {
             // If the room subscription already exists, let's not
@@ -172,11 +173,11 @@ impl SlidingSync {
 
                 entry.insert((RoomSubscriptionState::default(), settings.clone()));
 
-                skip_sync_loop = true;
+                skip_over_current_sync_loop_iteration = true;
             }
         }
 
-        if skip_sync_loop {
+        if cancel_in_flight_request && skip_over_current_sync_loop_iteration {
             self.inner.internal_channel_send_if_possible(
                 SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
             );
@@ -1219,7 +1220,7 @@ mod tests {
         // Members are now synced! We can start subscribing and see how it goes.
         assert!(room0.are_members_synced());
 
-        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], None);
+        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], None, true);
 
         // OK, we have subscribed to some rooms. Let's check on `room0` if members are
         // now marked as not synced.
@@ -1260,7 +1261,7 @@ mod tests {
         // Members are synced, good, good.
         assert!(room0.are_members_synced());
 
-        sliding_sync.subscribe_to_rooms(&[room_id_0], None);
+        sliding_sync.subscribe_to_rooms(&[room_id_0], None, false);
 
         // Members are still synced: because we have already subscribed to the
         // room, the members aren't marked as unsynced.
@@ -1280,7 +1281,7 @@ mod tests {
         let room_id_2 = room_id!("!r2:bar.org");
 
         // Subscribe to two rooms.
-        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], None);
+        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], None, false);
 
         {
             let sticky = sliding_sync.inner.sticky.read().unwrap();
@@ -1292,7 +1293,7 @@ mod tests {
         }
 
         // Subscribe to one more room.
-        sliding_sync.subscribe_to_rooms(&[room_id_2], None);
+        sliding_sync.subscribe_to_rooms(&[room_id_2], None, false);
 
         {
             let sticky = sliding_sync.inner.sticky.read().unwrap();
@@ -1314,7 +1315,7 @@ mod tests {
         }
 
         // Subscribe to one room again.
-        sliding_sync.subscribe_to_rooms(&[room_id_2], None);
+        sliding_sync.subscribe_to_rooms(&[room_id_2], None, false);
 
         {
             let sticky = sliding_sync.inner.sticky.read().unwrap();

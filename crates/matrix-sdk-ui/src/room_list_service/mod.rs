@@ -396,7 +396,14 @@ impl RoomListService {
             settings.required_state.push((StateEventType::RoomCreate, "".to_owned()));
         }
 
-        self.sliding_sync.subscribe_to_rooms(room_ids, Some(settings))
+        let cancel_in_flight_request = match self.state.get() {
+            State::Init | State::Recovering | State::Error { .. } | State::Terminated { .. } => {
+                false
+            }
+            State::SettingUp | State::Running => true,
+        };
+
+        self.sliding_sync.subscribe_to_rooms(room_ids, Some(settings), cancel_in_flight_request)
     }
 
     #[cfg(test)]
