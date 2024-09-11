@@ -327,6 +327,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.member", "$LAZY"],
                         ["m.room.member", "$ME"],
                         ["m.room.name", ""],
+                        ["m.room.canonical_alias", ""],
                         ["m.room.power_levels", ""],
                     ],
                     "include_heroes": true,

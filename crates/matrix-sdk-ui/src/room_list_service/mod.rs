@@ -150,6 +150,7 @@ impl RoomListService {
                         (StateEventType::RoomMember, "$LAZY".to_owned()),
                         (StateEventType::RoomMember, "$ME".to_owned()),
                         (StateEventType::RoomName, "".to_owned()),
+                        (StateEventType::RoomCanonicalAlias, "".to_owned()),
                         (StateEventType::RoomPowerLevels, "".to_owned()),
                     ])
                     .include_heroes(Some(true))
