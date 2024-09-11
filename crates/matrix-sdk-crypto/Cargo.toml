@@ -81,11 +81,6 @@ futures-executor = { workspace = true }
 http = { workspace = true }
 indoc = "2.0.1"
 matrix-sdk-test = { workspace = true }
-
-# libolm is deprecated. We use it only in tests, to ensure that our
-# implementation of `PkEncryption` is compatible with that in libolm.
-olm-rs = { version = "2.2.0", features = ["serde"] }
-
 proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 similar-asserts = "1.5.0"
 # required for async_test macro
