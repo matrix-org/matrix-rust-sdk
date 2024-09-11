@@ -652,7 +652,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         // now we may want to replace a populated timeline with an empty one.
         if !state.items.is_empty() || !events.is_empty() {
             state
-                .replace_with_remove_events(
+                .replace_with_remote_events(
                     events,
                     TimelineEnd::Back,
                     origin,

@@ -279,7 +279,7 @@ impl TimelineState {
     /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
-    pub(super) async fn replace_with_remove_events<P: RoomDataProvider>(
+    pub(super) async fn replace_with_remote_events<P: RoomDataProvider>(
         &mut self,
         events: Vec<SyncTimelineEvent>,
         position: TimelineEnd,
