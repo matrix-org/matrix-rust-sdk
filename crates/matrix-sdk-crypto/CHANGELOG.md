@@ -2,6 +2,10 @@
 
 Changes:
 
+- Change the withheld code for keys not shared due to the `IdentityBasedStrategy`, from `m.unauthorised`
+  to `m.unverified`.
+  ([#3985](https://github.com/matrix-org/matrix-rust-sdk/pull/3985))
+
 - Improve logging for undecryptable Megolm events.
   ([#3989](https://github.com/matrix-org/matrix-rust-sdk/pull/3989))
 

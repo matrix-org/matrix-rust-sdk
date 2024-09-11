@@ -448,7 +448,7 @@ fn split_recipients_withhelds_for_user_based_on_identity(
                 allowed_devices: Vec::default(),
                 denied_devices_with_code: user_devices
                     .into_values()
-                    .map(|d| (d, WithheldCode::Unauthorised))
+                    .map(|d| (d, WithheldCode::Unverified))
                     .collect(),
             }
         }
@@ -461,7 +461,7 @@ fn split_recipients_withhelds_for_user_based_on_identity(
                 if d.is_cross_signed_by_owner(device_owner_identity) {
                     Either::Left(d)
                 } else {
-                    Either::Right((d, WithheldCode::Unauthorised))
+                    Either::Right((d, WithheldCode::Unverified))
                 }
             });
             IdentityBasedRecipientDevices {
@@ -1138,7 +1138,7 @@ mod tests {
             .find(|(d, _)| d.device_id() == KeyDistributionTestData::dan_unsigned_device_id())
             .expect("This dan's device should receive a withheld code");
 
-        assert_eq!(code, &WithheldCode::Unauthorised);
+        assert_eq!(code, &WithheldCode::Unverified);
 
         // Check withhelds for others
         let (_, code) = share_result
@@ -1147,7 +1147,7 @@ mod tests {
             .find(|(d, _)| d.device_id() == KeyDistributionTestData::dave_device_id())
             .expect("This dave device should receive a withheld code");
 
-        assert_eq!(code, &WithheldCode::Unauthorised);
+        assert_eq!(code, &WithheldCode::Unverified);
     }
 
     /// Test key sharing with the identity-based strategy with different
