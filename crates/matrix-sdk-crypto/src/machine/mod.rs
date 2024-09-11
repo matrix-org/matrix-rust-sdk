@@ -2013,8 +2013,8 @@ impl OlmMachine {
 
     /// Mark all tracked users as dirty.
     ///
-    /// See `IdentityManager::mark_all_tracked_users_as_dirty()` to learn
-    /// more.
+    /// All users *whose device lists we are tracking* are flagged as needing a
+    /// key query. Users whose devices we are not tracking are ignored.
     pub async fn mark_all_tracked_users_as_dirty(&self) -> StoreResult<()> {
         self.inner
             .identity_manager
