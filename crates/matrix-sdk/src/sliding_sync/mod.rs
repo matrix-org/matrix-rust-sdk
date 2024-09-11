@@ -710,21 +710,21 @@ impl SlidingSync {
         // The code manipulates `Request` and `Response` from MSC4186 because it's
         // the future standard (at the time of writing: 2024-09-09). Let's check if
         // the generated request must be transformed into an MSC3575 `Request`.
-        let result = if !self.inner.version.is_native() {
+        let summaries = if !self.inner.version.is_native() {
             self.send_sync_request(
                 Into::<http::msc3575::Request>::into(request),
                 request_config,
                 position_guard,
             )
-            .await
+            .await?
         } else {
-            self.send_sync_request(request, request_config, position_guard).await
+            self.send_sync_request(request, request_config, position_guard).await?
         };
 
         // Notify a new sync was received
         self.inner.client.inner.sync_beat.notify(usize::MAX);
 
-        result
+        Ok(summaries)
     }
 
     /// Create a _new_ Sliding Sync sync loop.
@@ -1099,8 +1099,9 @@ mod tests {
     };
 
     use assert_matches::assert_matches;
+    use event_listener::Listener;
     use futures_util::{future::join_all, pin_mut, StreamExt};
-    use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, timeout::timeout};
+    use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::error::ErrorKind, assign, owned_room_id, room_id, serde::Raw, uint,
@@ -3084,17 +3085,12 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        let pos = Arc::new(Mutex::new(0));
         let _mock_guard = Mock::given(SlidingSyncMatcher)
-            .respond_with(move |_: &Request| {
-                let mut pos = pos.lock().unwrap();
-                *pos += 1;
-                ResponseTemplate::new(200).set_body_json(json!({
-                    "pos": pos.to_string(),
-                    "lists": {},
-                    "rooms": {}
-                }))
-            })
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "pos": "0",
+                "lists": {},
+                "rooms": {}
+            })))
             .mount_as_scoped(&server)
             .await;
 
@@ -3109,18 +3105,43 @@ mod tests {
 
         let sliding_sync = Arc::new(sliding_sync);
 
-        assert!(!client.inner.sync_beat.is_notified());
-
         // Create the listener and perform a sync request
         let sync_beat_listener = client.inner.sync_beat.listen();
         sliding_sync.sync_once().await?;
 
         // The sync beat listener should be notified shortly after
-        timeout(sync_beat_listener, Duration::from_millis(20))
-            .await
-            .expect("Sync beat wasn't received in time");
+        assert!(sync_beat_listener.wait_timeout(Duration::from_secs(1)).is_some());
+        Ok(())
+    }
 
-        assert!(client.inner.sync_beat.is_notified());
+    #[async_test]
+    async fn test_sync_beat_is_not_notified_on_sync_failure() -> Result<()> {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let _mock_guard = Mock::given(SlidingSyncMatcher)
+            .respond_with(ResponseTemplate::new(404))
+            .mount_as_scoped(&server)
+            .await;
+
+        let sliding_sync = client
+            .sliding_sync("test")?
+            .with_to_device_extension(
+                assign!(http::request::ToDevice::default(), { enabled: Some(true)}),
+            )
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true)}))
+            .build()
+            .await?;
+
+        let sliding_sync = Arc::new(sliding_sync);
+
+        // Create the listener and perform a sync request
+        let sync_beat_listener = client.inner.sync_beat.listen();
+        let sync_result = sliding_sync.sync_once().await;
+        assert!(sync_result.is_err());
+
+        // The sync beat listener won't be notified in this case
+        assert!(sync_beat_listener.wait_timeout(Duration::from_secs(1)).is_none());
 
         Ok(())
     }
