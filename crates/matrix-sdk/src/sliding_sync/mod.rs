@@ -508,6 +508,8 @@ impl SlidingSync {
         // “initial” request.
         #[cfg(feature = "e2e-encryption")]
         if pos.is_none() && self.inner.version.is_native() && self.is_e2ee_enabled() {
+            info!("Marking all tracked users as dirty");
+
             let olm_machine = self.inner.client.olm_machine().await;
             let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
             olm_machine.mark_all_tracked_users_as_dirty().await?;
