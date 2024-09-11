@@ -347,6 +347,13 @@ impl Room {
         self.inner.read().sync_info == SyncInfo::FullySynced
     }
 
+    /// Check if the room state has been at least partially synced.
+    ///
+    /// See [`Room::is_state_fully_synced`] for more info.
+    pub fn is_state_partially_or_fully_synced(&self) -> bool {
+        self.inner.read().sync_info != SyncInfo::NoState
+    }
+
     /// Check if the room has its encryption event synced.
     ///
     /// The encryption event can be missing when the room hasn't appeared in
