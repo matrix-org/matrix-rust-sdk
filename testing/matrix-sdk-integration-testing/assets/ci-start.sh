@@ -59,6 +59,7 @@ rc_invites:
 
 experimental_features:
  msc3266_enabled: true
+ msc4186_enabled: true
 """ >>  /data/homeserver.yaml
 
 echo " ====== Starting server with:  ====== "

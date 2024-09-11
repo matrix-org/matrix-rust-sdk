@@ -1,2 +1,2 @@
-// mod notification_client;
-// mod room;
+mod notification_client;
+mod room;

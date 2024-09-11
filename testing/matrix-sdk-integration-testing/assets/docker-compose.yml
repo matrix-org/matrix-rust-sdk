@@ -24,21 +24,6 @@ services:
     volumes:
       - db:/var/lib/postgresql/data
 
-  sliding-sync-proxy:
-    image: ghcr.io/matrix-org/sliding-sync:v0.99.11
-    depends_on:
-      synapse:
-        condition: service_started
-      postgres:
-        condition: service_healthy
-    environment:
-      SYNCV3_SERVER: http://synapse:8008
-      SYNCV3_SECRET: SUPER_SECRET
-      SYNCV3_BINDADDR: ":8338"
-      SYNCV3_DB: "user=postgres password=postgres dbname=syncv3 sslmode=disable host=postgres"
-    ports:
-      - 8338:8338
-
 volumes:
   synapse:
   db:
