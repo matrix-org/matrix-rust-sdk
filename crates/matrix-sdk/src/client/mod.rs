@@ -2240,6 +2240,28 @@ impl Client {
         // SAFETY: always initialized in the `Client` ctor.
         self.inner.event_cache.get().unwrap()
     }
+
+    /// Waits until an at least partially synced room is received, and returns
+    /// it.
+    ///
+    /// **Note: this function will loop endlessly until either it finds the room
+    /// or an externally set timeout happens.**
+    pub async fn await_room_remote_echo(&self, room_id: &RoomId) -> Room {
+        loop {
+            if let Some(room) = self.get_room(room_id) {
+                if room.is_state_partially_or_fully_synced() {
+                    debug!("Found just created room!");
+                    return room;
+                } else {
+                    warn!("Room wasn't partially synced, waiting for sync beat to try again");
+                }
+            } else {
+                warn!("Room wasn't found, waiting for sync beat to try again");
+            }
+            self.inner.sync_beat.listen().await;
+            debug!("New sync beat found");
+        }
+    }
 }
 
 /// A weak reference to the inner client, useful when trying to get a handle
@@ -2300,12 +2322,15 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use ruma::{
-        api::MatrixVersion, events::ignored_user_list::IgnoredUserListEventContent, owned_room_id,
-        room_id, RoomId, ServerName, UserId,
+        api::{client::room::create_room::v3::Request as CreateRoomRequest, MatrixVersion},
+        assign,
+        events::ignored_user_list::IgnoredUserListEventContent,
+        owned_room_id, room_id, RoomId, ServerName, UserId,
     };
+    use serde_json::json;
     use url::Url;
     use wiremock::{
-        matchers::{body_json, header, method, path},
+        matchers::{body_json, header, method, path, query_param_is_missing},
         Mock, MockServer, ResponseTemplate,
     };
 
@@ -2315,6 +2340,7 @@ pub(crate) mod tests {
         config::{RequestConfig, SyncSettings},
         test_utils::{
             logged_in_client, no_retry_test_client, set_client_session, test_client_builder,
+            test_client_builder_with_server,
         },
         Error,
     };
@@ -2772,5 +2798,127 @@ pub(crate) mod tests {
         // We don't define a mock server on purpose here, so that the error is really a
         // network error.
         client.whoami().await.unwrap_err();
+    }
+
+    #[async_test]
+    async fn test_await_room_remote_echo_returns_the_room_if_it_was_already_synced() {
+        let (client_builder, server) = test_client_builder_with_server().await;
+        let client = client_builder.request_config(RequestConfig::new()).build().await.unwrap();
+        set_client_session(&client).await;
+
+        let builder = Mock::given(method("GET"))
+            .and(path("/_matrix/client/r0/sync"))
+            .and(header("authorization", "Bearer 1234"))
+            .and(query_param_is_missing("since"));
+
+        let room_id = room_id!("!room:example.org");
+        let joined_room_builder = JoinedRoomBuilder::new(room_id);
+        let mut sync_response_builder = SyncResponseBuilder::new();
+        sync_response_builder.add_joined_room(joined_room_builder);
+        let response_body = sync_response_builder.build_json_sync_response();
+
+        builder
+            .respond_with(ResponseTemplate::new(200).set_body_json(response_body))
+            .mount(&server)
+            .await;
+
+        client.sync_once(SyncSettings::default()).await.unwrap();
+
+        let room =
+            tokio::time::timeout(Duration::from_secs(1), client.await_room_remote_echo(room_id))
+                .await
+                .unwrap();
+        assert_eq!(room.room_id(), room_id);
+    }
+
+    #[async_test]
+    async fn test_await_room_remote_echo_returns_the_room_when_it_is_ready() {
+        let (client_builder, server) = test_client_builder_with_server().await;
+        let client = client_builder.request_config(RequestConfig::new()).build().await.unwrap();
+        set_client_session(&client).await;
+
+        let builder = Mock::given(method("GET"))
+            .and(path("/_matrix/client/r0/sync"))
+            .and(header("authorization", "Bearer 1234"))
+            .and(query_param_is_missing("since"));
+
+        let room_id = room_id!("!room:example.org");
+        let joined_room_builder = JoinedRoomBuilder::new(room_id);
+        let mut sync_response_builder = SyncResponseBuilder::new();
+        sync_response_builder.add_joined_room(joined_room_builder);
+        let response_body = sync_response_builder.build_json_sync_response();
+
+        builder
+            .respond_with(ResponseTemplate::new(200).set_body_json(response_body))
+            .mount(&server)
+            .await;
+
+        let client = Arc::new(client);
+
+        // Perform the /sync request with a delay so it starts after the
+        // `await_room_remote_echo` call has happened
+        tokio::spawn({
+            let client = client.clone();
+            async move {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                client.sync_once(SyncSettings::default()).await.unwrap();
+            }
+        });
+
+        let room =
+            tokio::time::timeout(Duration::from_secs(1), client.await_room_remote_echo(room_id))
+                .await
+                .unwrap();
+        assert_eq!(room.room_id(), room_id);
+    }
+
+    #[async_test]
+    async fn test_await_room_remote_echo_will_timeout_if_no_room_is_found() {
+        let (client_builder, _) = test_client_builder_with_server().await;
+        let client = client_builder.request_config(RequestConfig::new()).build().await.unwrap();
+        set_client_session(&client).await;
+
+        let room_id = room_id!("!room:example.org");
+        // Room is not present so the client won't be able to find it. The call will
+        // timeout.
+        let err =
+            tokio::time::timeout(Duration::from_secs(1), client.await_room_remote_echo(room_id))
+                .await
+                .err();
+        assert!(err.is_some());
+    }
+
+    #[async_test]
+    async fn test_await_room_remote_echo_will_timeout_if_room_is_found_but_not_synced() {
+        let (client_builder, server) = test_client_builder_with_server().await;
+        let client = client_builder.request_config(RequestConfig::new()).build().await.unwrap();
+        set_client_session(&client).await;
+
+        Mock::given(method("POST"))
+            .and(path("_matrix/client/r0/createRoom"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({ "room_id": "!room:example.org"})),
+            )
+            .mount(&server)
+            .await;
+
+        // Create a room in the internal store
+        let room = client
+            .create_room(assign!(CreateRoomRequest::new(), {
+                invite: vec![],
+                is_direct: false,
+            }))
+            .await
+            .unwrap();
+
+        // Room is locally present, but not synced, the call will timeout
+        let err = tokio::time::timeout(
+            Duration::from_secs(1),
+            client.await_room_remote_echo(room.room_id()),
+        )
+        .await
+        .err();
+        assert!(err.is_some());
     }
 }
