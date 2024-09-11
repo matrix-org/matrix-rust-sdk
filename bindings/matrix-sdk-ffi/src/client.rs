@@ -1002,6 +1002,16 @@ impl Client {
 
         Ok(RoomPreview::from_sdk(sdk_room_preview))
     }
+
+    /// Waits until an at least partially synced room is received, and returns
+    /// it.
+    ///
+    /// **Note: this function will loop endlessly until either it finds the room
+    /// or an externally set timeout happens.**
+    pub async fn await_room_remote_echo(&self, room_id: String) -> Result<Arc<Room>, ClientError> {
+        let room_id = RoomId::parse(room_id)?;
+        Ok(Arc::new(Room::new(self.inner.await_room_remote_echo(&room_id).await)))
+    }
 }
 
 #[uniffi::export(callback_interface)]
