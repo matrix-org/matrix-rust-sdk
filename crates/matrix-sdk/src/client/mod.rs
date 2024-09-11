@@ -2252,14 +2252,12 @@ impl Client {
                 if room.is_state_partially_or_fully_synced() {
                     debug!("Found just created room!");
                     return room;
-                } else {
-                    warn!("Room wasn't partially synced, waiting for sync beat to try again");
                 }
+                debug!("Room wasn't partially synced, waiting for sync beat to try again");
             } else {
-                warn!("Room wasn't found, waiting for sync beat to try again");
+                debug!("Room wasn't found, waiting for sync beat to try again");
             }
             self.inner.sync_beat.listen().await;
-            debug!("New sync beat found");
         }
     }
 }
@@ -2310,6 +2308,7 @@ pub(crate) mod tests {
     use std::{sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
+    use futures_util::FutureExt;
     use matrix_sdk_base::{
         store::{MemoryStore, StoreConfig},
         RoomState,
@@ -2328,6 +2327,10 @@ pub(crate) mod tests {
         owned_room_id, room_id, RoomId, ServerName, UserId,
     };
     use serde_json::json;
+    use tokio::{
+        spawn,
+        time::{sleep, timeout},
+    };
     use url::Url;
     use wiremock::{
         matchers::{body_json, header, method, path, query_param_is_missing},
@@ -2668,7 +2671,7 @@ pub(crate) mod tests {
         let client = logged_in_client(None).await;
 
         // Wait for the init tasks to die.
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(1)).await;
 
         let weak_client = WeakClient::from_client(&client);
         assert_eq!(weak_client.strong_count(), 1);
@@ -2691,7 +2694,7 @@ pub(crate) mod tests {
         drop(client);
 
         // Give a bit of time for background tasks to die.
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(1)).await;
 
         // The weak client must be the last reference to the client now.
         assert_eq!(weak_client.strong_count(), 0);
@@ -2824,10 +2827,7 @@ pub(crate) mod tests {
 
         client.sync_once(SyncSettings::default()).await.unwrap();
 
-        let room =
-            tokio::time::timeout(Duration::from_secs(1), client.await_room_remote_echo(room_id))
-                .await
-                .unwrap();
+        let room = client.await_room_remote_echo(room_id).now_or_never().unwrap();
         assert_eq!(room.room_id(), room_id);
     }
 
@@ -2857,18 +2857,16 @@ pub(crate) mod tests {
 
         // Perform the /sync request with a delay so it starts after the
         // `await_room_remote_echo` call has happened
-        tokio::spawn({
+        spawn({
             let client = client.clone();
             async move {
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                sleep(Duration::from_millis(100)).await;
                 client.sync_once(SyncSettings::default()).await.unwrap();
             }
         });
 
         let room =
-            tokio::time::timeout(Duration::from_secs(1), client.await_room_remote_echo(room_id))
-                .await
-                .unwrap();
+            timeout(Duration::from_secs(1), client.await_room_remote_echo(room_id)).await.unwrap();
         assert_eq!(room.room_id(), room_id);
     }
 
@@ -2881,11 +2879,7 @@ pub(crate) mod tests {
         let room_id = room_id!("!room:example.org");
         // Room is not present so the client won't be able to find it. The call will
         // timeout.
-        let err =
-            tokio::time::timeout(Duration::from_secs(1), client.await_room_remote_echo(room_id))
-                .await
-                .err();
-        assert!(err.is_some());
+        timeout(Duration::from_secs(1), client.await_room_remote_echo(room_id)).await.unwrap_err();
     }
 
     #[async_test]
@@ -2913,12 +2907,8 @@ pub(crate) mod tests {
             .unwrap();
 
         // Room is locally present, but not synced, the call will timeout
-        let err = tokio::time::timeout(
-            Duration::from_secs(1),
-            client.await_room_remote_echo(room.room_id()),
-        )
-        .await
-        .err();
-        assert!(err.is_some());
+        timeout(Duration::from_secs(1), client.await_room_remote_echo(room.room_id()))
+            .await
+            .unwrap_err();
     }
 }
