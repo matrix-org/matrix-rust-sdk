@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use as_variant::as_variant;
 use eyeball_im::{ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::IndexMap;
 use matrix_sdk::{
@@ -63,6 +64,7 @@ use super::{
 use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
+        controller::PendingEdit,
         event_item::{ReactionInfo, ReactionStatus},
         reactions::PendingReaction,
     },
@@ -352,7 +354,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::UnstablePollStart(
                     UnstablePollStartEventContent::Replacement(c),
-                ) => self.handle_poll_start_edit(c.relates_to),
+                ) => self.handle_poll_edit(c.relates_to),
 
                 AnyMessageLikeEventContent::UnstablePollStart(
                     UnstablePollStartEventContent::New(c),
@@ -452,17 +454,115 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         &mut self,
         replacement: Replacement<RoomMessageEventContentWithoutRelation>,
     ) {
-        let Some((item_pos, item)) = rfind_event_by_id(self.items, &replacement.event_id) else {
-            debug!("Timeline item not found, discarding edit");
-            return;
+        if let Some((item_pos, item)) = rfind_event_by_id(self.items, &replacement.event_id) {
+            if let Some(new_item) = self.apply_msg_edit(&item, replacement) {
+                trace!("Applied edit");
+                self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
+                self.result.items_updated += 1;
+            }
+        } else if let Flow::Remote { position, .. } = &self.ctx.flow {
+            let replaced_event_id = replacement.event_id.clone();
+            let replacement = PendingEdit::RoomMessage(replacement);
+            self.stash_pending_edit(*position, replaced_event_id, replacement);
+        } else {
+            debug!("Local message edit for a timeline item not found, discarding");
+        }
+    }
+
+    /// Try to stash a pending edit, if it makes sense to do so.
+    fn stash_pending_edit(
+        &mut self,
+        position: TimelineItemPosition,
+        replaced_event_id: OwnedEventId,
+        replacement: PendingEdit,
+    ) {
+        match position {
+            TimelineItemPosition::Start { .. } | TimelineItemPosition::Update(_) => {
+                // Only insert the edit if there wasn't any other edit
+                // before.
+                //
+                // For a start position, this is the right thing to do, because if there was a
+                // stashed edit, it relates to a more recent one (either appended for a live
+                // sync, or inserted earlier via back-pagination).
+                //
+                // For an update position, if there was a stashed edit, we can't really know
+                // which version is the more recent, without an ordering of the
+                // edit events themselves, so we discard it in that case.
+                if !self
+                    .meta
+                    .pending_edits
+                    .iter()
+                    .any(|(event_id, _)| *event_id == replaced_event_id)
+                {
+                    self.meta.pending_edits.push((replaced_event_id, replacement));
+                    debug!("Timeline item not found, stashing edit");
+                } else {
+                    debug!("Timeline item not found, but there was a previous edit for the event: discarding");
+                }
+            }
+
+            TimelineItemPosition::End { .. } => {
+                // This is a more recent edit, coming either live from sync or from a
+                // forward-pagination: it's fine to overwrite the previous one, if
+                // available.
+                let edits = &mut self.meta.pending_edits;
+                if let Some(pos) =
+                    edits.iter().position(|(event_id, _)| *event_id == replaced_event_id)
+                {
+                    edits.remove(pos);
+                }
+                edits.push((replaced_event_id, replacement));
+                debug!("Timeline item not found, stashing edit");
+            }
+        }
+    }
+
+    /// If there's a pending edit for an item, apply it immediately, returning
+    /// an updated [`EventTimelineItem`]. Otherwise, return `None`.
+    fn maybe_unstash_pending_edit(
+        &mut self,
+        item: &EventTimelineItem,
+    ) -> Option<EventTimelineItem> {
+        let mut find_and_remove_pending = |event_id| {
+            let edits = &mut self.meta.pending_edits;
+            let pos = edits.iter().position(|(prev_event_id, _)| prev_event_id == event_id)?;
+            Some(edits.remove(pos).unwrap().1)
         };
 
+        if let Flow::Remote { event_id, .. } = &self.ctx.flow {
+            match item.content() {
+                TimelineItemContent::Message(..) => {
+                    let pending = find_and_remove_pending(event_id)?;
+                    let edit = as_variant!(pending, PendingEdit::RoomMessage)?;
+                    self.apply_msg_edit(item, edit)
+                }
+                TimelineItemContent::Poll(..) => {
+                    let pending = find_and_remove_pending(event_id)?;
+                    let edit = as_variant!(pending, PendingEdit::Poll)?;
+                    self.apply_poll_edit(item, edit)
+                }
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Try applying an edit to an existing [`EventTimelineItem`].
+    ///
+    /// Return a new item if applying the edit succeeded, or `None` if there was
+    /// an error while applying it.
+    fn apply_msg_edit(
+        &self,
+        item: &EventTimelineItem,
+        replacement: Replacement<RoomMessageEventContentWithoutRelation>,
+    ) -> Option<EventTimelineItem> {
         if self.ctx.sender != item.sender() {
             info!(
                 original_sender = ?item.sender(), edit_sender = ?self.ctx.sender,
                 "Edit event applies to another user's timeline item, discarding"
             );
-            return;
+            return None;
         }
 
         let TimelineItemContent::Message(msg) = item.content() else {
@@ -470,10 +570,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 "Edit of message event applies to {:?}, discarding",
                 item.content().debug_string(),
             );
-            return;
+            return None;
         };
 
         let mut msgtype = replacement.new_content.msgtype;
+
         // Edit's content is never supposed to contain the reply fallback.
         msgtype.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
 
@@ -500,9 +601,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         }
 
-        trace!("Applying edit");
-        self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
-        self.result.items_updated += 1;
+        Some(new_item)
     }
 
     // Redacted reaction events are no-ops so don't need to be handled
@@ -585,33 +684,53 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
-    fn handle_poll_start_edit(
+    fn handle_poll_edit(
         &mut self,
         replacement: Replacement<NewUnstablePollStartEventContentWithoutRelation>,
     ) {
         let Some((item_pos, item)) = rfind_event_by_id(self.items, &replacement.event_id) else {
-            debug!("Timeline item not found, discarding poll edit");
+            if let Flow::Remote { position, .. } = &self.ctx.flow {
+                let replaced_event_id = replacement.event_id.clone();
+                let replacement = PendingEdit::Poll(replacement);
+                self.stash_pending_edit(*position, replaced_event_id, replacement);
+            } else {
+                debug!("Local poll edit for a timeline item not found, discarding");
+            }
             return;
         };
 
+        let Some(new_item) = self.apply_poll_edit(item.inner, replacement) else {
+            return;
+        };
+
+        trace!("Applying poll start edit.");
+        self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
+        self.result.items_updated += 1;
+    }
+
+    fn apply_poll_edit(
+        &self,
+        item: &EventTimelineItem,
+        replacement: Replacement<NewUnstablePollStartEventContentWithoutRelation>,
+    ) -> Option<EventTimelineItem> {
         if self.ctx.sender != item.sender() {
             info!(
                 original_sender = ?item.sender(), edit_sender = ?self.ctx.sender,
                 "Edit event applies to another user's timeline item, discarding"
             );
-            return;
+            return None;
         }
 
         let TimelineItemContent::Poll(poll_state) = &item.content() else {
             info!("Edit of poll event applies to {}, discarding", item.content().debug_string(),);
-            return;
+            return None;
         };
 
         let new_content = match poll_state.edit(&replacement.new_content) {
-            Ok(edited_poll_state) => TimelineItemContent::Poll(edited_poll_state),
-            Err(e) => {
-                info!("Failed to apply poll edit: {e:?}");
-                return;
+            Some(edited_poll_state) => TimelineItemContent::Poll(edited_poll_state),
+            None => {
+                info!("Not applying edit to a poll that's already ended");
+                return None;
             }
         };
 
@@ -620,19 +739,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Flow::Remote { raw_event, .. } => Some(raw_event.clone()),
         };
 
-        trace!("Applying poll start edit.");
-        self.items.set(
-            item_pos,
-            TimelineItem::new(
-                item.with_content(new_content, edit_json),
-                item.internal_id.to_owned(),
-            ),
-        );
-        self.result.items_updated += 1;
+        Some(item.with_content(new_content, edit_json))
     }
 
+    /// Adds a new poll to the timeline.
     fn handle_poll_start(&mut self, c: NewUnstablePollStartEventContent, should_add: bool) {
         let mut poll_state = PollState::new(c);
+
         if let Flow::Remote { event_id, .. } = &self.ctx.flow {
             // Applying the cache to remote events only because local echoes
             // don't have an event ID that could be referenced by responses yet.
@@ -854,6 +967,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             is_room_encrypted,
         );
 
+        if let Some(edited_item) = self.maybe_unstash_pending_edit(&item) {
+            item = edited_item;
+        }
+
         match &self.ctx.flow {
             Flow::Local { .. } => {
                 trace!("Adding new local timeline item");
@@ -964,8 +1081,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             Flow::Remote { position: TimelineItemPosition::Update(idx), .. } => {
                 trace!("Updating timeline item at position {idx}");
-                let id = self.items[*idx].internal_id.clone();
-                self.items.set(*idx, TimelineItem::new(item, id));
+                let internal_id = self.items[*idx].internal_id.clone();
+                self.items.set(*idx, TimelineItem::new(item, internal_id));
             }
         }
 

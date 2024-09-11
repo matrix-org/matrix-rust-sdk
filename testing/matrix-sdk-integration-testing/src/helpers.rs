@@ -84,8 +84,8 @@ impl TestClientBuilder {
         let mut client_builder = Client::builder()
             .user_agent("matrix-sdk-integration-tests")
             .homeserver_url(homeserver_url)
-            // Disable Simplified MSC3575 for the integration tests as, at the time of writing
-            // (2024-07-15), we use a Synapse version that doesn't support Simplified MSC3575.
+            // Disable MSC4186 for the integration tests as, at the time of writing
+            // (2024-07-15), we use a Synapse version that doesn't support MSC4186.
             .sliding_sync_version_builder(VersionBuilder::Proxy {
                 url: Url::parse(&sliding_sync_proxy_url)
                     .expect("Sliding sync proxy URL is invalid"),

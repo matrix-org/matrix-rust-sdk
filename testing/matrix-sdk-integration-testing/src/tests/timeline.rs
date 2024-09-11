@@ -19,12 +19,23 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use assign::assign;
 use eyeball_im::{Vector, VectorDiff};
+use futures::pin_mut;
 use futures_util::{FutureExt, StreamExt};
-use matrix_sdk::ruma::{
-    api::client::room::create_room::v3::Request as CreateRoomRequest,
-    events::room::message::RoomMessageEventContent, MilliSecondsSinceUnixEpoch,
+use matrix_sdk::{
+    encryption::{backups::BackupState, EncryptionSettings},
+    ruma::{
+        api::client::room::create_room::v3::Request as CreateRoomRequest,
+        events::{
+            room::{encryption::RoomEncryptionEventContent, message::RoomMessageEventContent},
+            InitialStateEvent,
+        },
+        MilliSecondsSinceUnixEpoch,
+    },
 };
-use matrix_sdk_ui::timeline::{EventSendState, ReactionStatus, RoomExt, TimelineItem};
+use matrix_sdk_ui::timeline::{
+    EventSendState, ReactionStatus, RoomExt, TimelineItem, TimelineItemContent,
+};
+use similar_asserts::assert_eq;
 use tokio::{
     spawn,
     task::JoinHandle,
@@ -293,4 +304,159 @@ async fn test_stale_local_echo_time_abort_edit() {
     assert_eq!(remote_echo.content().as_message().unwrap().body(), "bonjour");
 
     alice_sync.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_enabling_backups_retries_decryption() {
+    let encryption_settings = EncryptionSettings {
+        auto_enable_backups: true,
+        backup_download_strategy:
+            matrix_sdk::encryption::BackupDownloadStrategy::AfterDecryptionFailure,
+        ..Default::default()
+    };
+    let alice = TestClientBuilder::new("alice")
+        .use_sqlite()
+        .encryption_settings(encryption_settings)
+        .build()
+        .await
+        .unwrap();
+
+    alice.encryption().wait_for_e2ee_initialization_tasks().await;
+    alice
+        .encryption()
+        .recovery()
+        .enable()
+        .with_passphrase("Bomber's code")
+        .await
+        .expect("We should be able to enable recovery");
+
+    let user_id = alice.user_id().expect("We should have access to the user ID now");
+    assert_eq!(
+        alice.encryption().backups().state(),
+        BackupState::Enabled,
+        "The backup state should now be BackupState::Enabled"
+    );
+
+    // Set up sync for user Alice, and create a room.
+    let alice_sync = spawn({
+        let alice = alice.clone();
+        async move {
+            alice.sync(Default::default()).await.expect("sync failed!");
+        }
+    });
+
+    debug!("Creating room…");
+
+    let initial_state =
+        vec![InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
+            .to_raw_any()];
+
+    let room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            is_direct: true,
+            initial_state,
+            preset: Some(matrix_sdk::ruma::api::client::room::create_room::v3::RoomPreset::PrivateChat)
+        }))
+        .await
+        .unwrap();
+
+    assert!(room
+        .is_encrypted()
+        .await
+        .expect("We should be able to check that the room is encrypted"));
+
+    let event_id = room
+        .send(RoomMessageEventContent::text_plain("It's a secret to everybody!"))
+        .await
+        .expect("We should be able to send a message to our new room")
+        .event_id;
+
+    alice
+        .encryption()
+        .backups()
+        .wait_for_steady_state()
+        .await
+        .expect("We should be able to wait for our room keys to be uploaded");
+
+    // We don't need Alice anymore.
+    alice_sync.abort();
+
+    // I know that this is Alice again, but it's the Alice's second device which she
+    // named Bob.
+    let bob = TestClientBuilder::with_exact_username(user_id.localpart().to_owned())
+        .use_sqlite()
+        .encryption_settings(encryption_settings)
+        .build()
+        .await
+        .unwrap();
+
+    bob.encryption().wait_for_e2ee_initialization_tasks().await;
+    assert!(!bob.encryption().backups().are_enabled().await, "Backups shouldn't be enabled yet");
+
+    // Sync once to get access to the room.
+    bob.sync_once(Default::default()).await.expect("Bob should be able to perform an initial sync");
+    // Let Bob sync continuously now.
+    let bob_sync = spawn({
+        let bob = bob.clone();
+        async move {
+            bob.sync(Default::default()).await.expect("sync failed!");
+        }
+    });
+
+    // Load the event into the timeline.
+    let room = bob.get_room(room.room_id()).expect("We should have access to our room now");
+    let timeline = room.timeline().await.expect("We should be able to get a timeline for our room");
+    timeline
+        .paginate_backwards(50)
+        .await
+        .expect("We should be able to paginate the timeline to fetch the history");
+
+    let item =
+        timeline.item_by_event_id(&event_id).await.expect("The event should be in the timeline");
+
+    // The event is not decrypted yet.
+    assert_matches!(item.content(), TimelineItemContent::UnableToDecrypt(_));
+
+    // We now connect to the backup which will not give us the room key right away,
+    // we first need to encounter a UTD to attempt the download.
+    bob.encryption()
+        .recovery()
+        .recover("Bomber's code")
+        .await
+        .expect("We should be able to recover from Bob's device");
+
+    // Let's subscribe to our timeline so we don't miss the transition from UTD to
+    // decrypted event.
+    let (_, mut stream) = timeline
+        .subscribe_filter_map(|item| {
+            item.as_event().cloned().filter(|item| item.event_id() == Some(&event_id))
+        })
+        .await;
+
+    let room_key_stream = bob.encryption().backups().room_keys_for_room_stream(room.room_id());
+    pin_mut!(room_key_stream);
+
+    // Wait for the room key to arrive before continuing.
+    if let Some(update) = room_key_stream.next().await {
+        let _update = update.expect(
+            "We should not miss the update since we're only broadcasting a small amount of updates",
+        );
+    }
+
+    // Alright, we should now receive an update that the event had been decrypted.
+    let _vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
+
+    // Let's fetch the event again.
+    let item =
+        timeline.item_by_event_id(&event_id).await.expect("The event should be in the timeline");
+
+    // Yup it's decrypted great.
+    assert_let!(
+        TimelineItemContent::Message(message) = item.content(),
+        "The event should have been decrypted now"
+    );
+
+    assert_eq!(message.body(), "It's a secret to everybody!");
+
+    bob_sync.abort();
 }

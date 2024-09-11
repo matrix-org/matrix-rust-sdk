@@ -46,18 +46,20 @@ impl PollState {
         }
     }
 
+    /// Applies an edit to a poll, returns `None` if the poll was already marked
+    /// as finished.
     pub(super) fn edit(
         &self,
         replacement: &NewUnstablePollStartEventContentWithoutRelation,
-    ) -> Result<Self, ()> {
+    ) -> Option<Self> {
         if self.end_event_timestamp.is_none() {
             let mut clone = self.clone();
             clone.start_event_content.poll_start = replacement.poll_start.clone();
             clone.start_event_content.text = replacement.text.clone();
             clone.has_been_edited = true;
-            Ok(clone)
+            Some(clone)
         } else {
-            Err(())
+            None
         }
     }
 
@@ -122,6 +124,11 @@ impl PollState {
             end_time: self.end_event_timestamp.map(|millis| millis.0.into()),
             has_been_edited: self.has_been_edited,
         }
+    }
+
+    /// Returns true whether this poll has been edited.
+    pub fn is_edit(&self) -> bool {
+        self.has_been_edited
     }
 }
 

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fs::File, io::Write, sync::Arc};
+use std::{fs::File, io::Write, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use assert_matches::assert_matches;
@@ -72,7 +72,7 @@ const ROOM_KEY: &[u8] = b"\
         HztoSJUr/2Y\n\
         -----END MEGOLM SESSION DATA-----";
 
-async fn mount_once(
+async fn mount_and_assert_called_once(
     server: &wiremock::MockServer,
     method_argument: &str,
     path_argument: &str,
@@ -105,7 +105,7 @@ async fn test_create() {
 
     client.restore_session(session).await.unwrap();
 
-    mount_once(
+    mount_and_assert_called_once(
         &server,
         "POST",
         "_matrix/client/unstable/room_keys/version",
@@ -174,7 +174,7 @@ async fn test_creation_failure() {
     let (client, server) = no_retry_test_client_with_server().await;
     client.restore_session(session).await.unwrap();
 
-    mount_once(
+    mount_and_assert_called_once(
         &server,
         "POST",
         "_matrix/client/unstable/room_keys/version",
@@ -255,7 +255,7 @@ async fn test_disabling() {
     let (client, server) = no_retry_test_client_with_server().await;
     client.restore_session(session).await.unwrap();
 
-    mount_once(
+    mount_and_assert_called_once(
         &server,
         "POST",
         "_matrix/client/unstable/room_keys/version",
@@ -263,7 +263,7 @@ async fn test_disabling() {
     )
     .await;
 
-    mount_once(
+    mount_and_assert_called_once(
         &server,
         "DELETE",
         "_matrix/client/r0/room_keys/version/1",
@@ -432,7 +432,7 @@ async fn setup_backups(client: &Client, server: &wiremock::MockServer) {
 
     client.encryption().import_room_keys(room_key_path, "1234").await.unwrap();
 
-    mount_once(
+    mount_and_assert_called_once(
         server,
         "POST",
         "_matrix/client/unstable/room_keys/version",
@@ -470,7 +470,7 @@ async fn test_steady_state_waiting() {
 
     setup_backups(&client, &server).await;
 
-    mount_once(
+    mount_and_assert_called_once(
         &server,
         "PUT",
         "_matrix/client/unstable/room_keys/keys",
@@ -574,7 +574,7 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/keys/upload"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "one_time_key_counts": {
                 "curve25519": 50,
                 "signed_curve25519": 50
@@ -656,7 +656,7 @@ async fn test_incremental_upload_of_keys() -> Result<()> {
 
     // This is the call we want to check. The newly created outbound session should
     // be uploaded to backup.
-    mount_once(
+    mount_and_assert_called_once(
         &server,
         "PUT",
         "_matrix/client/unstable/room_keys/keys",
@@ -716,6 +716,8 @@ async fn test_incremental_upload_of_keys() -> Result<()> {
 #[async_test]
 #[cfg(feature = "experimental-sliding-sync")]
 async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
+    use tokio::task::spawn_blocking;
+
     let user_id = user_id!("@example:morpheus.localhost");
 
     let session = MatrixSession {
@@ -736,17 +738,20 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
 
     // This is the call we want to check. The newly created outbound session should
     // be uploaded to backup.
-    mount_once(
-        &server,
-        "PUT",
-        "_matrix/client/unstable/room_keys/keys",
-        ResponseTemplate::new(200).set_body_json(json!({
-            "count": 1,
-            "etag": "abcdefg",
-        }
-        )),
-    )
-    .await;
+    let (endpoint_called_sender, endpoint_called_receiver) = std::sync::mpsc::channel();
+    Mock::given(method("PUT"))
+        .and(path("_matrix/client/unstable/room_keys/keys"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(move |_req: &wiremock::Request| {
+            let _ = endpoint_called_sender.send(());
+            ResponseTemplate::new(200).set_body_json(json!({
+                "count": 1,
+                "etag": "abcdefg",
+            }))
+        })
+        .expect(1)
+        .mount(&server)
+        .await;
 
     setup_create_room_and_send_message_mocks(&server).await;
 
@@ -774,8 +779,8 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
     let sliding = client
         .sliding_sync("main")?
         .with_all_extensions()
-        .poll_timeout(std::time::Duration::from_secs(3))
-        .network_timeout(std::time::Duration::from_secs(3))
+        .poll_timeout(Duration::from_secs(3))
+        .network_timeout(Duration::from_secs(3))
         .add_list(
             matrix_sdk::SlidingSyncList::builder("all")
                 .sync_mode(matrix_sdk::SlidingSyncMode::new_selective().add_range(0..=20)),
@@ -783,9 +788,8 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
         .build()
         .await?;
 
-    let s = sliding.clone();
-    spawn(async move {
-        let stream = s.sync();
+    let sync_task = spawn(async move {
+        let stream = sliding.sync();
         pin_mut!(stream);
         while let Some(up) = stream.next().await {
             tracing::warn!("received update: {up:?}");
@@ -814,8 +818,19 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
         .mount(&server)
         .await;
 
-    // let the slinding sync loop run for a bit
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    // Wait for the endpoint to be called, at most for 10 seconds.
+    //
+    // Don't plain use `recv_timeout()` on the main task, since this would prevent
+    // forward progress of the wiremock code.
+    timeout(
+        spawn_blocking(move || endpoint_called_receiver.recv().unwrap()),
+        Duration::from_secs(10),
+    )
+    .await
+    .expect("timeout waiting for the key backup endpoint to be called")
+    .expect("join error (internal timeout)");
+
+    sync_task.abort();
 
     server.verify().await;
     Ok(())
@@ -851,7 +866,7 @@ async fn test_steady_state_waiting_errors() {
         "The steady state method should tell us that it couldn't reach the homeserver"
     );
 
-    mount_once(
+    mount_and_assert_called_once(
         &server,
         "PUT",
         "_matrix/client/unstable/room_keys/keys",
@@ -1384,7 +1399,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd() {
 
     // Wait for the key to be downloaded from backup.
     {
-        let room_keys = timeout(room_key_stream.next(), std::time::Duration::from_secs(5))
+        let room_keys = timeout(room_key_stream.next(), Duration::from_secs(5))
             .await
             .expect("did not get a room key stream update within 5 seconds")
             .expect("room_key_stream.next() returned None")
@@ -1514,7 +1529,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
 
     // Wait for the key to be downloaded from backup.
     {
-        let room_keys = timeout(room_key_stream.next(), std::time::Duration::from_secs(5))
+        let room_keys = timeout(room_key_stream.next(), Duration::from_secs(5))
             .await
             .expect("did not get a room key stream update within 5 seconds")
             .expect("room_key_stream.next() returned None")

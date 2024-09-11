@@ -119,15 +119,14 @@ impl BaseClient {
     ///   sync.
     /// * `previous_events_provider` - Timeline events prior to the current
     ///   sync.
-    /// * `from_simplified_sliding_sync` - Whether the `response` comes from
-    ///   simplified sliding sync (Simplified MSC3575), or sliding sync
-    ///   (MSC3575).
+    /// * `with_msc4186` - Whether the `response` comes from simplified sliding
+    ///   sync (MSC4186) or sliding sync (MSC3575).
     #[instrument(skip_all, level = "trace")]
     pub async fn process_sliding_sync<PEP: PreviousEventsProvider>(
         &self,
         response: &http::Response,
         previous_events_provider: &PEP,
-        from_simplified_sliding_sync: bool,
+        with_msc4186: bool,
     ) -> Result<SyncResponse> {
         let http::Response {
             // FIXME not yet supported by sliding sync. see
@@ -181,7 +180,7 @@ impl BaseClient {
                     &mut room_info_notable_updates,
                     &mut notifications,
                     &mut ambiguity_cache,
-                    from_simplified_sliding_sync,
+                    with_msc4186,
                 )
                 .await?;
 
@@ -353,7 +352,7 @@ impl BaseClient {
         room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
         ambiguity_cache: &mut AmbiguityCache,
-        from_simplified_sliding_sync: bool,
+        with_msc4186: bool,
     ) -> Result<(RoomInfo, Option<JoinedRoomUpdate>, Option<LeftRoomUpdate>, Option<InvitedRoom>)>
     {
         // This method may change `room_data` (see the terrible hack describes below)
@@ -381,10 +380,10 @@ impl BaseClient {
         // `timestamp` despites having `m.room.create` in `bump_event_types`. The result
         // of this is that an invite cannot be sorted. This horrible hack will fix that.
         //
-        // The SDK manipulates Simplified MSC3575 `Request` and `Response` though. In
-        // Simplified MSC3575, `bump_stamp` replaces `timestamp`, which does NOT
-        // represent a time! This hack must really, only, apply to the proxy, so to
-        // MSC3575 strictly (hence the `from_simplified_sliding_sync` argument).
+        // The SDK manipulates MSC4186 `Request` and `Response` though. In MSC4186,
+        // `bump_stamp` replaces `timestamp`, which does NOT represent a time! This
+        // hack must really, only, apply to the proxy, so to MSC3575 strictly (hence
+        // the `with_msc4186` argument).
         //
         // The proxy uses the `origin_server_ts` event's value to fill the `timestamp`
         // room's value (which is a bad idea[^1]). If `timestamp` is `None`, let's find
@@ -392,9 +391,8 @@ impl BaseClient {
         //
         // [^1]: using `origin_server_ts` for `timestamp` is a bad idea because
         // this value can be forged by a malicious user. Anyway, that's how it works
-        // in the proxy. Simplified MSC3575 has another mechanism which fixes the
-        // problem.
-        if !from_simplified_sliding_sync && room_data.bump_stamp.is_none() {
+        // in the proxy. MSC4186 has another mechanism which fixes the problem.
+        if !with_msc4186 && room_data.bump_stamp.is_none() {
             if let Some(invite_state) = &room_data.invite_state {
                 room_data.to_mut().bump_stamp =
                     invite_state.iter().rev().find_map(|invite_state| {
@@ -1432,7 +1430,7 @@ mod tests {
 
     #[async_test]
     async fn test_invitation_room_receive_a_default_timestamp_on_not_simplified_sliding_sync() {
-        const NOT_SIMPLIFIED_SLIDING_SYNC: bool = false;
+        const NOT_MSC4186: bool = false;
 
         // Given a logged-in client
         let client = logged_in_base_client(None).await;
@@ -1445,7 +1443,7 @@ mod tests {
         set_room_invited(&mut room, user_id, user_id);
         let response = response_with_room(room_id, room);
         let _sync_resp = client
-            .process_sliding_sync(&response, &(), NOT_SIMPLIFIED_SLIDING_SYNC)
+            .process_sliding_sync(&response, &(), NOT_MSC4186)
             .await
             .expect("Failed to process sync");
 
@@ -1491,7 +1489,7 @@ mod tests {
 
         let response = response_with_room(room_id, room);
         let _sync_resp = client
-            .process_sliding_sync(&response, &(), NOT_SIMPLIFIED_SLIDING_SYNC)
+            .process_sliding_sync(&response, &(), NOT_MSC4186)
             .await
             .expect("Failed to process sync");
 

@@ -4,7 +4,15 @@ use matrix_sdk_base::deserialized_responses::{ShieldState, ShieldStateCode};
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE};
 use ruma::{
     event_id,
-    events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
+    events::{
+        room::{
+            encrypted::{
+                EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
+            },
+            message::RoomMessageEventContent,
+        },
+        AnyMessageLikeEventContent,
+    },
 };
 use stream_assert::assert_next_matches;
 
@@ -110,4 +118,45 @@ async fn test_local_sent_in_clear_shield() {
         shield,
         Some(ShieldState::Red { code: ShieldStateCode::SentInClear, message: "Not encrypted." })
     );
+}
+
+#[async_test]
+/// Test a bug that was causing unable to decrypt messages to have a `message
+/// sent in clear` red warning.
+async fn test_utd_shield() {
+    // Given we are in an encrypted room
+    let timeline = TestTimeline::with_is_room_encrypted(true);
+    let mut stream = timeline.subscribe().await;
+
+    let f = &timeline.factory;
+
+    // When we receive a message that we can't decrypt
+    timeline
+        .handle_live_event(
+            f.event(RoomEncryptedEventContent::new(
+                EncryptedEventScheme::MegolmV1AesSha2(
+                    MegolmV1AesSha2ContentInit {
+                        ciphertext: "\
+                            AwgAEpABNOd7Rxpc/98gaaOanApQ/h40uNyYE/aiFd8PKeQPH65bwuxBy/glodmteryH\
+                            4t5d0cKSPjb+996yK90+A8YUevQKBuC+/+4iRF2CSqMNvArdOCnFHJdZBuCyRP6W82DZ\
+                            sR1w5X/tKGs/A9egJdxomLCzMRZarayTXUlgMT8Kj7E9zKOgyLEZGki6Y9IPybfrU3+S\
+                            b4VbF7RKY395/lIZFiLvJ5hUT+Ao1k13opeTE9GHtdOK0GzQPVFLnN61pRa3K/vV9Otk\
+                            D0QbVS/4mE3C29+yIC1lEkwA"
+                            .to_owned(),
+                        sender_key: "peI8cfSKqZvTOAfY0Od2e7doDpJ1cxdBsOhSceTLU3E".to_owned(),
+                        device_id: "KDCTEHOVSS".into(),
+                        session_id: "C25PoE+4MlNidQD0YU5ibZqHawV0zZ/up7R8vYJBYTY".into(),
+                    }
+                    .into(),
+                ),
+                None,
+            ))
+            .sender(&ALICE),
+        )
+        .await;
+
+    // Then the message is displayed with no shield
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let shield = item.as_event().unwrap().get_shield(false);
+    assert!(shield.is_none());
 }

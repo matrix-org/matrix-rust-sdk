@@ -445,7 +445,16 @@ impl Backups {
     }
 
     /// Download a single room key from the server-side key backup.
-    pub async fn download_room_key(&self, room_id: &RoomId, session_id: &str) -> Result<(), Error> {
+    ///
+    /// Returns `true` if we managed to download a room key, `false` or an error
+    /// if we failed to download it. `false` indicates that there was no
+    /// error, we just don't have backups enabled so we can't download a
+    /// room key.
+    pub async fn download_room_key(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> Result<bool, Error> {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
@@ -471,10 +480,14 @@ impl Backups {
 
                 self.handle_downloaded_room_keys(response, decryption_key, &version, olm_machine)
                     .await?;
-            }
-        }
 
-        Ok(())
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            Ok(false)
+        }
     }
 
     /// Set the state of the backup.

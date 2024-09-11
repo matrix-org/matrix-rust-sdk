@@ -24,7 +24,8 @@ use ruma::{
         },
         TimelineEventType,
     },
-    EventId, Int, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomAliasId, UserId,
+    EventId, Int, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomAliasId, TransactionId,
+    UserId,
 };
 use tokio::sync::RwLock;
 use tracing::error;
@@ -808,6 +809,24 @@ impl Room {
 
         self.inner.send_queue().unwedge(&transaction_id).await?;
 
+        Ok(())
+    }
+
+    /// Attempt to manually resend messages that failed to send due to issues
+    /// that should now have been fixed.
+    ///
+    /// This is useful for example, when there's a
+    /// `SessionRecipientCollectionError::VerifiedUserChangedIdentity` error;
+    /// the user may have re-verified on a different device and would now
+    /// like to send the failed message that's waiting on this device.
+    ///
+    /// # Arguments
+    ///
+    /// * `transaction_id` - The send queue transaction identifier of the local
+    ///   echo that should be unwedged.
+    pub async fn try_resend(&self, transaction_id: String) -> Result<(), ClientError> {
+        let transaction_id: &TransactionId = transaction_id.as_str().into();
+        self.inner.send_queue().unwedge(transaction_id).await?;
         Ok(())
     }
 }

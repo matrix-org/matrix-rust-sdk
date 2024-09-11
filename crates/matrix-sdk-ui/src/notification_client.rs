@@ -27,6 +27,7 @@ use matrix_sdk_base::{
 };
 use ruma::{
     assign,
+    directory::RoomTypeFilter,
     events::{
         room::{member::StrippedRoomMemberEvent, message::SyncRoomMessageEvent},
         AnyFullStateEventContent, AnyStateEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -358,7 +359,7 @@ impl NotificationClient {
             .required_state(required_state.clone())
             .filters(Some(assign!(http::request::ListFilters::default(), {
                 is_invite: Some(true),
-                not_room_types: vec!["m.space".to_owned()],
+                not_room_types: vec![RoomTypeFilter::Space],
             })));
 
         let sync = self

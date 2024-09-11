@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! HTTP types for (Simplified) MSC3575.
+//! HTTP types for MSC4186 or MSC3585.
 //!
 //! This module provides unified namings for types from MSC3575 and
-//! Simplified MSC3575, in addition to provide conversion from one
-//! format to another.
+//! MSC4186.
 
-/// HTTP types from MSC3575, renamed to match the Simplified MSC3575 namings.
+/// HTTP types from MSC3575, renamed to match the MSC4186 namings.
 pub mod msc3575 {
     use ruma::api::client::sync::sync_events::v4;
     pub use v4::{Request, Response};
@@ -42,9 +41,9 @@ pub mod msc3575 {
     }
 }
 
-/// HTTP types from Simplified MSC3575.
-pub mod simplified_msc3575 {
+/// HTTP types from MSC4186.
+pub mod msc4186 {
     pub use ruma::api::client::sync::sync_events::v5::*;
 }
 
-pub use simplified_msc3575::*;
+pub use msc4186::*;

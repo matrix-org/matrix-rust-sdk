@@ -53,6 +53,7 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, RoomUpdates, Timeline},
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
+use paginator::PaginatorState;
 use ruma::{
     events::{
         room::{message::Relation, redaction::SyncRoomRedactionEvent},
@@ -766,11 +767,16 @@ impl RoomEventCacheInner {
         self.append_events_locked_impl(
             room_events,
             sync_timeline_events,
-            prev_batch,
+            prev_batch.clone(),
             ephemeral_events,
             ambiguity_changes,
         )
-        .await
+        .await?;
+
+        // Reset the paginator status to initial.
+        self.pagination.paginator.set_idle_state(PaginatorState::Initial, prev_batch, None)?;
+
+        Ok(())
     }
 
     /// Append a set of events to the room cache and storage, notifying
