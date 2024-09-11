@@ -120,8 +120,12 @@ impl Default for RoomInfoNotableUpdateReasons {
 /// invited rooms.
 #[derive(Debug, Clone)]
 pub struct Room {
+    /// The room ID.
     room_id: OwnedRoomId,
+
+    /// Our own user ID.
     own_user_id: OwnedUserId,
+
     inner: SharedObservable<RoomInfo>,
     room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     store: Arc<DynStateStore>,
@@ -251,6 +255,11 @@ impl Room {
     /// Get the unique room id of the room.
     pub fn room_id(&self) -> &RoomId {
         &self.room_id
+    }
+
+    /// Get a copy of the room creator.
+    pub fn creator(&self) -> Option<OwnedUserId> {
+        self.inner.read().creator().map(ToOwned::to_owned)
     }
 
     /// Get our own user id.
