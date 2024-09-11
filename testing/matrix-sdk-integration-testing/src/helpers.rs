@@ -20,7 +20,6 @@ use matrix_sdk::{
 };
 use once_cell::sync::Lazy;
 use rand::Rng as _;
-use reqwest::Url;
 use tempfile::{tempdir, TempDir};
 use tokio::{sync::Mutex, time::sleep};
 
@@ -75,21 +74,19 @@ impl TestClientBuilder {
         self
     }
 
+    pub fn http_proxy(mut self, url: String) -> Self {
+        self.http_proxy = Some(url);
+        self
+    }
+
     fn common_client_builder(&self) -> ClientBuilder {
         let homeserver_url =
             option_env!("HOMESERVER_URL").unwrap_or("http://localhost:8228").to_owned();
-        let sliding_sync_proxy_url =
-            option_env!("SLIDING_SYNC_PROXY_URL").unwrap_or("http://localhost:8338").to_owned();
 
         let mut client_builder = Client::builder()
             .user_agent("matrix-sdk-integration-tests")
             .homeserver_url(homeserver_url)
-            // Disable MSC4186 for the integration tests as, at the time of writing
-            // (2024-07-15), we use a Synapse version that doesn't support MSC4186.
-            .sliding_sync_version_builder(VersionBuilder::Proxy {
-                url: Url::parse(&sliding_sync_proxy_url)
-                    .expect("Sliding sync proxy URL is invalid"),
-            })
+            .sliding_sync_version_builder(VersionBuilder::Native)
             .with_encryption_settings(self.encryption_settings)
             .request_config(RequestConfig::short_retry());
 

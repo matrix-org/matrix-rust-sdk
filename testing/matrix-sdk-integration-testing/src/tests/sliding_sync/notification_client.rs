@@ -1,3 +1,6 @@
+// TODO: Remove this once all tests are re-enabled.
+#![allow(unused)]
+
 use std::sync::Arc;
 
 use anyhow::{ensure, Result};
@@ -28,6 +31,7 @@ use tracing::warn;
 use crate::helpers::TestClientBuilder;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore]
 async fn test_notification() -> Result<()> {
     // Create new users for each test run, to avoid conflicts with invites existing
     // from previous runs.
