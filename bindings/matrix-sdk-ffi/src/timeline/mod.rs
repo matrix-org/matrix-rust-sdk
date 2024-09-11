@@ -27,7 +27,7 @@ use matrix_sdk::{
         BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
     },
     deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
-    room::edit::EditedContent,
+    room::edit::EditedContent as SdkEditedContent,
     Error,
 };
 use matrix_sdk_ui::timeline::{
@@ -489,9 +489,9 @@ impl Timeline {
     pub async fn edit(
         &self,
         item: Arc<EventTimelineItem>,
-        new_content: EditContent,
+        new_content: EditedContent,
     ) -> Result<bool, ClientError> {
-        let new_content: EditedContent = new_content.try_into()?;
+        let new_content: SdkEditedContent = new_content.try_into()?;
         self.inner.edit(&item.0, new_content).await.map_err(ClientError::from)
     }
 
@@ -1253,24 +1253,24 @@ impl From<ReceiptType> for ruma::api::client::receipt::create_receipt::v3::Recei
 }
 
 #[derive(Clone, uniffi::Enum)]
-pub enum EditContent {
+pub enum EditedContent {
     RoomMessage { content: Arc<RoomMessageEventContentWithoutRelation> },
     PollStart { poll_data: PollData },
 }
 
-impl TryFrom<EditContent> for matrix_sdk::room::edit::EditedContent {
+impl TryFrom<EditedContent> for SdkEditedContent {
     type Error = ClientError;
-    fn try_from(value: EditContent) -> Result<Self, Self::Error> {
+    fn try_from(value: EditedContent) -> Result<Self, Self::Error> {
         match value {
-            EditContent::RoomMessage { content } => {
-                Ok(matrix_sdk::room::edit::EditedContent::RoomMessage((*content).clone()))
+            EditedContent::RoomMessage { content } => {
+                Ok(SdkEditedContent::RoomMessage((*content).clone()))
             }
-            EditContent::PollStart { poll_data } => {
+            EditedContent::PollStart { poll_data } => {
                 let block: UnstablePollStartContentBlock = poll_data.clone().try_into()?;
-                Ok(matrix_sdk::room::edit::EditedContent::PollStart(
-                    poll_data.fallback_text(),
-                    block,
-                ))
+                Ok(SdkEditedContent::PollStart {
+                    fallback_text: poll_data.fallback_text(),
+                    new_content: block,
+                })
             }
         }
     }

@@ -846,10 +846,6 @@ async fn test_edit() {
 
     let (client, server) = logged_in_client_with_server().await;
 
-    // TODO: (#3722) if the event cache isn't available, then making the edit event
-    // will fail.
-    client.event_cache().subscribe().unwrap();
-
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
 
@@ -970,10 +966,6 @@ async fn test_edit() {
 async fn test_edit_with_poll_start() {
     let (client, server) = logged_in_client_with_server().await;
 
-    // TODO: (#3722) if the event cache isn't available, then making the edit event
-    // will fail.
-    client.event_cache().subscribe().unwrap();
-
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
 
@@ -1038,7 +1030,7 @@ async fn test_edit_with_poll_start() {
         .respond_with(
             ResponseTemplate::new(200).set_body_json(
                 EventFactory::new()
-                    .unstable_poll_start("poll_start", "question", vec!["Answer A"])
+                    .poll_start("poll_start", "question", vec!["Answer A"])
                     .sender(client.user_id().unwrap())
                     .room(room_id)
                     .into_raw_timeline()
@@ -1118,10 +1110,6 @@ async fn test_edit_with_poll_start() {
 #[async_test]
 async fn test_edit_while_being_sent_and_fails() {
     let (client, server) = logged_in_client_with_server().await;
-
-    // TODO: (#3722) if the event cache isn't available, then making the edit event
-    // will fail.
-    client.event_cache().subscribe().unwrap();
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");

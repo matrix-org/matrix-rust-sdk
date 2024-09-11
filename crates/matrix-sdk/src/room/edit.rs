@@ -39,8 +39,13 @@ pub enum EditedContent {
     /// The content is a `m.room.message`.
     RoomMessage(RoomMessageEventContentWithoutRelation),
 
-    /// The content is a fallback text and an `org.matrix.msc3381.poll.start`.
-    PollStart(String, UnstablePollStartContentBlock),
+    /// The content is a new poll start.
+    PollStart {
+        /// New fallback text for the poll.
+        fallback_text: String,
+        /// New start block for the poll.
+        new_content: UnstablePollStartContentBlock,
+    },
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -48,7 +53,7 @@ impl std::fmt::Debug for EditedContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::RoomMessage(_) => f.debug_tuple("RoomMessage").finish(),
-            Self::PollStart(_, _) => f.debug_tuple("PollStart").finish(),
+            Self::PollStart { .. } => f.debug_tuple("PollStart").finish(),
         }
     }
 }
@@ -204,23 +209,27 @@ async fn make_edit_event<S: EventSource>(
                 )
                 .into())
         }
-        EditedContent::PollStart(text, new_content) => {
-            let AnySyncMessageLikeEvent::UnstablePollStart(SyncMessageLikeEvent::Original(_)) =
-                message_like_event
-            else {
+
+        EditedContent::PollStart { fallback_text, new_content } => {
+            if !matches!(
+                message_like_event,
+                AnySyncMessageLikeEvent::UnstablePollStart(SyncMessageLikeEvent::Original(_))
+            ) {
                 return Err(EditError::IncompatibleEditType {
                     target: message_like_event.event_type().to_string(),
                     new_content: "poll start",
                 });
-            };
+            }
+
             let replacement = UnstablePollStartEventContent::Replacement(
                 ReplacementUnstablePollStartEventContent::plain_text(
-                    text,
+                    fallback_text,
                     new_content,
                     event_id.to_owned(),
                 ),
             );
-            Ok(AnyMessageLikeEventContent::UnstablePollStart(replacement))
+
+            Ok(replacement.into())
         }
     }
 }

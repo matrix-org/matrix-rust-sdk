@@ -510,7 +510,13 @@ async fn test_send_edit_poll() {
     let edited_poll =
         UnstablePollStartContentBlock::new("Edited Test".to_owned(), edited_poll_answers);
     timeline
-        .edit(&poll_event, EditedContent::PollStart("poll_fallback_text".to_owned(), edited_poll))
+        .edit(
+            &poll_event,
+            EditedContent::PollStart {
+                fallback_text: "poll_fallback_text".to_owned(),
+                new_content: edited_poll,
+            },
+        )
         .await
         .unwrap();
 
@@ -704,8 +710,10 @@ async fn test_edit_local_echo_with_unsupported_content() {
 
     let answers = vec![UnstablePollAnswer::new("A", "Answer A")].try_into().unwrap();
     let poll_content_block = UnstablePollStartContentBlock::new("question", answers);
-    let poll_start_content =
-        EditedContent::PollStart("edited".to_owned(), poll_content_block.clone());
+    let poll_start_content = EditedContent::PollStart {
+        fallback_text: "edited".to_owned(),
+        new_content: poll_content_block.clone(),
+    };
 
     // Let's edit the local echo (message) with an unsupported type (poll start).
     let did_edit = timeline.edit(item, poll_start_content).await.unwrap();

@@ -907,21 +907,28 @@ impl QueueStorage {
 
                     // Check the event is one we know how to edit with an edit event.
 
-                    // It must be deserializable
+                    // It must be deserializable…
                     let edited_content = match new_content.deserialize() {
                         Ok(AnyMessageLikeEventContent::RoomMessage(c)) => {
+                            // Assume no relationships.
                             EditedContent::RoomMessage(c.into())
                         }
+
                         Ok(AnyMessageLikeEventContent::UnstablePollStart(c)) => {
                             let poll_start = c.poll_start().clone();
-                            EditedContent::PollStart(poll_start.question.text.clone(), poll_start)
+                            EditedContent::PollStart {
+                                fallback_text: poll_start.question.text.clone(),
+                                new_content: poll_start,
+                            }
                         }
+
                         Ok(c) => {
                             warn!("Unsupported edit content type: {:?}", c.event_type());
                             return Ok(true);
                         }
+
                         Err(err) => {
-                            warn!("unable to deserialize: {err}");
+                            warn!("Unable to deserialize: {err}");
                             return Ok(true);
                         }
                     };

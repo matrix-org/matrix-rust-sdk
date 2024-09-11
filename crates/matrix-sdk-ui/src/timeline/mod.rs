@@ -490,12 +490,13 @@ impl Timeline {
                                         return Ok(false);
                                     }
                                 }
-                                EditedContent::PollStart(_, poll_start) => {
+                                EditedContent::PollStart { new_content, .. } => {
                                     if matches!(item.content, TimelineItemContent::Poll(_)) {
-                                        let content = UnstablePollStartEventContent::New(
-                                            NewUnstablePollStartEventContent::new(poll_start),
-                                        );
-                                        AnyMessageLikeEventContent::UnstablePollStart(content)
+                                        AnyMessageLikeEventContent::UnstablePollStart(
+                                            UnstablePollStartEventContent::New(
+                                                NewUnstablePollStartEventContent::new(new_content),
+                                            ),
+                                        )
                                     } else {
                                         warn!("New content (poll start) doesn't match previous event content.");
                                         return Ok(false);

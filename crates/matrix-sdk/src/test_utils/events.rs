@@ -23,7 +23,6 @@ use ruma::{
         poll::{
             end::PollEndEventContent,
             response::{PollResponseEventContent, SelectionsContentBlock},
-            start::{PollAnswer, PollContentBlock, PollStartEventContent},
             unstable_start::{
                 NewUnstablePollStartEventContent, UnstablePollAnswer,
                 UnstablePollStartContentBlock, UnstablePollStartEventContent,
@@ -283,44 +282,20 @@ impl EventFactory {
         content: impl Into<String>,
         poll_question: impl Into<String>,
         answers: Vec<impl Into<String>>,
-    ) -> EventBuilder<PollStartEventContent> {
-        // PollAnswers 'constructor' is not public, so we need to deserialize them
-        let answers: Vec<PollAnswer> = answers
-            .into_iter()
-            .enumerate()
-            .map(|(idx, answer)| {
-                PollAnswer::new(idx.to_string(), TextContentBlock::plain(answer.into()))
-            })
-            .collect();
-        let poll_answers = answers.try_into().unwrap();
-        let poll_start_content = PollStartEventContent::new(
-            TextContentBlock::plain(content.into()),
-            PollContentBlock::new(TextContentBlock::plain(poll_question.into()), poll_answers),
-        );
-        self.event(poll_start_content)
-    }
-
-    /// Create an unstable poll start event given a text, the question and the
-    /// possible answers.
-    pub fn unstable_poll_start(
-        &self,
-        content: impl Into<String>,
-        poll_question: impl Into<String>,
-        answers: Vec<impl Into<String>>,
     ) -> EventBuilder<UnstablePollStartEventContent> {
         // PollAnswers 'constructor' is not public, so we need to deserialize them
         let answers: Vec<UnstablePollAnswer> = answers
             .into_iter()
             .enumerate()
-            .map(|(idx, answer)| UnstablePollAnswer::new(idx.to_string(), answer.into()))
+            .map(|(idx, answer)| UnstablePollAnswer::new(idx.to_string(), answer))
             .collect();
         let poll_answers = answers.try_into().unwrap();
-        let unstable_poll_start_content =
+        let poll_start_content =
             UnstablePollStartEventContent::New(NewUnstablePollStartEventContent::plain_text(
                 content,
                 UnstablePollStartContentBlock::new(poll_question, poll_answers),
             ));
-        self.event(unstable_poll_start_content)
+        self.event(poll_start_content)
     }
 
     /// Create a poll response with the given answer id and the associated poll
