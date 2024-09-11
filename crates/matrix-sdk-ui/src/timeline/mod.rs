@@ -36,14 +36,11 @@ use pin_project_lite::pin_project;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
-        poll::unstable_start::{
-            ReplacementUnstablePollStartEventContent, UnstablePollStartContentBlock,
-            UnstablePollStartEventContent,
-        },
+        poll::unstable_start::{NewUnstablePollStartEventContent, UnstablePollStartEventContent},
         receipt::{Receipt, ReceiptThread},
         room::{
             message::{
-                AddMentions, ForwardThread, OriginalRoomMessageEvent, RoomMessageEventContent,
+                AddMentions, ForwardThread, OriginalRoomMessageEvent,
                 RoomMessageEventContentWithoutRelation,
             },
             pinned_events::RoomPinnedEventsEventContent,
@@ -474,7 +471,7 @@ impl Timeline {
     pub async fn edit(
         &self,
         item: &EventTimelineItem,
-        new_content: RoomMessageEventContentWithoutRelation,
+        new_content: EditedContent,
     ) -> Result<bool, Error> {
         let event_id = match item.identifier() {
             TimelineEventItemId::TransactionId(txn_id) => {
@@ -484,9 +481,30 @@ impl Timeline {
                         TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
                         TimelineItemHandle::Local(handle) => {
                             // Relations are filled by the editing code itself.
-                            let new_content: RoomMessageEventContent = new_content.clone().into();
+                            let new_content: AnyMessageLikeEventContent = match new_content {
+                                EditedContent::RoomMessage(message) => {
+                                    if matches!(item.content, TimelineItemContent::Message(_)) {
+                                        AnyMessageLikeEventContent::RoomMessage(message.into())
+                                    } else {
+                                        warn!("New content (m.room.message) doesn't match previous event content.");
+                                        return Ok(false);
+                                    }
+                                }
+                                EditedContent::PollStart { new_content, .. } => {
+                                    if matches!(item.content, TimelineItemContent::Poll(_)) {
+                                        AnyMessageLikeEventContent::UnstablePollStart(
+                                            UnstablePollStartEventContent::New(
+                                                NewUnstablePollStartEventContent::new(new_content),
+                                            ),
+                                        )
+                                    } else {
+                                        warn!("New content (poll start) doesn't match previous event content.");
+                                        return Ok(false);
+                                    }
+                                }
+                            };
                             return Ok(handle
-                                .edit(new_content.into())
+                                .edit(new_content)
                                 .await
                                 .map_err(RoomSendQueueError::StorageError)?);
                         }
@@ -500,44 +518,11 @@ impl Timeline {
             TimelineEventItemId::EventId(event_id) => event_id,
         };
 
-        let content =
-            self.room().make_edit_event(&event_id, EditedContent::RoomMessage(new_content)).await?;
+        let content = self.room().make_edit_event(&event_id, new_content).await?;
 
         self.send(content).await?;
 
         Ok(true)
-    }
-
-    pub async fn edit_poll(
-        &self,
-        fallback_text: impl Into<String>,
-        poll: UnstablePollStartContentBlock,
-        edit_item: &EventTimelineItem,
-    ) -> Result<(), SendEventError> {
-        // TODO: refactor this function into [`Self::edit`], there's no good reason to
-        // keep a separate function for this.
-
-        // Early returns here must be in sync with `EventTimelineItem::is_editable`.
-        if !edit_item.is_own() {
-            return Err(UnsupportedEditItem::NotOwnEvent.into());
-        }
-        let Some(event_id) = edit_item.event_id() else {
-            return Err(UnsupportedEditItem::MissingEvent.into());
-        };
-
-        let TimelineItemContent::Poll(_) = edit_item.content() else {
-            return Err(UnsupportedEditItem::NotPollEvent.into());
-        };
-
-        let content = ReplacementUnstablePollStartEventContent::plain_text(
-            fallback_text,
-            poll,
-            event_id.into(),
-        );
-
-        self.send(UnstablePollStartEventContent::from(content).into()).await?;
-
-        Ok(())
     }
 
     /// Toggle a reaction on an event.

@@ -23,6 +23,7 @@ use futures::pin_mut;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
     encryption::{backups::BackupState, EncryptionSettings},
+    room::edit::EditedContent,
     ruma::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::{
@@ -289,7 +290,10 @@ async fn test_stale_local_echo_time_abort_edit() {
 
     // Now do a crime: try to edit the local echo.
     let did_edit = timeline
-        .edit(&local_echo, RoomMessageEventContent::text_plain("bonjour").into())
+        .edit(
+            &local_echo,
+            EditedContent::RoomMessage(RoomMessageEventContent::text_plain("bonjour").into()),
+        )
         .await
         .unwrap();
 
