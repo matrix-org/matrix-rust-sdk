@@ -57,6 +57,7 @@ pub struct EventBuilder<E: EventContent> {
     content: E,
     server_ts: MilliSecondsSinceUnixEpoch,
     unsigned: Option<Unsigned>,
+    state_key: Option<String>,
 }
 
 impl<E: EventContent> EventBuilder<E>
@@ -89,6 +90,11 @@ where
         self
     }
 
+    pub fn state_key(mut self, state_key: impl Into<String>) -> Self {
+        self.state_key = Some(state_key.into());
+        self
+    }
+
     #[inline(always)]
     fn construct_json<T>(self, requires_room: bool) -> Raw<T> {
         let event_id = self
@@ -118,6 +124,9 @@ where
         }
         if let Some(unsigned) = self.unsigned {
             map.insert("unsigned".to_owned(), json!(unsigned));
+        }
+        if let Some(state_key) = self.state_key {
+            map.insert("state_key".to_owned(), json!(state_key));
         }
 
         Raw::new(map).unwrap().cast()
@@ -237,6 +246,7 @@ impl EventFactory {
             redacts: None,
             content,
             unsigned: None,
+            state_key: None,
         }
     }
 

@@ -240,7 +240,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         focus: TimelineFocus,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
-        is_room_encrypted: bool,
+        is_room_encrypted: Option<bool>,
     ) -> Self {
         let (focus_data, focus_kind) = match focus {
             TimelineFocus::Live => (TimelineFocusData::Live, TimelineFocusKind::Live),
@@ -341,6 +341,34 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .await;
 
                 Ok(has_events)
+            }
+        }
+    }
+
+    /// Listens to encryption state changes for the room in
+    /// [`matrix_sdk_base::RoomInfo`] and applies the new value to the
+    /// existing timeline items. This will then cause a refresh of those
+    /// timeline items.
+    pub async fn handle_encryption_state_changes(&self) {
+        let mut room_info = self.room_data_provider.room_info();
+
+        while let Some(info) = room_info.next().await {
+            let changed = {
+                let state = self.state.read().await;
+                let mut old_is_room_encrypted = state.meta.is_room_encrypted.write().unwrap();
+                let is_encrypted_now = info.is_encrypted();
+
+                if *old_is_room_encrypted != Some(is_encrypted_now) {
+                    *old_is_room_encrypted = Some(is_encrypted_now);
+                    true
+                } else {
+                    false
+                }
+            };
+
+            if changed {
+                let mut state = self.state.write().await;
+                state.update_all_events_is_room_encrypted();
             }
         }
     }

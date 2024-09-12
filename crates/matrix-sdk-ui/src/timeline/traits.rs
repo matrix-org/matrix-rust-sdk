@@ -14,6 +14,7 @@
 
 use std::future::Future;
 
+use eyeball::Subscriber;
 use futures_util::FutureExt as _;
 use indexmap::IndexMap;
 #[cfg(test)]
@@ -22,7 +23,7 @@ use matrix_sdk::{
     deserialized_responses::TimelineEvent, event_cache::paginator::PaginableRoom, BoxFuture,
     Result, Room,
 };
-use matrix_sdk_base::latest_event::LatestEvent;
+use matrix_sdk_base::{latest_event::LatestEvent, RoomInfo};
 use ruma::{
     events::{
         fully_read::FullyReadEventContent,
@@ -107,6 +108,8 @@ pub(super) trait RoomDataProvider:
         reason: Option<&'a str>,
         transaction_id: Option<OwnedTransactionId>,
     ) -> BoxFuture<'a, Result<(), super::Error>>;
+
+    fn room_info(&self) -> Subscriber<RoomInfo>;
 }
 
 impl RoomDataProvider for Room {
@@ -270,6 +273,10 @@ impl RoomDataProvider for Room {
             Ok(())
         }
         .boxed()
+    }
+
+    fn room_info(&self) -> Subscriber<RoomInfo> {
+        self.subscribe_info()
     }
 }
 

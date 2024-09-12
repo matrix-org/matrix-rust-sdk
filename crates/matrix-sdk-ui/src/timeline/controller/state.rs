@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::VecDeque, future::Future, num::NonZeroUsize, sync::Arc};
+use std::{
+    collections::VecDeque,
+    future::Future,
+    num::NonZeroUsize,
+    sync::{Arc, RwLock},
+};
 
 use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use itertools::Itertools as _;
@@ -83,7 +88,7 @@ impl TimelineState {
         room_version: RoomVersionId,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
-        is_room_encrypted: bool,
+        is_room_encrypted: Option<bool>,
     ) -> Self {
         Self {
             // Upstream default capacity is currently 16, which is making
@@ -293,6 +298,16 @@ impl TimelineState {
             txn.add_remote_events_at(events, position, origin, room_data_provider, settings).await;
         txn.commit();
         result
+    }
+
+    pub(super) fn update_all_events_is_room_encrypted(&mut self) {
+        let is_room_encrypted = *self.meta.is_room_encrypted.read().unwrap();
+
+        // When this transaction finishes, all items in the timeline will be emitted
+        // again with the updated encryption value
+        let mut txn = self.transaction();
+        txn.update_all_events_is_room_encrypted(is_room_encrypted);
+        txn.commit();
     }
 
     pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_> {
@@ -720,6 +735,24 @@ impl TimelineStateTransaction<'_> {
     fn adjust_day_dividers(&mut self, mut adjuster: DayDividerAdjuster) {
         adjuster.run(&mut self.items, &mut self.meta);
     }
+
+    /// This method replaces the `is_room_encrypted` value for all timeline
+    /// items to its updated version and creates a `VectorDiff::Set` operation
+    /// for each item which will be added to this transaction.
+    fn update_all_events_is_room_encrypted(&mut self, is_encrypted: Option<bool>) {
+        for idx in 0..self.items.len() {
+            let item = &self.items[idx];
+
+            if let Some(event) = item.as_event() {
+                let mut cloned_event = event.clone();
+                cloned_event.is_room_encrypted = is_encrypted;
+
+                // Replace the existing item with a new version with the right encryption flag
+                let item = item.with_kind(cloned_event);
+                self.items.set(idx, item);
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -754,10 +787,7 @@ pub(in crate::timeline) struct TimelineMetadata {
 
     /// A boolean indicating whether the room the timeline is attached to is
     /// actually encrypted or not.
-    /// TODO: this is misplaced, it should be part of the room provider as this
-    /// value can change over time when a room switches from non-encrypted
-    /// to encrypted, see also #3850.
-    pub(crate) is_room_encrypted: bool,
+    pub(crate) is_room_encrypted: Arc<RwLock<Option<bool>>>,
 
     /// Matrix room version of the timeline's room, or a sensible default.
     ///
@@ -814,7 +844,7 @@ impl TimelineMetadata {
         room_version: RoomVersionId,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
-        is_room_encrypted: bool,
+        is_room_encrypted: Option<bool>,
     ) -> Self {
         Self {
             own_user_id,
@@ -831,7 +861,7 @@ impl TimelineMetadata {
             room_version,
             unable_to_decrypt_hook,
             internal_id_prefix,
-            is_room_encrypted,
+            is_room_encrypted: Arc::new(RwLock::new(is_room_encrypted)),
         }
     }
 

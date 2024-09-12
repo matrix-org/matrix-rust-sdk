@@ -402,6 +402,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
 
             TimelineEventKind::OtherState { state_key, content } => {
+                // Update room encryption if a `m.room.encryption` event is found in the
+                // timeline
                 if should_add {
                     self.add_item(TimelineItemContent::OtherState(OtherState {
                         state_key,
@@ -955,7 +957,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         };
 
-        let is_room_encrypted = self.meta.is_room_encrypted;
+        let is_room_encrypted = if let Ok(is_room_encrypted) = self.meta.is_room_encrypted.read() {
+            is_room_encrypted.unwrap_or_default()
+        } else {
+            false
+        };
 
         let mut item = EventTimelineItem::new(
             sender,

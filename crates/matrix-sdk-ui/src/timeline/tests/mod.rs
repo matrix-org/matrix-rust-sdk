@@ -20,6 +20,7 @@ use std::{
     sync::Arc,
 };
 
+use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::FutureExt as _;
@@ -33,8 +34,8 @@ use matrix_sdk::{
     test_utils::events::EventFactory,
     BoxFuture,
 };
-use matrix_sdk_base::latest_event::LatestEvent;
-use matrix_sdk_test::{EventBuilder, ALICE, BOB};
+use matrix_sdk_base::{latest_event::LatestEvent, RoomInfo, RoomState};
+use matrix_sdk_test::{EventBuilder, ALICE, BOB, DEFAULT_TEST_ROOM_ID};
 use ruma::{
     event_id,
     events::{
@@ -103,7 +104,7 @@ impl TestTimeline {
                 TimelineFocus::Live,
                 Some(prefix),
                 None,
-                false,
+                Some(false),
             ),
             event_builder: EventBuilder::new(),
             factory: EventFactory::new(),
@@ -117,7 +118,7 @@ impl TestTimeline {
                 TimelineFocus::Live,
                 None,
                 None,
-                false,
+                Some(false),
             ),
             event_builder: EventBuilder::new(),
             factory: EventFactory::new(),
@@ -131,7 +132,7 @@ impl TestTimeline {
                 TimelineFocus::Live,
                 None,
                 Some(hook),
-                true,
+                Some(true),
             ),
             event_builder: EventBuilder::new(),
             factory: EventFactory::new(),
@@ -146,7 +147,7 @@ impl TestTimeline {
                 TimelineFocus::Live,
                 None,
                 None,
-                encrypted,
+                Some(encrypted),
             ),
             event_builder: EventBuilder::new(),
             factory: EventFactory::new(),
@@ -443,5 +444,10 @@ impl RoomDataProvider for TestRoomDataProvider {
             Ok(())
         }
         .boxed()
+    }
+
+    fn room_info(&self) -> Subscriber<RoomInfo> {
+        let info = RoomInfo::new(*DEFAULT_TEST_ROOM_ID, RoomState::Joined);
+        SharedObservable::new(info).subscribe()
     }
 }
