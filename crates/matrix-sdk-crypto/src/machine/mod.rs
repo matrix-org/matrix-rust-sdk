@@ -1747,7 +1747,7 @@ impl OlmMachine {
         self.decrypt_room_event_inner(event, room_id, true, decryption_settings).await
     }
 
-    #[instrument(name = "decrypt_room_event", skip_all, fields(?room_id, event_id, origin_server_ts, sender, algorithm, session_id, sender_key))]
+    #[instrument(name = "decrypt_room_event", skip_all, fields(?room_id, event_id, origin_server_ts, sender, algorithm, session_id, message_index, sender_key))]
     async fn decrypt_room_event_inner(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -1781,6 +1781,8 @@ impl OlmMachine {
         };
 
         Span::current().record("session_id", content.session_id());
+        Span::current().record("message_index", content.message_index());
+
         let result =
             self.decrypt_megolm_events(room_id, &event, &content, decryption_settings).await;
 
