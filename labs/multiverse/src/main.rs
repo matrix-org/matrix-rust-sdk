@@ -23,8 +23,9 @@ use matrix_sdk::{
     ruma::{
         api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::{MessageType, RoomMessageEventContent},
-        MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
+        uint, MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
     },
+    sliding_sync::http::request::RoomSubscription,
     AuthSession, Client, ServerName, SqliteCryptoStore, SqliteStateStore,
 };
 use matrix_sdk_ui::{
@@ -35,7 +36,7 @@ use matrix_sdk_ui::{
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
 use tokio::{runtime::Handle, spawn, task::JoinHandle};
-use tracing::error;
+use tracing::{error, warn};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter};
 
 const HEADER_BG: Color = tailwind::BLUE.c950;
@@ -129,6 +130,9 @@ struct ExtraRoomInfo {
 
     /// Calculated display name for the room.
     display_name: Option<String>,
+
+    /// Is the room a DM?
+    is_dm: Option<bool>,
 }
 
 struct App {
@@ -223,6 +227,23 @@ impl App {
                 let mut new_ui_rooms = HashMap::new();
                 let mut new_timelines = Vec::new();
 
+                // Update all the room info for all rooms.
+                for room in all_rooms.iter() {
+                    let raw_name = room.name();
+                    let display_name = room.cached_display_name();
+                    let is_dm = room
+                        .is_direct()
+                        .await
+                        .map_err(|err| {
+                            warn!("couldn't figure whether a room is a DM or not: {err}");
+                        })
+                        .ok();
+                    room_infos.lock().unwrap().insert(
+                        room.room_id().to_owned(),
+                        ExtraRoomInfo { raw_name, display_name, is_dm },
+                    );
+                }
+
                 // Initialize all the new rooms.
                 for ui_room in all_rooms
                     .into_iter()
@@ -264,15 +285,6 @@ impl App {
 
                     // Save the room list service room in the cache.
                     new_ui_rooms.insert(ui_room.room_id().to_owned(), ui_room);
-                }
-
-                for (room_id, room) in &new_ui_rooms {
-                    let raw_name = room.name();
-                    let display_name = room.cached_display_name();
-                    room_infos
-                        .lock()
-                        .unwrap()
-                        .insert(room_id.to_owned(), ExtraRoomInfo { raw_name, display_name });
                 }
 
                 ui_rooms.lock().unwrap().extend(new_ui_rooms);
@@ -398,7 +410,10 @@ impl App {
             .get_selected_room_id(Some(selected))
             .and_then(|room_id| self.ui_rooms.lock().unwrap().get(&room_id).cloned())
         {
-            self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()], None);
+            let mut sub = RoomSubscription::default();
+            sub.timeline_limit = Some(uint!(30));
+
+            self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()], Some(sub));
             self.current_room_subscription = Some(room);
         }
     }
@@ -588,11 +603,13 @@ impl App {
                     let room_id = room.room_id();
                     let room_info = room_info.remove(room_id);
 
-                    let (raw, display) = if let Some(info) = room_info {
-                        (info.raw_name, info.display_name)
+                    let (raw, display, is_dm) = if let Some(info) = room_info {
+                        (info.raw_name, info.display_name, info.is_dm)
                     } else {
-                        (None, None)
+                        (None, None, None)
                     };
+
+                    let dm_marker = if is_dm.unwrap_or(false) { "🤫" } else { "" };
 
                     let room_name = if let Some(n) = display {
                         format!("{n} ({room_id})")
@@ -602,7 +619,7 @@ impl App {
                         room_id.to_string()
                     };
 
-                    format!("#{i} {}", room_name)
+                    format!("#{i}{dm_marker} {}", room_name)
                 };
 
                 let line = Line::styled(line, TEXT_COLOR);
