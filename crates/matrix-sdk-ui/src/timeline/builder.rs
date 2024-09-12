@@ -158,8 +158,7 @@ impl TimelineBuilder {
         let (_, mut event_subscriber) = room_event_cache.subscribe().await?;
 
         let is_pinned_events = matches!(focus, TimelineFocus::PinnedEvents { .. });
-        let is_room_encrypted =
-            room.is_encrypted().await.map_err(|_| Error::UnknownEncryptionState)?;
+        let is_room_encrypted = room.is_encrypted().await.ok();
 
         let controller = TimelineController::new(
             room,
@@ -195,6 +194,13 @@ impl TimelineBuilder {
         } else {
             None
         };
+
+        let encryption_changes_handle = spawn({
+            let inner = controller.clone();
+            async move {
+                inner.handle_encryption_state_changes().await;
+            }
+        });
 
         let room_update_join_handle = spawn({
             let room_event_cache = room_event_cache.clone();
@@ -421,6 +427,7 @@ impl TimelineBuilder {
                 room_key_backup_enabled_join_handle,
                 local_echo_listener_handle,
                 _event_cache_drop_handle: event_cache_drop,
+                encryption_changes_handle,
             }),
         };
 

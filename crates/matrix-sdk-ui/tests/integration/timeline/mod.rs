@@ -26,14 +26,22 @@ use matrix_sdk_test::{
     async_test,
     mocks::{mock_encryption_state, mock_redaction},
     sync_timeline_event, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent,
-    SyncResponseBuilder,
+    SyncResponseBuilder, BOB,
 };
-use matrix_sdk_ui::timeline::{EventSendState, RoomExt, TimelineItemContent, VirtualTimelineItem};
+use matrix_sdk_ui::{
+    timeline::{
+        AnyOtherFullStateEventContent, EventSendState, RoomExt, TimelineItemContent,
+        VirtualTimelineItem,
+    },
+    RoomListService, Timeline,
+};
 use ruma::{
-    event_id, events::room::message::RoomMessageEventContent, room_id, user_id,
-    MilliSecondsSinceUnixEpoch,
+    event_id,
+    events::room::{encryption::RoomEncryptionEventContent, message::RoomMessageEventContent},
+    room_id, user_id, MilliSecondsSinceUnixEpoch,
 };
 use serde_json::json;
+use stream_assert::{assert_next_matches, assert_pending};
 use wiremock::{
     matchers::{header, method, path_regex},
     Mock, ResponseTemplate,
@@ -621,6 +629,95 @@ async fn test_unpin_event_is_returning_an_error() {
     setup.reset_server().await;
 }
 
+#[async_test]
+async fn test_timeline_without_encryption_info() {
+    // No encryption is mocked for this client/server pair
+    let (client, server) = logged_in_client_with_server().await;
+    let _ = RoomListService::new(client.clone()).await.unwrap();
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("A message").into_raw_sync()),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    // Previously this would have panicked.
+    let timeline = room.timeline().await.unwrap();
+
+    let (items, _) = timeline.subscribe().await;
+    assert_eq!(items.len(), 2);
+    assert!(items[0].as_virtual().is_some());
+    // No encryption, no shields
+    assert!(items[1].as_event().unwrap().get_shield(false).is_none());
+}
+
+#[async_test]
+async fn test_timeline_without_encryption_can_update() {
+    // No encryption is mocked for this client/server pair
+    let (client, server) = logged_in_client_with_server().await;
+    let _ = RoomListService::new(client.clone()).await.unwrap();
+
+    let room_id = room_id!("!jEsUZKDJdhlrceRyVU:example.org");
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("A message").into_raw_sync()),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    let room = client.get_room(room_id).unwrap();
+    // Previously this would have panicked.
+    // We're creating a timeline without read receipts tracking to check only the
+    // encryption changes
+    let timeline = Timeline::builder(&room).build().await.unwrap();
+
+    let (items, mut stream) = timeline.subscribe().await;
+    assert_eq!(items.len(), 2);
+    assert!(items[0].as_virtual().is_some());
+    // No encryption, no shields
+    assert!(items[1].as_event().unwrap().get_shield(false).is_none());
+
+    let encryption_event_content = RoomEncryptionEventContent::with_recommended_defaults();
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(f.event(encryption_event_content).state_key("").into_raw_sync())
+            .add_timeline_event(f.text_msg("An encrypted message").into_raw_sync()),
+    );
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // Previous timeline event now has a shield
+    assert_next_matches!(stream, VectorDiff::Set { index, value } => {
+        assert_eq!(index, 1);
+        assert!(value.as_event().unwrap().get_shield(false).is_some());
+    });
+    // Room encryption event is received
+    assert_next_matches!(stream, VectorDiff::PushBack { value } => {
+        assert_let!(TimelineItemContent::OtherState(other_state) = value.as_event().unwrap().content());
+        assert_let!(AnyOtherFullStateEventContent::RoomEncryption(_) = other_state.content());
+        assert!(value.as_event().unwrap().get_shield(false).is_some());
+    });
+    // New message event is received and has a shield
+    assert_next_matches!(stream, VectorDiff::PushBack { value } => {
+        assert!(value.as_event().unwrap().get_shield(false).is_some());
+    });
+    assert_pending!(stream);
+}
+
 struct PinningTestSetup<'a> {
     event_id: &'a ruma::EventId,
     room_id: &'a ruma::RoomId,
@@ -647,7 +744,7 @@ impl PinningTestSetup<'_> {
         Self { event_id, room_id, client, server, sync_settings, sync_builder }
     }
 
-    async fn timeline(&self) -> matrix_sdk_ui::Timeline {
+    async fn timeline(&self) -> Timeline {
         mock_encryption_state(&self.server, false).await;
         let room = self.client.get_room(self.room_id).unwrap();
         room.timeline().await.unwrap()

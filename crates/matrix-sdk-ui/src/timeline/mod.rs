@@ -839,6 +839,7 @@ struct TimelineDropHandle {
     room_key_backup_enabled_join_handle: JoinHandle<()>,
     local_echo_listener_handle: JoinHandle<()>,
     _event_cache_drop_handle: Arc<EventCacheDropHandles>,
+    encryption_changes_handle: JoinHandle<()>,
 }
 
 impl Drop for TimelineDropHandle {
@@ -855,6 +856,7 @@ impl Drop for TimelineDropHandle {
         self.room_update_join_handle.abort();
         self.room_key_from_backups_join_handle.abort();
         self.room_key_backup_enabled_join_handle.abort();
+        self.encryption_changes_handle.abort();
     }
 }
 
