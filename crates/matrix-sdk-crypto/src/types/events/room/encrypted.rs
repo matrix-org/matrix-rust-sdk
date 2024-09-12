@@ -268,6 +268,15 @@ impl SupportedEventEncryptionSchemes<'_> {
             SupportedEventEncryptionSchemes::MegolmV2AesSha2(c) => &c.session_id,
         }
     }
+
+    /// The index of the Megolm ratchet that was used to encrypt the message.
+    pub fn message_index(&self) -> u32 {
+        match self {
+            SupportedEventEncryptionSchemes::MegolmV1AesSha2(c) => c.ciphertext.message_index(),
+            #[cfg(feature = "experimental-algorithms")]
+            SupportedEventEncryptionSchemes::MegolmV2AesSha2(c) => c.ciphertext.message_index(),
+        }
+    }
 }
 
 impl<'a> From<&'a MegolmV1AesSha2Content> for SupportedEventEncryptionSchemes<'a> {

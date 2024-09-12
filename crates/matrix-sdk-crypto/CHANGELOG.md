@@ -2,6 +2,9 @@
 
 Changes:
 
+- Improve logging for undecryptable Megolm events.
+  ([#3989](https://github.com/matrix-org/matrix-rust-sdk/pull/3989))
+
 - Miscellaneous improvements to logging for verification and `OwnUserIdentity`
   updates.
   ([#3949](https://github.com/matrix-org/matrix-rust-sdk/pull/3949))
