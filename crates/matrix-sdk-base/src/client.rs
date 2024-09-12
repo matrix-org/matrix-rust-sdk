@@ -686,6 +686,8 @@ impl BaseClient {
             };
 
             if let AnyGlobalAccountDataEvent::Direct(e) = &event {
+                warn!(event = ?e.content, "received a new global account data event");
+
                 let mut new_dms = HashMap::<&RoomId, HashSet<OwnedUserId>>::new();
                 for (user_id, rooms) in e.content.iter() {
                     for room_id in rooms {
@@ -706,12 +708,13 @@ impl BaseClient {
                 for (room_id, new_direct_targets) in new_dms {
                     if let Some(old_direct_targets) = old_dms.remove(&room_id) {
                         if old_direct_targets == new_direct_targets {
+                            warn!(%room_id, "room direct target hasn't changed, not marking as DM");
                             continue;
                         }
                     }
 
                     trace!(
-                        ?room_id, targets = ?new_direct_targets,
+                        %room_id, targets = ?new_direct_targets,
                         "Marking room as direct room"
                     );
 
@@ -721,6 +724,8 @@ impl BaseClient {
                         let mut info = room.clone_info();
                         info.base_info.dm_targets = new_direct_targets;
                         changes.add_room(info);
+                    } else {
+                        warn!(%room_id, "missing room (both changes and store) when marking room as direct!");
                     }
                 }
 
