@@ -925,6 +925,63 @@ fn vodozemac_version() -> String {
     vodozemac::VERSION.to_owned()
 }
 
+/// The encryption component of PkEncryption support.
+///
+/// This struct can be created using a [`Curve25519PublicKey`] corresponding to
+/// a `PkDecryption` object, allowing messages to be encrypted for the
+/// associated decryption object.
+#[derive(uniffi::Object)]
+pub struct PkEncryption {
+    inner: matrix_sdk_crypto::vodozemac::pk_encryption::PkEncryption,
+}
+
+#[uniffi::export]
+impl PkEncryption {
+    /// Create a new [`PkEncryption`] object from a `Curve25519PublicKey`
+    /// encoded as Base64.
+    ///
+    /// The public key should come from an existing `PkDecryption` object.
+    /// Returns a `DecodeError` if the Curve25519 key could not be decoded
+    /// correctly.
+    #[uniffi::constructor]
+    pub fn from_base64(key: &str) -> Result<Arc<Self>, DecodeError> {
+        let key = vodozemac::Curve25519PublicKey::from_base64(key)
+            .map_err(matrix_sdk_crypto::backups::DecodeError::PublicKey)?;
+        let inner = vodozemac::pk_encryption::PkEncryption::from_key(key);
+
+        Ok(Self { inner }.into())
+    }
+
+    /// Encrypt a message using this [`PkEncryption`] object.
+    pub fn encrypt(&self, plaintext: &str) -> PkMessage {
+        use vodozemac::base64_encode;
+
+        let message = self.inner.encrypt(plaintext.as_ref());
+
+        let vodozemac::pk_encryption::Message { ciphertext, mac, ephemeral_key } = message;
+
+        PkMessage {
+            ciphertext: base64_encode(ciphertext),
+            mac: base64_encode(mac),
+            ephemeral_key: ephemeral_key.to_base64(),
+        }
+    }
+}
+
+/// A message that was encrypted using a [`PkEncryption`] object.
+#[derive(uniffi::Record)]
+pub struct PkMessage {
+    /// The ciphertext of the message.
+    pub ciphertext: String,
+    /// The message authentication code of the message.
+    ///
+    /// *Warning*: This does not authenticate the ciphertext.
+    pub mac: String,
+    /// The ephemeral Curve25519 key of the message which was used to derive the
+    /// individual message key.
+    pub ephemeral_key: String,
+}
+
 uniffi::setup_scaffolding!();
 
 #[cfg(test)]
