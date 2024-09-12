@@ -942,7 +942,7 @@ impl PkEncryption {
     ///
     /// The public key should come from an existing `PkDecryption` object.
     /// Returns a `DecodeError` if the Curve25519 key could not be decoded
-    /// correctly..
+    /// correctly.
     #[uniffi::constructor]
     pub fn from_base64(key: &str) -> Result<Arc<Self>, DecodeError> {
         let key = vodozemac::Curve25519PublicKey::from_base64(key)
