@@ -26,11 +26,14 @@ use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 use ruma::events::AnyToDeviceEvent;
 use ruma::{
     api::client::sync::sync_events::v3::{self, InvitedRoom},
-    events::{AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent},
+    events::{
+        AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        GlobalAccountDataEventType,
+    },
     serde::Raw,
     JsOption, OwnedRoomId, RoomId, UInt,
 };
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use super::BaseClient;
 #[cfg(feature = "e2e-encryption")]
@@ -303,8 +306,11 @@ impl BaseClient {
         // because we want to have the push rules in place before we process
         // rooms and their events, but we want to create the rooms before we
         // process the `m.direct` account data event.
-        if !account_data.is_empty() {
-            self.handle_account_data(&account_data.global, &mut changes).await;
+        if let Ok(Some(direct_account_data)) =
+            self.store.get_account_data_event(GlobalAccountDataEventType::Direct).await
+        {
+            debug!("Found direct room data in the Store, applying it");
+            self.handle_account_data(&vec![direct_account_data], &mut changes).await;
         }
 
         // FIXME not yet supported by sliding sync.
