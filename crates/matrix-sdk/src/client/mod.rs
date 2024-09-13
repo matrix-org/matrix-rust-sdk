@@ -2204,7 +2204,7 @@ impl Client {
                 #[cfg(feature = "experimental-sliding-sync")]
                 self.sliding_sync_version(),
                 self.inner.http_client.clone(),
-                self.inner.base_client.clone_with_in_memory_state_store(),
+                self.inner.base_client.clone_with_in_memory_state_store().await?,
                 self.inner.server_capabilities.read().await.clone(),
                 self.inner.respect_login_well_known,
                 self.inner.event_cache.clone(),
@@ -2214,23 +2214,6 @@ impl Client {
             )
             .await,
         };
-
-        // Copy the parent's session meta into the child. This initializes the in-memory
-        // state store of the child client with `SessionMeta`, and regenerates
-        // the `OlmMachine` if needs be.
-        //
-        // Note: we don't need to do a full `restore_session`, because this would
-        // overwrite the session information shared with the parent too, and it
-        // must be initialized at most once.
-        if let Some(session) = self.session() {
-            client
-                .set_session_meta(
-                    session.into_meta(),
-                    #[cfg(feature = "e2e-encryption")]
-                    None,
-                )
-                .await?;
-        }
 
         Ok(client)
     }
