@@ -11,7 +11,8 @@ pub struct ElementCallWellKnown {
 /// Element specific well-known settings
 #[derive(Deserialize, uniffi::Record)]
 pub struct ElementWellKnown {
-    call: ElementCallWellKnown,
+    call: Option<ElementCallWellKnown>,
+    registration_helper_url: Option<String>,
 }
 
 /// Helper function to parse a string into a ElementWellKnown struct
