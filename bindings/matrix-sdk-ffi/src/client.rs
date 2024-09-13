@@ -793,6 +793,21 @@ impl Client {
         self.inner.homeserver().to_string()
     }
 
+    /// The URL of the server.
+    ///
+    /// Not to be confused with the `Self::homeserver`. `server` is usually
+    /// the server part in a user ID, e.g. with `@mnt_io:matrix.org`, here
+    /// `matrix.org` is the server, whilst `matrix-client.matrix.org` is the
+    /// homeserver (at the time of writing — 2024-08-28).
+    ///
+    /// This value is optional depending on how the `Client` has been built.
+    /// If it's been built from a homeserver URL directly, we don't know the
+    /// server. However, if the `Client` has been built from a server URL or
+    /// name, then the homeserver has been discovered, and we know both.
+    pub fn server(&self) -> Option<String> {
+        self.inner.server().map(ToString::to_string)
+    }
+
     pub fn rooms(&self) -> Vec<Arc<Room>> {
         self.inner.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
     }
