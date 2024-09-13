@@ -14,15 +14,20 @@
 
 //! States and actions for the `RoomList` state machine.
 
-use std::future::ready;
+use std::{
+    future::ready,
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 
+use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk::{sliding_sync::Range, SlidingSync, SlidingSyncMode};
 
 use super::Error;
 
 pub const ALL_ROOMS_LIST_NAME: &str = "all_rooms";
 
-/// The state of the [`super::RoomList`]' state machine.
+/// The state of the [`super::RoomList`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
     /// That's the first initial state.
@@ -46,13 +51,71 @@ pub enum State {
     Terminated { from: Box<State> },
 }
 
-impl State {
+/// Default value for `StateMachine::state_lifespan`.
+const DEFAULT_STATE_LIFESPAN: Duration = Duration::from_secs(1800);
+
+/// The state machine used to transition between the [`State`]s.
+#[derive(Debug)]
+pub struct StateMachine {
+    /// The current state of the `RoomListService`.
+    state: SharedObservable<State>,
+
+    /// Last time the state has been updated.
+    ///
+    /// When the state has not been updated since a long time, we want to enter
+    /// the [`State::Recovering`] state. Why do we need to do that? Because in
+    /// some cases, the user might have received many updates between two
+    /// distant syncs. If the sliding sync list range was too large, like
+    /// 0..=499, the next sync is likely to be heavy and potentially slow.
+    /// In this case, it's preferable to jump back onto `Recovering`, which will
+    /// reset the range, so that the next sync will be fast for the client.
+    ///
+    /// To be used in coordination with `Self::state_lifespan`.
+    ///
+    /// This mutex is only taken for short periods of time, so it's sync.
+    last_state_update_time: Mutex<Instant>,
+
+    /// The maximum time before considering the state as “too old”.
+    ///
+    /// To be used in coordination with `Self::last_state_update_time`.
+    state_lifespan: Duration,
+}
+
+impl StateMachine {
+    pub(super) fn new() -> Self {
+        StateMachine {
+            state: SharedObservable::new(State::Init),
+            last_state_update_time: Mutex::new(Instant::now()),
+            state_lifespan: DEFAULT_STATE_LIFESPAN,
+        }
+    }
+
+    /// Get the current state.
+    pub(super) fn get(&self) -> State {
+        self.state.get()
+    }
+
+    /// Set the new state.
+    ///
+    /// Setting a new state will update `Self::last_state_update`.
+    pub(super) fn set(&self, state: State) {
+        let mut last_state_update_time = self.last_state_update_time.lock().unwrap();
+        *last_state_update_time = Instant::now();
+
+        self.state.set(state);
+    }
+
+    /// Subscribe to state updates.
+    pub fn subscribe(&self) -> Subscriber<State> {
+        self.state.subscribe()
+    }
+
     /// Transition to the next state, and execute the associated transition's
     /// [`Actions`].
-    pub(super) async fn next(&self, sliding_sync: &SlidingSync) -> Result<Self, Error> {
+    pub(super) async fn next(&self, sliding_sync: &SlidingSync) -> Result<State, Error> {
         use State::*;
 
-        let next_state = match self {
+        let next_state = match self.get() {
             Init => SettingUp,
 
             SettingUp | Recovering => {
@@ -60,7 +123,18 @@ impl State {
                 Running
             }
 
-            Running => Running,
+            Running => {
+                // We haven't changed the state for a while, we go back to `Recovering` to avoid
+                // requesting potentially large data. See `Self::last_state_update` to learn
+                // the details.
+                if self.last_state_update_time.lock().unwrap().elapsed() > self.state_lifespan {
+                    set_all_rooms_to_selective_sync_mode(sliding_sync).await?;
+
+                    Recovering
+                } else {
+                    Running
+                }
+            }
 
             Error { from: previous_state } | Terminated { from: previous_state } => {
                 match previous_state.as_ref() {
@@ -122,6 +196,7 @@ pub const ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE: u32 = 100;
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
+    use tokio::time::sleep;
 
     use super::{super::tests::new_room_list, *};
 
@@ -130,94 +205,155 @@ mod tests {
         let room_list = new_room_list().await?;
         let sliding_sync = room_list.sliding_sync();
 
-        // First state.
-        let state = State::Init;
+        let state_machine = StateMachine::new();
 
         // Hypothetical error.
         {
-            let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            state_machine.set(State::Error { from: Box::new(state_machine.get()) });
 
             // Back to the previous state.
-            assert_eq!(state, State::Init);
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Init);
         }
 
         // Hypothetical termination.
         {
-            let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            state_machine.set(State::Terminated { from: Box::new(state_machine.get()) });
 
             // Back to the previous state.
-            assert_eq!(state, State::Init);
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Init);
         }
 
         // Next state.
-        let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::SettingUp);
+        state_machine.set(state_machine.next(sliding_sync).await?);
+        assert_eq!(state_machine.get(), State::SettingUp);
 
         // Hypothetical error.
         {
-            let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            state_machine.set(State::Error { from: Box::new(state_machine.get()) });
 
             // Back to the previous state.
-            assert_eq!(state, State::SettingUp);
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::SettingUp);
         }
 
         // Hypothetical termination.
         {
-            let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            state_machine.set(State::Terminated { from: Box::new(state_machine.get()) });
 
             // Back to the previous state.
-            assert_eq!(state, State::SettingUp);
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::SettingUp);
         }
 
         // Next state.
-        let state = state.next(sliding_sync).await?;
-        assert_eq!(state, State::Running);
+        state_machine.set(state_machine.next(sliding_sync).await?);
+        assert_eq!(state_machine.get(), State::Running);
 
         // Hypothetical error.
         {
-            let state = State::Error { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            state_machine.set(State::Error { from: Box::new(state_machine.get()) });
 
             // Jump to the **recovering** state!
-            assert_eq!(state, State::Recovering);
-
-            let state = state.next(sliding_sync).await?;
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Recovering);
 
             // Now, back to the previous state.
-            assert_eq!(state, State::Running);
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Running);
         }
 
         // Hypothetical termination.
         {
-            let state =
-                State::Terminated { from: Box::new(state.clone()) }.next(sliding_sync).await?;
+            state_machine.set(State::Terminated { from: Box::new(state_machine.get()) });
 
             // Jump to the **recovering** state!
-            assert_eq!(state, State::Recovering);
-
-            let state = state.next(sliding_sync).await?;
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Recovering);
 
             // Now, back to the previous state.
-            assert_eq!(state, State::Running);
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Running);
         }
 
         // Hypothetical error when recovering.
         {
-            let state =
-                State::Error { from: Box::new(State::Recovering) }.next(sliding_sync).await?;
+            state_machine.set(State::Error { from: Box::new(State::Recovering) });
 
             // Back to the previous state.
-            assert_eq!(state, State::Recovering);
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Recovering);
         }
 
         // Hypothetical termination when recovering.
         {
-            let state =
-                State::Terminated { from: Box::new(State::Recovering) }.next(sliding_sync).await?;
+            state_machine.set(State::Terminated { from: Box::new(State::Recovering) });
 
             // Back to the previous state.
-            assert_eq!(state, State::Recovering);
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Recovering);
+        }
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_recover_state_after_delay() -> Result<(), Error> {
+        let room_list = new_room_list().await?;
+        let sliding_sync = room_list.sliding_sync();
+
+        let mut state_machine = StateMachine::new();
+        state_machine.state_lifespan = Duration::from_millis(50);
+
+        {
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::SettingUp);
+
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Running);
+
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Running);
+
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Running);
+        }
+
+        // Time passes.
+        sleep(Duration::from_millis(100)).await;
+
+        {
+            // Time has elapsed, time to recover.
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Recovering);
+
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Running);
+
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Running);
+
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Running);
+        }
+
+        // Time passes, again. Just to test everything is going well.
+        sleep(Duration::from_millis(100)).await;
+
+        {
+            // Time has elapsed, time to recover.
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Recovering);
+
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Running);
+
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Running);
+
+            state_machine.set(state_machine.next(sliding_sync).await?);
+            assert_eq!(state_machine.get(), State::Running);
         }
 
         Ok(())
