@@ -1169,7 +1169,12 @@ impl BaseClient {
         // because we want to have the push rules in place before we process
         // rooms and their events, but we want to create the rooms before we
         // process the `m.direct` account data event.
-        self.handle_account_data(&response.account_data.events, &mut changes).await;
+        if let Ok(Some(direct_account_data)) =
+            self.store.get_account_data_event(GlobalAccountDataEventType::Direct).await
+        {
+            debug!("Found direct room data in the Store, applying it");
+            self.handle_account_data(&vec![direct_account_data], &mut changes).await;
+        }
 
         changes.presence = response
             .presence
