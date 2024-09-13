@@ -33,7 +33,7 @@ use ruma::{
     serde::Raw,
     JsOption, OwnedRoomId, RoomId, UInt,
 };
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 
 use super::BaseClient;
 #[cfg(feature = "e2e-encryption")]
@@ -306,11 +306,19 @@ impl BaseClient {
         // because we want to have the push rules in place before we process
         // rooms and their events, but we want to create the rooms before we
         // process the `m.direct` account data event.
-        if let Ok(Some(direct_account_data)) =
+        let has_new_direct_room_data = account_data.global.iter().any(|raw_event| {
+            raw_event
+                .deserialize()
+                .map(|event| event.event_type() == GlobalAccountDataEventType::Direct)
+                .unwrap_or_default()
+        });
+        if has_new_direct_room_data {
+            self.handle_account_data(&account_data.global, &mut changes).await;
+        } else if let Ok(Some(direct_account_data)) =
             self.store.get_account_data_event(GlobalAccountDataEventType::Direct).await
         {
             debug!("Found direct room data in the Store, applying it");
-            self.handle_account_data(&vec![direct_account_data], &mut changes).await;
+            self.handle_account_data(&[direct_account_data], &mut changes).await;
         }
 
         // FIXME not yet supported by sliding sync.
@@ -2316,6 +2324,41 @@ mod tests {
         client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
         let pinned_event_ids = room.pinned_event_ids();
         assert!(pinned_event_ids.is_empty());
+    }
+
+    #[async_test]
+    async fn test_dms_are_processed_in_any_sync_response() {
+        let current_user_id = user_id!("@current:e.uk");
+        let client = logged_in_base_client(Some(current_user_id)).await;
+        let user_a_id = user_id!("@a:e.uk");
+        let user_b_id = user_id!("@b:e.uk");
+        let room_id_1 = room_id!("!r:e.uk");
+        let room_id_2 = room_id!("!s:e.uk");
+
+        let mut room_response = http::response::Room::new();
+        set_room_joined(&mut room_response, user_a_id);
+        let mut response = response_with_room(room_id_1, room_response);
+        let mut direct_content = BTreeMap::new();
+        direct_content.insert(user_a_id.to_owned(), vec![room_id_1.to_owned()]);
+        direct_content.insert(user_b_id.to_owned(), vec![room_id_2.to_owned()]);
+        response
+            .extensions
+            .account_data
+            .global
+            .push(make_global_account_data_event(DirectEventContent(direct_content)));
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
+
+        let room_1 = client.get_room(room_id_1).unwrap();
+        assert!(room_1.is_direct().await.unwrap());
+
+        // Now perform a sync without new account data
+        let mut room_response = http::response::Room::new();
+        set_room_joined(&mut room_response, user_b_id);
+        let response = response_with_room(room_id_2, room_response);
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
+
+        let room_2 = client.get_room(room_id_2).unwrap();
+        assert!(room_2.is_direct().await.unwrap());
     }
 
     async fn choose_event_to_cache(events: &[SyncTimelineEvent]) -> Option<SyncTimelineEvent> {

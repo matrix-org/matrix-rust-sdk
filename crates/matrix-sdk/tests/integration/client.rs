@@ -13,7 +13,7 @@ use matrix_sdk_test::{
         self,
         sync::{MIXED_INVITED_ROOM_ID, MIXED_JOINED_ROOM_ID, MIXED_LEFT_ROOM_ID, MIXED_SYNC},
     },
-    JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+    GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     api::client::{
@@ -1237,4 +1237,58 @@ async fn test_rooms_stream() {
     assert_eq!(room_3.room_id(), room_id_3);
 
     assert_pending!(rooms_stream);
+}
+
+#[async_test]
+async fn test_dms_are_processed_in_any_sync_response() {
+    let (client, server) = logged_in_client_with_server().await;
+    let user_a_id = user_id!("@a:e.uk");
+    let user_b_id = user_id!("@b:e.uk");
+    let room_id_1 = room_id!("!r:e.uk");
+    let room_id_2 = room_id!("!s:e.uk");
+
+    let joined_room_builder = JoinedRoomBuilder::new(room_id_1);
+    let mut sync_response_builder = SyncResponseBuilder::new();
+    sync_response_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(
+        json!({
+          "content": {
+            user_a_id: [
+                room_id_1
+            ],
+            user_b_id: [
+                room_id_2
+            ]
+          },
+          "type": "m.direct",
+          "event_id": "$757957878228ekrDs:localhost",
+            "origin_server_ts": 17195787,
+            "sender": "@example:localhost",
+            "state_key": "",
+            "type": "m.direct",
+            "unsigned": {
+              "age": 139298
+            }
+        }),
+    ));
+    sync_response_builder.add_joined_room(joined_room_builder);
+    let json_response = sync_response_builder.build_json_sync_response();
+
+    mock_sync(&server, json_response, None).await;
+    client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    let room_1 = client.get_room(room_id_1).unwrap();
+    assert!(room_1.is_direct().await.unwrap());
+
+    // Now perform a sync without new account data
+    let joined_room_builder = JoinedRoomBuilder::new(room_id_2);
+    sync_response_builder.add_joined_room(joined_room_builder);
+    let json_response = sync_response_builder.build_json_sync_response();
+
+    mock_sync(&server, json_response, None).await;
+    client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    let room_2 = client.get_room(room_id_2).unwrap();
+    assert!(room_2.is_direct().await.unwrap());
 }
