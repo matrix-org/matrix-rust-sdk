@@ -1168,6 +1168,96 @@ async fn test_loading_states() -> Result<(), Error> {
 }
 
 #[async_test]
+async fn test_entries_stream() -> Result<(), Error> {
+    let (_, server, room_list) = new_room_list_service().await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let all_rooms = room_list.all_rooms().await?;
+
+    let (previous_entries, entries_stream) = all_rooms.entries();
+    pin_mut!(entries_stream);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Init => SettingUp,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 10,
+                },
+            },
+            "rooms": {
+                "!r0:bar.org": {
+                    "initial": true,
+                    "timeline": [],
+                },
+                "!r1:bar.org": {
+                    "initial": true,
+                    "timeline": [],
+                },
+                "!r2:bar.org": {
+                    "initial": true,
+                    "timeline": [],
+                },
+            },
+        },
+    };
+
+    assert!(previous_entries.is_empty());
+    assert_entries_batch! {
+        [entries_stream]
+        push back [ "!r0:bar.org" ];
+        push back [ "!r1:bar.org" ];
+        push back [ "!r2:bar.org" ];
+        end;
+    };
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = SettingUp => Running,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 9]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 9,
+                },
+            },
+            "rooms": {
+                "!r3:bar.org": {
+                    "initial": true,
+                    "timeline": [],
+                },
+            },
+        },
+    };
+
+    assert_entries_batch! {
+        [entries_stream]
+        push back [ "!r3:bar.org" ];
+        end;
+    };
+
+    Ok(())
+}
+
+#[async_test]
 async fn test_dynamic_entries_stream() -> Result<(), Error> {
     let (client, server, room_list) = new_room_list_service().await?;
 
