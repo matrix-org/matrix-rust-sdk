@@ -1,4 +1,3 @@
-use assert_matches::assert_matches;
 use matrix_sdk_test::async_test;
 use serde_json::json;
 use wiremock::{
