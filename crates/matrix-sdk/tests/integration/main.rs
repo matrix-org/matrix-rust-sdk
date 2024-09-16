@@ -10,6 +10,7 @@ use wiremock::{
     Mock, MockGuard, MockServer, ResponseTemplate,
 };
 
+mod account;
 mod client;
 #[cfg(feature = "e2e-encryption")]
 mod encryption;
