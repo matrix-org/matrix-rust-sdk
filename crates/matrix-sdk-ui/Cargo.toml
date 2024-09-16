@@ -55,7 +55,7 @@ assert-json-diff = { workspace = true }
 assert_matches = { workspace = true }
 assert_matches2 = { workspace = true }
 eyeball-im-util = { workspace = true }
-matrix-sdk = { workspace = true, features = ["testing"] }
+matrix-sdk = { workspace = true, features = ["testing", "sqlite"] }
 matrix-sdk-test = { workspace = true }
 stream_assert = { workspace = true }
 tempfile = "3.3.0"
