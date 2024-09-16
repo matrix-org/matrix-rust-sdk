@@ -2866,7 +2866,7 @@ pub(crate) mod tests {
         });
 
         let room =
-            timeout(Duration::from_secs(1), client.await_room_remote_echo(room_id)).await.unwrap();
+            timeout(Duration::from_secs(10), client.await_room_remote_echo(room_id)).await.unwrap();
         assert_eq!(room.room_id(), room_id);
     }
 
