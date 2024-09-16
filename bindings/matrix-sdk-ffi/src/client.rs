@@ -1029,6 +1029,12 @@ impl Client {
         Ok(Arc::new(Room::new(self.inner.await_room_remote_echo(&room_id).await)))
     }
 
+    /// Lets the user know whether this is an `m.login.password` based
+    /// auth and if the account can actually be deactivated
+    pub fn can_deactivate_account(&self) -> bool {
+        matches!(self.inner.auth_api(), Some(AuthApi::Matrix(_)))
+    }
+
     /// Deactivate this account definitively.
     /// Similarly to `encryption::reset_identity` this
     /// will only work with password-based authentication (`m.login.password`)
