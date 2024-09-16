@@ -115,8 +115,8 @@ impl RoomList {
         self.loading_state.subscribe()
     }
 
-    /// Get all previous rooms, in addition to a [`Stream`] to rooms' updates.
-    pub fn entries(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>> + '_) {
+    /// Get a stream of rooms.
+    fn entries(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>> + '_) {
         let (rooms, stream) = self.client.rooms_stream();
 
         let map_room = |room| Room::new(room, &self.sliding_sync);
@@ -127,9 +127,11 @@ impl RoomList {
         )
     }
 
-    /// Similar to [`Self::entries`] except that it's possible to provide a
-    /// filter that will filter out room list entries, and that it's also
-    /// possible to “paginate” over the entries by `page_size`.
+    /// Get a configurable stream of rooms.
+    ///
+    /// It's possible to provide a filter that will filter out room list
+    /// entries, and that it's also possible to “paginate” over the entries by
+    /// `page_size`. The rooms are also sorted.
     ///
     /// The returned stream will only start yielding diffs once a filter is set
     /// through the returned [`RoomListDynamicEntriesController`]. For every
