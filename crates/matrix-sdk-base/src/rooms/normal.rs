@@ -1703,8 +1703,8 @@ mod tests {
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         events::{
             call::member::{
-                Application, CallApplicationContent, CallMemberEventContent, Focus,
-                LegacyMembershipData, LegacyMembershipDataInit, LivekitFocus,
+                Application, CallApplicationContent, CallMemberEventContent, CallMemberStateKey,
+                Focus, LegacyMembershipData, LegacyMembershipDataInit, LivekitFocus,
                 OriginalSyncCallMemberEvent,
             },
             room::{
@@ -2743,7 +2743,10 @@ mod tests {
             // we can simply use now here since this will be dropped when using a MinimalStateEvent
             // in the roomInfo
             origin_server_ts: timestamp(0),
-            state_key: user_id.to_string(),
+            state_key: CallMemberStateKey::from_str(user_id.as_str())
+                // SAFETY: `user_id` is a valid `UserId` and cannot fail to be transformed into a
+                // `CallMemberStateKey`.
+                .expect("Failed to transform a `UserId` into a `CallMemberStateKey`"),
             unsigned: StateUnsigned::new(),
         }))
     }

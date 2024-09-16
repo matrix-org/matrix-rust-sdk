@@ -1204,7 +1204,7 @@ impl Client {
         server_names: &[OwnedServerName],
     ) -> Result<Room> {
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias.to_owned()), {
-            server_name: server_names.to_owned(),
+            via: server_names.to_owned(),
         });
         let response = self.send(request, None).await?;
         let base_room = self.base_client().room_joined(&response.room_id).await?;
