@@ -74,6 +74,7 @@ use crate::{
     notification_settings::NotificationSettings,
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
+    ruma::AuthData,
     sync_service::{SyncService, SyncServiceBuilder},
     task_handle::TaskHandle,
     ClientError,
@@ -1026,6 +1027,30 @@ impl Client {
     pub async fn await_room_remote_echo(&self, room_id: String) -> Result<Arc<Room>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
         Ok(Arc::new(Room::new(self.inner.await_room_remote_echo(&room_id).await)))
+    }
+
+    /// Deactivate this account definitively.
+    /// Similarly to `encryption::reset_identity` this
+    /// will only work with password-based authentication (`m.login.password`)
+    ///
+    /// # Arguments
+    ///
+    /// * `auth_data` - This request uses the [User-Interactive Authentication
+    ///   API][uiaa]. The first request needs to set this to `None` and will
+    ///   always fail and the same request needs to be made but this time with
+    ///   some `auth_data` provided.
+    pub async fn deactivate_account(
+        &self,
+        auth_data: Option<AuthData>,
+        erase_data: bool,
+    ) -> Result<(), ClientError> {
+        if let Some(auth_data) = auth_data {
+            _ = self.inner.account().deactivate(None, Some(auth_data.into()), erase_data).await?;
+        } else {
+            _ = self.inner.account().deactivate(None, None, erase_data).await?;
+        }
+
+        Ok(())
     }
 }
 
