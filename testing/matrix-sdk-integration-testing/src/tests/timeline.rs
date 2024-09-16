@@ -265,12 +265,11 @@ async fn test_stale_local_echo_time_abort_edit() {
     // It is then sent. The timeline stream can be racy here:
     //
     // - either the local echo is marked as sent *before*, and we receive an update
-    //   for this before
-    // the remote echo.
+    //   for this before the remote echo.
     // - or the remote echo comes up faster.
     //
     // Handle both orderings.
-    while let Ok(Some(vector_diff)) = timeout(Duration::from_secs(1), stream.next()).await {
+    while let Ok(Some(vector_diff)) = timeout(Duration::from_secs(3), stream.next()).await {
         let VectorDiff::Set { index: 0, value: echo } = vector_diff else {
             panic!("unexpected diff: {vector_diff:#?}");
         };
