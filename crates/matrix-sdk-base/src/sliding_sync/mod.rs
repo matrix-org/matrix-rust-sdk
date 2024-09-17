@@ -164,9 +164,11 @@ impl BaseClient {
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
 
         let account_data = &extensions.account_data;
-        if !account_data.is_empty() {
-            self.handle_account_data(&account_data.global, &mut changes).await;
-        }
+        let global_account_data_events = if !account_data.is_empty() {
+            self.handle_account_data(&account_data.global, &mut changes).await
+        } else {
+            Vec::new()
+        };
 
         let mut new_rooms = RoomUpdates::default();
         let mut notifications = Default::default();
@@ -302,23 +304,24 @@ impl BaseClient {
             }
         }
 
-        // TODO remove this, we're processing account data events here again
+        // We're processing direct state events here separately
         // because we want to have the push rules in place before we process
         // rooms and their events, but we want to create the rooms before we
         // process the `m.direct` account data event.
-        let has_new_direct_room_data = account_data.global.iter().any(|raw_event| {
-            raw_event
-                .deserialize()
-                .map(|event| event.event_type() == GlobalAccountDataEventType::Direct)
-                .unwrap_or_default()
-        });
+        let has_new_direct_room_data = global_account_data_events
+            .iter()
+            .any(|event| event.event_type() == GlobalAccountDataEventType::Direct);
         if has_new_direct_room_data {
-            self.handle_account_data(&account_data.global, &mut changes).await;
+            self.process_direct_rooms(&global_account_data_events, &mut changes).await;
         } else if let Ok(Some(direct_account_data)) =
             self.store.get_account_data_event(GlobalAccountDataEventType::Direct).await
         {
             debug!("Found direct room data in the Store, applying it");
-            self.handle_account_data(&[direct_account_data], &mut changes).await;
+            if let Ok(direct_account_data) = direct_account_data.deserialize() {
+                self.process_direct_rooms(&[direct_account_data], &mut changes).await;
+            } else {
+                warn!("Failed to deserialize direct room account data");
+            }
         }
 
         // FIXME not yet supported by sliding sync.
