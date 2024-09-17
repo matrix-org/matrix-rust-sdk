@@ -143,7 +143,7 @@ impl BaseClient {
     ///   previous login call.
     pub fn with_store_config(config: StoreConfig) -> Self {
         let (room_info_notable_update_sender, _room_info_notable_update_receiver) =
-            broadcast::channel(100);
+            broadcast::channel(u16::MAX as usize);
 
         BaseClient {
             store: Store::new(config.state_store),
