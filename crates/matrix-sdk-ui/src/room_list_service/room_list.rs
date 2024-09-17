@@ -26,8 +26,11 @@ use matrix_sdk::{
     Client, SlidingSync, SlidingSyncList,
 };
 use matrix_sdk_base::RoomInfoNotableUpdate;
-use tokio::{select, sync::broadcast};
-use tracing::trace;
+use tokio::{
+    select,
+    sync::broadcast::{self, error::RecvError},
+};
+use tracing::{error, trace};
 
 use super::{
     filters::BoxedFilterFn,
@@ -215,32 +218,27 @@ fn merge_stream_and_receiver(
                     }
                 }
 
-                Ok(update) = room_info_notable_update_receiver.recv() => {
-                    // We are temporarily listening to all updates.
-                    /*
-                    use RoomInfoNotableUpdateReasons as NotableUpdate;
-
-                    let reasons = &update.reasons;
-
-                    // We are interested by these _reasons_.
-                    if reasons.contains(NotableUpdate::LATEST_EVENT) ||
-                        reasons.contains(NotableUpdate::RECENCY_STAMP) ||
-                        reasons.contains(NotableUpdate::READ_RECEIPT) ||
-                        reasons.contains(NotableUpdate::UNREAD_MARKER) ||
-                        reasons.contains(NotableUpdate::MEMBERSHIP) {
-                     */
-                        // Emit a `VectorDiff::Set` for the specific rooms.
-                        if let Some(index) = raw_current_values.iter().position(|room| room.room_id() == update.room_id) {
-                            let room = &raw_current_values[index];
-                            let update = VectorDiff::Set { index, value: room.clone() };
-                    /*
-                            trace!(room = %room.room_id(), "updated because of notable reason: {reasons:?}");
-                    */
-                            yield vec![update];
+                update = room_info_notable_update_receiver.recv() => {
+                    match update {
+                        Ok(update) => {
+                            // Emit a `VectorDiff::Set` for the specific rooms.
+                            if let Some(index) = raw_current_values.iter().position(|room| room.room_id() == update.room_id) {
+                                let room = &raw_current_values[index];
+                                let update = VectorDiff::Set { index, value: room.clone() };
+                                yield vec![update];
+                            }
                         }
-                    /*
+
+                        Err(RecvError::Closed) => {
+                            error!("Cannot receive room info notable updates because the sender has been closed");
+
+                            break;
+                        }
+
+                        Err(RecvError::Lagged(n)) => {
+                            error!(number_of_missed_updates = n, "Lag when receiving room info notable update");
+                        }
                     }
-                    */
                 }
             }
         }
