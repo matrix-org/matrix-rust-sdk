@@ -335,8 +335,6 @@ impl BaseClient {
 
         trace!("ready to submit changes to store");
         store.save_changes(&changes).await?;
-        self.apply_changes(&changes, room_info_notable_updates);
-        trace!("applied changes");
 
         // Now that all the rooms information have been saved, update the display name
         // cache (which relies on information stored in the database). This will
@@ -344,6 +342,9 @@ impl BaseClient {
         // disk; we do this to avoid saving that would be redundant with the
         // above. Oh well.
         new_rooms.update_in_memory_caches(&self.store).await;
+
+        self.apply_changes(&changes, room_info_notable_updates);
+        trace!("applied changes");
 
         Ok(SyncResponse {
             rooms: new_rooms,
