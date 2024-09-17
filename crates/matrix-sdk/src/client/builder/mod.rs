@@ -717,7 +717,7 @@ impl ClientBuildError {
     pub fn assert_valid_builder_args(self) -> HttpError {
         match self {
             ClientBuildError::Http(e) => e,
-            _ => unreachable!("homeserver URL was asserted to be valid"),
+            other => unreachable!("homeserver URL was asserted to be valid: {other:?}"),
         }
     }
 }
