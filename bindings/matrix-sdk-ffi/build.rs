@@ -5,6 +5,9 @@ use vergen::EmitBuilder;
 /// Adds a temporary workaround for an issue with the Rust compiler and Android
 /// in x86_64 devices: https://github.com/rust-lang/rust/issues/109717.
 /// The workaround comes from: https://github.com/mozilla/application-services/pull/5442
+///
+/// IMPORTANT: if you modify this, make sure to modify
+/// [../matrix-sdk-crypto-ffi/build.rs] too!
 fn setup_x86_64_android_workaround() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").expect("CARGO_CFG_TARGET_OS not set");
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("CARGO_CFG_TARGET_ARCH not set");
