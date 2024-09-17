@@ -688,13 +688,18 @@ impl BaseClient {
         }
     }
 
+    /// Parses and stores any raw global account data events into the
+    /// [`StateChanges`].
+    ///
+    /// Returns a list with the parsed account data events.
     #[instrument(skip_all)]
     pub(crate) async fn handle_account_data(
         &self,
         events: &[Raw<AnyGlobalAccountDataEvent>],
         changes: &mut StateChanges,
-    ) {
+    ) -> Vec<AnyGlobalAccountDataEvent> {
         let mut account_data = BTreeMap::new();
+        let mut parsed_events = Vec::new();
 
         for raw_event in events {
             let event = match raw_event.deserialize() {
@@ -705,64 +710,78 @@ impl BaseClient {
                     continue;
                 }
             };
-
-            if let AnyGlobalAccountDataEvent::Direct(e) = &event {
-                let mut new_dms = HashMap::<&RoomId, HashSet<OwnedUserId>>::new();
-                for (user_id, rooms) in e.content.iter() {
-                    for room_id in rooms {
-                        new_dms.entry(room_id).or_default().insert(user_id.clone());
-                    }
-                }
-
-                let rooms = self.store.rooms();
-                let mut old_dms = rooms
-                    .iter()
-                    .filter_map(|r| {
-                        let direct_targets = r.direct_targets();
-                        (!direct_targets.is_empty()).then(|| (r.room_id(), direct_targets))
-                    })
-                    .collect::<HashMap<_, _>>();
-
-                // Update the direct targets of rooms if they changed.
-                for (room_id, new_direct_targets) in new_dms {
-                    if let Some(old_direct_targets) = old_dms.remove(&room_id) {
-                        if old_direct_targets == new_direct_targets {
-                            continue;
-                        }
-                    }
-
-                    trace!(
-                        ?room_id, targets = ?new_direct_targets,
-                        "Marking room as direct room"
-                    );
-
-                    if let Some(info) = changes.room_infos.get_mut(room_id) {
-                        info.base_info.dm_targets = new_direct_targets;
-                    } else if let Some(room) = self.store.room(room_id) {
-                        let mut info = room.clone_info();
-                        info.base_info.dm_targets = new_direct_targets;
-                        changes.add_room(info);
-                    }
-                }
-
-                // Remove the targets of old direct chats.
-                for room_id in old_dms.keys() {
-                    trace!(?room_id, "Unmarking room as direct room");
-
-                    if let Some(info) = changes.room_infos.get_mut(*room_id) {
-                        info.base_info.dm_targets.clear();
-                    } else if let Some(room) = self.store.room(room_id) {
-                        let mut info = room.clone_info();
-                        info.base_info.dm_targets.clear();
-                        changes.add_room(info);
-                    }
-                }
-            }
-
             account_data.insert(event.event_type(), raw_event.clone());
+            parsed_events.push(event);
         }
 
         changes.account_data = account_data;
+        parsed_events
+    }
+
+    /// Processes the direct rooms in a sync response:
+    ///
+    /// Given a [`StateChanges`] instance, processes any direct room info
+    /// from the global account data and adds it to the room infos to
+    /// save.
+    #[instrument(skip_all)]
+    pub(crate) async fn process_direct_rooms(
+        &self,
+        events: &[AnyGlobalAccountDataEvent],
+        changes: &mut StateChanges,
+    ) {
+        for event in events {
+            let AnyGlobalAccountDataEvent::Direct(direct_event) = event else { continue };
+            let mut new_dms = HashMap::<&RoomId, HashSet<OwnedUserId>>::new();
+            for (user_id, rooms) in direct_event.content.iter() {
+                for room_id in rooms {
+                    new_dms.entry(room_id).or_default().insert(user_id.clone());
+                }
+            }
+
+            let rooms = self.store.rooms();
+            let mut old_dms = rooms
+                .iter()
+                .filter_map(|r| {
+                    let direct_targets = r.direct_targets();
+                    (!direct_targets.is_empty()).then(|| (r.room_id(), direct_targets))
+                })
+                .collect::<HashMap<_, _>>();
+
+            // Update the direct targets of rooms if they changed.
+            for (room_id, new_direct_targets) in new_dms {
+                if let Some(old_direct_targets) = old_dms.remove(&room_id) {
+                    if old_direct_targets == new_direct_targets {
+                        continue;
+                    }
+                }
+
+                trace!(
+                    ?room_id, targets = ?new_direct_targets,
+                    "Marking room as direct room"
+                );
+
+                if let Some(info) = changes.room_infos.get_mut(room_id) {
+                    info.base_info.dm_targets = new_direct_targets;
+                } else if let Some(room) = self.store.room(room_id) {
+                    let mut info = room.clone_info();
+                    info.base_info.dm_targets = new_direct_targets;
+                    changes.add_room(info);
+                }
+            }
+
+            // Remove the targets of old direct chats.
+            for room_id in old_dms.keys() {
+                trace!(?room_id, "Unmarking room as direct room");
+
+                if let Some(info) = changes.room_infos.get_mut(*room_id) {
+                    info.base_info.dm_targets.clear();
+                } else if let Some(room) = self.store.room(room_id) {
+                    let mut info = room.clone_info();
+                    info.base_info.dm_targets.clear();
+                    changes.add_room(info);
+                }
+            }
+        }
     }
 
     #[cfg(feature = "e2e-encryption")]
@@ -971,7 +990,8 @@ impl BaseClient {
 
         let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
-        self.handle_account_data(&response.account_data.events, &mut changes).await;
+        let global_account_data_events =
+            self.handle_account_data(&response.account_data.events, &mut changes).await;
 
         let push_rules = self.get_push_rules(&changes).await?;
 
@@ -1186,23 +1206,24 @@ impl BaseClient {
             new_rooms.invite.insert(room_id, new_info);
         }
 
-        // TODO remove this, we're processing account data events here again
+        // We're processing direct state events here separately
         // because we want to have the push rules in place before we process
         // rooms and their events, but we want to create the rooms before we
         // process the `m.direct` account data event.
-        let has_new_direct_room_data = response.account_data.events.iter().any(|raw_event| {
-            raw_event
-                .deserialize()
-                .map(|event| event.event_type() == GlobalAccountDataEventType::Direct)
-                .unwrap_or_default()
-        });
+        let has_new_direct_room_data = global_account_data_events
+            .iter()
+            .any(|event| event.event_type() == GlobalAccountDataEventType::Direct);
         if has_new_direct_room_data {
-            self.handle_account_data(&response.account_data.events, &mut changes).await;
+            self.process_direct_rooms(&global_account_data_events, &mut changes).await;
         } else if let Ok(Some(direct_account_data)) =
             self.store.get_account_data_event(GlobalAccountDataEventType::Direct).await
         {
             debug!("Found direct room data in the Store, applying it");
-            self.handle_account_data(&[direct_account_data], &mut changes).await;
+            if let Ok(direct_account_data) = direct_account_data.deserialize() {
+                self.process_direct_rooms(&[direct_account_data], &mut changes).await;
+            } else {
+                warn!("Failed to deserialize direct room account data");
+            }
         }
 
         changes.presence = response
