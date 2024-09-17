@@ -1233,6 +1233,11 @@ impl<P: RoomDataProvider> TimelineController<P> {
         self.state.read().await.latest_user_read_receipt_timeline_event_id(user_id)
     }
 
+    /// Subscribe to changes in the read receipts of our own user.
+    pub async fn subscribe_own_user_read_receipts_changed(&self) -> impl Stream<Item = ()> {
+        self.state.read().await.meta.read_receipts.subscribe_own_user_read_receipts_changed()
+    }
+
     /// Handle a room send update that's a new local echo.
     pub(crate) async fn handle_local_echo(&self, echo: LocalEcho) {
         match echo.content {

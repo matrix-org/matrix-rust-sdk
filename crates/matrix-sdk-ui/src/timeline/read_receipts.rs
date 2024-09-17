@@ -19,11 +19,14 @@ use std::{
 };
 
 use eyeball_im::ObservableVectorTransaction;
+use futures_core::Stream;
 use indexmap::IndexMap;
 use ruma::{
     events::receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
     EventId, OwnedEventId, OwnedUserId, UserId,
 };
+use tokio::sync::watch;
+use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, warn};
 
 use super::{
@@ -48,6 +51,9 @@ pub(super) struct ReadReceipts {
     /// User ID => Receipt type => Read receipt of the user of the given
     /// type.
     latest_by_user: HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
+
+    /// A sender to notify of changes to the receipts of our own user.
+    own_user_read_receipts_changed_sender: watch::Sender<()>,
 }
 
 impl ReadReceipts {
@@ -55,6 +61,12 @@ impl ReadReceipts {
     pub(super) fn clear(&mut self) {
         self.by_event.clear();
         self.latest_by_user.clear();
+    }
+
+    /// Subscribe to changes in the read receipts of our own user.
+    pub(super) fn subscribe_own_user_read_receipts_changed(&self) -> impl Stream<Item = ()> {
+        let subscriber = self.own_user_read_receipts_changed_sender.subscribe();
+        WatchStream::from_changes(subscriber)
     }
 
     /// Read the latest read receipt of the given type for the given user, from
@@ -176,7 +188,13 @@ impl ReadReceipts {
             (new_receipt.event_id.to_owned(), new_receipt.receipt.clone()),
         );
 
-        if is_own_user_id || new_item_event_id == old_item_event_id {
+        if is_own_user_id {
+            self.own_user_read_receipts_changed_sender.send_replace(());
+            // This receipt cannot change items in the timeline.
+            return;
+        }
+
+        if new_item_event_id == old_item_event_id {
             // The receipt did not change in the timeline.
             return;
         }

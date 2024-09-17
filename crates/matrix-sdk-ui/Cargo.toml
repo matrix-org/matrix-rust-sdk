@@ -45,6 +45,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true, features = ["sync"] }
 tracing = { workspace = true, features = ["attributes"] }
 unicode-normalization = "0.1.22"
 uniffi = { workspace = true, optional = true }

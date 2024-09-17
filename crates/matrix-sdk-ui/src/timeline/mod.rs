@@ -681,6 +681,11 @@ impl Timeline {
         self.controller.latest_user_read_receipt_timeline_event_id(user_id).await
     }
 
+    /// Subscribe to changes in the read receipts of our own user.
+    pub async fn subscribe_own_user_read_receipts_changed(&self) -> impl Stream<Item = ()> {
+        self.controller.subscribe_own_user_read_receipts_changed().await
+    }
+
     /// Send the given receipt.
     ///
     /// This uses [`Room::send_single_receipt`] internally, but checks
