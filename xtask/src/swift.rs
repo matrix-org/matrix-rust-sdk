@@ -64,8 +64,8 @@ impl SwiftArgs {
                 target: targets,
                 sequentially,
             } => {
-                // The dev profile seems to cause crashes on some platforms so we default to reldbg
-                // https://github.com/matrix-org/matrix-rust-sdk/issues/4009
+                // The dev profile seems to cause crashes on some platforms so we default to
+                // reldbg (https://github.com/matrix-org/matrix-rust-sdk/issues/4009)
                 let profile =
                     profile.as_deref().unwrap_or(if release { "release" } else { "reldbg" });
                 build_xcframework(profile, targets, components_path, sequentially)
