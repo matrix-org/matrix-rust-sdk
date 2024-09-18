@@ -635,8 +635,6 @@ async fn test_ensure_max_concurrency_is_observed() {
             }
         )));
 
-    // Amount of time to delay the response of an /event mock request, in ms.
-    let request_delay = 50;
     let pinned_event =
         EventFactory::new().room(&room_id).sender(*BOB).text_msg("A message").into_raw_timeline();
     Mock::given(method("GET"))
@@ -644,7 +642,7 @@ async fn test_ensure_max_concurrency_is_observed() {
         .and(header("authorization", "Bearer 1234"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_delay(Duration::from_millis(request_delay))
+                .set_delay(Duration::from_secs(60))
                 .set_body_json(pinned_event.json()),
         )
         // Verify this endpoint is only called the max concurrent amount of times.
@@ -669,13 +667,16 @@ async fn test_ensure_max_concurrency_is_observed() {
         }
     });
 
-    // Give it time to load events. As each request takes `request_delay`, we should
-    // have exactly `MAX_PINNED_EVENTS_CONCURRENT_REQUESTS` if the max
-    // concurrency setting is honoured.
-    sleep(Duration::from_millis(request_delay / 2)).await;
+    // Give the timeline enough time to spawn the maximum number of concurrent
+    // requests.
+    sleep(Duration::from_secs(2)).await;
 
     // Abort handle to stop requests from being processed.
     handle.abort();
+
+    // The real check happens here, based on the `max_concurrent_requests` expected
+    // value set above for the mock endpoint.
+    server.verify().await;
 }
 
 struct TestHelper {
