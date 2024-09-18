@@ -364,19 +364,18 @@ impl UserIdentity {
         Ok(())
     }
 
-    /// Did the identity change after an initial observation in a way that
-    /// requires approval from the user?
+    /// Has the identity changed in a way that requires approval from the user?
     ///
     /// A user identity needs approval if it changed after the crypto machine
-    /// has already observed ("pinned") a different identity for that user *and*
-    /// it is not an explicitly verified identity (using for example interactive
-    /// verification).
+    /// has already observed ("pinned") a different identity for that user,
+    /// unless it is an explicitly verified identity (using for example
+    /// interactive verification).
     ///
-    /// Such a change is to be considered a pinning violation which the
-    /// application should report to the local user, and can be resolved by:
+    /// This situation can be resolved by:
     ///
-    /// - Verifying the new identity with [`UserIdentity::request_verification`]
-    /// - Or by updating the pin to the new identity with
+    /// - Verifying the new identity with
+    ///   [`UserIdentity::request_verification`], or:
+    /// - Updating the pin to the new identity with
     ///   [`UserIdentity::pin_current_master_key`].
     pub fn identity_needs_user_approval(&self) -> bool {
         // First check if the current identity is verified.
@@ -741,7 +740,7 @@ impl OtherUserIdentityData {
     /// True if we verified this identity (with any own identity, at any
     /// point).
     ///
-    /// To pass this latch back to false, one must call
+    /// To set this latch back to false, call
     /// [`OtherUserIdentityData::withdraw_verification()`].
     pub fn was_previously_verified(&self) -> bool {
         self.previously_verified.load(Ordering::SeqCst)
@@ -758,12 +757,13 @@ impl OtherUserIdentityData {
 
     /// Returns true if the identity has changed since we last pinned it.
     ///
-    /// Key pinning acts as a trust on first use mechanism, the first time an
+    /// Key pinning acts as a trust on first use mechanism: the first time an
     /// identity is known for a user it will be pinned.
+    ///
     /// For future interaction with a user, the identity is expected to be the
     /// one that was pinned. In case of identity change the UI client should
-    /// receive reports of pinning violation and decide to act accordingly;
-    /// that is accept and pin the new identity, perform a verification or
+    /// receive reports of pinning violation and decide to act accordingly:
+    /// accept and pin the new identity, perform a verification, or
     /// stop communications.
     pub(crate) fn has_pin_violation(&self) -> bool {
         let pinned_master_key = self.pinned_master_key.read().unwrap();
