@@ -26,7 +26,7 @@ The integration tests can be run with `cargo test` or `cargo nextest run`.
 
 The integration tests expect the environment variables `HOMESERVER_URL` to be the HTTP URL to
 access the synapse server and `HOMESERVER_DOMAIN` to be set to the domain configured in
-that server. These variables are set to a default value that matches the default docker-compose.yml
+that server. These variables are set to a default value that matches the default `docker-compose.yml`
 template; if you haven't touched it, you don't need to manually set those environment variables.
 
 ## Maintenance
