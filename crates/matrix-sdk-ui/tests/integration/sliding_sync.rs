@@ -58,6 +58,7 @@ impl Match for SlidingSyncMatcher {
 macro_rules! sliding_sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $stream:ident]
+        $( assert pos $pos:expr, )?
         assert request $sign:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $( , after delay = $response_delay:expr )?
@@ -66,6 +67,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
         sliding_sync_then_assert_request_and_fake_response! {
             [$server, $stream]
             sync matches Some(Ok(_)),
+            $( assert pos $pos, )?
             assert request $sign { $( $request_json )* },
             respond with = $( ( code $code ) )? { $( $response_json )* },
             $( after delay = $response_delay, )?
@@ -75,6 +77,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $stream:ident]
         sync matches $sync_result:pat,
+        $( assert pos $pos:expr, )?
         assert request $sign:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $( , after delay = $response_delay:expr )?
@@ -116,6 +119,14 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
                     if let Some(root) = json_value.as_object_mut() {
                         root.remove("txn_id");
                     }
+
+                    // Validate `pos` from the query parameter if specified.
+                    $(
+                    match $pos {
+                        Some(pos) => assert!(wiremock::matchers::query_param("pos", pos).matches(request)),
+                        None => assert!(wiremock::matchers::query_param_is_missing("pos").matches(request)),
+                    }
+                    )?
 
                     if let Err(error) = assert_json_diff::assert_json_matches_no_panic(
                         &json_value,

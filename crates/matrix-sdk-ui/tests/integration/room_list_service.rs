@@ -6,7 +6,11 @@ use std::{
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt};
-use matrix_sdk::{test_utils::logged_in_client_with_server, Client};
+use matrix_sdk::{
+    config::RequestConfig,
+    test_utils::{logged_in_client_with_server, set_client_session, test_client_builder},
+    Client,
+};
 use matrix_sdk_base::sync::UnreadNotificationsCount;
 use matrix_sdk_test::{async_test, mocks::mock_encryption_state};
 use matrix_sdk_ui::{
@@ -23,6 +27,7 @@ use ruma::{
 };
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
+use tempfile::TempDir;
 use tokio::{spawn, sync::mpsc::channel, task::yield_now};
 use wiremock::{
     matchers::{header, method, path},
@@ -38,12 +43,30 @@ async fn new_room_list_service() -> Result<(Client, MockServer, RoomListService)
     Ok((client, server, room_list))
 }
 
+async fn new_persistent_room_list_service(
+    store_path: &std::path::Path,
+) -> Result<(MockServer, RoomListService), Error> {
+    let server = MockServer::start().await;
+    let client = test_client_builder(Some(server.uri().to_string()))
+        .request_config(RequestConfig::new().disable_retry())
+        .sqlite_store(store_path, None)
+        .build()
+        .await
+        .unwrap();
+    set_client_session(&client).await;
+
+    let room_list = RoomListService::new(client.clone()).await?;
+
+    Ok((server, room_list))
+}
+
 // Same macro as in the main, with additional checking that the state
 // before/after the sync loop match those we expect.
 macro_rules! sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $room_list:ident, $stream:ident]
         $( states = $pre_state:pat => $post_state:pat, )?
+        $( assert pos $pos:expr, )?
         assert request $assert_request:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $( , after delay = $response_delay:expr )?
@@ -53,6 +76,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
             [$server, $room_list, $stream]
             sync matches Some(Ok(_)),
             $( states = $pre_state => $post_state, )?
+            $( assert pos $pos, )?
             assert request $assert_request { $( $request_json )* },
             respond with = $( ( code $code ) )? { $( $response_json )* },
             $( after delay = $response_delay, )?
@@ -63,6 +87,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
         [$server:ident, $room_list:ident, $stream:ident]
         sync matches $sync_result:pat,
         $( states = $pre_state:pat => $post_state:pat, )?
+        $( assert pos $pos:expr, )?
         assert request $assert_request:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $( , after delay = $response_delay:expr )?
@@ -80,6 +105,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
             let next = super::sliding_sync_then_assert_request_and_fake_response! {
                 [$server, $stream]
                 sync matches $sync_result,
+                $( assert pos $pos, )?
                 assert request $assert_request { $( $request_json )* },
                 respond with = $( ( code $code ) )? { $( $response_json )* },
                 $( after delay = $response_delay, )?
@@ -481,6 +507,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Init => SettingUp,
+            assert pos None::<String>,
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -509,6 +536,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = SettingUp => Running,
+            assert pos Some("0"),
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -537,6 +565,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Running => Running,
+            assert pos Some("1"),
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -547,6 +576,70 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
             },
             respond with = {
                 "pos": "2",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 10,
+                    },
+                },
+                "rooms": {},
+            },
+        };
+    }
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Error> {
+    let tmp_dir = TempDir::new().unwrap();
+    let store_path = tmp_dir.path();
+
+    {
+        let (server, room_list) = new_persistent_room_list_service(store_path).await?;
+        let sync = room_list.sync();
+        pin_mut!(sync);
+
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = Init => SettingUp,
+            assert pos None::<String>,
+            assert request >= {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 19]],
+                    },
+                },
+            },
+            respond with = {
+                "pos": "0",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 10,
+                    },
+                },
+                "rooms": {},
+            },
+        };
+    }
+
+    {
+        let (server, room_list) = new_persistent_room_list_service(store_path).await?;
+        let sync = room_list.sync();
+        pin_mut!(sync);
+
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = Init => SettingUp,
+            assert pos Some("0"),
+            assert request >= {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 19]],
+                    },
+                },
+            },
+            respond with = {
+                "pos": "1",
                 "lists": {
                     ALL_ROOMS: {
                         "count": 10,
