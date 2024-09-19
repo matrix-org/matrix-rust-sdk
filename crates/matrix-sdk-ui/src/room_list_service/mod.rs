@@ -116,6 +116,7 @@ impl RoomListService {
         let mut builder = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
+            .share_pos()
             .with_account_data_extension(
                 assign!(http::request::AccountData::default(), { enabled: Some(true) }),
             )
