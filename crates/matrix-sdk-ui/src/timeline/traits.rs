@@ -36,7 +36,7 @@ use ruma::{
 };
 use tracing::{debug, error};
 
-use super::{Profile, TimelineBuilder};
+use super::{Profile, RedactError, TimelineBuilder};
 use crate::timeline::{self, pinned_events_loader::PinnedEventsRoom, Timeline};
 
 pub trait RoomExt {
@@ -269,6 +269,7 @@ impl RoomDataProvider for Room {
             let _ = self
                 .redact(event_id, reason, transaction_id)
                 .await
+                .map_err(RedactError::HttpError)
                 .map_err(super::Error::RedactError)?;
             Ok(())
         }

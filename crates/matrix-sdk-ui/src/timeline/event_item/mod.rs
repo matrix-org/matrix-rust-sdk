@@ -99,6 +99,22 @@ pub enum TimelineEventItemId {
     EventId(OwnedEventId),
 }
 
+impl From<String> for TimelineEventItemId {
+    fn from(value: String) -> Self {
+        value.as_str().into()
+    }
+}
+
+impl From<&str> for TimelineEventItemId {
+    fn from(value: &str) -> Self {
+        if let Ok(event_id) = EventId::parse(value) {
+            TimelineEventItemId::EventId(event_id)
+        } else {
+            TimelineEventItemId::TransactionId(value.into())
+        }
+    }
+}
+
 /// An handle that usually allows to perform an action on a timeline event.
 ///
 /// If the item represents a remote item, then the event id is usually
@@ -251,7 +267,7 @@ impl EventTimelineItem {
     /// Returns the transaction ID for a local echo item that has not been sent
     /// and the event ID for a local echo item that has been sent or a
     /// remote item.
-    pub(crate) fn identifier(&self) -> TimelineEventItemId {
+    pub fn identifier(&self) -> TimelineEventItemId {
         match &self.kind {
             EventTimelineItemKind::Local(local) => local.identifier(),
             EventTimelineItemKind::Remote(remote) => {
@@ -719,7 +735,7 @@ mod tests {
     };
 
     use super::{EventTimelineItem, Profile};
-    use crate::timeline::TimelineDetails;
+    use crate::timeline::{TimelineDetails, TimelineEventItemId};
 
     #[async_test]
     async fn test_latest_message_event_can_be_wrapped_as_a_timeline_item() {
@@ -831,6 +847,20 @@ mod tests {
                 avatar_url: Some(owned_mxc_uri!("mxc://e.org/SEs"))
             }
         );
+    }
+
+    #[test]
+    fn test_raw_event_id_into_timeline_event_item_id_gets_event_id() {
+        let raw_id = "$123:example.com";
+        let id: TimelineEventItemId = raw_id.into();
+        assert_matches!(id, TimelineEventItemId::EventId(_));
+    }
+
+    #[test]
+    fn test_raw_str_into_timeline_event_item_id_gets_transaction_id() {
+        let raw_id = "something something";
+        let id: TimelineEventItemId = raw_id.into();
+        assert_matches!(id, TimelineEventItemId::TransactionId(_));
     }
 
     fn member_event(
