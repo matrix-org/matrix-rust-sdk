@@ -1,6 +1,6 @@
 // TODO: target-os conditional would be good.
 
-#![allow(unused_qualifications, clippy::new_without_default)]
+#![allow(unused_qualifications, clippy::new_without_default, unused_macros)]
 
 macro_rules! unwrap_or_clone_arc_into_variant {
     (

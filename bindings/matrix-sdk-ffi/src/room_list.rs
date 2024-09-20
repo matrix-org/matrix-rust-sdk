@@ -702,8 +702,8 @@ impl RoomListItem {
         self.inner.is_encrypted().await.unwrap_or(false)
     }
 
-    async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
-        self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new)
+    async fn latest_event(&self) -> Option<EventTimelineItem> {
+        self.inner.latest_event().await.map(|e| e.into())
     }
 }
 
