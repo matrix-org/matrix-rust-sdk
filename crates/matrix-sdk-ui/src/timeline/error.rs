@@ -18,17 +18,18 @@ use matrix_sdk::{
     send_queue::RoomSendQueueError,
     HttpError,
 };
+use ruma::OwnedTransactionId;
 use thiserror::Error;
 
-use crate::timeline::pinned_events_loader::PinnedEventsLoaderError;
+use crate::timeline::{pinned_events_loader::PinnedEventsLoaderError, TimelineEventItemId};
 
 /// Errors specific to the timeline.
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// The requested event with a remote echo is not in the timeline.
-    #[error("Event with remote echo not found in timeline")]
-    RemoteEventNotInTimeline,
+    /// The requested event is not in the timeline.
+    #[error("Event not found in timeline: {0:?}")]
+    EventNotInTimeline(TimelineEventItemId),
 
     /// The event is currently unsupported for this use case..
     #[error("Unsupported event")]
@@ -76,7 +77,18 @@ pub enum Error {
 
     /// An error happened while attempting to redact an event.
     #[error(transparent)]
-    RedactError(HttpError),
+    RedactError(RedactError),
+}
+
+#[derive(Error, Debug)]
+pub enum RedactError {
+    /// Local event to redact wasn't found for transaction id
+    #[error("Local event to redact wasn't found for transaction {0}")]
+    LocalEventNotFound(OwnedTransactionId),
+
+    /// An error happened while attempting to redact an event.
+    #[error(transparent)]
+    HttpError(#[from] HttpError),
 }
 
 #[derive(Error, Debug)]

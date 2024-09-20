@@ -230,6 +230,17 @@ impl Timeline {
         self.controller.retry_event_decryption(self.room(), None).await;
     }
 
+    /// Get the current timeline item for the given [`TimelineEventItemId`], if
+    /// any.
+    async fn event_by_timeline_id(&self, id: &TimelineEventItemId) -> Option<EventTimelineItem> {
+        match id {
+            TimelineEventItemId::EventId(event_id) => self.item_by_event_id(event_id).await,
+            TimelineEventItemId::TransactionId(transaction_id) => {
+                self.item_by_transaction_id(transaction_id).await
+            }
+        }
+    }
+
     /// Get the current timeline item for the given event ID, if any.
     ///
     /// Will return a remote event, *or* a local echo that has been sent but not
@@ -455,6 +466,21 @@ impl Timeline {
         Some(found.clone())
     }
 
+    /// Edit an event given its [`TimelineEventItemId`] and some new content.
+    ///
+    /// See [`Self::edit`] for more information.
+    pub async fn edit_by_id(
+        &self,
+        id: &TimelineEventItemId,
+        new_content: EditedContent,
+    ) -> Result<bool, Error> {
+        let Some(event) = self.event_by_timeline_id(id).await else {
+            return Err(Error::EventNotInTimeline(id.clone()));
+        };
+
+        self.edit(&event, new_content).await
+    }
+
     /// Edit an event.
     ///
     /// Only supports events for which [`EventTimelineItem::is_editable()`]
@@ -568,6 +594,38 @@ impl Timeline {
         SendAttachment::new(self, path.into(), mime_type, config)
     }
 
+    /// Redact an event given its [`TimelineEventItemId`] and an optional
+    /// reason.
+    ///
+    /// See [`Self::redact`] for more info.
+    pub async fn redact_by_id(
+        &self,
+        id: &TimelineEventItemId,
+        reason: Option<&str>,
+    ) -> Result<(), Error> {
+        match id {
+            TimelineEventItemId::TransactionId(transaction_id) => {
+                let Some(event) = self.item_by_transaction_id(transaction_id).await else {
+                    return Err(Error::RedactError(RedactError::LocalEventNotFound(
+                        transaction_id.to_owned(),
+                    )));
+                };
+                let TimelineItemHandle::Local(handle) = event.handle() else {
+                    panic!("If the item is local, this should never happen");
+                };
+                handle.abort().await.map_err(RoomSendQueueError::StorageError)?;
+            }
+            TimelineEventItemId::EventId(event_id) => {
+                self.room()
+                    .redact(event_id, reason, None)
+                    .await
+                    .map_err(RedactError::HttpError)
+                    .map_err(Error::RedactError)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Redact an event.
     ///
     /// # Returns
@@ -583,28 +641,27 @@ impl Timeline {
         reason: Option<&str>,
     ) -> Result<bool, Error> {
         let event_id = match event.identifier() {
-            TimelineEventItemId::TransactionId(txn_id) => {
+            TimelineEventItemId::TransactionId(_) => {
                 // See if we have an up-to-date timeline item with that transaction id.
-                if let Some(item) = self.item_by_transaction_id(&txn_id).await {
-                    match item.handle() {
-                        TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
-                        TimelineItemHandle::Local(handle) => {
-                            return Ok(handle
-                                .abort()
-                                .await
-                                .map_err(RoomSendQueueError::StorageError)?);
-                        }
+                match event.handle() {
+                    TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
+                    TimelineItemHandle::Local(handle) => {
+                        return Ok(handle
+                            .abort()
+                            .await
+                            .map_err(RoomSendQueueError::StorageError)?);
                     }
-                } else {
-                    warn!("Couldn't find the local echo anymore, nor a matching remote echo");
-                    return Ok(false);
                 }
             }
 
             TimelineEventItemId::EventId(event_id) => event_id,
         };
 
-        self.room().redact(&event_id, reason, None).await.map_err(Error::RedactError)?;
+        self.room()
+            .redact(&event_id, reason, None)
+            .await
+            .map_err(RedactError::HttpError)
+            .map_err(Error::RedactError)?;
 
         Ok(true)
     }

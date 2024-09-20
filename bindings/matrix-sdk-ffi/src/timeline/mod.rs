@@ -489,18 +489,7 @@ impl Timeline {
     /// Returns whether the edit did happen. It can only return false for
     /// local events that are being processed.
     pub async fn edit(&self, id: String, new_content: EditedContent) -> Result<bool, ClientError> {
-        let event = if let Ok(event_id) = EventId::parse(&id) {
-            self.inner.item_by_event_id(&event_id).await
-        } else {
-            let transaction_id: OwnedTransactionId = id.into();
-            self.inner.local_item_by_transaction_id(&transaction_id).await
-        };
-        if let Some(event) = event {
-            let new_content: SdkEditedContent = new_content.try_into()?;
-            self.inner.edit(&event, new_content).await.map_err(ClientError::from)
-        } else {
-            Ok(false)
-        }
+        self.inner.edit_by_id(&(id.into()), new_content.try_into()?).await.map_err(Into::into)
     }
 
     pub async fn send_location(
@@ -604,30 +593,13 @@ impl Timeline {
     /// being sent already. If the event was a remote event, then it will be
     /// redacted by sending a redaction request to the server.
     ///
-    /// Returns whether the redaction did happen. It can only return false for
-    /// local events that are being processed.
+    /// Will return an error if the event couldn't be redacted.
     pub async fn redact_event(
         &self,
         id: String,
         reason: Option<String>,
-    ) -> Result<bool, ClientError> {
-        let event = if let Ok(event_id) = EventId::parse(&id) {
-            self.inner.item_by_event_id(&event_id).await
-        } else {
-            let transaction_id: OwnedTransactionId = id.into();
-            self.inner.local_item_by_transaction_id(&transaction_id).await
-        };
-        if let Some(event) = event {
-            let removed = self
-                .inner
-                .redact(&event, reason.as_deref())
-                .await
-                .map_err(|err| anyhow::anyhow!(err))?;
-
-            Ok(removed)
-        } else {
-            Ok(false)
-        }
+    ) -> Result<(), ClientError> {
+        self.inner.redact_by_id(&(id.into()), reason.as_deref()).await.map_err(Into::into)
     }
 
     /// Load the reply details for the given event id.
