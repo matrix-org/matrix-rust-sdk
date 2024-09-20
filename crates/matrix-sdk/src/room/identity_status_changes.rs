@@ -13,6 +13,7 @@
 // limitations under the License.
 
 //! Facility to track changes to the identity of members of rooms.
+#![cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 
 use std::collections::BTreeMap;
 
@@ -62,7 +63,7 @@ impl IdentityStatusChanges {
     /// For example, if an identity is "pinned" i.e. not manually verified, but
     /// known, and it becomes a "unpinned" i.e. unknown, because the
     /// encryption keys are different and the user has not acknowledged
-    /// this, then this constitues a status change. Also, if an identity is
+    /// this, then this constitutes a status change. Also, if an identity is
     /// "unpinned" and becomes "pinned", this is also a status change.
     ///
     /// The supplied stream is intended to provide enough information for a
@@ -612,7 +613,7 @@ mod tests {
                 .respond_with(
                     ResponseTemplate::new(200).set_body_json(&*test_json::members::MEMBERS),
                 )
-                .mount(&server)
+                .mount(server)
                 .await;
         }
 
@@ -623,7 +624,7 @@ mod tests {
                 ))
                 .and(header("authorization", "Bearer 1234"))
                 .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-                .mount(&server)
+                .mount(server)
                 .await;
         }
 

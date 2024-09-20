@@ -8,14 +8,20 @@ use std::{
     time::Duration,
 };
 
+#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+use async_trait::async_trait;
 use eyeball::SharedObservable;
 use futures_core::Stream;
 use futures_util::{
     future::{try_join, try_join_all},
     stream::FuturesUnordered,
 };
+#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+pub use identity_status_changes::IdentityStatusChanges;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::DecryptionSettings;
+#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
 use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState, TimelineEvent,
@@ -114,6 +120,7 @@ use crate::{
 
 pub mod edit;
 pub mod futures;
+pub mod identity_status_changes;
 mod member;
 mod messages;
 pub mod power_levels;
@@ -365,6 +372,35 @@ impl Room {
         });
         let drop_guard = self.client().event_handler_drop_guard(typing_event_handler_handle);
         (drop_guard, receiver)
+    }
+
+    /// Subscribe to updates about users who are in "pin violation" i.e. their
+    /// identity has changed and the user has not yet acknowledged this.
+    ///
+    /// The returned receiver will receive a new vector of
+    /// [`IdentityStatusChange`] each time a /keys/query response shows a
+    /// changed identity for a member of this room, or a sync shows a change
+    /// to the membership of an affected user. (Changes to the current user are
+    /// not directly included, but some changes to the current user's identity
+    /// can trigger changes to how we see other users' identities, which
+    /// will be included.)
+    ///
+    /// The first item in the stream provides the current state of the room:
+    /// each member of the room who is not in "pinned" state will be
+    /// included (except the current user).
+    ///
+    /// If the `changed_to` property of an [`IdentityStatusChange`] is set to
+    /// `PinViolation` then a warning should be displayed to the user. If it is
+    /// set to `Pinned` then no warning should be displayed.
+    ///
+    /// Note that if a user who is in pin violation leaves the room, a `Pinned`
+    /// update is sent, to indicate that the warning should be removed, even
+    /// though the user's identity is not necessarily pinned.
+    #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+    pub async fn subscribe_to_identity_status_changes(
+        &self,
+    ) -> Result<impl Stream<Item = Vec<IdentityStatusChange>>> {
+        IdentityStatusChanges::create_stream(self.clone()).await
     }
 
     /// Returns a wrapping `TimelineEvent` for the input `AnyTimelineEvent`,
@@ -2922,6 +2958,38 @@ impl Room {
             .remove_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
             .await?;
         Ok(())
+    }
+}
+
+#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+#[async_trait]
+impl RoomIdentityProvider for Room {
+    async fn is_member(&self, user_id: &UserId) -> bool {
+        self.get_member(user_id).await.unwrap_or(None).is_some()
+    }
+
+    async fn member_identities(&self) -> Vec<UserIdentity> {
+        let members = self
+            .members(RoomMemberships::JOIN | RoomMemberships::INVITE)
+            .await
+            .unwrap_or_else(|_| Default::default());
+
+        let mut ret: Vec<UserIdentity> = Vec::new();
+        for member in members {
+            if let Some(i) = self.user_identity(member.user_id()).await {
+                ret.push(i);
+            }
+        }
+        ret
+    }
+
+    async fn user_identity(&self, user_id: &UserId) -> Option<UserIdentity> {
+        self.client
+            .encryption()
+            .get_user_identity(user_id)
+            .await
+            .unwrap_or(None)
+            .map(|u| u.underlying_identity())
     }
 }
 
