@@ -1152,7 +1152,7 @@ where
 pub(crate) mod testing {
     use ruma::{api::client::keys::get_keys::v3::Response as KeyQueryResponse, user_id};
 
-    use super::{OtherUserIdentityData, OwnUserIdentityData};
+    use super::{OtherUserIdentityData, OwnUserIdentity, OwnUserIdentityData};
     #[cfg(test)]
     use crate::{identities::manager::testing::other_user_id, olm::PrivateCrossSigningIdentity};
     use crate::{
@@ -1160,7 +1160,9 @@ pub(crate) mod testing {
             manager::testing::{other_key_query, own_key_query},
             DeviceData,
         },
+        store::Store,
         types::CrossSigningKey,
+        verification::VerificationMachine,
     };
 
     /// Generate test devices from KeyQueryResponse
@@ -1195,6 +1197,14 @@ pub(crate) mod testing {
     /// Generate default own identity for tests
     pub fn get_own_identity() -> OwnUserIdentityData {
         own_identity(&own_key_query())
+    }
+
+    pub fn own_identity_wrapped(
+        inner: OwnUserIdentityData,
+        verification_machine: VerificationMachine,
+        store: Store,
+    ) -> OwnUserIdentity {
+        OwnUserIdentity { inner, verification_machine, store }
     }
 
     /// Generate default other "own" identity for tests
