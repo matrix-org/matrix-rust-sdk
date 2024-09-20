@@ -869,7 +869,7 @@ impl From<RumaPollKind> for PollKind {
 #[uniffi::export]
 pub fn content_without_relation_from_message(
     message: MessageContent,
-) -> Result<RoomMessageEventContentWithoutRelation, ClientError> {
+) -> Result<Arc<RoomMessageEventContentWithoutRelation>, ClientError> {
     let msg_type = message.msg_type.try_into()?;
-    Ok(RoomMessageEventContentWithoutRelation::new(msg_type))
+    Ok(Arc::new(RoomMessageEventContentWithoutRelation::new(msg_type)))
 }

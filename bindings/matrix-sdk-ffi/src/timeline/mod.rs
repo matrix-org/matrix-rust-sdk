@@ -609,7 +609,7 @@ impl Timeline {
     pub async fn load_reply_details(
         &self,
         event_id_str: String,
-    ) -> Result<InReplyToDetails, ClientError> {
+    ) -> Result<Arc<InReplyToDetails>, ClientError> {
         let event_id = EventId::parse(&event_id_str)?;
 
         let replied_to: Result<RepliedToEvent, Error> =
@@ -627,19 +627,19 @@ impl Timeline {
             };
 
         match replied_to {
-            Ok(replied_to) => Ok(InReplyToDetails::new(
+            Ok(replied_to) => Ok(Arc::new(InReplyToDetails::new(
                 event_id_str,
                 RepliedToEventDetails::Ready {
                     content: replied_to.content().into(),
                     sender: replied_to.sender().to_string(),
                     sender_profile: replied_to.sender_profile().into(),
                 },
-            )),
+            ))),
 
-            Err(e) => Ok(InReplyToDetails::new(
+            Err(e) => Ok(Arc::new(InReplyToDetails::new(
                 event_id_str,
                 RepliedToEventDetails::Error { message: e.to_string() },
-            )),
+            ))),
         }
     }
 

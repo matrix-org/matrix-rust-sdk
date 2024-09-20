@@ -117,11 +117,6 @@ impl Message {
         Self { msgtype, in_reply_to, thread_root, edited, mentions }
     }
 
-    /// Create a forwarded message from a [`MessageType`].
-    pub fn forwarded(msgtype: MessageType) -> Self {
-        Self { msgtype, in_reply_to: None, thread_root: None, edited: false, mentions: None }
-    }
-
     /// Get the `msgtype`-specific data of this message.
     pub fn msgtype(&self) -> &MessageType {
         &self.msgtype
@@ -145,8 +140,8 @@ impl Message {
     }
 
     /// Get the [`OwnedEventId`] of the root event of a thread if it exists.
-    pub fn thread_root(&self) -> Option<OwnedEventId> {
-        self.thread_root.clone()
+    pub fn thread_root(&self) -> Option<&OwnedEventId> {
+        self.thread_root.as_ref()
     }
 
     /// Get the edit state of this message (has been edited: `true` /
