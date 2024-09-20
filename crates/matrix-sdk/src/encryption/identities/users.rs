@@ -108,6 +108,10 @@ impl UserIdentity {
         Self { inner: identity, client }
     }
 
+    pub(crate) fn underlying_identity(&self) -> CryptoUserIdentities {
+        self.inner.clone()
+    }
+
     /// The ID of the user this identity belongs to.
     ///
     /// # Examples
