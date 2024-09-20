@@ -54,6 +54,7 @@ use tracing::info;
 use crate::{
     error::{ClientError, MediaInfoError},
     helpers::unwrap_or_clone_arc,
+    timeline::MessageContent,
     utils::u64_to_uint,
 };
 
@@ -227,6 +228,7 @@ pub impl RoomMessageEventContentWithoutRelationExt for RoomMessageEventContentWi
     }
 }
 
+#[derive(Clone)]
 pub struct Mentions {
     pub user_ids: Vec<String>,
     pub room: bool,
@@ -860,4 +862,14 @@ impl From<RumaPollKind> for PollKind {
             }
         }
     }
+}
+
+/// Creates a [`RoomMessageEventContentWithoutRelation`] given a
+/// [`MessageContent`] value.
+#[uniffi::export]
+pub fn content_without_relation_from_message(
+    message: MessageContent,
+) -> Result<RoomMessageEventContentWithoutRelation, ClientError> {
+    let msg_type = message.msg_type.try_into()?;
+    Ok(RoomMessageEventContentWithoutRelation::new(msg_type))
 }
