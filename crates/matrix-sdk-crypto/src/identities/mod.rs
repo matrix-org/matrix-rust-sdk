@@ -42,6 +42,7 @@
 //! `/keys/query` API call.
 pub(crate) mod device;
 pub(crate) mod manager;
+pub(crate) mod room_identity_state;
 pub(crate) mod user;
 
 use std::sync::{

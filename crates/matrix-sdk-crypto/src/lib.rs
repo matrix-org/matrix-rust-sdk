@@ -44,6 +44,10 @@ pub mod testing {
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub use identities::room_identity_state::{
+    IdentityState, IdentityStatusChange, RoomIdentityChange, RoomIdentityProvider,
+    RoomIdentityState,
+};
 use ruma::OwnedRoomId;
 
 /// Return type for the room key importing.
