@@ -14,7 +14,7 @@
 
 use std::{
     collections::HashMap,
-    ops::Deref,
+    ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, RwLock,
@@ -169,6 +169,12 @@ impl Deref for OwnUserIdentity {
     }
 }
 
+impl DerefMut for OwnUserIdentity {
+    fn deref_mut(&mut self) -> &mut <Self as Deref>::Target {
+        &mut self.inner
+    }
+}
+
 impl OwnUserIdentity {
     /// Mark our user identity as verified.
     ///
@@ -279,6 +285,12 @@ impl Deref for OtherUserIdentity {
 
     fn deref(&self) -> &Self::Target {
         &self.inner
+    }
+}
+
+impl DerefMut for OtherUserIdentity {
+    fn deref_mut(&mut self) -> &mut <Self as Deref>::Target {
+        &mut self.inner
     }
 }
 
