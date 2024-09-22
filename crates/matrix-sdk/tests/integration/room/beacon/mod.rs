@@ -214,7 +214,7 @@ async fn test_subscribe_to_live_location_shares() {
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
 
-    let (task_handle, mut subscriber) = room.subscribe_to_live_location_shares().await;
+    let (task_handle, mut subscriber) = room.subscribe_to_live_location_shares();
 
     sync_builder.add_joined_room(JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(
         sync_timeline_event!({

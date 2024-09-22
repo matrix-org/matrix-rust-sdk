@@ -2984,7 +2984,7 @@ impl Room {
     ///
     /// The returned receiver will receive a new event for each sync response
     /// that contains a 'm.beacon' event.
-    pub async fn subscribe_to_live_location_shares(
+    pub fn subscribe_to_live_location_shares(
         &self,
     ) -> (JoinHandle<()>, broadcast::Receiver<LiveLocationShare>) {
         let (sender, receiver) = broadcast::channel(16);
