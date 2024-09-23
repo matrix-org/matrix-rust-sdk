@@ -31,7 +31,7 @@ use ruma::{
         GlobalAccountDataEventType,
     },
     serde::Raw,
-    JsOption, OwnedRoomId, RoomId, UInt,
+    Int, JsOption, OwnedRoomId, RoomId,
 };
 use tracing::{debug, error, instrument, trace, warn};
 
@@ -413,7 +413,7 @@ impl BaseClient {
             if let Some(invite_state) = &room_data.invite_state {
                 room_data.to_mut().bump_stamp =
                     invite_state.iter().rev().find_map(|invite_state| {
-                        invite_state.get_field::<UInt>("origin_server_ts").ok().flatten()
+                        invite_state.get_field::<Int>("origin_server_ts").ok().flatten()
                     });
 
                 debug!(
@@ -851,7 +851,7 @@ fn process_room_properties(
     }
 
     if let Some(recency_stamp) = &room_data.bump_stamp {
-        let recency_stamp: u64 = (*recency_stamp).into();
+        let recency_stamp: i64 = (*recency_stamp).into();
 
         if room_info.recency_stamp.as_ref() != Some(&recency_stamp) {
             room_info.update_recency_stamp(recency_stamp);

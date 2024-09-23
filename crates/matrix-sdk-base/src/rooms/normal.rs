@@ -990,7 +990,7 @@ impl Room {
     ///
     /// Please read `RoomInfo::recency_stamp` to learn more.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub fn recency_stamp(&self) -> Option<u64> {
+    pub fn recency_stamp(&self) -> Option<i64> {
         self.inner.read().recency_stamp
     }
 
@@ -1094,7 +1094,7 @@ pub struct RoomInfo {
     /// more accurate than relying on the latest event.
     #[cfg(feature = "experimental-sliding-sync")]
     #[serde(default)]
-    pub(crate) recency_stamp: Option<u64>,
+    pub(crate) recency_stamp: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -1547,7 +1547,7 @@ impl RoomInfo {
     ///
     /// Please read [`Self::recency_stamp`] to learn more.
     #[cfg(feature = "experimental-sliding-sync")]
-    pub(crate) fn update_recency_stamp(&mut self, stamp: u64) {
+    pub(crate) fn update_recency_stamp(&mut self, stamp: i64) {
         self.recency_stamp = Some(stamp);
     }
 

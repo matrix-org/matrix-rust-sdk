@@ -18,14 +18,14 @@ use super::{Room, Sorter};
 
 struct RecencyMatcher<F>
 where
-    F: Fn(&Room, &Room) -> (Option<u64>, Option<u64>),
+    F: Fn(&Room, &Room) -> (Option<i64>, Option<i64>),
 {
     recency_stamps: F,
 }
 
 impl<F> RecencyMatcher<F>
 where
-    F: Fn(&Room, &Room) -> (Option<u64>, Option<u64>),
+    F: Fn(&Room, &Room) -> (Option<i64>, Option<i64>),
 {
     fn matches(&self, left: &Room, right: &Room) -> Ordering {
         if left.id() == right.id() {
