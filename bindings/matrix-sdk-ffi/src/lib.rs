@@ -1,24 +1,6 @@
 // TODO: target-os conditional would be good.
 
-#![allow(unused_qualifications, clippy::new_without_default, unused_macros)]
-
-macro_rules! unwrap_or_clone_arc_into_variant {
-    (
-        $arc:ident $(, .$field:tt)?, $pat:pat => $body:expr
-    ) => {
-        #[allow(unused_variables)]
-        match &(*$arc)$(.$field)? {
-            $pat => {
-                #[warn(unused_variables)]
-                match crate::helpers::unwrap_or_clone_arc($arc)$(.$field)? {
-                    $pat => Some($body),
-                    _ => unreachable!(),
-                }
-            },
-            _ => None,
-        }
-    };
-}
+#![allow(unused_qualifications, clippy::new_without_default)]
 
 mod authentication;
 mod chunk_iterator;
