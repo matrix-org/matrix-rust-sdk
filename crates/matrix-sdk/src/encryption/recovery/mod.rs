@@ -575,7 +575,7 @@ impl Recovery {
 
     async fn update_recovery_state_no_fail(&self) {
         if let Err(e) = self.update_recovery_state().await {
-            error!("Coulnd't update the recovery state: {e:?}");
+            error!("Couldn't update the recovery state: {e:?}");
         }
     }
 
