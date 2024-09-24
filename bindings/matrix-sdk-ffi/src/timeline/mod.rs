@@ -630,7 +630,7 @@ impl Timeline {
             Ok(replied_to) => Ok(Arc::new(InReplyToDetails::new(
                 event_id_str,
                 RepliedToEventDetails::Ready {
-                    content: replied_to.content().into(),
+                    content: replied_to.content().clone().into(),
                     sender: replied_to.sender().to_string(),
                     sender_profile: replied_to.sender_profile().into(),
                 },
@@ -1072,7 +1072,7 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             sender_profile: value.sender_profile().into(),
             is_own: value.is_own(),
             is_editable: value.is_editable(),
-            content: value.content().into(),
+            content: value.content().clone().into(),
             timestamp: value.timestamp().0.into(),
             reactions,
             debug_info,
