@@ -2990,7 +2990,7 @@ impl Room {
     pub fn subscribe_to_live_location_shares(
         &self,
     ) -> (JoinHandle<()>, broadcast::Receiver<LiveLocationShare>) {
-        let (sender, receiver) = broadcast::channel(16);
+        let (sender, receiver) = broadcast::channel(128);
 
         let client = self.client.clone();
         let room_id = self.room_id().to_owned();

@@ -162,9 +162,6 @@ async fn test_send_location_beacon_with_expired_live_share() {
 async fn test_subscribe_to_live_location_shares() {
     let (client, server) = logged_in_client_with_server().await;
 
-    // let live_location_shares: Arc<Mutex<Vec<LiveLocationShare>>> =
-    // Arc::new(Mutex::new(Vec::new()));
-
     let mut sync_builder = SyncResponseBuilder::new();
 
     // Get the current timestamp for the `beacon_info` event.

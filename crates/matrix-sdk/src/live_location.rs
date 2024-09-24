@@ -21,7 +21,7 @@ use ruma::{events::location::LocationContent, MilliSecondsSinceUnixEpoch, OwnedU
 pub struct LastLocation {
     /// The most recent location content of the user.
     pub location: LocationContent,
-    /// The timestamp of when the location was updated
+    /// The timestamp of when the location was updated.
     pub ts: MilliSecondsSinceUnixEpoch,
 }
 
