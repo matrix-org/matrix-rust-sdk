@@ -24,7 +24,9 @@ use matrix_sdk_base::{
     ComposerDraft, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges, StateStoreDataKey,
     StateStoreDataValue,
 };
-use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, timeout::timeout};
+use matrix_sdk_common::{
+    deserialized_responses::SyncTimelineEvent, executor::spawn, timeout::timeout,
+};
 use mime::Mime;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -2992,7 +2994,7 @@ impl Room {
         let client = self.client.clone();
         let room_id = self.room_id().to_owned();
 
-        let handle: JoinHandle<()> = tokio::spawn(async move {
+        let handle: JoinHandle<()> = spawn(async move {
             let beacon_event_handler_handle = client.add_room_event_handler(&room_id, {
                 move |event: OriginalSyncBeaconEvent| async move {
                     let live_location_share = LiveLocationShare {
