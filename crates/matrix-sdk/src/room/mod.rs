@@ -61,7 +61,6 @@ use ruma::{
         beacon_info::BeaconInfoEventContent,
         call::notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         direct::DirectEventContent,
-        location::LocationContent,
         marked_unread::MarkedUnreadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
@@ -87,9 +86,8 @@ use ruma::{
     push::{Action, PushConditionRoomCtx},
     serde::Raw,
     time::Instant,
-    EventId, Int, MatrixToUri, MatrixUri, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId,
-    OwnedRoomId, OwnedServerName, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt,
-    UserId,
+    EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
+    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 use thiserror::Error;
@@ -110,6 +108,7 @@ use crate::{
     error::{BeaconError, WrongRoomState},
     event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
+    live_location::{LastLocation, LiveLocationShare},
     media::{MediaFormat, MediaRequest},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     room::power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
@@ -3017,26 +3016,6 @@ impl Room {
 
         (handle, receiver)
     }
-}
-
-/// Details of the last known location beacon.
-#[derive(Clone, Debug)]
-pub struct LastLocation {
-    /// The most recent location content of the user.
-    pub location: LocationContent,
-    /// The timestamp of when the location was updated
-    pub ts: MilliSecondsSinceUnixEpoch,
-}
-
-/// Details of a users live location share.
-#[derive(Clone, Debug)]
-pub struct LiveLocationShare {
-    /// The user's last known location.
-    pub last_location: LastLocation,
-    // /// Information about the associated beacon event (currently commented out).
-    // pub beacon_info: BeaconInfoEventContent,
-    /// The user ID of the person sharing their live location.
-    pub user_id: OwnedUserId,
 }
 
 /// A wrapper for a weak client and a room id that allows to lazily retrieve a
