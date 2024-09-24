@@ -21,8 +21,8 @@ use ruma::events::room::MediaSource;
 use super::ProfileDetails;
 use crate::ruma::{ImageInfo, Mentions, MessageType, PollKind};
 
-impl From<&matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent {
-    fn from(value: &matrix_sdk_ui::timeline::TimelineItemContent) -> Self {
+impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent {
+    fn from(value: matrix_sdk_ui::timeline::TimelineItemContent) -> Self {
         use matrix_sdk_ui::timeline::TimelineItemContent as Content;
 
         match value {
@@ -46,7 +46,7 @@ impl From<&matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent
             Content::CallNotify => TimelineItemContent::CallNotify,
 
             Content::UnableToDecrypt(msg) => {
-                TimelineItemContent::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
+                TimelineItemContent::UnableToDecrypt { msg: EncryptedMessage::new(&msg) }
             }
 
             Content::MembershipChange(membership) => TimelineItemContent::RoomMembership {
@@ -92,7 +92,7 @@ impl From<&matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent
             Content::FailedToParseState { event_type, state_key, error } => {
                 TimelineItemContent::FailedToParseState {
                     event_type: event_type.to_string(),
-                    state_key: state_key.to_string(),
+                    state_key,
                     error: error.to_string(),
                 }
             }
@@ -110,12 +110,12 @@ pub struct MessageContent {
     pub mentions: Option<Mentions>,
 }
 
-impl From<&matrix_sdk_ui::timeline::Message> for MessageContent {
-    fn from(value: &matrix_sdk_ui::timeline::Message) -> Self {
+impl From<matrix_sdk_ui::timeline::Message> for MessageContent {
+    fn from(value: matrix_sdk_ui::timeline::Message) -> Self {
         Self {
             msg_type: value.msgtype().clone().into(),
             body: value.body().to_owned(),
-            in_reply_to: value.in_reply_to().map(|r| Arc::new(r.into())),
+            in_reply_to: value.in_reply_to().map(|r| Arc::new(r.clone().into())),
             is_edited: value.is_edited(),
             thread_root: value.thread_root().map(|id| id.to_string()),
             mentions: value.mentions().cloned().map(|m| m.into()),
@@ -206,14 +206,14 @@ impl InReplyToDetails {
     }
 }
 
-impl From<&matrix_sdk_ui::timeline::InReplyToDetails> for InReplyToDetails {
-    fn from(inner: &matrix_sdk_ui::timeline::InReplyToDetails) -> Self {
+impl From<matrix_sdk_ui::timeline::InReplyToDetails> for InReplyToDetails {
+    fn from(inner: matrix_sdk_ui::timeline::InReplyToDetails) -> Self {
         let event_id = inner.event_id.to_string();
         let event = match &inner.event {
             TimelineDetails::Unavailable => RepliedToEventDetails::Unavailable,
             TimelineDetails::Pending => RepliedToEventDetails::Pending,
             TimelineDetails::Ready(event) => RepliedToEventDetails::Ready {
-                content: event.content().into(),
+                content: event.content().clone().into(),
                 sender: event.sender().to_string(),
                 sender_profile: event.sender_profile().into(),
             },
