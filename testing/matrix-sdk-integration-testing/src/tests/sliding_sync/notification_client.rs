@@ -46,17 +46,15 @@ async fn test_notification() -> Result<()> {
     alice.account().set_display_name(Some(ALICE_NAME)).await?;
 
     // Initial setup: Alice creates a room, invites Bob.
+    const ROOM_NAME: &str = "Kingdom of Integration Testing";
     let invite = vec![bob.user_id().expect("bob has a userid!").to_owned()];
     let request = assign!(CreateRoomRequest::new(), {
         invite,
+        name: Some(ROOM_NAME.to_owned()),
         is_direct: true,
     });
 
     let alice_room = alice.create_room(request).await?;
-
-    const ROOM_NAME: &str = "Kingdom of Integration Testing";
-    alice_room.set_name(ROOM_NAME.to_owned()).await?;
-
     let room_id = alice_room.room_id().to_owned();
 
     // Bob receives a notification about it.
@@ -109,14 +107,7 @@ async fn test_notification() -> Result<()> {
         });
 
         assert_eq!(notification.sender_display_name.as_deref(), Some(ALICE_NAME));
-
-        // In theory, the room name ought to be ROOM_NAME here, but the sliding sync
-        // server returns the other person's name as the room's name (as of
-        // 2023-08-04).
-        //
-        // See https://github.com/element-hq/synapse/issues/17763.
-        assert!(notification.room_computed_display_name != ROOM_NAME);
-        assert_eq!(notification.room_computed_display_name, ALICE_NAME);
+        assert_eq!(notification.room_computed_display_name, ROOM_NAME);
 
         // Then with /context.
         let notification_client =
@@ -141,7 +132,7 @@ async fn test_notification() -> Result<()> {
         assert_eq!(sender.user_id(), alice.user_id().expect("alice has a user_id"));
     }
 
-    bob.get_room(alice_room.room_id())
+    bob.get_room(&room_id)
         .unwrap()
         // Bob joins the room.
         .join()
