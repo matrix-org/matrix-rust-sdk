@@ -41,7 +41,7 @@ use ruma::{
     events::{
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        relation::Annotation,
+        relation::{Annotation, RelationType},
         AnyMessageLikeEventContent, AnyTimelineEvent, EmptyStateKey,
         RedactedMessageLikeEventContent, RedactedStateEventContent, StaticStateEventContent,
     },
@@ -345,6 +345,7 @@ impl PinnedEventsRoom for TestRoomDataProvider {
         &'a self,
         _event_id: &'a EventId,
         _request_config: Option<RequestConfig>,
+        _related_event_filters: Option<Vec<RelationType>>,
     ) -> BoxFuture<'a, Result<(SyncTimelineEvent, Vec<SyncTimelineEvent>), PaginatorError>> {
         unimplemented!();
     }

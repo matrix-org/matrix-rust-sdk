@@ -42,6 +42,7 @@
 #![forbid(missing_docs)]
 
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
     sync::{Arc, OnceLock},
@@ -56,6 +57,7 @@ use matrix_sdk_common::executor::{spawn, JoinHandle};
 use paginator::PaginatorState;
 use ruma::{
     events::{
+        relation::RelationType,
         room::{message::Relation, redaction::SyncRoomRedactionEvent},
         AnyMessageLikeEventContent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
         AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -320,7 +322,32 @@ impl EventCache {
 }
 
 type AllEventsMap = BTreeMap<OwnedEventId, (OwnedRoomId, SyncTimelineEvent)>;
-type RelationsMap = BTreeMap<OwnedEventId, BTreeSet<OwnedEventId>>;
+type RelationsMap = BTreeMap<OwnedEventId, BTreeSet<RelatedEvent>>;
+
+/// Contains relationship information for a related event.
+#[derive(Clone, Eq, PartialEq)]
+struct RelatedEvent {
+    related_event_id: OwnedEventId,
+    relation_type: RelationType,
+}
+
+impl RelatedEvent {
+    fn new(related_event_id: OwnedEventId, relation_type: RelationType) -> Self {
+        RelatedEvent { related_event_id, relation_type }
+    }
+}
+
+impl PartialOrd<Self> for RelatedEvent {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RelatedEvent {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.related_event_id.cmp(&other.related_event_id)
+    }
+}
 
 /// Cache wrapper containing both copies of received events and lists of event
 /// ids related to them.
@@ -520,16 +547,20 @@ impl RoomEventCache {
         None
     }
 
-    /// Try to find an event by id in this room, along with all relations.
+    /// Try to find an event by id in this room, along with its related events.
+    ///
+    /// You can filter which types of related events to retrieve using
+    /// `filter`. `None` will retrieve related events of any type.
     pub async fn event_with_relations(
         &self,
         event_id: &EventId,
+        filter: Option<Vec<RelationType>>,
     ) -> Option<(SyncTimelineEvent, Vec<SyncTimelineEvent>)> {
         let mut relation_events = Vec::new();
 
         let cache = self.inner.all_events_cache.read().await;
         if let Some((_, event)) = cache.events.get(event_id) {
-            Self::collect_related_events(&cache, event_id, &mut relation_events);
+            Self::collect_related_events(&cache, event_id, &filter, &mut relation_events);
             Some((event.clone(), relation_events))
         } else {
             None
@@ -542,19 +573,28 @@ impl RoomEventCache {
     fn collect_related_events(
         cache: &RwLockReadGuard<'_, AllEventsCache>,
         event_id: &EventId,
+        filter: &Option<Vec<RelationType>>,
         results: &mut Vec<SyncTimelineEvent>,
     ) {
         if let Some(related_event_ids) = cache.relations.get(event_id) {
-            for id in related_event_ids {
+            for RelatedEvent { related_event_id, relation_type } in related_event_ids {
+                if let Some(filter) = filter {
+                    if !filter.contains(relation_type) {
+                        continue;
+                    }
+                }
+
                 // If the event was already added to the related ones, skip it.
                 if results.iter().any(|e| {
-                    e.event_id().is_some_and(|added_related_event_id| added_related_event_id == *id)
+                    e.event_id().is_some_and(|added_related_event_id| {
+                        added_related_event_id == *related_event_id
+                    })
                 }) {
                     continue;
                 }
-                if let Some((_, ev)) = cache.events.get(id) {
+                if let Some((_, ev)) = cache.events.get(related_event_id) {
                     results.push(ev.clone());
-                    Self::collect_related_events(cache, id, results);
+                    Self::collect_related_events(cache, related_event_id, filter, results);
                 }
             }
         }
@@ -813,20 +853,24 @@ impl RoomEventCacheInner {
             {
                 if let Some(redacted_event_id) = ev.content.redacts.as_ref().or(ev.redacts.as_ref())
                 {
-                    cache
-                        .relations
-                        .entry(redacted_event_id.to_owned())
-                        .or_default()
-                        .insert(ev.event_id.to_owned());
+                    cache.relations.entry(redacted_event_id.to_owned()).or_default().insert(
+                        RelatedEvent::new(ev.event_id.to_owned(), RelationType::Replacement),
+                    );
                 }
             } else {
-                let original_event_id = match ev.original_content() {
+                let relationship = match ev.original_content() {
                     Some(AnyMessageLikeEventContent::RoomMessage(c)) => {
                         if let Some(relation) = c.relates_to {
                             match relation {
-                                Relation::Replacement(replacement) => Some(replacement.event_id),
-                                Relation::Reply { in_reply_to } => Some(in_reply_to.event_id),
-                                Relation::Thread(thread) => Some(thread.event_id),
+                                Relation::Replacement(replacement) => {
+                                    Some((replacement.event_id, RelationType::Replacement))
+                                }
+                                Relation::Reply { in_reply_to } => {
+                                    Some((in_reply_to.event_id, RelationType::Reference))
+                                }
+                                Relation::Thread(thread) => {
+                                    Some((thread.event_id, RelationType::Thread))
+                                }
                                 // Do nothing for custom
                                 _ => None,
                             }
@@ -835,21 +879,29 @@ impl RoomEventCacheInner {
                         }
                     }
                     Some(AnyMessageLikeEventContent::PollResponse(c)) => {
-                        Some(c.relates_to.event_id)
+                        Some((c.relates_to.event_id, RelationType::Reference))
                     }
-                    Some(AnyMessageLikeEventContent::PollEnd(c)) => Some(c.relates_to.event_id),
+                    Some(AnyMessageLikeEventContent::PollEnd(c)) => {
+                        Some((c.relates_to.event_id, RelationType::Reference))
+                    }
                     Some(AnyMessageLikeEventContent::UnstablePollResponse(c)) => {
-                        Some(c.relates_to.event_id)
+                        Some((c.relates_to.event_id, RelationType::Reference))
                     }
                     Some(AnyMessageLikeEventContent::UnstablePollEnd(c)) => {
-                        Some(c.relates_to.event_id)
+                        Some((c.relates_to.event_id, RelationType::Reference))
                     }
-                    Some(AnyMessageLikeEventContent::Reaction(c)) => Some(c.relates_to.event_id),
+                    Some(AnyMessageLikeEventContent::Reaction(c)) => {
+                        Some((c.relates_to.event_id, RelationType::Annotation))
+                    }
                     _ => None,
                 };
 
-                if let Some(event_id) = original_event_id {
-                    cache.relations.entry(event_id).or_default().insert(ev.event_id().to_owned());
+                if let Some(relationship) = relationship {
+                    cache
+                        .relations
+                        .entry(relationship.0)
+                        .or_default()
+                        .insert(RelatedEvent::new(ev.event_id().to_owned(), relationship.1));
                 }
             }
         }
@@ -994,8 +1046,11 @@ mod tests {
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::async_test;
     use ruma::{
-        event_id, events::room::message::RoomMessageEventContentWithoutRelation, room_id,
-        serde::Raw, user_id, RoomId,
+        event_id,
+        events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
+        room_id,
+        serde::Raw,
+        user_id, RoomId,
     };
     use serde_json::json;
 
@@ -1289,6 +1344,68 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_event_with_filtered_relationships() {
+        let original_id = event_id!("$original");
+        let related_id = event_id!("$related");
+        let associated_related_id = event_id!("$recursive_related");
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let event_factory = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        let original_event = event_factory.text_msg("Original event").event_id(original_id).into();
+        let related_event = event_factory
+            .text_msg("* Edited event")
+            .edit(original_id, RoomMessageEventContentWithoutRelation::text_plain("Edited event"))
+            .event_id(related_id)
+            .into();
+        let associated_related_event =
+            event_factory.redaction(related_id).event_id(associated_related_id).into();
+
+        let client = logged_in_client(None).await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Save the original event.
+        room_event_cache.save_event(original_event).await;
+
+        // Save the related event.
+        room_event_cache.save_event(related_event).await;
+
+        // Save the associated related event, which redacts the related event.
+        room_event_cache.save_event(associated_related_event).await;
+
+        let filter = Some(vec![RelationType::Replacement]);
+        let (event, related_events) =
+            room_event_cache.event_with_relations(original_id, filter).await.unwrap();
+        // Fetched event is the right one.
+        let cached_event_id = event.event_id().unwrap();
+        assert_eq!(cached_event_id, original_id);
+
+        // There are both the related id and the associatively related id
+        assert_eq!(related_events.len(), 2);
+
+        let related_event_id = related_events[0].event_id().unwrap();
+        assert_eq!(related_event_id, related_id);
+        let related_event_id = related_events[1].event_id().unwrap();
+        assert_eq!(related_event_id, associated_related_id);
+
+        // Now we'll filter threads instead, there should be no related events
+        let filter = Some(vec![RelationType::Thread]);
+        let (event, related_events) =
+            room_event_cache.event_with_relations(original_id, filter).await.unwrap();
+        // Fetched event is the right one.
+        let cached_event_id = event.event_id().unwrap();
+        assert_eq!(cached_event_id, original_id);
+        // No Thread related events found
+        assert!(related_events.is_empty());
+    }
+
+    #[async_test]
     async fn test_event_with_recursive_relation() {
         let original_id = event_id!("$original");
         let related_id = event_id!("$related");
@@ -1325,7 +1442,7 @@ mod tests {
         room_event_cache.save_event(associated_related_event).await;
 
         let (event, related_events) =
-            room_event_cache.event_with_relations(original_id).await.unwrap();
+            room_event_cache.event_with_relations(original_id, None).await.unwrap();
         // Fetched event is the right one.
         let cached_event_id = event.event_id().unwrap();
         assert_eq!(cached_event_id, original_id);
@@ -1370,7 +1487,7 @@ mod tests {
         room_event_cache.save_event(related_event).await;
 
         let (event, related_events) =
-            room_event_cache.event_with_relations(&original_event_id).await.unwrap();
+            room_event_cache.event_with_relations(&original_event_id, None).await.unwrap();
         // Fetched event is the right one.
         let cached_event_id = event.event_id().unwrap();
         assert_eq!(cached_event_id, original_event_id);
