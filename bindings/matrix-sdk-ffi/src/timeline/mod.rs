@@ -1032,7 +1032,7 @@ pub struct EventTimelineItem {
     content: TimelineItemContent,
     timestamp: u64,
     reactions: Vec<Reaction>,
-    debug_info: EventTimelineItemDebugInfo,
+    debug_info_provider: Arc<EventTimelineItemDebugInfoProvider>,
     local_send_state: Option<EventSendState>,
     read_receipts: HashMap<String, Receipt>,
     origin: Option<EventItemOrigin>,
@@ -1056,11 +1056,7 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
                     .collect(),
             })
             .collect();
-        let debug_info = EventTimelineItemDebugInfo {
-            model: format!("{:#?}", value),
-            original_json: value.original_json().map(|raw| raw.json().get().to_owned()),
-            latest_edit_json: value.latest_edit_json().map(|raw| raw.json().get().to_owned()),
-        };
+        let debug_info_provider = Arc::new(EventTimelineItemDebugInfoProvider(value.clone()));
         let read_receipts =
             value.read_receipts().iter().map(|(k, v)| (k.to_string(), v.clone().into())).collect();
         Self {
@@ -1075,7 +1071,7 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             content: value.content().clone().into(),
             timestamp: value.timestamp().0.into(),
             reactions,
-            debug_info,
+            debug_info_provider,
             local_send_state: value.send_state().map(|s| s.into()),
             read_receipts,
             origin: value.origin(),
@@ -1093,6 +1089,22 @@ pub struct Receipt {
 impl From<ruma::events::receipt::Receipt> for Receipt {
     fn from(value: ruma::events::receipt::Receipt) -> Self {
         Receipt { timestamp: value.ts.map(|ts| ts.0.into()) }
+    }
+}
+
+/// Wrapper to retrieve the debug info lazily instead of immediately
+/// transforming it for each timeline event.
+#[derive(uniffi::Object)]
+pub struct EventTimelineItemDebugInfoProvider(matrix_sdk_ui::timeline::EventTimelineItem);
+
+#[uniffi::export]
+impl EventTimelineItemDebugInfoProvider {
+    fn get(&self) -> EventTimelineItemDebugInfo {
+        EventTimelineItemDebugInfo {
+            model: format!("{:#?}", self.0),
+            original_json: self.0.original_json().map(|raw| raw.json().get().to_owned()),
+            latest_edit_json: self.0.latest_edit_json().map(|raw| raw.json().get().to_owned()),
+        }
     }
 }
 
