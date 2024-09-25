@@ -359,7 +359,6 @@ impl UpdateObserver {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_room_notification_count() -> Result<()> {
     use tokio::time::timeout;
 
@@ -488,20 +487,6 @@ async fn test_room_notification_count() -> Result<()> {
         assert_eq!(alice_room.num_unread_notifications(), 1);
         assert_eq!(alice_room.num_unread_mentions(), 0);
 
-        // If the server hasn't updated the server-side notification count yet, wait for
-        // it and reassert.
-        if alice_room.unread_notification_counts().notification_count != 1 {
-            update_observer
-                .next()
-                .await
-                .expect("server should update server-side notification count");
-            assert_eq!(alice_room.unread_notification_counts().notification_count, 1);
-
-            assert_eq!(alice_room.num_unread_messages(), 1);
-            assert_eq!(alice_room.num_unread_notifications(), 1);
-            assert_eq!(alice_room.num_unread_mentions(), 0);
-        }
-
         update_observer.assert_is_pending();
     }
 
@@ -524,20 +509,6 @@ async fn test_room_notification_count() -> Result<()> {
         assert_eq!(alice_room.num_unread_messages(), 2);
         assert_eq!(alice_room.num_unread_notifications(), 2);
         assert_eq!(alice_room.num_unread_mentions(), 1);
-
-        // If the server hasn't updated the server-side notification count yet, wait for
-        // it and reassert.
-        if alice_room.unread_notification_counts().notification_count != 2 {
-            update_observer
-                .next()
-                .await
-                .expect("server should update server-side notification count");
-            assert_eq!(alice_room.unread_notification_counts().notification_count, 2);
-
-            assert_eq!(alice_room.num_unread_messages(), 2);
-            assert_eq!(alice_room.num_unread_notifications(), 2);
-            assert_eq!(alice_room.num_unread_mentions(), 1);
-        }
 
         update_observer.assert_is_pending();
     }
