@@ -703,7 +703,7 @@ impl RoomListItem {
     }
 
     async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner.latest_event().await.map(|e| e.into())
+        self.inner.latest_event().await.map(Into::into)
     }
 }
 
