@@ -857,9 +857,9 @@ impl OlmMachine {
 
     #[instrument(
         skip_all,
-    // This function is only ever called by add_room_key via
-    // handle_decrypted_to_device_event, so sender, sender_key, and algorithm are
-    // already recorded.
+        // This function is only ever called by add_room_key via
+        // handle_decrypted_to_device_event, so sender, sender_key, and algorithm are
+        // already recorded.
         fields(room_id = ? content.room_id, session_id)
     )]
     async fn handle_key(
@@ -888,17 +888,21 @@ impl OlmMachine {
 
                 session.sender_data = sender_data;
 
-                if self.store().compare_group_session(&session).await? == SessionOrdering::Better {
-                    info!("Received a new megolm room key");
+                match self.store().compare_group_session(&session).await? {
+                    SessionOrdering::Better => {
+                        info!("Received a new megolm room key");
 
-                    Ok(Some(session))
-                } else {
-                    warn!(
-                        "Received a megolm room key that we already have a better version of, \
-                        discarding",
-                    );
+                        Ok(Some(session))
+                    }
+                    comparison_result => {
+                        warn!(
+                            ?comparison_result,
+                            "Received a megolm room key that we already have a better version \
+                             of, discarding"
+                        );
 
-                    Ok(None)
+                        Ok(None)
+                    }
                 }
             }
             Err(e) => {
