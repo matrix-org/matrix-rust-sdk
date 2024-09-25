@@ -122,7 +122,6 @@ async fn test_left_room() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_room_avatar_group_conversation() -> Result<()> {
     let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
@@ -970,7 +969,6 @@ async fn test_room_info_notable_update_deduplication() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_room_preview() -> Result<()> {
     let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
