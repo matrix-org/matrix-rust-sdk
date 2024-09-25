@@ -19,7 +19,7 @@ pub(super) struct SlidingSyncListStickyParameters {
     filters: Option<http::request::ListFilters>,
 
     /// The maximum number of timeline events to query for.
-    timeline_limit: Option<Bound>,
+    timeline_limit: Bound,
 }
 
 impl SlidingSyncListStickyParameters {
@@ -27,7 +27,7 @@ impl SlidingSyncListStickyParameters {
         required_state: Vec<(StateEventType, String)>,
         include_heroes: Option<bool>,
         filters: Option<http::request::ListFilters>,
-        timeline_limit: Option<Bound>,
+        timeline_limit: Bound,
     ) -> Self {
         // Consider that each list will have at least one parameter set, so invalidate
         // it by default.
@@ -36,11 +36,11 @@ impl SlidingSyncListStickyParameters {
 }
 
 impl SlidingSyncListStickyParameters {
-    pub(super) fn timeline_limit(&self) -> Option<Bound> {
+    pub(super) fn timeline_limit(&self) -> Bound {
         self.timeline_limit
     }
 
-    pub(super) fn set_timeline_limit(&mut self, timeline: Option<Bound>) {
+    pub(super) fn set_timeline_limit(&mut self, timeline: Bound) {
         self.timeline_limit = timeline;
     }
 }
@@ -50,7 +50,7 @@ impl StickyData for SlidingSyncListStickyParameters {
 
     fn apply(&self, request: &mut Self::Request) {
         request.room_details.required_state = self.required_state.to_vec();
-        request.room_details.timeline_limit = self.timeline_limit.map(Into::into);
+        request.room_details.timeline_limit = Some(self.timeline_limit.into());
         request.include_heroes = self.include_heroes;
         request.filters = self.filters.clone();
     }

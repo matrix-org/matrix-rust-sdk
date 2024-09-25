@@ -132,12 +132,12 @@ impl SlidingSyncList {
     }
 
     /// Get the timeline limit.
-    pub fn timeline_limit(&self) -> Option<Bound> {
+    pub fn timeline_limit(&self) -> Bound {
         self.inner.sticky.read().unwrap().data().timeline_limit()
     }
 
     /// Set timeline limit.
-    pub fn set_timeline_limit(&self, timeline: Option<Bound>) {
+    pub fn set_timeline_limit(&self, timeline: Bound) {
         self.inner.sticky.write().unwrap().data_mut().set_timeline_limit(timeline);
     }
 
@@ -594,13 +594,10 @@ mod tests {
             .timeline_limit(7)
             .build(sender);
 
-        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit(), Some(7));
+        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit(), 7);
 
-        list.set_timeline_limit(Some(42));
-        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit(), Some(42));
-
-        list.set_timeline_limit(None);
-        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit(), None);
+        list.set_timeline_limit(42);
+        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit(), 42);
     }
 
     macro_rules! assert_ranges {

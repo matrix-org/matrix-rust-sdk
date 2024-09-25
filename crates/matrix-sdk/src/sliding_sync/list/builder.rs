@@ -37,7 +37,7 @@ pub struct SlidingSyncListBuilder {
     required_state: Vec<(StateEventType, String)>,
     include_heroes: Option<bool>,
     filters: Option<http::request::ListFilters>,
-    timeline_limit: Option<Bound>,
+    timeline_limit: Bound,
     pub(crate) name: String,
 
     /// Should this list be cached and reloaded from the cache?
@@ -76,7 +76,7 @@ impl SlidingSyncListBuilder {
             ],
             include_heroes: None,
             filters: None,
-            timeline_limit: None,
+            timeline_limit: 1,
             name: name.into(),
             reloaded_cached_data: None,
             cache_policy: SlidingSyncListCachePolicy::Disabled,
@@ -123,14 +123,13 @@ impl SlidingSyncListBuilder {
 
     /// Set the limit of regular events to fetch for the timeline.
     pub fn timeline_limit(mut self, timeline_limit: Bound) -> Self {
-        self.timeline_limit = Some(timeline_limit);
+        self.timeline_limit = timeline_limit;
         self
     }
 
-    /// Reset the limit of regular events to fetch for the timeline. It is left
-    /// to the server to decide how many to send back
+    /// Set the limit of regular events to fetch for the timeline to 0.
     pub fn no_timeline_limit(mut self) -> Self {
-        self.timeline_limit = Default::default();
+        self.timeline_limit = 0;
         self
     }
 
