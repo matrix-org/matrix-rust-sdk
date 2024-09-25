@@ -99,6 +99,7 @@ async fn test_notification() -> Result<()> {
 
         assert_matches!(notification.event, NotificationEvent::Invite(_));
         assert_eq!(notification.event.sender(), alice.user_id().unwrap());
+        assert_eq!(notification.joined_members_count, 0);
         assert_eq!(notification.is_room_encrypted, None);
         assert!(notification.is_direct_message_room);
 
