@@ -488,8 +488,15 @@ impl Timeline {
     ///
     /// Returns whether the edit did happen. It can only return false for
     /// local events that are being processed.
-    pub async fn edit(&self, id: String, new_content: EditedContent) -> Result<bool, ClientError> {
-        self.inner.edit_by_id(&(id.into()), new_content.try_into()?).await.map_err(Into::into)
+    pub async fn edit(
+        &self,
+        event_or_transaction_id: String,
+        new_content: EditedContent,
+    ) -> Result<bool, ClientError> {
+        self.inner
+            .edit_by_id(&(event_or_transaction_id.into()), new_content.try_into()?)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn send_location(
@@ -596,10 +603,13 @@ impl Timeline {
     /// Will return an error if the event couldn't be redacted.
     pub async fn redact_event(
         &self,
-        id: String,
+        event_or_transaction_id: String,
         reason: Option<String>,
     ) -> Result<(), ClientError> {
-        self.inner.redact_by_id(&(id.into()), reason.as_deref()).await.map_err(Into::into)
+        self.inner
+            .redact_by_id(&(event_or_transaction_id.into()), reason.as_deref())
+            .await
+            .map_err(Into::into)
     }
 
     /// Load the reply details for the given event id.
