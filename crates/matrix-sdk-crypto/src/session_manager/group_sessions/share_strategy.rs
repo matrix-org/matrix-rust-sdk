@@ -31,7 +31,7 @@ use crate::{
     DeviceData, EncryptionSettings, LocalTrust, OlmError, OwnUserIdentityData, UserIdentityData,
 };
 #[cfg(doc)]
-use crate::{Device, UserIdentities};
+use crate::{Device, UserIdentity};
 
 /// Strategy to collect the devices that should receive room keys for the
 /// current discussion.

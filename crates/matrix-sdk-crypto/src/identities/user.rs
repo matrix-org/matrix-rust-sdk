@@ -43,14 +43,14 @@ use crate::{
 
 /// Enum over the different user identity types we can have.
 #[derive(Debug, Clone)]
-pub enum UserIdentities {
+pub enum UserIdentity {
     /// Our own user identity.
     Own(OwnUserIdentity),
     /// An identity belonging to another user.
     Other(OtherUserIdentity),
 }
 
-impl UserIdentities {
+impl UserIdentity {
     /// Destructure the enum into an `OwnUserIdentity` if it's of the correct
     /// type.
     pub fn own(self) -> Option<OwnUserIdentity> {
@@ -66,8 +66,8 @@ impl UserIdentities {
     /// Get the ID of the user this identity belongs to.
     pub fn user_id(&self) -> &UserId {
         match self {
-            UserIdentities::Own(u) => u.user_id(),
-            UserIdentities::Other(u) => u.user_id(),
+            UserIdentity::Own(u) => u.user_id(),
+            UserIdentity::Other(u) => u.user_id(),
         }
     }
 
@@ -99,8 +99,8 @@ impl UserIdentities {
     /// by our own user-signing key.
     pub fn is_verified(&self) -> bool {
         match self {
-            UserIdentities::Own(u) => u.is_verified(),
-            UserIdentities::Other(u) => u.is_verified(),
+            UserIdentity::Own(u) => u.is_verified(),
+            UserIdentity::Other(u) => u.is_verified(),
         }
     }
 
@@ -110,8 +110,8 @@ impl UserIdentities {
     /// [`UserIdentities::withdraw_verification()`].
     pub fn was_previously_verified(&self) -> bool {
         match self {
-            UserIdentities::Own(u) => u.was_previously_verified(),
-            UserIdentities::Other(u) => u.was_previously_verified(),
+            UserIdentity::Own(u) => u.was_previously_verified(),
+            UserIdentity::Other(u) => u.was_previously_verified(),
         }
     }
 
@@ -120,27 +120,27 @@ impl UserIdentities {
     /// [`Self::has_verification_violation`].
     pub async fn withdraw_verification(&self) -> Result<(), CryptoStoreError> {
         match self {
-            UserIdentities::Own(u) => u.withdraw_verification().await,
-            UserIdentities::Other(u) => u.withdraw_verification().await,
+            UserIdentity::Own(u) => u.withdraw_verification().await,
+            UserIdentity::Other(u) => u.withdraw_verification().await,
         }
     }
 
     /// Was this identity previously verified, and is no longer?
     pub fn has_verification_violation(&self) -> bool {
         match self {
-            UserIdentities::Own(u) => u.has_verification_violation(),
-            UserIdentities::Other(u) => u.has_verification_violation(),
+            UserIdentity::Own(u) => u.has_verification_violation(),
+            UserIdentity::Other(u) => u.has_verification_violation(),
         }
     }
 }
 
-impl From<OwnUserIdentity> for UserIdentities {
+impl From<OwnUserIdentity> for UserIdentity {
     fn from(i: OwnUserIdentity) -> Self {
         Self::Own(i)
     }
 }
 
-impl From<OtherUserIdentity> for UserIdentities {
+impl From<OtherUserIdentity> for UserIdentity {
     fn from(i: OtherUserIdentity) -> Self {
         Self::Other(i)
     }

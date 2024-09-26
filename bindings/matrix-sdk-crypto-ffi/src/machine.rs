@@ -18,7 +18,7 @@ use matrix_sdk_crypto::{
     olm::ExportedRoomKey,
     store::{BackupDecryptionKey, Changes},
     DecryptionSettings, LocalTrust, OlmMachine as InnerMachine, ToDeviceRequest, TrustRequirement,
-    UserIdentities,
+    UserIdentity as SdkUserIdentity,
 };
 use ruma::{
     api::{
@@ -314,8 +314,8 @@ impl OlmMachine {
 
         if let Some(user_identity) = user_identity {
             Ok(match user_identity {
-                UserIdentities::Own(i) => self.runtime.block_on(i.verify())?,
-                UserIdentities::Other(i) => self.runtime.block_on(i.verify())?,
+                SdkUserIdentity::Own(i) => self.runtime.block_on(i.verify())?,
+                SdkUserIdentity::Other(i) => self.runtime.block_on(i.verify())?,
             }
             .into())
         } else {
