@@ -65,7 +65,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::{backups::BackupMachine, identities::OwnUserIdentity};
 use crate::{
     gossiping::GossippedSecret,
-    identities::{user::UserIdentities, Device, DeviceData, UserDevices, UserIdentityData},
+    identities::{user::UserIdentity, Device, DeviceData, UserDevices, UserIdentityData},
     olm::{
         Account, ExportedRoomKey, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
         PrivateCrossSigningIdentity, Session, StaticAccountData,
@@ -700,11 +700,11 @@ pub struct IdentityUpdates {
     /// A identity being in this list does not necessarily mean that the
     /// identity was just created, it just means that it's the first time
     /// we're seeing this identity.
-    pub new: BTreeMap<OwnedUserId, UserIdentities>,
+    pub new: BTreeMap<OwnedUserId, UserIdentity>,
     /// The list of changed identities.
-    pub changed: BTreeMap<OwnedUserId, UserIdentities>,
+    pub changed: BTreeMap<OwnedUserId, UserIdentity>,
     /// The list of unchanged identities.
-    pub unchanged: BTreeMap<OwnedUserId, UserIdentities>,
+    pub unchanged: BTreeMap<OwnedUserId, UserIdentity>,
 }
 
 /// The private part of a backup key.
@@ -1212,7 +1212,7 @@ impl Store {
     }
 
     ///  Get the Identity of `user_id`
-    pub(crate) async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
+    pub(crate) async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentity>> {
         let own_identity = self
             .inner
             .store
@@ -1221,7 +1221,7 @@ impl Store {
             .and_then(as_variant!(UserIdentityData::Own));
 
         Ok(self.inner.store.get_user_identity(user_id).await?.map(|i| {
-            UserIdentities::new(
+            UserIdentity::new(
                 self.clone(),
                 i,
                 self.inner.verification_machine.to_owned(),
@@ -1581,7 +1581,7 @@ impl Store {
             let map_identity = |(user_id, identity)| {
                 (
                     user_id,
-                    UserIdentities::new(
+                    UserIdentity::new(
                         this.clone(),
                         identity,
                         verification_machine.to_owned(),

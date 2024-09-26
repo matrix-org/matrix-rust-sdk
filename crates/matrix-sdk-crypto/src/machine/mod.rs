@@ -63,7 +63,7 @@ use crate::{
     dehydrated_devices::{DehydratedDevices, DehydrationError},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SetRoomSettingsError},
     gossiping::GossipMachine,
-    identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
+    identities::{user::UserIdentity, Device, IdentityManager, UserDevices},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
         KnownSenderData, OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData,
@@ -2098,7 +2098,7 @@ impl OlmMachine {
         &self,
         user_id: &UserId,
         timeout: Option<Duration>,
-    ) -> StoreResult<Option<UserIdentities>> {
+    ) -> StoreResult<Option<UserIdentity>> {
         self.wait_if_user_pending(user_id, timeout).await?;
         self.store().get_identity(user_id).await
     }

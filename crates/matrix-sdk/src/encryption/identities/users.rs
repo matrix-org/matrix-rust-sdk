@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_base::{
-    crypto::{types::MasterPubkey, CryptoStoreError, UserIdentities as CryptoUserIdentities},
+    crypto::{types::MasterPubkey, CryptoStoreError, UserIdentity as CryptoUserIdentities},
     RoomMemberships,
 };
 use ruma::{

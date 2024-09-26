@@ -39,7 +39,7 @@ use crate::{
         Result as StoreResult, Store, StoreCache, StoreCacheGuard, UserKeyQueryResult,
     },
     types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
-    CryptoStoreError, LocalTrust, OwnUserIdentity, SignatureError, UserIdentities,
+    CryptoStoreError, LocalTrust, OwnUserIdentity, SignatureError, UserIdentity,
 };
 
 enum DeviceChange {
@@ -749,7 +749,7 @@ impl IdentityManager {
             .store
             .get_identity(self.user_id())
             .await?
-            .and_then(UserIdentities::own)
+            .and_then(UserIdentity::own)
             .filter(|own| own.is_verified());
 
         for (user_id, master_key) in &response.master_keys {

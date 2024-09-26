@@ -1,4 +1,4 @@
-use matrix_sdk_crypto::{types::CrossSigningKey, UserIdentities};
+use matrix_sdk_crypto::{types::CrossSigningKey, UserIdentity as SdkUserIdentity};
 
 use crate::CryptoStoreError;
 
@@ -31,9 +31,9 @@ pub enum UserIdentity {
 }
 
 impl UserIdentity {
-    pub(crate) async fn from_rust(i: UserIdentities) -> Result<Self, CryptoStoreError> {
+    pub(crate) async fn from_rust(i: SdkUserIdentity) -> Result<Self, CryptoStoreError> {
         Ok(match i {
-            UserIdentities::Own(i) => {
+            SdkUserIdentity::Own(i) => {
                 let master: CrossSigningKey = i.master_key().as_ref().to_owned();
                 let user_signing: CrossSigningKey = i.user_signing_key().as_ref().to_owned();
                 let self_signing: CrossSigningKey = i.self_signing_key().as_ref().to_owned();
@@ -46,7 +46,7 @@ impl UserIdentity {
                     self_signing_key: serde_json::to_string(&self_signing)?,
                 }
             }
-            UserIdentities::Other(i) => {
+            SdkUserIdentity::Other(i) => {
                 let master: CrossSigningKey = i.master_key().as_ref().to_owned();
                 let self_signing: CrossSigningKey = i.self_signing_key().as_ref().to_owned();
 
