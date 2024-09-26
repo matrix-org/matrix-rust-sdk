@@ -99,13 +99,13 @@ impl IdentityUpdates {
 /// [`Encryption::bootstrap_cross_signing()`]: crate::encryption::Encryption::bootstrap_cross_signing
 #[derive(Debug, Clone)]
 pub struct UserIdentity {
-    inner: UserIdentities,
+    client: Client,
+    inner: CryptoUserIdentities,
 }
 
 impl UserIdentity {
     pub(crate) fn new(client: Client, identity: CryptoUserIdentities) -> Self {
-        let inner = UserIdentities { client, identity };
-        Self { inner }
+        Self { inner: identity, client }
     }
 
     /// The ID of the user this identity belongs to.
@@ -128,7 +128,7 @@ impl UserIdentity {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn user_id(&self) -> &UserId {
-        match &self.inner.identity {
+        match &self.inner {
             CryptoUserIdentities::Own(identity) => identity.user_id(),
             CryptoUserIdentities::Other(identity) => identity.user_id(),
         }
@@ -185,7 +185,7 @@ impl UserIdentity {
     pub async fn request_verification(
         &self,
     ) -> Result<VerificationRequest, RequestVerificationError> {
-        self.inner.request_verification(None).await
+        self.request_verification_impl(None).await
     }
 
     /// Request an interactive verification with this `UserIdentity` using the
@@ -244,8 +244,56 @@ impl UserIdentity {
         methods: Vec<VerificationMethod>,
     ) -> Result<VerificationRequest, RequestVerificationError> {
         assert!(!methods.is_empty(), "The list of verification methods can't be non-empty");
+        self.request_verification_impl(Some(methods)).await
+    }
 
-        self.inner.request_verification(Some(methods)).await
+    async fn request_verification_impl(
+        &self,
+        methods: Option<Vec<VerificationMethod>>,
+    ) -> Result<VerificationRequest, RequestVerificationError> {
+        match &self.inner {
+            CryptoUserIdentities::Own(identity) => {
+                let (verification, request) = if let Some(methods) = methods {
+                    identity
+                        .request_verification_with_methods(methods)
+                        .await
+                        .map_err(crate::Error::from)?
+                } else {
+                    identity.request_verification().await.map_err(crate::Error::from)?
+                };
+
+                self.client.send_verification_request(request).await?;
+
+                Ok(VerificationRequest { inner: verification, client: self.client.clone() })
+            }
+            CryptoUserIdentities::Other(i) => {
+                let content = i.verification_request_content(methods.clone());
+
+                let room = if let Some(room) = self.client.get_dm_room(i.user_id()) {
+                    // Make sure that the user, to be verified, is still in the room
+                    if !room
+                        .members(RoomMemberships::ACTIVE)
+                        .await?
+                        .iter()
+                        .any(|member| member.user_id() == i.user_id())
+                    {
+                        room.invite_user_by_id(i.user_id()).await?;
+                    }
+                    room.clone()
+                } else {
+                    self.client.create_dm(i.user_id()).await?
+                };
+
+                let response = room
+                    .send(RoomMessageEventContent::new(MessageType::VerificationRequest(content)))
+                    .await?;
+
+                let verification =
+                    i.request_verification(room.room_id(), &response.event_id, methods);
+
+                Ok(VerificationRequest { inner: verification, client: self.client.clone() })
+            }
+        }
     }
 
     /// Manually verify this [`UserIdentity`].
@@ -308,7 +356,14 @@ impl UserIdentity {
     /// ```
     /// [`Encryption::cross_signing_status()`]: crate::encryption::Encryption::cross_signing_status
     pub async fn verify(&self) -> Result<(), ManualVerifyError> {
-        self.inner.verify().await
+        let request = match &self.inner {
+            CryptoUserIdentities::Own(identity) => identity.verify().await?,
+            CryptoUserIdentities::Other(identity) => identity.verify().await?,
+        };
+
+        self.client.send(request, None).await?;
+
+        Ok(())
     }
 
     /// Is the user identity considered to be verified.
@@ -350,7 +405,7 @@ impl UserIdentity {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn is_verified(&self) -> bool {
-        self.inner.identity.is_verified()
+        self.inner.is_verified()
     }
 
     /// Remove the requirement for this identity to be verified.
@@ -359,7 +414,7 @@ impl UserIdentity {
     /// reported to the user. In order to remove this notice users have to
     /// verify again or to withdraw the verification requirement.
     pub async fn withdraw_verification(&self) -> Result<(), CryptoStoreError> {
-        self.inner.identity.withdraw_verification().await
+        self.inner.withdraw_verification().await
     }
 
     /// Get the public part of the Master key of this user identity.
@@ -404,75 +459,9 @@ impl UserIdentity {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn master_key(&self) -> &MasterPubkey {
-        match &self.inner.identity {
+        match &self.inner {
             CryptoUserIdentities::Own(identity) => identity.master_key(),
             CryptoUserIdentities::Other(identity) => identity.master_key(),
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct UserIdentities {
-    client: Client,
-    identity: CryptoUserIdentities,
-}
-
-impl UserIdentities {
-    async fn request_verification(
-        &self,
-        methods: Option<Vec<VerificationMethod>>,
-    ) -> Result<VerificationRequest, RequestVerificationError> {
-        match &self.identity {
-            CryptoUserIdentities::Own(identity) => {
-                let (verification, request) = if let Some(methods) = methods {
-                    identity
-                        .request_verification_with_methods(methods)
-                        .await
-                        .map_err(crate::Error::from)?
-                } else {
-                    identity.request_verification().await.map_err(crate::Error::from)?
-                };
-
-                self.client.send_verification_request(request).await?;
-
-                Ok(VerificationRequest { inner: verification, client: self.client.clone() })
-            }
-            CryptoUserIdentities::Other(i) => {
-                let content = i.verification_request_content(methods.clone());
-
-                let room = if let Some(room) = self.client.get_dm_room(i.user_id()) {
-                    // Make sure that the user, to be verified, is still in the room
-                    if !room
-                        .members(RoomMemberships::ACTIVE)
-                        .await?
-                        .iter()
-                        .any(|member| member.user_id() == i.user_id())
-                    {
-                        room.invite_user_by_id(i.user_id()).await?;
-                    }
-                    room.clone()
-                } else {
-                    self.client.create_dm(i.user_id()).await?
-                };
-
-                let response = room
-                    .send(RoomMessageEventContent::new(MessageType::VerificationRequest(content)))
-                    .await?;
-
-                let verification =
-                    i.request_verification(room.room_id(), &response.event_id, methods);
-
-                Ok(VerificationRequest { inner: verification, client: self.client.clone() })
-            }
-        }
-    }
-
-    async fn verify(&self) -> Result<(), ManualVerifyError> {
-        let request = match &self.identity {
-            CryptoUserIdentities::Own(identity) => identity.verify().await?,
-            CryptoUserIdentities::Other(identity) => identity.verify().await?,
-        };
-        self.client.send(request, None).await?;
-        Ok(())
     }
 }
