@@ -315,6 +315,7 @@ impl Encryption {
     pub async fn enable_recovery(
         &self,
         wait_for_backups_to_upload: bool,
+        mut passphrase: Option<String>,
         progress_listener: Box<dyn EnableRecoveryProgressListener>,
     ) -> Result<String> {
         let recovery = self.inner.recovery();
@@ -323,6 +324,12 @@ impl Encryption {
             recovery.enable().wait_for_backups_to_upload()
         } else {
             recovery.enable()
+        };
+
+        let enable = if let Some(passphrase) = &passphrase {
+            enable.with_passphrase(passphrase)
+        } else {
+            enable
         };
 
         let mut progress_stream = enable.subscribe_to_progress();
@@ -337,6 +344,7 @@ impl Encryption {
         let ret = enable.await?;
 
         task.abort();
+        passphrase.zeroize();
 
         Ok(ret)
     }
