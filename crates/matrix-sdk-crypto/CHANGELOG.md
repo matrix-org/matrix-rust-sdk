@@ -2,6 +2,12 @@
 
 Changes:
 
+- The `UserIdentity` struct has been renamed to `OtherUserIdentity`
+  ([#4036](https://github.com/matrix-org/matrix-rust-sdk/pull/4036]))
+
+- The `UserIdentities` enum has been renamed to `UserIdentity`
+  ([#4036](https://github.com/matrix-org/matrix-rust-sdk/pull/4036]))
+
 - Change the withheld code for keys not shared due to the `IdentityBasedStrategy`, from `m.unauthorised`
   to `m.unverified`.
   ([#3985](https://github.com/matrix-org/matrix-rust-sdk/pull/3985))
