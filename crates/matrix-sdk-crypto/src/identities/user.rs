@@ -47,7 +47,7 @@ pub enum UserIdentities {
     /// Our own user identity.
     Own(OwnUserIdentity),
     /// An identity belonging to another user.
-    Other(UserIdentity),
+    Other(OtherUserIdentity),
 }
 
 impl UserIdentities {
@@ -59,7 +59,7 @@ impl UserIdentities {
 
     /// Destructure the enum into an `UserIdentity` if it's of the correct
     /// type.
-    pub fn other(self) -> Option<UserIdentity> {
+    pub fn other(self) -> Option<OtherUserIdentity> {
         as_variant!(self, Self::Other)
     }
 
@@ -82,7 +82,7 @@ impl UserIdentities {
                 Self::Own(OwnUserIdentity { inner: i, verification_machine, store })
             }
             UserIdentityData::Other(i) => {
-                Self::Other(UserIdentity { inner: i, own_identity, verification_machine })
+                Self::Other(OtherUserIdentity { inner: i, own_identity, verification_machine })
             }
         }
     }
@@ -140,8 +140,8 @@ impl From<OwnUserIdentity> for UserIdentities {
     }
 }
 
-impl From<UserIdentity> for UserIdentities {
-    fn from(i: UserIdentity) -> Self {
+impl From<OtherUserIdentity> for UserIdentities {
+    fn from(i: OtherUserIdentity) -> Self {
         Self::Other(i)
     }
 }
@@ -268,13 +268,13 @@ impl OwnUserIdentity {
 /// This struct wraps a read-only version of the struct and allows verifications
 /// to be requested to verify our own device with the user identity.
 #[derive(Debug, Clone)]
-pub struct UserIdentity {
+pub struct OtherUserIdentity {
     pub(crate) inner: OtherUserIdentityData,
     pub(crate) own_identity: Option<OwnUserIdentityData>,
     pub(crate) verification_machine: VerificationMachine,
 }
 
-impl Deref for UserIdentity {
+impl Deref for OtherUserIdentity {
     type Target = OtherUserIdentityData;
 
     fn deref(&self) -> &Self::Target {
@@ -282,7 +282,7 @@ impl Deref for UserIdentity {
     }
 }
 
-impl UserIdentity {
+impl OtherUserIdentity {
     /// Is this user identity verified.
     pub fn is_verified(&self) -> bool {
         self.own_identity

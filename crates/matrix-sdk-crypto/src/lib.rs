@@ -81,7 +81,7 @@ pub use file_encryption::{
 pub use gossiping::{GossipRequest, GossippedSecret};
 pub use identities::{
     Device, DeviceData, LocalTrust, OtherUserIdentityData, OwnUserIdentity, OwnUserIdentityData,
-    UserDevices, UserIdentities, UserIdentity, UserIdentityData,
+    UserDevices, UserIdentities, OtherUserIdentity, UserIdentityData,
 };
 pub use machine::{CrossSigningBootstrapRequests, EncryptionSyncChanges, OlmMachine};
 #[cfg(feature = "qrcode")]
