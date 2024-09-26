@@ -405,7 +405,7 @@ pub enum SessionRecipientCollectionError {
     /// * re-verify the problematic recipients, or
     ///
     /// * withdraw verification of the problematic recipients with
-    ///   [`UserIdentity::withdraw_verification`], or
+    ///   [`OtherUserIdentity::withdraw_verification`], or
     ///
     /// * set the trust level of all of the devices belonging to the problematic
     ///   recipients to [`LocalTrust::Ignored`] or [`LocalTrust::BlackListed`]

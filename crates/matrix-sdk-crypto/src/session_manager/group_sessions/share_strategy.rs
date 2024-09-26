@@ -486,9 +486,9 @@ fn is_unsigned_device_of_verified_user(
 /// Check if the user was previously verified, but they have now changed their
 /// identity so that they are no longer verified.
 ///
-/// This is much the same as [`UserIdentities::has_verification_violation`], but
+/// This is much the same as [`UserIdentity::has_verification_violation`], but
 /// works with a low-level [`UserIdentityData`] rather than higher-level
-/// [`UserIdentities`].
+/// [`UserIdentity`].
 fn has_identity_verification_violation(
     own_identity: Option<&OwnUserIdentityData>,
     device_owner_identity: Option<&UserIdentityData>,
