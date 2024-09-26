@@ -691,7 +691,7 @@ pub struct DeviceUpdates {
     pub changed: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
 }
 
-/// Updates about [`UserIdentities`] which got received over the `/keys/query`
+/// Updates about [`UserIdentity`]s which got received over the `/keys/query`
 /// endpoint.
 #[derive(Clone, Debug, Default)]
 pub struct IdentityUpdates {

@@ -51,14 +51,14 @@ pub enum UserIdentity {
 }
 
 impl UserIdentity {
-    /// Destructure the enum into an `OwnUserIdentity` if it's of the correct
+    /// Destructure the enum into an [`OwnUserIdentity`] if it's of the correct
     /// type.
     pub fn own(self) -> Option<OwnUserIdentity> {
         as_variant!(self, Self::Own)
     }
 
-    /// Destructure the enum into an `UserIdentity` if it's of the correct
-    /// type.
+    /// Destructure the enum into an [`OtherUserIdentity`] if it's of the
+    /// correct type.
     pub fn other(self) -> Option<OtherUserIdentity> {
         as_variant!(self, Self::Other)
     }
@@ -107,7 +107,7 @@ impl UserIdentity {
     /// True if we verified this identity at some point in the past.
     ///
     /// To reset this latch back to `false`, one must call
-    /// [`UserIdentities::withdraw_verification()`].
+    /// [`UserIdentity::withdraw_verification()`].
     pub fn was_previously_verified(&self) -> bool {
         match self {
             UserIdentity::Own(u) => u.was_previously_verified(),
@@ -116,8 +116,8 @@ impl UserIdentity {
     }
 
     /// Reset the flag that records that the identity has been verified, thus
-    /// clearing [`Self::was_previously_verified`] and
-    /// [`Self::has_verification_violation`].
+    /// clearing [`UserIdentity::was_previously_verified`] and
+    /// [`UserIdentity::has_verification_violation`].
     pub async fn withdraw_verification(&self) -> Result<(), CryptoStoreError> {
         match self {
             UserIdentity::Own(u) => u.withdraw_verification().await,
@@ -315,7 +315,7 @@ impl OtherUserIdentity {
         }
     }
 
-    /// Create a `VerificationRequest` object after the verification request
+    /// Create a [`VerificationRequest`] object after the verification request
     /// content has been sent out.
     pub fn request_verification(
         &self,
@@ -336,10 +336,8 @@ impl OtherUserIdentity {
     /// The returned content needs to be sent out into a DM room with the given
     /// user.
     ///
-    /// After the content has been sent out a `VerificationRequest` can be
-    /// started with the [`request_verification()`] method.
-    ///
-    /// [`request_verification()`]: #method.request_verification
+    /// After the content has been sent out a [`VerificationRequest`] can be
+    /// started with the [`OtherUserIdentity::request_verification()`] method.
     pub fn verification_request_content(
         &self,
         methods: Option<Vec<VerificationMethod>>,
@@ -374,9 +372,9 @@ impl OtherUserIdentity {
     /// This situation can be resolved by:
     ///
     /// - Verifying the new identity with
-    ///   [`UserIdentity::request_verification`], or:
+    ///   [`OtherUserIdentity::request_verification`], or:
     /// - Updating the pin to the new identity with
-    ///   [`UserIdentity::pin_current_master_key`].
+    ///   [`OtherUserIdentity::pin_current_master_key`].
     pub fn identity_needs_user_approval(&self) -> bool {
         // First check if the current identity is verified.
         if self.is_verified() {
@@ -417,9 +415,10 @@ impl OtherUserIdentity {
     /// Such a violation should be reported to the local user by the
     /// application, and resolved by
     ///
-    /// - Verifying the new identity with [`UserIdentity::request_verification`]
+    /// - Verifying the new identity with
+    ///   [`OtherUserIdentity::request_verification`]
     /// - Or by withdrawing the verification requirement
-    ///   [`UserIdentity::withdraw_verification`].
+    ///   [`OtherUserIdentity::withdraw_verification`].
     pub fn has_verification_violation(&self) -> bool {
         if !self.inner.was_previously_verified() {
             // If that identity has never been verified it cannot be in violation.
@@ -488,7 +487,7 @@ impl UserIdentityData {
     /// True if we verified our own identity at some point in the past.
     ///
     /// To reset this latch back to `false`, one must call
-    /// [`UserIdentities::withdraw_verification()`].
+    /// [`UserIdentity::withdraw_verification()`].
     pub fn was_previously_verified(&self) -> bool {
         match self {
             UserIdentityData::Own(i) => i.was_previously_verified(),
