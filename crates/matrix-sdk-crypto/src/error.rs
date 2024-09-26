@@ -27,7 +27,7 @@ use crate::{
     types::{events::room_key_withheld::WithheldCode, SignedKey},
 };
 #[cfg(doc)]
-use crate::{CollectStrategy, Device, LocalTrust, UserIdentity};
+use crate::{CollectStrategy, Device, LocalTrust, OtherUserIdentity};
 
 pub type OlmResult<T> = Result<T, OlmError>;
 pub type MegolmResult<T> = Result<T, MegolmError>;
