@@ -605,25 +605,30 @@ impl Timeline {
     ) -> Result<(), Error> {
         match id {
             TimelineEventItemId::TransactionId(transaction_id) => {
-                let Some(event) = self.item_by_transaction_id(transaction_id).await else {
-                    return Err(Error::RedactError(RedactError::LocalEventNotFound(
+                let item = self.item_by_transaction_id(transaction_id).await;
+
+                match item.as_ref().map(|i| i.handle()) {
+                    Some(TimelineItemHandle::Local(handle)) => {
+                        handle.abort().await.map_err(RoomSendQueueError::StorageError)?;
+                        Ok(())
+                    }
+                    Some(TimelineItemHandle::Remote(_)) => Err(Error::RedactError(
+                        RedactError::InvalidTimelineItemHandle(transaction_id.to_owned()),
+                    )),
+                    None => Err(Error::RedactError(RedactError::LocalEventNotFound(
                         transaction_id.to_owned(),
-                    )));
-                };
-                let TimelineItemHandle::Local(handle) = event.handle() else {
-                    panic!("If the item is local, this should never happen");
-                };
-                handle.abort().await.map_err(RoomSendQueueError::StorageError)?;
+                    ))),
+                }
             }
             TimelineEventItemId::EventId(event_id) => {
                 self.room()
                     .redact(event_id, reason, None)
                     .await
-                    .map_err(RedactError::HttpError)
-                    .map_err(Error::RedactError)?;
+                    .map_err(|e| Error::RedactError(RedactError::HttpError(e)))?;
+
+                Ok(())
             }
         }
-        Ok(())
     }
 
     /// Redact an event.

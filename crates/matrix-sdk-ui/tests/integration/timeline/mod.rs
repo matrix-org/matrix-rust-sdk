@@ -30,19 +30,23 @@ use matrix_sdk_test::{
 };
 use matrix_sdk_ui::{
     timeline::{
-        AnyOtherFullStateEventContent, EventSendState, RoomExt, TimelineItemContent,
-        VirtualTimelineItem,
+        AnyOtherFullStateEventContent, Error, EventSendState, RedactError, RoomExt,
+        TimelineEventItemId, TimelineItemContent, VirtualTimelineItem,
     },
     RoomListService, Timeline,
 };
-use ruma::{event_id, events::room::{encryption::RoomEncryptionEventContent, message::RoomMessageEventContent}, owned_event_id, room_id, user_id, MilliSecondsSinceUnixEpoch};
+use ruma::{
+    event_id,
+    events::room::{encryption::RoomEncryptionEventContent, message::RoomMessageEventContent},
+    owned_event_id, room_id, user_id, MilliSecondsSinceUnixEpoch,
+};
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 use wiremock::{
     matchers::{header, method, path_regex},
     Mock, ResponseTemplate,
 };
-use matrix_sdk_ui::timeline::{Error, RedactError, TimelineEventItemId};
+
 use crate::mock_sync;
 
 mod echo;
