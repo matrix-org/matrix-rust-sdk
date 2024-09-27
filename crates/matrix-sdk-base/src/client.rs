@@ -792,6 +792,32 @@ impl BaseClient {
         None
     }
 
+    /// User has knocked on a room.
+    ///
+    /// Update the internal and cached state accordingly. Return the final Room.
+    pub async fn room_knocked(&self, room_id: &RoomId) -> Result<Room> {
+        let room = self.store.get_or_create_room(
+            room_id,
+            RoomState::Knocked,
+            self.room_info_notable_update_sender.clone(),
+        );
+
+        if room.state() != RoomState::Knocked {
+            let _sync_lock = self.sync_lock().lock().await;
+
+            let mut room_info = room.clone_info();
+            room_info.mark_as_knocked();
+            room_info.mark_state_partially_synced();
+            room_info.mark_members_missing(); // the own member event changed
+            let mut changes = StateChanges::default();
+            changes.add_room(room_info.clone());
+            self.store.save_changes(&changes).await?; // Update the store
+            room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
+        }
+
+        Ok(room)
+    }
+
     /// User has joined a room.
     ///
     /// Update the internal and cached state accordingly. Return the final Room.

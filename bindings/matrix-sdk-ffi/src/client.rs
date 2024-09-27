@@ -972,6 +972,13 @@ impl Client {
         Ok(Arc::new(Room::new(room)))
     }
 
+    /// Knock on a room to join it using its ID or alias.
+    pub async fn knock(&self, room_id_or_alias: String) -> Result<Arc<Room>, ClientError> {
+        let room_id = RoomOrAliasId::parse(&room_id_or_alias)?;
+        let room = self.inner.knock(room_id).await?;
+        Ok(Arc::new(Room::new(room)))
+    }
+
     pub async fn get_recently_visited_rooms(&self) -> Result<Vec<String>, ClientError> {
         Ok(self
             .inner
