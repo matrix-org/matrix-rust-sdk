@@ -1047,7 +1047,7 @@ pub struct EventTimelineItem {
     read_receipts: HashMap<String, Receipt>,
     origin: Option<EventItemOrigin>,
     can_be_replied_to: bool,
-    message_shield: Option<ShieldState>,
+    shields_provider: Arc<EventShieldsProvider>,
 }
 
 impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
@@ -1066,7 +1066,9 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
                     .collect(),
             })
             .collect();
+        let value = Arc::new(value);
         let debug_info_provider = Arc::new(EventTimelineItemDebugInfoProvider(value.clone()));
+        let shields_provider = Arc::new(EventShieldsProvider(value.clone()));
         let read_receipts =
             value.read_receipts().iter().map(|(k, v)| (k.to_string(), v.clone().into())).collect();
         Self {
@@ -1085,7 +1087,7 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             read_receipts,
             origin: value.origin(),
             can_be_replied_to: value.can_be_replied_to(),
-            message_shield: value.get_shield(false).map(Into::into),
+            shields_provider,
         }
     }
 }
@@ -1104,7 +1106,7 @@ impl From<ruma::events::receipt::Receipt> for Receipt {
 /// Wrapper to retrieve the debug info lazily instead of immediately
 /// transforming it for each timeline event.
 #[derive(uniffi::Object)]
-pub struct EventTimelineItemDebugInfoProvider(matrix_sdk_ui::timeline::EventTimelineItem);
+pub struct EventTimelineItemDebugInfoProvider(Arc<matrix_sdk_ui::timeline::EventTimelineItem>);
 
 #[uniffi::export]
 impl EventTimelineItemDebugInfoProvider {
@@ -1265,5 +1267,16 @@ impl TryFrom<EditedContent> for SdkEditedContent {
                 })
             }
         }
+    }
+}
+
+/// Wrapper to retrieve the shields info lazily.
+#[derive(Clone, uniffi::Object)]
+pub struct EventShieldsProvider(Arc<matrix_sdk_ui::timeline::EventTimelineItem>);
+
+#[uniffi::export]
+impl EventShieldsProvider {
+    fn get_shields(&self, strict: bool) -> Option<ShieldState> {
+        self.0.get_shield(strict).map(Into::into)
     }
 }
