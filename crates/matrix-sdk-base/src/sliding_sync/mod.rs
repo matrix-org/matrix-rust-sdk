@@ -260,7 +260,7 @@ impl BaseClient {
                         .or_insert_with(LeftRoomUpdate::default)
                         .account_data
                         .append(&mut raw.to_vec()),
-                    RoomState::Invited => {}
+                    RoomState::Invited | RoomState::Knocked => {}
                 }
             }
         }
@@ -528,6 +528,9 @@ impl BaseClient {
             )),
 
             RoomState::Invited => Ok((room_info, None, None, invited_room)),
+
+            // TODO: implement special logic for retrieving the knocked room info
+            RoomState::Knocked => Ok((room_info, None, None, None)),
         }
     }
 

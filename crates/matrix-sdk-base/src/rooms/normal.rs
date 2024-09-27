@@ -189,8 +189,10 @@ pub enum RoomState {
     Joined,
     /// The room is in a left state.
     Left,
-    /// The room is in a invited state.
+    /// The room is in an invited state.
     Invited,
+    /// The room is in a knocked state.
+    Knocked,
 }
 
 impl From<&MembershipState> for RoomState {
@@ -201,7 +203,7 @@ impl From<&MembershipState> for RoomState {
             MembershipState::Ban => Self::Left,
             MembershipState::Invite => Self::Invited,
             MembershipState::Join => Self::Joined,
-            MembershipState::Knock => Self::Left,
+            MembershipState::Knock => Self::Knocked,
             MembershipState::Leave => Self::Left,
             _ => panic!("Unexpected MembershipState: {}", membership_state),
         }
@@ -436,6 +438,9 @@ impl Room {
                     },
                 }
             }
+
+            // TODO: implement logic once we have the stripped events as we'd have with an Invite
+            RoomState::Knocked => Ok(false),
         }
     }
 
@@ -1150,6 +1155,11 @@ impl RoomInfo {
         self.room_state = RoomState::Invited;
     }
 
+    /// Mark this Room as knocked.
+    pub fn mark_as_knocked(&mut self) {
+        self.room_state = RoomState::Knocked;
+    }
+
     /// Set the membership RoomState of this Room
     pub fn set_state(&mut self, room_state: RoomState) {
         self.room_state = room_state;
@@ -1685,6 +1695,8 @@ bitflags! {
         const INVITED  = 0b00000010;
         /// The room is in a left state.
         const LEFT     = 0b00000100;
+        /// The room is in a knocked state.
+        const KNOCKED  = 0b00001000;
     }
 }
 
@@ -1699,6 +1711,7 @@ impl RoomStateFilter {
             RoomState::Joined => Self::JOINED,
             RoomState::Left => Self::LEFT,
             RoomState::Invited => Self::INVITED,
+            RoomState::Knocked => Self::KNOCKED,
         };
 
         self.contains(bit_state)

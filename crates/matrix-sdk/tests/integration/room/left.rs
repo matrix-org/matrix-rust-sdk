@@ -3,6 +3,7 @@ use std::time::Duration;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
+use ruma::OwnedRoomOrAliasId;
 use serde_json::json;
 use wiremock::{
     matchers::{header, method, path_regex},
@@ -55,4 +56,29 @@ async fn test_rejoin_room() {
 
     room.join().await.unwrap();
     assert!(!room.is_state_fully_synced())
+}
+
+#[async_test]
+async fn test_knocking() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    Mock::given(method("POST"))
+        .and(path_regex(r"^/_matrix/client/unstable/xyz.amorgan.knock/knock/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "room_id": *DEFAULT_TEST_ROOM_ID })),
+        )
+        .mount(&server)
+        .await;
+    mock_sync(&server, &*test_json::LEAVE_SYNC, None).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    assert_eq!(room.state(), RoomState::Left);
+
+    let room =
+        client.knock(OwnedRoomOrAliasId::from((*DEFAULT_TEST_ROOM_ID).to_owned())).await.unwrap();
+    assert_eq!(room.state(), RoomState::Knocked);
 }
