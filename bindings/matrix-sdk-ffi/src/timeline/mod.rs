@@ -67,6 +67,7 @@ use crate::client_builder::ClientBuilder;
 use crate::{
     client::ProgressWatcher,
     error::{ClientError, RoomError},
+    event::EventOrTransactionId,
     helpers::unwrap_or_clone_arc,
     ruma::{
         AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, PollKind, ThumbnailInfo,
@@ -490,11 +491,11 @@ impl Timeline {
     /// local events that are being processed.
     pub async fn edit(
         &self,
-        event_or_transaction_id: String,
+        event_or_transaction_id: EventOrTransactionId,
         new_content: EditedContent,
     ) -> Result<bool, ClientError> {
         self.inner
-            .edit_by_id(&(event_or_transaction_id.into()), new_content.try_into()?)
+            .edit_by_id(&(event_or_transaction_id.try_into()?), new_content.try_into()?)
             .await
             .map_err(Into::into)
     }
@@ -603,11 +604,11 @@ impl Timeline {
     /// Will return an error if the event couldn't be redacted.
     pub async fn redact_event(
         &self,
-        event_or_transaction_id: String,
+        event_or_transaction_id: EventOrTransactionId,
         reason: Option<String>,
     ) -> Result<(), ClientError> {
         self.inner
-            .redact_by_id(&(event_or_transaction_id.into()), reason.as_deref())
+            .redact_by_id(&(event_or_transaction_id.try_into()?), reason.as_deref())
             .await
             .map_err(Into::into)
     }
@@ -1033,8 +1034,7 @@ impl From<SdkShieldState> for ShieldState {
 pub struct EventTimelineItem {
     is_local: bool,
     is_remote: bool,
-    transaction_id: Option<String>,
-    event_id: Option<String>,
+    event_or_transaction_id: EventOrTransactionId,
     sender: String,
     sender_profile: ProfileDetails,
     is_own: bool,
@@ -1072,8 +1072,7 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
         Self {
             is_local: value.is_local_echo(),
             is_remote: !value.is_local_echo(),
-            transaction_id: value.transaction_id().map(|t| t.to_string()),
-            event_id: value.event_id().map(|e| e.to_string()),
+            event_or_transaction_id: value.identifier().into(),
             sender: value.sender().to_string(),
             sender_profile: value.sender_profile().into(),
             is_own: value.is_own(),
