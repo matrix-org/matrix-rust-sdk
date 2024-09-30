@@ -116,7 +116,6 @@ impl RoomListService {
         let mut builder = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
-            .share_pos()
             .with_account_data_extension(
                 assign!(http::request::AccountData::default(), { enabled: Some(true) }),
             )
@@ -136,6 +135,9 @@ impl RoomListService {
                 .with_to_device_extension(
                     assign!(http::request::ToDevice::default(), { enabled: Some(true) }),
                 );
+        } else {
+            // TODO: This is racy with encryption, needs cross-process lock
+            builder = builder.share_pos();
         }
 
         let sliding_sync = builder

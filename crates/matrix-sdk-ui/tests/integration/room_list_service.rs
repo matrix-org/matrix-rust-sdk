@@ -48,7 +48,7 @@ async fn new_room_list_service() -> Result<(Client, MockServer, RoomListService)
 }
 
 async fn new_persistent_room_list_service(
-    store_path: impl AsRef<std::path::Path>,
+    store_path: &std::path::Path,
 ) -> Result<(MockServer, RoomListService), Error> {
     let server = MockServer::start().await;
     let client = test_client_builder(Some(server.uri().to_string()))
