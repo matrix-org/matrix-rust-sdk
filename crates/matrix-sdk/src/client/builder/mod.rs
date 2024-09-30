@@ -1033,6 +1033,31 @@ pub(crate) mod tests {
         assert_matches!(client.sliding_sync_version(), SlidingSyncVersion::Native);
     }
 
+    #[async_test]
+    #[cfg(feature = "e2e-encryption")]
+    async fn test_setup_decryption_trust_requirements() {
+        let homeserver = make_mock_homeserver().await;
+        let builder = ClientBuilder::new()
+            .server_name_or_homeserver_url(homeserver.uri())
+            .with_decryption_trust_requirement(TrustRequirement::CrossSigned);
+
+        let client = builder.build().await.unwrap();
+        assert_matches!(
+            client.base_client().decryption_trust_requirement,
+            TrustRequirement::CrossSigned
+        );
+
+        let builder = ClientBuilder::new()
+            .server_name_or_homeserver_url(homeserver.uri())
+            .with_decryption_trust_requirement(TrustRequirement::Untrusted);
+
+        let client = builder.build().await.unwrap();
+        assert_matches!(
+            client.base_client().decryption_trust_requirement,
+            TrustRequirement::Untrusted
+        );
+    }
+
     /* Helper functions */
 
     async fn make_mock_homeserver() -> MockServer {
