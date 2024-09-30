@@ -1,6 +1,6 @@
 use std::{iter, time::Duration};
 
-use assert_matches2::assert_let;
+use assert_matches2::{assert_let, assert_matches};
 use js_int::uint;
 use matrix_sdk::{
     config::SyncSettings, room::RoomMember, test_utils::events::EventFactory, DisplayName,
@@ -14,10 +14,14 @@ use matrix_sdk_test::{
 use ruma::{
     event_id,
     events::{
-        room::{member::MembershipState, message::RoomMessageEventContent},
+        room::{
+            avatar::{self, RoomAvatarEventContent},
+            member::MembershipState,
+            message::RoomMessageEventContent,
+        },
         AnyStateEvent, AnySyncStateEvent, AnyTimelineEvent, StateEventType,
     },
-    room_id,
+    mxc_uri, room_id,
 };
 use serde_json::json;
 use wiremock::{
@@ -857,4 +861,68 @@ async fn test_is_direct() {
     // The room is not direct anymore.
     assert!(room.direct_targets().is_empty());
     assert!(!room.is_direct().await.unwrap());
+}
+
+#[async_test]
+async fn test_room_avatar() {
+    let (client, server) = logged_in_client_with_server().await;
+    let own_user_id = client.user_id().unwrap();
+
+    // Room without avatar.
+    mock_sync(&server, &*test_json::SYNC, None).await;
+
+    client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    assert_eq!(client.rooms().len(), 1);
+    let room_id = *DEFAULT_TEST_ROOM_ID;
+    let room = client.get_room(room_id).unwrap();
+
+    assert_eq!(room.avatar_url(), None);
+    assert_matches!(room.avatar_info(), None);
+
+    let factory = EventFactory::new().room(room_id).sender(own_user_id);
+
+    // Set the avatar, but not the info.
+    let avatar_url_1 = mxc_uri!("mxc://server.local/abcdef");
+
+    let mut content = RoomAvatarEventContent::new();
+    content.url = Some(avatar_url_1.to_owned());
+    let event = factory.event(content).state_key("").into_raw_sync();
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+
+    client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    assert_eq!(room.avatar_url().as_deref(), Some(avatar_url_1));
+    assert_matches!(room.avatar_info(), None);
+
+    // Set the avatar and the info.
+    let avatar_url_2 = mxc_uri!("mxc://server.local/ghijkl");
+    let mut avatar_info_2 = avatar::ImageInfo::new();
+    avatar_info_2.height = Some(uint!(200));
+    avatar_info_2.width = Some(uint!(200));
+    avatar_info_2.mimetype = Some("image/png".to_owned());
+    avatar_info_2.size = Some(uint!(5243));
+
+    let mut content = RoomAvatarEventContent::new();
+    content.url = Some(avatar_url_2.to_owned());
+    content.info = Some(avatar_info_2.into());
+    let event = factory.event(content).state_key("").into_raw_sync();
+
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+
+    client.sync_once(SyncSettings::default()).await.unwrap();
+    server.reset().await;
+
+    assert_eq!(room.avatar_url().as_deref(), Some(avatar_url_2));
+    let avatar_info = room.avatar_info().unwrap();
+    assert_eq!(avatar_info.height, Some(uint!(200)));
+    assert_eq!(avatar_info.width, Some(uint!(200)));
+    assert_eq!(avatar_info.mimetype.as_deref(), Some("image/png"));
+    assert_eq!(avatar_info.size, Some(uint!(5243)));
 }
