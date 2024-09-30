@@ -582,60 +582,6 @@ impl Room {
         }
     }
 
-    /// Get active members for this room, includes invited, joined members.
-    ///
-    /// *Note*: This method will fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading. Because of
-    /// that, it might panic if it isn't run on a tokio thread.
-    ///
-    /// Use [active_members_no_sync()](#method.active_members_no_sync) if you
-    /// want a method that doesn't do any requests.
-    #[deprecated = "Use members with RoomMemberships::ACTIVE instead"]
-    pub async fn active_members(&self) -> Result<Vec<RoomMember>> {
-        self.sync_members().await?;
-        self.members_no_sync(RoomMemberships::ACTIVE).await
-    }
-
-    /// Get active members for this room, includes invited, joined members.
-    ///
-    /// *Note*: This method will not fetch the members from the homeserver if
-    /// the member list isn't synchronized due to member lazy loading. Thus,
-    /// members could be missing from the list.
-    ///
-    /// Use [active_members()](#method.active_members) if you want to ensure to
-    /// always get the full member list.
-    #[deprecated = "Use members_no_sync with RoomMemberships::ACTIVE instead"]
-    pub async fn active_members_no_sync(&self) -> Result<Vec<RoomMember>> {
-        self.members_no_sync(RoomMemberships::ACTIVE).await
-    }
-
-    /// Get all the joined members of this room.
-    ///
-    /// *Note*: This method will fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading. Because of
-    /// that it might panic if it isn't run on a tokio thread.
-    ///
-    /// Use [joined_members_no_sync()](#method.joined_members_no_sync) if you
-    /// want a method that doesn't do any requests.
-    #[deprecated = "Use members with RoomMemberships::JOIN instead"]
-    pub async fn joined_members(&self) -> Result<Vec<RoomMember>> {
-        self.sync_members().await?;
-        self.members_no_sync(RoomMemberships::JOIN).await
-    }
-
-    /// Get all the joined members of this room.
-    ///
-    /// *Note*: This method will not fetch the members from the homeserver if
-    /// the member list isn't synchronized due to member lazy loading. Thus,
-    /// members could be missing from the list.
-    ///
-    /// Use [joined_members()](#method.joined_members) if you want to ensure to
-    /// always get the full member list.
-    #[deprecated = "Use members_no_sync with RoomMemberships::JOIN instead"]
-    pub async fn joined_members_no_sync(&self) -> Result<Vec<RoomMember>> {
-        self.members_no_sync(RoomMemberships::JOIN).await
-    }
-
     /// Get a specific member of this room.
     ///
     /// *Note*: This method will fetch the members from the homeserver if the

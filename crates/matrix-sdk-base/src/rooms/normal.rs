@@ -814,20 +814,6 @@ impl Room {
         self.inner.read().heroes().to_vec()
     }
 
-    /// Get the list of `RoomMember`s that are considered to be joined members
-    /// of this room.
-    #[deprecated = "Use members with RoomMemberships::JOIN instead"]
-    pub async fn joined_members(&self) -> StoreResult<Vec<RoomMember>> {
-        self.members(RoomMemberships::JOIN).await
-    }
-
-    /// Get the list of `RoomMember`s that are considered to be joined or
-    /// invited members of this room.
-    #[deprecated = "Use members with RoomMemberships::ACTIVE instead"]
-    pub async fn active_members(&self) -> StoreResult<Vec<RoomMember>> {
-        self.members(RoomMemberships::ACTIVE).await
-    }
-
     /// Returns the number of members who have joined or been invited to the
     /// room.
     pub fn active_members_count(&self) -> u64 {
