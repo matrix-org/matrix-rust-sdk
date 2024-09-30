@@ -29,7 +29,7 @@ use tracing::{debug, field::debug, instrument, Span};
 
 use super::{Client, ClientInner};
 #[cfg(feature = "e2e-encryption")]
-use crate::crypto::CollectStrategy;
+use crate::crypto::{CollectStrategy, TrustRequirement};
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::EncryptionSettings;
 #[cfg(not(target_arch = "wasm32"))]
@@ -99,6 +99,8 @@ pub struct ClientBuilder {
     encryption_settings: EncryptionSettings,
     #[cfg(feature = "e2e-encryption")]
     room_key_recipient_strategy: CollectStrategy,
+    #[cfg(feature = "e2e-encryption")]
+    decryption_trust_requirement: TrustRequirement,
 }
 
 impl ClientBuilder {
@@ -118,6 +120,8 @@ impl ClientBuilder {
             encryption_settings: Default::default(),
             #[cfg(feature = "e2e-encryption")]
             room_key_recipient_strategy: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            decryption_trust_requirement: TrustRequirement::Untrusted,
         }
     }
 
@@ -407,6 +411,16 @@ impl ClientBuilder {
         self
     }
 
+    /// Set the trust requirement to be used when decrypting events.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn with_decryption_trust_requirement(
+        mut self,
+        trust_requirement: TrustRequirement,
+    ) -> Self {
+        self.decryption_trust_requirement = trust_requirement;
+        self
+    }
+
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -445,6 +459,7 @@ impl ClientBuilder {
             #[cfg(feature = "e2e-encryption")]
             {
                 client.room_key_recipient_strategy = self.room_key_recipient_strategy;
+                client.decryption_trust_requirement = self.decryption_trust_requirement;
             }
             client
         };

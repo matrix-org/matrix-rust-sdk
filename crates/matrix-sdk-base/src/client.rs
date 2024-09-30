@@ -117,6 +117,10 @@ pub struct BaseClient {
     /// encrypted message.
     #[cfg(feature = "e2e-encryption")]
     pub room_key_recipient_strategy: CollectStrategy,
+
+    /// The trust requirement to use for decrypting events.
+    #[cfg(feature = "e2e-encryption")]
+    pub decryption_trust_requirement: TrustRequirement,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -156,6 +160,8 @@ impl BaseClient {
             room_info_notable_update_sender,
             #[cfg(feature = "e2e-encryption")]
             room_key_recipient_strategy: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            decryption_trust_requirement: TrustRequirement::Untrusted,
         }
     }
 
@@ -180,6 +186,7 @@ impl BaseClient {
             ignore_user_list_changes: Default::default(),
             room_info_notable_update_sender: self.room_info_notable_update_sender.clone(),
             room_key_recipient_strategy: self.room_key_recipient_strategy.clone(),
+            decryption_trust_requirement: self.decryption_trust_requirement,
         };
 
         if let Some(session_meta) = self.session_meta().cloned() {
@@ -345,8 +352,9 @@ impl BaseClient {
         let olm = self.olm_machine().await;
         let Some(olm) = olm.as_ref() else { return Ok(None) };
 
-        let decryption_settings =
-            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+        let decryption_settings = DecryptionSettings {
+            sender_device_trust_requirement: self.decryption_trust_requirement,
+        };
         let event: SyncTimelineEvent =
             olm.decrypt_room_event(event.cast_ref(), room_id, &decryption_settings).await?.into();
 

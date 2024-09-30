@@ -27,6 +27,7 @@ Breaking changes:
 
 Additions:
 
+- new `ClientBuilder::with_decryption_trust_requirement` method.
 - new `ClientBuilder::with_room_key_recipient_strategy` method
 - new `Room.set_account_data` and `Room.set_account_data_raw` RoomAccountData setters, analogous to the GlobalAccountData
 - new `RequestConfig.max_concurrent_requests` which allows to limit the maximum number of concurrent requests the internal HTTP client issues (all others have to wait until the number drops below that threshold again)
