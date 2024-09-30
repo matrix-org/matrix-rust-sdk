@@ -296,6 +296,15 @@ pub struct EncryptionInfo {
     pub verification_state: VerificationState,
 }
 
+/// Metadata about an event that could not be decrypted.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnableToDecryptInfo {
+    /// The ID of the session used to encrypt the message, if it used the
+    /// `m.megolm.v1.aes-sha2` algorithm.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+}
+
 /// Information on how an event was decrypted, if at all.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum EncryptionState {
@@ -318,6 +327,15 @@ impl EncryptionState {
             Self::UnableToDecrypt(_) => None,
         }
     }
+}
+
+/// The result of the decryption of an event bundled in an `unsigned` object.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum UnsignedDecryptionResult {
+    /// The event was successfully decrypted.
+    Decrypted(EncryptionInfo),
+    /// The event failed to be decrypted.
+    UnableToDecrypt(UnableToDecryptInfo),
 }
 
 /// A customized version of a room event coming from a sync that holds optional
@@ -489,24 +507,6 @@ impl UnsignedEventLocation {
             }
         }
     }
-}
-
-/// The result of the decryption of an event bundled in an `unsigned` object.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum UnsignedDecryptionResult {
-    /// The event was successfully decrypted.
-    Decrypted(EncryptionInfo),
-    /// The event failed to be decrypted.
-    UnableToDecrypt(UnableToDecryptInfo),
-}
-
-/// Metadata about an event that could not be decrypted.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UnableToDecryptInfo {
-    /// The ID of the session used to encrypt the message, if it used the
-    /// `m.megolm.v1.aes-sha2` algorithm.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
 }
 
 #[cfg(test)]
