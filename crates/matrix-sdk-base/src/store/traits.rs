@@ -190,23 +190,8 @@ pub trait StateStore: AsyncTraitDeps {
         memberships: RoomMemberships,
     ) -> Result<Vec<OwnedUserId>, Self::Error>;
 
-    /// Get all the user ids of members that are in the invited state for a
-    /// given room, for stripped and regular rooms alike.
-    #[deprecated = "Use get_user_ids with RoomMemberships::INVITE instead."]
-    async fn get_invited_user_ids(&self, room_id: &RoomId)
-        -> Result<Vec<OwnedUserId>, Self::Error>;
-
-    /// Get all the user ids of members that are in the joined state for a
-    /// given room, for stripped and regular rooms alike.
-    #[deprecated = "Use get_user_ids with RoomMemberships::JOIN instead."]
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>, Self::Error>;
-
     /// Get all the pure `RoomInfo`s the store knows about.
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>, Self::Error>;
-
-    /// Get all the pure `RoomInfo`s the store knows about.
-    #[deprecated = "Use get_room_infos instead and filter by RoomState"]
-    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>, Self::Error>;
 
     /// Get all the users that use the given display name in the given room.
     ///
@@ -559,24 +544,8 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         self.0.get_user_ids(room_id, memberships).await.map_err(Into::into)
     }
 
-    async fn get_invited_user_ids(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Vec<OwnedUserId>, Self::Error> {
-        self.0.get_user_ids(room_id, RoomMemberships::INVITE).await.map_err(Into::into)
-    }
-
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>, Self::Error> {
-        self.0.get_user_ids(room_id, RoomMemberships::JOIN).await.map_err(Into::into)
-    }
-
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>, Self::Error> {
         self.0.get_room_infos().await.map_err(Into::into)
-    }
-
-    #[allow(deprecated)]
-    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>, Self::Error> {
-        self.0.get_stripped_room_infos().await.map_err(Into::into)
     }
 
     async fn get_users_with_display_name(

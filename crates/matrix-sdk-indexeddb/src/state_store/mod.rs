@@ -29,8 +29,7 @@ use matrix_sdk_base::{
         QueuedEvent, SerializableEventContent, ServerCapabilities, StateChanges, StateStore,
         StoreError,
     },
-    MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateStoreDataKey,
-    StateStoreDataValue,
+    MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
@@ -1087,33 +1086,6 @@ impl_state_store!({
         Ok(entries)
     }
 
-    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        let txn = self
-            .inner
-            .transaction_on_one_with_mode(keys::ROOM_INFOS, IdbTransactionMode::Readonly)?;
-        let store = txn.object_store(keys::ROOM_INFOS)?;
-
-        let mut infos = Vec::new();
-        let cursor = store.open_cursor()?.await?;
-
-        if let Some(cursor) = cursor {
-            loop {
-                let value = cursor.value();
-                let info = self.deserialize_value::<RoomInfo>(&value)?;
-
-                if info.state() == RoomState::Invited {
-                    infos.push(info);
-                }
-
-                if !cursor.continue_cursor()?.await? {
-                    break;
-                }
-            }
-        }
-
-        Ok(infos)
-    }
-
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
@@ -1322,14 +1294,6 @@ impl_state_store!({
             return Ok(ids);
         }
         self.get_user_ids_inner(room_id, memberships, false).await
-    }
-
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        self.get_user_ids(room_id, RoomMemberships::INVITE).await
-    }
-
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        self.get_user_ids(room_id, RoomMemberships::JOIN).await
     }
 
     async fn save_send_queue_event(
