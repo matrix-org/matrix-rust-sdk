@@ -197,7 +197,7 @@ impl EventTimelineItem {
             read_receipts,
             is_own,
             is_highlighted,
-            encryption_info: encryption_state.as_encryption_info().cloned(),
+            encryption_state,
             original_json: Some(raw_sync_event),
             latest_edit_json,
             origin,
@@ -386,7 +386,9 @@ impl EventTimelineItem {
     pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
         match &self.kind {
             EventTimelineItemKind::Local(_) => None,
-            EventTimelineItemKind::Remote(remote_event) => remote_event.encryption_info.as_ref(),
+            EventTimelineItemKind::Remote(remote_event) => {
+                remote_event.encryption_state.as_encryption_info()
+            }
         }
     }
 

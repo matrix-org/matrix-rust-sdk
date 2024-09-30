@@ -609,6 +609,7 @@ enum DayDividerInsertError {
 mod tests {
     use assert_matches2::assert_let;
     use eyeball_im::ObservableVector;
+    use matrix_sdk::deserialized_responses::EncryptionState;
     use ruma::{owned_event_id, owned_user_id, uint, MilliSecondsSinceUnixEpoch};
 
     use super::DayDividerAdjuster;
@@ -626,7 +627,7 @@ mod tests {
             read_receipts: Default::default(),
             is_own: false,
             is_highlighted: false,
-            encryption_info: None,
+            encryption_state: EncryptionState::Unencrypted,
             original_json: None,
             latest_edit_json: None,
             origin: crate::timeline::event_item::RemoteEventOrigin::Sync,

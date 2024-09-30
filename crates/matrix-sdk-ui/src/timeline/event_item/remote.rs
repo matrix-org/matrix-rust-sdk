@@ -15,7 +15,7 @@
 use std::fmt;
 
 use indexmap::IndexMap;
-use matrix_sdk::deserialized_responses::EncryptionInfo;
+use matrix_sdk::deserialized_responses::EncryptionState;
 use ruma::{
     events::{receipt::Receipt, AnySyncTimelineEvent},
     serde::Raw,
@@ -46,7 +46,7 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
     pub is_highlighted: bool,
 
     /// Encryption information.
-    pub encryption_info: Option<EncryptionInfo>,
+    pub encryption_state: EncryptionState,
 
     /// JSON of the original event.
     ///
@@ -68,9 +68,9 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
 }
 
 impl RemoteEventTimelineItem {
-    /// Clone the current event item, and update its `encryption_info`.
-    pub fn with_encryption_info(&self, encryption_info: Option<EncryptionInfo>) -> Self {
-        Self { encryption_info, ..self.clone() }
+    /// Clone the current event item, and update its `encryption_state`.
+    pub fn with_encryption_state(&self, encryption_state: EncryptionState) -> Self {
+        Self { encryption_state, ..self.clone() }
     }
 
     /// Clone the current event item, and redacts its fields.
@@ -101,7 +101,7 @@ impl fmt::Debug for RemoteEventTimelineItem {
             transaction_id,
             read_receipts,
             is_own,
-            encryption_info,
+            encryption_state,
             original_json: _,
             latest_edit_json: _,
             is_highlighted,
@@ -114,7 +114,7 @@ impl fmt::Debug for RemoteEventTimelineItem {
             .field("read_receipts", read_receipts)
             .field("is_own", is_own)
             .field("is_highlighted", is_highlighted)
-            .field("encryption_info", encryption_info)
+            .field("encryption_state", encryption_state)
             .field("origin", origin)
             .finish_non_exhaustive()
     }

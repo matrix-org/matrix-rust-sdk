@@ -599,7 +599,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         if let EventTimelineItemKind::Remote(remote_event) = &item.kind {
             if let Flow::Remote { encryption_state, .. } = &self.ctx.flow {
                 new_item = new_item.with_kind(EventTimelineItemKind::Remote(
-                    remote_event.with_encryption_info(encryption_state.as_encryption_info().cloned())
+                    remote_event.with_encryption_state(encryption_state.clone()),
                 ));
             }
         }
@@ -949,7 +949,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     read_receipts: self.ctx.read_receipts.clone(),
                     is_own: self.ctx.is_own_event,
                     is_highlighted: self.ctx.is_highlighted,
-                    encryption_info: encryption_state.as_encryption_info().cloned(),
+                    encryption_state: encryption_state.clone(),
                     original_json: Some(raw_event.clone()),
                     latest_edit_json: None,
                     origin,
