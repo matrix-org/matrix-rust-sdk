@@ -709,19 +709,6 @@ pub enum ClientBuildError {
     SqliteStore(#[from] matrix_sdk_sqlite::OpenStoreError),
 }
 
-impl ClientBuildError {
-    /// Assert that a valid homeserver URL was given to the builder and no other
-    /// invalid options were specified, which means the only possible error
-    /// case is [`Self::Http`].
-    #[doc(hidden)]
-    pub fn assert_valid_builder_args(self) -> HttpError {
-        match self {
-            ClientBuildError::Http(e) => e,
-            _ => unreachable!("homeserver URL was asserted to be valid"),
-        }
-    }
-}
-
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {

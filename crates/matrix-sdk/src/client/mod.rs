@@ -386,12 +386,8 @@ impl Client {
     /// # Arguments
     ///
     /// * `homeserver_url` - The homeserver that the client should connect to.
-    pub async fn new(homeserver_url: Url) -> Result<Self, HttpError> {
-        Self::builder()
-            .homeserver_url(homeserver_url)
-            .build()
-            .await
-            .map_err(ClientBuildError::assert_valid_builder_args)
+    pub async fn new(homeserver_url: Url) -> Result<Self, ClientBuildError> {
+        Self::builder().homeserver_url(homeserver_url).build().await
     }
 
     /// Returns a subscriber that publishes an event every time the ignore user
