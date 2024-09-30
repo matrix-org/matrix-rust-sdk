@@ -18,7 +18,8 @@ use as_variant::as_variant;
 use eyeball_im::{ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::IndexMap;
 use matrix_sdk::{
-    crypto::types::events::UtdCause, deserialized_responses::EncryptionInfo, send_queue::SendHandle,
+    crypto::types::events::UtdCause, deserialized_responses::EncryptionState,
+    send_queue::SendHandle,
 };
 use ruma::{
     events::{
@@ -95,7 +96,7 @@ pub(super) enum Flow {
         /// Where should this be added in the timeline.
         position: TimelineItemPosition,
         /// Information about the encryption for this event.
-        encryption_info: Option<EncryptionInfo>,
+        encryption_state: EncryptionState,
     },
 }
 
@@ -596,9 +597,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let mut new_item = item.with_content(new_content, edit_json);
 
         if let EventTimelineItemKind::Remote(remote_event) = &item.kind {
-            if let Flow::Remote { encryption_info, .. } = &self.ctx.flow {
+            if let Flow::Remote { encryption_state, .. } = &self.ctx.flow {
                 new_item = new_item.with_kind(EventTimelineItemKind::Remote(
-                    remote_event.with_encryption_info(encryption_info.clone()),
+                    remote_event.with_encryption_info(encryption_state.as_encryption_info().cloned())
                 ));
             }
         }
@@ -927,7 +928,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
             .into(),
 
-            Flow::Remote { event_id, raw_event, position, txn_id, encryption_info, .. } => {
+            Flow::Remote { event_id, raw_event, position, txn_id, encryption_state, .. } => {
                 let origin = match *position {
                     TimelineItemPosition::Start { origin }
                     | TimelineItemPosition::End { origin } => origin,
@@ -948,7 +949,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     read_receipts: self.ctx.read_receipts.clone(),
                     is_own: self.ctx.is_own_event,
                     is_highlighted: self.ctx.is_highlighted,
-                    encryption_info: encryption_info.clone(),
+                    encryption_info: encryption_state.as_encryption_info().cloned(),
                     original_json: Some(raw_event.clone()),
                     latest_edit_json: None,
                     origin,

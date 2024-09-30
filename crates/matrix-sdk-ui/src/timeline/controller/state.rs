@@ -584,7 +584,7 @@ impl TimelineStateTransaction<'_> {
             flow: Flow::Remote {
                 event_id: event_id.clone(),
                 raw_event: raw.clone(),
-                encryption_info: event.encryption_state.as_encryption_info().cloned(),
+                encryption_state: event.encryption_state.clone(),
                 txn_id,
                 position,
             },
