@@ -4058,8 +4058,7 @@ dependencies = [
 [[package]]
 name = "paranoid-android"
 version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "101795d63d371b43e38d6e7254677657be82f17022f7f7893c268f33ac0caadc"
+source = "git+https://github.com/element-hq/paranoid-android.git?rev=69388ac5b4afeed7be4401c70ce17f6d9a2cf19b#69388ac5b4afeed7be4401c70ce17f6d9a2cf19b"
 dependencies = [
  "lazy_static",
  "ndk-sys",
@@ -6172,8 +6171,7 @@ checksum = "b6bc1c9ce2b5135ac7f93c72918fc37feb872bdc6a5533a8b85eb4b86bfdae52"
 [[package]]
 name = "tracing"
 version = "0.1.40"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3523ab5a71916ccf420eebdf5521fcef02141234bbc0b8a49f2fdc4544364ef"
+source = "git+https://github.com/element-hq/tracing.git?rev=ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd#ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd"
 dependencies = [
  "log",
  "pin-project-lite",
@@ -6184,8 +6182,7 @@ dependencies = [
 [[package]]
 name = "tracing-appender"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3566e8ce28cc0a3fe42519fc80e6b4c943cc4c8cef275620eb8dac2d3d4e06cf"
+source = "git+https://github.com/element-hq/tracing.git?rev=ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd#ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd"
 dependencies = [
  "crossbeam-channel",
  "thiserror",
@@ -6196,8 +6193,7 @@ dependencies = [
 [[package]]
 name = "tracing-attributes"
 version = "0.1.27"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34704c8d6ebcbc939824180af020566b01a7c01f80641264eba0999f6c2b6be7"
+source = "git+https://github.com/element-hq/tracing.git?rev=ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd#ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6207,8 +6203,7 @@ dependencies = [
 [[package]]
 name = "tracing-core"
 version = "0.1.32"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c06d3da6113f116aaee68e4d601191614c9053067f9ab7f6edbcb161237daa54"
+source = "git+https://github.com/element-hq/tracing.git?rev=ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd#ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd"
 dependencies = [
  "once_cell",
  "valuable",
@@ -6227,8 +6222,7 @@ dependencies = [
 [[package]]
 name = "tracing-log"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee855f1f400bd0e5c02d150ae5de3840039a3f54b025156404e34c23c03f47c3"
+source = "git+https://github.com/element-hq/tracing.git?rev=ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd#ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd"
 dependencies = [
  "log",
  "once_cell",
@@ -6254,8 +6248,7 @@ dependencies = [
 [[package]]
 name = "tracing-subscriber"
 version = "0.3.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad0f048c97dbd9faa9b7df56362b8ebcaa52adb06b498c050d2f4e32f90a7a8b"
+source = "git+https://github.com/element-hq/tracing.git?rev=ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd#ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd"
 dependencies = [
  "matchers",
  "nu-ansi-term",
