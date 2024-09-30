@@ -42,8 +42,7 @@
 #![forbid(missing_docs)]
 
 use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     fmt::Debug,
     sync::{Arc, OnceLock},
 };
@@ -322,32 +321,7 @@ impl EventCache {
 }
 
 type AllEventsMap = BTreeMap<OwnedEventId, (OwnedRoomId, SyncTimelineEvent)>;
-type RelationsMap = BTreeMap<OwnedEventId, BTreeSet<RelatedEvent>>;
-
-/// Contains relationship information for a related event.
-#[derive(Clone, Eq, PartialEq)]
-struct RelatedEvent {
-    related_event_id: OwnedEventId,
-    relation_type: RelationType,
-}
-
-impl RelatedEvent {
-    fn new(related_event_id: OwnedEventId, relation_type: RelationType) -> Self {
-        RelatedEvent { related_event_id, relation_type }
-    }
-}
-
-impl PartialOrd<Self> for RelatedEvent {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for RelatedEvent {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.related_event_id.cmp(&other.related_event_id)
-    }
-}
+type RelationsMap = BTreeMap<OwnedEventId, BTreeMap<OwnedEventId, RelationType>>;
 
 /// Cache wrapper containing both copies of received events and lists of event
 /// ids related to them.
@@ -577,7 +551,7 @@ impl RoomEventCache {
         results: &mut Vec<SyncTimelineEvent>,
     ) {
         if let Some(related_event_ids) = cache.relations.get(event_id) {
-            for RelatedEvent { related_event_id, relation_type } in related_event_ids {
+            for (related_event_id, relation_type) in related_event_ids {
                 if let Some(filter) = filter {
                     if !filter.contains(relation_type) {
                         continue;
@@ -853,9 +827,11 @@ impl RoomEventCacheInner {
             {
                 if let Some(redacted_event_id) = ev.content.redacts.as_ref().or(ev.redacts.as_ref())
                 {
-                    cache.relations.entry(redacted_event_id.to_owned()).or_default().insert(
-                        RelatedEvent::new(ev.event_id.to_owned(), RelationType::Replacement),
-                    );
+                    cache
+                        .relations
+                        .entry(redacted_event_id.to_owned())
+                        .or_default()
+                        .insert(ev.event_id.to_owned(), RelationType::Replacement);
                 }
             } else {
                 let relationship = match ev.original_content() {
@@ -901,7 +877,7 @@ impl RoomEventCacheInner {
                         .relations
                         .entry(relationship.0)
                         .or_default()
-                        .insert(RelatedEvent::new(ev.event_id().to_owned(), relationship.1));
+                        .insert(ev.event_id().to_owned(), relationship.1);
                 }
             }
         }
