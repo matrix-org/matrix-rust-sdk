@@ -34,7 +34,7 @@ use ruma::{
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
-            avatar::RoomAvatarEventContent,
+            avatar::{self, RoomAvatarEventContent},
             encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess,
             history_visibility::HistoryVisibility,
@@ -373,6 +373,11 @@ impl Room {
     /// Get the avatar url of this room.
     pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
         self.inner.read().avatar_url().map(ToOwned::to_owned)
+    }
+
+    /// Get information about the avatar of this room.
+    pub fn avatar_info(&self) -> Option<avatar::ImageInfo> {
+        self.inner.read().avatar_info().map(ToOwned::to_owned)
     }
 
     /// Get the canonical alias of this room.
@@ -1296,6 +1301,14 @@ impl RoomInfo {
 
             MinimalStateEvent::Original(OriginalMinimalStateEvent { content, event_id: None })
         });
+    }
+
+    /// Returns information about the current room avatar.
+    pub fn avatar_info(&self) -> Option<&avatar::ImageInfo> {
+        self.base_info
+            .avatar
+            .as_ref()
+            .and_then(|e| e.as_original().and_then(|e| e.content.info.as_deref()))
     }
 
     /// Update the notifications count.
