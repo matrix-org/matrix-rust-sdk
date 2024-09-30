@@ -668,7 +668,7 @@ mod tests {
                             "sender": "@bob:example.com",
                             "type": "m.room.message"
                         },
-                        "encryption_info": null
+                        "encryption_state": "Unencrypted"
                     }
                 ]
             })

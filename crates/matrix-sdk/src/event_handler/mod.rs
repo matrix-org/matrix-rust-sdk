@@ -47,7 +47,7 @@ use std::{
 use anymap2::any::CloneAnySendSync;
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use matrix_sdk_base::{
-    deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
+    deserialized_responses::{EncryptionInfo, EncryptionState, SyncTimelineEvent},
     SendOutsideWasm, SyncOutsideWasm,
 };
 use ruma::{events::AnySyncStateEvent, push::Action, serde::Raw, OwnedRoomId};
@@ -397,7 +397,11 @@ impl Client {
             };
 
             let raw_event = item.event.json();
-            let encryption_info = item.encryption_info.as_ref();
+            let encryption_info = match &item.encryption_state {
+                EncryptionState::Unencrypted => None,
+                EncryptionState::Decrypted(encryption_info) => Some(encryption_info),
+                EncryptionState::UnableToDecrypt(_) => None,
+            };
             let push_actions = &item.push_actions;
 
             // Event handlers for possibly-redacted timeline events

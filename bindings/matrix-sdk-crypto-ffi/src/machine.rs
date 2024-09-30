@@ -8,7 +8,7 @@ use std::{
 };
 
 use js_int::UInt;
-use matrix_sdk_common::deserialized_responses::AlgorithmInfo;
+use matrix_sdk_common::deserialized_responses::{AlgorithmInfo, EncryptionState};
 use matrix_sdk_crypto::{
     backups::{
         MegolmV1BackupKey as RustBackupKey, SignatureState,
@@ -909,8 +909,15 @@ impl OlmMachine {
             }
         }
 
-        let encryption_info =
-            decrypted.encryption_info.expect("Decrypted event didn't contain any encryption info");
+        let encryption_info = match decrypted.encryption_state {
+            EncryptionState::Unencrypted => {
+                panic!("Decrypted event didn't contain any encryption info")
+            }
+            EncryptionState::Decrypted(encryption_info) => encryption_info,
+            EncryptionState::UnableToDecrypt(_) => {
+                panic!("Apparently-decrypted event was unable to decrypt")
+            }
+        };
 
         let event_json: Event<'_> = serde_json::from_str(decrypted.event.json().get())?;
 

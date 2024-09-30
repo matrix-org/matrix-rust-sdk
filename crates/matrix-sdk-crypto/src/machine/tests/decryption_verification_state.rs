@@ -16,7 +16,7 @@ use std::{iter, sync::Arc};
 
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk_common::deserialized_responses::{
-    DeviceLinkProblem, ShieldState, VerificationLevel, VerificationState,
+    DeviceLinkProblem, EncryptionState, ShieldState, VerificationLevel, VerificationState,
 };
 use matrix_sdk_test::{async_test, ruma_response_from_json, test_json};
 use ruma::{
@@ -113,12 +113,16 @@ async fn test_decryption_verification_state() {
 
     let decryption_settings =
         DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
-    let encryption_info = bob
+    let encryption_info = match bob
         .decrypt_room_event(&event, room_id, &decryption_settings)
         .await
         .unwrap()
-        .encryption_info
-        .unwrap();
+        .encryption_state
+    {
+        EncryptionState::Unencrypted => panic!("Event was unexpectedly unencrypted"),
+        EncryptionState::Decrypted(encryption_info) => encryption_info,
+        EncryptionState::UnableToDecrypt(_) => panic!("Unexpectedly failed to decrypt"),
+    };
 
     assert_eq!(
         VerificationState::Unverified(VerificationLevel::UnsignedDevice),

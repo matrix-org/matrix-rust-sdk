@@ -562,7 +562,7 @@ mod tests {
             json!({
                 "latest_event": {
                     "event": {
-                        "encryption_info": null,
+                        "encryption_state": "Unencrypted",
                         "event": {
                             "event_id": "$1"
                         }

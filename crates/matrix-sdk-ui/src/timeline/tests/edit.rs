@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::{
-    AlgorithmInfo, EncryptionInfo, VerificationLevel, VerificationState,
+    AlgorithmInfo, EncryptionInfo, EncryptionState, VerificationLevel, VerificationState,
 };
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE};
 use ruma::{
@@ -183,7 +183,7 @@ async fn test_edit_updates_encryption_info() {
         verification_state: VerificationState::Verified,
     };
 
-    original_event.encryption_info = Some(encryption_info.clone());
+    original_event.encryption_state = EncryptionState::Decrypted(encryption_info.clone());
 
     timeline.handle_live_event(original_event).await;
 
@@ -206,7 +206,7 @@ async fn test_edit_updates_encryption_info() {
         .into_sync();
     encryption_info.verification_state =
         VerificationState::Unverified(VerificationLevel::UnverifiedIdentity);
-    edit_event.encryption_info = Some(encryption_info);
+    edit_event.encryption_state = EncryptionState::Decrypted(encryption_info);
 
     timeline.handle_live_event(edit_event).await;
 

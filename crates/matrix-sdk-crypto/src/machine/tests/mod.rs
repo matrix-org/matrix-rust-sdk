@@ -18,7 +18,7 @@ use assert_matches2::assert_matches;
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use itertools::Itertools;
 use matrix_sdk_common::deserialized_responses::{
-    UnableToDecryptInfo, UnsignedDecryptionResult, UnsignedEventLocation,
+    EncryptionState, UnableToDecryptInfo, UnsignedDecryptionResult, UnsignedEventLocation,
 };
 use matrix_sdk_test::{async_test, message_like_event_content, ruma_response_from_json, test_json};
 use ruma::{
@@ -1300,7 +1300,7 @@ async fn test_unsigned_decryption() {
     assert_eq!(first_message.content.body(), first_message_text);
     assert!(first_message.unsigned.relations.is_empty());
 
-    assert!(raw_decrypted_event.encryption_info.is_some());
+    assert_matches!(raw_decrypted_event.encryption_state, EncryptionState::Decrypted(_));
     assert!(raw_decrypted_event.unsigned_encryption_info.is_none());
 
     // Get a new room key, but don't give it to Bob yet.
@@ -1355,7 +1355,7 @@ async fn test_unsigned_decryption() {
     assert!(first_message.unsigned.relations.replace.is_none());
     assert!(first_message.unsigned.relations.has_replacement());
 
-    assert!(raw_decrypted_event.encryption_info.is_some());
+    assert_matches!(raw_decrypted_event.encryption_state, EncryptionState::Decrypted(_));
     let unsigned_encryption_info = raw_decrypted_event.unsigned_encryption_info.unwrap();
     assert_eq!(unsigned_encryption_info.len(), 1);
     let replace_encryption_result =
@@ -1399,7 +1399,7 @@ async fn test_unsigned_decryption() {
     assert_matches!(&replace.content.relates_to, Some(Relation::Replacement(replace_content)));
     assert_eq!(replace_content.new_content.msgtype.body(), second_message_text);
 
-    assert!(raw_decrypted_event.encryption_info.is_some());
+    assert_matches!(raw_decrypted_event.encryption_state, EncryptionState::Decrypted(_));
     let unsigned_encryption_info = raw_decrypted_event.unsigned_encryption_info.unwrap();
     assert_eq!(unsigned_encryption_info.len(), 1);
     let replace_encryption_result =
@@ -1465,7 +1465,7 @@ async fn test_unsigned_decryption() {
     let thread = first_message.unsigned.relations.thread.as_ref().unwrap();
     assert_matches!(thread.latest_event.deserialize(), Ok(AnyMessageLikeEvent::RoomEncrypted(_)));
 
-    assert!(raw_decrypted_event.encryption_info.is_some());
+    assert_matches!(raw_decrypted_event.encryption_state, EncryptionState::Decrypted(_));
     let unsigned_encryption_info = raw_decrypted_event.unsigned_encryption_info.unwrap();
     assert_eq!(unsigned_encryption_info.len(), 2);
     let replace_encryption_result =
@@ -1517,7 +1517,7 @@ async fn test_unsigned_decryption() {
     let third_message = third_message.as_original().unwrap();
     assert_eq!(third_message.content.body(), third_message_text);
 
-    assert!(raw_decrypted_event.encryption_info.is_some());
+    assert_matches!(raw_decrypted_event.encryption_state, EncryptionState::Decrypted(_));
     let unsigned_encryption_info = raw_decrypted_event.unsigned_encryption_info.unwrap();
     assert_eq!(unsigned_encryption_info.len(), 2);
     let replace_encryption_result =

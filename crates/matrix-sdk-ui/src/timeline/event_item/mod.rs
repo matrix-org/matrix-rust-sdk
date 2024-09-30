@@ -157,7 +157,7 @@ impl EventTimelineItem {
         // potential footgun which could one day turn into a security issue.
         use super::traits::RoomDataProvider;
 
-        let SyncTimelineEvent { event: raw_sync_event, encryption_info, .. } =
+        let SyncTimelineEvent { event: raw_sync_event, encryption_state, .. } =
             latest_event.event().clone();
 
         let Ok(event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
@@ -197,7 +197,7 @@ impl EventTimelineItem {
             read_receipts,
             is_own,
             is_highlighted,
-            encryption_info,
+            encryption_info: encryption_state.as_encryption_info().cloned(),
             original_json: Some(raw_sync_event),
             latest_edit_json,
             origin,

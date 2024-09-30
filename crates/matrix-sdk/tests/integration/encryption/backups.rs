@@ -24,6 +24,7 @@ use matrix_sdk::{
         store::BackupDecryptionKey,
         types::EventEncryptionAlgorithm,
     },
+    deserialized_responses::EncryptionState,
     encryption::{
         backups::{futures::SteadyStateError, BackupState, UploadState},
         secret_storage::SecretStore,
@@ -972,8 +973,8 @@ async fn test_enable_from_secret_storage() {
         room.event(event_id, None).await.expect("We should be able to fetch our encrypted event");
 
     assert_matches!(
-        event.encryption_info,
-        None,
+        event.encryption_state,
+        EncryptionState::Unencrypted,
         "We should not be able to decrypt our encrypted event before we import the room keys from \
          the backup"
     );
@@ -1042,7 +1043,11 @@ async fn test_enable_from_secret_storage() {
     let event =
         room.event(event_id, None).await.expect("We should be able to fetch our encrypted event");
 
-    assert_matches!(event.encryption_info, Some(..), "The event should now be decrypted");
+    assert_matches!(
+        event.encryption_state,
+        EncryptionState::Decrypted(_),
+        "The event should now be decrypted"
+    );
     let event: RoomMessageEvent =
         event.event.deserialize_as().expect("We should be able to deserialize the event");
     let event = event.as_original().unwrap();
@@ -1392,8 +1397,8 @@ async fn test_enable_from_secret_storage_and_download_after_utd() {
         room.event(event_id, None).await.expect("We should be able to fetch our encrypted event");
 
     assert_matches!(
-        event.encryption_info,
-        None,
+        event.encryption_state,
+        EncryptionState::Unencrypted,
         "We should not be able to decrypt the event right away"
     );
 
@@ -1412,7 +1417,11 @@ async fn test_enable_from_secret_storage_and_download_after_utd() {
     let event =
         room.event(event_id, None).await.expect("We should be able to fetch our encrypted event");
 
-    assert_matches!(event.encryption_info, Some(..), "The event should now be decrypted");
+    assert_matches!(
+        event.encryption_state,
+        EncryptionState::Decrypted(_),
+        "The event should now be decrypted"
+    );
     let event: RoomMessageEvent =
         event.event.deserialize_as().expect("We should be able to deserialize the event");
     let event = event.as_original().unwrap();
@@ -1522,8 +1531,8 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
         room.event(event_id, None).await.expect("We should be able to fetch our encrypted event");
 
     assert_matches!(
-        event.encryption_info,
-        None,
+        event.encryption_state,
+        EncryptionState::Unencrypted,
         "We should not be able to decrypt the event right away"
     );
 
@@ -1542,7 +1551,11 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
     let event =
         room.event(event_id, None).await.expect("We should be able to fetch our encrypted event");
 
-    assert_matches!(event.encryption_info, Some(..), "The event should now be decrypted");
+    assert_matches!(
+        event.encryption_state,
+        EncryptionState::Decrypted(_),
+        "The event should now be decrypted"
+    );
     let event: RoomMessageEvent =
         event.event.deserialize_as().expect("We should be able to deserialize the event");
     let event = event.as_original().unwrap();

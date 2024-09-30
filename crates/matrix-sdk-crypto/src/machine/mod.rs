@@ -21,8 +21,9 @@ use std::{
 use itertools::Itertools;
 use matrix_sdk_common::{
     deserialized_responses::{
-        AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, TimelineEvent, UnableToDecryptInfo,
-        UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel, VerificationState,
+        AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, EncryptionState, TimelineEvent,
+        UnableToDecryptInfo, UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel,
+        VerificationState,
     },
     BoxFuture,
 };
@@ -1818,7 +1819,7 @@ impl OlmMachine {
 
         Ok(TimelineEvent {
             event,
-            encryption_info: Some(encryption_info),
+            encryption_state: EncryptionState::Decrypted(encryption_info),
             push_actions: None,
             unsigned_encryption_info,
         })
@@ -1902,7 +1903,12 @@ impl OlmMachine {
                 Ok(decrypted_event) => {
                     // Replace the encrypted event.
                     *event = serde_json::to_value(decrypted_event.event).ok()?;
-                    Some(UnsignedDecryptionResult::Decrypted(decrypted_event.encryption_info?))
+                    let encryption_info = match decrypted_event.encryption_state {
+                        EncryptionState::Unencrypted => None,
+                        EncryptionState::Decrypted(encryption_info) => Some(encryption_info),
+                        EncryptionState::UnableToDecrypt(_) => None,
+                    }?;
+                    Some(UnsignedDecryptionResult::Decrypted(encryption_info))
                 }
                 Err(_) => {
                     let session_id =

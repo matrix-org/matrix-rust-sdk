@@ -1805,7 +1805,7 @@ mod tests {
             "encryption_state_synced": true,
             "latest_event": {
                 "event": {
-                    "encryption_info": null,
+                    "encryption_state": "Unencrypted",
                     "event": {
                         "sender": "@u:i.uk",
                     },

@@ -6,6 +6,7 @@ use assert_matches2::assert_let;
 use assign::assign;
 use matrix_sdk::{
     crypto::{format_emojis, SasState},
+    deserialized_responses::EncryptionState,
     encryption::{
         backups::BackupState,
         recovery::RecoveryState,
@@ -949,9 +950,11 @@ async fn test_secret_gossip_after_interactive_verification() -> Result<()> {
         .expect("The second client should know about the room as well");
 
     let timeline_event = room.event(&event_id, None).await?;
-    timeline_event
-        .encryption_info
-        .expect("The event should have been encrypted and successfully decrypted.");
+    assert_matches!(
+        timeline_event.encryption_state,
+        EncryptionState::Decrypted(_),
+        "The event should have been encrypted and successfully decrypted."
+    );
 
     let event: OriginalSyncMessageLikeEvent<RoomMessageEventContent> =
         timeline_event.event.deserialize_as()?;

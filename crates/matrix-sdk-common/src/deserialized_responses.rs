@@ -276,7 +276,7 @@ pub enum AlgorithmInfo {
     },
 }
 
-/// Struct containing information on how an event was decrypted.
+/// Struct containing information on the successful decryption of an event.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EncryptionInfo {
     /// The user ID of the event sender, note this is untrusted data unless the
@@ -296,15 +296,38 @@ pub struct EncryptionInfo {
     pub verification_state: VerificationState,
 }
 
+/// Information on how an event was decrypted, if at all.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum EncryptionState {
+    /// The event was not encrypted.
+    Unencrypted,
+    /// The event was decrypted successfully.
+    Decrypted(EncryptionInfo),
+    /// The event could not be decrypted.
+    UnableToDecrypt(UnableToDecryptInfo),
+}
+
+impl EncryptionState {
+    /// If the event was successfully decrypted, the encryption info.
+    /// If the event was not encrypted, or there was an error during decryption,
+    /// `None`.
+    pub fn as_encryption_info(&self) -> Option<&EncryptionInfo> {
+        match self {
+            Self::Unencrypted => None,
+            Self::Decrypted(encryption_info) => Some(encryption_info),
+            Self::UnableToDecrypt(_) => None,
+        }
+    }
+}
+
 /// A customized version of a room event coming from a sync that holds optional
 /// encryption info.
 #[derive(Clone, Deserialize, Serialize)]
 pub struct SyncTimelineEvent {
     /// The actual event.
     pub event: Raw<AnySyncTimelineEvent>,
-    /// The encryption info about the event. Will be `None` if the event was not
-    /// encrypted.
-    pub encryption_info: Option<EncryptionInfo>,
+    /// Whether the event was encrypted, and why it failed to decrypt if it did.
+    pub encryption_state: EncryptionState,
     /// The push actions associated with this event.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub push_actions: Vec<Action>,
@@ -319,21 +342,31 @@ impl SyncTimelineEvent {
     /// Create a new `SyncTimelineEvent` from the given raw event.
     ///
     /// This is a convenience constructor for when you don't need to set
-    /// `encryption_info` or `push_action`, for example inside a test.
+    /// `encryption_state` or `push_action`, for example inside a test.
     pub fn new(event: Raw<AnySyncTimelineEvent>) -> Self {
-        Self { event, encryption_info: None, push_actions: vec![], unsigned_encryption_info: None }
+        Self {
+            event,
+            encryption_state: EncryptionState::Unencrypted,
+            push_actions: vec![],
+            unsigned_encryption_info: None,
+        }
     }
 
     /// Create a new `SyncTimelineEvent` from the given raw event and push
     /// actions.
     ///
     /// This is a convenience constructor for when you don't need to set
-    /// `encryption_info`, for example inside a test.
+    /// `encryption_state`, for example inside a test.
     pub fn new_with_push_actions(
         event: Raw<AnySyncTimelineEvent>,
         push_actions: Vec<Action>,
     ) -> Self {
-        Self { event, encryption_info: None, push_actions, unsigned_encryption_info: None }
+        Self {
+            event,
+            encryption_state: EncryptionState::Unencrypted,
+            push_actions,
+            unsigned_encryption_info: None,
+        }
     }
 
     /// Get the event id of this `SyncTimelineEvent` if the event has any valid
@@ -346,11 +379,11 @@ impl SyncTimelineEvent {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SyncTimelineEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let SyncTimelineEvent { event, encryption_info, push_actions, unsigned_encryption_info } =
+        let SyncTimelineEvent { event, encryption_state, push_actions, unsigned_encryption_info } =
             self;
         let mut s = f.debug_struct("SyncTimelineEvent");
         s.field("event", &DebugRawEvent(event));
-        s.maybe_field("encryption_info", encryption_info);
+        s.field("encryption_state", encryption_state);
         if !push_actions.is_empty() {
             s.field("push_actions", push_actions);
         }
@@ -373,7 +406,7 @@ impl From<TimelineEvent> for SyncTimelineEvent {
         // ignored by a subsequent deserialization.
         Self {
             event: o.event.cast(),
-            encryption_info: o.encryption_info,
+            encryption_state: o.encryption_state,
             push_actions: o.push_actions.unwrap_or_default(),
             unsigned_encryption_info: o.unsigned_encryption_info,
         }
@@ -384,9 +417,8 @@ impl From<TimelineEvent> for SyncTimelineEvent {
 pub struct TimelineEvent {
     /// The actual event.
     pub event: Raw<AnyTimelineEvent>,
-    /// The encryption info about the event. Will be `None` if the event was not
-    /// encrypted.
-    pub encryption_info: Option<EncryptionInfo>,
+    /// Whether the event was encrypted, and why it failed to decrypt if it did.
+    pub encryption_state: EncryptionState,
     /// The push actions associated with this event, if we had sufficient
     /// context to compute them.
     pub push_actions: Option<Vec<Action>>,
@@ -402,17 +434,23 @@ impl TimelineEvent {
     /// This is a convenience constructor for when you don't need to set
     /// `encryption_info` or `push_action`, for example inside a test.
     pub fn new(event: Raw<AnyTimelineEvent>) -> Self {
-        Self { event, encryption_info: None, push_actions: None, unsigned_encryption_info: None }
+        Self {
+            event,
+            encryption_state: EncryptionState::Unencrypted,
+            push_actions: None,
+            unsigned_encryption_info: None,
+        }
     }
 }
 
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for TimelineEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let TimelineEvent { event, encryption_info, push_actions, unsigned_encryption_info } = self;
+        let TimelineEvent { event, encryption_state, push_actions, unsigned_encryption_info } =
+            self;
         let mut s = f.debug_struct("TimelineEvent");
         s.field("event", &DebugRawEvent(event));
-        s.maybe_field("encryption_info", encryption_info);
+        s.field("encryption_state", encryption_state);
         if let Some(push_actions) = &push_actions {
             if !push_actions.is_empty() {
                 s.field("push_actions", push_actions);
