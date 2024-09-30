@@ -3,21 +3,28 @@ use std::{borrow::Cow, fmt, path::Path, sync::Arc};
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
-    event_cache_store::EventCacheStore,
+    event_cache_store::{EventCacheStore, MediaRetentionPolicy},
     media::{MediaRequest, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use rusqlite::OptionalExtension;
+use ruma::time::SystemTime;
+use rusqlite::{params_from_iter, OptionalExtension};
 use tokio::fs;
 use tracing::debug;
 
 use crate::{
     error::{Error, Result},
-    utils::{Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt, SqliteKeyValueStoreConnExt},
+    utils::{
+        repeat_vars, time_to_timestamp, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
+        SqliteKeyValueStoreConnExt, SqliteTransactionExt,
+    },
     OpenStoreError,
 };
 
 mod keys {
+    // Entries in Key-value store
+    pub const MEDIA_RETENTION_POLICY: &str = "media-retention-policy";
+
     // Tables
     pub const MEDIA: &str = "media";
 }
@@ -140,24 +147,62 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 impl EventCacheStore for SqliteEventCacheStore {
     type Error = Error;
 
-    async fn add_media_content(&self, request: &MediaRequest, content: Vec<u8>) -> Result<()> {
+    async fn media_retention_policy(&self) -> Result<Option<MediaRetentionPolicy>, Self::Error> {
+        let conn = self.acquire().await?;
+        let Some(bytes) = conn.get_kv(keys::MEDIA_RETENTION_POLICY).await? else {
+            return Ok(None);
+        };
+
+        Ok(Some(rmp_serde::from_slice(&bytes)?))
+    }
+
+    async fn set_media_retention_policy(
+        &self,
+        policy: MediaRetentionPolicy,
+    ) -> Result<(), Self::Error> {
+        let conn = self.acquire().await?;
+        let serialized_policy = rmp_serde::to_vec_named(&policy)?;
+
+        conn.set_kv(keys::MEDIA_RETENTION_POLICY, serialized_policy).await?;
+        Ok(())
+    }
+
+    async fn add_media_content(
+        &self,
+        request: &MediaRequest,
+        content: Vec<u8>,
+        current_time: SystemTime,
+        policy: MediaRetentionPolicy,
+    ) -> Result<()> {
+        let data = self.encode_value(content)?;
+
+        if policy.exceeds_max_file_size(data.len()) {
+            // The content is too big to be cached.
+            return Ok(());
+        }
+
         let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
         let format = self.encode_key(keys::MEDIA, request.format.unique_key());
-        let data = self.encode_value(content)?;
+        let timestamp = time_to_timestamp(current_time);
 
         let conn = self.acquire().await?;
         conn.execute(
-            "INSERT OR REPLACE INTO media (uri, format, data, last_access) VALUES (?, ?, ?, CAST(strftime('%s') as INT))",
-            (uri, format, data),
+            "INSERT OR REPLACE INTO media (uri, format, data, last_access) VALUES (?, ?, ?, ?)",
+            (uri, format, data, timestamp),
         )
         .await?;
 
         Ok(())
     }
 
-    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+    async fn get_media_content(
+        &self,
+        request: &MediaRequest,
+        current_time: SystemTime,
+    ) -> Result<Option<Vec<u8>>> {
         let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
         let format = self.encode_key(keys::MEDIA, request.format.unique_key());
+        let timestamp = time_to_timestamp(current_time);
 
         let conn = self.acquire().await?;
         let data = conn
@@ -166,9 +211,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                 // We need to do this first so the transaction is in write mode right away.
                 // See: https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
                 txn.execute(
-                    "UPDATE media SET last_access = CAST(strftime('%s') as INT) \
-                     WHERE uri = ? AND format = ?",
-                    (&uri, &format),
+                    "UPDATE media SET last_access = ? WHERE uri = ? AND format = ?",
+                    (timestamp, &uri, &format),
                 )?;
 
                 txn.query_row::<Vec<u8>, _, _>(
@@ -201,6 +245,106 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         Ok(())
     }
+
+    async fn clean_up_media_cache(
+        &self,
+        policy: MediaRetentionPolicy,
+        current_time: SystemTime,
+    ) -> Result<(), Self::Error> {
+        if !policy.has_limitations() {
+            // We can safely skip all the checks.
+            return Ok(());
+        }
+
+        let conn = self.acquire().await?;
+        conn.with_transaction::<_, Error, _>(move |txn| {
+            // First, check media content that exceed the max filesize.
+            if let Some(max_file_size) = policy.computed_max_file_size() {
+                txn.execute("DELETE FROM media WHERE length(data) > ?", (max_file_size,))?;
+            }
+
+            // Then, clean up expired media content.
+            if let Some(last_access_expiry) = policy.last_access_expiry {
+                let current_timestamp = time_to_timestamp(current_time);
+                let expiry_secs = last_access_expiry.as_secs();
+                txn.execute(
+                    "DELETE FROM media WHERE (? - last_access) >= ?",
+                    (current_timestamp, expiry_secs),
+                )?;
+            }
+
+            // Finally, if the cache size is too big, remove old items until it fits.
+            if let Some(max_cache_size) = policy.max_cache_size {
+                // i64 is the integer type used by SQLite, use it here to avoid usize overflow
+                // during the conversion of the result.
+                let cache_size_int = txn
+                    .query_row("SELECT sum(length(data)) FROM media", (), |row| {
+                        // `sum()` returns `NULL` if there are no rows.
+                        row.get::<_, Option<i64>>(0)
+                    })?
+                    .unwrap_or_default();
+                let cache_size_usize = usize::try_from(cache_size_int);
+
+                // If the cache size is overflowing or bigger than max cache size, clean up.
+                if cache_size_usize.is_err()
+                    || cache_size_usize.is_ok_and(|cache_size| cache_size > max_cache_size)
+                {
+                    // Get the sizes of the media contents ordered by last access.
+                    let mut cached_stmt = txn.prepare_cached(
+                        "SELECT rowid, length(data) FROM media ORDER BY last_access DESC",
+                    )?;
+                    let content_sizes = cached_stmt
+                        .query(())?
+                        .mapped(|row| Ok((row.get::<_, i64>(0)?, row.get::<_, usize>(1)?)));
+
+                    let mut accumulated_items_size = 0usize;
+                    let mut limit_reached = false;
+                    let mut rows_to_remove = Vec::new();
+
+                    for result in content_sizes {
+                        let (row_id, size) = match result {
+                            Ok(content_size) => content_size,
+                            Err(error) => {
+                                return Err(error.into());
+                            }
+                        };
+
+                        if limit_reached {
+                            rows_to_remove.push(row_id);
+                            continue;
+                        }
+
+                        match accumulated_items_size.checked_add(size) {
+                            Some(acc) if acc > max_cache_size => {
+                                // We can stop accumulating.
+                                limit_reached = true;
+                                rows_to_remove.push(row_id);
+                            }
+                            Some(acc) => accumulated_items_size = acc,
+                            None => {
+                                // The accumulated size is overflowing but the setting cannot be
+                                // bigger than usize::MAX, we can stop accumulating.
+                                limit_reached = true;
+                                rows_to_remove.push(row_id);
+                            }
+                        };
+                    }
+
+                    txn.chunk_large_query_over(rows_to_remove, None, |txn, row_ids| {
+                        let sql_params = repeat_vars(row_ids.len());
+                        let query = format!("DELETE FROM media WHERE rowid IN ({sql_params})");
+                        txn.prepare(&query)?.execute(params_from_iter(row_ids))?;
+                        Ok(Vec::<()>::new())
+                    })?;
+                }
+            }
+
+            Ok(())
+        })
+        .await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -211,13 +355,13 @@ mod tests {
     };
 
     use matrix_sdk_base::{
-        event_cache_store::{EventCacheStore, EventCacheStoreError},
+        event_cache_store::{EventCacheStore, EventCacheStoreError, MediaRetentionPolicy},
         event_cache_store_integration_tests,
         media::{MediaFormat, MediaRequest, MediaThumbnailSettings},
     };
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
-    use ruma::{events::room::MediaSource, media::Method, mxc_uri, uint};
+    use ruma::{events::room::MediaSource, media::Method, mxc_uri, time::SystemTime, uint};
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteEventCacheStore;
@@ -235,7 +379,7 @@ mod tests {
         Ok(SqliteEventCacheStore::open(tmpdir_path.to_str().unwrap(), None).await.unwrap())
     }
 
-    event_cache_store_integration_tests!();
+    event_cache_store_integration_tests!(with_media_size_tests);
 
     async fn get_event_cache_store_content_sorted_by_last_access(
         event_cache_store: &SqliteEventCacheStore,
@@ -266,19 +410,19 @@ mod tests {
 
         let content: Vec<u8> = "hello world".into();
         let thumbnail_content: Vec<u8> = "hello…".into();
+        let policy = MediaRetentionPolicy::empty();
 
         // Add the media.
+        let mut time = SystemTime::UNIX_EPOCH;
         event_cache_store
-            .add_media_content(&file_request, content.clone())
+            .add_media_content(&file_request, content.clone(), time, policy)
             .await
             .expect("adding file failed");
 
-        // Since the precision of the timestamp is in seconds, wait so the timestamps
-        // differ.
-        tokio::time::sleep(Duration::from_secs(3)).await;
-
+        // Add the thumbnail 3 seconds later.
+        time = time.checked_add(Duration::from_secs(3)).expect("time should be fine");
         event_cache_store
-            .add_media_content(&thumbnail_request, thumbnail_content.clone())
+            .add_media_content(&thumbnail_request, thumbnail_content.clone(), time, policy)
             .await
             .expect("adding thumbnail failed");
 
@@ -290,13 +434,10 @@ mod tests {
         assert_eq!(contents[0], thumbnail_content, "thumbnail is not last access");
         assert_eq!(contents[1], content, "file is not second-to-last access");
 
-        // Since the precision of the timestamp is in seconds, wait so the timestamps
-        // differ.
-        tokio::time::sleep(Duration::from_secs(3)).await;
-
-        // Access the file so its last access is more recent.
+        // Access the file 1 hour later so its last access is more recent.
+        time = time.checked_add(Duration::from_secs(3600)).expect("time should be fine");
         let _ = event_cache_store
-            .get_media_content(&file_request)
+            .get_media_content(&file_request, time)
             .await
             .expect("getting file failed")
             .expect("file is missing");

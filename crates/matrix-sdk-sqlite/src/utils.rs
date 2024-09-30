@@ -19,6 +19,7 @@ use async_trait::async_trait;
 use deadpool_sqlite::Object as SqliteAsyncConn;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::StoreCipher;
+use ruma::time::SystemTime;
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
 
 use crate::{
@@ -187,27 +188,27 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
 }
 
 pub(crate) trait SqliteTransactionExt {
-    fn chunk_large_query_over<Query, Res>(
+    fn chunk_large_query_over<K, Query, Res>(
         &self,
-        keys_to_chunk: Vec<Key>,
+        keys_to_chunk: Vec<K>,
         result_capacity: Option<usize>,
         do_query: Query,
     ) -> Result<Vec<Res>>
     where
         Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
+        Query: Fn(&Transaction<'_>, Vec<K>) -> Result<Vec<Res>> + Send + 'static;
 }
 
 impl<'a> SqliteTransactionExt for Transaction<'a> {
-    fn chunk_large_query_over<Query, Res>(
+    fn chunk_large_query_over<K, Query, Res>(
         &self,
-        mut keys_to_chunk: Vec<Key>,
+        mut keys_to_chunk: Vec<K>,
         result_capacity: Option<usize>,
         do_query: Query,
     ) -> Result<Vec<Res>>
     where
         Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static,
+        Query: Fn(&Transaction<'_>, Vec<K>) -> Result<Vec<Res>> + Send + 'static,
     {
         // Divide by 2 to allow space for more static parameters (not part of
         // `keys_to_chunk`).
@@ -360,6 +361,19 @@ pub(crate) fn repeat_vars(count: usize) -> impl fmt::Display {
     assert_ne!(count, 0, "Can't generate zero repeated vars");
 
     iter::repeat("?").take(count).format(",")
+}
+
+/// Convert the given `SystemTime` to a timestamp, as the number of seconds
+/// since Unix Epoch.
+///
+/// Returns an `i64` as it is the numeric type used by SQLite.
+pub(crate) fn time_to_timestamp(time: SystemTime) -> i64 {
+    time.duration_since(SystemTime::UNIX_EPOCH)
+        .ok()
+        .and_then(|d| d.as_secs().try_into().ok())
+        // It is unlikely to happen unless the time on the system is seriously wrong, but we always
+        // need a value.
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
