@@ -661,10 +661,12 @@ impl OlmMachine {
                 "Couldn't create a public version of the identity from a new private identity",
             );
 
+            *self.inner.user_identity.lock().await = identity.clone();
+
             self.store()
                 .save_changes(Changes {
                     identities: IdentityChanges { new: vec![public.into()], ..Default::default() },
-                    private_identity: Some(identity.clone()),
+                    private_identity: Some(identity),
                     ..Default::default()
                 })
                 .await?;
