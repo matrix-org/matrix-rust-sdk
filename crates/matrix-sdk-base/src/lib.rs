@@ -31,6 +31,7 @@ pub mod event_cache_store;
 pub mod latest_event;
 pub mod media;
 pub mod notification_settings;
+mod response_processors;
 mod rooms;
 
 pub mod read_receipts;
