@@ -58,7 +58,7 @@ jobs:
           echo "override_commit=$(<commit_sha.txt)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.0
         with:
           ref: ${{ steps.parse_previous_artifacts.outputs.override_commit || '' }}
           path: repo_root
