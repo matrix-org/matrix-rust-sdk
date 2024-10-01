@@ -60,7 +60,7 @@ use ruma::{
     OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, Map};
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error};
 use url::Url;
@@ -291,6 +291,31 @@ impl Client {
         if let Some(device_id) = device_id.as_ref() {
             builder = builder.device_id(device_id);
         }
+        builder.send().await?;
+        Ok(())
+    }
+
+    /// Login with JWT
+    pub async fn login_with_jwt(
+        &self,
+        jwt: String,
+        initial_device_name: Option<String>
+    ) -> Result<(), ClientError> {
+
+        let data: Map<String, Value> = [("token".to_owned(), jwt.into())]
+            .into_iter()
+            .collect();
+
+        let mut builder = self.inner.matrix_auth().login_custom("org.matrix.login.jwt", data)?;
+
+        if let Some(initial_device_name) = initial_device_name.as_ref() {
+            builder = builder.initial_device_display_name(initial_device_name);
+        }
+        
+        if let Some(device_id) = device_id.as_ref() {
+            builder = builder.device_id(device_id);
+        }
+        
         builder.send().await?;
         Ok(())
     }
