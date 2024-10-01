@@ -59,27 +59,10 @@ impl Message {
     /// Construct a `Message` from a `m.room.message` event.
     pub(in crate::timeline) fn from_event(
         c: RoomMessageEventContent,
-        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+        edit: Option<RoomMessageEventContentWithoutRelation>,
         timeline_items: &Vector<Arc<TimelineItem>>,
     ) -> Self {
-        let edited = relations.has_replacement();
-        let edit = relations.replace.and_then(|r| match *r {
-            AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Original(ev)) => match ev
-                .content
-                .relates_to
-            {
-                Some(Relation::Replacement(re)) => Some(re),
-                _ => {
-                    error!("got m.room.message event with an edit without a valid m.replace relation");
-                    None
-                }
-            },
-            AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Redacted(_)) => None,
-            _ => {
-                error!("got m.room.message event with an edit of a different event type");
-                None
-            }
-        });
+        let edited = edit.is_some();
 
         let mut thread_root = None;
         let in_reply_to = c.relates_to.and_then(|relation| match relation {
@@ -98,8 +81,8 @@ impl Message {
         let (msgtype, mentions) = match edit {
             Some(mut e) => {
                 // Edit's content is never supposed to contain the reply fallback.
-                e.new_content.msgtype.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
-                (e.new_content.msgtype, e.new_content.mentions)
+                e.msgtype.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
+                (e.msgtype, e.mentions)
             }
             None => {
                 let remove_reply_fallback = if in_reply_to.is_some() {
@@ -175,6 +158,32 @@ impl From<Message> for RoomMessageEventContent {
         let relates_to =
             make_relates_to(msg.thread_root, msg.in_reply_to.map(|details| details.event_id));
         assign!(Self::new(msg.msgtype), { relates_to })
+    }
+}
+
+/// Extracts a replacement for a room message, if present in the bundled
+/// relations.
+pub(crate) fn extract_edit_content(
+    relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+) -> Option<RoomMessageEventContentWithoutRelation> {
+    match *relations.replace? {
+        AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Original(ev)) => match ev
+            .content
+            .relates_to
+        {
+            Some(Relation::Replacement(re)) => Some(re.new_content),
+            _ => {
+                error!("got m.room.message event with an edit without a valid m.replace relation");
+                None
+            }
+        },
+
+        AnySyncMessageLikeEvent::RoomMessage(SyncRoomMessageEvent::Redacted(_)) => None,
+
+        _ => {
+            error!("got m.room.message event with an edit of a different event type");
+            None
+        }
     }
 }
 
@@ -308,8 +317,11 @@ impl RepliedToEvent {
             return Err(TimelineError::UnsupportedEvent);
         };
 
-        let content =
-            TimelineItemContent::Message(Message::from_event(c, event.relations(), &vector![]));
+        let content = TimelineItemContent::Message(Message::from_event(
+            c,
+            extract_edit_content(event.relations()),
+            &vector![],
+        ));
         let sender = event.sender().to_owned();
         let sender_profile = TimelineDetails::from_initial_value(
             room_data_provider.profile_from_user_id(&sender).await,

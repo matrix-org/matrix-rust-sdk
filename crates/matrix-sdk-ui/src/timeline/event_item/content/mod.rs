@@ -62,6 +62,7 @@ pub(crate) mod pinned_events;
 
 pub use pinned_events::RoomPinnedEventsChange;
 
+pub(crate) use self::message::extract_edit_content;
 pub use self::message::{InReplyToDetails, Message, RepliedToEvent};
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
@@ -176,7 +177,7 @@ impl TimelineItemContent {
                 // We don't have access to any relations via the `AnySyncTimelineEvent` (I think
                 // - andyb) so we pretend there are none. This might be OK for
                 // the message preview use case.
-                let relations = BundledMessageLikeRelations::new();
+                let edit = None;
 
                 // If this message is a reply, we would look up in this list the message it was
                 // replying to. Since we probably won't show this in the message preview,
@@ -186,7 +187,7 @@ impl TimelineItemContent {
                 let timeline_items = Vector::new();
                 TimelineItemContent::Message(Message::from_event(
                     event_content,
-                    relations,
+                    edit,
                     &timeline_items,
                 ))
             }
@@ -264,7 +265,7 @@ impl TimelineItemContent {
         relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
         timeline_items: &Vector<Arc<TimelineItem>>,
     ) -> Self {
-        Self::Message(Message::from_event(c, relations, timeline_items))
+        Self::Message(Message::from_event(c, extract_edit_content(relations), timeline_items))
     }
 
     #[cfg(not(tarpaulin_include))] // debug-logging functionality
