@@ -1035,7 +1035,7 @@ pub(crate) mod tests {
 
     #[async_test]
     #[cfg(feature = "e2e-encryption")]
-    async fn test_setup_decryption_trust_requirements() {
+    async fn test_set_up_decryption_trust_requirement_cross_signed() {
         let homeserver = make_mock_homeserver().await;
         let builder = ClientBuilder::new()
             .server_name_or_homeserver_url(homeserver.uri())
@@ -1046,6 +1046,12 @@ pub(crate) mod tests {
             client.base_client().decryption_trust_requirement,
             TrustRequirement::CrossSigned
         );
+    }
+
+    #[async_test]
+    #[cfg(feature = "e2e-encryption")]
+    async fn test_set_up_decryption_trust_requirement_untrusted() {
+        let homeserver = make_mock_homeserver().await;
 
         let builder = ClientBuilder::new()
             .server_name_or_homeserver_url(homeserver.uri())

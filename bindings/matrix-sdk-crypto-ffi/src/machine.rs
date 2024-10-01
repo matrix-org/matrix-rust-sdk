@@ -861,6 +861,7 @@ impl OlmMachine {
     /// * `strict_shields` - If `true`, messages will be decorated with strict
     ///   warnings (use `false` to match legacy behaviour where unsafe keys have
     ///   lower severity warnings and unverified identities are not decorated).
+    /// * `decryption_settings` - The setting for decrypting messages.
     pub fn decrypt_room_event(
         &self,
         event: String,
