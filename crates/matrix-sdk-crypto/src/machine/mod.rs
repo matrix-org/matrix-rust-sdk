@@ -642,8 +642,9 @@ impl OlmMachine {
         &self,
         reset: bool,
     ) -> StoreResult<CrossSigningBootstrapRequests> {
-        // Don't hold the lock, otherwise we might deadlock in `bootstrap_cross_signing()` on
-        // `account` if a sync task is already running (which locks `account`), or we will deadlock
+        // Don't hold the lock, otherwise we might deadlock in
+        // `bootstrap_cross_signing()` on `account` if a sync task is already
+        // running (which locks `account`), or we will deadlock
         // in `upload_device_keys()` which locks private identity again.
         let identity = self.inner.user_identity.lock().await.clone();
 
