@@ -23,6 +23,8 @@ use std::{borrow::Cow, collections::BTreeMap};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 #[cfg(feature = "e2e-encryption")]
+use ruma::api::client::sync::sync_events::v5;
+#[cfg(feature = "e2e-encryption")]
 use ruma::events::AnyToDeviceEvent;
 use ruma::{
     api::client::sync::sync_events::v3::{self, InvitedRoom},
@@ -59,15 +61,16 @@ impl BaseClient {
     /// In addition to writes to the crypto store, this may also write into the
     /// state store, in particular it may write latest-events to the state
     /// store.
+    ///
+    /// Returns whether any change happened.
     pub async fn process_sliding_sync_e2ee(
         &self,
-        extensions: &http::response::Extensions,
-    ) -> Result<Vec<Raw<AnyToDeviceEvent>>> {
-        if extensions.is_empty() {
-            return Ok(Default::default());
+        to_device: Option<&v5::response::ToDevice>,
+        e2ee: &v5::response::E2EE,
+    ) -> Result<Option<Vec<Raw<AnyToDeviceEvent>>>> {
+        if to_device.is_none() && e2ee.is_empty() {
+            return Ok(None);
         }
-
-        let http::response::Extensions { to_device, e2ee, .. } = extensions;
 
         let to_device_events =
             to_device.as_ref().map(|to_device| to_device.events.clone()).unwrap_or_default();
@@ -87,9 +90,6 @@ impl BaseClient {
         // Process the to-device events and other related e2ee data. This returns a list
         // of all the to-device events that were passed in but encrypted ones
         // were replaced with their decrypted version.
-        // Passing in the default empty maps and vecs for this is completely fine, since
-        // the `OlmMachine` assumes empty maps/vecs mean no change in the one-time key
-        // counts.
         let to_device = self
             .preprocess_to_device_events(
                 matrix_sdk_crypto::EncryptionSyncChanges {
@@ -106,12 +106,12 @@ impl BaseClient {
             )
             .await?;
 
-        trace!("ready to submit changes to store");
+        trace!("ready to submit e2ee changes to store");
         self.store.save_changes(&changes).await?;
         self.apply_changes(&changes, room_info_notable_updates);
-        trace!("applied changes");
+        trace!("applied e2ee changes");
 
-        Ok(to_device)
+        Ok(Some(to_device))
     }
 
     /// Process a response from a sliding sync call.
