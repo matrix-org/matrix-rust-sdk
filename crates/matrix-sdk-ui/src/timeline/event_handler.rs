@@ -525,28 +525,28 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         &mut self,
         item: &EventTimelineItem,
     ) -> Option<EventTimelineItem> {
+        let Flow::Remote { event_id, .. } = &self.ctx.flow else {
+            return None;
+        };
+
         let mut find_and_remove_pending = |event_id| {
             let edits = &mut self.meta.pending_edits;
             let pos = edits.iter().position(|(prev_event_id, _)| prev_event_id == event_id)?;
             Some(edits.remove(pos).unwrap().1)
         };
 
-        if let Flow::Remote { event_id, .. } = &self.ctx.flow {
-            match item.content() {
-                TimelineItemContent::Message(..) => {
-                    let pending = find_and_remove_pending(event_id)?;
-                    let edit = as_variant!(pending, PendingEdit::RoomMessage)?;
-                    self.apply_msg_edit(item, edit)
-                }
-                TimelineItemContent::Poll(..) => {
-                    let pending = find_and_remove_pending(event_id)?;
-                    let edit = as_variant!(pending, PendingEdit::Poll)?;
-                    self.apply_poll_edit(item, edit)
-                }
-                _ => None,
+        match item.content() {
+            TimelineItemContent::Message(..) => {
+                let pending = find_and_remove_pending(event_id)?;
+                let edit = as_variant!(pending, PendingEdit::RoomMessage)?;
+                self.apply_msg_edit(item, edit)
             }
-        } else {
-            None
+            TimelineItemContent::Poll(..) => {
+                let pending = find_and_remove_pending(event_id)?;
+                let edit = as_variant!(pending, PendingEdit::Poll)?;
+                self.apply_poll_edit(item, edit)
+            }
+            _ => None,
         }
     }
 
