@@ -72,6 +72,7 @@ use crate::{
     deserialized_responses::{RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent},
     error::{Error, Result},
     event_cache_store::DynEventCacheStore,
+    response_processors::AccountDataProcessor,
     rooms::{
         normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons},
         Room, RoomInfo, RoomState,
@@ -688,36 +689,6 @@ impl BaseClient {
         }
     }
 
-    /// Parses and stores any raw global account data events into the
-    /// [`StateChanges`].
-    ///
-    /// Returns a list with the parsed account data events.
-    #[instrument(skip_all)]
-    pub(crate) async fn handle_account_data(
-        &self,
-        events: &[Raw<AnyGlobalAccountDataEvent>],
-        changes: &mut StateChanges,
-    ) -> Vec<AnyGlobalAccountDataEvent> {
-        let mut account_data = BTreeMap::new();
-        let mut parsed_events = Vec::new();
-
-        for raw_event in events {
-            let event = match raw_event.deserialize() {
-                Ok(e) => e,
-                Err(e) => {
-                    let event_type: Option<String> = raw_event.get_field("type").ok().flatten();
-                    warn!(event_type, "Failed to deserialize a global account data event: {e}");
-                    continue;
-                }
-            };
-            account_data.insert(event.event_type(), raw_event.clone());
-            parsed_events.push(event);
-        }
-
-        changes.account_data = account_data;
-        parsed_events
-    }
-
     /// Processes the direct rooms in a sync response:
     ///
     /// Given a [`StateChanges`] instance, processes any direct room info
@@ -983,7 +954,7 @@ impl BaseClient {
         let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
         let global_account_data_events =
-            self.handle_account_data(&response.account_data.events, &mut changes).await;
+            ProcessAccountData::process(&response.account_data.events).apply(&mut changes);
 
         let push_rules = self.get_push_rules(&changes).await?;
 

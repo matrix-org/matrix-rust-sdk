@@ -45,6 +45,7 @@ use crate::RoomMemberships;
 use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
+    response_processors::AccountDataProcessor,
     rooms::{
         normal::{RoomHero, RoomInfoNotableUpdateReasons},
         RoomState,
@@ -146,7 +147,7 @@ impl BaseClient {
         trace!(
             rooms = rooms.len(),
             lists = lists.len(),
-            extensions = !extensions.is_empty(),
+            has_extensions = !extensions.is_empty(),
             "Processing sliding sync room events"
         );
 
@@ -165,7 +166,7 @@ impl BaseClient {
 
         let account_data = &extensions.account_data;
         let global_account_data_events = if !account_data.is_empty() {
-            self.handle_account_data(&account_data.global, &mut changes).await
+            ProcessAccountData::process(&account_data.global).apply(&mut changes)
         } else {
             Vec::new()
         };
