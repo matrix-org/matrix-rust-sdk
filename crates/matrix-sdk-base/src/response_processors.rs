@@ -24,7 +24,26 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
-use crate::{store::Store, StateChanges};
+use crate::{store::Store, RoomInfo, StateChanges};
+
+/// Applies a function to an existing `RoomInfo` if present in changes, or one
+/// loaded from the database.
+fn map_info<F: FnOnce(&mut RoomInfo)>(
+    room_id: &RoomId,
+    changes: &mut StateChanges,
+    store: &Store,
+    f: F,
+) {
+    if let Some(info) = changes.room_infos.get_mut(room_id) {
+        f(info);
+    } else if let Some(room) = store.room(room_id) {
+        let mut info = room.clone_info();
+        f(&mut info);
+        changes.add_room(info);
+    } else {
+        warn!(room = %room_id, "couldn't find room in state changes or store");
+    }
+}
 
 #[must_use]
 pub(crate) struct AccountDataProcessor {
@@ -98,32 +117,18 @@ impl AccountDataProcessor {
                         continue;
                     }
                 }
-
-                trace!(
-                    ?room_id, targets = ?new_direct_targets,
-                    "Marking room as direct room"
-                );
-
-                if let Some(info) = changes.room_infos.get_mut(room_id) {
+                trace!(?room_id, targets = ?new_direct_targets, "Marking room as direct room");
+                map_info(room_id, changes, store, |info| {
                     info.base_info.dm_targets = new_direct_targets;
-                } else if let Some(room) = store.room(room_id) {
-                    let mut info = room.clone_info();
-                    info.base_info.dm_targets = new_direct_targets;
-                    changes.add_room(info);
-                }
+                });
             }
 
             // Remove the targets of old direct chats.
             for room_id in old_dms.keys() {
                 trace!(?room_id, "Unmarking room as direct room");
-
-                if let Some(info) = changes.room_infos.get_mut(*room_id) {
+                map_info(room_id, changes, store, |info| {
                     info.base_info.dm_targets.clear();
-                } else if let Some(room) = store.room(room_id) {
-                    let mut info = room.clone_info();
-                    info.base_info.dm_targets.clear();
-                    changes.add_room(info);
-                }
+                });
             }
         }
     }
