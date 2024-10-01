@@ -41,6 +41,11 @@ mod content;
 mod local;
 mod remote;
 
+pub(super) use self::{
+    content::extract_edit_content,
+    local::LocalEventTimelineItem,
+    remote::{RemoteEventOrigin, RemoteEventTimelineItem},
+};
 pub use self::{
     content::{
         AnyOtherFullStateEventContent, EncryptedMessage, InReplyToDetails, MemberProfileChange,
@@ -48,10 +53,6 @@ pub use self::{
         RoomPinnedEventsChange, Sticker, TimelineItemContent,
     },
     local::EventSendState,
-};
-pub(super) use self::{
-    local::LocalEventTimelineItem,
-    remote::{RemoteEventOrigin, RemoteEventTimelineItem},
 };
 use super::{RepliedToInfo, ReplyContent, UnsupportedReplyItem};
 

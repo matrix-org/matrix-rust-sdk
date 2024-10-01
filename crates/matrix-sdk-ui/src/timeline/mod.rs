@@ -18,7 +18,7 @@
 
 use std::{path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
-use event_item::{EventTimelineItemKind, TimelineItemHandle};
+use event_item::{extract_edit_content, EventTimelineItemKind, TimelineItemHandle};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::Vector;
@@ -433,7 +433,7 @@ impl Timeline {
                 {
                     ReplyContent::Message(Message::from_event(
                         original_message.content.clone(),
-                        message_like_event.relations(),
+                        extract_edit_content(message_like_event.relations()),
                         &self.items().await,
                     ))
                 } else {
