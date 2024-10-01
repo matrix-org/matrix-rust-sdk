@@ -789,17 +789,8 @@ impl BaseClient {
     pub(crate) async fn preprocess_to_device_events(
         &self,
         encryption_sync_changes: EncryptionSyncChanges<'_>,
-        #[cfg(feature = "experimental-sliding-sync")] changes: &mut StateChanges,
-        #[cfg(not(feature = "experimental-sliding-sync"))] _changes: &mut StateChanges,
-        #[cfg(feature = "experimental-sliding-sync")] room_info_notable_updates: &mut BTreeMap<
-            OwnedRoomId,
-            RoomInfoNotableUpdateReasons,
-        >,
-        #[cfg(not(feature = "experimental-sliding-sync"))]
-        _room_info_notable_updates: &mut BTreeMap<
-            OwnedRoomId,
-            RoomInfoNotableUpdateReasons,
-        >,
+        changes: &mut StateChanges,
+        room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
     ) -> Result<Vec<Raw<ruma::events::AnyToDeviceEvent>>> {
         if let Some(o) = self.olm_machine().await.as_ref() {
             // Let the crypto machine handle the sync response, this
@@ -815,8 +806,9 @@ impl BaseClient {
                     self.decrypt_latest_events(&room, changes, room_info_notable_updates).await;
                 }
             }
-            #[cfg(not(feature = "experimental-sliding-sync"))]
-            drop(room_key_updates); // Silence unused variable warning
+
+            #[cfg(not(feature = "experimental-sliding-sync"))] // Silence unused variable warnings.
+            let _ = (room_key_updates, changes, room_info_notable_updates);
 
             Ok(events)
         } else {
