@@ -60,7 +60,7 @@ use ruma::{
     OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error};
 use url::Url;
@@ -291,6 +291,31 @@ impl Client {
         if let Some(device_id) = device_id.as_ref() {
             builder = builder.device_id(device_id);
         }
+        builder.send().await?;
+        Ok(())
+    }
+
+    /// Login using JWT
+    /// This is an implementation of the custom_login https://docs.rs/matrix-sdk/latest/matrix_sdk/matrix_auth/struct.MatrixAuth.html#method.login_custom
+    /// For more information on logging in with JWT: https://element-hq.github.io/synapse/latest/jwt.html
+    pub async fn custom_login_with_jwt(
+        &self,
+        jwt: String,
+        initial_device_name: Option<String>,
+        device_id: Option<String>,
+    ) -> Result<(), ClientError> {
+        let data = json!({ "token": jwt }).as_object().unwrap().clone();
+
+        let mut builder = self.inner.matrix_auth().login_custom("org.matrix.login.jwt", data)?;
+
+        if let Some(initial_device_name) = initial_device_name.as_ref() {
+            builder = builder.initial_device_display_name(initial_device_name);
+        }
+
+        if let Some(device_id) = device_id.as_ref() {
+            builder = builder.device_id(device_id);
+        }
+
         builder.send().await?;
         Ok(())
     }
