@@ -37,7 +37,7 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::{RoomMessageEventContent, SyncRoomMessageEvent},
+            message::{Relation, RoomMessageEventContent, SyncRoomMessageEvent},
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -174,10 +174,19 @@ impl TimelineItemContent {
                 // Grab the content of this event
                 let event_content = event.content.clone();
 
-                // We don't have access to any relations via the `AnySyncTimelineEvent` (I think
-                // - andyb) so we pretend there are none. This might be OK for
-                // the message preview use case.
-                let edit = None;
+                // Feed the bundled edit, if present, or we might miss showing edited content.
+                let edit = event
+                    .unsigned
+                    .relations
+                    .replace
+                    .as_ref()
+                    .and_then(|boxed| match &boxed.content.relates_to {
+                        Some(Relation::Replacement(re)) => Some(re.new_content.clone()),
+                        _ => {
+                            warn!("got m.room.message event with an edit without a valid m.replace relation");
+                            None
+                        }
+                    });
 
                 // If this message is a reply, we would look up in this list the message it was
                 // replying to. Since we probably won't show this in the message preview,
@@ -191,6 +200,7 @@ impl TimelineItemContent {
                     &timeline_items,
                 ))
             }
+
             SyncRoomMessageEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
         }
     }

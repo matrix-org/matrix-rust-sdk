@@ -84,6 +84,7 @@ impl Message {
                 e.msgtype.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
                 (e.msgtype, e.mentions)
             }
+
             None => {
                 let remove_reply_fallback = if in_reply_to.is_some() {
                     RemoveReplyFallback::Yes

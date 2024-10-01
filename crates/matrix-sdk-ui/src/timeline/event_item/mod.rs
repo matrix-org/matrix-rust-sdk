@@ -768,6 +768,77 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_latest_message_includes_bundled_edit() {
+        // Given a sync event that is suitable to be used as a latest_event, and
+        // contains a bundled edit,
+        let room_id = room_id!("!q:x.uk");
+        let user_id = user_id!("@t:o.uk");
+        let event = sync_timeline_event!({
+            "event_id": "$eventid6",
+            "sender": user_id,
+            "origin_server_ts": 42,
+            "type": "m.room.message",
+            "room_id": room_id,
+            "content": {
+                "body":  "**My M**",
+                "format": "org.matrix.custom.html",
+                "formatted_body": "<b>My M</b>" ,
+                "msgtype": "m.text"
+            },
+            "unsigned": {
+                "m.relations": {
+                  "m.replace" : {
+                    "sender" : user_id,
+                    "content" : {
+                      "format" : "org.matrix.custom.html",
+                      "formatted_body" : " * <b>Updated!</b>",
+                      "m.relates_to" : {
+                        "event_id" : "$eventid6",
+                        "rel_type" : "m.replace"
+                      },
+                      "m.new_content": {
+                        "body" : "Updated!",
+                        "formatted_body" : "<b>Updated!</b>",
+                        "msgtype" : "m.text",
+                        "format" : "org.matrix.custom.html"
+                      },
+                      "msgtype" : "m.text",
+                      "body" : " * Updated!"
+                    },
+                    "origin_server_ts" : 43,
+                    "room_id" : room_id,
+                    "event_id" : "$edit-event-id",
+                    "user_id" : user_id,
+                    "type" : "m.room.message",
+                  }
+                }
+            }
+        })
+        .into();
+
+        let client = logged_in_client(None).await;
+
+        // When we construct a timeline event from it,
+        let timeline_item =
+            EventTimelineItem::from_latest_event(client, room_id, LatestEvent::new(event))
+                .await
+                .unwrap();
+
+        // Then its properties correctly translate.
+        assert_eq!(timeline_item.sender, user_id);
+        assert_matches!(timeline_item.sender_profile, TimelineDetails::Unavailable);
+        assert_eq!(timeline_item.timestamp.0, UInt::new(42).unwrap());
+        if let MessageType::Text(txt) = timeline_item.content.as_message().unwrap().msgtype() {
+            assert_eq!(txt.body, "Updated!");
+            let formatted = txt.formatted.as_ref().unwrap();
+            assert_eq!(formatted.format, MessageFormat::Html);
+            assert_eq!(formatted.body, "<b>Updated!</b>");
+        } else {
+            panic!("Unexpected message type");
+        }
+    }
+
+    #[async_test]
     async fn test_latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender_from_the_storage(
     ) {
         // Given a sync event that is suitable to be used as a latest_event, and a room
