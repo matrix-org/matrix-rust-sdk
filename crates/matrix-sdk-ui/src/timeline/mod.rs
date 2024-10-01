@@ -148,7 +148,7 @@ pub enum ReplyContent {
 /// messages.
 #[derive(Debug)]
 pub struct Timeline {
-    /// Clonable, inner fields of the `Timeline`, shared with some background
+    /// Cloneable, inner fields of the `Timeline`, shared with some background
     /// tasks.
     controller: TimelineController,
 

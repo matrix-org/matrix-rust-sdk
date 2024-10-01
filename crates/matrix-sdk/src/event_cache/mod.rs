@@ -609,7 +609,7 @@ impl RoomEventCache {
     }
 }
 
-/// The (non-clonable) details of the `RoomEventCache`.
+/// The (non-cloneable) details of the `RoomEventCache`.
 struct RoomEventCacheInner {
     /// The room id for this room.
     room_id: OwnedRoomId,

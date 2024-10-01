@@ -1480,7 +1480,7 @@ impl Account {
     /// that we don't want the inner state to be shared.
     #[doc(hidden)]
     pub fn deep_clone(&self) -> Self {
-        // `vodozemac::Account` isn't really clonable, but... Don't tell anyone.
+        // `vodozemac::Account` isn't really cloneable, but... Don't tell anyone.
         Self::from_pickle(self.pickle()).unwrap()
     }
 }
