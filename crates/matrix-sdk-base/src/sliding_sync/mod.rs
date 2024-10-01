@@ -164,16 +164,11 @@ impl BaseClient {
         let store = self.store.clone();
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
 
-        let account_data = &extensions.account_data;
-        let global_account_data_events = if !account_data.is_empty() {
-            ProcessAccountData::process(&account_data.global).apply(&mut changes)
-        } else {
-            Vec::new()
-        };
+        let account_data = AccountDataProcessor::process(&extensions.account_data.global);
 
         let mut new_rooms = RoomUpdates::default();
         let mut notifications = Default::default();
-        let mut rooms_account_data = account_data.rooms.clone();
+        let mut rooms_account_data = extensions.account_data.rooms.clone();
 
         for (room_id, response_room_data) in rooms {
             let (room_info, joined_room, left_room, invited_room) = self
@@ -182,6 +177,7 @@ impl BaseClient {
                     response_room_data,
                     &mut rooms_account_data,
                     &store,
+                    &account_data,
                     &mut changes,
                     &mut room_info_notable_updates,
                     &mut notifications,
@@ -309,6 +305,7 @@ impl BaseClient {
         // because we want to have the push rules in place before we process
         // rooms and their events, but we want to create the rooms before we
         // process the `m.direct` account data event.
+        let global_account_data_events = account_data.apply(&mut changes);
         let has_new_direct_room_data = global_account_data_events
             .iter()
             .any(|event| event.event_type() == GlobalAccountDataEventType::Direct);
@@ -354,7 +351,7 @@ impl BaseClient {
             notifications,
             // FIXME not yet supported by sliding sync.
             presence: Default::default(),
-            account_data: account_data.global.clone(),
+            account_data: extensions.account_data.global.clone(),
             to_device: Default::default(),
         })
     }
@@ -366,6 +363,7 @@ impl BaseClient {
         room_data: &http::response::Room,
         rooms_account_data: &mut BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
         store: &Store,
+        account_data: &AccountDataProcessor,
         changes: &mut StateChanges,
         room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
@@ -451,7 +449,7 @@ impl BaseClient {
             Default::default()
         };
 
-        let push_rules = self.get_push_rules(changes).await?;
+        let push_rules = self.get_push_rules(account_data).await?;
 
         if let Some(invite_state) = &room_data.invite_state {
             self.handle_invited_state(
