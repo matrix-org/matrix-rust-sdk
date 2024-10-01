@@ -113,7 +113,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             serde_json::from_value::<Raw<AnyGlobalAccountDataEvent>>(pushrules_json.clone())
                 .unwrap();
         let pushrules_event = pushrules_raw.deserialize().unwrap();
-        changes.add_account_data(pushrules_event, pushrules_raw);
+        changes.account_data.insert(pushrules_event.event_type(), pushrules_raw);
 
         let mut room = RoomInfo::new(room_id, RoomState::Joined);
         room.mark_as_left();

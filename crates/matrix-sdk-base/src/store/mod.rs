@@ -360,15 +360,6 @@ impl StateChanges {
         self.room_infos.insert(room.room_id.clone(), room);
     }
 
-    /// Update the `StateChanges` struct with the given `AnyBasicEvent`.
-    pub fn add_account_data(
-        &mut self,
-        event: AnyGlobalAccountDataEvent,
-        raw_event: Raw<AnyGlobalAccountDataEvent>,
-    ) {
-        self.account_data.insert(event.event_type(), raw_event);
-    }
-
     /// Update the `StateChanges` struct with the given room with a new
     /// `AnyBasicEvent`.
     pub fn add_room_account_data(
