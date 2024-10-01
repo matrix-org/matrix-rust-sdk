@@ -953,10 +953,9 @@ impl BaseClient {
 
         let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
-        let global_account_data_events =
-            ProcessAccountData::process(&response.account_data.events).apply(&mut changes);
+        let account_data = AccountDataProcessor::process(&response.account_data.events);
 
-        let push_rules = self.get_push_rules(&changes).await?;
+        let push_rules = self.get_push_rules(&account_data).await?;
 
         let mut new_rooms = RoomUpdates::default();
         let mut notifications = Default::default();
@@ -1173,6 +1172,7 @@ impl BaseClient {
         // because we want to have the push rules in place before we process
         // rooms and their events, but we want to create the rooms before we
         // process the `m.direct` account data event.
+        let global_account_data_events = account_data.apply(&mut changes);
         let has_new_direct_room_data = global_account_data_events
             .iter()
             .any(|event| event.event_type() == GlobalAccountDataEventType::Direct);
@@ -1463,14 +1463,15 @@ impl BaseClient {
 
     /// Get the push rules.
     ///
-    /// Gets the push rules from `changes` if they have been updated, otherwise
-    /// get them from the store. As a fallback, uses
-    /// `Ruleset::server_default` if the user is logged in.
-    pub async fn get_push_rules(&self, changes: &StateChanges) -> Result<Ruleset> {
-        if let Some(event) = changes
-            .account_data
-            .get(&GlobalAccountDataEventType::PushRules)
-            .and_then(|ev| ev.deserialize_as::<PushRulesEvent>().ok())
+    /// Gets the push rules previously processed, otherwise get them from the
+    /// store. As a fallback, uses [`Ruleset::server_default`] if the user
+    /// is logged in.
+    pub(crate) async fn get_push_rules(
+        &self,
+        account_data: &AccountDataProcessor,
+    ) -> Result<Ruleset> {
+        if let Some(event) =
+            account_data.push_rules().and_then(|ev| ev.deserialize_as::<PushRulesEvent>().ok())
         {
             Ok(event.content.global)
         } else if let Some(event) = self

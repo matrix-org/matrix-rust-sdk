@@ -51,6 +51,11 @@ impl AccountDataProcessor {
         Self { raw_by_type, parsed_events }
     }
 
+    /// Returns the push rules found by this processor.
+    pub fn push_rules(&self) -> Option<&Raw<AnyGlobalAccountDataEvent>> {
+        self.raw_by_type.get(&GlobalAccountDataEventType::PushRules)
+    }
+
     /// Applies the processed data to the state changes.
     pub fn apply(mut self, changes: &mut StateChanges) -> Vec<AnyGlobalAccountDataEvent> {
         mem::swap(&mut changes.account_data, &mut self.raw_by_type);
