@@ -28,10 +28,7 @@ use ruma::api::client::sync::sync_events::v5;
 use ruma::events::AnyToDeviceEvent;
 use ruma::{
     api::client::sync::sync_events::v3::{self, InvitedRoom},
-    events::{
-        AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        GlobalAccountDataEventType,
-    },
+    events::{AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent},
     serde::Raw,
     JsOption, OwnedRoomId, RoomId, UInt,
 };
@@ -301,26 +298,7 @@ impl BaseClient {
             }
         }
 
-        // We're processing direct state events here separately
-        // because we want to have the push rules in place before we process
-        // rooms and their events, but we want to create the rooms before we
-        // process the `m.direct` account data event.
-        let global_account_data_events = account_data.apply(&mut changes);
-        let has_new_direct_room_data = global_account_data_events
-            .iter()
-            .any(|event| event.event_type() == GlobalAccountDataEventType::Direct);
-        if has_new_direct_room_data {
-            self.process_direct_rooms(&global_account_data_events, &mut changes).await;
-        } else if let Ok(Some(direct_account_data)) =
-            self.store.get_account_data_event(GlobalAccountDataEventType::Direct).await
-        {
-            debug!("Found direct room data in the Store, applying it");
-            if let Ok(direct_account_data) = direct_account_data.deserialize() {
-                self.process_direct_rooms(&[direct_account_data], &mut changes).await;
-            } else {
-                warn!("Failed to deserialize direct room account data");
-            }
-        }
+        account_data.apply(&mut changes, &store).await;
 
         // FIXME not yet supported by sliding sync.
         // changes.presence = presence
