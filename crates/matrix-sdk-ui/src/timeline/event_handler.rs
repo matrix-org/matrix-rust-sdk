@@ -51,10 +51,9 @@ use super::{
     day_dividers::DayDividerAdjuster,
     event_item::{
         extract_edit_content, AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,
-        LocalEventTimelineItem, Profile, ReactionsByKeyBySender, RemoteEventOrigin,
+        LocalEventTimelineItem, PollState, Profile, ReactionsByKeyBySender, RemoteEventOrigin,
         RemoteEventTimelineItem, TimelineEventItemId,
     },
-    polls::PollState,
     reactions::FullReactionKey,
     util::{rfind_event_by_id, rfind_event_item},
     EventTimelineItem, InReplyToDetails, OtherState, Sticker, TimelineDetails, TimelineItem,

@@ -58,15 +58,19 @@ use ruma::{
 };
 use tracing::warn;
 
-use crate::timeline::{polls::PollState, TimelineItem};
+use crate::timeline::TimelineItem;
 
 mod message;
 pub(crate) mod pinned_events;
+mod polls;
 
 pub use pinned_events::RoomPinnedEventsChange;
 
-pub(crate) use self::message::extract_edit_content;
-pub use self::message::{InReplyToDetails, Message, RepliedToEvent};
+pub(in crate::timeline) use self::{message::extract_edit_content, polls::ResponseData};
+pub use self::{
+    message::{InReplyToDetails, Message, RepliedToEvent},
+    polls::{PollResult, PollState},
+};
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
 #[derive(Clone, Debug)]
