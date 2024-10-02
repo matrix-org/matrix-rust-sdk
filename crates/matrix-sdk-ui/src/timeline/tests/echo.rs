@@ -24,7 +24,7 @@ use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     event_id,
     events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
-    uint, user_id, MilliSecondsSinceUnixEpoch,
+    user_id, MilliSecondsSinceUnixEpoch,
 };
 use stream_assert::assert_next_matches;
 
@@ -164,7 +164,7 @@ async fn test_remote_echo_new_position() {
             f.text_msg("echo")
                 .sender(*ALICE)
                 .event_id(event_id!("$eeG0HA0FAZ37wP8kXlNkxx3I"))
-                .server_ts(MilliSecondsSinceUnixEpoch(uint!(6)))
+                .server_ts(6)
                 .unsigned_transaction_id(&txn_id),
         )
         .await;
@@ -202,11 +202,7 @@ async fn test_day_divider_duplication() {
 
     // … when the second remote event is re-received (day still the same)
     let event_id = items[2].as_event().unwrap().event_id().unwrap();
-    timeline
-        .handle_live_event(
-            f.text_msg("B").event_id(event_id).server_ts(MilliSecondsSinceUnixEpoch(uint!(1))),
-        )
-        .await;
+    timeline.handle_live_event(f.text_msg("B").event_id(event_id).server_ts(1)).await;
 
     // … it should not impact the day dividers.
     let items = timeline.controller.items().await;
@@ -225,11 +221,7 @@ async fn test_day_divider_removed_after_local_echo_disappeared() {
     let f = &timeline.factory;
 
     timeline
-        .handle_live_event(
-            f.text_msg("remote echo")
-                .sender(user_id!("@a:b.c"))
-                .server_ts(MilliSecondsSinceUnixEpoch(0.try_into().unwrap())),
-        )
+        .handle_live_event(f.text_msg("remote echo").sender(user_id!("@a:b.c")).server_ts(0))
         .await;
 
     let items = timeline.controller.items().await;

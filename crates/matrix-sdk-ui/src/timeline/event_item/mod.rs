@@ -733,7 +733,7 @@ mod tests {
         },
         room_id,
         serde::Raw,
-        uint, user_id, MilliSecondsSinceUnixEpoch, RoomId, UInt, UserId,
+        user_id, RoomId, UInt, UserId,
     };
 
     use super::{EventTimelineItem, Profile};
@@ -796,7 +796,7 @@ mod tests {
             .sender(user_id)
             .event_id(original_event_id)
             .bundled_relations(relations)
-            .server_ts(MilliSecondsSinceUnixEpoch(uint!(42)))
+            .server_ts(42)
             .into_sync();
 
         let client = logged_in_client(None).await;

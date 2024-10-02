@@ -38,10 +38,26 @@ use ruma::{
     },
     serde::Raw,
     server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
 use serde::Serialize;
 use serde_json::json;
+
+pub trait TimestampArg {
+    fn to_milliseconds_since_unix_epoch(self) -> MilliSecondsSinceUnixEpoch;
+}
+
+impl TimestampArg for MilliSecondsSinceUnixEpoch {
+    fn to_milliseconds_since_unix_epoch(self) -> MilliSecondsSinceUnixEpoch {
+        self
+    }
+}
+
+impl TimestampArg for u64 {
+    fn to_milliseconds_since_unix_epoch(self) -> MilliSecondsSinceUnixEpoch {
+        MilliSecondsSinceUnixEpoch(UInt::try_from(self).unwrap())
+    }
+}
 
 #[derive(Debug, Default)]
 struct Unsigned {
@@ -80,8 +96,8 @@ where
         self
     }
 
-    pub fn server_ts(mut self, ts: MilliSecondsSinceUnixEpoch) -> Self {
-        self.server_ts = ts;
+    pub fn server_ts(mut self, ts: impl TimestampArg) -> Self {
+        self.server_ts = ts.to_milliseconds_since_unix_epoch();
         self
     }
 
