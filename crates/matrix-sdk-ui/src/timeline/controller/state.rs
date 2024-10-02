@@ -816,6 +816,15 @@ pub(in crate::timeline) enum PendingEdit {
     Poll(Replacement<NewUnstablePollStartEventContentWithoutRelation>),
 }
 
+impl PendingEdit {
+    pub fn edited_event(&self) -> &EventId {
+        match self {
+            PendingEdit::RoomMessage(Replacement { event_id, .. })
+            | PendingEdit::Poll(Replacement { event_id, .. }) => event_id,
+        }
+    }
+}
+
 #[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for PendingEdit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -869,7 +878,7 @@ pub(in crate::timeline) struct TimelineMetadata {
     pub pending_poll_events: PendingPollEvents,
 
     /// Edit events received before the related event they're editing.
-    pub pending_edits: RingBuffer<(OwnedEventId, PendingEdit)>,
+    pub pending_edits: RingBuffer<PendingEdit>,
 
     /// Identifier of the fully-read event, helping knowing where to introduce
     /// the read marker.

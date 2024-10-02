@@ -18,7 +18,8 @@ use as_variant::as_variant;
 use eyeball_im::{ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::IndexMap;
 use matrix_sdk::{
-    crypto::types::events::UtdCause, deserialized_responses::EncryptionInfo, send_queue::SendHandle,
+    crypto::types::events::UtdCause, deserialized_responses::EncryptionInfo,
+    ring_buffer::RingBuffer, send_queue::SendHandle,
 };
 use ruma::{
     events::{
@@ -42,7 +43,8 @@ use ruma::{
         MessageLikeEventType, StateEventType, SyncStateEvent,
     },
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    RoomVersionId,
 };
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
@@ -329,25 +331,17 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         // there's an edit in the relations mapping, we want to prefer it over any
                         // other pending edit, since it's more likely to be up to date, and we
                         // don't want to apply another pending edit on top of it.
-                        let pending_edit = if let Flow::Remote { event_id, .. } = &self.ctx.flow {
-                            let edits = &mut self.meta.pending_edits;
-                            edits
-                                .iter()
-                                .position(|(prev_event_id, _)| prev_event_id == event_id)
-                                .into_iter()
-                                .filter_map(|pos| {
-                                    Some(
-                                        as_variant!(
-                                            edits.remove(pos).unwrap().1,
-                                            PendingEdit::RoomMessage
-                                        )?
-                                        .new_content,
+                        let pending_edit =
+                            as_variant!(&self.ctx.flow, Flow::Remote { event_id, .. } => event_id)
+                                .and_then(|event_id| {
+                                    Self::find_and_remove_pending(
+                                        &mut self.meta.pending_edits,
+                                        event_id,
                                     )
                                 })
-                                .next()
-                        } else {
-                            None
-                        };
+                                .and_then(|edit| {
+                                    Some(as_variant!(edit, PendingEdit::RoomMessage)?.new_content)
+                                });
 
                         let edit = extract_edit_content(relations).or(pending_edit);
 
@@ -517,9 +511,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     .meta
                     .pending_edits
                     .iter()
-                    .any(|(event_id, _)| *event_id == replaced_event_id)
+                    .any(|edit| edit.edited_event() == replaced_event_id)
                 {
-                    self.meta.pending_edits.push((replaced_event_id, replacement));
+                    self.meta.pending_edits.push(replacement);
                     debug!("Timeline item not found, stashing edit");
                 } else {
                     debug!("Timeline item not found, but there was a previous edit for the event: discarding");
@@ -531,15 +525,20 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // forward-pagination: it's fine to overwrite the previous one, if
                 // available.
                 let edits = &mut self.meta.pending_edits;
-                if let Some(pos) =
-                    edits.iter().position(|(event_id, _)| *event_id == replaced_event_id)
-                {
-                    edits.remove(pos);
-                }
-                edits.push((replaced_event_id, replacement));
+                let _ = Self::find_and_remove_pending(edits, &replaced_event_id);
+                edits.push(replacement);
                 debug!("Timeline item not found, stashing edit");
             }
         }
+    }
+
+    /// TODO rename to maybe_unstash_pending_edit?
+    fn find_and_remove_pending(
+        edits: &mut RingBuffer<PendingEdit>,
+        event_id: &EventId,
+    ) -> Option<PendingEdit> {
+        let pos = edits.iter().position(|edit| edit.edited_event() == event_id)?;
+        Some(edits.remove(pos).unwrap())
     }
 
     /// If there's a pending edit for an item, apply it immediately, returning
@@ -548,24 +547,18 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         &mut self,
         item: &EventTimelineItem,
     ) -> Option<EventTimelineItem> {
-        let Flow::Remote { event_id, .. } = &self.ctx.flow else {
-            return None;
-        };
-
-        let mut find_and_remove_pending = |event_id| {
-            let edits = &mut self.meta.pending_edits;
-            let pos = edits.iter().position(|(prev_event_id, _)| prev_event_id == event_id)?;
-            Some(edits.remove(pos).unwrap().1)
-        };
+        let event_id = as_variant!(&self.ctx.flow, Flow::Remote { event_id, .. } => event_id)?;
 
         match item.content() {
             TimelineItemContent::Message(..) => {
-                let pending = find_and_remove_pending(event_id)?;
+                let pending =
+                    Self::find_and_remove_pending(&mut self.meta.pending_edits, event_id)?;
                 let edit = as_variant!(pending, PendingEdit::RoomMessage)?;
                 self.apply_msg_edit(item, edit)
             }
             TimelineItemContent::Poll(..) => {
-                let pending = find_and_remove_pending(event_id)?;
+                let pending =
+                    Self::find_and_remove_pending(&mut self.meta.pending_edits, event_id)?;
                 let edit = as_variant!(pending, PendingEdit::Poll)?;
                 self.apply_poll_edit(item, edit)
             }
