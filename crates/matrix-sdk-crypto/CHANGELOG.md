@@ -53,7 +53,10 @@ Changes:
 
 Breaking changes:
 
-  **NOTE**: this version causes changes to the format of the serialised data in
+- `OlmMachine::decrypt_room_event` now returns a `DecryptedRoomEvent` type,
+  instead of the more generic `TimelineEvent` type.
+
+- **NOTE**: this version causes changes to the format of the serialised data in
   the CryptoStore, meaning that, once upgraded, it will not be possible to roll
   back applications to earlier versions without breaking user sessions.
 

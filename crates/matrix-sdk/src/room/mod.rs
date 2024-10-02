@@ -1222,7 +1222,7 @@ impl Room {
         let decryption_settings = DecryptionSettings {
             sender_device_trust_requirement: self.client.base_client().decryption_trust_requirement,
         };
-        let mut event = match machine
+        let decrypted = match machine
             .decrypt_room_event(event.cast_ref(), self.inner.room_id(), &decryption_settings)
             .await
         {
@@ -1237,6 +1237,7 @@ impl Room {
             }
         };
 
+        let mut event: TimelineEvent = decrypted.into();
         event.push_actions = self.event_push_actions(&event.event).await?;
 
         Ok(event)

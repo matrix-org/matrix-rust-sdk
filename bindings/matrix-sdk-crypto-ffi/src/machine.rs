@@ -38,7 +38,7 @@ use ruma::{
     },
     events::{
         key::verification::VerificationMethod, room::message::MessageType, AnyMessageLikeEvent,
-        AnySyncMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent,
+        AnySyncMessageLikeEvent, MessageLikeEvent,
     },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
@@ -891,7 +891,7 @@ impl OlmMachine {
         ))?;
 
         if handle_verification_events {
-            if let Ok(AnyTimelineEvent::MessageLike(e)) = decrypted.event.deserialize() {
+            if let Ok(e) = decrypted.event.deserialize() {
                 match &e {
                     AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(
                         original_event,
@@ -909,8 +909,7 @@ impl OlmMachine {
             }
         }
 
-        let encryption_info =
-            decrypted.encryption_info.expect("Decrypted event didn't contain any encryption info");
+        let encryption_info = decrypted.encryption_info;
 
         let event_json: Event<'_> = serde_json::from_str(decrypted.event.json().get())?;
 

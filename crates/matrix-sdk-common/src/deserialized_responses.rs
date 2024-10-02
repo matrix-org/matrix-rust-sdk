@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, fmt};
 
 use ruma::{
-    events::{AnySyncTimelineEvent, AnyTimelineEvent},
+    events::{AnyMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent},
     push::Action,
     serde::{JsonObject, Raw},
     DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedUserId,
@@ -381,6 +381,13 @@ impl From<TimelineEvent> for SyncTimelineEvent {
     }
 }
 
+impl From<DecryptedRoomEvent> for SyncTimelineEvent {
+    fn from(decrypted: DecryptedRoomEvent) -> Self {
+        let timeline_event: TimelineEvent = decrypted.into();
+        timeline_event.into()
+    }
+}
+
 #[derive(Clone)]
 pub struct TimelineEvent {
     /// The actual event.
@@ -407,6 +414,20 @@ impl TimelineEvent {
     }
 }
 
+impl From<DecryptedRoomEvent> for TimelineEvent {
+    fn from(decrypted: DecryptedRoomEvent) -> Self {
+        Self {
+            // Casting from the more specific `AnyMessageLikeEvent` (i.e. an event without a
+            // `state_key`) to a more generic `AnyTimelineEvent` (i.e. one that may contain
+            // a `state_key`) is safe.
+            event: decrypted.event.cast(),
+            encryption_info: Some(decrypted.encryption_info),
+            push_actions: None,
+            unsigned_encryption_info: decrypted.unsigned_encryption_info,
+        }
+    }
+}
+
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for TimelineEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -421,6 +442,35 @@ impl fmt::Debug for TimelineEvent {
         }
         s.maybe_field("unsigned_encryption_info", unsigned_encryption_info);
         s.finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+/// A successfully-decrypted encrypted event.
+pub struct DecryptedRoomEvent {
+    /// The decrypted event.
+    pub event: Raw<AnyMessageLikeEvent>,
+
+    /// The encryption info about the event.
+    pub encryption_info: EncryptionInfo,
+
+    /// The encryption info about the events bundled in the `unsigned`
+    /// object.
+    ///
+    /// Will be `None` if no bundled event was encrypted.
+    pub unsigned_encryption_info: Option<BTreeMap<UnsignedEventLocation, UnsignedDecryptionResult>>,
+}
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for DecryptedRoomEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let DecryptedRoomEvent { event, encryption_info, unsigned_encryption_info } = self;
+
+        f.debug_struct("DecryptedRoomEvent")
+            .field("event", &DebugRawEvent(event))
+            .field("encryption_info", encryption_info)
+            .maybe_field("unsigned_encryption_info", unsigned_encryption_info)
+            .finish()
     }
 }
 

@@ -21,7 +21,7 @@ use std::{
 use itertools::Itertools;
 use matrix_sdk_common::{
     deserialized_responses::{
-        AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, TimelineEvent, UnableToDecryptInfo,
+        AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, UnableToDecryptInfo,
         UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel, VerificationState,
     },
     BoxFuture,
@@ -40,7 +40,7 @@ use ruma::{
     assign,
     events::{
         secret::request::SecretName, AnyMessageLikeEvent, AnyMessageLikeEventContent,
-        AnyTimelineEvent, AnyToDeviceEvent, MessageLikeEventContent,
+        AnyToDeviceEvent, MessageLikeEventContent,
     },
     serde::{JsonObject, Raw},
     DeviceId, DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedDeviceKeyId,
@@ -1747,7 +1747,7 @@ impl OlmMachine {
         event: &Raw<EncryptedEvent>,
         room_id: &RoomId,
         decryption_settings: &DecryptionSettings,
-    ) -> MegolmResult<TimelineEvent> {
+    ) -> MegolmResult<DecryptedRoomEvent> {
         self.decrypt_room_event_inner(event, room_id, true, decryption_settings).await
     }
 
@@ -1758,7 +1758,7 @@ impl OlmMachine {
         room_id: &RoomId,
         decrypt_unsigned: bool,
         decryption_settings: &DecryptionSettings,
-    ) -> MegolmResult<TimelineEvent> {
+    ) -> MegolmResult<DecryptedRoomEvent> {
         let event = event.deserialize()?;
 
         Span::current()
@@ -1818,14 +1818,9 @@ impl OlmMachine {
                 .await;
         }
 
-        let event = serde_json::from_value::<Raw<AnyTimelineEvent>>(decrypted_event.into())?;
+        let event = serde_json::from_value::<Raw<AnyMessageLikeEvent>>(decrypted_event.into())?;
 
-        Ok(TimelineEvent {
-            event,
-            encryption_info: Some(encryption_info),
-            push_actions: None,
-            unsigned_encryption_info,
-        })
+        Ok(DecryptedRoomEvent { event, encryption_info, unsigned_encryption_info })
     }
 
     /// Try to decrypt the events bundled in the `unsigned` object of the given
@@ -1906,7 +1901,7 @@ impl OlmMachine {
                 Ok(decrypted_event) => {
                     // Replace the encrypted event.
                     *event = serde_json::to_value(decrypted_event.event).ok()?;
-                    Some(UnsignedDecryptionResult::Decrypted(decrypted_event.encryption_info?))
+                    Some(UnsignedDecryptionResult::Decrypted(decrypted_event.encryption_info))
                 }
                 Err(_) => {
                     let session_id =
