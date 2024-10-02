@@ -851,7 +851,12 @@ async fn test_pending_edit() {
 
     // Then I get the edited content immediately.
     assert_let!(Some(VectorDiff::PushBack { value }) = timeline_stream.next().await);
-    let msg = value.as_event().unwrap().content().as_message().unwrap();
+
+    let event = value.as_event().unwrap();
+    let latest_edit_json = event.latest_edit_json().expect("we should have an edit json");
+    assert_eq!(latest_edit_json.deserialize().unwrap().event_id(), edit_event_id);
+
+    let msg = event.content().as_message().unwrap();
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "[edit]");
 

@@ -52,8 +52,8 @@ use tracing::{
 };
 
 pub(super) use self::state::{
-    EventMeta, FullEventMeta, PendingEdit, TimelineEnd, TimelineMetadata, TimelineState,
-    TimelineStateTransaction,
+    EventMeta, FullEventMeta, PendingEdit, PendingEditKind, TimelineEnd, TimelineMetadata,
+    TimelineState, TimelineStateTransaction,
 };
 use super::{
     event_handler::TimelineEventKind,

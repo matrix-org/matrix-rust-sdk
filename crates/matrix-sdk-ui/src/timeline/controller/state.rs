@@ -35,7 +35,7 @@ use ruma::{
         },
         relation::Replacement,
         room::message::RoomMessageEventContentWithoutRelation,
-        AnySyncEphemeralRoomEvent,
+        AnySyncEphemeralRoomEvent, AnySyncTimelineEvent,
     },
     push::Action,
     serde::Raw,
@@ -811,16 +811,22 @@ impl PendingPollEvents {
 }
 
 #[derive(Clone)]
-pub(in crate::timeline) enum PendingEdit {
+pub(in crate::timeline) enum PendingEditKind {
     RoomMessage(Replacement<RoomMessageEventContentWithoutRelation>),
     Poll(Replacement<NewUnstablePollStartEventContentWithoutRelation>),
 }
 
+#[derive(Clone)]
+pub(in crate::timeline) struct PendingEdit {
+    pub kind: PendingEditKind,
+    pub event_json: Raw<AnySyncTimelineEvent>,
+}
+
 impl PendingEdit {
     pub fn edited_event(&self) -> &EventId {
-        match self {
-            PendingEdit::RoomMessage(Replacement { event_id, .. })
-            | PendingEdit::Poll(Replacement { event_id, .. }) => event_id,
+        match &self.kind {
+            PendingEditKind::RoomMessage(Replacement { event_id, .. })
+            | PendingEditKind::Poll(Replacement { event_id, .. }) => event_id,
         }
     }
 }
@@ -828,9 +834,11 @@ impl PendingEdit {
 #[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for PendingEdit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::RoomMessage(_) => f.debug_struct("RoomMessage").finish_non_exhaustive(),
-            Self::Poll(_) => f.debug_struct("Poll").finish_non_exhaustive(),
+        match &self.kind {
+            PendingEditKind::RoomMessage(_) => {
+                f.debug_struct("RoomMessage").finish_non_exhaustive()
+            }
+            PendingEditKind::Poll(_) => f.debug_struct("Poll").finish_non_exhaustive(),
         }
     }
 }

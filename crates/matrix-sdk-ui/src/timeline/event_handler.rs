@@ -49,7 +49,7 @@ use ruma::{
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
-    controller::{TimelineMetadata, TimelineStateTransaction},
+    controller::{PendingEditKind, TimelineMetadata, TimelineStateTransaction},
     day_dividers::DayDividerAdjuster,
     event_item::{
         extract_edit_content, AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,
@@ -339,20 +339,40 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                                         event_id,
                                     )
                                 })
-                                .and_then(|edit| {
-                                    Some(as_variant!(edit, PendingEdit::RoomMessage)?.new_content)
+                                .and_then(|edit| match edit.kind {
+                                    PendingEditKind::RoomMessage(replacement) => {
+                                        Some((Some(edit.event_json), replacement.new_content))
+                                    }
+                                    _ => None,
                                 });
 
-                        let edit = extract_edit_content(relations).or(pending_edit);
+                        let (edit_json, edit_content) = extract_edit_content(relations)
+                            .map(|content| {
+                                let edit_json = as_variant!(&self.ctx.flow, Flow::Remote { raw_event, ..} => raw_event).and_then(|raw| {
+                                    // Kids, don't do this at home. We're extracting the edit event
+                                    // from the `unsigned`.m.relations`.`m.replace` path.
+                                    let raw_unsigned: Raw<serde_json::Value> = raw.get_field("unsigned").ok()??;
+                                    let raw_relations: Raw<serde_json::Value> = raw_unsigned.get_field("m.relations").ok()??;
+                                    raw_relations.get_field::<Raw<AnySyncTimelineEvent>>("m.replace").ok()?
+                                });
 
-                        self.add_item(TimelineItemContent::message(c, edit, self.items));
+                                (edit_json, content)
+                            }
+                            ).or(pending_edit).unzip();
+
+                        let edit_json = edit_json.flatten();
+
+                        self.add_item(
+                            TimelineItemContent::message(c, edit_content, self.items),
+                            edit_json,
+                        );
                     }
                 }
 
                 AnyMessageLikeEventContent::RoomEncrypted(c) => {
                     // TODO: Handle replacements if the replaced event is also UTD
                     let cause = UtdCause::determine(raw_event);
-                    self.add_item(TimelineItemContent::unable_to_decrypt(c, cause));
+                    self.add_item(TimelineItemContent::unable_to_decrypt(c, cause), None);
 
                     // Let the hook know that we ran into an unable-to-decrypt that is added to the
                     // timeline.
@@ -365,7 +385,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::Sticker(content) => {
                     if should_add {
-                        self.add_item(TimelineItemContent::Sticker(Sticker { content }));
+                        self.add_item(TimelineItemContent::Sticker(Sticker { content }), None);
                     }
                 }
 
@@ -383,13 +403,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::CallInvite(_) => {
                     if should_add {
-                        self.add_item(TimelineItemContent::CallInvite);
+                        self.add_item(TimelineItemContent::CallInvite, None);
                     }
                 }
 
                 AnyMessageLikeEventContent::CallNotify(_) => {
                     if should_add {
-                        self.add_item(TimelineItemContent::CallNotify)
+                        self.add_item(TimelineItemContent::CallNotify, None)
                     }
                 }
 
@@ -404,7 +424,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             TimelineEventKind::RedactedMessage { event_type } => {
                 if event_type != MessageLikeEventType::Reaction && should_add {
-                    self.add_item(TimelineItemContent::RedactedMessage);
+                    self.add_item(TimelineItemContent::RedactedMessage, None);
                 }
             }
 
@@ -414,7 +434,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             TimelineEventKind::RoomMember { user_id, content, sender } => {
                 if should_add {
-                    self.add_item(TimelineItemContent::room_member(user_id, content, sender));
+                    self.add_item(TimelineItemContent::room_member(user_id, content, sender), None);
                 }
             }
 
@@ -422,29 +442,28 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // Update room encryption if a `m.room.encryption` event is found in the
                 // timeline
                 if should_add {
-                    self.add_item(TimelineItemContent::OtherState(OtherState {
-                        state_key,
-                        content,
-                    }));
+                    self.add_item(
+                        TimelineItemContent::OtherState(OtherState { state_key, content }),
+                        None,
+                    );
                 }
             }
 
             TimelineEventKind::FailedToParseMessageLike { event_type, error } => {
                 if should_add {
-                    self.add_item(TimelineItemContent::FailedToParseMessageLike {
-                        event_type,
-                        error,
-                    });
+                    self.add_item(
+                        TimelineItemContent::FailedToParseMessageLike { event_type, error },
+                        None,
+                    );
                 }
             }
 
             TimelineEventKind::FailedToParseState { event_type, state_key, error } => {
                 if should_add {
-                    self.add_item(TimelineItemContent::FailedToParseState {
-                        event_type,
-                        state_key,
-                        error,
-                    });
+                    self.add_item(
+                        TimelineItemContent::FailedToParseState { event_type, state_key, error },
+                        None,
+                    );
                 }
             }
         }
@@ -474,14 +493,19 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         replacement: Replacement<RoomMessageEventContentWithoutRelation>,
     ) {
         if let Some((item_pos, item)) = rfind_event_by_id(self.items, &replacement.event_id) {
-            if let Some(new_item) = self.apply_msg_edit(&item, replacement) {
+            let edit_json =
+                as_variant!(&self.ctx.flow, Flow::Remote { raw_event, .. } => raw_event).cloned();
+            if let Some(new_item) = self.apply_msg_edit(&item, replacement, edit_json) {
                 trace!("Applied edit");
                 self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
                 self.result.items_updated += 1;
             }
-        } else if let Flow::Remote { position, .. } = &self.ctx.flow {
+        } else if let Flow::Remote { position, raw_event, .. } = &self.ctx.flow {
             let replaced_event_id = replacement.event_id.clone();
-            let replacement = PendingEdit::RoomMessage(replacement);
+            let replacement = PendingEdit {
+                kind: PendingEditKind::RoomMessage(replacement),
+                event_json: raw_event.clone(),
+            };
             self.stash_pending_edit(*position, replaced_event_id, replacement);
         } else {
             debug!("Local message edit for a timeline item not found, discarding");
@@ -553,14 +577,16 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             TimelineItemContent::Message(..) => {
                 let pending =
                     Self::find_and_remove_pending(&mut self.meta.pending_edits, event_id)?;
-                let edit = as_variant!(pending, PendingEdit::RoomMessage)?;
-                self.apply_msg_edit(item, edit)
+                let edit = as_variant!(pending.kind, PendingEditKind::RoomMessage)?;
+                //let json = as_variant!(&self.ctx.flow, Flow::Remote { raw_event, .. } =>
+                // raw_event.clone()); self.apply_msg_edit(item, edit, json)
+                self.apply_msg_edit(item, edit, Some(pending.event_json))
             }
             TimelineItemContent::Poll(..) => {
                 let pending =
                     Self::find_and_remove_pending(&mut self.meta.pending_edits, event_id)?;
-                let edit = as_variant!(pending, PendingEdit::Poll)?;
-                self.apply_poll_edit(item, edit)
+                let edit = as_variant!(pending.kind, PendingEditKind::Poll)?;
+                self.apply_poll_edit(item, edit, Some(pending.event_json))
             }
             _ => None,
         }
@@ -574,6 +600,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         &self,
         item: &EventTimelineItem,
         replacement: Replacement<RoomMessageEventContentWithoutRelation>,
+        edit_json: Option<Raw<AnySyncTimelineEvent>>,
     ) -> Option<EventTimelineItem> {
         if self.ctx.sender != item.sender() {
             info!(
@@ -589,11 +616,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 item.content().debug_string(),
             );
             return None;
-        };
-
-        let edit_json = match &self.ctx.flow {
-            Flow::Local { .. } => None,
-            Flow::Remote { raw_event, .. } => Some(raw_event.clone()),
         };
 
         let mut new_msg = msg.clone();
@@ -697,9 +719,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         replacement: Replacement<NewUnstablePollStartEventContentWithoutRelation>,
     ) {
         let Some((item_pos, item)) = rfind_event_by_id(self.items, &replacement.event_id) else {
-            if let Flow::Remote { position, .. } = &self.ctx.flow {
+            if let Flow::Remote { position, raw_event, .. } = &self.ctx.flow {
                 let replaced_event_id = replacement.event_id.clone();
-                let replacement = PendingEdit::Poll(replacement);
+                let replacement = PendingEdit {
+                    kind: PendingEditKind::Poll(replacement),
+                    event_json: raw_event.clone(),
+                };
                 self.stash_pending_edit(*position, replaced_event_id, replacement);
             } else {
                 debug!("Local poll edit for a timeline item not found, discarding");
@@ -707,7 +732,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return;
         };
 
-        let Some(new_item) = self.apply_poll_edit(item.inner, replacement) else {
+        let edit_json =
+            as_variant!(&self.ctx.flow, Flow::Remote { raw_event, .. } => raw_event.clone());
+
+        let Some(new_item) = self.apply_poll_edit(item.inner, replacement, edit_json) else {
             return;
         };
 
@@ -720,6 +748,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         &self,
         item: &EventTimelineItem,
         replacement: Replacement<NewUnstablePollStartEventContentWithoutRelation>,
+        edit_json: Option<Raw<AnySyncTimelineEvent>>,
     ) -> Option<EventTimelineItem> {
         if self.ctx.sender != item.sender() {
             info!(
@@ -742,11 +771,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         };
 
-        let edit_json = match &self.ctx.flow {
-            Flow::Local { .. } => None,
-            Flow::Remote { raw_event, .. } => Some(raw_event.clone()),
-        };
-
         Some(item.with_content(new_content, edit_json))
     }
 
@@ -761,7 +785,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
 
         if should_add {
-            self.add_item(TimelineItemContent::Poll(poll_state));
+            self.add_item(TimelineItemContent::Poll(poll_state), None);
         }
     }
 
@@ -916,7 +940,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     }
 
     /// Add a new event item in the timeline.
-    fn add_item(&mut self, content: TimelineItemContent) {
+    fn add_item(
+        &mut self,
+        content: TimelineItemContent,
+        edit_json: Option<Raw<AnySyncTimelineEvent>>,
+    ) {
         self.result.item_added = true;
 
         let sender = self.ctx.sender.to_owned();
@@ -955,7 +983,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     is_highlighted: self.ctx.is_highlighted,
                     encryption_info: encryption_info.clone(),
                     original_json: Some(raw_event.clone()),
-                    latest_edit_json: None,
+                    latest_edit_json: edit_json,
                     origin,
                 }
                 .into()
