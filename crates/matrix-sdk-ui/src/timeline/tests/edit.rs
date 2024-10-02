@@ -259,7 +259,18 @@ async fn test_relations_edit_overrides_pending_edit() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     // We receive the latest edit, not the pending one.
-    let text = item.as_event().unwrap().content().as_message().unwrap();
+    let event = item.as_event().unwrap();
+    assert_eq!(
+        event
+            .latest_edit_json()
+            .expect("we should have an edit json")
+            .deserialize()
+            .unwrap()
+            .event_id(),
+        edit2_event_id
+    );
+
+    let text = event.content().as_message().unwrap();
     assert_eq!(text.body(), "edit 2");
 
     let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
