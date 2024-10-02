@@ -297,8 +297,11 @@ pub struct EncryptionInfo {
     pub verification_state: VerificationState,
 }
 
-/// A customized version of a room event coming from a sync that holds optional
-/// encryption info.
+/// Represents a matrix room event that has been returned from `/sync`,
+/// after initial processing.
+///
+/// This is almost identical to [`TimelineEvent`], but wraps an
+/// [`AnySyncTimelineEvent`] instead of [`AnyTimelineEvent`].
 #[derive(Clone, Deserialize, Serialize)]
 pub struct SyncTimelineEvent {
     /// The actual event.
@@ -388,6 +391,16 @@ impl From<DecryptedRoomEvent> for SyncTimelineEvent {
     }
 }
 
+/// Represents a matrix room event that has been returned from a Matrix
+/// client-server API endpoint such as `/messages`, after initial processing.
+///
+/// The "initial processing" includes an attempt to decrypt encrypted events, so
+/// the main thing this adds over [`AnyTimelineEvent`] is information on
+/// encryption.
+///
+/// See also [`SyncTimelineEvent`] which is almost identical, but is used for
+/// results from the `/sync` endpoint (which lack a `room_id` property) and
+/// hence wraps an [`AnySyncTimelineEvent`] instead of [`AnyTimelineEvent`].
 #[derive(Clone)]
 pub struct TimelineEvent {
     /// The actual event.
