@@ -720,7 +720,7 @@ impl TestHelper {
     ) -> Result<SyncResponse, matrix_sdk::Error> {
         let mut joined_room_builder = JoinedRoomBuilder::new(&self.room_id);
         for (timeline_event, add_to_timeline) in text_messages {
-            let deserialized_event = timeline_event.event.deserialize()?;
+            let deserialized_event = timeline_event.raw().deserialize()?;
             mock_event(
                 &self.server,
                 &self.room_id,
@@ -731,7 +731,7 @@ impl TestHelper {
 
             if add_to_timeline {
                 joined_room_builder =
-                    joined_room_builder.add_timeline_event(timeline_event.event.cast());
+                    joined_room_builder.add_timeline_event(timeline_event.into_raw().cast());
             }
         }
 

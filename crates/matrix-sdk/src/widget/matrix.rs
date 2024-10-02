@@ -73,7 +73,7 @@ impl MatrixDriver {
         });
 
         let messages = self.room.messages(options).await?;
-        Ok(messages.chunk.into_iter().map(|ev| ev.event.cast()).collect())
+        Ok(messages.chunk.into_iter().map(|ev| ev.into_raw().cast()).collect())
     }
 
     pub(crate) async fn read_state_events(

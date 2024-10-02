@@ -351,7 +351,7 @@ impl RepliedToEvent {
         timeline_event: TimelineEvent,
         room_data_provider: &P,
     ) -> Result<Self, TimelineError> {
-        let event = match timeline_event.event.deserialize() {
+        let event = match timeline_event.raw().deserialize() {
             Ok(AnyTimelineEvent::MessageLike(event)) => event,
             _ => {
                 return Err(TimelineError::UnsupportedEvent);

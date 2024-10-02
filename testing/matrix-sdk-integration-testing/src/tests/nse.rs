@@ -423,7 +423,7 @@ async fn decrypt_event(
         return None;
     };
 
-    let Ok(deserialized) = decrypted.event.deserialize() else { return None };
+    let Ok(deserialized) = decrypted.raw().deserialize() else { return None };
 
     let AnyTimelineEvent::MessageLike(message) = &deserialized else { return None };
 

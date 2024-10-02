@@ -99,7 +99,7 @@ async fn test_event_with_context() -> Result<()> {
         let target = response
             .event
             .expect("there should be an event")
-            .event
+            .raw()
             .deserialize()
             .expect("it should be deserializable");
         assert_eq!(target.event_id(), &event_id);
@@ -129,7 +129,7 @@ async fn test_event_with_context() -> Result<()> {
         let target = response
             .event
             .expect("there should be an event")
-            .event
+            .raw()
             .deserialize()
             .expect("it should be deserializable");
         assert_eq!(target.event_id(), &event_id);
@@ -179,7 +179,7 @@ async fn test_event_with_context() -> Result<()> {
         assert_event_matches_msg(&prev_events[8], "0");
 
         // Last event is the m.room.encryption event.
-        let event = prev_events[9].event.deserialize().unwrap();
+        let event = prev_events[9].raw().deserialize().unwrap();
         assert_matches!(event, AnyTimelineEvent::State(AnyStateEvent::RoomEncryption(_)));
 
         // There are other events before that (room creation, alice joining).

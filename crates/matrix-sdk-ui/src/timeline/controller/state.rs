@@ -234,7 +234,7 @@ impl TimelineState {
             };
 
             event.push_actions = push_rules_context.as_ref().map(|(push_rules, push_context)| {
-                push_rules.get_actions(&event.event, push_context).to_owned()
+                push_rules.get_actions(event.raw(), push_context).to_owned()
             });
 
             let handle_one_res = txn

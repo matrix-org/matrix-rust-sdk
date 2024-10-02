@@ -736,7 +736,7 @@ mod tests {
         }
 
         assert_event_matches_msg(&context.events[10], "fetch_from");
-        assert_eq!(context.events[10].event.deserialize().unwrap().event_id(), event_id);
+        assert_eq!(context.events[10].raw().deserialize().unwrap().event_id(), event_id);
 
         for i in 0..10 {
             assert_event_matches_msg(&context.events[i + 11], &format!("after-{i}"));
@@ -800,7 +800,7 @@ mod tests {
         // And I get the events I expected.
         assert_eq!(context.events.len(), 1);
         assert_event_matches_msg(&context.events[0], "initial");
-        assert_eq!(context.events[0].event.deserialize().unwrap().event_id(), event_id);
+        assert_eq!(context.events[0].raw().deserialize().unwrap().event_id(), event_id);
 
         // There's a previous batch, but no next batch.
         assert!(context.has_prev);
@@ -865,7 +865,7 @@ mod tests {
         // And I get the events I expected.
         assert_eq!(context.events.len(), 1);
         assert_event_matches_msg(&context.events[0], "initial");
-        assert_eq!(context.events[0].event.deserialize().unwrap().event_id(), event_id);
+        assert_eq!(context.events[0].raw().deserialize().unwrap().event_id(), event_id);
 
         // There's a previous batch.
         assert!(context.has_prev);
@@ -915,7 +915,7 @@ mod tests {
         // And I get the events I expected.
         assert_eq!(context.events.len(), 1);
         assert_event_matches_msg(&context.events[0], "initial");
-        assert_eq!(context.events[0].event.deserialize().unwrap().event_id(), event_id);
+        assert_eq!(context.events[0].raw().deserialize().unwrap().event_id(), event_id);
 
         // There's a next batch, but no previous batch (i.e. we've hit the start of the
         // timeline).
