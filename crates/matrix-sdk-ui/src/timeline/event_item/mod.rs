@@ -42,7 +42,7 @@ mod local;
 mod remote;
 
 pub(super) use self::{
-    content::{extract_edit_content, ResponseData},
+    content::{extract_room_msg_edit_content, ResponseData},
     local::LocalEventTimelineItem,
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},
 };
