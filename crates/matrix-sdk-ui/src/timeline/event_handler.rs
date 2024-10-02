@@ -41,7 +41,6 @@ use ruma::{
         AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
         MessageLikeEventType, StateEventType, SyncStateEvent,
     },
-    html::RemoveReplyFallback,
     serde::Raw,
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
 };
@@ -58,8 +57,8 @@ use super::{
     polls::PollState,
     reactions::FullReactionKey,
     util::{rfind_event_by_id, rfind_event_item},
-    EventTimelineItem, InReplyToDetails, Message, OtherState, Sticker, TimelineDetails,
-    TimelineItem, TimelineItemContent,
+    EventTimelineItem, InReplyToDetails, OtherState, Sticker, TimelineDetails, TimelineItem,
+    TimelineItemContent,
 };
 use crate::{
     events::SyncTimelineEventWithoutContent,
@@ -68,7 +67,6 @@ use crate::{
         event_item::{ReactionInfo, ReactionStatus},
         reactions::PendingReaction,
     },
-    DEFAULT_SANITIZER_MODE,
 };
 
 /// When adding an event, useful information related to the source of the event.
@@ -601,25 +599,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return None;
         };
 
-        let mut msgtype = replacement.new_content.msgtype;
-
-        // Edit's content is never supposed to contain the reply fallback.
-        msgtype.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
-
-        let new_content = TimelineItemContent::Message(Message {
-            msgtype,
-            in_reply_to: msg.in_reply_to.clone(),
-            thread_root: msg.thread_root.clone(),
-            edited: true,
-            mentions: replacement.new_content.mentions,
-        });
-
         let edit_json = match &self.ctx.flow {
             Flow::Local { .. } => None,
             Flow::Remote { raw_event, .. } => Some(raw_event.clone()),
         };
 
-        let mut new_item = item.with_content(new_content, edit_json);
+        let mut new_msg = msg.clone();
+        new_msg.apply_edit(replacement.new_content);
+
+        let mut new_item = item.with_content(TimelineItemContent::Message(new_msg), edit_json);
 
         if let EventTimelineItemKind::Remote(remote_event) = &item.kind {
             if let Flow::Remote { encryption_info, .. } = &self.ctx.flow {
