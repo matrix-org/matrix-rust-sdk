@@ -672,7 +672,7 @@ async fn test_event() {
     let timeline_event = room.event(event_id, None).await.unwrap();
     assert_let!(
         AnyTimelineEvent::State(AnyStateEvent::RoomTombstone(event)) =
-            timeline_event.event.deserialize().unwrap()
+            timeline_event.raw().deserialize().unwrap()
     );
     assert_eq!(event.event_id(), event_id);
 
@@ -734,15 +734,15 @@ async fn test_event_with_context() {
     let context_ret = room.event_with_context(event_id, false, uint!(1), None).await.unwrap();
 
     assert_let!(Some(timeline_event) = context_ret.event);
-    assert_let!(Ok(event) = timeline_event.event.deserialize());
+    assert_let!(Ok(event) = timeline_event.raw().deserialize());
     assert_eq!(event.event_id(), event_id);
 
     assert_eq!(1, context_ret.events_before.len());
-    assert_let!(Ok(event) = context_ret.events_before[0].event.deserialize());
+    assert_let!(Ok(event) = context_ret.events_before[0].raw().deserialize());
     assert_eq!(event.event_id(), prev_event_id);
 
     assert_eq!(1, context_ret.events_after.len());
-    assert_let!(Ok(event) = context_ret.events_after[0].event.deserialize());
+    assert_let!(Ok(event) = context_ret.events_after[0].raw().deserialize());
     assert_eq!(event.event_id(), next_event_id);
 
     // Requested event and their context ones were saved to the cache

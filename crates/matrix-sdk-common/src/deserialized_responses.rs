@@ -417,8 +417,8 @@ impl From<TimelineEvent> for SyncTimelineEvent {
         // this way, we simply cause the `room_id` field in the json to be
         // ignored by a subsequent deserialization.
         Self {
-            inner_event: o.event.cast(),
-            inner_encryption_info: o.encryption_info,
+            inner_event: o.inner_event.cast(),
+            inner_encryption_info: o.inner_encryption_info,
             push_actions: o.push_actions.unwrap_or_default(),
             unsigned_encryption_info: o.unsigned_encryption_info,
         }
@@ -445,10 +445,10 @@ impl From<DecryptedRoomEvent> for SyncTimelineEvent {
 #[derive(Clone)]
 pub struct TimelineEvent {
     /// The actual event.
-    pub event: Raw<AnyTimelineEvent>,
+    inner_event: Raw<AnyTimelineEvent>,
     /// The encryption info about the event. Will be `None` if the event was not
     /// encrypted.
-    pub encryption_info: Option<EncryptionInfo>,
+    inner_encryption_info: Option<EncryptionInfo>,
     /// The push actions associated with this event, if we had sufficient
     /// context to compute them.
     pub push_actions: Option<Vec<Action>>,
@@ -464,7 +464,30 @@ impl TimelineEvent {
     /// This is a convenience constructor for when you don't need to set
     /// `encryption_info` or `push_action`, for example inside a test.
     pub fn new(event: Raw<AnyTimelineEvent>) -> Self {
-        Self { event, encryption_info: None, push_actions: None, unsigned_encryption_info: None }
+        Self {
+            inner_event: event,
+            inner_encryption_info: None,
+            push_actions: None,
+            unsigned_encryption_info: None,
+        }
+    }
+
+    /// Returns a reference to the (potentially decrypted) Matrix event inside
+    /// this `TimelineEvent`.
+    pub fn raw(&self) -> &Raw<AnyTimelineEvent> {
+        &self.inner_event
+    }
+
+    /// If the event was a decrypted event that was successfully decrypted, get
+    /// its encryption info. Otherwise, `None`.
+    pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
+        self.inner_encryption_info.as_ref()
+    }
+
+    /// Takes ownership of this `TimelineEvent`, returning the (potentially
+    /// decrypted) Matrix event within.
+    pub fn into_raw(self) -> Raw<AnyTimelineEvent> {
+        self.inner_event
     }
 }
 
@@ -474,8 +497,8 @@ impl From<DecryptedRoomEvent> for TimelineEvent {
             // Casting from the more specific `AnyMessageLikeEvent` (i.e. an event without a
             // `state_key`) to a more generic `AnyTimelineEvent` (i.e. one that may contain
             // a `state_key`) is safe.
-            event: decrypted.event.cast(),
-            encryption_info: Some(decrypted.encryption_info),
+            inner_event: decrypted.event.cast(),
+            inner_encryption_info: Some(decrypted.encryption_info),
             push_actions: None,
             unsigned_encryption_info: decrypted.unsigned_encryption_info,
         }
@@ -485,10 +508,15 @@ impl From<DecryptedRoomEvent> for TimelineEvent {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for TimelineEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let TimelineEvent { event, encryption_info, push_actions, unsigned_encryption_info } = self;
+        let TimelineEvent {
+            inner_event,
+            inner_encryption_info,
+            push_actions,
+            unsigned_encryption_info,
+        } = self;
         let mut s = f.debug_struct("TimelineEvent");
-        s.field("event", &DebugRawEvent(event));
-        s.maybe_field("encryption_info", encryption_info);
+        s.field("event", &DebugRawEvent(inner_event));
+        s.maybe_field("encryption_info", inner_encryption_info);
         if let Some(push_actions) = &push_actions {
             if !push_actions.is_empty() {
                 s.field("push_actions", push_actions);

@@ -750,7 +750,7 @@ async fn test_encrypt_room_event() {
         .expect("We should be able to decrypt an event that we ourselves have encrypted");
 
     let event = timeline_event
-        .event
+        .raw()
         .deserialize()
         .expect("We should be able to deserialize the decrypted event");
 

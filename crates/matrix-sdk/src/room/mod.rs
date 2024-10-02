@@ -315,7 +315,7 @@ impl Room {
 
             for event in &mut response.chunk {
                 event.push_actions =
-                    Some(push_rules.get_actions(&event.event, &push_context).to_owned());
+                    Some(push_rules.get_actions(event.raw(), &push_context).to_owned());
             }
         }
 
@@ -420,7 +420,7 @@ impl Room {
         }
 
         let mut event = TimelineEvent::new(event);
-        event.push_actions = self.event_push_actions(&event.event).await?;
+        event.push_actions = self.event_push_actions(event.raw()).await?;
 
         Ok(event)
     }
@@ -1238,7 +1238,7 @@ impl Room {
         };
 
         let mut event: TimelineEvent = decrypted.into();
-        event.push_actions = self.event_push_actions(&event.event).await?;
+        event.push_actions = self.event_push_actions(event.raw()).await?;
 
         Ok(event)
     }

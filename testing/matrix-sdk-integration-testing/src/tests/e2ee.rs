@@ -950,11 +950,11 @@ async fn test_secret_gossip_after_interactive_verification() -> Result<()> {
 
     let timeline_event = room.event(&event_id, None).await?;
     timeline_event
-        .encryption_info
+        .encryption_info()
         .expect("The event should have been encrypted and successfully decrypted.");
 
     let event: OriginalSyncMessageLikeEvent<RoomMessageEventContent> =
-        timeline_event.event.deserialize_as()?;
+        timeline_event.raw().deserialize_as()?;
     let message = event.content.msgtype;
 
     assert_let!(MessageType::Text(message) = message);
