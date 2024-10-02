@@ -15,7 +15,7 @@ use futures_util::{
     stream::FuturesUnordered,
 };
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::{DecryptionSettings, TrustRequirement};
+use matrix_sdk_base::crypto::DecryptionSettings;
 use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState, TimelineEvent,
@@ -1183,8 +1183,9 @@ impl Room {
         let machine = self.client.olm_machine().await;
         let machine = machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
-        let decryption_settings =
-            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+        let decryption_settings = DecryptionSettings {
+            sender_device_trust_requirement: self.client.base_client().decryption_trust_requirement,
+        };
         let mut event = match machine
             .decrypt_room_event(event.cast_ref(), self.inner.room_id(), &decryption_settings)
             .await

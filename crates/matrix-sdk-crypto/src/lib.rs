@@ -117,6 +117,7 @@ uniffi::setup_scaffolding!();
 /// The trust level in the sender's device that is required to decrypt an
 /// event.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum TrustRequirement {
     /// Decrypt events from everyone regardless of trust.
     Untrusted,
@@ -129,6 +130,7 @@ pub enum TrustRequirement {
 
 /// Settings for decrypting messages
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct DecryptionSettings {
     /// The trust level in the sender's device that is required to decrypt the
     /// event. If the sender's device is not sufficiently trusted,
