@@ -62,8 +62,6 @@ impl Message {
         edit: Option<RoomMessageEventContentWithoutRelation>,
         timeline_items: &Vector<Arc<TimelineItem>>,
     ) -> Self {
-        let edited = edit.is_some();
-
         let mut thread_root = None;
         let in_reply_to = c.relates_to.and_then(|relation| match relation {
             Relation::Reply { in_reply_to } => {
@@ -78,27 +76,29 @@ impl Message {
             _ => None,
         });
 
-        let (msgtype, mentions) = match edit {
-            Some(mut e) => {
-                // Edit's content is never supposed to contain the reply fallback.
-                e.msgtype.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
-                (e.msgtype, e.mentions)
-            }
+        let remove_reply_fallback =
+            if in_reply_to.is_some() { RemoveReplyFallback::Yes } else { RemoveReplyFallback::No };
 
-            None => {
-                let remove_reply_fallback = if in_reply_to.is_some() {
-                    RemoveReplyFallback::Yes
-                } else {
-                    RemoveReplyFallback::No
-                };
+        let mut msgtype = c.msgtype;
+        msgtype.sanitize(DEFAULT_SANITIZER_MODE, remove_reply_fallback);
 
-                let mut msgtype = c.msgtype;
-                msgtype.sanitize(DEFAULT_SANITIZER_MODE, remove_reply_fallback);
-                (msgtype, c.mentions)
-            }
-        };
+        let mut ret =
+            Self { msgtype, in_reply_to, thread_root, edited: false, mentions: c.mentions };
 
-        Self { msgtype, in_reply_to, thread_root, edited, mentions }
+        if let Some(edit) = edit {
+            ret.apply_edit(edit);
+        }
+
+        ret
+    }
+
+    /// Apply an edit to the current message.
+    pub(crate) fn apply_edit(&mut self, mut new_content: RoomMessageEventContentWithoutRelation) {
+        // Edit's content is never supposed to contain the reply fallback.
+        new_content.msgtype.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
+        self.msgtype = new_content.msgtype;
+        self.mentions = new_content.mentions;
+        self.edited = true;
     }
 
     /// Get the `msgtype`-specific data of this message.
