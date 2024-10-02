@@ -51,7 +51,7 @@ use super::{
     controller::{TimelineMetadata, TimelineStateTransaction},
     day_dividers::DayDividerAdjuster,
     event_item::{
-        AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,
+        extract_edit_content, AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,
         LocalEventTimelineItem, Profile, ReactionsByKeyBySender, RemoteEventOrigin,
         RemoteEventTimelineItem, TimelineEventItemId,
     },
@@ -328,7 +328,33 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::RoomMessage(c) => {
                     if should_add {
-                        self.add_item(TimelineItemContent::message(c, relations, self.items));
+                        // Always remove the pending edit, if there's any. The reason is that if
+                        // there's an edit in the relations mapping, we want to prefer it over any
+                        // other pending edit, since it's more likely to be up to date, and we
+                        // don't want to apply another pending edit on top of it.
+                        let pending_edit = if let Flow::Remote { event_id, .. } = &self.ctx.flow {
+                            let edits = &mut self.meta.pending_edits;
+                            edits
+                                .iter()
+                                .position(|(prev_event_id, _)| prev_event_id == event_id)
+                                .into_iter()
+                                .filter_map(|pos| {
+                                    Some(
+                                        as_variant!(
+                                            edits.remove(pos).unwrap().1,
+                                            PendingEdit::RoomMessage
+                                        )?
+                                        .new_content,
+                                    )
+                                })
+                                .next()
+                        } else {
+                            None
+                        };
+
+                        let edit = extract_edit_content(relations).or(pending_edit);
+
+                        self.add_item(TimelineItemContent::message(c, edit, self.items));
                     }
                 }
 

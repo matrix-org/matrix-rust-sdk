@@ -25,7 +25,7 @@ use ruma::{
     events::room::message::{MessageType, RedactedRoomMessageEventContent},
     server_name, EventId,
 };
-use stream_assert::assert_next_matches;
+use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;
 use crate::timeline::TimelineItemContent;
@@ -221,4 +221,73 @@ async fn test_edit_updates_encryption_info() {
     assert_let!(TimelineItemContent::Message(message) = first_event.content());
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "!!edited!! **better** message");
+}
+
+#[async_test]
+async fn test_relations_edit_overrides_pending_edit() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe().await;
+
+    let f = &timeline.factory;
+
+    let original_event_id = event_id!("$original");
+    let edit1_event_id = event_id!("$edit1");
+    let edit2_event_id = event_id!("$edit2");
+
+    // Pending edit is stashed, nothing comes from the stream.
+    timeline
+        .handle_live_event(
+            f.text_msg("*edit 1")
+                .sender(*ALICE)
+                .edit(original_event_id, MessageType::text_plain("edit 1").into())
+                .event_id(edit1_event_id),
+        )
+        .await;
+    assert_pending!(stream);
+
+    // Now we receive the original event, with a bundled relations group.
+    let ev = sync_timeline_event!({
+        "content": {
+            "body": "original",
+            "msgtype": "m.text"
+        },
+        "event_id": &original_event_id,
+        "origin_server_ts": timeline.event_builder.next_server_ts(),
+        "sender": *ALICE,
+        "type": "m.room.message",
+        "unsigned": {
+            "m.relations": {
+                "m.replace": {
+                    "content": {
+                        "body": "* edit 2",
+                        "m.new_content": {
+                            "body": "edit 2",
+                            "msgtype": "m.text"
+                        },
+                        "m.relates_to": {
+                            "event_id": original_event_id,
+                            "rel_type": "m.replace"
+                        },
+                        "msgtype": "m.text"
+                    },
+                    "event_id": edit2_event_id,
+                    "origin_server_ts": timeline.event_builder.next_server_ts(),
+                    "sender": *ALICE,
+                    "type": "m.room.message",
+                }
+            }
+        }
+    });
+    timeline.handle_live_event(ev).await;
+
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+
+    // We receive the latest edit, not the pending one.
+    let text = item.as_event().unwrap().content().as_message().unwrap();
+    assert_eq!(text.body(), "edit 2");
+
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(day_divider.is_day_divider());
+
+    assert_pending!(stream);
 }
