@@ -164,7 +164,7 @@ impl From<Message> for RoomMessageEventContent {
 
 /// Extracts a replacement for a room message, if present in the bundled
 /// relations.
-pub(crate) fn extract_edit_content(
+pub(crate) fn extract_room_msg_edit_content(
     relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
 ) -> Option<RoomMessageEventContentWithoutRelation> {
     match *relations.replace? {
@@ -320,7 +320,7 @@ impl RepliedToEvent {
 
         let content = TimelineItemContent::Message(Message::from_event(
             c,
-            extract_edit_content(event.relations()),
+            extract_room_msg_edit_content(event.relations()),
             &vector![],
         ));
         let sender = event.sender().to_owned();

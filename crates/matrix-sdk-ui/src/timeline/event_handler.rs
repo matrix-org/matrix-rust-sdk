@@ -52,9 +52,9 @@ use super::{
     controller::{PendingEditKind, TimelineMetadata, TimelineStateTransaction},
     day_dividers::DayDividerAdjuster,
     event_item::{
-        extract_edit_content, AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,
-        LocalEventTimelineItem, PollState, Profile, ReactionsByKeyBySender, RemoteEventOrigin,
-        RemoteEventTimelineItem, TimelineEventItemId,
+        extract_room_msg_edit_content, AnyOtherFullStateEventContent, EventSendState,
+        EventTimelineItemKind, LocalEventTimelineItem, PollState, Profile, ReactionsByKeyBySender,
+        RemoteEventOrigin, RemoteEventTimelineItem, TimelineEventItemId,
     },
     reactions::FullReactionKey,
     util::{rfind_event_by_id, rfind_event_item},
@@ -346,7 +346,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                                     _ => None,
                                 });
 
-                        let (edit_json, edit_content) = extract_edit_content(relations)
+                        let (edit_json, edit_content) = extract_room_msg_edit_content(relations)
                             .map(|content| {
                                 let edit_json = as_variant!(&self.ctx.flow, Flow::Remote { raw_event, ..} => raw_event).and_then(|raw| {
                                     // Kids, don't do this at home. We're extracting the edit event
