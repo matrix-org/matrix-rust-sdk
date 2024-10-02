@@ -1880,10 +1880,7 @@ mod tests {
             "encryption_state_synced": true,
             "latest_event": {
                 "event": {
-                    "encryption_info": null,
-                    "event": {
-                        "sender": "@u:i.uk",
-                    },
+                    "kind": {"PlainText": {"event": {"sender": "@u:i.uk"}}},
                 },
             },
             "base_info": {
