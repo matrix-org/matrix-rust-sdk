@@ -716,23 +716,24 @@ impl ReactionsByKeyBySender {
 mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
-    use matrix_sdk::test_utils::logged_in_client;
+    use matrix_sdk::test_utils::{events::EventFactory, logged_in_client};
     use matrix_sdk_base::{
         deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent, sliding_sync::http,
         MinimalStateEvent, OriginalMinimalStateEvent,
     };
     use matrix_sdk_test::{async_test, sync_timeline_event};
     use ruma::{
+        event_id,
         events::{
             room::{
                 member::RoomMemberEventContent,
                 message::{MessageFormat, MessageType},
             },
-            AnySyncTimelineEvent,
+            AnySyncTimelineEvent, BundledMessageLikeRelations,
         },
         room_id,
         serde::Raw,
-        user_id, RoomId, UInt, UserId,
+        uint, user_id, MilliSecondsSinceUnixEpoch, RoomId, UInt, UserId,
     };
 
     use super::{EventTimelineItem, Profile};
@@ -773,48 +774,30 @@ mod tests {
         // contains a bundled edit,
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
-        let event = sync_timeline_event!({
-            "event_id": "$eventid6",
-            "sender": user_id,
-            "origin_server_ts": 42,
-            "type": "m.room.message",
-            "room_id": room_id,
-            "content": {
-                "body":  "**My M**",
-                "format": "org.matrix.custom.html",
-                "formatted_body": "<b>My M</b>" ,
-                "msgtype": "m.text"
-            },
-            "unsigned": {
-                "m.relations": {
-                  "m.replace" : {
-                    "sender" : user_id,
-                    "content" : {
-                      "format" : "org.matrix.custom.html",
-                      "formatted_body" : " * <b>Updated!</b>",
-                      "m.relates_to" : {
-                        "event_id" : "$eventid6",
-                        "rel_type" : "m.replace"
-                      },
-                      "m.new_content": {
-                        "body" : "Updated!",
-                        "formatted_body" : "<b>Updated!</b>",
-                        "msgtype" : "m.text",
-                        "format" : "org.matrix.custom.html"
-                      },
-                      "msgtype" : "m.text",
-                      "body" : " * Updated!"
-                    },
-                    "origin_server_ts" : 43,
-                    "room_id" : room_id,
-                    "event_id" : "$edit-event-id",
-                    "user_id" : user_id,
-                    "type" : "m.room.message",
-                  }
-                }
-            }
-        })
-        .into();
+
+        let f = EventFactory::new();
+
+        let original_event_id = event_id!("$original");
+
+        let mut relations = BundledMessageLikeRelations::new();
+        relations.replace = Some(Box::new(
+            f.text_html(" * Updated!", " * <b>Updated!</b>")
+                .edit(
+                    original_event_id,
+                    MessageType::text_html("Updated!", "<b>Updated!</b>").into(),
+                )
+                .event_id(event_id!("$edit"))
+                .sender(user_id)
+                .into_raw_sync(),
+        ));
+
+        let event = f
+            .text_html("**My M**", "<b>My M</b>")
+            .sender(user_id)
+            .event_id(original_event_id)
+            .bundled_relations(relations)
+            .server_ts(MilliSecondsSinceUnixEpoch(uint!(42)))
+            .into_sync();
 
         let client = logged_in_client(None).await;
 

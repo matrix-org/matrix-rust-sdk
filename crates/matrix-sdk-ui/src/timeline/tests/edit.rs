@@ -19,11 +19,13 @@ use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::{
     AlgorithmInfo, EncryptionInfo, VerificationLevel, VerificationState,
 };
-use matrix_sdk_test::{async_test, sync_timeline_event, ALICE};
+use matrix_sdk_test::{async_test, ALICE};
 use ruma::{
     event_id,
-    events::room::message::{MessageType, RedactedRoomMessageEventContent},
-    server_name, EventId,
+    events::{
+        room::message::{MessageType, RedactedRoomMessageEventContent},
+        BundledMessageLikeRelations,
+    },
 };
 use stream_assert::{assert_next_matches, assert_pending};
 
@@ -108,45 +110,36 @@ async fn test_aggregated_sanitized() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
-    let original_event_id = EventId::new(server_name!("dummy.server"));
-    let ev = sync_timeline_event!({
-        "content": {
-            "formatted_body": "<strong>original</strong> message",
-            "format": "org.matrix.custom.html",
-            "body": "**original** message",
-            "msgtype": "m.text"
-        },
-        "event_id": &original_event_id,
-        "origin_server_ts": timeline.event_builder.next_server_ts(),
-        "sender": *ALICE,
-        "type": "m.room.message",
-        "unsigned": {
-            "m.relations": {
-                "m.replace": {
-                    "content": {
-                        "formatted_body": "* <edited/> <strong>better</strong> message",
-                        "format": "org.matrix.custom.html",
-                        "body": "* !!edited!! **better** message",
-                        "m.new_content": {
-                            "formatted_body": "<edited/> <strong>better</strong> message",
-                            "format": "org.matrix.custom.html",
-                            "body": "!!edited!! **better** message",
-                            "msgtype": "m.text"
-                        },
-                        "m.relates_to": {
-                            "event_id": original_event_id,
-                            "rel_type": "m.replace"
-                        },
-                        "msgtype": "m.text"
-                    },
-                    "event_id": EventId::new(server_name!("dummy.server")),
-                    "origin_server_ts": timeline.event_builder.next_server_ts(),
-                    "sender": *ALICE,
-                    "type": "m.room.message",
-                }
-            }
-        }
-    });
+    let original_event_id = event_id!("$original");
+    let edit_event_id = event_id!("$edit");
+
+    let f = &timeline.factory;
+
+    let mut relations = BundledMessageLikeRelations::new();
+    relations.replace = Some(Box::new(
+        f.text_html(
+            "* !!edited!! **better** message",
+            "* <edited/> <strong>better</strong> message",
+        )
+        .edit(
+            original_event_id,
+            MessageType::text_html(
+                "!!edited!! **better** message",
+                "<edited/> <strong>better</strong> message",
+            )
+            .into(),
+        )
+        .event_id(edit_event_id)
+        .sender(*ALICE)
+        .into_raw_sync(),
+    ));
+
+    let ev = f
+        .text_html("**original** message", "<strong>original</strong> message")
+        .sender(*ALICE)
+        .event_id(original_event_id)
+        .bundled_relations(relations);
+
     timeline.handle_live_event(ev).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -246,38 +239,21 @@ async fn test_relations_edit_overrides_pending_edit() {
     assert_pending!(stream);
 
     // Now we receive the original event, with a bundled relations group.
-    let ev = sync_timeline_event!({
-        "content": {
-            "body": "original",
-            "msgtype": "m.text"
-        },
-        "event_id": &original_event_id,
-        "origin_server_ts": timeline.event_builder.next_server_ts(),
-        "sender": *ALICE,
-        "type": "m.room.message",
-        "unsigned": {
-            "m.relations": {
-                "m.replace": {
-                    "content": {
-                        "body": "* edit 2",
-                        "m.new_content": {
-                            "body": "edit 2",
-                            "msgtype": "m.text"
-                        },
-                        "m.relates_to": {
-                            "event_id": original_event_id,
-                            "rel_type": "m.replace"
-                        },
-                        "msgtype": "m.text"
-                    },
-                    "event_id": edit2_event_id,
-                    "origin_server_ts": timeline.event_builder.next_server_ts(),
-                    "sender": *ALICE,
-                    "type": "m.room.message",
-                }
-            }
-        }
-    });
+    let mut relations = BundledMessageLikeRelations::new();
+    relations.replace = Some(Box::new(
+        f.text_msg("* edit 2")
+            .edit(original_event_id, MessageType::text_plain("edit 2").into())
+            .event_id(edit2_event_id)
+            .sender(*ALICE)
+            .into_raw_sync(),
+    ));
+
+    let ev = f
+        .text_msg("original")
+        .sender(*ALICE)
+        .event_id(original_event_id)
+        .bundled_relations(relations);
+
     timeline.handle_live_event(ev).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);

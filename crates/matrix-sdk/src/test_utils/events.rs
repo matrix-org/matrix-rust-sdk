@@ -34,7 +34,7 @@ use ruma::{
             message::{Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
             redaction::RoomRedactionEventContent,
         },
-        AnySyncTimelineEvent, AnyTimelineEvent, EventContent,
+        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
     },
     serde::Raw,
     server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
@@ -43,18 +43,19 @@ use ruma::{
 use serde::Serialize;
 use serde_json::json;
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default)]
 struct Unsigned {
     transaction_id: Option<OwnedTransactionId>,
+    relations: Option<BundledMessageLikeRelations<Raw<AnySyncTimelineEvent>>>,
 }
 
 #[derive(Debug)]
-pub struct EventBuilder<E: EventContent> {
+pub struct EventBuilder<C: EventContent> {
     sender: Option<OwnedUserId>,
     room: Option<OwnedRoomId>,
     event_id: Option<OwnedEventId>,
     redacts: Option<OwnedEventId>,
-    content: E,
+    content: C,
     server_ts: MilliSecondsSinceUnixEpoch,
     unsigned: Option<Unsigned>,
     state_key: Option<String>,
@@ -90,6 +91,21 @@ where
         self
     }
 
+    /// Adds bundled relations to this event.
+    ///
+    /// Ideally, we'd type-check that an event passed as a relation is the same
+    /// type as this one, but it's not trivial to do so because this builder
+    /// is only generic on the event's *content*, not the event type itself;
+    /// doing so would require many changes, and this is testing code after
+    /// all.
+    pub fn bundled_relations(
+        mut self,
+        relations: BundledMessageLikeRelations<Raw<AnySyncTimelineEvent>>,
+    ) -> Self {
+        self.unsigned.get_or_insert_with(Default::default).relations = Some(relations);
+        self
+    }
+
     pub fn state_key(mut self, state_key: impl Into<String>) -> Self {
         self.state_key = Some(state_key.into());
         self
@@ -122,9 +138,23 @@ where
         if let Some(redacts) = self.redacts {
             map.insert("redacts".to_owned(), json!(redacts));
         }
+
         if let Some(unsigned) = self.unsigned {
-            map.insert("unsigned".to_owned(), json!(unsigned));
+            let mut unsigned_json = json!({});
+
+            // We can't plain serialize `Unsigned`, otherwise this would result in some
+            // `null` fields when options are set to none, which Ruma rejects.
+            let unsigned_obj = unsigned_json.as_object_mut().unwrap();
+            if let Some(transaction_id) = unsigned.transaction_id {
+                unsigned_obj.insert("transaction_id".to_owned(), json!(transaction_id));
+            }
+            if let Some(relations) = unsigned.relations {
+                unsigned_obj.insert("m.relations".to_owned(), json!(relations));
+            }
+
+            map.insert("unsigned".to_owned(), unsigned_json);
         }
+
         if let Some(state_key) = self.state_key {
             map.insert("state_key".to_owned(), json!(state_key));
         }
