@@ -300,106 +300,79 @@ pub struct EncryptionInfo {
 /// Represents a matrix room event that has been returned from `/sync`,
 /// after initial processing.
 ///
-/// This is almost identical to [`TimelineEvent`], but wraps an
-/// [`AnySyncTimelineEvent`] instead of [`AnyTimelineEvent`].
-#[derive(Clone, Deserialize, Serialize)]
+/// Previously, this differed from [`TimelineEvent`] by wrapping an
+/// [`AnySyncTimelineEvent`] instead of an [`AnyTimelineEvent`], but nowadays
+/// they are essentially identical, and one of them should probably be removed.
+#[derive(Clone, Serialize)]
 pub struct SyncTimelineEvent {
-    /// The actual event.
-    #[serde(rename = "event")]
-    inner_event: Raw<AnySyncTimelineEvent>,
-
-    /// The encryption info about the event. Will be `None` if the event was not
-    /// encrypted.
-    #[serde(rename = "encryption_info")]
-    inner_encryption_info: Option<EncryptionInfo>,
+    /// The event itself, together with any information on decryption.
+    pub kind: TimelineEventKind,
 
     /// The push actions associated with this event.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub push_actions: Vec<Action>,
-    /// The encryption info about the events bundled in the `unsigned` object.
-    ///
-    /// Will be `None` if no bundled event was encrypted.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub unsigned_encryption_info: Option<BTreeMap<UnsignedEventLocation, UnsignedDecryptionResult>>,
 }
 
 impl SyncTimelineEvent {
     /// Create a new `SyncTimelineEvent` from the given raw event.
     ///
-    /// This is a convenience constructor for when you don't need to set
-    /// `encryption_info` or `push_action`, for example inside a test.
+    /// This is a convenience constructor for a plaintext event when you don't
+    /// need to set `push_action`, for example inside a test.
     pub fn new(event: Raw<AnySyncTimelineEvent>) -> Self {
-        Self {
-            inner_event: event,
-            inner_encryption_info: None,
-            push_actions: vec![],
-            unsigned_encryption_info: None,
-        }
+        Self { kind: TimelineEventKind::PlainText { event }, push_actions: vec![] }
     }
 
     /// Create a new `SyncTimelineEvent` from the given raw event and push
     /// actions.
     ///
-    /// This is a convenience constructor for when you don't need to set
-    /// `encryption_info`, for example inside a test.
+    /// This is a convenience constructor for a plaintext event, for example
+    /// inside a test.
     pub fn new_with_push_actions(
         event: Raw<AnySyncTimelineEvent>,
         push_actions: Vec<Action>,
     ) -> Self {
-        Self {
-            inner_event: event,
-            inner_encryption_info: None,
-            push_actions,
-            unsigned_encryption_info: None,
-        }
+        Self { kind: TimelineEventKind::PlainText { event }, push_actions }
     }
 
     /// Get the event id of this `SyncTimelineEvent` if the event has any valid
     /// id.
     pub fn event_id(&self) -> Option<OwnedEventId> {
-        self.inner_event.get_field::<OwnedEventId>("event_id").ok().flatten()
+        self.kind.raw().get_field::<OwnedEventId>("event_id").ok().flatten()
     }
 
     /// Returns a reference to the (potentially decrypted) Matrix event inside
     /// this `TimelineEvent`.
     pub fn raw(&self) -> &Raw<AnySyncTimelineEvent> {
-        &self.inner_event
+        self.kind.raw()
     }
 
     /// If the event was a decrypted event that was successfully decrypted, get
     /// its encryption info. Otherwise, `None`.
     pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
-        self.inner_encryption_info.as_ref()
+        self.kind.encryption_info()
     }
 
     /// Takes ownership of this `TimelineEvent`, returning the (potentially
     /// decrypted) Matrix event within.
     pub fn into_raw(self) -> Raw<AnySyncTimelineEvent> {
-        self.inner_event
+        self.kind.into_raw()
     }
 
     /// Replace the Matrix event within this event. Used to handle redaction.
     pub fn set_raw(&mut self, event: Raw<AnySyncTimelineEvent>) {
-        self.inner_event = event;
+        self.kind = TimelineEventKind::PlainText { event };
     }
 }
 
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SyncTimelineEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let SyncTimelineEvent {
-            inner_event,
-            inner_encryption_info,
-            push_actions,
-            unsigned_encryption_info,
-        } = self;
+        let SyncTimelineEvent { kind, push_actions } = self;
         let mut s = f.debug_struct("SyncTimelineEvent");
-        s.field("event", &DebugRawEvent(inner_event));
-        s.maybe_field("encryption_info", inner_encryption_info);
+        s.field("kind", &kind);
         if !push_actions.is_empty() {
             s.field("push_actions", push_actions);
         }
-        s.maybe_field("unsigned_encryption_info", unsigned_encryption_info);
         s.finish()
     }
 }
@@ -412,16 +385,7 @@ impl From<Raw<AnySyncTimelineEvent>> for SyncTimelineEvent {
 
 impl From<TimelineEvent> for SyncTimelineEvent {
     fn from(o: TimelineEvent) -> Self {
-        // This conversion is unproblematic since a `SyncTimelineEvent` is just a
-        // `TimelineEvent` without the `room_id`. By converting the raw value in
-        // this way, we simply cause the `room_id` field in the json to be
-        // ignored by a subsequent deserialization.
-        Self {
-            inner_event: o.inner_event.cast(),
-            inner_encryption_info: o.inner_encryption_info,
-            push_actions: o.push_actions.unwrap_or_default(),
-            unsigned_encryption_info: o.unsigned_encryption_info,
-        }
+        Self { kind: o.kind, push_actions: o.push_actions.unwrap_or_default() }
     }
 }
 
@@ -432,6 +396,48 @@ impl From<DecryptedRoomEvent> for SyncTimelineEvent {
     }
 }
 
+impl<'de> Deserialize<'de> for SyncTimelineEvent {
+    /// Custom deserializer for [`SyncTimelineEvent`], to support older formats.
+    ///
+    /// Ideally we might use an untagged enum and then convert from that;
+    /// however, that doesn't work due to a [serde bug](https://github.com/serde-rs/json/issues/497).
+    ///
+    /// Instead, we first deserialize into an unstructured JSON map, and then
+    /// inspect the json to figure out which format we have.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde_json::{Map, Value};
+
+        // First, deserialize to an unstructured JSON map
+        let value = Map::<String, Value>::deserialize(deserializer)?;
+
+        // If we have a top-level `event`, it's V0
+        if value.contains_key("event") {
+            let v0: SyncTimelineEventDeserializationHelperV0 =
+                serde_json::from_value(Value::Object(value)).map_err(|e| {
+                    serde::de::Error::custom(format!(
+                        "Unable to deserialize V0-format SyncTimelineEvent: {}",
+                        e
+                    ))
+                })?;
+            Ok(v0.into())
+        }
+        // Otherwise, it's V1
+        else {
+            let v1: SyncTimelineEventDeserializationHelperV1 =
+                serde_json::from_value(Value::Object(value)).map_err(|e| {
+                    serde::de::Error::custom(format!(
+                        "Unable to deserialize V1-format SyncTimelineEvent: {}",
+                        e
+                    ))
+                })?;
+            Ok(v1.into())
+        }
+    }
+}
+
 /// Represents a matrix room event that has been returned from a Matrix
 /// client-server API endpoint such as `/messages`, after initial processing.
 ///
@@ -439,93 +445,143 @@ impl From<DecryptedRoomEvent> for SyncTimelineEvent {
 /// the main thing this adds over [`AnyTimelineEvent`] is information on
 /// encryption.
 ///
-/// See also [`SyncTimelineEvent`] which is almost identical, but is used for
-/// results from the `/sync` endpoint (which lack a `room_id` property) and
-/// hence wraps an [`AnySyncTimelineEvent`] instead of [`AnyTimelineEvent`].
+/// Previously, this differed from [`SyncTimelineEvent`] by wrapping an
+/// [`AnyTimelineEvent`] instead of an [`AnySyncTimelineEvent`], but nowadays
+/// they are essentially identical, and one of them should probably be removed.
 #[derive(Clone)]
 pub struct TimelineEvent {
-    /// The actual event.
-    inner_event: Raw<AnyTimelineEvent>,
-    /// The encryption info about the event. Will be `None` if the event was not
-    /// encrypted.
-    inner_encryption_info: Option<EncryptionInfo>,
+    /// The event itself, together with any information on decryption.
+    pub kind: TimelineEventKind,
+
     /// The push actions associated with this event, if we had sufficient
     /// context to compute them.
     pub push_actions: Option<Vec<Action>>,
-    /// The encryption info about the events bundled in the `unsigned` object.
-    ///
-    /// Will be `None` if no bundled event was encrypted.
-    pub unsigned_encryption_info: Option<BTreeMap<UnsignedEventLocation, UnsignedDecryptionResult>>,
 }
 
 impl TimelineEvent {
     /// Create a new `TimelineEvent` from the given raw event.
     ///
-    /// This is a convenience constructor for when you don't need to set
-    /// `encryption_info` or `push_action`, for example inside a test.
+    /// This is a convenience constructor for a plaintext event when you don't
+    /// need to set `push_action`, for example inside a test.
     pub fn new(event: Raw<AnyTimelineEvent>) -> Self {
         Self {
-            inner_event: event,
-            inner_encryption_info: None,
+            // This conversion is unproblematic since a `SyncTimelineEvent` is just a
+            // `TimelineEvent` without the `room_id`. By converting the raw value in
+            // this way, we simply cause the `room_id` field in the json to be
+            // ignored by a subsequent deserialization.
+            kind: TimelineEventKind::PlainText { event: event.cast() },
             push_actions: None,
-            unsigned_encryption_info: None,
         }
     }
 
     /// Returns a reference to the (potentially decrypted) Matrix event inside
     /// this `TimelineEvent`.
     pub fn raw(&self) -> &Raw<AnySyncTimelineEvent> {
-        // TODO: make `inner_event` an AnySyncTimelineEvent instead.
-        self.inner_event.cast_ref()
+        self.kind.raw()
     }
 
     /// If the event was a decrypted event that was successfully decrypted, get
     /// its encryption info. Otherwise, `None`.
     pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
-        self.inner_encryption_info.as_ref()
+        self.kind.encryption_info()
     }
 
     /// Takes ownership of this `TimelineEvent`, returning the (potentially
     /// decrypted) Matrix event within.
     pub fn into_raw(self) -> Raw<AnySyncTimelineEvent> {
-        // TODO: make `inner_event` an AnySyncTimelineEvent instead.
-        self.inner_event.cast()
+        self.kind.into_raw()
     }
 }
 
 impl From<DecryptedRoomEvent> for TimelineEvent {
     fn from(decrypted: DecryptedRoomEvent) -> Self {
-        Self {
-            // Casting from the more specific `AnyMessageLikeEvent` (i.e. an event without a
-            // `state_key`) to a more generic `AnyTimelineEvent` (i.e. one that may contain
-            // a `state_key`) is safe.
-            inner_event: decrypted.event.cast(),
-            inner_encryption_info: Some(decrypted.encryption_info),
-            push_actions: None,
-            unsigned_encryption_info: decrypted.unsigned_encryption_info,
-        }
+        Self { kind: TimelineEventKind::Decrypted(decrypted), push_actions: None }
     }
 }
 
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for TimelineEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let TimelineEvent {
-            inner_event,
-            inner_encryption_info,
-            push_actions,
-            unsigned_encryption_info,
-        } = self;
+        let TimelineEvent { kind, push_actions } = self;
         let mut s = f.debug_struct("TimelineEvent");
-        s.field("event", &DebugRawEvent(inner_event));
-        s.maybe_field("encryption_info", inner_encryption_info);
+        s.field("kind", &kind);
         if let Some(push_actions) = &push_actions {
             if !push_actions.is_empty() {
                 s.field("push_actions", push_actions);
             }
         }
-        s.maybe_field("unsigned_encryption_info", unsigned_encryption_info);
         s.finish()
+    }
+}
+
+/// The event within a [`TimelineEvent`] or [`SyncTimelineEvent`], together with
+/// encryption data.
+#[derive(Clone, Serialize, Deserialize)]
+pub enum TimelineEventKind {
+    /// A successfully-decrypted encrypted event.
+    Decrypted(DecryptedRoomEvent),
+
+    /// An unencrypted event.
+    PlainText {
+        /// The actual event. Depending on the source of the event, it could
+        /// actually be a [`AnyTimelineEvent`] (which differs from
+        /// [`AnySyncTimelineEvent`] by the addition of a `room_id` property).
+        event: Raw<AnySyncTimelineEvent>,
+    },
+}
+
+impl TimelineEventKind {
+    /// Returns a reference to the (potentially decrypted) Matrix event inside
+    /// this `TimelineEvent`.
+    pub fn raw(&self) -> &Raw<AnySyncTimelineEvent> {
+        match self {
+            // It is safe to cast from an `AnyMessageLikeEvent` (i.e. JSON which does
+            // *not* contain a `state_key` and *does* contain a `room_id`) into an
+            // `AnySyncTimelineEvent` (i.e. JSON which *may* contain a `state_key` and is *not*
+            // expected to contain a `room_id`). It just means that the `room_id` will be ignored
+            // in a future deserialization.
+            TimelineEventKind::Decrypted(d) => d.event.cast_ref(),
+            TimelineEventKind::PlainText { event } => event,
+        }
+    }
+
+    /// If the event was a decrypted event that was successfully decrypted, get
+    /// its encryption info. Otherwise, `None`.
+    pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
+        match self {
+            TimelineEventKind::Decrypted(d) => Some(&d.encryption_info),
+            TimelineEventKind::PlainText { .. } => None,
+        }
+    }
+
+    /// Takes ownership of this `TimelineEvent`, returning the (potentially
+    /// decrypted) Matrix event within.
+    pub fn into_raw(self) -> Raw<AnySyncTimelineEvent> {
+        match self {
+            // It is safe to cast from an `AnyMessageLikeEvent` (i.e. JSON which does
+            // *not* contain a `state_key` and *does* contain a `room_id`) into an
+            // `AnySyncTimelineEvent` (i.e. JSON which *may* contain a `state_key` and is *not*
+            // expected to contain a `room_id`). It just means that the `room_id` will be ignored
+            // in a future deserialization.
+            TimelineEventKind::Decrypted(d) => d.event.cast(),
+            TimelineEventKind::PlainText { event } => event,
+        }
+    }
+}
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for TimelineEventKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self {
+            Self::PlainText { event } => f
+                .debug_struct("TimelineEventDecryptionResult::PlainText")
+                .field("event", &DebugRawEvent(event))
+                .finish(),
+
+            Self::Decrypted(decrypted) => {
+                f.debug_tuple("TimelineEventDecryptionResult::Decrypted").field(decrypted).finish()
+            }
+        }
     }
 }
 
@@ -542,6 +598,7 @@ pub struct DecryptedRoomEvent {
     /// object.
     ///
     /// Will be `None` if no bundled event was encrypted.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub unsigned_encryption_info: Option<BTreeMap<UnsignedEventLocation, UnsignedDecryptionResult>>,
 }
 
@@ -606,6 +663,79 @@ pub struct UnableToDecryptInfo {
     pub session_id: Option<String>,
 }
 
+/// Deserialization helper for [`SyncTimelineEvent`], for the modern format.
+///
+/// This has the exact same fields as [`SyncTimelineEvent`] itself, but has a
+/// regular `Deserialize` implementation.
+#[derive(Debug, Deserialize)]
+struct SyncTimelineEventDeserializationHelperV1 {
+    /// The event itself, together with any information on decryption.
+    kind: TimelineEventKind,
+
+    /// The push actions associated with this event.
+    #[serde(default)]
+    push_actions: Vec<Action>,
+}
+
+impl From<SyncTimelineEventDeserializationHelperV1> for SyncTimelineEvent {
+    fn from(value: SyncTimelineEventDeserializationHelperV1) -> Self {
+        let SyncTimelineEventDeserializationHelperV1 { kind, push_actions } = value;
+        SyncTimelineEvent { kind, push_actions }
+    }
+}
+
+/// Deserialization helper for [`SyncTimelineEvent`], for an older format.
+#[derive(Deserialize)]
+struct SyncTimelineEventDeserializationHelperV0 {
+    /// The actual event.
+    event: Raw<AnySyncTimelineEvent>,
+
+    /// The encryption info about the event. Will be `None` if the event
+    /// was not encrypted.
+    encryption_info: Option<EncryptionInfo>,
+
+    /// The push actions associated with this event.
+    #[serde(default)]
+    push_actions: Vec<Action>,
+
+    /// The encryption info about the events bundled in the `unsigned`
+    /// object.
+    ///
+    /// Will be `None` if no bundled event was encrypted.
+    unsigned_encryption_info: Option<BTreeMap<UnsignedEventLocation, UnsignedDecryptionResult>>,
+}
+
+impl From<SyncTimelineEventDeserializationHelperV0> for SyncTimelineEvent {
+    fn from(value: SyncTimelineEventDeserializationHelperV0) -> Self {
+        let SyncTimelineEventDeserializationHelperV0 {
+            event,
+            encryption_info,
+            push_actions,
+            unsigned_encryption_info,
+        } = value;
+
+        let kind = match encryption_info {
+            Some(encryption_info) => {
+                TimelineEventKind::Decrypted(DecryptedRoomEvent {
+                    // We cast from `Raw<AnySyncTimelineEvent>` to
+                    // `Raw<AnyMessageLikeEvent>`, which means
+                    // we are asserting that it contains a room_id.
+                    // That *should* be ok, because if this is genuinely a decrypted
+                    // room event (as the encryption_info indicates), then it will have
+                    // a room_id.
+                    event: event.cast(),
+                    encryption_info,
+                    unsigned_encryption_info,
+                })
+            }
+
+            None => TimelineEventKind::PlainText { event },
+        };
+
+        SyncTimelineEvent { kind, push_actions }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
@@ -619,7 +749,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        AlgorithmInfo, EncryptionInfo, SyncTimelineEvent, TimelineEvent, VerificationState,
+        AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, SyncTimelineEvent, TimelineEvent,
+        TimelineEventKind, VerificationState,
     };
     use crate::deserialized_responses::{DeviceLinkProblem, VerificationLevel};
 
@@ -699,18 +830,20 @@ mod tests {
     #[test]
     fn sync_timeline_event_serialisation() {
         let room_event = SyncTimelineEvent {
-            inner_event: Raw::new(&example_event()).unwrap().cast(),
-            inner_encryption_info: Some(EncryptionInfo {
-                sender: user_id!("@sender:example.com").to_owned(),
-                sender_device: None,
-                algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
-                    curve25519_key: "xxx".to_owned(),
-                    sender_claimed_keys: Default::default(),
+            kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
+                event: Raw::new(&example_event()).unwrap().cast(),
+                encryption_info: EncryptionInfo {
+                    sender: user_id!("@sender:example.com").to_owned(),
+                    sender_device: None,
+                    algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+                        curve25519_key: "xxx".to_owned(),
+                        sender_claimed_keys: Default::default(),
+                    },
+                    verification_state: VerificationState::Verified,
                 },
-                verification_state: VerificationState::Verified,
+                unsigned_encryption_info: None,
             }),
             push_actions: Default::default(),
-            unsigned_encryption_info: None,
         };
 
         let serialized = serde_json::to_value(&room_event).unwrap();
@@ -719,25 +852,29 @@ mod tests {
         assert_eq!(
             serialized,
             json!({
-                "event": {
-                    "content": {"body": "secret", "msgtype": "m.text"},
-                    "event_id": "$xxxxx:example.org",
-                    "origin_server_ts": 2189,
-                    "room_id": "!someroom:example.com",
-                    "sender": "@carl:example.com",
-                    "type": "m.room.message",
-                },
-                "encryption_info": {
-                    "sender": "@sender:example.com",
-                    "sender_device": null,
-                    "algorithm_info": {
-                        "MegolmV1AesSha2": {
-                            "curve25519_key": "xxx",
-                            "sender_claimed_keys": {}
-                        }
-                    },
-                    "verification_state": "Verified",
-                },
+                "kind": {
+                    "Decrypted": {
+                        "event": {
+                            "content": {"body": "secret", "msgtype": "m.text"},
+                            "event_id": "$xxxxx:example.org",
+                            "origin_server_ts": 2189,
+                            "room_id": "!someroom:example.com",
+                            "sender": "@carl:example.com",
+                            "type": "m.room.message",
+                        },
+                        "encryption_info": {
+                            "sender": "@sender:example.com",
+                            "sender_device": null,
+                            "algorithm_info": {
+                                "MegolmV1AesSha2": {
+                                    "curve25519_key": "xxx",
+                                    "sender_claimed_keys": {}
+                                }
+                            },
+                            "verification_state": "Verified",
+                        },
+                    }
+                }
             })
         );
 
@@ -747,6 +884,35 @@ mod tests {
         assert_matches!(
             event.encryption_info().unwrap().algorithm_info,
             AlgorithmInfo::MegolmV1AesSha2 { .. }
-        )
+        );
+
+        // Test that the previous format can also be deserialized.
+        let serialized = json!({
+            "event": {
+                "content": {"body": "secret", "msgtype": "m.text"},
+                "event_id": "$xxxxx:example.org",
+                "origin_server_ts": 2189,
+                "room_id": "!someroom:example.com",
+                "sender": "@carl:example.com",
+                "type": "m.room.message",
+            },
+            "encryption_info": {
+                "sender": "@sender:example.com",
+                "sender_device": null,
+                "algorithm_info": {
+                    "MegolmV1AesSha2": {
+                        "curve25519_key": "xxx",
+                        "sender_claimed_keys": {}
+                    }
+                },
+                "verification_state": "Verified",
+            },
+        });
+        let event: SyncTimelineEvent = serde_json::from_value(serialized).unwrap();
+        assert_eq!(event.event_id(), Some(event_id!("$xxxxx:example.org").to_owned()));
+        assert_matches!(
+            event.encryption_info().unwrap().algorithm_info,
+            AlgorithmInfo::MegolmV1AesSha2 { .. }
+        );
     }
 }

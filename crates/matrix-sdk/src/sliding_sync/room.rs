@@ -657,7 +657,7 @@ mod tests {
                 "prev_batch": "foo",
                 "timeline": [
                     {
-                        "event": {
+                        "kind": { "PlainText": { "event": {
                             "content": {
                                 "body": "let it gooo!",
                                 "msgtype": "m.text"
@@ -667,8 +667,7 @@ mod tests {
                             "room_id": "!someroom:example.com",
                             "sender": "@bob:example.com",
                             "type": "m.room.message"
-                        },
-                        "encryption_info": null
+                        }}}
                     }
                 ]
             })

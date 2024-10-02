@@ -561,9 +561,12 @@ mod tests {
             json!({
                 "latest_event": {
                     "event": {
-                        "encryption_info": null,
-                        "event": {
-                            "event_id": "$1"
+                        "kind": {
+                            "PlainText": {
+                                "event": {
+                                    "event_id": "$1"
+                                }
+                            }
                         }
                     },
                 }
@@ -577,6 +580,23 @@ mod tests {
         assert!(deserialized.latest_event.sender_name_is_ambiguous.is_none());
 
         // The previous format can also be deserialized.
+        let serialized = json!({
+                "latest_event": {
+                    "event": {
+                        "encryption_info": null,
+                        "event": {
+                            "event_id": "$1"
+                        }
+                    },
+                }
+        });
+
+        let deserialized: TestStruct = serde_json::from_value(serialized).unwrap();
+        assert_eq!(deserialized.latest_event.event().event_id().unwrap(), "$1");
+        assert!(deserialized.latest_event.sender_profile.is_none());
+        assert!(deserialized.latest_event.sender_name_is_ambiguous.is_none());
+
+        // The even older format can also be deserialized.
         let serialized = json!({
             "latest_event": event
         });
