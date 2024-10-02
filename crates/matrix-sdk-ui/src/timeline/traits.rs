@@ -304,6 +304,6 @@ impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
             DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
         let event =
             olm_machine.decrypt_room_event(raw.cast_ref(), room_id, &decryption_settings).await?;
-        Ok(event)
+        Ok(event.into())
     }
 }

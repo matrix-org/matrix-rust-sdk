@@ -117,8 +117,7 @@ async fn test_decryption_verification_state() {
         .decrypt_room_event(&event, room_id, &decryption_settings)
         .await
         .unwrap()
-        .encryption_info
-        .unwrap();
+        .encryption_info;
 
     assert_eq!(
         VerificationState::Unverified(VerificationLevel::UnsignedDevice),
