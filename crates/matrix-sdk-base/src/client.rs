@@ -61,7 +61,7 @@ use ruma::{
 use tokio::sync::{broadcast, Mutex};
 #[cfg(feature = "e2e-encryption")]
 use tokio::sync::{RwLock, RwLockReadGuard};
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
@@ -886,9 +886,9 @@ impl BaseClient {
 
         let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
-        let account_data = AccountDataProcessor::process(&response.account_data.events);
+        let account_data_processor = AccountDataProcessor::process(&response.account_data.events);
 
-        let push_rules = self.get_push_rules(&account_data).await?;
+        let push_rules = self.get_push_rules(&account_data_processor).await?;
 
         let mut new_rooms = RoomUpdates::default();
         let mut notifications = Default::default();
@@ -1101,7 +1101,7 @@ impl BaseClient {
             new_rooms.invite.insert(room_id, new_info);
         }
 
-        account_data.apply(&mut changes, &self.store).await;
+        account_data_processor.apply(&mut changes, &self.store).await;
 
         changes.presence = response
             .presence
@@ -1157,7 +1157,7 @@ impl BaseClient {
                     self.ignore_user_list_changes.set(user_ids);
                 }
                 Err(error) => {
-                    warn!("Failed to deserialize ignored user list event: {error}")
+                    error!("Failed to deserialize ignored user list event: {error}")
                 }
             }
         }
@@ -1382,10 +1382,11 @@ impl BaseClient {
     /// is logged in.
     pub(crate) async fn get_push_rules(
         &self,
-        account_data: &AccountDataProcessor,
+        account_data_processor: &AccountDataProcessor,
     ) -> Result<Ruleset> {
-        if let Some(event) =
-            account_data.push_rules().and_then(|ev| ev.deserialize_as::<PushRulesEvent>().ok())
+        if let Some(event) = account_data_processor
+            .push_rules()
+            .and_then(|ev| ev.deserialize_as::<PushRulesEvent>().ok())
         {
             Ok(event.content.global)
         } else if let Some(event) = self
