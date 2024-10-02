@@ -161,7 +161,7 @@ impl BaseClient {
         let store = self.store.clone();
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
 
-        let account_data = AccountDataProcessor::process(&extensions.account_data.global);
+        let account_data_processor = AccountDataProcessor::process(&extensions.account_data.global);
 
         let mut new_rooms = RoomUpdates::default();
         let mut notifications = Default::default();
@@ -174,7 +174,7 @@ impl BaseClient {
                     response_room_data,
                     &mut rooms_account_data,
                     &store,
-                    &account_data,
+                    &account_data_processor,
                     &mut changes,
                     &mut room_info_notable_updates,
                     &mut notifications,
@@ -298,7 +298,7 @@ impl BaseClient {
             }
         }
 
-        account_data.apply(&mut changes, &store).await;
+        account_data_processor.apply(&mut changes, &store).await;
 
         // FIXME not yet supported by sliding sync.
         // changes.presence = presence
@@ -341,7 +341,7 @@ impl BaseClient {
         room_data: &http::response::Room,
         rooms_account_data: &mut BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
         store: &Store,
-        account_data: &AccountDataProcessor,
+        account_data_processor: &AccountDataProcessor,
         changes: &mut StateChanges,
         room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
@@ -427,7 +427,7 @@ impl BaseClient {
             Default::default()
         };
 
-        let push_rules = self.get_push_rules(account_data).await?;
+        let push_rules = self.get_push_rules(account_data_processor).await?;
 
         if let Some(invite_state) = &room_data.invite_state {
             self.handle_invited_state(
