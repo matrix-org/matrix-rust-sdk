@@ -42,15 +42,15 @@ mod local;
 mod remote;
 
 pub(super) use self::{
-    content::extract_edit_content,
+    content::{extract_edit_content, ResponseData},
     local::LocalEventTimelineItem,
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},
 };
 pub use self::{
     content::{
         AnyOtherFullStateEventContent, EncryptedMessage, InReplyToDetails, MemberProfileChange,
-        MembershipChange, Message, OtherState, RepliedToEvent, RoomMembershipChange,
-        RoomPinnedEventsChange, Sticker, TimelineItemContent,
+        MembershipChange, Message, OtherState, PollResult, PollState, RepliedToEvent,
+        RoomMembershipChange, RoomPinnedEventsChange, Sticker, TimelineItemContent,
     },
     local::EventSendState,
 };

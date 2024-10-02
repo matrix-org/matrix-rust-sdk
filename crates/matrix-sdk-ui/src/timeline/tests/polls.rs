@@ -15,7 +15,7 @@ use ruma::{
 };
 
 use crate::timeline::{
-    polls::PollState, tests::TestTimeline, EventTimelineItem, TimelineItemContent,
+    event_item::PollState, tests::TestTimeline, EventTimelineItem, TimelineItemContent,
 };
 
 #[async_test]

@@ -68,7 +68,6 @@ pub mod futures;
 mod item;
 mod pagination;
 mod pinned_events_loader;
-mod polls;
 mod reactions;
 mod read_receipts;
 #[cfg(test)]
@@ -85,14 +84,13 @@ pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, EncryptedMessage, EventItemOrigin, EventSendState,
         EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
-        OtherState, Profile, ReactionInfo, ReactionStatus, ReactionsByKeyBySender, RepliedToEvent,
-        RoomMembershipChange, RoomPinnedEventsChange, Sticker, TimelineDetails,
+        OtherState, PollResult, Profile, ReactionInfo, ReactionStatus, ReactionsByKeyBySender,
+        RepliedToEvent, RoomMembershipChange, RoomPinnedEventsChange, Sticker, TimelineDetails,
         TimelineEventItemId, TimelineItemContent,
     },
     event_type_filter::TimelineEventTypeFilter,
     item::{TimelineItem, TimelineItemKind},
     pagination::LiveBackPaginationStatus,
-    polls::PollResult,
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
