@@ -37,7 +37,10 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::{Relation, RoomMessageEventContent, SyncRoomMessageEvent},
+            message::{
+                Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+                SyncRoomMessageEvent,
+            },
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -48,8 +51,8 @@ use ruma::{
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::{StickerEventContent, SyncStickerEvent},
-        AnyFullStateEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType, StateEventType,
+        AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent,
+        MessageLikeEventType, StateEventType,
     },
     OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
 };
@@ -272,10 +275,10 @@ impl TimelineItemContent {
     // allow users to call them directly, which should not be supported
     pub(crate) fn message(
         c: RoomMessageEventContent,
-        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+        edit: Option<RoomMessageEventContentWithoutRelation>,
         timeline_items: &Vector<Arc<TimelineItem>>,
     ) -> Self {
-        Self::Message(Message::from_event(c, extract_edit_content(relations), timeline_items))
+        Self::Message(Message::from_event(c, edit, timeline_items))
     }
 
     #[cfg(not(tarpaulin_include))] // debug-logging functionality
