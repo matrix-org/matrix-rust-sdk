@@ -24,8 +24,8 @@ use ruma::{
             end::PollEndEventContent,
             response::{PollResponseEventContent, SelectionsContentBlock},
             unstable_start::{
-                NewUnstablePollStartEventContent, UnstablePollAnswer,
-                UnstablePollStartContentBlock, UnstablePollStartEventContent,
+                NewUnstablePollStartEventContent, ReplacementUnstablePollStartEventContent,
+                UnstablePollAnswer, UnstablePollStartContentBlock, UnstablePollStartEventContent,
             },
         },
         reaction::ReactionEventContent,
@@ -352,6 +352,28 @@ impl EventFactory {
                 UnstablePollStartContentBlock::new(poll_question, poll_answers),
             ));
         self.event(poll_start_content)
+    }
+
+    /// Create a poll edit event given the new question and possible answers.
+    pub fn poll_edit(
+        &self,
+        edited_event_id: &EventId,
+        poll_question: impl Into<String>,
+        answers: Vec<impl Into<String>>,
+    ) -> EventBuilder<ReplacementUnstablePollStartEventContent> {
+        // PollAnswers 'constructor' is not public, so we need to deserialize them
+        let answers: Vec<UnstablePollAnswer> = answers
+            .into_iter()
+            .enumerate()
+            .map(|(idx, answer)| UnstablePollAnswer::new(idx.to_string(), answer))
+            .collect();
+        let poll_answers = answers.try_into().unwrap();
+        let poll_start_content_block =
+            UnstablePollStartContentBlock::new(poll_question, poll_answers);
+        self.event(ReplacementUnstablePollStartEventContent::new(
+            poll_start_content_block,
+            edited_event_id.to_owned(),
+        ))
     }
 
     /// Create a poll response with the given answer id and the associated poll

@@ -252,7 +252,7 @@ impl TestTimeline {
 }
 
 impl EventTimelineItem {
-    fn poll_state(self) -> PollState {
+    pub(crate) fn poll_state(self) -> PollState {
         match self.content() {
             TimelineItemContent::Poll(poll_state) => poll_state.clone(),
             _ => panic!("Not a poll state"),
