@@ -2200,7 +2200,7 @@ pub(crate) mod tests {
     // Set up a machine do initial own key query and import cross-signing secret to
     // make the current session verified.
     async fn common_verified_identity_changes_machine_setup() -> OlmMachine {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
 
@@ -2220,7 +2220,7 @@ pub(crate) mod tests {
     }
     #[async_test]
     async fn test_manager_verified_latch_setup_on_new_identities() {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         let machine = common_verified_identity_changes_machine_setup().await;
 
@@ -2276,7 +2276,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_manager_verified_identity_changes_setup_on_updated_identities() {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         let machine = common_verified_identity_changes_machine_setup().await;
 
@@ -2318,7 +2318,7 @@ pub(crate) mod tests {
     // The cross signing secrets are not yet uploaded.
     // Then query keys for carol and bob (both signed by own identity)
     async fn common_verified_identity_changes_own_trust_change_machine_setup() -> OlmMachine {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         // Start on a non-verified session
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
@@ -2352,7 +2352,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_manager_verified_identity_changes_setup_on_own_identity_trust_change() {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
         let machine = common_verified_identity_changes_own_trust_change_machine_setup().await;
 
         let own_identity =
@@ -2389,7 +2389,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_manager_verified_identity_change_setup_on_import_secrets() {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
         let machine = common_verified_identity_changes_own_trust_change_machine_setup().await;
 
         let own_identity =

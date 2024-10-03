@@ -1247,8 +1247,7 @@ macro_rules! cryptostore_integration_tests {
                         device_keys: account.device_keys().clone(),
                         legacy_session: false,
                     },
-                    SenderDataType::SenderUnverifiedButPreviouslyVerified =>
-                        panic!("SenderUnverifiedButPreviouslyVerified not supported"),
+                    SenderDataType::VerificationViolation => panic!("VerificationViolation not supported"),
                     SenderDataType::SenderUnverified=> panic!("SenderUnverified not supported"),
                     SenderDataType::SenderVerified => panic!("SenderVerified not supported"),
                 };

@@ -29,7 +29,8 @@ use crate::debug::{DebugRawEvent, DebugStructExt};
 const AUTHENTICITY_NOT_GUARANTEED: &str =
     "The authenticity of this encrypted message can't be guaranteed on this device.";
 const UNVERIFIED_IDENTITY: &str = "Encrypted by an unverified user.";
-const PREVIOUSLY_VERIFIED: &str = "Encrypted by a previously-verified user.";
+const VERIFICATION_VIOLATION: &str =
+    "Encrypted by a previously-verified user who is no longer verified.";
 const UNSIGNED_DEVICE: &str = "Encrypted by a device not verified by its owner.";
 const UNKNOWN_DEVICE: &str = "Encrypted by an unknown or deleted device.";
 pub const SENT_IN_CLEAR: &str = "Not encrypted.";
@@ -92,7 +93,7 @@ impl VerificationState {
             VerificationState::Verified => ShieldState::None,
             VerificationState::Unverified(level) => match level {
                 VerificationLevel::UnverifiedIdentity
-                | VerificationLevel::PreviouslyVerified
+                | VerificationLevel::VerificationViolation
                 | VerificationLevel::UnsignedDevice => ShieldState::Red {
                     code: ShieldStateCode::UnverifiedIdentity,
                     message: UNVERIFIED_IDENTITY,
@@ -127,12 +128,12 @@ impl VerificationState {
                     // nag you with an error message.
                     ShieldState::None
                 }
-                VerificationLevel::PreviouslyVerified => {
+                VerificationLevel::VerificationViolation => {
                     // This is a high warning. The sender was previously
                     // verified, but changed their identity.
                     ShieldState::Red {
-                        code: ShieldStateCode::PreviouslyVerified,
-                        message: PREVIOUSLY_VERIFIED,
+                        code: ShieldStateCode::VerificationViolation,
+                        message: VERIFICATION_VIOLATION,
                     }
                 }
                 VerificationLevel::UnsignedDevice => {
@@ -175,7 +176,7 @@ pub enum VerificationLevel {
 
     /// The message was sent by a user identity we have not verified, but the
     /// user was previously verified.
-    PreviouslyVerified,
+    VerificationViolation,
 
     /// The message was sent by a device not linked to (signed by) any user
     /// identity.
@@ -193,7 +194,7 @@ impl fmt::Display for VerificationLevel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let display = match self {
             VerificationLevel::UnverifiedIdentity => "The sender's identity was not verified",
-            VerificationLevel::PreviouslyVerified => {
+            VerificationLevel::VerificationViolation => {
                 "The sender's identity was previously verified but has changed"
             }
             VerificationLevel::UnsignedDevice => {
@@ -258,7 +259,7 @@ pub enum ShieldStateCode {
     /// An unencrypted event in an encrypted room.
     SentInClear,
     /// The sender was previously verified but changed their identity.
-    PreviouslyVerified,
+    VerificationViolation,
 }
 
 /// The algorithm specific information of a decrypted event.

@@ -2,6 +2,7 @@
 
 Breaking changes:
 
+- Renamed `VerificationLevel::PreviouslyVerified` to `VerificationLevel::VerificationViolation`.
 - Add a `PreviouslyVerified` variant to `VerificationLevel` indicating that the identity is unverified and previously it was verified.
 - Replace the `Notification` type from Ruma in `SyncResponse` and `Client::register_notification_handler`
   by a custom one

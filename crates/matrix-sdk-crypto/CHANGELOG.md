@@ -57,6 +57,9 @@ Breaking changes:
   the CryptoStore, meaning that, once upgraded, it will not be possible to roll
   back applications to earlier versions without breaking user sessions.
 
+- Renamed `VerificationLevel::PreviouslyVerified` to
+  `VerificationLevel::VerificationViolation`.
+
 - `OlmMachine::decrypt_room_event` now takes a `DecryptionSettings` argument,
   which includes a `TrustRequirement` indicating the required trust level for
   the sending device.  When it is called with `TrustRequirement` other than

@@ -871,7 +871,7 @@ enum OwnUserIdentityVerifiedState {
     NeverVerified,
 
     /// We previously verified this identity, but it has changed.
-    PreviouslyVerifiedButNoLonger,
+    VerificationViolation,
 
     /// We have verified the current identity.
     Verified,
@@ -1022,7 +1022,7 @@ impl OwnUserIdentityData {
     pub(crate) fn mark_as_unverified(&self) {
         let mut guard = self.verified.write().unwrap();
         if *guard == OwnUserIdentityVerifiedState::Verified {
-            *guard = OwnUserIdentityVerifiedState::PreviouslyVerifiedButNoLonger;
+            *guard = OwnUserIdentityVerifiedState::VerificationViolation;
         }
     }
 
@@ -1039,7 +1039,7 @@ impl OwnUserIdentityData {
         matches!(
             *self.verified.read().unwrap(),
             OwnUserIdentityVerifiedState::Verified
-                | OwnUserIdentityVerifiedState::PreviouslyVerifiedButNoLonger
+                | OwnUserIdentityVerifiedState::VerificationViolation
         )
     }
 
@@ -1050,7 +1050,7 @@ impl OwnUserIdentityData {
     /// verify again or to withdraw the verification requirement.
     pub fn withdraw_verification(&self) {
         let mut guard = self.verified.write().unwrap();
-        if *guard == OwnUserIdentityVerifiedState::PreviouslyVerifiedButNoLonger {
+        if *guard == OwnUserIdentityVerifiedState::VerificationViolation {
             *guard = OwnUserIdentityVerifiedState::NeverVerified;
         }
     }
@@ -1065,8 +1065,7 @@ impl OwnUserIdentityData {
     /// - Or by withdrawing the verification requirement
     ///   [`OwnUserIdentity::withdraw_verification`].
     pub fn has_verification_violation(&self) -> bool {
-        *self.verified.read().unwrap()
-            == OwnUserIdentityVerifiedState::PreviouslyVerifiedButNoLonger
+        *self.verified.read().unwrap() == OwnUserIdentityVerifiedState::VerificationViolation
     }
 
     /// Update the identity with a new master key and self signing key.
@@ -1632,7 +1631,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_resolve_identity_verification_violation_with_withdraw() {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
 
@@ -1672,7 +1671,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_reset_own_keys_creates_verification_violation() {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
 
@@ -1713,7 +1712,7 @@ pub(crate) mod tests {
     /// verification violation on our own identity.
     #[async_test]
     async fn test_own_keys_update_creates_own_identity_verification_violation() {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
 

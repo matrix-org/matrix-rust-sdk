@@ -521,7 +521,7 @@ mod tests {
         async_test, test_json,
         test_json::keys_query_sets::{
             IdentityChangeDataSet, KeyDistributionTestData, MaloIdentityChangeDataSet,
-            PreviouslyVerifiedTestData,
+            VerificationViolationTestData,
         },
     };
     use ruma::{
@@ -710,7 +710,7 @@ mod tests {
     /// `error_on_verified_user_problem` is set.
     #[async_test]
     async fn test_error_on_unsigned_of_verified_users() {
-        use PreviouslyVerifiedTestData as DataSet;
+        use VerificationViolationTestData as DataSet;
 
         // We start with Bob, who is verified and has one unsigned device.
         let machine = unsigned_of_verified_setup().await;
@@ -766,7 +766,7 @@ mod tests {
     /// device.
     #[async_test]
     async fn test_error_on_unsigned_of_verified_resolve_by_whitelisting() {
-        use PreviouslyVerifiedTestData as DataSet;
+        use VerificationViolationTestData as DataSet;
 
         let machine = unsigned_of_verified_setup().await;
 
@@ -802,7 +802,7 @@ mod tests {
     /// device.
     #[async_test]
     async fn test_error_on_unsigned_of_verified_resolve_by_blacklisting() {
-        use PreviouslyVerifiedTestData as DataSet;
+        use VerificationViolationTestData as DataSet;
 
         let machine = unsigned_of_verified_setup().await;
 
@@ -846,7 +846,7 @@ mod tests {
     /// is verified and we have unsigned devices.
     #[async_test]
     async fn test_error_on_unsigned_of_verified_owner_is_us() {
-        use PreviouslyVerifiedTestData as DataSet;
+        use VerificationViolationTestData as DataSet;
 
         let machine = unsigned_of_verified_setup().await;
 
@@ -891,7 +891,7 @@ mod tests {
     /// error.
     #[async_test]
     async fn test_should_not_error_on_unsigned_of_unverified() {
-        use PreviouslyVerifiedTestData as DataSet;
+        use VerificationViolationTestData as DataSet;
 
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
 
@@ -941,7 +941,7 @@ mod tests {
     /// error, when we have not verified our own identity.
     #[async_test]
     async fn test_should_not_error_on_unsigned_of_signed_but_unverified() {
-        use PreviouslyVerifiedTestData as DataSet;
+        use VerificationViolationTestData as DataSet;
 
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
 
@@ -989,7 +989,7 @@ mod tests {
     /// withdrawing verification
     #[async_test]
     async fn test_verified_user_changed_identity() {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         // We start with Bob, who is verified and has one unsigned device. We have also
         // verified our own identity.
@@ -1039,7 +1039,7 @@ mod tests {
     /// withdrawing verification
     #[async_test]
     async fn test_own_verified_identity_changed() {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         // We start with a verified identity.
         let machine = unsigned_of_verified_setup().await;
@@ -1497,10 +1497,10 @@ mod tests {
     ///
     /// Returns an `OlmMachine` which is properly configured with trusted
     /// cross-signing keys. Also imports a set of keys for
-    /// Bob ([`PreviouslyVerifiedTestData::bob_id`]), where Bob is verified and
-    /// has 2 devices, one signed and the other not.
+    /// Bob ([`VerificationViolationTestData::bob_id`]), where Bob is verified
+    /// and has 2 devices, one signed and the other not.
     async fn unsigned_of_verified_setup() -> OlmMachine {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
 
