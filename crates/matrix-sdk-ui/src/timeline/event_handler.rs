@@ -99,6 +99,18 @@ pub(super) enum Flow {
     },
 }
 
+impl Flow {
+    /// If the flow is remote, returns the associated event id.
+    pub(crate) fn event_id(&self) -> Option<&EventId> {
+        as_variant!(self, Flow::Remote { event_id, .. } => event_id)
+    }
+
+    /// If the flow is remote, returns the associated full raw event.
+    pub(crate) fn raw_event(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
+        as_variant!(self, Flow::Remote { raw_event, .. } => raw_event)
+    }
+}
+
 pub(super) struct TimelineEventContext {
     pub(super) sender: OwnedUserId,
     pub(super) sender_profile: Option<Profile>,
@@ -333,15 +345,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::RoomEncrypted(c) => {
                     // TODO: Handle replacements if the replaced event is also UTD
-                    let raw_event =
-                        as_variant!(&self.ctx.flow, Flow::Remote { raw_event, .. } => raw_event);
+                    let raw_event = self.ctx.flow.raw_event();
                     let cause = UtdCause::determine(raw_event);
                     self.add_item(TimelineItemContent::unable_to_decrypt(c, cause), None);
 
                     // Let the hook know that we ran into an unable-to-decrypt that is added to the
                     // timeline.
                     if let Some(hook) = self.meta.unable_to_decrypt_hook.as_ref() {
-                        if let Flow::Remote { event_id, .. } = &self.ctx.flow {
+                        if let Some(event_id) = &self.ctx.flow.event_id() {
                             hook.on_utd(event_id, cause).await;
                         }
                     }
@@ -466,7 +477,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         // there's an edit in the relations mapping, we want to prefer it over any
         // other pending edit, since it's more likely to be up to date, and we
         // don't want to apply another pending edit on top of it.
-        let pending_edit = as_variant!(&self.ctx.flow, Flow::Remote { event_id, .. } => event_id)
+        let pending_edit = self
+            .ctx
+            .flow
+            .event_id()
             .and_then(|event_id| {
                 Self::maybe_unstash_pending_edit(&mut self.meta.pending_edits, event_id)
             })
@@ -479,9 +493,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let (edit_json, edit_content) = extract_room_msg_edit_content(relations)
             .map(|content| {
-                let raw_event =
-                    as_variant!(&self.ctx.flow, Flow::Remote { raw_event, ..} => raw_event);
-                let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
+                let edit_json = self.ctx.flow.raw_event().and_then(extract_bundled_edit_event_json);
                 (edit_json, content)
             })
             .or(pending_edit)
@@ -498,8 +510,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         replacement: Replacement<RoomMessageEventContentWithoutRelation>,
     ) {
         if let Some((item_pos, item)) = rfind_event_by_id(self.items, &replacement.event_id) {
-            let edit_json =
-                as_variant!(&self.ctx.flow, Flow::Remote { raw_event, .. } => raw_event).cloned();
+            let edit_json = self.ctx.flow.raw_event().cloned();
             if let Some(new_item) = self.apply_msg_edit(&item, replacement, edit_json) {
                 trace!("Applied edit");
                 self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
@@ -711,8 +722,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return;
         };
 
-        let edit_json =
-            as_variant!(&self.ctx.flow, Flow::Remote { raw_event, .. } => raw_event.clone());
+        let edit_json = self.ctx.flow.raw_event().cloned();
 
         let Some(new_item) = self.apply_poll_edit(item.inner, replacement, edit_json) else {
             return;
@@ -763,7 +773,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         // there's an edit in the relations mapping, we want to prefer it over any
         // other pending edit, since it's more likely to be up to date, and we
         // don't want to apply another pending edit on top of it.
-        let pending_edit = as_variant!(&self.ctx.flow, Flow::Remote { event_id, .. } => event_id)
+        let pending_edit = self
+            .ctx
+            .flow
+            .event_id()
             .and_then(|event_id| {
                 Self::maybe_unstash_pending_edit(&mut self.meta.pending_edits, event_id)
             })
@@ -776,9 +789,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let (edit_json, edit_content) = extract_poll_edit_content(relations)
             .map(|content| {
-                let raw_event =
-                    as_variant!(&self.ctx.flow, Flow::Remote { raw_event, ..} => raw_event);
-                let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
+                let edit_json = self.ctx.flow.raw_event().and_then(extract_bundled_edit_event_json);
                 (edit_json, content)
             })
             .or(pending_edit)
@@ -786,7 +797,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let mut poll_state = PollState::new(c, edit_content);
 
-        if let Flow::Remote { event_id, .. } = &self.ctx.flow {
+        if let Some(event_id) = self.ctx.flow.event_id() {
             // Applying the cache to remote events only because local echoes
             // don't have an event ID that could be referenced by responses yet.
             self.meta.pending_poll_events.apply_pending(event_id, &mut poll_state);
@@ -1144,28 +1155,25 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return None;
         }
 
-        match &self.ctx.flow {
-            Flow::Local { .. } => None,
-            Flow::Remote { event_id, .. } => {
-                let reactions = self.meta.reactions.pending.remove(event_id)?;
-                let mut bundled = ReactionsByKeyBySender::default();
+        self.ctx.flow.event_id().and_then(|event_id| {
+            let reactions = self.meta.reactions.pending.remove(event_id)?;
+            let mut bundled = ReactionsByKeyBySender::default();
 
-                for (reaction_event_id, reaction) in reactions {
-                    let group: &mut IndexMap<OwnedUserId, ReactionInfo> =
-                        bundled.entry(reaction.key).or_default();
+            for (reaction_event_id, reaction) in reactions {
+                let group: &mut IndexMap<OwnedUserId, ReactionInfo> =
+                    bundled.entry(reaction.key).or_default();
 
-                    group.insert(
-                        reaction.sender_id,
-                        ReactionInfo {
-                            timestamp: reaction.timestamp,
-                            status: ReactionStatus::RemoteToRemote(reaction_event_id),
-                        },
-                    );
-                }
-
-                Some(bundled)
+                group.insert(
+                    reaction.sender_id,
+                    ReactionInfo {
+                        timestamp: reaction.timestamp,
+                        status: ReactionStatus::RemoteToRemote(reaction_event_id),
+                    },
+                );
             }
-        }
+
+            Some(bundled)
+        })
     }
 }
 
