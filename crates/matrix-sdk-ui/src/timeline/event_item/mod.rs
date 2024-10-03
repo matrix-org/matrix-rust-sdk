@@ -825,6 +825,59 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_latest_poll_includes_bundled_edit() {
+        // Given a sync event that is suitable to be used as a latest_event, and
+        // contains a bundled edit,
+        let room_id = room_id!("!q:x.uk");
+        let user_id = user_id!("@t:o.uk");
+
+        let f = EventFactory::new();
+
+        let original_event_id = event_id!("$original");
+
+        let mut relations = BundledMessageLikeRelations::new();
+        relations.replace = Some(Box::new(
+            f.poll_edit(
+                original_event_id,
+                "It's one banana, Michael, how much could it cost?",
+                vec!["1 dollar", "10 dollars", "100 dollars"],
+            )
+            .event_id(event_id!("$edit"))
+            .sender(user_id)
+            .into_raw_sync(),
+        ));
+
+        let event = f
+            .poll_start(
+                "It's one avocado, Michael, how much could it cost? 10 dollars?",
+                "It's one avocado, Michael, how much could it cost?",
+                vec!["1 dollar", "10 dollars", "100 dollars"],
+            )
+            .event_id(original_event_id)
+            .bundled_relations(relations)
+            .sender(user_id)
+            .into_sync();
+
+        let client = logged_in_client(None).await;
+
+        // When we construct a timeline event from it,
+        let timeline_item =
+            EventTimelineItem::from_latest_event(client, room_id, LatestEvent::new(event))
+                .await
+                .unwrap();
+
+        // Then its properties correctly translate.
+        assert_eq!(timeline_item.sender, user_id);
+
+        let poll = timeline_item.poll_state();
+        assert!(poll.has_been_edited);
+        assert_eq!(
+            poll.start_event_content.poll_start.question.text,
+            "It's one banana, Michael, how much could it cost?"
+        );
+    }
+
+    #[async_test]
     async fn test_latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender_from_the_storage(
     ) {
         // Given a sync event that is suitable to be used as a latest_event, and a room
