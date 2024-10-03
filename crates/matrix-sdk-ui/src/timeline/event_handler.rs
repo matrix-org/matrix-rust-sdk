@@ -52,9 +52,10 @@ use super::{
     controller::{PendingEditKind, TimelineMetadata, TimelineStateTransaction},
     day_dividers::DayDividerAdjuster,
     event_item::{
-        extract_room_msg_edit_content, AnyOtherFullStateEventContent, EventSendState,
-        EventTimelineItemKind, LocalEventTimelineItem, PollState, Profile, ReactionsByKeyBySender,
-        RemoteEventOrigin, RemoteEventTimelineItem, TimelineEventItemId,
+        extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
+        AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,
+        LocalEventTimelineItem, PollState, Profile, ReactionsByKeyBySender, RemoteEventOrigin,
+        RemoteEventTimelineItem, TimelineEventItemId,
     },
     reactions::FullReactionKey,
     util::{rfind_event_by_id, rfind_event_item},
@@ -348,14 +349,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                         let (edit_json, edit_content) = extract_room_msg_edit_content(relations)
                             .map(|content| {
-                                let edit_json = as_variant!(&self.ctx.flow, Flow::Remote { raw_event, ..} => raw_event).and_then(|raw| {
-                                    // Kids, don't do this at home. We're extracting the edit event
-                                    // from the `unsigned`.m.relations`.`m.replace` path.
-                                    let raw_unsigned: Raw<serde_json::Value> = raw.get_field("unsigned").ok()??;
-                                    let raw_relations: Raw<serde_json::Value> = raw_unsigned.get_field("m.relations").ok()??;
-                                    raw_relations.get_field::<Raw<AnySyncTimelineEvent>>("m.replace").ok()?
-                                });
-
+                                let raw_event = as_variant!(&self.ctx.flow, Flow::Remote { raw_event, ..} => raw_event);
+                                let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
                                 (edit_json, content)
                             }
                             ).or(pending_edit).unzip();
@@ -395,7 +390,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::UnstablePollStart(
                     UnstablePollStartEventContent::New(c),
-                ) => self.handle_poll_start(c, should_add),
+                ) => {
+                    if should_add {
+                        self.handle_poll_start(c, relations)
+                    }
+                }
 
                 AnyMessageLikeEventContent::UnstablePollResponse(c) => self.handle_poll_response(c),
 
@@ -563,33 +562,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     ) -> Option<PendingEdit> {
         let pos = edits.iter().position(|edit| edit.edited_event() == event_id)?;
         Some(edits.remove(pos).unwrap())
-    }
-
-    /// If there's a pending edit for an item, apply it immediately, returning
-    /// an updated [`EventTimelineItem`]. Otherwise, return `None`.
-    fn maybe_unstash_pending_edit(
-        &mut self,
-        item: &EventTimelineItem,
-    ) -> Option<EventTimelineItem> {
-        let event_id = as_variant!(&self.ctx.flow, Flow::Remote { event_id, .. } => event_id)?;
-
-        match item.content() {
-            TimelineItemContent::Message(..) => {
-                let pending =
-                    Self::find_and_remove_pending(&mut self.meta.pending_edits, event_id)?;
-                let edit = as_variant!(pending.kind, PendingEditKind::RoomMessage)?;
-                //let json = as_variant!(&self.ctx.flow, Flow::Remote { raw_event, .. } =>
-                // raw_event.clone()); self.apply_msg_edit(item, edit, json)
-                self.apply_msg_edit(item, edit, Some(pending.event_json))
-            }
-            TimelineItemContent::Poll(..) => {
-                let pending =
-                    Self::find_and_remove_pending(&mut self.meta.pending_edits, event_id)?;
-                let edit = as_variant!(pending.kind, PendingEditKind::Poll)?;
-                self.apply_poll_edit(item, edit, Some(pending.event_json))
-            }
-            _ => None,
-        }
     }
 
     /// Try applying an edit to an existing [`EventTimelineItem`].
@@ -763,7 +735,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return None;
         };
 
-        let new_content = match poll_state.edit(&replacement.new_content) {
+        let new_content = match poll_state.edit(replacement.new_content) {
             Some(edited_poll_state) => TimelineItemContent::Poll(edited_poll_state),
             None => {
                 info!("Not applying edit to a poll that's already ended");
@@ -775,8 +747,37 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     }
 
     /// Adds a new poll to the timeline.
-    fn handle_poll_start(&mut self, c: NewUnstablePollStartEventContent, should_add: bool) {
-        let mut poll_state = PollState::new(c);
+    fn handle_poll_start(
+        &mut self,
+        c: NewUnstablePollStartEventContent,
+        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+    ) {
+        // Always remove the pending edit, if there's any. The reason is that if
+        // there's an edit in the relations mapping, we want to prefer it over any
+        // other pending edit, since it's more likely to be up to date, and we
+        // don't want to apply another pending edit on top of it.
+        let pending_edit = as_variant!(&self.ctx.flow, Flow::Remote { event_id, .. } => event_id)
+            .and_then(|event_id| {
+                Self::find_and_remove_pending(&mut self.meta.pending_edits, event_id)
+            })
+            .and_then(|edit| match edit.kind {
+                PendingEditKind::Poll(replacement) => {
+                    Some((Some(edit.event_json), replacement.new_content))
+                }
+                _ => None,
+            });
+
+        let (edit_json, edit_content) = extract_poll_edit_content(relations)
+            .map(|content| {
+                let raw_event =
+                    as_variant!(&self.ctx.flow, Flow::Remote { raw_event, ..} => raw_event);
+                let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
+                (edit_json, content)
+            })
+            .or(pending_edit)
+            .unzip();
+
+        let mut poll_state = PollState::new(c, edit_content);
 
         if let Flow::Remote { event_id, .. } = &self.ctx.flow {
             // Applying the cache to remote events only because local echoes
@@ -784,9 +785,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             self.meta.pending_poll_events.apply_pending(event_id, &mut poll_state);
         }
 
-        if should_add {
-            self.add_item(TimelineItemContent::Poll(poll_state), None);
-        }
+        let edit_json = edit_json.flatten();
+
+        self.add_item(TimelineItemContent::Poll(poll_state), edit_json);
     }
 
     fn handle_poll_response(&mut self, c: UnstablePollResponseEventContent) {
@@ -1005,10 +1006,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             reactions,
             is_room_encrypted,
         );
-
-        if let Some(edited_item) = self.maybe_unstash_pending_edit(&item) {
-            item = edited_item;
-        }
 
         match &self.ctx.flow {
             Flow::Local { .. } => {
