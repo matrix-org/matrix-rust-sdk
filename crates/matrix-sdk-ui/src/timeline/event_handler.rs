@@ -289,7 +289,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         mut self,
         day_divider_adjuster: &mut DayDividerAdjuster,
         event_kind: TimelineEventKind,
-        raw_event: Option<&Raw<AnySyncTimelineEvent>>,
     ) -> HandleEventResult {
         let span = tracing::Span::current();
 
@@ -334,6 +333,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::RoomEncrypted(c) => {
                     // TODO: Handle replacements if the replaced event is also UTD
+                    let raw_event =
+                        as_variant!(&self.ctx.flow, Flow::Remote { raw_event, .. } => raw_event);
                     let cause = UtdCause::determine(raw_event);
                     self.add_item(TimelineItemContent::unable_to_decrypt(c, cause), None);
 
