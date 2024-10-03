@@ -1477,7 +1477,7 @@ impl OlmMachine {
                 sender_data,
                 SenderData::UnknownDevice { .. }
                     | SenderData::DeviceInfo { .. }
-                    | SenderData::SenderUnverifiedButPreviouslyVerified { .. }
+                    | SenderData::VerificationViolation { .. }
             )
         }
 
@@ -1689,8 +1689,8 @@ impl OlmMachine {
             TrustRequirement::CrossSignedOrLegacy => match &session.sender_data {
                 // Reject if the sender was previously verified, but changed
                 // their identity and is not verified any more.
-                SenderData::SenderUnverifiedButPreviouslyVerified(..) => Err(
-                    MegolmError::SenderIdentityNotTrusted(VerificationLevel::PreviouslyVerified),
+                SenderData::VerificationViolation(..) => Err(
+                    MegolmError::SenderIdentityNotTrusted(VerificationLevel::VerificationViolation),
                 ),
                 SenderData::SenderUnverified(..) => Ok(()),
                 SenderData::SenderVerified(..) => Ok(()),
@@ -1702,8 +1702,8 @@ impl OlmMachine {
             TrustRequirement::CrossSigned => match &session.sender_data {
                 // Reject if the sender was previously verified, but changed
                 // their identity and is not verified any more.
-                SenderData::SenderUnverifiedButPreviouslyVerified(..) => Err(
-                    MegolmError::SenderIdentityNotTrusted(VerificationLevel::PreviouslyVerified),
+                SenderData::VerificationViolation(..) => Err(
+                    MegolmError::SenderIdentityNotTrusted(VerificationLevel::VerificationViolation),
                 ),
                 SenderData::SenderUnverified(..) => Ok(()),
                 SenderData::SenderVerified(..) => Ok(()),
@@ -2493,9 +2493,9 @@ fn sender_data_to_verification_state(
             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
             Some(device_keys.device_id),
         ),
-        SenderData::SenderUnverifiedButPreviouslyVerified(KnownSenderData {
-            device_id, ..
-        }) => (VerificationState::Unverified(VerificationLevel::PreviouslyVerified), device_id),
+        SenderData::VerificationViolation(KnownSenderData { device_id, .. }) => {
+            (VerificationState::Unverified(VerificationLevel::VerificationViolation), device_id)
+        }
         SenderData::SenderUnverified(KnownSenderData { device_id, .. }) => {
             (VerificationState::Unverified(VerificationLevel::UnverifiedIdentity), device_id)
         }
