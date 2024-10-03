@@ -537,14 +537,19 @@ pub struct UnableToDecryptInfo {
 
 #[cfg(test)]
 mod tests {
+    use assert_matches::assert_matches;
     use ruma::{
+        event_id,
         events::{room::message::RoomMessageEventContent, AnySyncTimelineEvent},
         serde::Raw,
+        user_id,
     };
     use serde::Deserialize;
     use serde_json::json;
 
-    use super::{SyncTimelineEvent, TimelineEvent, VerificationState};
+    use super::{
+        AlgorithmInfo, EncryptionInfo, SyncTimelineEvent, TimelineEvent, VerificationState,
+    };
     use crate::deserialized_responses::{DeviceLinkProblem, VerificationLevel};
 
     fn example_event() -> serde_json::Value {
@@ -618,5 +623,59 @@ mod tests {
             deserialized.state,
             VerificationState::Unverified(VerificationLevel::UnsignedDevice)
         );
+    }
+
+    #[test]
+    fn sync_timeline_event_serialisation() {
+        let room_event = SyncTimelineEvent {
+            event: Raw::new(&example_event()).unwrap().cast(),
+            encryption_info: Some(EncryptionInfo {
+                sender: user_id!("@sender:example.com").to_owned(),
+                sender_device: None,
+                algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+                    curve25519_key: "xxx".to_owned(),
+                    sender_claimed_keys: Default::default(),
+                },
+                verification_state: VerificationState::Verified,
+            }),
+            push_actions: Default::default(),
+            unsigned_encryption_info: None,
+        };
+
+        let serialized = serde_json::to_value(&room_event).unwrap();
+
+        // Test that the serialization is as expected
+        assert_eq!(
+            serialized,
+            json!({
+                "event": {
+                    "content": {"body": "secret", "msgtype": "m.text"},
+                    "event_id": "$xxxxx:example.org",
+                    "origin_server_ts": 2189,
+                    "room_id": "!someroom:example.com",
+                    "sender": "@carl:example.com",
+                    "type": "m.room.message",
+                },
+                "encryption_info": {
+                    "sender": "@sender:example.com",
+                    "sender_device": null,
+                    "algorithm_info": {
+                        "MegolmV1AesSha2": {
+                            "curve25519_key": "xxx",
+                            "sender_claimed_keys": {}
+                        }
+                    },
+                    "verification_state": "Verified",
+                },
+            })
+        );
+
+        // And it can be properly deserialized from the new format.
+        let event: SyncTimelineEvent = serde_json::from_value(serialized).unwrap();
+        assert_eq!(event.event_id(), Some(event_id!("$xxxxx:example.org").to_owned()));
+        assert_matches!(
+            event.encryption_info.unwrap().algorithm_info,
+            AlgorithmInfo::MegolmV1AesSha2 { .. }
+        )
     }
 }
