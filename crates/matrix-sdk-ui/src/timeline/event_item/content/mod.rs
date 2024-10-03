@@ -285,6 +285,12 @@ impl TimelineItemContent {
         as_variant!(self, Self::Message)
     }
 
+    /// If `self` is of the [`Poll`][Self::Poll] variant, return the inner
+    /// [`PollState`].
+    pub fn as_poll(&self) -> Option<&PollState> {
+        as_variant!(self, Self::Poll)
+    }
+
     /// If `self` is of the [`UnableToDecrypt`][Self::UnableToDecrypt] variant,
     /// return the inner [`EncryptedMessage`].
     pub fn as_unable_to_decrypt(&self) -> Option<&EncryptedMessage> {
