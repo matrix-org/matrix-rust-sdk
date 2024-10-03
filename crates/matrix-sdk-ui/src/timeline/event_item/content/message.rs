@@ -21,15 +21,20 @@ use matrix_sdk::{deserialized_responses::TimelineEvent, Room};
 use ruma::{
     assign,
     events::{
+        poll::unstable_start::{
+            NewUnstablePollStartEventContentWithoutRelation, SyncUnstablePollStartEvent,
+            UnstablePollStartEventContent,
+        },
         relation::{InReplyTo, Thread},
         room::message::{
             MessageType, Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             SyncRoomMessageEvent,
         },
-        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnyTimelineEvent,
-        BundledMessageLikeRelations, Mentions,
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        AnyTimelineEvent, BundledMessageLikeRelations, Mentions,
     },
     html::RemoveReplyFallback,
+    serde::Raw,
     OwnedEventId, OwnedUserId, RoomVersionId, UserId,
 };
 use tracing::error;
@@ -162,6 +167,20 @@ impl From<Message> for RoomMessageEventContent {
     }
 }
 
+/// Extracts the raw json of the edit event part of bundled relations.
+///
+/// Note: while we had access to the deserialized event earlier, events are not
+/// serializable, by design of Ruma, so we can't extract a bundled related event
+/// and serialize it back to a raw JSON event.
+pub(crate) fn extract_bundled_edit_event_json(
+    raw: &Raw<AnySyncTimelineEvent>,
+) -> Option<Raw<AnySyncTimelineEvent>> {
+    // Follow the `unsigned`.`m.relations`.`m.replace` path.
+    let raw_unsigned: Raw<serde_json::Value> = raw.get_field("unsigned").ok()??;
+    let raw_relations: Raw<serde_json::Value> = raw_unsigned.get_field("m.relations").ok()??;
+    raw_relations.get_field::<Raw<AnySyncTimelineEvent>>("m.replace").ok()?
+}
+
 /// Extracts a replacement for a room message, if present in the bundled
 /// relations.
 pub(crate) fn extract_room_msg_edit_content(
@@ -183,6 +202,31 @@ pub(crate) fn extract_room_msg_edit_content(
 
         _ => {
             error!("got m.room.message event with an edit of a different event type");
+            None
+        }
+    }
+}
+
+/// Extracts a replacement for a room message, if present in the bundled
+/// relations.
+pub(crate) fn extract_poll_edit_content(
+    relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+) -> Option<NewUnstablePollStartEventContentWithoutRelation> {
+    match *relations.replace? {
+        AnySyncMessageLikeEvent::UnstablePollStart(SyncUnstablePollStartEvent::Original(ev)) => {
+            match ev.content {
+                UnstablePollStartEventContent::Replacement(re) => Some(re.relates_to.new_content),
+                _ => {
+                    error!("got new poll start event in a bundled edit");
+                    None
+                }
+            }
+        }
+
+        AnySyncMessageLikeEvent::UnstablePollStart(SyncUnstablePollStartEvent::Redacted(_)) => None,
+
+        _ => {
+            error!("got poll edit event with an edit of a different event type");
             None
         }
     }
