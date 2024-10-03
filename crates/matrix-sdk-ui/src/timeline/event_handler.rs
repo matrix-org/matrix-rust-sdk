@@ -467,7 +467,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         // don't want to apply another pending edit on top of it.
         let pending_edit = as_variant!(&self.ctx.flow, Flow::Remote { event_id, .. } => event_id)
             .and_then(|event_id| {
-                Self::find_and_remove_pending(&mut self.meta.pending_edits, event_id)
+                Self::maybe_unstash_pending_edit(&mut self.meta.pending_edits, event_id)
             })
             .and_then(|edit| match edit.kind {
                 PendingEditKind::RoomMessage(replacement) => {
@@ -553,15 +553,16 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // forward-pagination: it's fine to overwrite the previous one, if
                 // available.
                 let edits = &mut self.meta.pending_edits;
-                let _ = Self::find_and_remove_pending(edits, &replaced_event_id);
+                let _ = Self::maybe_unstash_pending_edit(edits, &replaced_event_id);
                 edits.push(replacement);
                 debug!("Timeline item not found, stashing edit");
             }
         }
     }
 
-    /// TODO rename to maybe_unstash_pending_edit?
-    fn find_and_remove_pending(
+    /// Look for a pending edit for the given event, and remove it from the list
+    /// and return it, if found.
+    fn maybe_unstash_pending_edit(
         edits: &mut RingBuffer<PendingEdit>,
         event_id: &EventId,
     ) -> Option<PendingEdit> {
@@ -763,7 +764,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         // don't want to apply another pending edit on top of it.
         let pending_edit = as_variant!(&self.ctx.flow, Flow::Remote { event_id, .. } => event_id)
             .and_then(|event_id| {
-                Self::find_and_remove_pending(&mut self.meta.pending_edits, event_id)
+                Self::maybe_unstash_pending_edit(&mut self.meta.pending_edits, event_id)
             })
             .and_then(|edit| match edit.kind {
                 PendingEditKind::Poll(replacement) => {
