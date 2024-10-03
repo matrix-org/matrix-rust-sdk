@@ -84,9 +84,9 @@ pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, EncryptedMessage, EventItemOrigin, EventSendState,
         EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
-        OtherState, PollResult, Profile, ReactionInfo, ReactionStatus, ReactionsByKeyBySender,
-        RepliedToEvent, RoomMembershipChange, RoomPinnedEventsChange, Sticker, TimelineDetails,
-        TimelineEventItemId, TimelineItemContent,
+        OtherState, PollResult, PollState, Profile, ReactionInfo, ReactionStatus,
+        ReactionsByKeyBySender, RepliedToEvent, RoomMembershipChange, RoomPinnedEventsChange,
+        Sticker, TimelineDetails, TimelineEventItemId, TimelineItemContent,
     },
     event_type_filter::TimelineEventTypeFilter,
     item::{TimelineItem, TimelineItemKind},

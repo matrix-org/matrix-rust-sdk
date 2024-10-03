@@ -869,7 +869,7 @@ mod tests {
         // Then its properties correctly translate.
         assert_eq!(timeline_item.sender, user_id);
 
-        let poll = timeline_item.poll_state();
+        let poll = timeline_item.content().as_poll().unwrap();
         assert!(poll.has_been_edited);
         assert_eq!(
             poll.start_event_content.poll_start.question.text,
