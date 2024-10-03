@@ -328,39 +328,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 AnyMessageLikeEventContent::RoomMessage(c) => {
                     if should_add {
-                        // Always remove the pending edit, if there's any. The reason is that if
-                        // there's an edit in the relations mapping, we want to prefer it over any
-                        // other pending edit, since it's more likely to be up to date, and we
-                        // don't want to apply another pending edit on top of it.
-                        let pending_edit =
-                            as_variant!(&self.ctx.flow, Flow::Remote { event_id, .. } => event_id)
-                                .and_then(|event_id| {
-                                    Self::find_and_remove_pending(
-                                        &mut self.meta.pending_edits,
-                                        event_id,
-                                    )
-                                })
-                                .and_then(|edit| match edit.kind {
-                                    PendingEditKind::RoomMessage(replacement) => {
-                                        Some((Some(edit.event_json), replacement.new_content))
-                                    }
-                                    _ => None,
-                                });
-
-                        let (edit_json, edit_content) = extract_room_msg_edit_content(relations)
-                            .map(|content| {
-                                let raw_event = as_variant!(&self.ctx.flow, Flow::Remote { raw_event, ..} => raw_event);
-                                let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
-                                (edit_json, content)
-                            }
-                            ).or(pending_edit).unzip();
-
-                        let edit_json = edit_json.flatten();
-
-                        self.add_item(
-                            TimelineItemContent::message(c, edit_content, self.items),
-                            edit_json,
-                        );
+                        self.handle_room_message(c, relations);
                     }
                 }
 
@@ -484,6 +452,43 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
 
         self.result
+    }
+
+    /// Handles a new room message by adding it to the timeline.
+    #[instrument(skip_all)]
+    fn handle_room_message(
+        &mut self,
+        msg: RoomMessageEventContent,
+        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+    ) {
+        // Always remove the pending edit, if there's any. The reason is that if
+        // there's an edit in the relations mapping, we want to prefer it over any
+        // other pending edit, since it's more likely to be up to date, and we
+        // don't want to apply another pending edit on top of it.
+        let pending_edit = as_variant!(&self.ctx.flow, Flow::Remote { event_id, .. } => event_id)
+            .and_then(|event_id| {
+                Self::find_and_remove_pending(&mut self.meta.pending_edits, event_id)
+            })
+            .and_then(|edit| match edit.kind {
+                PendingEditKind::RoomMessage(replacement) => {
+                    Some((Some(edit.event_json), replacement.new_content))
+                }
+                _ => None,
+            });
+
+        let (edit_json, edit_content) = extract_room_msg_edit_content(relations)
+            .map(|content| {
+                let raw_event =
+                    as_variant!(&self.ctx.flow, Flow::Remote { raw_event, ..} => raw_event);
+                let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
+                (edit_json, content)
+            })
+            .or(pending_edit)
+            .unzip();
+
+        let edit_json = edit_json.flatten();
+
+        self.add_item(TimelineItemContent::message(msg, edit_content, self.items), edit_json);
     }
 
     #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
