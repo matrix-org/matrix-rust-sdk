@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeMap, iter, ops::Not, sync::Arc, time::Duration};
 
-use assert_matches2::assert_matches;
+use assert_matches2::{assert_let, assert_matches};
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use itertools::Itertools;
 use matrix_sdk_common::deserialized_responses::{
@@ -71,7 +71,7 @@ use crate::{
     utilities::json_convert,
     verification::tests::bob_id,
     Account, DecryptionSettings, DeviceData, EncryptionSettings, MegolmError, OlmError,
-    OutgoingRequests, ToDeviceRequest, TrustRequirement,
+    OutgoingRequests, RoomEventDecryptionResult, ToDeviceRequest, TrustRequirement,
 };
 
 mod decryption_verification_state;
@@ -555,13 +555,11 @@ async fn test_megolm_encryption() {
 
     let decryption_settings =
         DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
-    let decrypted_event = bob
-        .decrypt_room_event(&event, room_id, &decryption_settings)
-        .await
-        .unwrap()
-        .event
-        .deserialize()
-        .unwrap();
+
+    let decryption_result =
+        bob.try_decrypt_room_event(&event, room_id, &decryption_settings).await.unwrap();
+    assert_let!(RoomEventDecryptionResult::Decrypted(decrypted_event) = decryption_result);
+    let decrypted_event = decrypted_event.event.deserialize().unwrap();
 
     if let AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(
         OriginalMessageLikeEvent { sender, content, .. },
@@ -678,6 +676,13 @@ async fn test_withheld_unverified() {
 
     let err = decrypt_result.err().unwrap();
     assert_matches!(err, MegolmError::MissingRoomKey(Some(WithheldCode::Unverified)));
+
+    // Also check `try_decrypt_room_event`.
+    let decrypt_result =
+        bob.try_decrypt_room_event(&room_event, room_id, &decryption_settings).await.unwrap();
+    assert_let!(RoomEventDecryptionResult::UnableToDecrypt(utd_info) = decrypt_result);
+    assert!(utd_info.session_id.is_some());
+    assert_eq!(utd_info.reason, UnableToDecryptReason::MissingMegolmSession);
 }
 
 /// Test what happens when we feed an unencrypted event into the decryption
