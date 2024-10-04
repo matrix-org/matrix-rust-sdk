@@ -106,7 +106,7 @@ sha2 = { workspace = true, optional = true }
 tempfile = "3.3.0"
 thiserror = { workspace = true }
 tokio-stream = { workspace = true, features = ["sync"] }
-tower = { version = "0.4.13", features = ["make"], optional = true }
+tower = { version = "0.4.13", features = ["util"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 uniffi = { workspace = true, optional = true }
 url = { workspace = true, features = ["serde"] }
