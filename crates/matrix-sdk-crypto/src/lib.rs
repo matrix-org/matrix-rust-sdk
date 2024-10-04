@@ -89,6 +89,7 @@ pub use identities::{
     OwnUserIdentityData, UserDevices, UserIdentity, UserIdentityData,
 };
 pub use machine::{CrossSigningBootstrapRequests, EncryptionSyncChanges, OlmMachine};
+use matrix_sdk_common::deserialized_responses::{DecryptedRoomEvent, UnableToDecryptInfo};
 #[cfg(feature = "qrcode")]
 pub use matrix_sdk_qrcode;
 pub use olm::{Account, CrossSigningStatus, EncryptionSettings, Session};
@@ -141,4 +142,15 @@ pub struct DecryptionSettings {
     /// event. If the sender's device is not sufficiently trusted,
     /// [`MegolmError::SenderIdentityNotTrusted`] will be returned.
     pub sender_device_trust_requirement: TrustRequirement,
+}
+
+/// The result of an attempt to decrypt a room event: either a successful
+/// decryption, or information on a failure.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum RoomEventDecryptionResult {
+    /// A successfully-decrypted encrypted event.
+    Decrypted(DecryptedRoomEvent),
+
+    /// We were unable to decrypt the event
+    UnableToDecrypt(UnableToDecryptInfo),
 }

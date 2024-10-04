@@ -95,7 +95,7 @@ use crate::{
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
     CrossSigningKeyExport, CryptoStoreError, DecryptionSettings, DeviceData, KeysQueryRequest,
-    LocalTrust, SignatureError, ToDeviceRequest, TrustRequirement,
+    LocalTrust, RoomEventDecryptionResult, SignatureError, ToDeviceRequest, TrustRequirement,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -1732,6 +1732,34 @@ impl OlmMachine {
                     .map(|e| e.content.withheld_code());
                 Err(MegolmError::MissingRoomKey(withheld_code))
             }
+        }
+    }
+
+    /// Attempt to decrypt an event from a room timeline, returning information
+    /// on the failure if it fails.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event that should be decrypted.
+    ///
+    /// * `room_id` - The ID of the room where the event was sent to.
+    ///
+    /// # Returns
+    ///
+    /// The decrypted event, if it was successfully decrypted. Otherwise,
+    /// information on the failure, unless the failure was due to an
+    /// internal error, in which case, an `Err` result.
+    pub async fn try_decrypt_room_event(
+        &self,
+        raw_event: &Raw<EncryptedEvent>,
+        room_id: &RoomId,
+        decryption_settings: &DecryptionSettings,
+    ) -> Result<RoomEventDecryptionResult, CryptoStoreError> {
+        match self.decrypt_room_event_inner(raw_event, room_id, true, decryption_settings).await {
+            Ok(decrypted) => Ok(RoomEventDecryptionResult::Decrypted(decrypted)),
+            Err(err) => Ok(RoomEventDecryptionResult::UnableToDecrypt(megolm_error_to_utd_info(
+                raw_event, err,
+            )?)),
         }
     }
 
