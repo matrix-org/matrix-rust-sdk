@@ -430,9 +430,10 @@ mod tests {
                     );
 
                     // Pin it
-                    self.crypto_other_identity()
+                    self.user_identity()
                         .await
-                        .pin_current_master_key()
+                        .expect("User should exist")
+                        .pin()
                         .await
                         .expect("Should not fail to pin");
                 } else {
