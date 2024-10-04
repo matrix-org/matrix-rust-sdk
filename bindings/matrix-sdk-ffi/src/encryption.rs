@@ -413,19 +413,16 @@ impl Encryption {
 
     /// Get the E2EE identity of a user.
     ///
-    /// Returns an error if this user does not exist, if there is an error
-    /// contacting the crypto store, or if our client is not logged in.
+    /// Returns Ok(None) if this user does not exist.
+    ///
+    /// Returns an error if there was a problem contacting the crypto store, or
+    /// if our client is not logged in.
     pub async fn get_user_identity(
         &self,
         user_id: String,
-    ) -> Result<Arc<UserIdentity>, ClientError> {
-        Ok(Arc::new(UserIdentity {
-            inner: self
-                .inner
-                .get_user_identity(user_id.as_str().try_into()?)
-                .await?
-                .ok_or(ClientError::new("User not found"))?,
-        }))
+    ) -> Result<Option<Arc<UserIdentity>>, ClientError> {
+        let identity = self.inner.get_user_identity(user_id.as_str().try_into()?).await?;
+        Ok(identity.map(|i| Arc::new(UserIdentity { inner: i })))
     }
 }
 
@@ -453,6 +450,16 @@ impl UserIdentity {
     /// which is not verified and is in pin violation.
     pub(crate) async fn pin(&self) -> Result<(), ClientError> {
         Ok(self.inner.pin().await?)
+    }
+
+    /// Get the public part of the Master key of this user identity.
+    ///
+    /// The public part of the Master key is usually used to uniquely identify
+    /// the identity.
+    ///
+    /// Returns None if the master key does not actually contain any keys.
+    pub(crate) fn master_key(&self) -> Option<String> {
+        self.inner.master_key().get_first_key().map(|k| k.to_base64())
     }
 }
 
