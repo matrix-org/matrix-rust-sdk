@@ -446,7 +446,7 @@ impl OtherUserIdentity {
 pub enum UserIdentityData {
     /// Our own user identity.
     Own(OwnUserIdentityData),
-    /// Identities of other users.
+    /// The identity of another user.
     Other(OtherUserIdentityData),
 }
 

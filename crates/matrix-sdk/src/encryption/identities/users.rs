@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_base::{
-    crypto::{types::MasterPubkey, CryptoStoreError, UserIdentity as CryptoUserIdentities},
+    crypto::{types::MasterPubkey, CryptoStoreError, UserIdentity as CryptoUserIdentity},
     RoomMemberships,
 };
 use ruma::{
@@ -100,16 +100,16 @@ impl IdentityUpdates {
 #[derive(Debug, Clone)]
 pub struct UserIdentity {
     client: Client,
-    inner: CryptoUserIdentities,
+    inner: CryptoUserIdentity,
 }
 
 impl UserIdentity {
-    pub(crate) fn new(client: Client, identity: CryptoUserIdentities) -> Self {
+    pub(crate) fn new(client: Client, identity: CryptoUserIdentity) -> Self {
         Self { inner: identity, client }
     }
 
     #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
-    pub(crate) fn underlying_identity(&self) -> CryptoUserIdentities {
+    pub(crate) fn underlying_identity(&self) -> CryptoUserIdentity {
         self.inner.clone()
     }
 
@@ -134,8 +134,8 @@ impl UserIdentity {
     /// ```
     pub fn user_id(&self) -> &UserId {
         match &self.inner {
-            CryptoUserIdentities::Own(identity) => identity.user_id(),
-            CryptoUserIdentities::Other(identity) => identity.user_id(),
+            CryptoUserIdentity::Own(identity) => identity.user_id(),
+            CryptoUserIdentity::Other(identity) => identity.user_id(),
         }
     }
 
@@ -257,7 +257,7 @@ impl UserIdentity {
         methods: Option<Vec<VerificationMethod>>,
     ) -> Result<VerificationRequest, RequestVerificationError> {
         match &self.inner {
-            CryptoUserIdentities::Own(identity) => {
+            CryptoUserIdentity::Own(identity) => {
                 let (verification, request) = if let Some(methods) = methods {
                     identity
                         .request_verification_with_methods(methods)
@@ -271,7 +271,7 @@ impl UserIdentity {
 
                 Ok(VerificationRequest { inner: verification, client: self.client.clone() })
             }
-            CryptoUserIdentities::Other(i) => {
+            CryptoUserIdentity::Other(i) => {
                 let content = i.verification_request_content(methods.clone());
 
                 let room = if let Some(room) = self.client.get_dm_room(i.user_id()) {
@@ -362,8 +362,8 @@ impl UserIdentity {
     /// [`Encryption::cross_signing_status()`]: crate::encryption::Encryption::cross_signing_status
     pub async fn verify(&self) -> Result<(), ManualVerifyError> {
         let request = match &self.inner {
-            CryptoUserIdentities::Own(identity) => identity.verify().await?,
-            CryptoUserIdentities::Other(identity) => identity.verify().await?,
+            CryptoUserIdentity::Own(identity) => identity.verify().await?,
+            CryptoUserIdentity::Other(identity) => identity.verify().await?,
         };
 
         self.client.send(request, None).await?;
@@ -465,8 +465,8 @@ impl UserIdentity {
     /// ```
     pub fn master_key(&self) -> &MasterPubkey {
         match &self.inner {
-            CryptoUserIdentities::Own(identity) => identity.master_key(),
-            CryptoUserIdentities::Other(identity) => identity.master_key(),
+            CryptoUserIdentity::Own(identity) => identity.master_key(),
+            CryptoUserIdentity::Other(identity) => identity.master_key(),
         }
     }
 }
