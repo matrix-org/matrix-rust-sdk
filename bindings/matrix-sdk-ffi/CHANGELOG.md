@@ -31,5 +31,5 @@ Breaking changes:
 
 Additions:
 
-- Add `Encryption::get_user_identity`
+- Add `Encryption::get_user_identity` which returns `UserIdentity`
 - Add `ClientBuilder::room_key_recipient_strategy`
