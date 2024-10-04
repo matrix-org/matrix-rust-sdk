@@ -41,7 +41,7 @@ fn map_info<F: FnOnce(&mut RoomInfo)>(
         f(&mut info);
         changes.add_room(info);
     } else {
-        warn!(room = %room_id, "couldn't find room in state changes or store");
+        debug!(room = %room_id, "couldn't find room in state changes or store");
     }
 }
 
