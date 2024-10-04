@@ -1691,7 +1691,7 @@ dependencies = [
  "clap",
  "futures-util",
  "matrix-sdk",
- "qrcode 0.14.1 (git+https://github.com/kennytm/qrcode-rust/)",
+ "qrcode",
  "tokio",
  "tracing-subscriber",
  "url",
@@ -3418,7 +3418,7 @@ version = "0.7.1"
 dependencies = [
  "byteorder",
  "image",
- "qrcode 0.14.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "qrcode",
  "ruma-common",
  "thiserror",
  "vodozemac",
@@ -4528,14 +4528,6 @@ name = "qrcode"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
-dependencies = [
- "image",
-]
-
-[[package]]
-name = "qrcode"
-version = "0.14.1"
-source = "git+https://github.com/kennytm/qrcode-rust/#e9373dea6a90fd4f39292b464f718649bbdb36a9"
 dependencies = [
  "image",
 ]
