@@ -2090,7 +2090,7 @@ impl OlmMachine {
     /// the requests from [`OlmMachine::outgoing_requests`] are being
     /// processed and sent out.
     ///
-    /// Returns a `UserIdentities` enum if one is found and the crypto store
+    /// Returns a [`UserIdentity`] enum if one is found and the crypto store
     /// didn't throw an error.
     #[instrument(skip(self))]
     pub async fn get_identity(
