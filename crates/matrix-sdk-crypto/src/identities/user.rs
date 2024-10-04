@@ -125,6 +125,32 @@ impl UserIdentity {
         }
     }
 
+    /// Remember this identity, ensuring it does not result in a pin violation.
+    ///
+    /// When we first see a user, we assume their cryptographic identity has not
+    /// been tampered with by the homeserver or another entity with
+    /// man-in-the-middle capabilities. We remember this identity and call this
+    /// action "pinning".
+    ///
+    /// If the identity presented for the user changes later on, the newly
+    /// presented identity is considered to be in "pin violation". This
+    /// method explicitly accepts the new identity, allowing it to replace
+    /// the previously pinned one and bringing it out of pin violation.
+    ///
+    /// UIs should display a warning to the user when encountering an identity
+    /// which is not verified and is in pin violation. See
+    /// [`OtherUserIdentity::identity_needs_user_approval`].
+    pub async fn pin(&self) -> Result<(), CryptoStoreError> {
+        match self {
+            UserIdentity::Own(_) => {
+                // Nothing to be done for our own identity: we already
+                // consider it trusted in this sense.
+                Ok(())
+            }
+            UserIdentity::Other(u) => u.pin_current_master_key().await,
+        }
+    }
+
     /// Was this identity previously verified, and is no longer?
     pub fn has_verification_violation(&self) -> bool {
         match self {
@@ -737,7 +763,21 @@ impl OtherUserIdentityData {
         &self.self_signing_key
     }
 
-    /// Pin the current identity
+    /// Remember this identity, ensuring it does not result in a pin violation.
+    ///
+    /// When we first see a user, we assume their cryptographic identity has not
+    /// been tampered with by the homeserver or another entity with
+    /// man-in-the-middle capabilities. We remember this identity and call this
+    /// action "pinning".
+    ///
+    /// If the identity presented for the user changes later on, the newly
+    /// presented identity is considered to be in "pin violation". This
+    /// method explicitly accepts the new identity, allowing it to replace
+    /// the previously pinned one and bringing it out of pin violation.
+    ///
+    /// UIs should display a warning to the user when encountering an identity
+    /// which is not verified and is in pin violation. See
+    /// [`OtherUserIdentity::identity_needs_user_approval`].
     pub(crate) fn pin(&self) {
         let mut m = self.pinned_master_key.write().unwrap();
         *m = self.master_key.as_ref().clone()

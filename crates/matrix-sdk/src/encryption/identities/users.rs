@@ -422,6 +422,24 @@ impl UserIdentity {
         self.inner.withdraw_verification().await
     }
 
+    /// Remember this identity, ensuring it does not result in a pin violation.
+    ///
+    /// When we first see a user, we assume their cryptographic identity has not
+    /// been tampered with by the homeserver or another entity with
+    /// man-in-the-middle capabilities. We remember this identity and call this
+    /// action "pinning".
+    ///
+    /// If the identity presented for the user changes later on, the newly
+    /// presented identity is considered to be in "pin violation". This
+    /// method explicitly accepts the new identity, allowing it to replace
+    /// the previously pinned one and bringing it out of pin violation.
+    ///
+    /// UIs should display a warning to the user when encountering an identity
+    /// which is not verified and is in pin violation.
+    pub async fn pin(&self) -> Result<(), CryptoStoreError> {
+        self.inner.pin().await
+    }
+
     /// Get the public part of the Master key of this user identity.
     ///
     /// The public part of the Master key is usually used to uniquely identify

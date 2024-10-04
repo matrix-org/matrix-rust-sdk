@@ -410,6 +410,50 @@ impl Encryption {
     pub async fn wait_for_e2ee_initialization_tasks(&self) {
         self.inner.wait_for_e2ee_initialization_tasks().await;
     }
+
+    /// Get the E2EE identity of a user.
+    ///
+    /// Returns an error if this user does not exist, if there is an error
+    /// contacting the crypto store, or if our client is not logged in.
+    pub async fn get_user_identity(
+        &self,
+        user_id: String,
+    ) -> Result<Arc<UserIdentity>, ClientError> {
+        Ok(Arc::new(UserIdentity {
+            inner: self
+                .inner
+                .get_user_identity(user_id.as_str().try_into()?)
+                .await?
+                .ok_or(ClientError::new("User not found"))?,
+        }))
+    }
+}
+
+/// The E2EE identity of a user.
+#[derive(uniffi::Object)]
+pub struct UserIdentity {
+    inner: matrix_sdk::encryption::identities::UserIdentity,
+}
+
+#[uniffi::export]
+impl UserIdentity {
+    /// Remember this identity, ensuring it does not result in a pin violation.
+    ///
+    /// When we first see a user, we assume their cryptographic identity has not
+    /// been tampered with by the homeserver or another entity with
+    /// man-in-the-middle capabilities. We remember this identity and call this
+    /// action "pinning".
+    ///
+    /// If the identity presented for the user changes later on, the newly
+    /// presented identity is considered to be in "pin violation". This
+    /// method explicitly accepts the new identity, allowing it to replace
+    /// the previously pinned one and bringing it out of pin violation.
+    ///
+    /// UIs should display a warning to the user when encountering an identity
+    /// which is not verified and is in pin violation.
+    pub(crate) async fn pin(&self) -> Result<(), ClientError> {
+        Ok(self.inner.pin().await?)
+    }
 }
 
 #[derive(uniffi::Object)]
