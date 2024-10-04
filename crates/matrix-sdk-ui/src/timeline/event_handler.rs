@@ -906,7 +906,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         }
 
-        warn!("Reaction to redact was missing from the reaction or user map");
         false
     }
 
