@@ -129,8 +129,8 @@ use ruma::{
         poll::{start::PollStartEventContent, unstable_start::UnstablePollStartEventContent},
         receipt::{ReceiptEventContent, ReceiptThread, ReceiptType},
         room::message::Relation,
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
-        SyncMessageLikeEvent,
+        AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        OriginalSyncMessageLikeEvent, SyncMessageLikeEvent,
     },
     serde::Raw,
     EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
@@ -207,17 +207,18 @@ impl RoomReadReceipts {
             self.num_unread += 1;
         }
 
-        let mut has_notify = false;
-        let mut has_mention = false;
-
-        for action in &event.push_actions {
-            if !has_notify && action.should_notify() {
-                self.num_notifications += 1;
-                has_notify = true;
-            }
-            if !has_mention && action.is_highlight() {
-                self.num_mentions += 1;
-                has_mention = true;
+        if marks_as_notify_highlight(&event.event, user_id) {
+            let mut has_notify = false;
+            let mut has_mention = false;
+            for action in &event.push_actions {
+                if !has_notify && action.should_notify() {
+                    self.num_notifications += 1;
+                    has_notify = true;
+                }
+                if !has_mention && action.is_highlight() {
+                    self.num_mentions += 1;
+                    has_mention = true;
+                }
             }
         }
     }
@@ -523,6 +524,33 @@ pub(crate) fn compute_unread_counts(
     debug!(?read_receipts, "no better receipt, {} new events", new_events.len());
 }
 
+/// Is the event worth notifying/highlighting a room?
+fn marks_as_notify_highlight(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool {
+    let event = match event.deserialize() {
+        Ok(event) => event,
+        Err(err) => {
+            warn!(
+                "couldn't deserialize event {:?}: {err}",
+                event.get_field::<String>("event_id").ok().flatten()
+            );
+            return false;
+        }
+    };
+
+    if event.sender() == user_id {
+        // Not interested in one's own events.
+        return false;
+    }
+
+    match event {
+        AnySyncTimelineEvent::State(event) => match event {
+            // Ignore member event changes when other users that change their display name or join.
+            AnySyncStateEvent::RoomMember(member_event) => member_event.state_key() == user_id,
+            _ => true,
+        },
+        _ => false,
+    }
+}
 /// Is the event worth marking a room as unread?
 fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool {
     let event = match event.deserialize() {
@@ -611,7 +639,7 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
             }
         }
 
-        AnySyncTimelineEvent::State(_) => false,
+        AnySyncTimelineEvent::State(event) => false,
     }
 }
 
@@ -755,6 +783,45 @@ mod tests {
 
         let other_user_id = user_id!("@bob:example.org");
         assert!(marks_as_unread(&ev, other_user_id).not());
+    }
+
+    #[test]
+    fn test_state_event_with_notify_action_doesnt_mark_as_unread() {
+        let user_id = user_id!("@alice:example.org");
+
+        fn make_state_event(user_id: &UserId, push_actions: Vec<Action>) -> SyncTimelineEvent {
+            SyncTimelineEvent::new_with_push_actions(
+                sync_timeline_event!({
+                       "content": {
+                    "displayname": "Alice",
+                    "membership": "join",
+                },
+                "event_id": "$ida",
+                "origin_server_ts": 1432135524678u64,
+                "sender": user_id,
+                "state_key": user_id,
+                "type": "m.room.member",
+                    }),
+                push_actions,
+            )
+        }
+
+        // This really should not do a notify
+        let event = make_state_event(user_id, Vec::new());
+        let mut receipts = RoomReadReceipts::default();
+        receipts.process_event(&event, user_id);
+        assert_eq!(receipts.num_unread, 0);
+        assert_eq!(receipts.num_mentions, 0);
+        assert_eq!(receipts.num_notifications, 0);
+
+        // This case causes an unred but should not.
+        let event = make_state_event(user_id, vec![Action::Notify]);
+        let mut receipts = RoomReadReceipts::default();
+        receipts.process_event(&event, user_id);
+        assert_eq!(receipts.num_unread, 0);
+        assert_eq!(receipts.num_mentions, 0);
+        assert_eq!(receipts.num_notifications, 0);
+        let other_user_id = user_id!("@alice:example.org");
     }
 
     #[test]
