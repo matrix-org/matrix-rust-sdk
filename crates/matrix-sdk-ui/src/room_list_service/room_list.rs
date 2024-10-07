@@ -115,7 +115,7 @@ impl RoomList {
 
     /// Get a subscriber to the room list loading state.
     pub fn loading_state(&self) -> Subscriber<RoomListLoadingState> {
-        self.loading_state.subscribe()
+        self.loading_state.subscribe_reset()
     }
 
     /// Get all previous rooms, in addition to a [`Stream`] to rooms' updates.
