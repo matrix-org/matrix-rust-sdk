@@ -1,6 +1,5 @@
 use std::sync::{Arc, RwLock};
 
-use anyhow::Context as _;
 use futures_util::StreamExt;
 use matrix_sdk::{
     encryption::{
@@ -10,6 +9,8 @@ use matrix_sdk::{
     },
     ruma::events::{key::verification::VerificationMethod, AnyToDeviceEvent},
 };
+use ruma::UserId;
+use tracing::{error, info};
 
 use super::RUNTIME;
 use crate::error::ClientError;
@@ -39,6 +40,7 @@ pub enum SessionVerificationData {
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait SessionVerificationControllerDelegate: Sync + Send {
+    fn did_receive_verification_request(&self, sender_id: String, flow_id: String);
     fn did_accept_verification_request(&self);
     fn did_start_sas_verification(&self);
     fn did_receive_verification_data(&self, data: SessionVerificationData);
@@ -60,17 +62,43 @@ pub struct SessionVerificationController {
 
 #[matrix_sdk_ffi_macros::export]
 impl SessionVerificationController {
-    pub async fn is_verified(&self) -> Result<bool, ClientError> {
-        let device =
-            self.encryption.get_own_device().await?.context("Our own device is missing")?;
-
-        Ok(device.is_cross_signed_by_owner())
-    }
-
     pub fn set_delegate(&self, delegate: Option<Box<dyn SessionVerificationControllerDelegate>>) {
         *self.delegate.write().unwrap() = delegate;
     }
 
+    pub async fn accept_verification_request(
+        &self,
+        sender_id: String,
+        flow_id: String,
+    ) -> Result<(), ClientError> {
+        let sender_id = UserId::parse(sender_id.clone())?;
+
+        let verification_request = self
+            .encryption
+            .get_verification_request(&sender_id, flow_id)
+            .await
+            .ok_or(ClientError::new("Unknown session verification request"))?;
+
+        verification_request.accept().await?;
+
+        *self.verification_request.write().unwrap() = Some(verification_request);
+
+        Ok(())
+    }
+
+    /// Accept the previously acknowledged verification request
+    pub async fn accept_verification_request(&self) -> Result<(), ClientError> {
+        let verification_request = self.verification_request.read().unwrap().clone();
+
+        if let Some(verification_request) = verification_request {
+            let methods = vec![VerificationMethod::SasV1];
+            verification_request.accept_with_methods(methods).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Request verification for the current device
     pub async fn request_verification(&self) -> Result<(), ClientError> {
         let methods = vec![VerificationMethod::SasV1];
         let verification_request = self
@@ -78,6 +106,7 @@ impl SessionVerificationController {
             .request_verification_with_methods(methods)
             .await
             .map_err(anyhow::Error::from)?;
+
         *self.verification_request.write().unwrap() = Some(verification_request);
 
         Ok(())
@@ -150,34 +179,61 @@ impl SessionVerificationController {
 
     pub(crate) async fn process_to_device_message(&self, event: AnyToDeviceEvent) {
         match event {
+            AnyToDeviceEvent::KeyVerificationRequest(event) => {
+                info!("Received verification request: {:}", event.sender);
+
+                let Some(request) = self
+                    .encryption
+                    .get_verification_request(&event.sender, &event.content.transaction_id)
+                    .await
+                else {
+                    error!("Failed retrieving verification request");
+                    return;
+                };
+
+                if !request.is_self_verification() {
+                    info!("Received non-self verification request. Ignoring.");
+                    return;
+                }
+
+                if let Some(delegate) = &*self.delegate.read().unwrap() {
+                    delegate.did_receive_verification_request(
+                        request.other_user_id().into(),
+                        request.flow_id().into(),
+                    );
+                }
+            }
             // TODO: Use the changes stream for this as well once we expose
             // VerificationRequest::changes() in the main crate.
             AnyToDeviceEvent::KeyVerificationStart(event) => {
                 if !self.is_transaction_id_valid(event.content.transaction_id.to_string()) {
                     return;
                 }
-                if let Some(verification) = self
+
+                let Some(verification) = self
                     .encryption
                     .get_verification(
                         self.user_identity.user_id(),
                         event.content.transaction_id.as_str(),
                     )
                     .await
-                {
-                    if let Some(sas_verification) = verification.sas() {
-                        *self.sas_verification.write().unwrap() = Some(sas_verification.clone());
+                else {
+                    return;
+                };
 
-                        if sas_verification.accept().await.is_ok() {
-                            if let Some(delegate) = &*self.delegate.read().unwrap() {
-                                delegate.did_start_sas_verification()
-                            }
+                let Some(sas_verification) = verification.sas() else { return };
 
-                            let delegate = self.delegate.clone();
-                            RUNTIME.spawn(Self::listen_to_changes(delegate, sas_verification));
-                        } else if let Some(delegate) = &*self.delegate.read().unwrap() {
-                            delegate.did_fail()
-                        }
+                *self.sas_verification.write().unwrap() = Some(sas_verification.clone());
+
+                if sas_verification.accept().await.is_ok() {
+                    if let Some(delegate) = &*self.delegate.read().unwrap() {
+                        delegate.did_start_sas_verification()
                     }
+
+                    let delegate = self.delegate.clone();
+                    RUNTIME.spawn(Self::listen_to_changes(delegate, sas_verification));
+                } else if let Some(delegate) = &*self.delegate.read().unwrap() {
+                    delegate.did_fail()
                 }
             }
             AnyToDeviceEvent::KeyVerificationReady(event) => {
