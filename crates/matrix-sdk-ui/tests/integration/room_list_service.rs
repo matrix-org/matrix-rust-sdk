@@ -599,6 +599,13 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
         let sync = room_list.sync();
         pin_mut!(sync);
 
+        let all_rooms = room_list.all_rooms().await?;
+        let mut all_rooms_loading_state = all_rooms.loading_state();
+
+        // The loading is not loaded.
+        assert_next_matches!(all_rooms_loading_state, RoomListLoadingState::NotLoaded);
+        assert_pending!(all_rooms_loading_state);
+
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Init => SettingUp,
@@ -627,6 +634,20 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
         let sync = room_list.sync();
         pin_mut!(sync);
 
+        let all_rooms = room_list.all_rooms().await?;
+        let mut all_rooms_loading_state = all_rooms.loading_state();
+
+        // Wait on Tokio to run all the tasks. Necessary only when testing.
+        yield_now().await;
+
+        // We already have a state stored so the list should already be loaded
+        assert_next_matches!(
+            all_rooms_loading_state,
+            RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(10) }
+        );
+        assert_pending!(all_rooms_loading_state);
+
+        // pos has been restored and is used when doing the req
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Init => SettingUp,
@@ -642,12 +663,22 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
                 "pos": "1",
                 "lists": {
                     ALL_ROOMS: {
-                        "count": 10,
+                        "count": 12,
                     },
                 },
                 "rooms": {},
             },
         };
+
+        // Wait on Tokio to run all the tasks. Necessary only when testing.
+        yield_now().await;
+
+        // maximum_number_of_rooms changed so we should get a new loaded state
+        assert_next_matches!(
+            all_rooms_loading_state,
+            RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
+        );
+        assert_pending!(all_rooms_loading_state);
     }
 
     Ok(())
@@ -1139,8 +1170,7 @@ async fn test_loading_states() -> Result<(), Error> {
         let mut all_rooms_loading_state = all_rooms.loading_state();
 
         // The loading is not loaded.
-        assert_matches!(all_rooms_loading_state.get(), RoomListLoadingState::NotLoaded);
-        assert_pending!(all_rooms_loading_state);
+        assert_next_matches!(all_rooms_loading_state, RoomListLoadingState::NotLoaded);
 
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
@@ -1246,11 +1276,10 @@ async fn test_loading_states() -> Result<(), Error> {
         pin_mut!(sync);
 
         // The loading state is loaded! Indeed, there is data loaded from the cache.
-        assert_matches!(
-            all_rooms_loading_state.get(),
+        assert_next_matches!(
+            all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
         );
-        assert_pending!(all_rooms_loading_state);
 
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
