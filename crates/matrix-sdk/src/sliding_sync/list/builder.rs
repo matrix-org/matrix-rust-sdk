@@ -177,9 +177,9 @@ impl SlidingSyncListBuilder {
                         self.required_state,
                         self.include_heroes,
                         self.filters,
-                        self.timeline_limit,
                     ),
                 )),
+                timeline_limit: StdRwLock::new(self.timeline_limit),
                 name: self.name,
                 cache_policy: self.cache_policy,
 
