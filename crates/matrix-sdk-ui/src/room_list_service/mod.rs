@@ -44,9 +44,9 @@
 //! fluid user experience for a Matrix client.
 //!
 //! [`RoomListService::all_rooms`] provides a way to get a [`RoomList`] for all
-//! the rooms. From that, calling [`RoomList::entries`] provides a way to get a
-//! stream of room list entry. This stream can be filtered, and the filter can
-//! be changed over time.
+//! the rooms. From that, calling [`RoomList::entries_with_dynamic_adapters`]
+//! provides a way to get a stream of rooms. This stream is sorted, can be
+//! filtered, and the filter can be changed over time.
 //!
 //! [`RoomListService::state`] provides a way to get a stream of the state
 //! machine's state, which can be pretty helpful for the client app.

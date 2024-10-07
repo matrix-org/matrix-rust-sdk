@@ -182,33 +182,6 @@ impl RoomList {
         })
     }
 
-    fn entries(&self, listener: Box<dyn RoomListEntriesListener>) -> Arc<TaskHandle> {
-        let this = self.inner.clone();
-        let utd_hook = self.room_list_service.utd_hook.clone();
-
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            let (entries, entries_stream) = this.entries();
-
-            pin_mut!(entries_stream);
-
-            listener.on_update(vec![RoomListEntriesUpdate::Append {
-                values: entries
-                    .into_iter()
-                    .map(|room| Arc::new(RoomListItem::from(room, utd_hook.clone())))
-                    .collect(),
-            }]);
-
-            while let Some(diffs) = entries_stream.next().await {
-                listener.on_update(
-                    diffs
-                        .into_iter()
-                        .map(|diff| RoomListEntriesUpdate::from(diff, utd_hook.clone()))
-                        .collect(),
-                );
-            }
-        })))
-    }
-
     fn entries_with_dynamic_adapters(
         self: Arc<Self>,
         page_size: u32,
