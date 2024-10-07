@@ -277,7 +277,7 @@ impl TryFrom<MessageType> for RumaMessageType {
                     RumaImageMessageEventContent::new(content.body, (*content.source).clone())
                         .info(content.info.map(Into::into).map(Box::new));
                 event_content.formatted = content.formatted.map(Into::into);
-                event_content.filename = content.filename;
+                event_content.filename = content.raw_filename;
                 Self::Image(event_content)
             }
             MessageType::Audio { content } => {
@@ -285,7 +285,7 @@ impl TryFrom<MessageType> for RumaMessageType {
                     RumaAudioMessageEventContent::new(content.body, (*content.source).clone())
                         .info(content.info.map(Into::into).map(Box::new));
                 event_content.formatted = content.formatted.map(Into::into);
-                event_content.filename = content.filename;
+                event_content.filename = content.raw_filename;
                 Self::Audio(event_content)
             }
             MessageType::Video { content } => {
@@ -293,7 +293,7 @@ impl TryFrom<MessageType> for RumaMessageType {
                     RumaVideoMessageEventContent::new(content.body, (*content.source).clone())
                         .info(content.info.map(Into::into).map(Box::new));
                 event_content.formatted = content.formatted.map(Into::into);
-                event_content.filename = content.filename;
+                event_content.filename = content.raw_filename;
                 Self::Video(event_content)
             }
             MessageType::File { content } => {
@@ -301,7 +301,7 @@ impl TryFrom<MessageType> for RumaMessageType {
                     RumaFileMessageEventContent::new(content.body, (*content.source).clone())
                         .info(content.info.map(Into::into).map(Box::new));
                 event_content.formatted = content.formatted.map(Into::into);
-                event_content.filename = content.filename;
+                event_content.filename = content.raw_filename;
                 Self::File(event_content)
             }
             MessageType::Notice { content } => {
@@ -337,7 +337,10 @@ impl From<RumaMessageType> for MessageType {
                 content: ImageMessageContent {
                     body: c.body.clone(),
                     formatted: c.formatted.as_ref().map(Into::into),
-                    filename: c.filename.clone(),
+                    raw_filename: c.filename.clone(),
+                    filename: c.filename().to_owned(),
+                    caption: c.caption().map(ToString::to_string),
+                    formatted_caption: c.formatted_caption().map(Into::into),
                     source: Arc::new(c.source.clone()),
                     info: c.info.as_deref().map(Into::into),
                 },
@@ -346,7 +349,10 @@ impl From<RumaMessageType> for MessageType {
                 content: AudioMessageContent {
                     body: c.body.clone(),
                     formatted: c.formatted.as_ref().map(Into::into),
-                    filename: c.filename.clone(),
+                    raw_filename: c.filename.clone(),
+                    filename: c.filename().to_owned(),
+                    caption: c.caption().map(ToString::to_string),
+                    formatted_caption: c.formatted_caption().map(Into::into),
                     source: Arc::new(c.source.clone()),
                     info: c.info.as_deref().map(Into::into),
                     audio: c.audio.map(Into::into),
@@ -357,7 +363,10 @@ impl From<RumaMessageType> for MessageType {
                 content: VideoMessageContent {
                     body: c.body.clone(),
                     formatted: c.formatted.as_ref().map(Into::into),
-                    filename: c.filename.clone(),
+                    raw_filename: c.filename.clone(),
+                    filename: c.filename().to_owned(),
+                    caption: c.caption().map(ToString::to_string),
+                    formatted_caption: c.formatted_caption().map(Into::into),
                     source: Arc::new(c.source.clone()),
                     info: c.info.as_deref().map(Into::into),
                 },
@@ -366,7 +375,10 @@ impl From<RumaMessageType> for MessageType {
                 content: FileMessageContent {
                     body: c.body.clone(),
                     formatted: c.formatted.as_ref().map(Into::into),
-                    filename: c.filename.clone(),
+                    raw_filename: c.filename.clone(),
+                    filename: c.filename().to_owned(),
+                    caption: c.caption().map(ToString::to_string),
+                    formatted_caption: c.formatted_caption().map(Into::into),
                     source: Arc::new(c.source.clone()),
                     info: c.info.as_deref().map(Into::into),
                 },
@@ -440,18 +452,38 @@ pub struct EmoteMessageContent {
 
 #[derive(Clone, uniffi::Record)]
 pub struct ImageMessageContent {
+    /// The original body field, deserialized from the event. Prefer the use of
+    /// `filename` and `caption` over this.
     pub body: String,
+    /// The original formatted body field, deserialized from the event. Prefer
+    /// the use of `filename` and `formatted_caption` over this.
     pub formatted: Option<FormattedBody>,
-    pub filename: Option<String>,
+    /// The original filename field, deserialized from the event. Prefer the use
+    /// of `filename` over this.
+    pub raw_filename: Option<String>,
+    /// The computed filename, for use in a client.
+    pub filename: String,
+    pub caption: Option<String>,
+    pub formatted_caption: Option<FormattedBody>,
     pub source: Arc<MediaSource>,
     pub info: Option<ImageInfo>,
 }
 
 #[derive(Clone, uniffi::Record)]
 pub struct AudioMessageContent {
+    /// The original body field, deserialized from the event. Prefer the use of
+    /// `filename` and `caption` over this.
     pub body: String,
+    /// The original formatted body field, deserialized from the event. Prefer
+    /// the use of `filename` and `formatted_caption` over this.
     pub formatted: Option<FormattedBody>,
-    pub filename: Option<String>,
+    /// The original filename field, deserialized from the event. Prefer the use
+    /// of `filename` over this.
+    pub raw_filename: Option<String>,
+    /// The computed filename, for use in a client.
+    pub filename: String,
+    pub caption: Option<String>,
+    pub formatted_caption: Option<FormattedBody>,
     pub source: Arc<MediaSource>,
     pub info: Option<AudioInfo>,
     pub audio: Option<UnstableAudioDetailsContent>,
@@ -460,18 +492,38 @@ pub struct AudioMessageContent {
 
 #[derive(Clone, uniffi::Record)]
 pub struct VideoMessageContent {
+    /// The original body field, deserialized from the event. Prefer the use of
+    /// `filename` and `caption` over this.
     pub body: String,
+    /// The original formatted body field, deserialized from the event. Prefer
+    /// the use of `filename` and `formatted_caption` over this.
     pub formatted: Option<FormattedBody>,
-    pub filename: Option<String>,
+    /// The original filename field, deserialized from the event. Prefer the use
+    /// of `filename` over this.
+    pub raw_filename: Option<String>,
+    /// The computed filename, for use in a client.
+    pub filename: String,
+    pub caption: Option<String>,
+    pub formatted_caption: Option<FormattedBody>,
     pub source: Arc<MediaSource>,
     pub info: Option<VideoInfo>,
 }
 
 #[derive(Clone, uniffi::Record)]
 pub struct FileMessageContent {
+    /// The original body field, deserialized from the event. Prefer the use of
+    /// `filename` and `caption` over this.
     pub body: String,
+    /// The original formatted body field, deserialized from the event. Prefer
+    /// the use of `filename` and `formatted_caption` over this.
     pub formatted: Option<FormattedBody>,
-    pub filename: Option<String>,
+    /// The original filename field, deserialized from the event. Prefer the use
+    /// of `filename` over this.
+    pub raw_filename: Option<String>,
+    /// The computed filename, for use in a client.
+    pub filename: String,
+    pub caption: Option<String>,
+    pub formatted_caption: Option<FormattedBody>,
     pub source: Arc<MediaSource>,
     pub info: Option<FileInfo>,
 }
