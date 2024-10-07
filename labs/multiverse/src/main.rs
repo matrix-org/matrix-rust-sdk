@@ -411,7 +411,7 @@ impl App {
             .and_then(|room_id| self.ui_rooms.lock().unwrap().get(&room_id).cloned())
         {
             let mut sub = RoomSubscription::default();
-            sub.timeline_limit = Some(uint!(30));
+            sub.timeline_limit = uint!(30);
 
             self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()], Some(sub));
             self.current_room_subscription = Some(room);

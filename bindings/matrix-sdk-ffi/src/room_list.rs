@@ -716,7 +716,7 @@ pub struct RequiredState {
 #[derive(uniffi::Record)]
 pub struct RoomSubscription {
     pub required_state: Option<Vec<RequiredState>>,
-    pub timeline_limit: Option<u32>,
+    pub timeline_limit: u32,
     pub include_heroes: Option<bool>,
 }
 
@@ -726,7 +726,7 @@ impl From<RoomSubscription> for http::request::RoomSubscription {
             required_state: val.required_state.map(|r|
                 r.into_iter().map(|s| (s.key.into(), s.value)).collect()
             ).unwrap_or_default(),
-            timeline_limit: val.timeline_limit.map(|u| u.into()),
+            timeline_limit: val.timeline_limit.into(),
             include_heroes: val.include_heroes,
         })
     }

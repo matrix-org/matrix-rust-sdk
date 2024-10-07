@@ -50,7 +50,7 @@ impl StickyData for SlidingSyncListStickyParameters {
 
     fn apply(&self, request: &mut Self::Request) {
         request.room_details.required_state = self.required_state.to_vec();
-        request.room_details.timeline_limit = Some(self.timeline_limit.into());
+        request.room_details.timeline_limit = self.timeline_limit.into();
         request.include_heroes = self.include_heroes;
         request.filters = self.filters.clone();
     }

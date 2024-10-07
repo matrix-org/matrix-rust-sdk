@@ -47,7 +47,7 @@ once_cell = "1.16.0"
 pin-project-lite = "0.2.9"
 rand = "0.8.5"
 reqwest = { version = "0.12.4", default-features = false }
-ruma = { git = "https://github.com/ruma/ruma", rev = "1ae98db9c44f46a590f4c76baf5cef70ebb6970d", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "b1c9a32f26f7aa76e20f96dbbb113250ed979112", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -61,7 +61,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "1ae98db9c44f46a590f4c76baf
     "unstable-msc4075",
     "unstable-msc4140",
 ] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "1ae98db9c44f46a590f4c76baf5cef70ebb6970d" }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "b1c9a32f26f7aa76e20f96dbbb113250ed979112" }
 serde = "1.0.151"
 serde_html_form = "0.2.0"
 serde_json = "1.0.91"
@@ -123,7 +123,7 @@ opt-level = 3
 async-compat = { git = "https://github.com/jplatte/async-compat", rev = "16dc8597ec09a6102d58d4e7b67714a35dd0ecb8" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "9024a4cb3eac45c1d2d980f17aaee287b17be498" }
 # Needed to fix rotation log issue on Android (https://github.com/tokio-rs/tracing/issues/2937)
-tracing = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd"}
+tracing = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
 tracing-core = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
 tracing-subscriber = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
 tracing-appender = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
