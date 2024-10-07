@@ -36,7 +36,7 @@ use ruma::{
 };
 use tracing::{debug, error};
 
-use super::{Profile, TimelineBuilder};
+use super::{Profile, RedactError, TimelineBuilder};
 use crate::timeline::{self, pinned_events_loader::PinnedEventsRoom, Timeline};
 
 pub trait RoomExt {
@@ -269,6 +269,7 @@ impl RoomDataProvider for Room {
             let _ = self
                 .redact(event_id, reason, transaction_id)
                 .await
+                .map_err(RedactError::HttpError)
                 .map_err(super::Error::RedactError)?;
             Ok(())
         }
@@ -303,6 +304,6 @@ impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
             DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
         let event =
             olm_machine.decrypt_room_event(raw.cast_ref(), room_id, &decryption_settings).await?;
-        Ok(event)
+        Ok(event.into())
     }
 }

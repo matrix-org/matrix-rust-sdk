@@ -44,6 +44,10 @@ pub mod testing {
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub use identities::room_identity_state::{
+    IdentityState, IdentityStatusChange, RoomIdentityChange, RoomIdentityProvider,
+    RoomIdentityState,
+};
 use ruma::OwnedRoomId;
 
 /// Return type for the room key importing.
@@ -80,8 +84,8 @@ pub use file_encryption::{
 };
 pub use gossiping::{GossipRequest, GossippedSecret};
 pub use identities::{
-    Device, DeviceData, LocalTrust, OtherUserIdentityData, OwnUserIdentity, OwnUserIdentityData,
-    UserDevices, UserIdentities, UserIdentity, UserIdentityData,
+    Device, DeviceData, LocalTrust, OtherUserIdentity, OtherUserIdentityData, OwnUserIdentity,
+    OwnUserIdentityData, UserDevices, UserIdentity, UserIdentityData,
 };
 pub use machine::{CrossSigningBootstrapRequests, EncryptionSyncChanges, OlmMachine};
 #[cfg(feature = "qrcode")]
@@ -117,6 +121,7 @@ uniffi::setup_scaffolding!();
 /// The trust level in the sender's device that is required to decrypt an
 /// event.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum TrustRequirement {
     /// Decrypt events from everyone regardless of trust.
     Untrusted,
@@ -129,6 +134,7 @@ pub enum TrustRequirement {
 
 /// Settings for decrypting messages
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct DecryptionSettings {
     /// The trust level in the sender's device that is required to decrypt the
     /// event. If the sender's device is not sufficiently trusted,

@@ -14,7 +14,7 @@
 
 use std::{
     collections::HashMap,
-    ops::Deref,
+    ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, RwLock,
@@ -43,31 +43,31 @@ use crate::{
 
 /// Enum over the different user identity types we can have.
 #[derive(Debug, Clone)]
-pub enum UserIdentities {
+pub enum UserIdentity {
     /// Our own user identity.
     Own(OwnUserIdentity),
     /// An identity belonging to another user.
-    Other(UserIdentity),
+    Other(OtherUserIdentity),
 }
 
-impl UserIdentities {
-    /// Destructure the enum into an `OwnUserIdentity` if it's of the correct
+impl UserIdentity {
+    /// Destructure the enum into an [`OwnUserIdentity`] if it's of the correct
     /// type.
     pub fn own(self) -> Option<OwnUserIdentity> {
         as_variant!(self, Self::Own)
     }
 
-    /// Destructure the enum into an `UserIdentity` if it's of the correct
-    /// type.
-    pub fn other(self) -> Option<UserIdentity> {
+    /// Destructure the enum into an [`OtherUserIdentity`] if it's of the
+    /// correct type.
+    pub fn other(self) -> Option<OtherUserIdentity> {
         as_variant!(self, Self::Other)
     }
 
     /// Get the ID of the user this identity belongs to.
     pub fn user_id(&self) -> &UserId {
         match self {
-            UserIdentities::Own(u) => u.user_id(),
-            UserIdentities::Other(u) => u.user_id(),
+            UserIdentity::Own(u) => u.user_id(),
+            UserIdentity::Other(u) => u.user_id(),
         }
     }
 
@@ -82,7 +82,7 @@ impl UserIdentities {
                 Self::Own(OwnUserIdentity { inner: i, verification_machine, store })
             }
             UserIdentityData::Other(i) => {
-                Self::Other(UserIdentity { inner: i, own_identity, verification_machine })
+                Self::Other(OtherUserIdentity { inner: i, own_identity, verification_machine })
             }
         }
     }
@@ -99,49 +99,75 @@ impl UserIdentities {
     /// by our own user-signing key.
     pub fn is_verified(&self) -> bool {
         match self {
-            UserIdentities::Own(u) => u.is_verified(),
-            UserIdentities::Other(u) => u.is_verified(),
+            UserIdentity::Own(u) => u.is_verified(),
+            UserIdentity::Other(u) => u.is_verified(),
         }
     }
 
     /// True if we verified this identity at some point in the past.
     ///
     /// To reset this latch back to `false`, one must call
-    /// [`UserIdentities::withdraw_verification()`].
+    /// [`UserIdentity::withdraw_verification()`].
     pub fn was_previously_verified(&self) -> bool {
         match self {
-            UserIdentities::Own(u) => u.was_previously_verified(),
-            UserIdentities::Other(u) => u.was_previously_verified(),
+            UserIdentity::Own(u) => u.was_previously_verified(),
+            UserIdentity::Other(u) => u.was_previously_verified(),
         }
     }
 
     /// Reset the flag that records that the identity has been verified, thus
-    /// clearing [`Self::was_previously_verified`] and
-    /// [`Self::has_verification_violation`].
+    /// clearing [`UserIdentity::was_previously_verified`] and
+    /// [`UserIdentity::has_verification_violation`].
     pub async fn withdraw_verification(&self) -> Result<(), CryptoStoreError> {
         match self {
-            UserIdentities::Own(u) => u.withdraw_verification().await,
-            UserIdentities::Other(u) => u.withdraw_verification().await,
+            UserIdentity::Own(u) => u.withdraw_verification().await,
+            UserIdentity::Other(u) => u.withdraw_verification().await,
+        }
+    }
+
+    /// Remember this identity, ensuring it does not result in a pin violation.
+    ///
+    /// When we first see a user, we assume their cryptographic identity has not
+    /// been tampered with by the homeserver or another entity with
+    /// man-in-the-middle capabilities. We remember this identity and call this
+    /// action "pinning".
+    ///
+    /// If the identity presented for the user changes later on, the newly
+    /// presented identity is considered to be in "pin violation". This
+    /// method explicitly accepts the new identity, allowing it to replace
+    /// the previously pinned one and bringing it out of pin violation.
+    ///
+    /// UIs should display a warning to the user when encountering an identity
+    /// which is not verified and is in pin violation. See
+    /// [`OtherUserIdentity::identity_needs_user_approval`].
+    pub async fn pin(&self) -> Result<(), CryptoStoreError> {
+        match self {
+            UserIdentity::Own(_) => {
+                // Nothing to be done for our own identity: we already
+                // consider it trusted in this sense.
+                Ok(())
+            }
+            UserIdentity::Other(u) => u.pin_current_master_key().await,
         }
     }
 
     /// Was this identity previously verified, and is no longer?
     pub fn has_verification_violation(&self) -> bool {
         match self {
-            UserIdentities::Own(u) => u.has_verification_violation(),
-            UserIdentities::Other(u) => u.has_verification_violation(),
+            UserIdentity::Own(u) => u.has_verification_violation(),
+            UserIdentity::Other(u) => u.has_verification_violation(),
         }
     }
 }
 
-impl From<OwnUserIdentity> for UserIdentities {
+impl From<OwnUserIdentity> for UserIdentity {
     fn from(i: OwnUserIdentity) -> Self {
         Self::Own(i)
     }
 }
 
-impl From<UserIdentity> for UserIdentities {
-    fn from(i: UserIdentity) -> Self {
+impl From<OtherUserIdentity> for UserIdentity {
+    fn from(i: OtherUserIdentity) -> Self {
         Self::Other(i)
     }
 }
@@ -166,6 +192,12 @@ impl Deref for OwnUserIdentity {
 
     fn deref(&self) -> &Self::Target {
         &self.inner
+    }
+}
+
+impl DerefMut for OwnUserIdentity {
+    fn deref_mut(&mut self) -> &mut <Self as Deref>::Target {
+        &mut self.inner
     }
 }
 
@@ -268,13 +300,13 @@ impl OwnUserIdentity {
 /// This struct wraps a read-only version of the struct and allows verifications
 /// to be requested to verify our own device with the user identity.
 #[derive(Debug, Clone)]
-pub struct UserIdentity {
+pub struct OtherUserIdentity {
     pub(crate) inner: OtherUserIdentityData,
     pub(crate) own_identity: Option<OwnUserIdentityData>,
     pub(crate) verification_machine: VerificationMachine,
 }
 
-impl Deref for UserIdentity {
+impl Deref for OtherUserIdentity {
     type Target = OtherUserIdentityData;
 
     fn deref(&self) -> &Self::Target {
@@ -282,7 +314,13 @@ impl Deref for UserIdentity {
     }
 }
 
-impl UserIdentity {
+impl DerefMut for OtherUserIdentity {
+    fn deref_mut(&mut self) -> &mut <Self as Deref>::Target {
+        &mut self.inner
+    }
+}
+
+impl OtherUserIdentity {
     /// Is this user identity verified.
     pub fn is_verified(&self) -> bool {
         self.own_identity
@@ -315,7 +353,7 @@ impl UserIdentity {
         }
     }
 
-    /// Create a `VerificationRequest` object after the verification request
+    /// Create a [`VerificationRequest`] object after the verification request
     /// content has been sent out.
     pub fn request_verification(
         &self,
@@ -336,10 +374,8 @@ impl UserIdentity {
     /// The returned content needs to be sent out into a DM room with the given
     /// user.
     ///
-    /// After the content has been sent out a `VerificationRequest` can be
-    /// started with the [`request_verification()`] method.
-    ///
-    /// [`request_verification()`]: #method.request_verification
+    /// After the content has been sent out a [`VerificationRequest`] can be
+    /// started with the [`OtherUserIdentity::request_verification()`] method.
     pub fn verification_request_content(
         &self,
         methods: Option<Vec<VerificationMethod>>,
@@ -374,9 +410,9 @@ impl UserIdentity {
     /// This situation can be resolved by:
     ///
     /// - Verifying the new identity with
-    ///   [`UserIdentity::request_verification`], or:
+    ///   [`OtherUserIdentity::request_verification`], or:
     /// - Updating the pin to the new identity with
-    ///   [`UserIdentity::pin_current_master_key`].
+    ///   [`OtherUserIdentity::pin_current_master_key`].
     pub fn identity_needs_user_approval(&self) -> bool {
         // First check if the current identity is verified.
         if self.is_verified() {
@@ -417,9 +453,10 @@ impl UserIdentity {
     /// Such a violation should be reported to the local user by the
     /// application, and resolved by
     ///
-    /// - Verifying the new identity with [`UserIdentity::request_verification`]
+    /// - Verifying the new identity with
+    ///   [`OtherUserIdentity::request_verification`]
     /// - Or by withdrawing the verification requirement
-    ///   [`UserIdentity::withdraw_verification`].
+    ///   [`OtherUserIdentity::withdraw_verification`].
     pub fn has_verification_violation(&self) -> bool {
         if !self.inner.was_previously_verified() {
             // If that identity has never been verified it cannot be in violation.
@@ -435,7 +472,7 @@ impl UserIdentity {
 pub enum UserIdentityData {
     /// Our own user identity.
     Own(OwnUserIdentityData),
-    /// Identities of other users.
+    /// The identity of another user.
     Other(OtherUserIdentityData),
 }
 
@@ -488,7 +525,7 @@ impl UserIdentityData {
     /// True if we verified our own identity at some point in the past.
     ///
     /// To reset this latch back to `false`, one must call
-    /// [`UserIdentities::withdraw_verification()`].
+    /// [`UserIdentity::withdraw_verification()`].
     pub fn was_previously_verified(&self) -> bool {
         match self {
             UserIdentityData::Own(i) => i.was_previously_verified(),
@@ -726,7 +763,21 @@ impl OtherUserIdentityData {
         &self.self_signing_key
     }
 
-    /// Pin the current identity
+    /// Remember this identity, ensuring it does not result in a pin violation.
+    ///
+    /// When we first see a user, we assume their cryptographic identity has not
+    /// been tampered with by the homeserver or another entity with
+    /// man-in-the-middle capabilities. We remember this identity and call this
+    /// action "pinning".
+    ///
+    /// If the identity presented for the user changes later on, the newly
+    /// presented identity is considered to be in "pin violation". This
+    /// method explicitly accepts the new identity, allowing it to replace
+    /// the previously pinned one and bringing it out of pin violation.
+    ///
+    /// UIs should display a warning to the user when encountering an identity
+    /// which is not verified and is in pin violation. See
+    /// [`OtherUserIdentity::identity_needs_user_approval`].
     pub(crate) fn pin(&self) {
         let mut m = self.pinned_master_key.write().unwrap();
         *m = self.master_key.as_ref().clone()
@@ -860,7 +911,7 @@ enum OwnUserIdentityVerifiedState {
     NeverVerified,
 
     /// We previously verified this identity, but it has changed.
-    PreviouslyVerifiedButNoLonger,
+    VerificationViolation,
 
     /// We have verified the current identity.
     Verified,
@@ -1011,7 +1062,7 @@ impl OwnUserIdentityData {
     pub(crate) fn mark_as_unverified(&self) {
         let mut guard = self.verified.write().unwrap();
         if *guard == OwnUserIdentityVerifiedState::Verified {
-            *guard = OwnUserIdentityVerifiedState::PreviouslyVerifiedButNoLonger;
+            *guard = OwnUserIdentityVerifiedState::VerificationViolation;
         }
     }
 
@@ -1028,7 +1079,7 @@ impl OwnUserIdentityData {
         matches!(
             *self.verified.read().unwrap(),
             OwnUserIdentityVerifiedState::Verified
-                | OwnUserIdentityVerifiedState::PreviouslyVerifiedButNoLonger
+                | OwnUserIdentityVerifiedState::VerificationViolation
         )
     }
 
@@ -1039,7 +1090,7 @@ impl OwnUserIdentityData {
     /// verify again or to withdraw the verification requirement.
     pub fn withdraw_verification(&self) {
         let mut guard = self.verified.write().unwrap();
-        if *guard == OwnUserIdentityVerifiedState::PreviouslyVerifiedButNoLonger {
+        if *guard == OwnUserIdentityVerifiedState::VerificationViolation {
             *guard = OwnUserIdentityVerifiedState::NeverVerified;
         }
     }
@@ -1054,8 +1105,7 @@ impl OwnUserIdentityData {
     /// - Or by withdrawing the verification requirement
     ///   [`OwnUserIdentity::withdraw_verification`].
     pub fn has_verification_violation(&self) -> bool {
-        *self.verified.read().unwrap()
-            == OwnUserIdentityVerifiedState::PreviouslyVerifiedButNoLonger
+        *self.verified.read().unwrap() == OwnUserIdentityVerifiedState::VerificationViolation
     }
 
     /// Update the identity with a new master key and self signing key.
@@ -1141,7 +1191,7 @@ where
 pub(crate) mod testing {
     use ruma::{api::client::keys::get_keys::v3::Response as KeyQueryResponse, user_id};
 
-    use super::{OtherUserIdentityData, OwnUserIdentityData};
+    use super::{OtherUserIdentityData, OwnUserIdentity, OwnUserIdentityData};
     #[cfg(test)]
     use crate::{identities::manager::testing::other_user_id, olm::PrivateCrossSigningIdentity};
     use crate::{
@@ -1149,7 +1199,9 @@ pub(crate) mod testing {
             manager::testing::{other_key_query, own_key_query},
             DeviceData,
         },
+        store::Store,
         types::CrossSigningKey,
+        verification::VerificationMachine,
     };
 
     /// Generate test devices from KeyQueryResponse
@@ -1184,6 +1236,14 @@ pub(crate) mod testing {
     /// Generate default own identity for tests
     pub fn get_own_identity() -> OwnUserIdentityData {
         own_identity(&own_key_query())
+    }
+
+    pub fn own_identity_wrapped(
+        inner: OwnUserIdentityData,
+        verification_machine: VerificationMachine,
+        store: Store,
+    ) -> OwnUserIdentity {
+        OwnUserIdentity { inner, verification_machine, store }
     }
 
     /// Generate default other "own" identity for tests
@@ -1611,7 +1671,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_resolve_identity_verification_violation_with_withdraw() {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
 
@@ -1651,7 +1711,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_reset_own_keys_creates_verification_violation() {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
 
@@ -1692,7 +1752,7 @@ pub(crate) mod tests {
     /// verification violation on our own identity.
     #[async_test]
     async fn test_own_keys_update_creates_own_identity_verification_violation() {
-        use test_json::keys_query_sets::PreviouslyVerifiedTestData as DataSet;
+        use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
 

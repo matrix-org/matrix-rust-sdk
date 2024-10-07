@@ -34,16 +34,17 @@ use ruma::{
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
-            avatar::RoomAvatarEventContent,
+            avatar::{self, RoomAvatarEventContent},
             encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess,
             history_visibility::HistoryVisibility,
             join_rules::JoinRule,
             member::{MembershipState, RoomMemberEventContent},
+            pinned_events::RoomPinnedEventsEventContent,
             redaction::SyncRoomRedactionEvent,
             tombstone::RoomTombstoneEventContent,
         },
-        tag::Tags,
+        tag::{TagEventContent, Tags},
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
         RoomAccountDataEventType,
     },
@@ -63,7 +64,7 @@ use super::{
 #[cfg(feature = "experimental-sliding-sync")]
 use crate::latest_event::LatestEvent;
 use crate::{
-    deserialized_responses::MemberEvent,
+    deserialized_responses::{MemberEvent, RawSyncOrStrippedState},
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
@@ -373,6 +374,11 @@ impl Room {
     /// Get the avatar url of this room.
     pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
         self.inner.read().avatar_url().map(ToOwned::to_owned)
+    }
+
+    /// Get information about the avatar of this room.
+    pub fn avatar_info(&self) -> Option<avatar::ImageInfo> {
+        self.inner.read().avatar_info().map(ToOwned::to_owned)
     }
 
     /// Get the canonical alias of this room.
@@ -809,20 +815,6 @@ impl Room {
         self.inner.read().heroes().to_vec()
     }
 
-    /// Get the list of `RoomMember`s that are considered to be joined members
-    /// of this room.
-    #[deprecated = "Use members with RoomMemberships::JOIN instead"]
-    pub async fn joined_members(&self) -> StoreResult<Vec<RoomMember>> {
-        self.members(RoomMemberships::JOIN).await
-    }
-
-    /// Get the list of `RoomMember`s that are considered to be joined or
-    /// invited members of this room.
-    #[deprecated = "Use members with RoomMemberships::ACTIVE instead"]
-    pub async fn active_members(&self) -> StoreResult<Vec<RoomMember>> {
-        self.members(RoomMemberships::ACTIVE).await
-    }
-
     /// Returns the number of members who have joined or been invited to the
     /// room.
     pub fn active_members_count(&self) -> u64 {
@@ -1030,6 +1022,10 @@ fn test_send_sync_for_room() {
 /// Holds all the info needed to persist a room into the state store.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RoomInfo {
+    /// The version of the room info.
+    #[serde(default)]
+    pub(crate) version: u8,
+
     /// The unique room id of the room.
     pub(crate) room_id: OwnedRoomId,
 
@@ -1118,6 +1114,7 @@ impl RoomInfo {
     #[doc(hidden)] // used by store tests, otherwise it would be pub(crate)
     pub fn new(room_id: &RoomId, room_state: RoomState) -> Self {
         Self {
+            version: 1,
             room_id: room_id.into(),
             room_state,
             notification_counts: Default::default(),
@@ -1296,6 +1293,14 @@ impl RoomInfo {
 
             MinimalStateEvent::Original(OriginalMinimalStateEvent { content, event_id: None })
         });
+    }
+
+    /// Returns information about the current room avatar.
+    pub fn avatar_info(&self) -> Option<&avatar::ImageInfo> {
+        self.base_info
+            .avatar
+            .as_ref()
+            .and_then(|e| e.as_original().and_then(|e| e.content.info.as_deref()))
     }
 
     /// Update the notifications count.
@@ -1568,6 +1573,68 @@ impl RoomInfo {
             .map(|p| p.pinned.contains(&event_id.to_owned()))
             .unwrap_or_default()
     }
+
+    /// Apply migrations to this `RoomInfo` if needed.
+    ///
+    /// This should be used to populate new fields with data from the state
+    /// store.
+    ///
+    /// Returns `true` if migrations were applied and this `RoomInfo` needs to
+    /// be persisted to the state store.
+    #[instrument(skip_all, fields(room_id = ?self.room_id))]
+    pub(crate) async fn apply_migrations(&mut self, store: Arc<DynStateStore>) -> bool {
+        let mut migrated = false;
+
+        if self.version < 1 {
+            info!("Migrating room info to version 1");
+
+            // notable_tags
+            match store.get_room_account_data_event_static::<TagEventContent>(&self.room_id).await {
+                // Pinned events are never in stripped state.
+                Ok(Some(raw_event)) => match raw_event.deserialize() {
+                    Ok(event) => {
+                        self.base_info.handle_notable_tags(&event.content.tags);
+                    }
+                    Err(error) => {
+                        warn!("Failed to deserialize room tags: {error}");
+                    }
+                },
+                Ok(_) => {
+                    // Nothing to do.
+                }
+                Err(error) => {
+                    warn!("Failed to load room tags: {error}");
+                }
+            }
+
+            // pinned_events
+            match store.get_state_event_static::<RoomPinnedEventsEventContent>(&self.room_id).await
+            {
+                // Pinned events are never in stripped state.
+                Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) => {
+                    match raw_event.deserialize() {
+                        Ok(event) => {
+                            self.handle_state_event(&event.into());
+                        }
+                        Err(error) => {
+                            warn!("Failed to deserialize room pinned events: {error}");
+                        }
+                    }
+                }
+                Ok(_) => {
+                    // Nothing to do.
+                }
+                Err(error) => {
+                    warn!("Failed to load room pinned events: {error}");
+                }
+            }
+
+            self.version = 1;
+            migrated = true;
+        }
+
+        migrated
+    }
 }
 
 #[cfg(feature = "experimental-sliding-sync")]
@@ -1701,7 +1768,11 @@ mod tests {
     use assign::assign;
     #[cfg(feature = "experimental-sliding-sync")]
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
-    use matrix_sdk_test::{async_test, ALICE, BOB, CAROL};
+    use matrix_sdk_test::{
+        async_test,
+        test_json::{sync_events::PINNED_EVENTS, TAG},
+        ALICE, BOB, CAROL,
+    };
     use ruma::{
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         device_id, event_id,
@@ -1723,7 +1794,7 @@ mod tests {
             },
             AnySyncStateEvent, EmptyStateKey, StateEventType, StateUnsigned, SyncStateEvent,
         },
-        owned_event_id, room_alias_id, room_id,
+        owned_event_id, owned_user_id, room_alias_id, room_id,
         serde::Raw,
         time::SystemTime,
         user_id, DeviceId, EventEncryptionAlgorithm, EventId, MilliSecondsSinceUnixEpoch,
@@ -1736,7 +1807,8 @@ mod tests {
     #[cfg(any(feature = "experimental-sliding-sync", feature = "e2e-encryption"))]
     use crate::latest_event::LatestEvent;
     use crate::{
-        store::{MemoryStore, StateChanges, StateStore},
+        rooms::RoomNotableTags,
+        store::{IntoStateStore, MemoryStore, StateChanges, StateStore},
         BaseClient, DisplayName, MinimalStateEvent, OriginalMinimalStateEvent, SessionMeta,
     };
 
@@ -1752,6 +1824,7 @@ mod tests {
         use crate::{rooms::BaseRoomInfo, sync::UnreadNotificationsCount};
 
         let info = RoomInfo {
+            version: 1,
             room_id: room_id!("!gda78o:server.tld").into(),
             room_state: RoomState::Invited,
             notification_counts: UnreadNotificationsCount {
@@ -1785,6 +1858,7 @@ mod tests {
         };
 
         let info_json = json!({
+            "version": 1,
             "room_id": "!gda78o:server.tld",
             "room_state": "Invited",
             "notification_counts": {
@@ -2990,5 +3064,106 @@ mod tests {
 
         assert!(room.is_encryption_state_synced());
         assert!(room.is_encrypted());
+    }
+
+    #[async_test]
+    async fn test_room_info_migration_v1() {
+        let store = MemoryStore::new().into_state_store();
+
+        let room_info_json = json!({
+            "room_id": "!gda78o:server.tld",
+            "room_state": "Joined",
+            "notification_counts": {
+                "highlight_count": 1,
+                "notification_count": 2,
+            },
+            "summary": {
+                "room_heroes": [{
+                    "user_id": "@somebody:example.org",
+                    "display_name": null,
+                    "avatar_url": null
+                }],
+                "joined_member_count": 5,
+                "invited_member_count": 0,
+            },
+            "members_synced": true,
+            "last_prev_batch": "pb",
+            "sync_info": "FullySynced",
+            "encryption_state_synced": true,
+            "latest_event": {
+                "event": {
+                    "encryption_info": null,
+                    "event": {
+                        "sender": "@u:i.uk",
+                    },
+                },
+            },
+            "base_info": {
+                "avatar": null,
+                "canonical_alias": null,
+                "create": null,
+                "dm_targets": [],
+                "encryption": null,
+                "guest_access": null,
+                "history_visibility": null,
+                "join_rules": null,
+                "max_power_level": 100,
+                "name": null,
+                "tombstone": null,
+                "topic": null,
+            },
+            "read_receipts": {
+                "num_unread": 0,
+                "num_mentions": 0,
+                "num_notifications": 0,
+                "latest_active": null,
+                "pending": []
+            },
+            "recency_stamp": 42,
+        });
+        let mut room_info: RoomInfo = serde_json::from_value(room_info_json).unwrap();
+
+        assert_eq!(room_info.version, 0);
+        assert!(room_info.base_info.notable_tags.is_empty());
+        assert!(room_info.base_info.pinned_events.is_none());
+
+        // Apply migrations with an empty store.
+        assert!(room_info.apply_migrations(store.clone()).await);
+
+        assert_eq!(room_info.version, 1);
+        assert!(room_info.base_info.notable_tags.is_empty());
+        assert!(room_info.base_info.pinned_events.is_none());
+
+        // Applying migrations again has no effect.
+        assert!(!room_info.apply_migrations(store.clone()).await);
+
+        assert_eq!(room_info.version, 1);
+        assert!(room_info.base_info.notable_tags.is_empty());
+        assert!(room_info.base_info.pinned_events.is_none());
+
+        // Add events to the store.
+        let mut changes = StateChanges::default();
+
+        let raw_tag_event = Raw::new(&*TAG).unwrap().cast();
+        let tag_event = raw_tag_event.deserialize().unwrap();
+        changes.add_room_account_data(&room_info.room_id, tag_event, raw_tag_event);
+
+        let raw_pinned_events_event = Raw::new(&*PINNED_EVENTS).unwrap().cast();
+        let pinned_events_event = raw_pinned_events_event.deserialize().unwrap();
+        changes.add_state_event(&room_info.room_id, pinned_events_event, raw_pinned_events_event);
+
+        store.save_changes(&changes).await.unwrap();
+
+        // Reset to version 0 and reapply migrations.
+        room_info.version = 0;
+        assert!(room_info.apply_migrations(store.clone()).await);
+
+        assert_eq!(room_info.version, 1);
+        assert!(room_info.base_info.notable_tags.contains(RoomNotableTags::FAVOURITE));
+        assert!(room_info.base_info.pinned_events.is_some());
+
+        // Creating a new room info initializes it to version 1.
+        let new_room_info = RoomInfo::new(room_id!("!new_room:localhost"), RoomState::Joined);
+        assert_eq!(new_room_info.version, 1);
     }
 }

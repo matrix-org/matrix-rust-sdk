@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     future::Future,
     num::NonZeroUsize,
     sync::{Arc, RwLock},
@@ -29,9 +29,13 @@ use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
     events::{
-        poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
-        relation::Replacement, room::message::RoomMessageEventContentWithoutRelation,
-        AnySyncEphemeralRoomEvent,
+        poll::{
+            unstable_response::UnstablePollResponseEventContent,
+            unstable_start::NewUnstablePollStartEventContentWithoutRelation,
+        },
+        relation::Replacement,
+        room::message::RoomMessageEventContentWithoutRelation,
+        AnySyncEphemeralRoomEvent, AnySyncTimelineEvent,
     },
     push::Action,
     serde::Raw,
@@ -49,8 +53,7 @@ use crate::{
             Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
             TimelineItemPosition,
         },
-        event_item::RemoteEventOrigin,
-        polls::PendingPollEvents,
+        event_item::{PollState, RemoteEventOrigin, ResponseData},
         reactions::Reactions,
         read_receipts::ReadReceipts,
         traits::RoomDataProvider,
@@ -198,13 +201,7 @@ impl TimelineState {
         let mut day_divider_adjuster = DayDividerAdjuster::default();
 
         TimelineEventHandler::new(&mut txn, ctx)
-            .handle_event(
-                &mut day_divider_adjuster,
-                content,
-                // Local events are never UTD, so no need to pass in a raw_event - this is only
-                // used to determine the type of UTD if there is one.
-                None,
-            )
+            .handle_event(&mut day_divider_adjuster, content)
             .await;
 
         txn.adjust_day_dividers(day_divider_adjuster);
@@ -583,7 +580,7 @@ impl TimelineStateTransaction<'_> {
             is_highlighted: event.push_actions.iter().any(Action::is_highlight),
             flow: Flow::Remote {
                 event_id: event_id.clone(),
-                raw_event: raw.clone(),
+                raw_event: raw,
                 encryption_info: event.encryption_info,
                 txn_id,
                 position,
@@ -591,9 +588,7 @@ impl TimelineStateTransaction<'_> {
             should_add_new_items: should_add,
         };
 
-        TimelineEventHandler::new(self, ctx)
-            .handle_event(day_divider_adjuster, event_kind, Some(&raw))
-            .await
+        TimelineEventHandler::new(self, ctx).handle_event(day_divider_adjuster, event_kind).await
     }
 
     fn clear(&mut self) {
@@ -755,18 +750,87 @@ impl TimelineStateTransaction<'_> {
     }
 }
 
+/// Cache holding poll response and end events handled before their poll start
+/// event has been handled.
+#[derive(Clone, Debug, Default)]
+pub(in crate::timeline) struct PendingPollEvents {
+    /// Responses to a poll (identified by the poll's start event id).
+    responses: HashMap<OwnedEventId, Vec<ResponseData>>,
+
+    /// Mapping of a poll (identified by its start event's id) to its end date.
+    end_dates: HashMap<OwnedEventId, MilliSecondsSinceUnixEpoch>,
+}
+
+impl PendingPollEvents {
+    pub(crate) fn add_response(
+        &mut self,
+        start_event_id: &EventId,
+        sender: &UserId,
+        timestamp: MilliSecondsSinceUnixEpoch,
+        content: &UnstablePollResponseEventContent,
+    ) {
+        self.responses.entry(start_event_id.to_owned()).or_default().push(ResponseData {
+            sender: sender.to_owned(),
+            timestamp,
+            answers: content.poll_response.answers.clone(),
+        });
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.end_dates.clear();
+        self.responses.clear();
+    }
+
+    /// Mark a poll as finished by inserting its poll date.
+    pub(crate) fn mark_as_ended(
+        &mut self,
+        start_event_id: &EventId,
+        timestamp: MilliSecondsSinceUnixEpoch,
+    ) {
+        self.end_dates.insert(start_event_id.to_owned(), timestamp);
+    }
+
+    /// Dumps all response and end events present in the cache that belong to
+    /// the given start_event_id into the given poll_state.
+    pub(crate) fn apply_pending(&mut self, start_event_id: &EventId, poll_state: &mut PollState) {
+        if let Some(pending_responses) = self.responses.remove(start_event_id) {
+            poll_state.response_data.extend(pending_responses);
+        }
+        if let Some(pending_end) = self.end_dates.remove(start_event_id) {
+            poll_state.end_event_timestamp = Some(pending_end);
+        }
+    }
+}
+
 #[derive(Clone)]
-pub(in crate::timeline) enum PendingEdit {
+pub(in crate::timeline) enum PendingEditKind {
     RoomMessage(Replacement<RoomMessageEventContentWithoutRelation>),
     Poll(Replacement<NewUnstablePollStartEventContentWithoutRelation>),
+}
+
+#[derive(Clone)]
+pub(in crate::timeline) struct PendingEdit {
+    pub kind: PendingEditKind,
+    pub event_json: Raw<AnySyncTimelineEvent>,
+}
+
+impl PendingEdit {
+    pub fn edited_event(&self) -> &EventId {
+        match &self.kind {
+            PendingEditKind::RoomMessage(Replacement { event_id, .. })
+            | PendingEditKind::Poll(Replacement { event_id, .. }) => event_id,
+        }
+    }
 }
 
 #[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for PendingEdit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::RoomMessage(_) => f.debug_struct("RoomMessage").finish_non_exhaustive(),
-            Self::Poll(_) => f.debug_struct("Poll").finish_non_exhaustive(),
+        match &self.kind {
+            PendingEditKind::RoomMessage(_) => {
+                f.debug_struct("RoomMessage").finish_non_exhaustive()
+            }
+            PendingEditKind::Poll(_) => f.debug_struct("Poll").finish_non_exhaustive(),
         }
     }
 }
@@ -814,7 +878,7 @@ pub(in crate::timeline) struct TimelineMetadata {
     pub pending_poll_events: PendingPollEvents,
 
     /// Edit events received before the related event they're editing.
-    pub pending_edits: RingBuffer<(OwnedEventId, PendingEdit)>,
+    pub pending_edits: RingBuffer<PendingEdit>,
 
     /// Identifier of the fully-read event, helping knowing where to introduce
     /// the read marker.

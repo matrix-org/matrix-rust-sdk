@@ -315,6 +315,7 @@ impl Encryption {
     pub async fn enable_recovery(
         &self,
         wait_for_backups_to_upload: bool,
+        mut passphrase: Option<String>,
         progress_listener: Box<dyn EnableRecoveryProgressListener>,
     ) -> Result<String> {
         let recovery = self.inner.recovery();
@@ -323,6 +324,12 @@ impl Encryption {
             recovery.enable().wait_for_backups_to_upload()
         } else {
             recovery.enable()
+        };
+
+        let enable = if let Some(passphrase) = &passphrase {
+            enable.with_passphrase(passphrase)
+        } else {
+            enable
         };
 
         let mut progress_stream = enable.subscribe_to_progress();
@@ -337,6 +344,7 @@ impl Encryption {
         let ret = enable.await?;
 
         task.abort();
+        passphrase.zeroize();
 
         Ok(ret)
     }
@@ -401,6 +409,57 @@ impl Encryption {
     /// was running in the background.
     pub async fn wait_for_e2ee_initialization_tasks(&self) {
         self.inner.wait_for_e2ee_initialization_tasks().await;
+    }
+
+    /// Get the E2EE identity of a user.
+    ///
+    /// Returns Ok(None) if this user does not exist.
+    ///
+    /// Returns an error if there was a problem contacting the crypto store, or
+    /// if our client is not logged in.
+    pub async fn get_user_identity(
+        &self,
+        user_id: String,
+    ) -> Result<Option<Arc<UserIdentity>>, ClientError> {
+        let identity = self.inner.get_user_identity(user_id.as_str().try_into()?).await?;
+        Ok(identity.map(|i| Arc::new(UserIdentity { inner: i })))
+    }
+}
+
+/// The E2EE identity of a user.
+#[derive(uniffi::Object)]
+pub struct UserIdentity {
+    inner: matrix_sdk::encryption::identities::UserIdentity,
+}
+
+#[uniffi::export]
+impl UserIdentity {
+    /// Remember this identity, ensuring it does not result in a pin violation.
+    ///
+    /// When we first see a user, we assume their cryptographic identity has not
+    /// been tampered with by the homeserver or another entity with
+    /// man-in-the-middle capabilities. We remember this identity and call this
+    /// action "pinning".
+    ///
+    /// If the identity presented for the user changes later on, the newly
+    /// presented identity is considered to be in "pin violation". This
+    /// method explicitly accepts the new identity, allowing it to replace
+    /// the previously pinned one and bringing it out of pin violation.
+    ///
+    /// UIs should display a warning to the user when encountering an identity
+    /// which is not verified and is in pin violation.
+    pub(crate) async fn pin(&self) -> Result<(), ClientError> {
+        Ok(self.inner.pin().await?)
+    }
+
+    /// Get the public part of the Master key of this user identity.
+    ///
+    /// The public part of the Master key is usually used to uniquely identify
+    /// the identity.
+    ///
+    /// Returns None if the master key does not actually contain any keys.
+    pub(crate) fn master_key(&self) -> Option<String> {
+        self.inner.master_key().get_first_key().map(|k| k.to_base64())
     }
 }
 

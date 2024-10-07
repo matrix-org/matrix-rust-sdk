@@ -3,6 +3,7 @@ name = "example-qr-login"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "Apache-2.0"
 
 [[bin]]
 name = "example-qr-login"
@@ -12,7 +13,7 @@ test = false
 anyhow = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 clap = { version = "4.0.15", features = ["derive"] }
-qrcode = { git = "https://github.com/kennytm/qrcode-rust/" }
+qrcode = { version = "0.14.1" }
 futures-util = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = "2.3.1"

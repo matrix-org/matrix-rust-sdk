@@ -653,10 +653,10 @@ impl IdentityChangeDataSet {
 /// A set of `/keys/query` responses that were initially created to simulate
 /// when a user that was verified reset his keys and became unverified.
 ///
-/// The local user (as returned by [`PreviouslyVerifiedTestData::own_id`]) is
+/// The local user (as returned by [`VerificationViolationTestData::own_id`]) is
 /// `@alice:localhost`. There are 2 other users: `@bob:localhost` (returned by
-/// [`PreviouslyVerifiedTestData::bob_id`]), and `@carol:localhost` (returned by
-/// [`PreviouslyVerifiedTestData::carol_id`]).
+/// [`VerificationViolationTestData::bob_id`]), and `@carol:localhost` (returned
+/// by [`VerificationViolationTestData::carol_id`]).
 ///
 /// We provide two `/keys/query` responses for each of Bob and Carol: one signed
 /// by Alice, and one not signed.
@@ -665,10 +665,10 @@ impl IdentityChangeDataSet {
 /// another one not cross-signed.
 ///
 /// The `/keys/query` responses were generated using a local synapse.
-pub struct PreviouslyVerifiedTestData {}
+pub struct VerificationViolationTestData {}
 
 #[allow(dead_code)]
-impl PreviouslyVerifiedTestData {
+impl VerificationViolationTestData {
     /// Secret part of Alice's master cross-signing key.
     ///
     /// Exported from Element-Web with the following console snippet:

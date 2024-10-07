@@ -107,7 +107,7 @@ async fn test_echo() {
             f.text_msg("Hello, World!")
                 .sender(user_id!("@example:localhost"))
                 .event_id(event_id!("$7at8sd:localhost"))
-                .server_ts(MilliSecondsSinceUnixEpoch(uint!(152038280)))
+                .server_ts(152038280)
                 .unsigned_transaction_id(txn_id),
         ),
     );
@@ -262,7 +262,7 @@ async fn test_dedup_by_event_id_late() {
             f.text_msg("Hello, World!")
                 .sender(user_id!("@example:localhost"))
                 .event_id(event_id)
-                .server_ts(MilliSecondsSinceUnixEpoch(uint!(123456))),
+                .server_ts(123456),
         ),
     );
 

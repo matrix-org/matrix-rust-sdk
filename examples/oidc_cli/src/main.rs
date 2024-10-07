@@ -171,7 +171,7 @@ impl OidcCli {
         // The client registration data should be persisted separately than the user
         // session, to be reused for other sessions or user accounts with the same
         // issuer.
-        // Also, client metadata should be persisted as it might change dependending on
+        // Also, client metadata should be persisted as it might change depending on
         // the provider metadata.
         let client_credentials = Credentials { client_id };
 

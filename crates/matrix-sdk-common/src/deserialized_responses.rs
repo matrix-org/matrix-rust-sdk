@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, fmt};
 
 use ruma::{
-    events::{AnySyncTimelineEvent, AnyTimelineEvent},
+    events::{AnyMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent},
     push::Action,
     serde::{JsonObject, Raw},
     DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedUserId,
@@ -29,7 +29,8 @@ use crate::debug::{DebugRawEvent, DebugStructExt};
 const AUTHENTICITY_NOT_GUARANTEED: &str =
     "The authenticity of this encrypted message can't be guaranteed on this device.";
 const UNVERIFIED_IDENTITY: &str = "Encrypted by an unverified user.";
-const PREVIOUSLY_VERIFIED: &str = "Encrypted by a previously-verified user.";
+const VERIFICATION_VIOLATION: &str =
+    "Encrypted by a previously-verified user who is no longer verified.";
 const UNSIGNED_DEVICE: &str = "Encrypted by a device not verified by its owner.";
 const UNKNOWN_DEVICE: &str = "Encrypted by an unknown or deleted device.";
 pub const SENT_IN_CLEAR: &str = "Not encrypted.";
@@ -92,7 +93,7 @@ impl VerificationState {
             VerificationState::Verified => ShieldState::None,
             VerificationState::Unverified(level) => match level {
                 VerificationLevel::UnverifiedIdentity
-                | VerificationLevel::PreviouslyVerified
+                | VerificationLevel::VerificationViolation
                 | VerificationLevel::UnsignedDevice => ShieldState::Red {
                     code: ShieldStateCode::UnverifiedIdentity,
                     message: UNVERIFIED_IDENTITY,
@@ -127,12 +128,12 @@ impl VerificationState {
                     // nag you with an error message.
                     ShieldState::None
                 }
-                VerificationLevel::PreviouslyVerified => {
+                VerificationLevel::VerificationViolation => {
                     // This is a high warning. The sender was previously
                     // verified, but changed their identity.
                     ShieldState::Red {
-                        code: ShieldStateCode::PreviouslyVerified,
-                        message: PREVIOUSLY_VERIFIED,
+                        code: ShieldStateCode::VerificationViolation,
+                        message: VERIFICATION_VIOLATION,
                     }
                 }
                 VerificationLevel::UnsignedDevice => {
@@ -175,7 +176,7 @@ pub enum VerificationLevel {
 
     /// The message was sent by a user identity we have not verified, but the
     /// user was previously verified.
-    PreviouslyVerified,
+    VerificationViolation,
 
     /// The message was sent by a device not linked to (signed by) any user
     /// identity.
@@ -193,7 +194,7 @@ impl fmt::Display for VerificationLevel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let display = match self {
             VerificationLevel::UnverifiedIdentity => "The sender's identity was not verified",
-            VerificationLevel::PreviouslyVerified => {
+            VerificationLevel::VerificationViolation => {
                 "The sender's identity was previously verified but has changed"
             }
             VerificationLevel::UnsignedDevice => {
@@ -258,7 +259,7 @@ pub enum ShieldStateCode {
     /// An unencrypted event in an encrypted room.
     SentInClear,
     /// The sender was previously verified but changed their identity.
-    PreviouslyVerified,
+    VerificationViolation,
 }
 
 /// The algorithm specific information of a decrypted event.
@@ -380,6 +381,13 @@ impl From<TimelineEvent> for SyncTimelineEvent {
     }
 }
 
+impl From<DecryptedRoomEvent> for SyncTimelineEvent {
+    fn from(decrypted: DecryptedRoomEvent) -> Self {
+        let timeline_event: TimelineEvent = decrypted.into();
+        timeline_event.into()
+    }
+}
+
 #[derive(Clone)]
 pub struct TimelineEvent {
     /// The actual event.
@@ -406,6 +414,20 @@ impl TimelineEvent {
     }
 }
 
+impl From<DecryptedRoomEvent> for TimelineEvent {
+    fn from(decrypted: DecryptedRoomEvent) -> Self {
+        Self {
+            // Casting from the more specific `AnyMessageLikeEvent` (i.e. an event without a
+            // `state_key`) to a more generic `AnyTimelineEvent` (i.e. one that may contain
+            // a `state_key`) is safe.
+            event: decrypted.event.cast(),
+            encryption_info: Some(decrypted.encryption_info),
+            push_actions: None,
+            unsigned_encryption_info: decrypted.unsigned_encryption_info,
+        }
+    }
+}
+
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for TimelineEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -420,6 +442,35 @@ impl fmt::Debug for TimelineEvent {
         }
         s.maybe_field("unsigned_encryption_info", unsigned_encryption_info);
         s.finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+/// A successfully-decrypted encrypted event.
+pub struct DecryptedRoomEvent {
+    /// The decrypted event.
+    pub event: Raw<AnyMessageLikeEvent>,
+
+    /// The encryption info about the event.
+    pub encryption_info: EncryptionInfo,
+
+    /// The encryption info about the events bundled in the `unsigned`
+    /// object.
+    ///
+    /// Will be `None` if no bundled event was encrypted.
+    pub unsigned_encryption_info: Option<BTreeMap<UnsignedEventLocation, UnsignedDecryptionResult>>,
+}
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for DecryptedRoomEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let DecryptedRoomEvent { event, encryption_info, unsigned_encryption_info } = self;
+
+        f.debug_struct("DecryptedRoomEvent")
+            .field("event", &DebugRawEvent(event))
+            .field("encryption_info", encryption_info)
+            .maybe_field("unsigned_encryption_info", unsigned_encryption_info)
+            .finish()
     }
 }
 

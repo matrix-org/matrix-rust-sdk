@@ -1,0 +1,63 @@
+# https://embarkstudios.github.io/cargo-deny/checks/cfg.html
+[graph]
+all-features = true
+exclude = [
+    # dev only dependency
+    "criterion"
+]
+
+[advisories]
+version = 2
+ignore = [
+    { id = "RUSTSEC-2023-0071", reason = "We are not using RSA directly, nor do we depend on the RSA crate directly" },
+    { id = "RUSTSEC-2024-0370", reason = "Waiting for a Aquamarine release" },
+]
+
+[licenses]
+version = 2
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Zlib",
+]
+exceptions = [
+    { allow = ["Unicode-DFS-2016"], crate = "unicode-ident" },
+    { allow = ["CDDL-1.0"], crate = "inferno" },
+    { allow = ["LicenseRef-ring"], crate = "ring" },
+]
+
+[[licenses.clarify]]
+name = "ring"
+expression = "LicenseRef-ring"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 },
+]
+
+[bans]
+# We should disallow this, but it's currently a PITA.
+multiple-versions = "allow"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+allow-git = [
+    # A patch override for the bindings fixing a bug for Android before upstream
+    # releases a new version.
+    "https://github.com/element-hq/tracing.git",
+    # Sam as for the tracing dependency.
+    "https://github.com/element-hq/paranoid-android.git",
+    # Well, it's Ruma.
+    "https://github.com/ruma/ruma",
+    # A patch override for the bindings: https://github.com/rodrimati1992/const_panic/pull/10
+    "https://github.com/jplatte/const_panic",
+    # A patch override for the bindings: https://github.com/smol-rs/async-compat/pull/22
+    "https://github.com/jplatte/async-compat",
+]

@@ -17,8 +17,8 @@ use matrix_sdk_crypto::{
     decrypt_room_key_export, encrypt_room_key_export,
     olm::ExportedRoomKey,
     store::{BackupDecryptionKey, Changes},
-    DecryptionSettings, LocalTrust, OlmMachine as InnerMachine, ToDeviceRequest, TrustRequirement,
-    UserIdentities,
+    DecryptionSettings, LocalTrust, OlmMachine as InnerMachine, ToDeviceRequest,
+    UserIdentity as SdkUserIdentity,
 };
 use ruma::{
     api::{
@@ -38,7 +38,7 @@ use ruma::{
     },
     events::{
         key::verification::VerificationMethod, room::message::MessageType, AnyMessageLikeEvent,
-        AnySyncMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent,
+        AnySyncMessageLikeEvent, MessageLikeEvent,
     },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
@@ -314,8 +314,8 @@ impl OlmMachine {
 
         if let Some(user_identity) = user_identity {
             Ok(match user_identity {
-                UserIdentities::Own(i) => self.runtime.block_on(i.verify())?,
-                UserIdentities::Other(i) => self.runtime.block_on(i.verify())?,
+                SdkUserIdentity::Own(i) => self.runtime.block_on(i.verify())?,
+                SdkUserIdentity::Other(i) => self.runtime.block_on(i.verify())?,
             }
             .into())
         } else {
@@ -861,12 +861,14 @@ impl OlmMachine {
     /// * `strict_shields` - If `true`, messages will be decorated with strict
     ///   warnings (use `false` to match legacy behaviour where unsafe keys have
     ///   lower severity warnings and unverified identities are not decorated).
+    /// * `decryption_settings` - The setting for decrypting messages.
     pub fn decrypt_room_event(
         &self,
         event: String,
         room_id: String,
         handle_verification_events: bool,
         strict_shields: bool,
+        decryption_settings: DecryptionSettings,
     ) -> Result<DecryptedEvent, DecryptionError> {
         // Element Android wants only the content and the type and will create a
         // decrypted event with those two itself, this struct makes sure we
@@ -882,8 +884,6 @@ impl OlmMachine {
         let event: Raw<_> = serde_json::from_str(&event)?;
         let room_id = RoomId::parse(room_id)?;
 
-        let decryption_settings =
-            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
         let decrypted = self.runtime.block_on(self.inner.decrypt_room_event(
             &event,
             &room_id,
@@ -891,7 +891,7 @@ impl OlmMachine {
         ))?;
 
         if handle_verification_events {
-            if let Ok(AnyTimelineEvent::MessageLike(e)) = decrypted.event.deserialize() {
+            if let Ok(e) = decrypted.event.deserialize() {
                 match &e {
                     AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(
                         original_event,
@@ -909,8 +909,7 @@ impl OlmMachine {
             }
         }
 
-        let encryption_info =
-            decrypted.encryption_info.expect("Decrypted event didn't contain any encryption info");
+        let encryption_info = decrypted.encryption_info;
 
         let event_json: Event<'_> = serde_json::from_str(decrypted.event.json().get())?;
 

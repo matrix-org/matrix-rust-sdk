@@ -19,13 +19,15 @@ use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::{
     AlgorithmInfo, EncryptionInfo, VerificationLevel, VerificationState,
 };
-use matrix_sdk_test::{async_test, sync_timeline_event, ALICE};
+use matrix_sdk_test::{async_test, ALICE};
 use ruma::{
     event_id,
-    events::room::message::{MessageType, RedactedRoomMessageEventContent},
-    server_name, EventId,
+    events::{
+        room::message::{MessageType, RedactedRoomMessageEventContent},
+        BundledMessageLikeRelations,
+    },
 };
-use stream_assert::assert_next_matches;
+use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;
 use crate::timeline::TimelineItemContent;
@@ -108,45 +110,36 @@ async fn test_aggregated_sanitized() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
-    let original_event_id = EventId::new(server_name!("dummy.server"));
-    let ev = sync_timeline_event!({
-        "content": {
-            "formatted_body": "<strong>original</strong> message",
-            "format": "org.matrix.custom.html",
-            "body": "**original** message",
-            "msgtype": "m.text"
-        },
-        "event_id": &original_event_id,
-        "origin_server_ts": timeline.event_builder.next_server_ts(),
-        "sender": *ALICE,
-        "type": "m.room.message",
-        "unsigned": {
-            "m.relations": {
-                "m.replace": {
-                    "content": {
-                        "formatted_body": "* <edited/> <strong>better</strong> message",
-                        "format": "org.matrix.custom.html",
-                        "body": "* !!edited!! **better** message",
-                        "m.new_content": {
-                            "formatted_body": "<edited/> <strong>better</strong> message",
-                            "format": "org.matrix.custom.html",
-                            "body": "!!edited!! **better** message",
-                            "msgtype": "m.text"
-                        },
-                        "m.relates_to": {
-                            "event_id": original_event_id,
-                            "rel_type": "m.replace"
-                        },
-                        "msgtype": "m.text"
-                    },
-                    "event_id": EventId::new(server_name!("dummy.server")),
-                    "origin_server_ts": timeline.event_builder.next_server_ts(),
-                    "sender": *ALICE,
-                    "type": "m.room.message",
-                }
-            }
-        }
-    });
+    let original_event_id = event_id!("$original");
+    let edit_event_id = event_id!("$edit");
+
+    let f = &timeline.factory;
+
+    let mut relations = BundledMessageLikeRelations::new();
+    relations.replace = Some(Box::new(
+        f.text_html(
+            "* !!edited!! **better** message",
+            "* <edited/> <strong>better</strong> message",
+        )
+        .edit(
+            original_event_id,
+            MessageType::text_html(
+                "!!edited!! **better** message",
+                "<edited/> <strong>better</strong> message",
+            )
+            .into(),
+        )
+        .event_id(edit_event_id)
+        .sender(*ALICE)
+        .into_raw_sync(),
+    ));
+
+    let ev = f
+        .text_html("**original** message", "<strong>original</strong> message")
+        .sender(*ALICE)
+        .event_id(original_event_id)
+        .bundled_relations(relations);
+
     timeline.handle_live_event(ev).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -221,4 +214,145 @@ async fn test_edit_updates_encryption_info() {
     assert_let!(TimelineItemContent::Message(message) = first_event.content());
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "!!edited!! **better** message");
+}
+
+#[async_test]
+async fn test_relations_edit_overrides_pending_edit_msg() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe().await;
+
+    let f = &timeline.factory;
+
+    let original_event_id = event_id!("$original");
+    let edit1_event_id = event_id!("$edit1");
+    let edit2_event_id = event_id!("$edit2");
+
+    // Pending edit is stashed, nothing comes from the stream.
+    timeline
+        .handle_live_event(
+            f.text_msg("*edit 1")
+                .sender(*ALICE)
+                .edit(original_event_id, MessageType::text_plain("edit 1").into())
+                .event_id(edit1_event_id),
+        )
+        .await;
+    assert_pending!(stream);
+
+    // Now we receive the original event, with a bundled relations group.
+    let mut relations = BundledMessageLikeRelations::new();
+    relations.replace = Some(Box::new(
+        f.text_msg("* edit 2")
+            .edit(original_event_id, MessageType::text_plain("edit 2").into())
+            .event_id(edit2_event_id)
+            .sender(*ALICE)
+            .into_raw_sync(),
+    ));
+
+    let ev = f
+        .text_msg("original")
+        .sender(*ALICE)
+        .event_id(original_event_id)
+        .bundled_relations(relations);
+
+    timeline.handle_live_event(ev).await;
+
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+
+    // We receive the latest edit, not the pending one.
+    let event = item.as_event().unwrap();
+    assert_eq!(
+        event
+            .latest_edit_json()
+            .expect("we should have an edit json")
+            .deserialize()
+            .unwrap()
+            .event_id(),
+        edit2_event_id
+    );
+
+    let text = event.content().as_message().unwrap();
+    assert_eq!(text.body(), "edit 2");
+
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(day_divider.is_day_divider());
+
+    assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_relations_edit_overrides_pending_edit_poll() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe().await;
+
+    let f = &timeline.factory;
+
+    let original_event_id = event_id!("$original");
+    let edit1_event_id = event_id!("$edit1");
+    let edit2_event_id = event_id!("$edit2");
+
+    // Pending edit is stashed, nothing comes from the stream.
+    timeline
+        .handle_live_event(
+            f.poll_edit(
+                original_event_id,
+                "Can the fake slim shady please stand up?",
+                vec!["Excuse me?"],
+            )
+            .sender(*ALICE)
+            .event_id(edit1_event_id),
+        )
+        .await;
+    assert_pending!(stream);
+
+    // Now we receive the original event, with a bundled relations group.
+    let mut relations = BundledMessageLikeRelations::new();
+    relations.replace = Some(Box::new(
+        f.poll_edit(
+            original_event_id,
+            "Can the real slim shady please stand up?",
+            vec!["Excuse me?", "Please stand up 🎵", "Please stand up 🎶"],
+        )
+        .sender(*ALICE)
+        .event_id(edit2_event_id)
+        .into(),
+    ));
+
+    let ev = f
+        .poll_start(
+            "Can the fake slim shady please stand down?\nExcuse me?",
+            "Can the fake slim shady please stand down?",
+            vec!["Excuse me?"],
+        )
+        .sender(*ALICE)
+        .event_id(original_event_id)
+        .bundled_relations(relations);
+
+    timeline.handle_live_event(ev).await;
+
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+
+    // We receive the latest edit, not the pending one.
+    let event = item.as_event().unwrap();
+    assert_eq!(
+        event
+            .latest_edit_json()
+            .expect("we should have an edit json")
+            .deserialize()
+            .unwrap()
+            .event_id(),
+        edit2_event_id
+    );
+
+    let poll = event.content().as_poll().unwrap();
+    assert!(poll.has_been_edited);
+    assert_eq!(
+        poll.start_event_content.poll_start.question.text,
+        "Can the real slim shady please stand up?"
+    );
+    assert_eq!(poll.start_event_content.poll_start.answers.len(), 3);
+
+    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(day_divider.is_day_divider());
+
+    assert_pending!(stream);
 }

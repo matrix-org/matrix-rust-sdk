@@ -25,7 +25,10 @@ use ruma::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
-        poll::unstable_start::{NewUnstablePollStartEventContent, SyncUnstablePollStartEvent},
+        poll::unstable_start::{
+            NewUnstablePollStartEventContent, SyncUnstablePollStartEvent,
+            UnstablePollStartEventContent,
+        },
         room::{
             aliases::RoomAliasesEventContent,
             avatar::RoomAvatarEventContent,
@@ -37,7 +40,10 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::{RoomMessageEventContent, SyncRoomMessageEvent},
+            message::{
+                Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+                SyncRoomMessageEvent,
+            },
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -48,21 +54,31 @@ use ruma::{
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::{StickerEventContent, SyncStickerEvent},
-        AnyFullStateEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType, StateEventType,
+        AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent,
+        MessageLikeEventType, StateEventType,
     },
     OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
 };
 use tracing::warn;
 
-use crate::timeline::{polls::PollState, TimelineItem};
+use crate::timeline::TimelineItem;
 
 mod message;
 pub(crate) mod pinned_events;
+mod polls;
 
 pub use pinned_events::RoomPinnedEventsChange;
 
-pub use self::message::{InReplyToDetails, Message, RepliedToEvent};
+pub(in crate::timeline) use self::{
+    message::{
+        extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
+    },
+    polls::ResponseData,
+};
+pub use self::{
+    message::{InReplyToDetails, Message, RepliedToEvent},
+    polls::{PollResult, PollState},
+};
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
 #[derive(Clone, Debug)]
@@ -173,10 +189,19 @@ impl TimelineItemContent {
                 // Grab the content of this event
                 let event_content = event.content.clone();
 
-                // We don't have access to any relations via the `AnySyncTimelineEvent` (I think
-                // - andyb) so we pretend there are none. This might be OK for
-                // the message preview use case.
-                let relations = BundledMessageLikeRelations::new();
+                // Feed the bundled edit, if present, or we might miss showing edited content.
+                let edit = event
+                    .unsigned
+                    .relations
+                    .replace
+                    .as_ref()
+                    .and_then(|boxed| match &boxed.content.relates_to {
+                        Some(Relation::Replacement(re)) => Some(re.new_content.clone()),
+                        _ => {
+                            warn!("got m.room.message event with an edit without a valid m.replace relation");
+                            None
+                        }
+                    });
 
                 // If this message is a reply, we would look up in this list the message it was
                 // replying to. Since we probably won't show this in the message preview,
@@ -186,10 +211,11 @@ impl TimelineItemContent {
                 let timeline_items = Vector::new();
                 TimelineItemContent::Message(Message::from_event(
                     event_content,
-                    relations,
+                    edit,
                     &timeline_items,
                 ))
             }
+
             SyncRoomMessageEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
         }
     }
@@ -213,14 +239,26 @@ impl TimelineItemContent {
     fn from_suitable_latest_poll_event_content(
         event: &SyncUnstablePollStartEvent,
     ) -> TimelineItemContent {
-        match event {
-            SyncUnstablePollStartEvent::Original(event) => {
-                TimelineItemContent::Poll(PollState::new(NewUnstablePollStartEventContent::new(
-                    event.content.poll_start().clone(),
-                )))
-            }
-            SyncUnstablePollStartEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
-        }
+        let SyncUnstablePollStartEvent::Original(event) = event else {
+            return TimelineItemContent::RedactedMessage;
+        };
+
+        // Feed the bundled edit, if present, or we might miss showing edited content.
+        let edit =
+            event.unsigned.relations.replace.as_ref().and_then(|boxed| match &boxed.content {
+                UnstablePollStartEventContent::Replacement(re) => {
+                    Some(re.relates_to.new_content.clone())
+                }
+                _ => {
+                    warn!("got poll event with an edit without a valid m.replace relation");
+                    None
+                }
+            });
+
+        TimelineItemContent::Poll(PollState::new(
+            NewUnstablePollStartEventContent::new(event.content.poll_start().clone()),
+            edit,
+        ))
     }
 
     fn from_suitable_latest_call_invite_content(
@@ -247,6 +285,12 @@ impl TimelineItemContent {
         as_variant!(self, Self::Message)
     }
 
+    /// If `self` is of the [`Poll`][Self::Poll] variant, return the inner
+    /// [`PollState`].
+    pub fn as_poll(&self) -> Option<&PollState> {
+        as_variant!(self, Self::Poll)
+    }
+
     /// If `self` is of the [`UnableToDecrypt`][Self::UnableToDecrypt] variant,
     /// return the inner [`EncryptedMessage`].
     pub fn as_unable_to_decrypt(&self) -> Option<&EncryptedMessage> {
@@ -261,10 +305,10 @@ impl TimelineItemContent {
     // allow users to call them directly, which should not be supported
     pub(crate) fn message(
         c: RoomMessageEventContent,
-        relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+        edit: Option<RoomMessageEventContentWithoutRelation>,
         timeline_items: &Vector<Arc<TimelineItem>>,
     ) -> Self {
-        Self::Message(Message::from_event(c, relations, timeline_items))
+        Self::Message(Message::from_event(c, edit, timeline_items))
     }
 
     #[cfg(not(tarpaulin_include))] // debug-logging functionality

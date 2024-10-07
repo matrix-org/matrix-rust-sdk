@@ -42,6 +42,7 @@
 //! `/keys/query` API call.
 pub(crate) mod device;
 pub(crate) mod manager;
+pub(crate) mod room_identity_state;
 pub(crate) mod user;
 
 use std::sync::{
@@ -53,7 +54,7 @@ pub use device::{Device, DeviceData, LocalTrust, UserDevices};
 pub(crate) use manager::IdentityManager;
 use serde::{Deserialize, Deserializer, Serializer};
 pub use user::{
-    OtherUserIdentityData, OwnUserIdentity, OwnUserIdentityData, UserIdentities, UserIdentity,
+    OtherUserIdentity, OtherUserIdentityData, OwnUserIdentity, OwnUserIdentityData, UserIdentity,
     UserIdentityData,
 };
 

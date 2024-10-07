@@ -4,6 +4,7 @@ description = "Internal integration testing for matrix-sdk crate"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "Apache-2.0"
 
 [dev-dependencies]
 anyhow = { workspace = true }

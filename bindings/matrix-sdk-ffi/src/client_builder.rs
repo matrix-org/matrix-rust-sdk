@@ -5,7 +5,7 @@ use matrix_sdk::{
     authentication::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
     crypto::{
         types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
-        CollectStrategy,
+        CollectStrategy, TrustRequirement,
     },
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Certificate,
@@ -266,6 +266,7 @@ pub struct ClientBuilder {
     disable_built_in_root_certificates: bool,
     encryption_settings: EncryptionSettings,
     room_key_recipient_strategy: CollectStrategy,
+    decryption_trust_requirement: TrustRequirement,
     request_config: Option<RequestConfig>,
 }
 
@@ -294,6 +295,7 @@ impl ClientBuilder {
                 auto_enable_backups: false,
             },
             room_key_recipient_strategy: Default::default(),
+            decryption_trust_requirement: TrustRequirement::Untrusted,
             request_config: Default::default(),
         })
     }
@@ -449,6 +451,16 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    /// Set the trust requirement to be used when decrypting events.
+    pub fn room_decryption_trust_requirement(
+        self: Arc<Self>,
+        trust_requirement: TrustRequirement,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.decryption_trust_requirement = trust_requirement;
+        Arc::new(builder)
+    }
+
     /// Add a default request config to this client.
     pub fn request_config(self: Arc<Self>, config: RequestConfig) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
@@ -548,7 +560,8 @@ impl ClientBuilder {
 
         inner_builder = inner_builder
             .with_encryption_settings(builder.encryption_settings)
-            .with_room_key_recipient_strategy(builder.room_key_recipient_strategy);
+            .with_room_key_recipient_strategy(builder.room_key_recipient_strategy)
+            .with_decryption_trust_requirement(builder.decryption_trust_requirement);
 
         match builder.sliding_sync_version_builder {
             SlidingSyncVersionBuilder::None => {

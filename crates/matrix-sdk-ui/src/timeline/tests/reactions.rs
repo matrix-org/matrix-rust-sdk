@@ -209,7 +209,7 @@ async fn test_initial_reaction_timestamp_is_stored() {
     let reactions = items.last().unwrap().as_event().unwrap().reactions();
     let entry = reactions.get(&REACTION_KEY.to_owned()).unwrap();
 
-    assert_eq!(reaction_timestamp, entry.values().next().unwrap().timestamp);
+    assert_eq!(entry.values().next().unwrap().timestamp, reaction_timestamp);
 }
 
 /// Returns the unique item id, the event id, and position of the message.

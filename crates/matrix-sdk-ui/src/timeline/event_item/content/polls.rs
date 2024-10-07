@@ -1,3 +1,17 @@
+// Copyright 2024 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! This module handles rendering of MSC3381 polls in the timeline.
 
 use std::collections::HashMap;
@@ -13,7 +27,7 @@ use ruma::{
         },
         PollResponseData,
     },
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
 };
 
 /// Holds the state of a poll.
@@ -23,39 +37,50 @@ use ruma::{
 /// to the same poll start event.
 #[derive(Clone, Debug)]
 pub struct PollState {
-    pub(super) start_event_content: NewUnstablePollStartEventContent,
-    pub(super) response_data: Vec<ResponseData>,
-    pub(super) end_event_timestamp: Option<MilliSecondsSinceUnixEpoch>,
-    pub(super) has_been_edited: bool,
+    pub(in crate::timeline) start_event_content: NewUnstablePollStartEventContent,
+    pub(in crate::timeline) response_data: Vec<ResponseData>,
+    pub(in crate::timeline) end_event_timestamp: Option<MilliSecondsSinceUnixEpoch>,
+    pub(in crate::timeline) has_been_edited: bool,
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct ResponseData {
-    pub(super) sender: OwnedUserId,
-    pub(super) timestamp: MilliSecondsSinceUnixEpoch,
-    pub(super) answers: Vec<String>,
+pub(in crate::timeline) struct ResponseData {
+    pub sender: OwnedUserId,
+    pub timestamp: MilliSecondsSinceUnixEpoch,
+    pub answers: Vec<String>,
 }
 
 impl PollState {
-    pub(super) fn new(content: NewUnstablePollStartEventContent) -> Self {
-        Self {
+    pub(crate) fn new(
+        content: NewUnstablePollStartEventContent,
+        edit: Option<NewUnstablePollStartEventContentWithoutRelation>,
+    ) -> Self {
+        let mut ret = Self {
             start_event_content: content,
             response_data: vec![],
             end_event_timestamp: None,
             has_been_edited: false,
+        };
+
+        if let Some(edit) = edit {
+            // SAFETY: [`Self::edit`] only returns `None` when the poll has ended, not the
+            // case here.
+            ret = ret.edit(edit).unwrap();
         }
+
+        ret
     }
 
     /// Applies an edit to a poll, returns `None` if the poll was already marked
     /// as finished.
-    pub(super) fn edit(
+    pub(crate) fn edit(
         &self,
-        replacement: &NewUnstablePollStartEventContentWithoutRelation,
+        replacement: NewUnstablePollStartEventContentWithoutRelation,
     ) -> Option<Self> {
         if self.end_event_timestamp.is_none() {
             let mut clone = self.clone();
-            clone.start_event_content.poll_start = replacement.poll_start.clone();
-            clone.start_event_content.text = replacement.text.clone();
+            clone.start_event_content.poll_start = replacement.poll_start;
+            clone.start_event_content.text = replacement.text;
             clone.has_been_edited = true;
             Some(clone)
         } else {
@@ -63,7 +88,7 @@ impl PollState {
         }
     }
 
-    pub(super) fn add_response(
+    pub(crate) fn add_response(
         &self,
         sender: &UserId,
         timestamp: MilliSecondsSinceUnixEpoch,
@@ -81,7 +106,7 @@ impl PollState {
     /// Marks the poll as ended.
     ///
     /// If the poll has already ended, returns `Err(())`.
-    pub(super) fn end(&self, timestamp: MilliSecondsSinceUnixEpoch) -> Result<Self, ()> {
+    pub(crate) fn end(&self, timestamp: MilliSecondsSinceUnixEpoch) -> Result<Self, ()> {
         if self.end_event_timestamp.is_none() {
             let mut clone = self.clone();
             clone.end_event_timestamp = Some(timestamp);
@@ -142,58 +167,6 @@ impl From<PollState> for NewUnstablePollStartEventContent {
             NewUnstablePollStartEventContent::plain_text(text, content)
         } else {
             NewUnstablePollStartEventContent::new(content)
-        }
-    }
-}
-
-/// Cache holding poll response and end events handled before their poll start
-/// event has been handled.
-#[derive(Clone, Debug, Default)]
-pub(super) struct PendingPollEvents {
-    /// Responses to a poll (identified by the poll's start event id).
-    responses: HashMap<OwnedEventId, Vec<ResponseData>>,
-
-    /// Mapping of a poll (identified by its start event's id) to its end date.
-    end_dates: HashMap<OwnedEventId, MilliSecondsSinceUnixEpoch>,
-}
-
-impl PendingPollEvents {
-    pub(super) fn add_response(
-        &mut self,
-        start_event_id: &EventId,
-        sender: &UserId,
-        timestamp: MilliSecondsSinceUnixEpoch,
-        content: &UnstablePollResponseEventContent,
-    ) {
-        self.responses.entry(start_event_id.to_owned()).or_default().push(ResponseData {
-            sender: sender.to_owned(),
-            timestamp,
-            answers: content.poll_response.answers.clone(),
-        });
-    }
-
-    pub(super) fn clear(&mut self) {
-        self.end_dates.clear();
-        self.responses.clear();
-    }
-
-    /// Mark a poll as finished by inserting its poll date.
-    pub(super) fn mark_as_ended(
-        &mut self,
-        start_event_id: &EventId,
-        timestamp: MilliSecondsSinceUnixEpoch,
-    ) {
-        self.end_dates.insert(start_event_id.to_owned(), timestamp);
-    }
-
-    /// Dumps all response and end events present in the cache that belong to
-    /// the given start_event_id into the given poll_state.
-    pub(super) fn apply_pending(&mut self, start_event_id: &EventId, poll_state: &mut PollState) {
-        if let Some(pending_responses) = self.responses.remove(start_event_id) {
-            poll_state.response_data.extend(pending_responses);
-        }
-        if let Some(pending_end) = self.end_dates.remove(start_event_id) {
-            poll_state.end_event_timestamp = Some(pending_end);
         }
     }
 }

@@ -182,33 +182,6 @@ impl RoomList {
         })
     }
 
-    fn entries(&self, listener: Box<dyn RoomListEntriesListener>) -> Arc<TaskHandle> {
-        let this = self.inner.clone();
-        let utd_hook = self.room_list_service.utd_hook.clone();
-
-        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
-            let (entries, entries_stream) = this.entries();
-
-            pin_mut!(entries_stream);
-
-            listener.on_update(vec![RoomListEntriesUpdate::Append {
-                values: entries
-                    .into_iter()
-                    .map(|room| Arc::new(RoomListItem::from(room, utd_hook.clone())))
-                    .collect(),
-            }]);
-
-            while let Some(diffs) = entries_stream.next().await {
-                listener.on_update(
-                    diffs
-                        .into_iter()
-                        .map(|diff| RoomListEntriesUpdate::from(diff, utd_hook.clone()))
-                        .collect(),
-                );
-            }
-        })))
-    }
-
     fn entries_with_dynamic_adapters(
         self: Arc<Self>,
         page_size: u32,
@@ -702,8 +675,8 @@ impl RoomListItem {
         self.inner.is_encrypted().await.unwrap_or(false)
     }
 
-    async fn latest_event(&self) -> Option<Arc<EventTimelineItem>> {
-        self.inner.latest_event().await.map(EventTimelineItem).map(Arc::new)
+    async fn latest_event(&self) -> Option<EventTimelineItem> {
+        self.inner.latest_event().await.map(Into::into)
     }
 }
 
@@ -716,7 +689,7 @@ pub struct RequiredState {
 #[derive(uniffi::Record)]
 pub struct RoomSubscription {
     pub required_state: Option<Vec<RequiredState>>,
-    pub timeline_limit: Option<u32>,
+    pub timeline_limit: u32,
     pub include_heroes: Option<bool>,
 }
 
@@ -726,7 +699,7 @@ impl From<RoomSubscription> for http::request::RoomSubscription {
             required_state: val.required_state.map(|r|
                 r.into_iter().map(|s| (s.key.into(), s.value)).collect()
             ).unwrap_or_default(),
-            timeline_limit: val.timeline_limit.map(|u| u.into()),
+            timeline_limit: val.timeline_limit.into(),
             include_heroes: val.include_heroes,
         })
     }

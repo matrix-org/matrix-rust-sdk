@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_base::{
-    crypto::{types::MasterPubkey, CryptoStoreError, UserIdentities as CryptoUserIdentities},
+    crypto::{types::MasterPubkey, CryptoStoreError, UserIdentity as CryptoUserIdentity},
     RoomMemberships,
 };
 use ruma::{
@@ -100,12 +100,17 @@ impl IdentityUpdates {
 #[derive(Debug, Clone)]
 pub struct UserIdentity {
     client: Client,
-    inner: CryptoUserIdentities,
+    inner: CryptoUserIdentity,
 }
 
 impl UserIdentity {
-    pub(crate) fn new(client: Client, identity: CryptoUserIdentities) -> Self {
+    pub(crate) fn new(client: Client, identity: CryptoUserIdentity) -> Self {
         Self { inner: identity, client }
+    }
+
+    #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+    pub(crate) fn underlying_identity(&self) -> CryptoUserIdentity {
+        self.inner.clone()
     }
 
     /// The ID of the user this identity belongs to.
@@ -129,8 +134,8 @@ impl UserIdentity {
     /// ```
     pub fn user_id(&self) -> &UserId {
         match &self.inner {
-            CryptoUserIdentities::Own(identity) => identity.user_id(),
-            CryptoUserIdentities::Other(identity) => identity.user_id(),
+            CryptoUserIdentity::Own(identity) => identity.user_id(),
+            CryptoUserIdentity::Other(identity) => identity.user_id(),
         }
     }
 
@@ -252,7 +257,7 @@ impl UserIdentity {
         methods: Option<Vec<VerificationMethod>>,
     ) -> Result<VerificationRequest, RequestVerificationError> {
         match &self.inner {
-            CryptoUserIdentities::Own(identity) => {
+            CryptoUserIdentity::Own(identity) => {
                 let (verification, request) = if let Some(methods) = methods {
                     identity
                         .request_verification_with_methods(methods)
@@ -266,7 +271,7 @@ impl UserIdentity {
 
                 Ok(VerificationRequest { inner: verification, client: self.client.clone() })
             }
-            CryptoUserIdentities::Other(i) => {
+            CryptoUserIdentity::Other(i) => {
                 let content = i.verification_request_content(methods.clone());
 
                 let room = if let Some(room) = self.client.get_dm_room(i.user_id()) {
@@ -357,8 +362,8 @@ impl UserIdentity {
     /// [`Encryption::cross_signing_status()`]: crate::encryption::Encryption::cross_signing_status
     pub async fn verify(&self) -> Result<(), ManualVerifyError> {
         let request = match &self.inner {
-            CryptoUserIdentities::Own(identity) => identity.verify().await?,
-            CryptoUserIdentities::Other(identity) => identity.verify().await?,
+            CryptoUserIdentity::Own(identity) => identity.verify().await?,
+            CryptoUserIdentity::Other(identity) => identity.verify().await?,
         };
 
         self.client.send(request, None).await?;
@@ -417,6 +422,24 @@ impl UserIdentity {
         self.inner.withdraw_verification().await
     }
 
+    /// Remember this identity, ensuring it does not result in a pin violation.
+    ///
+    /// When we first see a user, we assume their cryptographic identity has not
+    /// been tampered with by the homeserver or another entity with
+    /// man-in-the-middle capabilities. We remember this identity and call this
+    /// action "pinning".
+    ///
+    /// If the identity presented for the user changes later on, the newly
+    /// presented identity is considered to be in "pin violation". This
+    /// method explicitly accepts the new identity, allowing it to replace
+    /// the previously pinned one and bringing it out of pin violation.
+    ///
+    /// UIs should display a warning to the user when encountering an identity
+    /// which is not verified and is in pin violation.
+    pub async fn pin(&self) -> Result<(), CryptoStoreError> {
+        self.inner.pin().await
+    }
+
     /// Get the public part of the Master key of this user identity.
     ///
     /// The public part of the Master key is usually used to uniquely identify
@@ -460,8 +483,8 @@ impl UserIdentity {
     /// ```
     pub fn master_key(&self) -> &MasterPubkey {
         match &self.inner {
-            CryptoUserIdentities::Own(identity) => identity.master_key(),
-            CryptoUserIdentities::Other(identity) => identity.master_key(),
+            CryptoUserIdentity::Own(identity) => identity.master_key(),
+            CryptoUserIdentity::Other(identity) => identity.master_key(),
         }
     }
 }

@@ -425,7 +425,7 @@ impl NotificationClient {
             &[room_id],
             Some(assign!(http::request::RoomSubscription::default(), {
                 required_state,
-                timeline_limit: Some(uint!(16))
+                timeline_limit: uint!(16)
             })),
             true,
         );

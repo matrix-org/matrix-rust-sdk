@@ -31,8 +31,8 @@ use ruma::{
         room::message::{
             AddMentions, MessageType, Relation, ReplyWithinThread, RoomMessageEventContent,
         },
-        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyTimelineEvent, AnyToDeviceEvent,
-        MessageLikeEvent, OriginalMessageLikeEvent,
+        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyToDeviceEvent, MessageLikeEvent,
+        OriginalMessageLikeEvent,
     },
     room_id,
     serde::Raw,
@@ -563,8 +563,8 @@ async fn test_megolm_encryption() {
         .deserialize()
         .unwrap();
 
-    if let AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
-        MessageLikeEvent::Original(OriginalMessageLikeEvent { sender, content, .. }),
+    if let AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(
+        OriginalMessageLikeEvent { sender, content, .. },
     )) = decrypted_event
     {
         assert_eq!(&sender, alice.user_id());
@@ -1291,16 +1291,12 @@ async fn test_unsigned_decryption() {
         bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
-    assert_matches!(
-        decrypted_event,
-        AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(first_message))
-    );
+    assert_matches!(decrypted_event, AnyMessageLikeEvent::RoomMessage(first_message));
 
     let first_message = first_message.as_original().unwrap();
     assert_eq!(first_message.content.body(), first_message_text);
     assert!(first_message.unsigned.relations.is_empty());
 
-    assert!(raw_decrypted_event.encryption_info.is_some());
     assert!(raw_decrypted_event.unsigned_encryption_info.is_none());
 
     // Get a new room key, but don't give it to Bob yet.
@@ -1344,10 +1340,7 @@ async fn test_unsigned_decryption() {
         bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
-    assert_matches!(
-        decrypted_event,
-        AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(first_message))
-    );
+    assert_matches!(decrypted_event, AnyMessageLikeEvent::RoomMessage(first_message));
 
     let first_message = first_message.as_original().unwrap();
     assert_eq!(first_message.content.body(), first_message_text);
@@ -1355,7 +1348,6 @@ async fn test_unsigned_decryption() {
     assert!(first_message.unsigned.relations.replace.is_none());
     assert!(first_message.unsigned.relations.has_replacement());
 
-    assert!(raw_decrypted_event.encryption_info.is_some());
     let unsigned_encryption_info = raw_decrypted_event.unsigned_encryption_info.unwrap();
     assert_eq!(unsigned_encryption_info.len(), 1);
     let replace_encryption_result =
@@ -1388,10 +1380,7 @@ async fn test_unsigned_decryption() {
         bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
-    assert_matches!(
-        decrypted_event,
-        AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(first_message))
-    );
+    assert_matches!(decrypted_event, AnyMessageLikeEvent::RoomMessage(first_message));
 
     let first_message = first_message.as_original().unwrap();
     assert_eq!(first_message.content.body(), first_message_text);
@@ -1399,7 +1388,6 @@ async fn test_unsigned_decryption() {
     assert_matches!(&replace.content.relates_to, Some(Relation::Replacement(replace_content)));
     assert_eq!(replace_content.new_content.msgtype.body(), second_message_text);
 
-    assert!(raw_decrypted_event.encryption_info.is_some());
     let unsigned_encryption_info = raw_decrypted_event.unsigned_encryption_info.unwrap();
     assert_eq!(unsigned_encryption_info.len(), 1);
     let replace_encryption_result =
@@ -1453,10 +1441,7 @@ async fn test_unsigned_decryption() {
         bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
-    assert_matches!(
-        decrypted_event,
-        AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(first_message))
-    );
+    assert_matches!(decrypted_event, AnyMessageLikeEvent::RoomMessage(first_message));
 
     let first_message = first_message.as_original().unwrap();
     assert_eq!(first_message.content.body(), first_message_text);
@@ -1465,7 +1450,6 @@ async fn test_unsigned_decryption() {
     let thread = first_message.unsigned.relations.thread.as_ref().unwrap();
     assert_matches!(thread.latest_event.deserialize(), Ok(AnyMessageLikeEvent::RoomEncrypted(_)));
 
-    assert!(raw_decrypted_event.encryption_info.is_some());
     let unsigned_encryption_info = raw_decrypted_event.unsigned_encryption_info.unwrap();
     assert_eq!(unsigned_encryption_info.len(), 2);
     let replace_encryption_result =
@@ -1501,10 +1485,7 @@ async fn test_unsigned_decryption() {
         bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
-    assert_matches!(
-        decrypted_event,
-        AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(first_message))
-    );
+    assert_matches!(decrypted_event, AnyMessageLikeEvent::RoomMessage(first_message));
 
     let first_message = first_message.as_original().unwrap();
     assert_eq!(first_message.content.body(), first_message_text);
@@ -1517,7 +1498,6 @@ async fn test_unsigned_decryption() {
     let third_message = third_message.as_original().unwrap();
     assert_eq!(third_message.content.body(), third_message_text);
 
-    assert!(raw_decrypted_event.encryption_info.is_some());
     let unsigned_encryption_info = raw_decrypted_event.unsigned_encryption_info.unwrap();
     assert_eq!(unsigned_encryption_info.len(), 2);
     let replace_encryption_result =

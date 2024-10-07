@@ -21,7 +21,7 @@ use std::{
 use itertools::Itertools;
 use matrix_sdk_common::{
     deserialized_responses::{
-        AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, TimelineEvent, UnableToDecryptInfo,
+        AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, UnableToDecryptInfo,
         UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel, VerificationState,
     },
     BoxFuture,
@@ -40,7 +40,7 @@ use ruma::{
     assign,
     events::{
         secret::request::SecretName, AnyMessageLikeEvent, AnyMessageLikeEventContent,
-        AnyTimelineEvent, AnyToDeviceEvent, MessageLikeEventContent,
+        AnyToDeviceEvent, MessageLikeEventContent,
     },
     serde::{JsonObject, Raw},
     DeviceId, DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedDeviceKeyId,
@@ -63,7 +63,7 @@ use crate::{
     dehydrated_devices::{DehydratedDevices, DehydrationError},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SetRoomSettingsError},
     gossiping::GossipMachine,
-    identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
+    identities::{user::UserIdentity, Device, IdentityManager, UserDevices},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
         KnownSenderData, OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData,
@@ -857,9 +857,9 @@ impl OlmMachine {
 
     #[instrument(
         skip_all,
-    // This function is only ever called by add_room_key via
-    // handle_decrypted_to_device_event, so sender, sender_key, and algorithm are
-    // already recorded.
+        // This function is only ever called by add_room_key via
+        // handle_decrypted_to_device_event, so sender, sender_key, and algorithm are
+        // already recorded.
         fields(room_id = ? content.room_id, session_id)
     )]
     async fn handle_key(
@@ -888,17 +888,21 @@ impl OlmMachine {
 
                 session.sender_data = sender_data;
 
-                if self.store().compare_group_session(&session).await? == SessionOrdering::Better {
-                    info!("Received a new megolm room key");
+                match self.store().compare_group_session(&session).await? {
+                    SessionOrdering::Better => {
+                        info!("Received a new megolm room key");
 
-                    Ok(Some(session))
-                } else {
-                    warn!(
-                        "Received a megolm room key that we already have a better version of, \
-                        discarding",
-                    );
+                        Ok(Some(session))
+                    }
+                    comparison_result => {
+                        warn!(
+                            ?comparison_result,
+                            "Received a megolm room key that we already have a better version \
+                             of, discarding"
+                        );
 
-                    Ok(None)
+                        Ok(None)
+                    }
                 }
             }
             Err(e) => {
@@ -1473,7 +1477,7 @@ impl OlmMachine {
                 sender_data,
                 SenderData::UnknownDevice { .. }
                     | SenderData::DeviceInfo { .. }
-                    | SenderData::SenderUnverifiedButPreviouslyVerified { .. }
+                    | SenderData::VerificationViolation { .. }
             )
         }
 
@@ -1685,8 +1689,8 @@ impl OlmMachine {
             TrustRequirement::CrossSignedOrLegacy => match &session.sender_data {
                 // Reject if the sender was previously verified, but changed
                 // their identity and is not verified any more.
-                SenderData::SenderUnverifiedButPreviouslyVerified(..) => Err(
-                    MegolmError::SenderIdentityNotTrusted(VerificationLevel::PreviouslyVerified),
+                SenderData::VerificationViolation(..) => Err(
+                    MegolmError::SenderIdentityNotTrusted(VerificationLevel::VerificationViolation),
                 ),
                 SenderData::SenderUnverified(..) => Ok(()),
                 SenderData::SenderVerified(..) => Ok(()),
@@ -1698,8 +1702,8 @@ impl OlmMachine {
             TrustRequirement::CrossSigned => match &session.sender_data {
                 // Reject if the sender was previously verified, but changed
                 // their identity and is not verified any more.
-                SenderData::SenderUnverifiedButPreviouslyVerified(..) => Err(
-                    MegolmError::SenderIdentityNotTrusted(VerificationLevel::PreviouslyVerified),
+                SenderData::VerificationViolation(..) => Err(
+                    MegolmError::SenderIdentityNotTrusted(VerificationLevel::VerificationViolation),
                 ),
                 SenderData::SenderUnverified(..) => Ok(()),
                 SenderData::SenderVerified(..) => Ok(()),
@@ -1743,7 +1747,7 @@ impl OlmMachine {
         event: &Raw<EncryptedEvent>,
         room_id: &RoomId,
         decryption_settings: &DecryptionSettings,
-    ) -> MegolmResult<TimelineEvent> {
+    ) -> MegolmResult<DecryptedRoomEvent> {
         self.decrypt_room_event_inner(event, room_id, true, decryption_settings).await
     }
 
@@ -1754,7 +1758,7 @@ impl OlmMachine {
         room_id: &RoomId,
         decrypt_unsigned: bool,
         decryption_settings: &DecryptionSettings,
-    ) -> MegolmResult<TimelineEvent> {
+    ) -> MegolmResult<DecryptedRoomEvent> {
         let event = event.deserialize()?;
 
         Span::current()
@@ -1814,14 +1818,9 @@ impl OlmMachine {
                 .await;
         }
 
-        let event = serde_json::from_value::<Raw<AnyTimelineEvent>>(decrypted_event.into())?;
+        let event = serde_json::from_value::<Raw<AnyMessageLikeEvent>>(decrypted_event.into())?;
 
-        Ok(TimelineEvent {
-            event,
-            encryption_info: Some(encryption_info),
-            push_actions: None,
-            unsigned_encryption_info,
-        })
+        Ok(DecryptedRoomEvent { event, encryption_info, unsigned_encryption_info })
     }
 
     /// Try to decrypt the events bundled in the `unsigned` object of the given
@@ -1902,7 +1901,7 @@ impl OlmMachine {
                 Ok(decrypted_event) => {
                     // Replace the encrypted event.
                     *event = serde_json::to_value(decrypted_event.event).ok()?;
-                    Some(UnsignedDecryptionResult::Decrypted(decrypted_event.encryption_info?))
+                    Some(UnsignedDecryptionResult::Decrypted(decrypted_event.encryption_info))
                 }
                 Err(_) => {
                     let session_id =
@@ -2091,14 +2090,14 @@ impl OlmMachine {
     /// the requests from [`OlmMachine::outgoing_requests`] are being
     /// processed and sent out.
     ///
-    /// Returns a `UserIdentities` enum if one is found and the crypto store
+    /// Returns a [`UserIdentity`] enum if one is found and the crypto store
     /// didn't throw an error.
     #[instrument(skip(self))]
     pub async fn get_identity(
         &self,
         user_id: &UserId,
         timeout: Option<Duration>,
-    ) -> StoreResult<Option<UserIdentities>> {
+    ) -> StoreResult<Option<UserIdentity>> {
         self.wait_if_user_pending(user_id, timeout).await?;
         self.store().get_identity(user_id).await
     }
@@ -2489,9 +2488,9 @@ fn sender_data_to_verification_state(
             VerificationState::Unverified(VerificationLevel::UnsignedDevice),
             Some(device_keys.device_id),
         ),
-        SenderData::SenderUnverifiedButPreviouslyVerified(KnownSenderData {
-            device_id, ..
-        }) => (VerificationState::Unverified(VerificationLevel::PreviouslyVerified), device_id),
+        SenderData::VerificationViolation(KnownSenderData { device_id, .. }) => {
+            (VerificationState::Unverified(VerificationLevel::VerificationViolation), device_id)
+        }
         SenderData::SenderUnverified(KnownSenderData { device_id, .. }) => {
             (VerificationState::Unverified(VerificationLevel::UnverifiedIdentity), device_id)
         }

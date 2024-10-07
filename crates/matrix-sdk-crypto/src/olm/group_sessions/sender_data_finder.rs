@@ -267,7 +267,7 @@ impl<'a> SenderDataFinder<'a> {
                 .expect("User with master key must have identity")
                 .was_previously_verified()
             {
-                SenderData::SenderUnverifiedButPreviouslyVerified(known_sender_data)
+                SenderData::VerificationViolation(known_sender_data)
             } else {
                 SenderData::SenderUnverified(known_sender_data)
             }

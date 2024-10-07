@@ -41,7 +41,7 @@ pub struct KnownSenderData {
 /// Sessions start off in `UnknownDevice` state, and progress into `DeviceInfo`
 /// state when we get the device info. Finally, if we can look up the sender
 /// using the device info, the session can be moved into
-/// `SenderUnverifiedButPreviouslyVerified`, `SenderUnverified`, or
+/// `VerificationViolation`, `SenderUnverified`, or
 /// `SenderVerified` state, depending on the verification status of the user.
 /// If the user's verification state changes, the state may change accordingly.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -79,7 +79,7 @@ pub enum SenderData {
     /// the to-device message that established this session, but we have not yet
     /// verified the cross-signing key, and we had verified a previous
     /// cross-signing key for this user.
-    SenderUnverifiedButPreviouslyVerified(KnownSenderData),
+    VerificationViolation(KnownSenderData),
 
     /// We have found proof that this user, with this cross-signing key, sent
     /// the to-device message that established this session, but we have not yet
@@ -105,12 +105,12 @@ impl SenderData {
 
     /// Create a [`SenderData`] with a known but unverified sender, where the
     /// sender was previously verified.
-    pub fn sender_previously_verified(
+    pub fn sender_verification_violation(
         user_id: &UserId,
         device_id: &DeviceId,
         master_key: Ed25519PublicKey,
     ) -> Self {
-        Self::SenderUnverifiedButPreviouslyVerified(KnownSenderData {
+        Self::VerificationViolation(KnownSenderData {
             user_id: user_id.to_owned(),
             device_id: Some(device_id.to_owned()),
             master_key: Box::new(master_key),
@@ -172,7 +172,7 @@ impl SenderData {
         match self {
             SenderData::UnknownDevice { .. } => 0,
             SenderData::DeviceInfo { .. } => 1,
-            SenderData::SenderUnverifiedButPreviouslyVerified(..) => 2,
+            SenderData::VerificationViolation(..) => 2,
             SenderData::SenderUnverified(..) => 3,
             SenderData::SenderVerified(..) => 4,
         }
@@ -183,9 +183,7 @@ impl SenderData {
         match self {
             Self::UnknownDevice { .. } => SenderDataType::UnknownDevice,
             Self::DeviceInfo { .. } => SenderDataType::DeviceInfo,
-            Self::SenderUnverifiedButPreviouslyVerified { .. } => {
-                SenderDataType::SenderUnverifiedButPreviouslyVerified
-            }
+            Self::VerificationViolation { .. } => SenderDataType::VerificationViolation,
             Self::SenderUnverified { .. } => SenderDataType::SenderUnverified,
             Self::SenderVerified { .. } => SenderDataType::SenderVerified,
         }
@@ -217,7 +215,7 @@ enum SenderDataReader {
         legacy_session: bool,
     },
 
-    SenderUnverifiedButPreviouslyVerified(KnownSenderData),
+    VerificationViolation(KnownSenderData),
 
     SenderUnverified(KnownSenderData),
 
@@ -242,9 +240,7 @@ impl From<SenderDataReader> for SenderData {
             SenderDataReader::DeviceInfo { device_keys, legacy_session } => {
                 Self::DeviceInfo { device_keys, legacy_session }
             }
-            SenderDataReader::SenderUnverifiedButPreviouslyVerified(data) => {
-                Self::SenderUnverifiedButPreviouslyVerified(data)
-            }
+            SenderDataReader::VerificationViolation(data) => Self::VerificationViolation(data),
             SenderDataReader::SenderUnverified(data) => Self::SenderUnverified(data),
             SenderDataReader::SenderVerified(data) => Self::SenderVerified(data),
             SenderDataReader::SenderKnown {
@@ -273,8 +269,8 @@ pub enum SenderDataType {
     UnknownDevice = 1,
     /// The [`SenderData`] is of type `DeviceInfo`.
     DeviceInfo = 2,
-    /// The [`SenderData`] is of type `SenderUnverifiedButPreviouslyVerified`.
-    SenderUnverifiedButPreviouslyVerified = 3,
+    /// The [`SenderData`] is of type `VerificationViolation`.
+    VerificationViolation = 3,
     /// The [`SenderData`] is of type `SenderUnverified`.
     SenderUnverified = 4,
     /// The [`SenderData`] is of type `SenderVerified`.
@@ -399,7 +395,7 @@ mod tests {
         ));
         let master_key =
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
-        let sender_previously_verified = SenderData::sender_previously_verified(
+        let sender_verification_violation = SenderData::sender_verification_violation(
             user_id!("@u:s.co"),
             device_id!("DEV"),
             master_key,
@@ -410,26 +406,29 @@ mod tests {
             SenderData::sender_verified(user_id!("@u:s.co"), device_id!("DEV"), master_key);
 
         assert_eq!(unknown.compare_trust_level(&device_keys), Ordering::Less);
-        assert_eq!(unknown.compare_trust_level(&sender_previously_verified), Ordering::Less);
+        assert_eq!(unknown.compare_trust_level(&sender_verification_violation), Ordering::Less);
         assert_eq!(unknown.compare_trust_level(&sender_unverified), Ordering::Less);
         assert_eq!(unknown.compare_trust_level(&sender_verified), Ordering::Less);
         assert_eq!(device_keys.compare_trust_level(&unknown), Ordering::Greater);
-        assert_eq!(sender_previously_verified.compare_trust_level(&unknown), Ordering::Greater);
+        assert_eq!(sender_verification_violation.compare_trust_level(&unknown), Ordering::Greater);
         assert_eq!(sender_unverified.compare_trust_level(&unknown), Ordering::Greater);
         assert_eq!(sender_verified.compare_trust_level(&unknown), Ordering::Greater);
 
         assert_eq!(device_keys.compare_trust_level(&sender_unverified), Ordering::Less);
         assert_eq!(device_keys.compare_trust_level(&sender_verified), Ordering::Less);
-        assert_eq!(sender_previously_verified.compare_trust_level(&device_keys), Ordering::Greater);
+        assert_eq!(
+            sender_verification_violation.compare_trust_level(&device_keys),
+            Ordering::Greater
+        );
         assert_eq!(sender_unverified.compare_trust_level(&device_keys), Ordering::Greater);
         assert_eq!(sender_verified.compare_trust_level(&device_keys), Ordering::Greater);
 
         assert_eq!(
-            sender_previously_verified.compare_trust_level(&sender_verified),
+            sender_verification_violation.compare_trust_level(&sender_verified),
             Ordering::Less
         );
         assert_eq!(
-            sender_previously_verified.compare_trust_level(&sender_unverified),
+            sender_verification_violation.compare_trust_level(&sender_unverified),
             Ordering::Less
         );
         assert_eq!(sender_unverified.compare_trust_level(&sender_verified), Ordering::Less);

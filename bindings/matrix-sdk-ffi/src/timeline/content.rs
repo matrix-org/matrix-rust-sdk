@@ -16,45 +16,40 @@ use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::{crypto::types::events::UtdCause, room::power_levels::power_level_user_changes};
 use matrix_sdk_ui::timeline::{PollResult, RoomPinnedEventsChange, TimelineDetails};
-use ruma::events::room::{message::RoomMessageEventContentWithoutRelation, MediaSource};
-use tracing::warn;
+use ruma::events::room::MediaSource;
 
 use super::ProfileDetails;
-use crate::ruma::{ImageInfo, MessageType, PollKind};
+use crate::ruma::{ImageInfo, Mentions, MessageType, PollKind};
 
-#[derive(Clone, uniffi::Object)]
-pub struct TimelineItemContent(pub(crate) matrix_sdk_ui::timeline::TimelineItemContent);
-
-#[uniffi::export]
-impl TimelineItemContent {
-    pub fn kind(&self) -> TimelineItemContentKind {
+impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent {
+    fn from(value: matrix_sdk_ui::timeline::TimelineItemContent) -> Self {
         use matrix_sdk_ui::timeline::TimelineItemContent as Content;
 
-        match &self.0 {
-            Content::Message(_) => TimelineItemContentKind::Message,
+        match value {
+            Content::Message(message) => TimelineItemContent::Message { content: message.into() },
 
-            Content::RedactedMessage => TimelineItemContentKind::RedactedMessage,
+            Content::RedactedMessage => TimelineItemContent::RedactedMessage,
 
             Content::Sticker(sticker) => {
                 let content = sticker.content();
-                TimelineItemContentKind::Sticker {
+                TimelineItemContent::Sticker {
                     body: content.body.clone(),
                     info: (&content.info).into(),
                     source: Arc::new(MediaSource::from(content.source.clone())),
                 }
             }
 
-            Content::Poll(poll_state) => TimelineItemContentKind::from(poll_state.results()),
+            Content::Poll(poll_state) => TimelineItemContent::from(poll_state.results()),
 
-            Content::CallInvite => TimelineItemContentKind::CallInvite,
+            Content::CallInvite => TimelineItemContent::CallInvite,
 
-            Content::CallNotify => TimelineItemContentKind::CallNotify,
+            Content::CallNotify => TimelineItemContent::CallNotify,
 
             Content::UnableToDecrypt(msg) => {
-                TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
+                TimelineItemContent::UnableToDecrypt { msg: EncryptedMessage::new(&msg) }
             }
 
-            Content::MembershipChange(membership) => TimelineItemContentKind::RoomMembership {
+            Content::MembershipChange(membership) => TimelineItemContent::RoomMembership {
                 user_id: membership.user_id().to_string(),
                 user_display_name: membership.display_name(),
                 change: membership.change().map(Into::into),
@@ -74,7 +69,7 @@ impl TimelineItemContent {
                         )
                     })
                     .unzip();
-                TimelineItemContentKind::ProfileChange {
+                TimelineItemContent::ProfileChange {
                     display_name: display_name.flatten(),
                     prev_display_name: prev_display_name.flatten(),
                     avatar_url: avatar_url.flatten(),
@@ -82,37 +77,66 @@ impl TimelineItemContent {
                 }
             }
 
-            Content::OtherState(state) => TimelineItemContentKind::State {
+            Content::OtherState(state) => TimelineItemContent::State {
                 state_key: state.state_key().to_owned(),
                 content: state.content().into(),
             },
 
             Content::FailedToParseMessageLike { event_type, error } => {
-                TimelineItemContentKind::FailedToParseMessageLike {
+                TimelineItemContent::FailedToParseMessageLike {
                     event_type: event_type.to_string(),
                     error: error.to_string(),
                 }
             }
 
             Content::FailedToParseState { event_type, state_key, error } => {
-                TimelineItemContentKind::FailedToParseState {
+                TimelineItemContent::FailedToParseState {
                     event_type: event_type.to_string(),
-                    state_key: state_key.to_string(),
+                    state_key,
                     error: error.to_string(),
                 }
             }
         }
     }
+}
 
-    pub fn as_message(self: Arc<Self>) -> Option<Arc<Message>> {
-        use matrix_sdk_ui::timeline::TimelineItemContent as Content;
-        unwrap_or_clone_arc_into_variant!(self, .0, Content::Message(msg) => Arc::new(Message(msg)))
+#[derive(Clone, uniffi::Record)]
+pub struct MessageContent {
+    pub msg_type: MessageType,
+    pub body: String,
+    pub in_reply_to: Option<Arc<InReplyToDetails>>,
+    pub thread_root: Option<String>,
+    pub is_edited: bool,
+    pub mentions: Option<Mentions>,
+}
+
+impl From<matrix_sdk_ui::timeline::Message> for MessageContent {
+    fn from(value: matrix_sdk_ui::timeline::Message) -> Self {
+        Self {
+            msg_type: value.msgtype().clone().into(),
+            body: value.body().to_owned(),
+            in_reply_to: value.in_reply_to().map(|r| Arc::new(r.clone().into())),
+            is_edited: value.is_edited(),
+            thread_root: value.thread_root().map(|id| id.to_string()),
+            mentions: value.mentions().cloned().map(|m| m.into()),
+        }
     }
 }
 
-#[derive(uniffi::Enum)]
-pub enum TimelineItemContentKind {
-    Message,
+impl From<ruma::events::Mentions> for Mentions {
+    fn from(value: ruma::events::Mentions) -> Self {
+        Self {
+            user_ids: value.user_ids.iter().map(|id| id.to_string()).collect(),
+            room: value.room,
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum TimelineItemContent {
+    Message {
+        content: MessageContent,
+    },
     RedactedMessage,
     Sticker {
         body: String,
@@ -160,36 +184,6 @@ pub enum TimelineItemContentKind {
 }
 
 #[derive(Clone, uniffi::Object)]
-pub struct Message(matrix_sdk_ui::timeline::Message);
-
-#[uniffi::export]
-impl Message {
-    pub fn msgtype(&self) -> MessageType {
-        self.0.msgtype().clone().into()
-    }
-
-    pub fn body(&self) -> String {
-        self.0.msgtype().body().to_owned()
-    }
-
-    pub fn in_reply_to(&self) -> Option<InReplyToDetails> {
-        self.0.in_reply_to().map(InReplyToDetails::from)
-    }
-
-    pub fn is_threaded(&self) -> bool {
-        self.0.is_threaded()
-    }
-
-    pub fn is_edited(&self) -> bool {
-        self.0.is_edited()
-    }
-
-    pub fn content(&self) -> Arc<RoomMessageEventContentWithoutRelation> {
-        Arc::new(RoomMessageEventContentWithoutRelation::new(self.0.msgtype().clone()))
-    }
-}
-
-#[derive(uniffi::Record)]
 pub struct InReplyToDetails {
     event_id: String,
     event: RepliedToEventDetails,
@@ -201,14 +195,25 @@ impl InReplyToDetails {
     }
 }
 
-impl From<&matrix_sdk_ui::timeline::InReplyToDetails> for InReplyToDetails {
-    fn from(inner: &matrix_sdk_ui::timeline::InReplyToDetails) -> Self {
+#[uniffi::export]
+impl InReplyToDetails {
+    pub fn event_id(&self) -> String {
+        self.event_id.clone()
+    }
+
+    pub fn event(&self) -> RepliedToEventDetails {
+        self.event.clone()
+    }
+}
+
+impl From<matrix_sdk_ui::timeline::InReplyToDetails> for InReplyToDetails {
+    fn from(inner: matrix_sdk_ui::timeline::InReplyToDetails) -> Self {
         let event_id = inner.event_id.to_string();
         let event = match &inner.event {
             TimelineDetails::Unavailable => RepliedToEventDetails::Unavailable,
             TimelineDetails::Pending => RepliedToEventDetails::Pending,
             TimelineDetails::Ready(event) => RepliedToEventDetails::Ready {
-                content: Arc::new(TimelineItemContent(event.content().to_owned())),
+                content: event.content().clone().into(),
                 sender: event.sender().to_string(),
                 sender_profile: event.sender_profile().into(),
             },
@@ -221,11 +226,11 @@ impl From<&matrix_sdk_ui::timeline::InReplyToDetails> for InReplyToDetails {
     }
 }
 
-#[derive(uniffi::Enum)]
+#[derive(Clone, uniffi::Enum)]
 pub enum RepliedToEventDetails {
     Unavailable,
     Pending,
-    Ready { content: Arc<TimelineItemContent>, sender: String, sender_profile: ProfileDetails },
+    Ready { content: TimelineItemContent, sender: String, sender_profile: ProfileDetails },
     Error { message: String },
 }
 
@@ -419,15 +424,15 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
     }
 }
 
-#[derive(uniffi::Record)]
+#[derive(Clone, uniffi::Record)]
 pub struct PollAnswer {
     pub id: String,
     pub text: String,
 }
 
-impl From<PollResult> for TimelineItemContentKind {
+impl From<PollResult> for TimelineItemContent {
     fn from(value: PollResult) -> Self {
-        TimelineItemContentKind::Poll {
+        TimelineItemContent::Poll {
             question: value.question,
             kind: PollKind::from(value.kind),
             max_selections: value.max_selections,

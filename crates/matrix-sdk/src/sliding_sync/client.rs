@@ -289,11 +289,19 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
         // `handle_room_response` before this function), so panic is fine.
         assert!(self.response.is_none());
 
-        self.to_device_events =
-            self.client.base_client().process_sliding_sync_e2ee(extensions).await?;
+        self.to_device_events = if let Some(to_device_events) = self
+            .client
+            .base_client()
+            .process_sliding_sync_e2ee(extensions.to_device.as_ref(), &extensions.e2ee)
+            .await?
+        {
+            // Some new keys might have been received, so trigger a backup if needed.
+            self.client.encryption().backups().maybe_trigger_backup();
 
-        // Some new keys might have been received, so trigger a backup if needed.
-        self.client.encryption().backups().maybe_trigger_backup();
+            to_device_events
+        } else {
+            Vec::new()
+        };
 
         Ok(())
     }

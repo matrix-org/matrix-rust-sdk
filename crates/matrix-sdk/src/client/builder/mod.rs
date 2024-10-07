@@ -29,7 +29,7 @@ use tracing::{debug, field::debug, instrument, Span};
 
 use super::{Client, ClientInner};
 #[cfg(feature = "e2e-encryption")]
-use crate::crypto::CollectStrategy;
+use crate::crypto::{CollectStrategy, TrustRequirement};
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::EncryptionSettings;
 #[cfg(not(target_arch = "wasm32"))]
@@ -99,6 +99,8 @@ pub struct ClientBuilder {
     encryption_settings: EncryptionSettings,
     #[cfg(feature = "e2e-encryption")]
     room_key_recipient_strategy: CollectStrategy,
+    #[cfg(feature = "e2e-encryption")]
+    decryption_trust_requirement: TrustRequirement,
 }
 
 impl ClientBuilder {
@@ -118,6 +120,8 @@ impl ClientBuilder {
             encryption_settings: Default::default(),
             #[cfg(feature = "e2e-encryption")]
             room_key_recipient_strategy: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            decryption_trust_requirement: TrustRequirement::Untrusted,
         }
     }
 
@@ -407,6 +411,16 @@ impl ClientBuilder {
         self
     }
 
+    /// Set the trust requirement to be used when decrypting events.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn with_decryption_trust_requirement(
+        mut self,
+        trust_requirement: TrustRequirement,
+    ) -> Self {
+        self.decryption_trust_requirement = trust_requirement;
+        self
+    }
+
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -445,6 +459,7 @@ impl ClientBuilder {
             #[cfg(feature = "e2e-encryption")]
             {
                 client.room_key_recipient_strategy = self.room_key_recipient_strategy;
+                client.decryption_trust_requirement = self.decryption_trust_requirement;
             }
             client
         };
@@ -707,19 +722,6 @@ pub enum ClientBuildError {
     #[cfg(feature = "sqlite")]
     #[error(transparent)]
     SqliteStore(#[from] matrix_sdk_sqlite::OpenStoreError),
-}
-
-impl ClientBuildError {
-    /// Assert that a valid homeserver URL was given to the builder and no other
-    /// invalid options were specified, which means the only possible error
-    /// case is [`Self::Http`].
-    #[doc(hidden)]
-    pub fn assert_valid_builder_args(self) -> HttpError {
-        match self {
-            ClientBuildError::Http(e) => e,
-            _ => unreachable!("homeserver URL was asserted to be valid"),
-        }
-    }
 }
 
 // The http mocking library is not supported for wasm32
@@ -1029,6 +1031,37 @@ pub(crate) mod tests {
 
         // Then, sliding sync has the correct native version.
         assert_matches!(client.sliding_sync_version(), SlidingSyncVersion::Native);
+    }
+
+    #[async_test]
+    #[cfg(feature = "e2e-encryption")]
+    async fn test_set_up_decryption_trust_requirement_cross_signed() {
+        let homeserver = make_mock_homeserver().await;
+        let builder = ClientBuilder::new()
+            .server_name_or_homeserver_url(homeserver.uri())
+            .with_decryption_trust_requirement(TrustRequirement::CrossSigned);
+
+        let client = builder.build().await.unwrap();
+        assert_matches!(
+            client.base_client().decryption_trust_requirement,
+            TrustRequirement::CrossSigned
+        );
+    }
+
+    #[async_test]
+    #[cfg(feature = "e2e-encryption")]
+    async fn test_set_up_decryption_trust_requirement_untrusted() {
+        let homeserver = make_mock_homeserver().await;
+
+        let builder = ClientBuilder::new()
+            .server_name_or_homeserver_url(homeserver.uri())
+            .with_decryption_trust_requirement(TrustRequirement::Untrusted);
+
+        let client = builder.build().await.unwrap();
+        assert_matches!(
+            client.base_client().decryption_trust_requirement,
+            TrustRequirement::Untrusted
+        );
     }
 
     /* Helper functions */

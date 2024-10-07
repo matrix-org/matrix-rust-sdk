@@ -14,9 +14,7 @@ use ruma::{
     server_name, EventId, OwnedEventId, UserId,
 };
 
-use crate::timeline::{
-    polls::PollState, tests::TestTimeline, EventTimelineItem, TimelineItemContent,
-};
+use crate::timeline::{event_item::PollState, tests::TestTimeline, EventTimelineItem};
 
 #[async_test]
 async fn test_poll_is_displayed() {
@@ -37,7 +35,7 @@ async fn test_edited_poll_is_displayed() {
     let event = timeline.poll_event().await;
     let event_id = event.event_id().unwrap();
     timeline.send_poll_edit(&ALICE, event_id, fakes::poll_b()).await;
-    let poll_state = event.poll_state();
+    let poll_state = event.content().as_poll().unwrap();
     let edited_poll_state = timeline.poll_state().await;
 
     assert_poll_start_eq(&poll_state.start_event_content.poll_start, &fakes::poll_a());
@@ -197,7 +195,7 @@ impl TestTimeline {
     }
 
     async fn poll_state(&self) -> PollState {
-        self.event_items().await[0].clone().poll_state()
+        self.event_items().await[0].content().as_poll().unwrap().clone()
     }
 
     async fn send_poll_start(&self, sender: &UserId, content: UnstablePollStartContentBlock) {
@@ -248,15 +246,6 @@ impl TestTimeline {
             ReplacementUnstablePollStartEventContent::new(content, original_id.to_owned());
         let event_content = AnyMessageLikeEventContent::UnstablePollStart(content.into());
         self.handle_live_event(self.factory.event(event_content).sender(sender)).await
-    }
-}
-
-impl EventTimelineItem {
-    fn poll_state(self) -> PollState {
-        match self.content() {
-            TimelineItemContent::Poll(poll_state) => poll_state.clone(),
-            _ => panic!("Not a poll state"),
-        }
     }
 }
 

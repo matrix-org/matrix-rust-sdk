@@ -2,6 +2,12 @@
 
 Changes:
 
+- The `UserIdentity` struct has been renamed to `OtherUserIdentity`
+  ([#4036](https://github.com/matrix-org/matrix-rust-sdk/pull/4036]))
+
+- The `UserIdentities` enum has been renamed to `UserIdentity`
+  ([#4036](https://github.com/matrix-org/matrix-rust-sdk/pull/4036]))
+
 - Change the withheld code for keys not shared due to the `IdentityBasedStrategy`, from `m.unauthorised`
   to `m.unverified`.
   ([#3985](https://github.com/matrix-org/matrix-rust-sdk/pull/3985))
@@ -47,9 +53,15 @@ Changes:
 
 Breaking changes:
 
-  **NOTE**: this version causes changes to the format of the serialised data in
+- `OlmMachine::decrypt_room_event` now returns a `DecryptedRoomEvent` type,
+  instead of the more generic `TimelineEvent` type.
+
+- **NOTE**: this version causes changes to the format of the serialised data in
   the CryptoStore, meaning that, once upgraded, it will not be possible to roll
   back applications to earlier versions without breaking user sessions.
+
+- Renamed `VerificationLevel::PreviouslyVerified` to
+  `VerificationLevel::VerificationViolation`.
 
 - `OlmMachine::decrypt_room_event` now takes a `DecryptionSettings` argument,
   which includes a `TrustRequirement` indicating the required trust level for

@@ -23,13 +23,12 @@ use std::{borrow::Cow, collections::BTreeMap};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 #[cfg(feature = "e2e-encryption")]
+use ruma::api::client::sync::sync_events::v5;
+#[cfg(feature = "e2e-encryption")]
 use ruma::events::AnyToDeviceEvent;
 use ruma::{
     api::client::sync::sync_events::v3::{self, InvitedRoom},
-    events::{
-        AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        GlobalAccountDataEventType,
-    },
+    events::{AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent},
     serde::Raw,
     JsOption, OwnedRoomId, RoomId, UInt,
 };
@@ -43,6 +42,7 @@ use crate::RoomMemberships;
 use crate::{
     error::Result,
     read_receipts::{compute_unread_counts, PreviousEventsProvider},
+    response_processors::AccountDataProcessor,
     rooms::{
         normal::{RoomHero, RoomInfoNotableUpdateReasons},
         RoomState,
@@ -59,15 +59,16 @@ impl BaseClient {
     /// In addition to writes to the crypto store, this may also write into the
     /// state store, in particular it may write latest-events to the state
     /// store.
+    ///
+    /// Returns whether any change happened.
     pub async fn process_sliding_sync_e2ee(
         &self,
-        extensions: &http::response::Extensions,
-    ) -> Result<Vec<Raw<AnyToDeviceEvent>>> {
-        if extensions.is_empty() {
-            return Ok(Default::default());
+        to_device: Option<&v5::response::ToDevice>,
+        e2ee: &v5::response::E2EE,
+    ) -> Result<Option<Vec<Raw<AnyToDeviceEvent>>>> {
+        if to_device.is_none() && e2ee.is_empty() {
+            return Ok(None);
         }
-
-        let http::response::Extensions { to_device, e2ee, .. } = extensions;
 
         let to_device_events =
             to_device.as_ref().map(|to_device| to_device.events.clone()).unwrap_or_default();
@@ -87,9 +88,6 @@ impl BaseClient {
         // Process the to-device events and other related e2ee data. This returns a list
         // of all the to-device events that were passed in but encrypted ones
         // were replaced with their decrypted version.
-        // Passing in the default empty maps and vecs for this is completely fine, since
-        // the `OlmMachine` assumes empty maps/vecs mean no change in the one-time key
-        // counts.
         let to_device = self
             .preprocess_to_device_events(
                 matrix_sdk_crypto::EncryptionSyncChanges {
@@ -106,12 +104,12 @@ impl BaseClient {
             )
             .await?;
 
-        trace!("ready to submit changes to store");
+        trace!("ready to submit e2ee changes to store");
         self.store.save_changes(&changes).await?;
         self.apply_changes(&changes, room_info_notable_updates);
-        trace!("applied changes");
+        trace!("applied e2ee changes");
 
-        Ok(to_device)
+        Ok(Some(to_device))
     }
 
     /// Process a response from a sliding sync call.
@@ -146,7 +144,7 @@ impl BaseClient {
         trace!(
             rooms = rooms.len(),
             lists = lists.len(),
-            extensions = !extensions.is_empty(),
+            has_extensions = !extensions.is_empty(),
             "Processing sliding sync room events"
         );
 
@@ -163,16 +161,11 @@ impl BaseClient {
         let store = self.store.clone();
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
 
-        let account_data = &extensions.account_data;
-        let global_account_data_events = if !account_data.is_empty() {
-            self.handle_account_data(&account_data.global, &mut changes).await
-        } else {
-            Vec::new()
-        };
+        let account_data_processor = AccountDataProcessor::process(&extensions.account_data.global);
 
         let mut new_rooms = RoomUpdates::default();
         let mut notifications = Default::default();
-        let mut rooms_account_data = account_data.rooms.clone();
+        let mut rooms_account_data = extensions.account_data.rooms.clone();
 
         for (room_id, response_room_data) in rooms {
             let (room_info, joined_room, left_room, invited_room) = self
@@ -181,6 +174,7 @@ impl BaseClient {
                     response_room_data,
                     &mut rooms_account_data,
                     &store,
+                    &account_data_processor,
                     &mut changes,
                     &mut room_info_notable_updates,
                     &mut notifications,
@@ -304,25 +298,7 @@ impl BaseClient {
             }
         }
 
-        // We're processing direct state events here separately
-        // because we want to have the push rules in place before we process
-        // rooms and their events, but we want to create the rooms before we
-        // process the `m.direct` account data event.
-        let has_new_direct_room_data = global_account_data_events
-            .iter()
-            .any(|event| event.event_type() == GlobalAccountDataEventType::Direct);
-        if has_new_direct_room_data {
-            self.process_direct_rooms(&global_account_data_events, &mut changes).await;
-        } else if let Ok(Some(direct_account_data)) =
-            self.store.get_account_data_event(GlobalAccountDataEventType::Direct).await
-        {
-            debug!("Found direct room data in the Store, applying it");
-            if let Ok(direct_account_data) = direct_account_data.deserialize() {
-                self.process_direct_rooms(&[direct_account_data], &mut changes).await;
-            } else {
-                warn!("Failed to deserialize direct room account data");
-            }
-        }
+        account_data_processor.apply(&mut changes, &store).await;
 
         // FIXME not yet supported by sliding sync.
         // changes.presence = presence
@@ -353,7 +329,7 @@ impl BaseClient {
             notifications,
             // FIXME not yet supported by sliding sync.
             presence: Default::default(),
-            account_data: account_data.global.clone(),
+            account_data: extensions.account_data.global.clone(),
             to_device: Default::default(),
         })
     }
@@ -365,6 +341,7 @@ impl BaseClient {
         room_data: &http::response::Room,
         rooms_account_data: &mut BTreeMap<OwnedRoomId, Vec<Raw<AnyRoomAccountDataEvent>>>,
         store: &Store,
+        account_data_processor: &AccountDataProcessor,
         changes: &mut StateChanges,
         room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
@@ -450,7 +427,7 @@ impl BaseClient {
             Default::default()
         };
 
-        let push_rules = self.get_push_rules(changes).await?;
+        let push_rules = self.get_push_rules(account_data_processor).await?;
 
         if let Some(invite_state) = &room_data.invite_state {
             self.handle_invited_state(

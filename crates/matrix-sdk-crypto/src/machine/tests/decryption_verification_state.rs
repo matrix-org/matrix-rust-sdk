@@ -46,7 +46,7 @@ use crate::{
     },
     utilities::json_convert,
     CryptoStoreError, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, OlmMachine,
-    OtherUserIdentityData, OutgoingRequests, TrustRequirement, UserIdentities,
+    OtherUserIdentityData, OutgoingRequests, TrustRequirement, UserIdentity,
 };
 
 #[async_test]
@@ -117,8 +117,7 @@ async fn test_decryption_verification_state() {
         .decrypt_room_event(&event, room_id, &decryption_settings)
         .await
         .unwrap()
-        .encryption_info
-        .unwrap();
+        .encryption_info;
 
     assert_eq!(
         VerificationState::Unverified(VerificationLevel::UnsignedDevice),
@@ -152,9 +151,9 @@ async fn test_decryption_verification_state() {
 
     tests::setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
     let bob_id_from_alice = alice.get_identity(bob.user_id(), None).await.unwrap();
-    assert_matches!(bob_id_from_alice, Some(UserIdentities::Other(_)));
+    assert_matches!(bob_id_from_alice, Some(UserIdentity::Other(_)));
     let alice_id_from_bob = bob.get_identity(alice.user_id(), None).await.unwrap();
-    assert_matches!(alice_id_from_bob, Some(UserIdentities::Other(_)));
+    assert_matches!(alice_id_from_bob, Some(UserIdentity::Other(_)));
 
     // we setup cross signing but nothing is signed yet
     let encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();

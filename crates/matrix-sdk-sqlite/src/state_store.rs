@@ -699,26 +699,12 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         Ok(())
     }
 
-    async fn get_room_infos(&self, states: Vec<Key>) -> Result<Vec<Vec<u8>>> {
-        if states.is_empty() {
-            Ok(self
-                .prepare("SELECT data FROM room_info", move |mut stmt| {
-                    stmt.query_map((), |row| row.get(0))?.collect()
-                })
-                .await?)
-        } else {
-            self.chunk_large_query_over(states, None, |txn, states| {
-                let sql_params = repeat_vars(states.len());
-                let sql = format!("SELECT data FROM room_info WHERE state IN ({sql_params})");
-
-                Ok(txn
-                    .prepare(&sql)?
-                    .query(rusqlite::params_from_iter(states))?
-                    .mapped(|row| row.get(0))
-                    .collect::<Result<_, _>>()?)
+    async fn get_room_infos(&self) -> Result<Vec<Vec<u8>>> {
+        Ok(self
+            .prepare("SELECT data FROM room_info", move |mut stmt| {
+                stmt.query_map((), |row| row.get(0))?.collect()
             })
-            .await
-        }
+            .await?)
     }
 
     async fn get_maybe_stripped_state_events_for_keys(
@@ -1444,30 +1430,10 @@ impl StateStore for SqliteStateStore {
             .collect()
     }
 
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        self.get_user_ids(room_id, RoomMemberships::INVITE).await
-    }
-
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        self.get_user_ids(room_id, RoomMemberships::JOIN).await
-    }
-
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
         self.acquire()
             .await?
-            .get_room_infos(Vec::new())
-            .await?
-            .into_iter()
-            .map(|data| self.deserialize_json(&data))
-            .collect()
-    }
-
-    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        let states =
-            vec![self.encode_key(keys::ROOM_INFO, serde_json::to_string(&RoomState::Invited)?)];
-        self.acquire()
-            .await?
-            .get_room_infos(states)
+            .get_room_infos()
             .await?
             .into_iter()
             .map(|data| self.deserialize_json(&data))
@@ -2115,9 +2081,6 @@ mod migration_tests {
 
         // Check all room infos are there.
         assert_eq!(store.get_room_infos().await.unwrap().len(), 5);
-        #[allow(deprecated)]
-        let stripped_rooms = store.get_stripped_room_infos().await.unwrap();
-        assert_eq!(stripped_rooms.len(), 2);
     }
 
     // Add a room in version 2 format of the state store.

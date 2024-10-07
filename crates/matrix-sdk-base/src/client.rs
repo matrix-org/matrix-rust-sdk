@@ -16,7 +16,7 @@
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fmt, iter,
     sync::Arc,
 };
@@ -49,10 +49,9 @@ use ruma::{
                 RoomPowerLevelsEvent, RoomPowerLevelsEventContent, StrippedRoomPowerLevelsEvent,
             },
         },
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, GlobalAccountDataEventType, StateEvent, StateEventType,
-        SyncStateEvent,
+        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
+        AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        GlobalAccountDataEventType, StateEvent, StateEventType, SyncStateEvent,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -62,7 +61,7 @@ use ruma::{
 use tokio::sync::{broadcast, Mutex};
 #[cfg(feature = "e2e-encryption")]
 use tokio::sync::{RwLock, RwLockReadGuard};
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent};
@@ -72,6 +71,7 @@ use crate::{
     deserialized_responses::{RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent},
     error::{Error, Result},
     event_cache_store::DynEventCacheStore,
+    response_processors::AccountDataProcessor,
     rooms::{
         normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons},
         Room, RoomInfo, RoomState,
@@ -117,6 +117,10 @@ pub struct BaseClient {
     /// encrypted message.
     #[cfg(feature = "e2e-encryption")]
     pub room_key_recipient_strategy: CollectStrategy,
+
+    /// The trust requirement to use for decrypting events.
+    #[cfg(feature = "e2e-encryption")]
+    pub decryption_trust_requirement: TrustRequirement,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -156,6 +160,8 @@ impl BaseClient {
             room_info_notable_update_sender,
             #[cfg(feature = "e2e-encryption")]
             room_key_recipient_strategy: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            decryption_trust_requirement: TrustRequirement::Untrusted,
         }
     }
 
@@ -180,6 +186,7 @@ impl BaseClient {
             ignore_user_list_changes: Default::default(),
             room_info_notable_update_sender: self.room_info_notable_update_sender.clone(),
             room_key_recipient_strategy: self.room_key_recipient_strategy.clone(),
+            decryption_trust_requirement: self.decryption_trust_requirement,
         };
 
         if let Some(session_meta) = self.session_meta().cloned() {
@@ -345,8 +352,9 @@ impl BaseClient {
         let olm = self.olm_machine().await;
         let Some(olm) = olm.as_ref() else { return Ok(None) };
 
-        let decryption_settings =
-            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+        let decryption_settings = DecryptionSettings {
+            sender_device_trust_requirement: self.decryption_trust_requirement,
+        };
         let event: SyncTimelineEvent =
             olm.decrypt_room_event(event.cast_ref(), room_id, &decryption_settings).await?.into();
 
@@ -688,118 +696,13 @@ impl BaseClient {
         }
     }
 
-    /// Parses and stores any raw global account data events into the
-    /// [`StateChanges`].
-    ///
-    /// Returns a list with the parsed account data events.
-    #[instrument(skip_all)]
-    pub(crate) async fn handle_account_data(
-        &self,
-        events: &[Raw<AnyGlobalAccountDataEvent>],
-        changes: &mut StateChanges,
-    ) -> Vec<AnyGlobalAccountDataEvent> {
-        let mut account_data = BTreeMap::new();
-        let mut parsed_events = Vec::new();
-
-        for raw_event in events {
-            let event = match raw_event.deserialize() {
-                Ok(e) => e,
-                Err(e) => {
-                    let event_type: Option<String> = raw_event.get_field("type").ok().flatten();
-                    warn!(event_type, "Failed to deserialize a global account data event: {e}");
-                    continue;
-                }
-            };
-            account_data.insert(event.event_type(), raw_event.clone());
-            parsed_events.push(event);
-        }
-
-        changes.account_data = account_data;
-        parsed_events
-    }
-
-    /// Processes the direct rooms in a sync response:
-    ///
-    /// Given a [`StateChanges`] instance, processes any direct room info
-    /// from the global account data and adds it to the room infos to
-    /// save.
-    #[instrument(skip_all)]
-    pub(crate) async fn process_direct_rooms(
-        &self,
-        events: &[AnyGlobalAccountDataEvent],
-        changes: &mut StateChanges,
-    ) {
-        for event in events {
-            let AnyGlobalAccountDataEvent::Direct(direct_event) = event else { continue };
-            let mut new_dms = HashMap::<&RoomId, HashSet<OwnedUserId>>::new();
-            for (user_id, rooms) in direct_event.content.iter() {
-                for room_id in rooms {
-                    new_dms.entry(room_id).or_default().insert(user_id.clone());
-                }
-            }
-
-            let rooms = self.store.rooms();
-            let mut old_dms = rooms
-                .iter()
-                .filter_map(|r| {
-                    let direct_targets = r.direct_targets();
-                    (!direct_targets.is_empty()).then(|| (r.room_id(), direct_targets))
-                })
-                .collect::<HashMap<_, _>>();
-
-            // Update the direct targets of rooms if they changed.
-            for (room_id, new_direct_targets) in new_dms {
-                if let Some(old_direct_targets) = old_dms.remove(&room_id) {
-                    if old_direct_targets == new_direct_targets {
-                        continue;
-                    }
-                }
-
-                trace!(
-                    ?room_id, targets = ?new_direct_targets,
-                    "Marking room as direct room"
-                );
-
-                if let Some(info) = changes.room_infos.get_mut(room_id) {
-                    info.base_info.dm_targets = new_direct_targets;
-                } else if let Some(room) = self.store.room(room_id) {
-                    let mut info = room.clone_info();
-                    info.base_info.dm_targets = new_direct_targets;
-                    changes.add_room(info);
-                }
-            }
-
-            // Remove the targets of old direct chats.
-            for room_id in old_dms.keys() {
-                trace!(?room_id, "Unmarking room as direct room");
-
-                if let Some(info) = changes.room_infos.get_mut(*room_id) {
-                    info.base_info.dm_targets.clear();
-                } else if let Some(room) = self.store.room(room_id) {
-                    let mut info = room.clone_info();
-                    info.base_info.dm_targets.clear();
-                    changes.add_room(info);
-                }
-            }
-        }
-    }
-
     #[cfg(feature = "e2e-encryption")]
     #[instrument(skip_all)]
     pub(crate) async fn preprocess_to_device_events(
         &self,
         encryption_sync_changes: EncryptionSyncChanges<'_>,
-        #[cfg(feature = "experimental-sliding-sync")] changes: &mut StateChanges,
-        #[cfg(not(feature = "experimental-sliding-sync"))] _changes: &mut StateChanges,
-        #[cfg(feature = "experimental-sliding-sync")] room_info_notable_updates: &mut BTreeMap<
-            OwnedRoomId,
-            RoomInfoNotableUpdateReasons,
-        >,
-        #[cfg(not(feature = "experimental-sliding-sync"))]
-        _room_info_notable_updates: &mut BTreeMap<
-            OwnedRoomId,
-            RoomInfoNotableUpdateReasons,
-        >,
+        changes: &mut StateChanges,
+        room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
     ) -> Result<Vec<Raw<ruma::events::AnyToDeviceEvent>>> {
         if let Some(o) = self.olm_machine().await.as_ref() {
             // Let the crypto machine handle the sync response, this
@@ -815,8 +718,9 @@ impl BaseClient {
                     self.decrypt_latest_events(&room, changes, room_info_notable_updates).await;
                 }
             }
-            #[cfg(not(feature = "experimental-sliding-sync"))]
-            drop(room_key_updates); // Silence unused variable warning
+
+            #[cfg(not(feature = "experimental-sliding-sync"))] // Silence unused variable warnings.
+            let _ = (room_key_updates, changes, room_info_notable_updates);
 
             Ok(events)
         } else {
@@ -990,10 +894,9 @@ impl BaseClient {
 
         let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
-        let global_account_data_events =
-            self.handle_account_data(&response.account_data.events, &mut changes).await;
+        let account_data_processor = AccountDataProcessor::process(&response.account_data.events);
 
-        let push_rules = self.get_push_rules(&changes).await?;
+        let push_rules = self.get_push_rules(&account_data_processor).await?;
 
         let mut new_rooms = RoomUpdates::default();
         let mut notifications = Default::default();
@@ -1206,25 +1109,7 @@ impl BaseClient {
             new_rooms.invite.insert(room_id, new_info);
         }
 
-        // We're processing direct state events here separately
-        // because we want to have the push rules in place before we process
-        // rooms and their events, but we want to create the rooms before we
-        // process the `m.direct` account data event.
-        let has_new_direct_room_data = global_account_data_events
-            .iter()
-            .any(|event| event.event_type() == GlobalAccountDataEventType::Direct);
-        if has_new_direct_room_data {
-            self.process_direct_rooms(&global_account_data_events, &mut changes).await;
-        } else if let Ok(Some(direct_account_data)) =
-            self.store.get_account_data_event(GlobalAccountDataEventType::Direct).await
-        {
-            debug!("Found direct room data in the Store, applying it");
-            if let Ok(direct_account_data) = direct_account_data.deserialize() {
-                self.process_direct_rooms(&[direct_account_data], &mut changes).await;
-            } else {
-                warn!("Failed to deserialize direct room account data");
-            }
-        }
+        account_data_processor.apply(&mut changes, &self.store).await;
 
         changes.presence = response
             .presence
@@ -1270,20 +1155,17 @@ impl BaseClient {
         changes: &StateChanges,
         room_info_notable_updates: BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
     ) {
-        if changes.account_data.contains_key(&GlobalAccountDataEventType::IgnoredUserList) {
-            if let Some(event) =
-                changes.account_data.get(&GlobalAccountDataEventType::IgnoredUserList)
-            {
-                match event.deserialize_as::<IgnoredUserListEvent>() {
-                    Ok(event) => {
-                        let user_ids: Vec<String> =
-                            event.content.ignored_users.keys().map(|id| id.to_string()).collect();
+        if let Some(event) = changes.account_data.get(&GlobalAccountDataEventType::IgnoredUserList)
+        {
+            match event.deserialize_as::<IgnoredUserListEvent>() {
+                Ok(event) => {
+                    let user_ids: Vec<String> =
+                        event.content.ignored_users.keys().map(|id| id.to_string()).collect();
 
-                        self.ignore_user_list_changes.set(user_ids);
-                    }
-                    Err(error) => {
-                        warn!("Failed to deserialize ignored user list event: {error}")
-                    }
+                    self.ignore_user_list_changes.set(user_ids);
+                }
+                Err(error) => {
+                    error!("Failed to deserialize ignored user list event: {error}")
                 }
             }
         }
@@ -1503,13 +1385,15 @@ impl BaseClient {
 
     /// Get the push rules.
     ///
-    /// Gets the push rules from `changes` if they have been updated, otherwise
-    /// get them from the store. As a fallback, uses
-    /// `Ruleset::server_default` if the user is logged in.
-    pub async fn get_push_rules(&self, changes: &StateChanges) -> Result<Ruleset> {
-        if let Some(event) = changes
-            .account_data
-            .get(&GlobalAccountDataEventType::PushRules)
+    /// Gets the push rules previously processed, otherwise get them from the
+    /// store. As a fallback, uses [`Ruleset::server_default`] if the user
+    /// is logged in.
+    pub(crate) async fn get_push_rules(
+        &self,
+        account_data_processor: &AccountDataProcessor,
+    ) -> Result<Ruleset> {
+        if let Some(event) = account_data_processor
+            .push_rules()
             .and_then(|ev| ev.deserialize_as::<PushRulesEvent>().ok())
         {
             Ok(event.content.global)

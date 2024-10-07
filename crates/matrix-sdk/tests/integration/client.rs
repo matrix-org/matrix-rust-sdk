@@ -4,7 +4,11 @@ use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::FutureExt;
 use matrix_sdk::{
-    config::SyncSettings, sync::RoomUpdate, test_utils::no_retry_test_client_with_server,
+    config::{RequestConfig, StoreConfig, SyncSettings},
+    matrix_auth::{MatrixSession, MatrixSessionTokens},
+    sync::RoomUpdate,
+    test_utils::no_retry_test_client_with_server,
+    Client, MemoryStore, SessionMeta, StateChanges, StateStore,
 };
 use matrix_sdk_base::{sync::RoomUpdates, RoomState};
 use matrix_sdk_test::{
@@ -12,6 +16,8 @@ use matrix_sdk_test::{
     test_json::{
         self,
         sync::{MIXED_INVITED_ROOM_ID, MIXED_JOINED_ROOM_ID, MIXED_LEFT_ROOM_ID, MIXED_SYNC},
+        sync_events::PINNED_EVENTS,
+        TAG,
     },
     GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
@@ -1291,4 +1297,83 @@ async fn test_dms_are_processed_in_any_sync_response() {
 
     let room_2 = client.get_room(room_id_2).unwrap();
     assert!(room_2.is_direct().await.unwrap());
+}
+
+#[async_test]
+async fn test_restore_room() {
+    let room_id = room_id!("!stored_room:localhost");
+
+    // Create memory store with some room data.
+    let store = MemoryStore::new();
+
+    let mut changes = StateChanges::default();
+
+    let raw_tag_event = Raw::new(&*TAG).unwrap().cast();
+    let tag_event = raw_tag_event.deserialize().unwrap();
+    changes.add_room_account_data(room_id, tag_event, raw_tag_event);
+
+    let raw_pinned_events_event = Raw::new(&*PINNED_EVENTS).unwrap().cast();
+    let pinned_events_event = raw_pinned_events_event.deserialize().unwrap();
+    changes.add_state_event(room_id, pinned_events_event, raw_pinned_events_event);
+
+    let room_info = serde_json::from_value(json!({
+        "room_id": room_id,
+        "room_state": "Joined",
+        "notification_counts": {
+            "highlight_count": 0,
+            "notification_count": 0,
+        },
+        "summary": {
+            "room_heroes": [],
+            "joined_member_count": 1,
+            "invited_member_count": 0,
+        },
+        "members_synced": true,
+        "last_prev_batch": "pb",
+        "sync_info": "FullySynced",
+        "encryption_state_synced": true,
+        "base_info": {
+            "avatar": null,
+            "canonical_alias": null,
+            "create": null,
+            "dm_targets": [],
+            "encryption": null,
+            "guest_access": null,
+            "history_visibility": null,
+            "join_rules": null,
+            "max_power_level": 100,
+            "name": null,
+            "tombstone": null,
+            "topic": null,
+        },
+    }))
+    .unwrap();
+    changes.add_room(room_info);
+
+    store.save_changes(&changes).await.unwrap();
+
+    // Build a client with that store.
+    let store_config = StoreConfig::new().state_store(store);
+    let client = Client::builder()
+        .homeserver_url("http://localhost:1234")
+        .request_config(RequestConfig::new().disable_retry())
+        .store_config(store_config)
+        .build()
+        .await
+        .unwrap();
+    client
+        .matrix_auth()
+        .restore_session(MatrixSession {
+            meta: SessionMeta {
+                user_id: user_id!("@example:localhost").to_owned(),
+                device_id: device_id!("DEVICEID").to_owned(),
+            },
+            tokens: MatrixSessionTokens { access_token: "1234".to_owned(), refresh_token: None },
+        })
+        .await
+        .unwrap();
+
+    let room = client.get_room(room_id).unwrap();
+    assert!(room.is_favourite());
+    assert!(!room.pinned_event_ids().is_empty());
 }

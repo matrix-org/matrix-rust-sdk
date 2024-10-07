@@ -1,6 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, pin::pin, sync::Arc};
 
 use anyhow::{Context, Result};
+use futures_util::StreamExt;
 use matrix_sdk::{
     crypto::LocalTrust,
     event_cache::paginator::PaginatorError,
@@ -35,6 +36,7 @@ use crate::{
     chunk_iterator::ChunkIterator,
     error::{ClientError, MediaInfoError, RoomError},
     event::{MessageLikeEventType, StateEventType},
+    identity_status_change::IdentityStatusChange,
     room_info::RoomInfo,
     room_member::RoomMember,
     ruma::{ImageInfo, Mentions, NotifyType},
@@ -582,6 +584,31 @@ impl Room {
         })))
     }
 
+    pub fn subscribe_to_identity_status_changes(
+        &self,
+        listener: Box<dyn IdentityStatusChangeListener>,
+    ) -> Arc<TaskHandle> {
+        let room = self.inner.clone();
+        Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            let status_changes = room.subscribe_to_identity_status_changes().await;
+            if let Ok(status_changes) = status_changes {
+                // TODO: what to do with failures?
+                let mut status_changes = pin!(status_changes);
+                while let Some(identity_status_changes) = status_changes.next().await {
+                    listener.call(
+                        identity_status_changes
+                            .into_iter()
+                            .map(|change| {
+                                let user_id = change.user_id.to_string();
+                                IdentityStatusChange { user_id, changed_to: change.changed_to }
+                            })
+                            .collect(),
+                    );
+                }
+            }
+        })))
+    }
+
     /// Set (or unset) a flag on the room to indicate that the user has
     /// explicitly marked it as unread.
     pub async fn set_unread_flag(&self, new_value: bool) -> Result<(), ClientError> {
@@ -896,6 +923,11 @@ pub trait RoomInfoListener: Sync + Send {
 #[uniffi::export(callback_interface)]
 pub trait TypingNotificationsListener: Sync + Send {
     fn call(&self, typing_user_ids: Vec<String>);
+}
+
+#[uniffi::export(callback_interface)]
+pub trait IdentityStatusChangeListener: Sync + Send {
+    fn call(&self, identity_status_change: Vec<IdentityStatusChange>);
 }
 
 #[derive(uniffi::Object)]

@@ -61,7 +61,7 @@ async fn test_in_reply_to_details() {
     // The event doesn't exist.
     assert_matches!(
         timeline.fetch_details_for_event(event_id!("$fakeevent")).await,
-        Err(TimelineError::RemoteEventNotInTimeline)
+        Err(TimelineError::EventNotInTimeline(_))
     );
 
     // Add an event and a reply to that event to the timeline

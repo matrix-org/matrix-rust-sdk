@@ -67,9 +67,8 @@ pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLat
 
                 if is_replacement {
                     return PossibleLatestEvent::NoUnsupportedMessageLikeType;
-                } else {
-                    return PossibleLatestEvent::YesRoomMessage(message);
                 }
+                return PossibleLatestEvent::YesRoomMessage(message);
             }
 
             return PossibleLatestEvent::YesRoomMessage(message);

@@ -45,7 +45,7 @@ use super::{
 };
 use crate::{
     deserialized_responses::RawAnySyncOrStrippedState, MinimalRoomMemberEvent, RoomMemberships,
-    RoomState, StateStoreDataKey, StateStoreDataValue,
+    StateStoreDataKey, StateStoreDataValue,
 };
 
 /// In-memory, non-persistent implementation of the `StateStore`.
@@ -696,27 +696,8 @@ impl StateStore for MemoryStore {
         Ok(get_user_ids_inner(&self.members.read().unwrap(), room_id, memberships))
     }
 
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        StateStore::get_user_ids(self, room_id, RoomMemberships::INVITE).await
-    }
-
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        StateStore::get_user_ids(self, room_id, RoomMemberships::JOIN).await
-    }
-
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
         Ok(self.room_info.read().unwrap().values().cloned().collect())
-    }
-
-    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        Ok(self
-            .room_info
-            .read()
-            .unwrap()
-            .values()
-            .filter(|r| matches!(r.state(), RoomState::Invited))
-            .cloned()
-            .collect())
     }
 
     async fn get_users_with_display_name(
