@@ -133,12 +133,12 @@ impl SlidingSyncList {
 
     /// Get the timeline limit.
     pub fn timeline_limit(&self) -> Bound {
-        self.inner.sticky.read().unwrap().data().timeline_limit()
+        *self.inner.timeline_limit.read().unwrap()
     }
 
     /// Set timeline limit.
     pub fn set_timeline_limit(&self, timeline: Bound) {
-        self.inner.sticky.write().unwrap().data_mut().set_timeline_limit(timeline);
+        *self.inner.timeline_limit.write().unwrap() = timeline;
     }
 
     /// Get the maximum number of rooms. See [`Self::maximum_number_of_rooms`]
@@ -233,6 +233,9 @@ pub(super) struct SlidingSyncListInner {
     /// knows).
     sticky: StdRwLock<SlidingSyncStickyManager<SlidingSyncListStickyParameters>>,
 
+    /// The maximum number of timeline events to query for.
+    timeline_limit: StdRwLock<Bound>,
+
     /// The total number of rooms that is possible to interact with for the
     /// given list.
     ///
@@ -307,12 +310,11 @@ impl SlidingSyncListInner {
     /// request generator.
     #[instrument(skip(self), fields(name = self.name))]
     fn request(&self, ranges: Ranges, txn_id: &mut LazyTransactionId) -> http::request::List {
-        use ruma::UInt;
-
-        let ranges =
-            ranges.into_iter().map(|r| (UInt::from(*r.start()), UInt::from(*r.end()))).collect();
+        let ranges = ranges.into_iter().map(|r| ((*r.start()).into(), (*r.end()).into())).collect();
 
         let mut request = assign!(http::request::List::default(), { ranges });
+        request.room_details.timeline_limit = (*self.timeline_limit.read().unwrap()).into();
+
         {
             let mut sticky = self.sticky.write().unwrap();
             sticky.maybe_apply(&mut request, txn_id);
@@ -594,10 +596,10 @@ mod tests {
             .timeline_limit(7)
             .build(sender);
 
-        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit(), 7);
+        assert_eq!(list.timeline_limit(), 7);
 
         list.set_timeline_limit(42);
-        assert_eq!(list.inner.sticky.read().unwrap().data().timeline_limit(), 42);
+        assert_eq!(list.timeline_limit(), 42);
     }
 
     macro_rules! assert_ranges {
