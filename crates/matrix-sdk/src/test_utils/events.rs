@@ -59,9 +59,11 @@ impl TimestampArg for u64 {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 struct Unsigned {
+    #[serde(skip_serializing_if = "Option::is_none")]
     transaction_id: Option<OwnedTransactionId>,
+    #[serde(rename = "m.relations", skip_serializing_if = "Option::is_none")]
     relations: Option<BundledMessageLikeRelations<Raw<AnySyncTimelineEvent>>>,
 }
 
@@ -156,19 +158,7 @@ where
         }
 
         if let Some(unsigned) = self.unsigned {
-            let mut unsigned_json = json!({});
-
-            // We can't plain serialize `Unsigned`, otherwise this would result in some
-            // `null` fields when options are set to none, which Ruma rejects.
-            let unsigned_obj = unsigned_json.as_object_mut().unwrap();
-            if let Some(transaction_id) = unsigned.transaction_id {
-                unsigned_obj.insert("transaction_id".to_owned(), json!(transaction_id));
-            }
-            if let Some(relations) = unsigned.relations {
-                unsigned_obj.insert("m.relations".to_owned(), json!(relations));
-            }
-
-            map.insert("unsigned".to_owned(), unsigned_json);
+            map.insert("unsigned".to_owned(), json!(unsigned));
         }
 
         if let Some(state_key) = self.state_key {
