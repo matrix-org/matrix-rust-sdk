@@ -410,7 +410,7 @@ async fn test_send_reply_edit() {
         .mount(&server)
         .await;
 
-    timeline
+    let edited = timeline
         .edit(
             &reply_item,
             EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(
@@ -419,6 +419,7 @@ async fn test_send_reply_edit() {
         )
         .await
         .unwrap();
+    assert!(edited);
 
     // Let the send queue handle the event.
     yield_now().await;
@@ -439,6 +440,130 @@ async fn test_send_reply_edit() {
     // The response to the mocked endpoint does not generate further timeline
     // updates, so just wait for a bit before verifying that the endpoint was
     // called.
+    sleep(Duration::from_millis(200)).await;
+
+    server.verify().await;
+}
+
+#[async_test]
+async fn test_edit_to_replied_updates_reply() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    let f = EventFactory::new();
+    let event_id = event_id!("$original_event");
+    let user_id = client.user_id().unwrap();
+
+    // When a room has two messages, one is a reply to the other…
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(f.text_msg("bonjour").sender(user_id).event_id(event_id))
+            .add_timeline_event(f.text_msg("hi back").reply_to(event_id).sender(*ALICE))
+            .add_timeline_event(f.text_msg("yo").reply_to(event_id).sender(*BOB)),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    // (I see all the messages in the timeline.)
+    let replied_to_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
+        assert_eq!(value.content().as_message().unwrap().body(), "bonjour");
+        assert!(value.is_editable());
+        value
+    });
+
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value: reply_item } => {
+        let reply_message = reply_item.content().as_message().unwrap();
+        assert_eq!(reply_message.body(), "hi back");
+
+        let in_reply_to = reply_message.in_reply_to().unwrap();
+        assert_eq!(in_reply_to.event_id, event_id);
+
+        assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
+        assert_eq!(replied_to.content().as_message().unwrap().body(), "bonjour");
+    });
+
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { value: reply_item } => {
+        let reply_message = reply_item.content().as_message().unwrap();
+        assert_eq!(reply_message.body(), "yo");
+
+        let in_reply_to = reply_message.in_reply_to().unwrap();
+        assert_eq!(in_reply_to.event_id, event_id);
+
+        assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
+        assert_eq!(replied_to.content().as_message().unwrap().body(), "bonjour");
+    });
+
+    mock_encryption_state(&server, false).await;
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$edit_event" })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // If I edit the first message,…
+    let edited = timeline
+        .edit(
+            &replied_to_item,
+            EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(
+                "hello world",
+            )),
+        )
+        .await
+        .unwrap();
+    assert!(edited);
+
+    yield_now().await; // let the send queue handle the edit.
+
+    // The reply events are updated with the edited replied-to content.
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
+        let reply_message = value.content().as_message().unwrap();
+        assert_eq!(reply_message.body(), "hi back");
+        assert!(!reply_message.is_edited());
+
+        let in_reply_to = reply_message.in_reply_to().unwrap();
+        assert_eq!(in_reply_to.event_id, event_id);
+        assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
+        assert_eq!(replied_to.content().as_message().unwrap().body(), "hello world");
+    });
+
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 2, value } => {
+        let reply_message = value.content().as_message().unwrap();
+        assert_eq!(reply_message.body(), "yo");
+        assert!(!reply_message.is_edited());
+
+        let in_reply_to = reply_message.in_reply_to().unwrap();
+        assert_eq!(in_reply_to.event_id, event_id);
+        assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
+        assert_eq!(replied_to.content().as_message().unwrap().body(), "hello world");
+    });
+
+    // And the edit happens.
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
+        let msg = value.content().as_message().unwrap();
+        assert_eq!(msg.body(), "hello world");
+        assert!(msg.is_edited());
+    });
+
     sleep(Duration::from_millis(200)).await;
 
     server.verify().await;

@@ -68,6 +68,7 @@ use crate::{
         controller::PendingEdit,
         event_item::{ReactionInfo, ReactionStatus},
         reactions::PendingReaction,
+        RepliedToEvent,
     },
 };
 
@@ -511,9 +512,33 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     ) {
         if let Some((item_pos, item)) = rfind_event_by_id(self.items, &replacement.event_id) {
             let edit_json = self.ctx.flow.raw_event().cloned();
-            if let Some(new_item) = self.apply_msg_edit(&item, replacement, edit_json) {
+            if let Some(new_item) = self.apply_msg_edit(&item, replacement.new_content, edit_json) {
                 trace!("Applied edit");
-                self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
+
+                let internal_id = item.internal_id.to_owned();
+
+                // Update all events that replied to this message with the edited content.
+                self.items.for_each(|mut entry| {
+                    let Some(event_item) = entry.as_event() else { return };
+                    let Some(message) = event_item.content.as_message() else { return };
+                    let Some(in_reply_to) = message.in_reply_to() else { return };
+                    if replacement.event_id == in_reply_to.event_id {
+                        let in_reply_to = InReplyToDetails {
+                            event_id: in_reply_to.event_id.clone(),
+                            event: TimelineDetails::Ready(Box::new(
+                                RepliedToEvent::from_timeline_item(&new_item),
+                            )),
+                        };
+                        let new_reply_content =
+                            TimelineItemContent::Message(message.with_in_reply_to(in_reply_to));
+                        let new_reply_item =
+                            entry.with_kind(event_item.with_content(new_reply_content, None));
+                        ObservableVectorTransactionEntry::set(&mut entry, new_reply_item);
+                    }
+                });
+
+                // Update the event itself.
+                self.items.set(item_pos, TimelineItem::new(new_item, internal_id));
                 self.result.items_updated += 1;
             }
         } else if let Flow::Remote { position, raw_event, .. } = &self.ctx.flow {
@@ -589,7 +614,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn apply_msg_edit(
         &self,
         item: &EventTimelineItem,
-        replacement: Replacement<RoomMessageEventContentWithoutRelation>,
+        new_content: RoomMessageEventContentWithoutRelation,
         edit_json: Option<Raw<AnySyncTimelineEvent>>,
     ) -> Option<EventTimelineItem> {
         if self.ctx.sender != item.sender() {
@@ -609,7 +634,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         };
 
         let mut new_msg = msg.clone();
-        new_msg.apply_edit(replacement.new_content);
+        new_msg.apply_edit(new_content);
 
         let mut new_item = item.with_content(TimelineItemContent::Message(new_msg), edit_json);
 
