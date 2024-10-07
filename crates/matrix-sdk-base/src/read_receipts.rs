@@ -207,7 +207,7 @@ impl RoomReadReceipts {
             self.num_unread += 1;
         }
 
-        if marks_as_notify_highlight(&event.event, user_id) {
+        if marks_as_notify_or_highlight(&event.event, user_id) {
             let mut has_notify = false;
             let mut has_mention = false;
             for action in &event.push_actions {
@@ -525,7 +525,7 @@ pub(crate) fn compute_unread_counts(
 }
 
 /// Is the event worth notifying/highlighting a room?
-fn marks_as_notify_highlight(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool {
+fn marks_as_notify_or_highlight(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool {
     let event = match event.deserialize() {
         Ok(event) => event,
         Err(err) => {
@@ -551,6 +551,7 @@ fn marks_as_notify_highlight(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId
         _ => false,
     }
 }
+
 /// Is the event worth marking a room as unread?
 fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool {
     let event = match event.deserialize() {
@@ -639,7 +640,7 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
             }
         }
 
-        AnySyncTimelineEvent::State(event) => false,
+        AnySyncTimelineEvent::State(_) => false,
     }
 }
 
