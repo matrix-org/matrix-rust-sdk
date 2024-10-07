@@ -590,7 +590,7 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
     let store_path = tmp_dir.path();
 
     {
-        let (server, room_list) = new_persistent_room_list_service(&store_path).await?;
+        let (server, room_list) = new_persistent_room_list_service(store_path).await?;
         let sync = room_list.sync();
         pin_mut!(sync);
 
@@ -625,7 +625,7 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
     }
 
     {
-        let (server, room_list) = new_persistent_room_list_service(&store_path).await?;
+        let (server, room_list) = new_persistent_room_list_service(store_path).await?;
         let sync = room_list.sync();
         pin_mut!(sync);
 

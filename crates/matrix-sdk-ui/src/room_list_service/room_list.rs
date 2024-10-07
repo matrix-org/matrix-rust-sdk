@@ -114,6 +114,8 @@ impl RoomList {
     }
 
     /// Get a subscriber to the room list loading state.
+    ///
+    /// This method will send out the current loading state as the first update.
     pub fn loading_state(&self) -> Subscriber<RoomListLoadingState> {
         self.loading_state.subscribe_reset()
     }
