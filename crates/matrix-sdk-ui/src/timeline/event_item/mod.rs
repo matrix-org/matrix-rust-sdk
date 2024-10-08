@@ -724,7 +724,7 @@ mod tests {
         deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent, sliding_sync::http,
         MinimalStateEvent, OriginalMinimalStateEvent,
     };
-    use matrix_sdk_test::{async_test, sync_timeline_event};
+    use matrix_sdk_test::{async_test, sync_state_event, sync_timeline_event};
     use ruma::{
         event_id,
         events::{
@@ -732,7 +732,7 @@ mod tests {
                 member::RoomMemberEventContent,
                 message::{MessageFormat, MessageType},
             },
-            AnySyncTimelineEvent, BundledMessageLikeRelations,
+            AnySyncStateEvent, AnySyncTimelineEvent, BundledMessageLikeRelations,
         },
         room_id,
         serde::Raw,
@@ -889,7 +889,12 @@ mod tests {
         let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
         let client = logged_in_client(None).await;
         let mut room = http::response::Room::new();
-        room.timeline.push(member_event(room_id, user_id, "Alice Margatroid", "mxc://e.org/SEs"));
+        room.required_state.push(member_event_as_state_event(
+            room_id,
+            user_id,
+            "Alice Margatroid",
+            "mxc://e.org/SEs",
+        ));
 
         // And the room is stored in the client so it can be extracted when needed
         let response = response_with_room(room_id, room);
@@ -981,6 +986,32 @@ mod tests {
         avatar_url: &str,
     ) -> Raw<AnySyncTimelineEvent> {
         sync_timeline_event!({
+            "type": "m.room.member",
+            "content": {
+                "avatar_url": avatar_url,
+                "displayname": display_name,
+                "membership": "join",
+                "reason": ""
+            },
+            "event_id": "$143273582443PhrSn:example.org",
+            "origin_server_ts": 143273583,
+            "room_id": room_id,
+            "sender": "@example:example.org",
+            "state_key": user_id,
+            "type": "m.room.member",
+            "unsigned": {
+              "age": 1234
+            }
+        })
+    }
+
+    fn member_event_as_state_event(
+        room_id: &RoomId,
+        user_id: &UserId,
+        display_name: &str,
+        avatar_url: &str,
+    ) -> Raw<AnySyncStateEvent> {
+        sync_state_event!({
             "type": "m.room.member",
             "content": {
                 "avatar_url": avatar_url,
