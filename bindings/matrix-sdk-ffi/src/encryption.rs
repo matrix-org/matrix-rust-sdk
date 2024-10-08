@@ -23,22 +23,22 @@ pub struct Encryption {
     pub(crate) _client: Arc<Client>,
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait BackupStateListener: Sync + Send {
     fn on_update(&self, status: BackupState);
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait BackupSteadyStateListener: Sync + Send {
     fn on_update(&self, status: BackupUploadState);
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait RecoveryStateListener: Sync + Send {
     fn on_update(&self, status: RecoveryState);
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait VerificationStateListener: Sync + Send {
     fn on_update(&self, status: VerificationState);
 }
@@ -162,7 +162,7 @@ impl From<recovery::RecoveryState> for RecoveryState {
     }
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait EnableRecoveryProgressListener: Sync + Send {
     fn on_update(&self, status: EnableRecoveryProgress);
 }
@@ -212,7 +212,7 @@ impl From<encryption::VerificationState> for VerificationState {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl Encryption {
     /// Get the public ed25519 key of our own device. This is usually what is
     /// called the fingerprint of the device.
@@ -432,7 +432,7 @@ pub struct UserIdentity {
     inner: matrix_sdk::encryption::identities::UserIdentity,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl UserIdentity {
     /// Remember this identity, ensuring it does not result in a pin violation.
     ///
@@ -468,7 +468,7 @@ pub struct IdentityResetHandle {
     pub(crate) inner: matrix_sdk::encryption::recovery::IdentityResetHandle,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl IdentityResetHandle {
     /// Get the underlying [`CrossSigningResetAuthType`] this identity reset
     /// process is using.

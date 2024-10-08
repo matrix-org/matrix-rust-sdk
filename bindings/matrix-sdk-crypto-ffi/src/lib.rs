@@ -196,7 +196,7 @@ impl From<anyhow::Error> for MigrationError {
 ///
 /// * `progress_listener` - A callback that can be used to introspect the
 ///   progress of the migration.
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn migrate(
     data: MigrationData,
     path: String,
@@ -359,7 +359,7 @@ async fn save_changes(
 ///
 /// * `progress_listener` - A callback that can be used to introspect the
 ///   progress of the migration.
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn migrate_sessions(
     data: SessionMigrationData,
     path: String,
@@ -532,7 +532,7 @@ fn collect_sessions(
 /// * `passphrase` - The passphrase that should be used to encrypt the data at
 ///   rest in the Sqlite store. **Warning**, if no passphrase is given, the
 ///   store and all its data will remain unencrypted.
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn migrate_room_settings(
     room_settings: HashMap<String, RoomSettings>,
     path: String,
@@ -558,7 +558,7 @@ pub fn migrate_room_settings(
 }
 
 /// Callback that will be passed over the FFI to report progress
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait ProgressListener {
     /// The callback that should be called on the Rust side
     ///
@@ -794,7 +794,7 @@ pub struct BackupKeys {
     backup_version: String,
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl BackupKeys {
     /// Get the recovery key that we're holding on to.
     pub fn recovery_key(&self) -> Arc<BackupRecoveryKey> {
@@ -891,7 +891,7 @@ fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
     ruma::UserId::parse(user_id).map_err(|e| CryptoStoreError::InvalidUserId(user_id.to_owned(), e))
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 fn version_info() -> VersionInfo {
     VersionInfo {
         version: matrix_sdk_crypto::VERSION.to_owned(),
@@ -915,12 +915,12 @@ pub struct VersionInfo {
     pub git_description: String,
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 fn version() -> String {
     matrix_sdk_crypto::VERSION.to_owned()
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 fn vodozemac_version() -> String {
     vodozemac::VERSION.to_owned()
 }
@@ -935,7 +935,7 @@ pub struct PkEncryption {
     inner: matrix_sdk_crypto::vodozemac::pk_encryption::PkEncryption,
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl PkEncryption {
     /// Create a new [`PkEncryption`] object from a `Curve25519PublicKey`
     /// encoded as Base64.

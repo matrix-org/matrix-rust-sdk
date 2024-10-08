@@ -246,7 +246,7 @@ pub struct OidcAuthorizationData {
 }
 
 #[cfg(feature = "uniffi")]
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl OidcAuthorizationData {
     /// The login URL to use for authorization.
     pub fn login_url(&self) -> String {

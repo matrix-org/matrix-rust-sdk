@@ -53,7 +53,7 @@ impl Drop for DehydratedDevices {
     }
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl DehydratedDevices {
     pub fn create(&self) -> Result<Arc<DehydratedDevice>, DehydrationError> {
         let inner = self.runtime.block_on(self.inner.create())?;
@@ -107,7 +107,7 @@ impl Drop for RehydratedDevice {
     }
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl RehydratedDevice {
     pub fn receive_events(&self, events: String) -> Result<(), crate::CryptoStoreError> {
         let events: Vec<Raw<AnyToDeviceEvent>> = serde_json::from_str(&events)?;
@@ -133,7 +133,7 @@ impl Drop for DehydratedDevice {
     }
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl DehydratedDevice {
     pub fn keys_for_upload(
         &self,

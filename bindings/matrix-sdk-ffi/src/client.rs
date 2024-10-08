@@ -140,25 +140,25 @@ impl From<PushFormat> for RumaPushFormat {
     }
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait ClientDelegate: Sync + Send {
     fn did_receive_auth_error(&self, is_soft_logout: bool);
     fn did_refresh_tokens(&self);
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait ClientSessionDelegate: Sync + Send {
     fn retrieve_session_from_keychain(&self, user_id: String) -> Result<Session, ClientError>;
     fn save_session_in_keychain(&self, session: Session);
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait ProgressWatcher: Send + Sync {
     fn transmission_progress(&self, progress: TransmissionProgress);
 }
 
 /// A listener to the global (client-wide) error reporter of the send queue.
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait SendQueueRoomErrorListener: Sync + Send {
     /// Called every time the send queue has ran into an error for a given room,
     /// which will disable the send queue for that particular room.
@@ -260,7 +260,7 @@ impl Client {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl Client {
     /// Information about login options for the client's homeserver.
     pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
@@ -526,7 +526,7 @@ impl Client {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl Client {
     /// The sliding sync version.
     pub fn sliding_sync_version(&self) -> SlidingSyncVersion {
@@ -1092,7 +1092,7 @@ impl Client {
     }
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait IgnoredUsersListener: Sync + Send {
     fn call(&self, ignored_user_ids: Vec<String>);
 }
@@ -1649,7 +1649,7 @@ impl From<AccountManagementAction> for AccountManagementActionFull {
     }
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 fn gen_transaction_id() -> String {
     TransactionId::new().to_string()
 }
@@ -1667,7 +1667,7 @@ impl MediaFileHandle {
     }
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl MediaFileHandle {
     /// Get the media file's path.
     pub fn path(&self) -> Result<String, ClientError> {

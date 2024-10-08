@@ -17,7 +17,7 @@ impl TaskHandle {
     }
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl TaskHandle {
     // Cancel a task handle.
     pub fn cancel(&self) {

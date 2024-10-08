@@ -85,7 +85,7 @@ pub struct RoomListService {
     pub(crate) utd_hook: Option<Arc<UtdHookManager>>,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl RoomListService {
     fn state(&self, listener: Box<dyn RoomListServiceStateListener>) -> Arc<TaskHandle> {
         let state_stream = self.inner.state();
@@ -162,7 +162,7 @@ pub struct RoomList {
     inner: Arc<matrix_sdk_ui::room_list_service::RoomList>,
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl RoomList {
     fn loading_state(
         &self,
@@ -292,7 +292,7 @@ pub struct RoomListEntriesWithDynamicAdaptersResult {
     entries_stream: Arc<TaskHandle>,
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl RoomListEntriesWithDynamicAdaptersResult {
     fn controller(&self) -> Arc<RoomListDynamicEntriesController> {
         self.controller.clone()
@@ -370,17 +370,17 @@ impl From<matrix_sdk_ui::room_list_service::RoomListLoadingState> for RoomListLo
     }
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait RoomListServiceStateListener: Send + Sync + Debug {
     fn on_update(&self, state: RoomListServiceState);
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait RoomListLoadingStateListener: Send + Sync + Debug {
     fn on_update(&self, state: RoomListLoadingState);
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait RoomListServiceSyncIndicatorListener: Send + Sync + Debug {
     fn on_update(&self, sync_indicator: RoomListServiceSyncIndicator);
 }
@@ -443,7 +443,7 @@ impl RoomListEntriesUpdate {
     }
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait RoomListEntriesListener: Send + Sync + Debug {
     fn on_update(&self, room_entries_update: Vec<RoomListEntriesUpdate>);
 }
@@ -461,7 +461,7 @@ impl RoomListDynamicEntriesController {
     }
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl RoomListDynamicEntriesController {
     fn set_filter(&self, kind: RoomListEntriesDynamicFilterKind) -> bool {
         self.inner.set_filter(kind.into())
@@ -549,7 +549,7 @@ impl RoomListItem {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl RoomListItem {
     fn id(&self) -> String {
         self.inner.id().to_string()
@@ -711,7 +711,7 @@ pub struct UnreadNotificationsCount {
     notification_count: u32,
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl UnreadNotificationsCount {
     fn highlight_count(&self) -> u32 {
         self.highlight_count

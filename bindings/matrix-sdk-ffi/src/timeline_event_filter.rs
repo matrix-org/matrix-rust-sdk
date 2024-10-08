@@ -10,7 +10,7 @@ pub struct TimelineEventTypeFilter {
     inner: InnerTimelineEventTypeFilter,
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl TimelineEventTypeFilter {
     #[uniffi::constructor]
     pub fn include(event_types: Vec<FilterTimelineEventType>) -> Arc<Self> {
