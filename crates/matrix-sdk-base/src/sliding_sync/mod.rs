@@ -28,7 +28,7 @@ use ruma::api::client::sync::sync_events::v5;
 use ruma::events::AnyToDeviceEvent;
 use ruma::{
     api::client::sync::sync_events::v3::{self, InvitedRoom},
-    events::{AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent},
+    events::{AnyRoomAccountDataEvent, AnySyncStateEvent},
     serde::Raw,
     JsOption, OwnedRoomId, RoomId, UInt,
 };
@@ -453,6 +453,7 @@ impl BaseClient {
                 &room,
                 room_data.limited,
                 room_data.timeline.clone(),
+                true,
                 room_data.prev_batch.clone(),
                 &push_rules,
                 &mut user_ids,
@@ -1135,8 +1136,8 @@ mod tests {
         let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
 
-        // The room is left.
-        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
+        // The room is NOT left because state events from `timeline` must be IGNORED!
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
     }
 
     #[async_test]

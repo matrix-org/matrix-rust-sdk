@@ -384,6 +384,7 @@ impl BaseClient {
         room: &Room,
         limited: bool,
         events: Vec<Raw<AnySyncTimelineEvent>>,
+        ignore_state_events: bool,
         prev_batch: Option<String>,
         push_rules: &Ruleset,
         user_ids: &mut BTreeSet<OwnedUserId>,
@@ -402,7 +403,7 @@ impl BaseClient {
                 Ok(e) => {
                     #[allow(clippy::single_match)]
                     match &e {
-                        AnySyncTimelineEvent::State(s) => {
+                        AnySyncTimelineEvent::State(s) if !ignore_state_events => {
                             match s {
                                 AnySyncStateEvent::RoomMember(member) => {
                                     Box::pin(ambiguity_cache.handle_event(
@@ -435,6 +436,8 @@ impl BaseClient {
                             let raw_event: Raw<AnySyncStateEvent> = event.raw().clone().cast();
                             changes.add_state_event(room.room_id(), s.clone(), raw_event);
                         }
+
+                        AnySyncTimelineEvent::State(_) => { /* do nothing */ }
 
                         AnySyncTimelineEvent::MessageLike(
                             AnySyncMessageLikeEvent::RoomRedaction(r),
@@ -981,6 +984,7 @@ impl BaseClient {
                     &room,
                     new_info.timeline.limited,
                     new_info.timeline.events,
+                    false,
                     new_info.timeline.prev_batch,
                     &push_rules,
                     &mut user_ids,
@@ -1075,6 +1079,7 @@ impl BaseClient {
                     &room,
                     new_info.timeline.limited,
                     new_info.timeline.events,
+                    false,
                     new_info.timeline.prev_batch,
                     &push_rules,
                     &mut user_ids,
