@@ -58,7 +58,7 @@ impl Match for SlidingSyncMatcher {
 macro_rules! sliding_sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $stream:ident]
-        $( assert pos $pos:expr, )?
+        $( assert pos is $pos:tt, )?
         assert request $sign:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $( , after delay = $response_delay:expr )?
@@ -67,7 +67,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
         sliding_sync_then_assert_request_and_fake_response! {
             [$server, $stream]
             sync matches Some(Ok(_)),
-            $( assert pos $pos, )?
+            $( assert pos is $pos, )?
             assert request $sign { $( $request_json )* },
             respond with = $( ( code $code ) )? { $( $response_json )* },
             $( after delay = $response_delay, )?
@@ -77,7 +77,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $stream:ident]
         sync matches $sync_result:pat,
-        $( assert pos $pos:expr, )?
+        $( assert pos is $pos:tt, )?
         assert request $sign:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $( , after delay = $response_delay:expr )?
@@ -122,7 +122,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
 
                     // Validate `pos` from the query parameter if specified.
                     $(
-                    match $pos {
+                    match $crate::sliding_sync_then_assert_request_and_fake_response!(@assertion_pos $pos) {
                         Some(pos) => assert!(wiremock::matchers::query_param("pos", pos).matches(request)),
                         None => assert!(wiremock::matchers::query_param_is_missing("pos").matches(request)),
                     }
@@ -150,4 +150,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
 
     (@assertion_config >=) => { assert_json_diff::Config::new(assert_json_diff::CompareMode::Inclusive) };
     (@assertion_config =) => { assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict) };
+
+    (@assertion_pos none) => { None::<String> };
+    (@assertion_pos $val:expr) => { Some($val) };
 }

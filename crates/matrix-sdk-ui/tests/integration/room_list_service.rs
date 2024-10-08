@@ -71,7 +71,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $room_list:ident, $stream:ident]
         $( states = $pre_state:pat => $post_state:pat, )?
-        $( assert pos $pos:expr, )?
+        $( assert pos is $pos:tt, )?
         assert request $assert_request:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $( , after delay = $response_delay:expr )?
@@ -81,7 +81,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
             [$server, $room_list, $stream]
             sync matches Some(Ok(_)),
             $( states = $pre_state => $post_state, )?
-            $( assert pos $pos, )?
+            $( assert pos is $pos, )?
             assert request $assert_request { $( $request_json )* },
             respond with = $( ( code $code ) )? { $( $response_json )* },
             $( after delay = $response_delay, )?
@@ -92,7 +92,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
         [$server:ident, $room_list:ident, $stream:ident]
         sync matches $sync_result:pat,
         $( states = $pre_state:pat => $post_state:pat, )?
-        $( assert pos $pos:expr, )?
+        $( assert pos is $pos:tt, )?
         assert request $assert_request:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $( , after delay = $response_delay:expr )?
@@ -110,7 +110,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
             let next = super::sliding_sync_then_assert_request_and_fake_response! {
                 [$server, $stream]
                 sync matches $sync_result,
-                $( assert pos $pos, )?
+                $( assert pos is $pos, )?
                 assert request $assert_request { $( $request_json )* },
                 respond with = $( ( code $code ) )? { $( $response_json )* },
                 $( after delay = $response_delay, )?
@@ -510,7 +510,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Init => SettingUp,
-            assert pos None::<String>,
+            assert pos is none,
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -539,7 +539,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = SettingUp => Running,
-            assert pos Some("0"),
+            assert pos is "0",
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -568,7 +568,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Running => Running,
-            assert pos Some("1"),
+            assert pos is "1",
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -614,7 +614,7 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Init => SettingUp,
-            assert pos None::<String>,
+            assert pos is none,
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -642,9 +642,6 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
         let all_rooms = room_list.all_rooms().await?;
         let mut all_rooms_loading_state = all_rooms.loading_state();
 
-        // Wait on Tokio to run all the tasks. Necessary only when testing.
-        yield_now().await;
-
         // We already have a state stored so the list should already be loaded
         assert_next_matches_with_timeout!(
             all_rooms_loading_state,
@@ -656,7 +653,7 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Init => SettingUp,
-            assert pos Some("0"),
+            assert pos is "0",
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -674,9 +671,6 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
                 "rooms": {},
             },
         };
-
-        // Wait on Tokio to run all the tasks. Necessary only when testing.
-        yield_now().await;
 
         // maximum_number_of_rooms changed so we should get a new loaded state
         assert_next_matches_with_timeout!(
