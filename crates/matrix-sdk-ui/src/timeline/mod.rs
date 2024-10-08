@@ -601,32 +601,31 @@ impl Timeline {
         id: &TimelineEventItemId,
         reason: Option<&str>,
     ) -> Result<(), Error> {
-        match id {
+        let event_id = match id {
             TimelineEventItemId::TransactionId(transaction_id) => {
-                let item = self.item_by_transaction_id(transaction_id).await;
-
-                match item.as_ref().map(|i| i.handle()) {
-                    Some(TimelineItemHandle::Local(handle)) => {
-                        handle.abort().await.map_err(RoomSendQueueError::StorageError)?;
-                        Ok(())
-                    }
-                    Some(TimelineItemHandle::Remote(_)) => Err(Error::RedactError(
-                        RedactError::InvalidTimelineItemHandle(transaction_id.to_owned()),
-                    )),
-                    None => Err(Error::RedactError(RedactError::LocalEventNotFound(
+                let Some(item) = self.item_by_transaction_id(transaction_id).await else {
+                    return Err(Error::RedactError(RedactError::LocalEventNotFound(
                         transaction_id.to_owned(),
-                    ))),
+                    )));
+                };
+
+                match item.handle() {
+                    TimelineItemHandle::Local(handle) => {
+                        // If there is a local item that hasn't been sent yet, abort the upload
+                        handle.abort().await.map_err(RoomSendQueueError::StorageError)?;
+                        return Ok(());
+                    }
+                    TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
                 }
             }
-            TimelineEventItemId::EventId(event_id) => {
-                self.room()
-                    .redact(event_id, reason, None)
-                    .await
-                    .map_err(|e| Error::RedactError(RedactError::HttpError(e)))?;
+            TimelineEventItemId::EventId(event_id) => event_id.to_owned(),
+        };
+        self.room()
+            .redact(&event_id, reason, None)
+            .await
+            .map_err(|e| Error::RedactError(RedactError::HttpError(e)))?;
 
-                Ok(())
-            }
-        }
+        Ok(())
     }
 
     /// Redact an event.

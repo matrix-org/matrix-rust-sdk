@@ -86,9 +86,6 @@ pub enum RedactError {
     #[error("Local event to redact wasn't found for transaction {0}")]
     LocalEventNotFound(OwnedTransactionId),
 
-    #[error("Local event with transaction id {0} had a remote `TimelineItemHandle`. This should never happen.")]
-    InvalidTimelineItemHandle(OwnedTransactionId),
-
     /// An error happened while attempting to redact an event.
     #[error(transparent)]
     HttpError(#[from] HttpError),
