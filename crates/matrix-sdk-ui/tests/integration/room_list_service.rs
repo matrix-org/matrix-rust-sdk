@@ -7,6 +7,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use matrix_sdk::{
+    assert_next_matches_with_timeout,
     config::RequestConfig,
     test_utils::{logged_in_client_with_server, set_client_session, test_client_builder},
     Client,
@@ -30,7 +31,7 @@ use ruma::{
     mxc_uri, room_id, uint,
 };
 use serde_json::json;
-use stream_assert::{assert_next_matches, assert_pending};
+use stream_assert::assert_pending;
 use tempfile::TempDir;
 use tokio::{spawn, sync::mpsc::channel, task::yield_now};
 use wiremock::{
@@ -48,10 +49,10 @@ async fn new_room_list_service() -> Result<(Client, MockServer, RoomListService)
 }
 
 async fn new_persistent_room_list_service(
+    homeserver_url: String,
     store_path: &std::path::Path,
-) -> Result<(MockServer, RoomListService), Error> {
-    let server = MockServer::start().await;
-    let client = test_client_builder(Some(server.uri().to_string()))
+) -> Result<RoomListService, Error> {
+    let client = test_client_builder(Some(homeserver_url))
         .request_config(RequestConfig::new().disable_retry())
         .sqlite_store(store_path, None)
         .build()
@@ -61,7 +62,7 @@ async fn new_persistent_room_list_service(
 
     let room_list = RoomListService::new(client.clone()).await?;
 
-    Ok((server, room_list))
+    Ok(room_list)
 }
 
 // Same macro as in the main, with additional checking that the state
@@ -596,8 +597,10 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
     let tmp_dir = TempDir::new().unwrap();
     let store_path = tmp_dir.path();
 
+    let server = MockServer::start().await;
+
     {
-        let (server, room_list) = new_persistent_room_list_service(store_path).await?;
+        let room_list = new_persistent_room_list_service(server.uri(), store_path).await?;
         let sync = room_list.sync();
         pin_mut!(sync);
 
@@ -605,7 +608,7 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
         let mut all_rooms_loading_state = all_rooms.loading_state();
 
         // The loading is not loaded.
-        assert_next_matches!(all_rooms_loading_state, RoomListLoadingState::NotLoaded);
+        assert_next_matches_with_timeout!(all_rooms_loading_state, RoomListLoadingState::NotLoaded);
         assert_pending!(all_rooms_loading_state);
 
         sync_then_assert_request_and_fake_response! {
@@ -632,7 +635,7 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
     }
 
     {
-        let (server, room_list) = new_persistent_room_list_service(store_path).await?;
+        let room_list = new_persistent_room_list_service(server.uri(), store_path).await?;
         let sync = room_list.sync();
         pin_mut!(sync);
 
@@ -643,7 +646,7 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
         yield_now().await;
 
         // We already have a state stored so the list should already be loaded
-        assert_next_matches!(
+        assert_next_matches_with_timeout!(
             all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(10) }
         );
@@ -676,7 +679,7 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
         yield_now().await;
 
         // maximum_number_of_rooms changed so we should get a new loaded state
-        assert_next_matches!(
+        assert_next_matches_with_timeout!(
             all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
         );
@@ -1172,7 +1175,8 @@ async fn test_loading_states() -> Result<(), Error> {
         let mut all_rooms_loading_state = all_rooms.loading_state();
 
         // The loading is not loaded.
-        assert_next_matches!(all_rooms_loading_state, RoomListLoadingState::NotLoaded);
+        assert_next_matches_with_timeout!(all_rooms_loading_state, RoomListLoadingState::NotLoaded);
+        assert_pending!(all_rooms_loading_state);
 
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
@@ -1200,10 +1204,11 @@ async fn test_loading_states() -> Result<(), Error> {
         yield_now().await;
 
         // There is a loading state update, it's loaded now!
-        assert_next_matches!(
+        assert_next_matches_with_timeout!(
             all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(10) }
         );
+        assert_pending!(all_rooms_loading_state);
 
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
@@ -1231,10 +1236,11 @@ async fn test_loading_states() -> Result<(), Error> {
         yield_now().await;
 
         // There is a loading state update because the number of rooms has been updated.
-        assert_next_matches!(
+        assert_next_matches_with_timeout!(
             all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
         );
+        assert_pending!(all_rooms_loading_state);
 
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
@@ -1278,10 +1284,11 @@ async fn test_loading_states() -> Result<(), Error> {
         pin_mut!(sync);
 
         // The loading state is loaded! Indeed, there is data loaded from the cache.
-        assert_next_matches!(
+        assert_next_matches_with_timeout!(
             all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
         );
+        assert_pending!(all_rooms_loading_state);
 
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
@@ -1309,10 +1316,11 @@ async fn test_loading_states() -> Result<(), Error> {
         yield_now().await;
 
         // The loading state has been updated.
-        assert_next_matches!(
+        assert_next_matches_with_timeout!(
             all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(13) }
         );
+        assert_pending!(all_rooms_loading_state);
     }
 
     Ok(())
