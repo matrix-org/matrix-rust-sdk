@@ -19,6 +19,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
+    assert_let_timeout,
     config::SyncSettings,
     test_utils::{events::EventFactory, logged_in_client_with_server},
 };
@@ -308,6 +309,72 @@ async fn test_redact_message() {
 }
 
 #[async_test]
+async fn test_redact_local_sent_message() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    // Mock event sending.
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // Send the event so it's added to the send queue as a local event.
+    timeline
+        .send(RoomMessageEventContent::text_plain("i will disappear soon").into())
+        .await
+        .unwrap();
+
+    // Assert the local event is in the timeline now and is not sent yet.
+    assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
+    let event = item.as_event().unwrap();
+    assert!(event.is_local_echo());
+    assert_matches!(event.send_state(), Some(EventSendState::NotSentYet));
+
+    // As well as a day divider.
+    assert_let_timeout!(
+        Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next()
+    );
+    assert!(day_divider.is_day_divider());
+
+    // We receive an update in the timeline from the send queue.
+    assert_let_timeout!(Some(VectorDiff::Set { index, value: item }) = timeline_stream.next());
+    assert_eq!(index, 1);
+
+    // Check the event is sent but still considered local.
+    let event = item.as_event().unwrap();
+    assert!(event.is_local_echo());
+    assert_matches!(event.send_state(), Some(EventSendState::Sent { .. }));
+
+    // Mock the redaction response for the event we just sent. Ensure it's called
+    // once.
+    mock_redaction(event.event_id().unwrap()).expect(1).mount(&server).await;
+
+    // Let's redact the local echo with the remote handle.
+    timeline.redact(event, None).await.unwrap();
+}
+
+#[async_test]
 async fn test_redact_by_id_message() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
@@ -379,6 +446,72 @@ async fn test_redact_by_id_message() {
 
     // Observe local echo being removed.
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 2 }));
+}
+
+#[async_test]
+async fn test_redact_by_local_sent_message() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let (client, server) = logged_in_client_with_server().await;
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server.reset().await;
+
+    mock_encryption_state(&server, false).await;
+
+    let room = client.get_room(room_id).unwrap();
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    // Mock event sending.
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // Send the event so it's added to the send queue as a local event.
+    timeline
+        .send(RoomMessageEventContent::text_plain("i will disappear soon").into())
+        .await
+        .unwrap();
+
+    // Assert the local event is in the timeline now and is not sent yet.
+    assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
+    let event = item.as_event().unwrap();
+    assert!(event.is_local_echo());
+    assert_matches!(event.send_state(), Some(EventSendState::NotSentYet));
+
+    // As well as a day divider.
+    assert_let_timeout!(
+        Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next()
+    );
+    assert!(day_divider.is_day_divider());
+
+    // We receive an update in the timeline from the send queue.
+    assert_let_timeout!(Some(VectorDiff::Set { index, value: item }) = timeline_stream.next());
+    assert_eq!(index, 1);
+
+    // Check the event is sent but still considered local.
+    let event = item.as_event().unwrap();
+    assert!(event.is_local_echo());
+    assert_matches!(event.send_state(), Some(EventSendState::Sent { .. }));
+
+    // Mock the redaction response for the event we just sent. Ensure it's called
+    // once.
+    mock_redaction(event.event_id().unwrap()).expect(1).mount(&server).await;
+
+    // Let's redact the local echo with the remote handle.
+    timeline.redact_by_id(&event.identifier(), None).await.unwrap();
 }
 
 #[async_test]
