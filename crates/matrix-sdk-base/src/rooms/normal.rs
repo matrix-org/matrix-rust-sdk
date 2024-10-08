@@ -23,6 +23,8 @@ use std::{
 use bitflags::bitflags;
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::{Stream, StreamExt};
+#[cfg(feature = "experimental-sliding-sync")]
+use matrix_sdk_common::deserialized_responses::TimelineEventKind;
 #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use matrix_sdk_common::ring_buffer::RingBuffer;
 #[cfg(feature = "experimental-sliding-sync")]
@@ -1263,7 +1265,10 @@ impl RoomInfo {
             if latest_event.event_id().as_deref() == Some(redacts) {
                 match apply_redaction(latest_event.event().raw(), _raw, room_version) {
                     Some(redacted) => {
-                        latest_event.event_mut().set_raw(redacted);
+                        // Even if the original event was encrypted, redaction removes all its
+                        // fields so it cannot possibly be successfully decrypted after redaction.
+                        latest_event.event_mut().kind =
+                            TimelineEventKind::PlainText { event: redacted };
                         debug!("Redacted latest event");
                     }
                     None => {
