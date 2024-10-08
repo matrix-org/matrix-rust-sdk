@@ -642,28 +642,32 @@ impl OlmMachine {
         &self,
         reset: bool,
     ) -> StoreResult<CrossSigningBootstrapRequests> {
-        let mut identity = self.inner.user_identity.lock().await;
+        // Don't hold the lock, otherwise we might deadlock in
+        // `bootstrap_cross_signing()` on `account` if a sync task is already
+        // running (which locks `account`), or we will deadlock
+        // in `upload_device_keys()` which locks private identity again.
+        let identity = self.inner.user_identity.lock().await.clone();
 
         let (upload_signing_keys_req, upload_signatures_req) = if reset || identity.is_empty().await
         {
             info!("Creating new cross signing identity");
 
-            let (new_identity, upload_signing_keys_req, upload_signatures_req) = {
+            let (identity, upload_signing_keys_req, upload_signatures_req) = {
                 let cache = self.inner.store.cache().await?;
                 let account = cache.account().await?;
                 account.bootstrap_cross_signing().await
             };
 
-            *identity = new_identity;
-
             let public = identity.to_public_identity().await.expect(
                 "Couldn't create a public version of the identity from a new private identity",
             );
 
+            *self.inner.user_identity.lock().await = identity.clone();
+
             self.store()
                 .save_changes(Changes {
                     identities: IdentityChanges { new: vec![public.into()], ..Default::default() },
-                    private_identity: Some(identity.clone()),
+                    private_identity: Some(identity),
                     ..Default::default()
                 })
                 .await?;
@@ -681,11 +685,6 @@ impl OlmMachine {
 
             (upload_signing_keys_req, upload_signatures_req)
         };
-
-        // `upload_device_keys()` will attempt to sign the device keys using this
-        // `identity`, it will attempt to acquire the lock, so we need to drop
-        // here to avoid a deadlock.
-        drop(identity);
 
         // If there are any *device* keys to upload (i.e. the account isn't shared),
         // upload them before we upload the signatures, since the signatures may
