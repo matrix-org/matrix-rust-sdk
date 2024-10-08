@@ -432,7 +432,7 @@ pub struct UserIdentity {
     inner: matrix_sdk::encryption::identities::UserIdentity,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl UserIdentity {
     /// Remember this identity, ensuring it does not result in a pin violation.
     ///
