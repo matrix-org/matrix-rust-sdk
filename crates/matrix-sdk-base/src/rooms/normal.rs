@@ -182,7 +182,7 @@ impl RoomSummary {
 }
 
 /// Enum keeping track in which state the room is, e.g. if our own user is
-/// joined, invited, or has left the room.
+/// joined, RoomState::Invited, or has left the room.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum RoomState {
     /// The room is in a joined state.
@@ -273,6 +273,11 @@ impl Room {
     /// Get the state of the room.
     pub fn state(&self) -> RoomState {
         self.inner.read().room_state
+    }
+
+    /// Get the previous state of the room, if it had any.
+    pub fn prev_state(&self) -> Option<RoomState> {
+        self.inner.read().prev_room_state
     }
 
     /// Whether this room's [`RoomType`] is `m.space`.
@@ -864,8 +869,8 @@ impl Room {
     /// Get the `RoomMember` with the given `user_id`.
     ///
     /// Returns `None` if the member was never part of this room, otherwise
-    /// return a `RoomMember` that can be in a joined, invited, left, banned
-    /// state.
+    /// return a `RoomMember` that can be in a joined, RoomState::Invited, left,
+    /// banned state.
     ///
     /// Async because it can read from storage.
     pub async fn get_member(&self, user_id: &UserId) -> StoreResult<Option<RoomMember>> {
@@ -1037,6 +1042,9 @@ pub struct RoomInfo {
     /// The state of the room.
     pub(crate) room_state: RoomState,
 
+    /// The previous state of the room, if any.
+    pub(crate) prev_room_state: Option<RoomState>,
+
     /// The unread notifications counts, as returned by the server.
     ///
     /// These might be incorrect for encrypted rooms, since the server doesn't
@@ -1122,6 +1130,7 @@ impl RoomInfo {
             version: 1,
             room_id: room_id.into(),
             room_state,
+            prev_room_state: None,
             notification_counts: Default::default(),
             summary: Default::default(),
             members_synced: false,
@@ -1142,27 +1151,30 @@ impl RoomInfo {
 
     /// Mark this Room as joined.
     pub fn mark_as_joined(&mut self) {
-        self.room_state = RoomState::Joined;
+        self.set_state(RoomState::Joined);
     }
 
     /// Mark this Room as left.
     pub fn mark_as_left(&mut self) {
-        self.room_state = RoomState::Left;
+        self.set_state(RoomState::Left);
     }
 
     /// Mark this Room as invited.
     pub fn mark_as_invited(&mut self) {
-        self.room_state = RoomState::Invited;
+        self.set_state(RoomState::Invited);
     }
 
     /// Mark this Room as knocked.
     pub fn mark_as_knocked(&mut self) {
-        self.room_state = RoomState::Knocked;
+        self.set_state(RoomState::Knocked);
     }
 
     /// Set the membership RoomState of this Room
     pub fn set_state(&mut self, room_state: RoomState) {
-        self.room_state = room_state;
+        if room_state != self.room_state {
+            self.prev_room_state = Some(self.room_state);
+            self.room_state = room_state;
+        }
     }
 
     /// Mark this Room as having all the members synced.
@@ -1822,7 +1834,8 @@ mod tests {
     use crate::{
         rooms::RoomNotableTags,
         store::{IntoStateStore, MemoryStore, StateChanges, StateStore},
-        BaseClient, DisplayName, MinimalStateEvent, OriginalMinimalStateEvent, SessionMeta,
+        BaseClient, DisplayName, MinimalStateEvent, OriginalMinimalStateEvent,
+        RoomInfoNotableUpdateReasons, SessionMeta,
     };
 
     #[test]
@@ -1840,6 +1853,7 @@ mod tests {
             version: 1,
             room_id: room_id!("!gda78o:server.tld").into(),
             room_state: RoomState::Invited,
+            prev_room_state: None,
             notification_counts: UnreadNotificationsCount {
                 highlight_count: 1,
                 notification_count: 2,
@@ -1874,6 +1888,7 @@ mod tests {
             "version": 1,
             "room_id": "!gda78o:server.tld",
             "room_state": "Invited",
+            "prev_room_state": null,
             "notification_counts": {
                 "highlight_count": 1,
                 "notification_count": 2,
@@ -1945,6 +1960,7 @@ mod tests {
         let info_json = json!({
             "room_id": "!gda78o:server.tld",
             "room_state": "Invited",
+            "prev_room_state": null,
             "notification_counts": {
                 "highlight_count": 1,
                 "notification_count": 2,
@@ -2021,7 +2037,8 @@ mod tests {
 
         let info_json = json!({
             "room_id": "!gda78o:server.tld",
-            "room_state": "Invited",
+            "room_state": "Joined",
+            "prev_room_state": "Invited",
             "notification_counts": {
                 "highlight_count": 1,
                 "notification_count": 2,
@@ -2061,7 +2078,8 @@ mod tests {
         let info: RoomInfo = serde_json::from_value(info_json).unwrap();
 
         assert_eq!(info.room_id, room_id!("!gda78o:server.tld"));
-        assert_eq!(info.room_state, RoomState::Invited);
+        assert_eq!(info.room_state, RoomState::Joined);
+        assert_eq!(info.prev_room_state, Some(RoomState::Invited));
         assert_eq!(info.notification_counts.highlight_count, 1);
         assert_eq!(info.notification_counts.notification_count, 2);
         assert_eq!(
@@ -3178,5 +3196,33 @@ mod tests {
         // Creating a new room info initializes it to version 1.
         let new_room_info = RoomInfo::new(room_id!("!new_room:localhost"), RoomState::Joined);
         assert_eq!(new_room_info.version, 1);
+    }
+
+    #[async_test]
+    async fn test_prev_room_state_is_updated() {
+        let (_store, room) = make_room_test_helper(RoomState::Invited);
+        assert_eq!(room.prev_state(), None);
+        assert_eq!(room.state(), RoomState::Invited);
+
+        // Invited -> Joined
+        let mut room_info = room.clone_info();
+        room_info.mark_as_joined();
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
+        assert_eq!(room.prev_state(), Some(RoomState::Invited));
+        assert_eq!(room.state(), RoomState::Joined);
+
+        // No change when the same state is used
+        let mut room_info = room.clone_info();
+        room_info.mark_as_joined();
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
+        assert_eq!(room.prev_state(), Some(RoomState::Invited));
+        assert_eq!(room.state(), RoomState::Joined);
+
+        // Joined -> Left
+        let mut room_info = room.clone_info();
+        room_info.mark_as_left();
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
+        assert_eq!(room.prev_state(), Some(RoomState::Joined));
+        assert_eq!(room.state(), RoomState::Left);
     }
 }

@@ -114,6 +114,7 @@ impl RoomInfoV1 {
             version: 0,
             room_id,
             room_state: room_type,
+            prev_room_state: None,
             notification_counts,
             summary,
             members_synced,
