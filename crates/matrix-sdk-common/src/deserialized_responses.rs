@@ -357,11 +357,6 @@ impl SyncTimelineEvent {
     pub fn into_raw(self) -> Raw<AnySyncTimelineEvent> {
         self.kind.into_raw()
     }
-
-    /// Replace the Matrix event within this event. Used to handle redaction.
-    pub fn set_raw(&mut self, event: Raw<AnySyncTimelineEvent>) {
-        self.kind = TimelineEventKind::PlainText { event };
-    }
 }
 
 impl From<Raw<AnySyncTimelineEvent>> for SyncTimelineEvent {
