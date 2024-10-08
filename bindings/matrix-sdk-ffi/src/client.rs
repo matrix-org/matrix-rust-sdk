@@ -414,7 +414,7 @@ impl Client {
     pub async fn get_media_file(
         &self,
         media_source: Arc<MediaSource>,
-        body: Option<String>,
+        filename: Option<String>,
         mime_type: String,
         use_cache: bool,
         temp_dir: Option<String>,
@@ -427,7 +427,7 @@ impl Client {
             .media()
             .get_media_file(
                 &MediaRequest { source, format: MediaFormat::File },
-                body,
+                filename,
                 &mime_type,
                 use_cache,
                 temp_dir,
