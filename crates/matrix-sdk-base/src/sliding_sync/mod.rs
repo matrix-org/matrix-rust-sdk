@@ -355,13 +355,12 @@ impl BaseClient {
         let mut room_data = Cow::Borrowed(room_data);
 
         let (raw_state_events, state_events): (Vec<_>, Vec<_>) = {
-            let mut state_events = Vec::new();
-
             // Read state events from the `required_state` field.
-            state_events.extend(Self::deserialize_state_events(&room_data.required_state));
+            let state_events = Self::deserialize_state_events(&room_data.required_state);
 
-            // Read state events from the `timeline` field.
-            state_events.extend(Self::deserialize_state_events_from_timeline(&room_data.timeline));
+            // Don't read state events from the `timeline` field, because they might be
+            // incomplete or staled already. We must only read state events from
+            // `required_state`.
 
             state_events.into_iter().unzip()
         };
@@ -631,33 +630,6 @@ impl BaseClient {
                 }
             }
         }
-    }
-
-    pub(crate) fn deserialize_state_events_from_timeline(
-        raw_events: &[Raw<AnySyncTimelineEvent>],
-    ) -> Vec<(Raw<AnySyncStateEvent>, AnySyncStateEvent)> {
-        raw_events
-            .iter()
-            .filter_map(|raw_event| {
-                // If it contains `state_key`, we assume it's a state event.
-                if raw_event.get_field::<serde::de::IgnoredAny>("state_key").transpose().is_some() {
-                    match raw_event.deserialize_as::<AnySyncStateEvent>() {
-                        Ok(event) => {
-                            // SAFETY: Casting `AnySyncTimelineEvent` to `AnySyncStateEvent` is safe
-                            // because we checked that there is a `state_key`.
-                            Some((raw_event.clone().cast(), event))
-                        }
-
-                        Err(error) => {
-                            warn!("Couldn't deserialize state event from timeline: {error}");
-                            None
-                        }
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect()
     }
 }
 
