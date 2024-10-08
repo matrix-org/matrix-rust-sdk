@@ -25,6 +25,7 @@ Breaking changes:
 - `Room::event` now takes an optional `RequestConfig` to allow for tweaking the network behavior.
 - The `instant` module was removed, use the `ruma::time` module instead.
 - Add `ClientBuilder::sqlite_store_with_cache_path` to build a client that stores caches in a different directory to state/crypto.
+- The `body` parameter in `get_media_file` has been replaced with a `filename` parameter now that Ruma has a `filename()` method.
 
 Additions:
 

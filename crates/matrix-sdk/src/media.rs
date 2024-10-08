@@ -176,8 +176,13 @@ impl Media {
     ///
     /// * `request` - The `MediaRequest` of the content.
     ///
+    /// * `filename` - The filename specified in the event. It is suggested to
+    ///   use the `filename()` method on the event's content instead of using
+    ///   the `filename` field directly. If not provided, a random name will be
+    ///   generated.
+    ///
     /// * `content_type` - The type of the media, this will be used to set the
-    ///   temporary file's extension.
+    ///   temporary file's extension when one isn't included in the filename.
     ///
     /// * `use_cache` - If we should use the media cache for this request.
     ///
@@ -189,7 +194,7 @@ impl Media {
     pub async fn get_media_file(
         &self,
         request: &MediaRequest,
-        body: Option<String>,
+        filename: Option<String>,
         content_type: &Mime,
         use_cache: bool,
         temp_dir: Option<String>,
@@ -198,49 +203,50 @@ impl Media {
 
         let inferred_extension = mime2ext::mime2ext(content_type);
 
-        let body_path = body.as_ref().map(Path::new);
-        let filename = body_path.and_then(|f| f.file_name().and_then(|f| f.to_str()));
-        let filename_with_extension = body_path.and_then(|f| {
-            if f.extension().is_some() {
-                f.file_name().and_then(|f| f.to_str())
-            } else {
-                None
-            }
-        });
+        let filename_as_path = filename.as_ref().map(Path::new);
 
-        let (temp_file, temp_dir) = match (filename, filename_with_extension, inferred_extension) {
-            // If the body is a file name and has an extension use that
-            (Some(_), Some(filename_with_extension), Some(_)) => {
-                // Use an intermediary directory to avoid conflicts
-                let temp_dir = temp_dir.map(TempDir::new_in).unwrap_or_else(TempDir::new)?;
-                let temp_file = TempFileBuilder::new()
-                    .prefix(filename_with_extension)
-                    .rand_bytes(0)
-                    .tempfile_in(&temp_dir)?;
-                (temp_file, Some(temp_dir))
-            }
-            // If the body is a file name but doesn't have an extension try inferring one for it
-            (Some(filename), None, Some(inferred_extension)) => {
-                // Use an intermediary directory to avoid conflicts
-                let temp_dir = temp_dir.map(TempDir::new_in).unwrap_or_else(TempDir::new)?;
-                let temp_file = TempFileBuilder::new()
-                    .prefix(filename)
-                    .suffix(&(".".to_owned() + inferred_extension))
-                    .rand_bytes(0)
-                    .tempfile_in(&temp_dir)?;
-                (temp_file, Some(temp_dir))
-            }
-            // If the only thing we have is an inferred extension then use that together with a
-            // randomly generated file name
-            (None, None, Some(inferred_extension)) => (
-                TempFileBuilder::new()
-                    .suffix(&&(".".to_owned() + inferred_extension))
-                    .tempfile()?,
-                None,
-            ),
-            // Otherwise just use a completely random file name
-            _ => (TempFileBuilder::new().tempfile()?, None),
+        let (sanitized_filename, filename_has_extension) = if let Some(path) = filename_as_path {
+            let sanitized_filename = path.file_name().and_then(|f| f.to_str());
+            let filename_has_extension = path.extension().is_some();
+            (sanitized_filename, filename_has_extension)
+        } else {
+            (None, false)
         };
+
+        let (temp_file, temp_dir) =
+            match (sanitized_filename, filename_has_extension, inferred_extension) {
+                // If the file name has an extension use that
+                (Some(filename_with_extension), true, _) => {
+                    // Use an intermediary directory to avoid conflicts
+                    let temp_dir = temp_dir.map(TempDir::new_in).unwrap_or_else(TempDir::new)?;
+                    let temp_file = TempFileBuilder::new()
+                        .prefix(filename_with_extension)
+                        .rand_bytes(0)
+                        .tempfile_in(&temp_dir)?;
+                    (temp_file, Some(temp_dir))
+                }
+                // If the file name doesn't have an extension try inferring one for it
+                (Some(filename), false, Some(inferred_extension)) => {
+                    // Use an intermediary directory to avoid conflicts
+                    let temp_dir = temp_dir.map(TempDir::new_in).unwrap_or_else(TempDir::new)?;
+                    let temp_file = TempFileBuilder::new()
+                        .prefix(filename)
+                        .suffix(&(".".to_owned() + inferred_extension))
+                        .rand_bytes(0)
+                        .tempfile_in(&temp_dir)?;
+                    (temp_file, Some(temp_dir))
+                }
+                // If the only thing we have is an inferred extension then use that together with a
+                // randomly generated file name
+                (None, _, Some(inferred_extension)) => (
+                    TempFileBuilder::new()
+                        .suffix(&&(".".to_owned() + inferred_extension))
+                        .tempfile()?,
+                    None,
+                ),
+                // Otherwise just use a completely random file name
+                _ => (TempFileBuilder::new().tempfile()?, None),
+            };
 
         let mut file = TokioFile::from_std(temp_file.reopen()?);
         file.write_all(&data).await?;
