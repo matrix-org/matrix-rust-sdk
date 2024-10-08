@@ -16,7 +16,7 @@ pub struct ElementWellKnown {
 }
 
 /// Helper function to parse a string into a ElementWellKnown struct
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn make_element_well_known(string: String) -> Result<ElementWellKnown, ClientError> {
     serde_json::from_str(&string).map_err(ClientError::new)
 }

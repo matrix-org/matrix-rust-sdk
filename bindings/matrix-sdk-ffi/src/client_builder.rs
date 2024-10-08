@@ -47,7 +47,7 @@ pub struct QrCodeData {
     inner: qrcode::QrCodeData,
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl QrCodeData {
     /// Attempt to decode a slice of bytes into a [`QrCodeData`] object.
     ///
@@ -159,7 +159,7 @@ pub enum QrLoginProgress {
     Done,
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait QrLoginProgressListener: Sync + Send {
     fn on_update(&self, state: QrLoginProgress);
 }
@@ -270,7 +270,7 @@ pub struct ClientBuilder {
     request_config: Option<RequestConfig>,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl ClientBuilder {
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {

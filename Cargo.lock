@@ -3136,6 +3136,7 @@ dependencies = [
  "mas-oidc-client",
  "matrix-sdk-base",
  "matrix-sdk-common",
+ "matrix-sdk-ffi-macros",
  "matrix-sdk-indexeddb",
  "matrix-sdk-sqlite",
  "matrix-sdk-test",
@@ -3293,6 +3294,7 @@ dependencies = [
  "js_int",
  "matrix-sdk-common",
  "matrix-sdk-crypto",
+ "matrix-sdk-ffi-macros",
  "matrix-sdk-sqlite",
  "pbkdf2",
  "rand",
@@ -3323,6 +3325,7 @@ dependencies = [
  "language-tags",
  "log-panics",
  "matrix-sdk",
+ "matrix-sdk-ffi-macros",
  "matrix-sdk-ui",
  "mime",
  "once_cell",
@@ -3342,6 +3345,15 @@ dependencies = [
  "uuid",
  "vergen",
  "zeroize",
+]
+
+[[package]]
+name = "matrix-sdk-ffi-macros"
+version = "0.7.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.79",
 ]
 
 [[package]]

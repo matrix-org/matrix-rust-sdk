@@ -90,7 +90,7 @@ impl From<AuthData> for ruma::api::client::uiaa::AuthData {
 
 /// Parse a matrix entity from a given URI, be it either
 /// a `matrix.to` link or a `matrix:` URI
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn parse_matrix_entity_from(uri: String) -> Option<MatrixEntity> {
     if let Ok(matrix_uri) = RumaMatrixUri::parse(&uri) {
         return Some(MatrixEntity {
@@ -154,33 +154,33 @@ impl From<&RumaMatrixId> for MatrixId {
     }
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
     Arc::new(MediaSource::Plain(url.into()))
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn message_event_content_new(
     msgtype: MessageType,
 ) -> Result<Arc<RoomMessageEventContentWithoutRelation>, ClientError> {
     Ok(Arc::new(RoomMessageEventContentWithoutRelation::new(msgtype.try_into()?)))
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn message_event_content_from_markdown(
     md: String,
 ) -> Arc<RoomMessageEventContentWithoutRelation> {
     Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_markdown(md)))
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn message_event_content_from_markdown_as_emote(
     md: String,
 ) -> Arc<RoomMessageEventContentWithoutRelation> {
     Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::emote_markdown(md)))
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn message_event_content_from_html(
     body: String,
     html_body: String,
@@ -190,7 +190,7 @@ pub fn message_event_content_from_html(
     )))
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn message_event_content_from_html_as_emote(
     body: String,
     html_body: String,
@@ -918,7 +918,7 @@ impl From<RumaPollKind> for PollKind {
 
 /// Creates a [`RoomMessageEventContentWithoutRelation`] given a
 /// [`MessageContent`] value.
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn content_without_relation_from_message(
     message: MessageContent,
 ) -> Result<Arc<RoomMessageEventContentWithoutRelation>, ClientError> {

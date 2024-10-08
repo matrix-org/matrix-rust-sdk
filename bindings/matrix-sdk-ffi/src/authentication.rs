@@ -29,7 +29,7 @@ pub struct HomeserverLoginDetails {
     pub(crate) supports_password_login: bool,
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl HomeserverLoginDetails {
     /// The URL of the currently configured homeserver.
     pub fn url(&self) -> String {
@@ -62,7 +62,7 @@ pub struct SsoHandler {
     pub(crate) url: String,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl SsoHandler {
     /// Returns the URL for starting SSO authentication. The URL should be
     /// opened in a web view. Once the web view succeeds, call `finish` with

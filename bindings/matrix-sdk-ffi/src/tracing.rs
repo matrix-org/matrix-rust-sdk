@@ -19,7 +19,7 @@ use tracing_core::{identify_callsite, metadata::Kind as MetadataKind};
 /// level + target) it is called with. Please make sure that the number of
 /// different combinations of those parameters this can be called with is
 /// constant in the final executable.
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 fn log_event(file: String, line: Option<u32>, level: LogLevel, target: String, message: String) {
     static CALLSITES: Mutex<BTreeMap<MetadataId, &'static DefaultCallsite>> =
         Mutex::new(BTreeMap::new());
@@ -96,7 +96,7 @@ fn span_or_event_enabled(callsite: &'static DefaultCallsite) -> bool {
 #[derive(uniffi::Object)]
 pub struct Span(tracing::Span);
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl Span {
     /// Create a span originating at the given callsite (file, line and column).
     ///

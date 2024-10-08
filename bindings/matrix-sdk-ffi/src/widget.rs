@@ -15,7 +15,7 @@ pub struct WidgetDriverAndHandle {
     pub handle: Arc<WidgetDriverHandle>,
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn make_widget_driver(settings: WidgetSettings) -> Result<WidgetDriverAndHandle, ParseError> {
     let (driver, handle) = matrix_sdk::widget::WidgetDriver::new(settings.try_into()?);
     Ok(WidgetDriverAndHandle {
@@ -29,7 +29,7 @@ pub fn make_widget_driver(settings: WidgetSettings) -> Result<WidgetDriverAndHan
 #[derive(uniffi::Object)]
 pub struct WidgetDriver(Mutex<Option<matrix_sdk::widget::WidgetDriver>>);
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl WidgetDriver {
     pub async fn run(
         &self,
@@ -96,7 +96,7 @@ impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
 /// * `room` - A matrix room which is used to query the logged in username
 /// * `props` - Properties from the client that can be used by a widget to adapt
 ///   to the client. e.g. language, font-scale...
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 pub async fn generate_webview_url(
     widget_settings: WidgetSettings,
     room: Arc<Room>,
@@ -241,7 +241,7 @@ impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElemen
 ///
 /// * `props` - A struct containing the configuration parameters for a element
 ///   call widget.
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn new_virtual_element_call_widget(
     props: VirtualElementCallWidgetOptions,
 ) -> Result<WidgetSettings, ParseError> {
@@ -261,7 +261,7 @@ pub fn new_virtual_element_call_widget(
 /// Editing and extending the capabilities from this function is also possible,
 /// but should only be done as temporal workarounds until this function is
 /// adjusted
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn get_element_call_required_permissions(
     own_user_id: String,
     own_device_id: String,
@@ -354,7 +354,7 @@ impl From<ClientProperties> for matrix_sdk::widget::ClientProperties {
 #[derive(uniffi::Object)]
 pub struct WidgetDriverHandle(matrix_sdk::widget::WidgetDriverHandle);
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl WidgetDriverHandle {
     /// Receive a message from the widget driver.
     ///
@@ -469,7 +469,7 @@ impl From<matrix_sdk::widget::EventFilter> for WidgetEventFilter {
     }
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait WidgetCapabilitiesProvider: Send + Sync {
     fn acquire_capabilities(&self, capabilities: WidgetCapabilities) -> WidgetCapabilities;
 }

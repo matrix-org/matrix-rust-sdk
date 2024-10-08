@@ -142,7 +142,7 @@ impl Timeline {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl Timeline {
     pub async fn add_listener(&self, listener: Box<dyn TimelineListener>) -> Arc<TaskHandle> {
         let (timeline_items, timeline_stream) = self.inner.subscribe_batched().await;
@@ -688,7 +688,7 @@ pub struct SendHandle {
     inner: Mutex<Option<matrix_sdk::send_queue::SendHandle>>,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl SendHandle {
     /// Try to abort the sending of the current event.
     ///
@@ -723,12 +723,12 @@ pub enum FocusEventError {
     Other { msg: String },
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait TimelineListener: Sync + Send {
     fn on_update(&self, diff: Vec<Arc<TimelineDiff>>);
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait PaginationStatusListener: Sync + Send {
     fn on_update(&self, status: LiveBackPaginationStatus);
 }
@@ -778,7 +778,7 @@ impl TimelineDiff {
     }
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl TimelineDiff {
     pub fn change(&self) -> TimelineChange {
         match self {
@@ -878,7 +878,7 @@ impl TimelineItem {
     }
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl TimelineItem {
     pub fn as_event(self: Arc<Self>) -> Option<EventTimelineItem> {
         let event_item = self.0.as_event()?;
@@ -1108,7 +1108,7 @@ impl From<ruma::events::receipt::Receipt> for Receipt {
 #[derive(uniffi::Object)]
 pub struct EventTimelineItemDebugInfoProvider(Arc<matrix_sdk_ui::timeline::EventTimelineItem>);
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl EventTimelineItemDebugInfoProvider {
     fn get(&self) -> EventTimelineItemDebugInfo {
         EventTimelineItemDebugInfo {
@@ -1202,7 +1202,7 @@ impl SendAttachmentJoinHandle {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl SendAttachmentJoinHandle {
     pub async fn join(&self) -> Result<(), RoomError> {
         let join_hdl = self.join_hdl.clone();
@@ -1274,7 +1274,7 @@ impl TryFrom<EditedContent> for SdkEditedContent {
 #[derive(Clone, uniffi::Object)]
 pub struct EventShieldsProvider(Arc<matrix_sdk_ui::timeline::EventTimelineItem>);
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl EventShieldsProvider {
     fn get_shields(&self, strict: bool) -> Option<ShieldState> {
         self.0.get_shield(strict).map(Into::into)

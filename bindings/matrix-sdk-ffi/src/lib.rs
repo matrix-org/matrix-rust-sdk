@@ -44,7 +44,7 @@ use self::{
 
 uniffi::include_scaffolding!("api");
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 fn sdk_git_sha() -> String {
     env!("VERGEN_GIT_SHA").to_owned()
 }

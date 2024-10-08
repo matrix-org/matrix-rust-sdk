@@ -42,20 +42,20 @@ impl From<matrix_sdk::ruma::events::room::member::MembershipState> for Membershi
     }
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn suggested_role_for_power_level(power_level: i64) -> RoomMemberRole {
     // It's not possible to expose the constructor on the Enum through Uniffi ☹️
     RoomMemberRole::suggested_role_for_power_level(power_level)
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn suggested_power_level_for_role(role: RoomMemberRole) -> i64 {
     // It's not possible to expose methods on an Enum through Uniffi ☹️
     role.suggested_power_level()
 }
 
 /// Generates a `matrix.to` permalink to the given userID.
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn matrix_to_user_permalink(user_id: String) -> Result<String, ClientError> {
     let user_id = UserId::parse(user_id)?;
     Ok(user_id.matrix_to_uri().to_string())

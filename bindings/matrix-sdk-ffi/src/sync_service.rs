@@ -51,7 +51,7 @@ impl From<MatrixSyncServiceState> for SyncServiceState {
     }
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait SyncServiceStateObserver: Send + Sync + Debug {
     fn on_update(&self, state: SyncServiceState);
 }
@@ -62,7 +62,7 @@ pub struct SyncService {
     utd_hook: Option<Arc<UtdHookManager>>,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl SyncService {
     pub fn room_list_service(&self) -> Arc<RoomListService> {
         Arc::new(RoomListService {
@@ -110,7 +110,7 @@ impl SyncServiceBuilder {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl SyncServiceBuilder {
     pub fn with_cross_process_lock(self: Arc<Self>, app_identifier: Option<String>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
@@ -153,7 +153,7 @@ impl SyncServiceBuilder {
     }
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait UnableToDecryptDelegate: Sync + Send {
     fn on_utd(&self, info: UnableToDecryptInfo);
 }

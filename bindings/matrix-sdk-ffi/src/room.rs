@@ -82,7 +82,7 @@ impl Room {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl Room {
     pub fn id(&self) -> String {
         self.inner.room_id().to_string()
@@ -861,7 +861,7 @@ impl Room {
 }
 
 /// Generates a `matrix.to` permalink to the given room alias.
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn matrix_to_room_alias_permalink(
     room_alias: String,
 ) -> std::result::Result<String, ClientError> {
@@ -917,17 +917,17 @@ impl From<RumaPowerLevels> for RoomPowerLevels {
     }
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait RoomInfoListener: Sync + Send {
     fn call(&self, room_info: RoomInfo);
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait TypingNotificationsListener: Sync + Send {
     fn call(&self, typing_user_ids: Vec<String>);
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait IdentityStatusChangeListener: Sync + Send {
     fn call(&self, identity_status_change: Vec<IdentityStatusChange>);
 }
@@ -943,7 +943,7 @@ impl RoomMembersIterator {
     }
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl RoomMembersIterator {
     fn len(&self) -> u32 {
         self.chunk_iterator.len()

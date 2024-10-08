@@ -79,7 +79,7 @@ impl RoomDirectorySearch {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl RoomDirectorySearch {
     pub async fn next_page(&self) -> Result<(), ClientError> {
         let mut inner = self.inner.write().await;
@@ -169,7 +169,7 @@ impl From<VectorDiff<matrix_sdk::room_directory_search::RoomDescription>>
     }
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait RoomDirectorySearchEntriesListener: Send + Sync + Debug {
     fn on_update(&self, room_entries_update: Vec<RoomDirectorySearchEntryUpdate>);
 }

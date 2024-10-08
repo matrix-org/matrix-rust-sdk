@@ -20,7 +20,7 @@ use crate::{
 #[derive(uniffi::Object)]
 pub struct TimelineEvent(pub(crate) AnySyncTimelineEvent);
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl TimelineEvent {
     pub fn event_id(&self) -> String {
         self.0.event_id().to_string()

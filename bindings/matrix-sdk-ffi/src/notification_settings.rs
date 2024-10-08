@@ -49,7 +49,7 @@ impl From<RoomNotificationMode> for SdkRoomNotificationMode {
 }
 
 /// Delegate to notify of changes in push rules
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait NotificationSettingsDelegate: Sync + Send {
     fn settings_did_change(&self);
 }
@@ -98,7 +98,7 @@ impl Drop for NotificationSettings {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl NotificationSettings {
     pub fn set_delegate(&self, delegate: Option<Box<dyn NotificationSettingsDelegate>>) {
         if let Some(delegate) = delegate {

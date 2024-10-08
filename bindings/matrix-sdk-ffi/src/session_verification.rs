@@ -20,7 +20,7 @@ pub struct SessionVerificationEmoji {
     description: String,
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl SessionVerificationEmoji {
     pub fn symbol(&self) -> String {
         self.symbol.clone()
@@ -37,7 +37,7 @@ pub enum SessionVerificationData {
     Decimals { values: Vec<u16> },
 }
 
-#[uniffi::export(callback_interface)]
+#[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait SessionVerificationControllerDelegate: Sync + Send {
     fn did_accept_verification_request(&self);
     fn did_start_sas_verification(&self);
@@ -58,7 +58,7 @@ pub struct SessionVerificationController {
     sas_verification: Arc<RwLock<Option<SasVerification>>>,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[matrix_sdk_ffi_macros::export_async]
 impl SessionVerificationController {
     pub async fn is_verified(&self) -> Result<bool, ClientError> {
         let device =

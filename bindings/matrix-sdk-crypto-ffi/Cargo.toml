@@ -26,6 +26,7 @@ futures-util = { workspace = true }
 hmac = "0.12.1"
 http = { workspace = true }
 matrix-sdk-common = { workspace = true, features = ["uniffi"] }
+matrix-sdk-ffi-macros = { workspace = true }
 pbkdf2 = "0.12.2"
 rand = { workspace = true }
 ruma = { workspace = true }

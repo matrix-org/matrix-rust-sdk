@@ -195,7 +195,7 @@ impl InReplyToDetails {
     }
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl InReplyToDetails {
     pub fn event_id(&self) -> String {
         self.event_id.clone()

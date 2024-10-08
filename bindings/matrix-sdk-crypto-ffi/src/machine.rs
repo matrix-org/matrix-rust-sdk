@@ -178,7 +178,7 @@ impl From<RustSignatureCheckResult> for SignatureVerification {
     }
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl OlmMachine {
     /// Create a new `OlmMachine`
     ///

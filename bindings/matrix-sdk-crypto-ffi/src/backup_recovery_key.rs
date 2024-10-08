@@ -69,7 +69,7 @@ impl BackupRecoveryKey {
     const PBKDF_ROUNDS: i32 = 500_000;
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 impl BackupRecoveryKey {
     /// Create a new random [`BackupRecoveryKey`].
     #[allow(clippy::new_without_default)]

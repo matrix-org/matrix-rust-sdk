@@ -242,7 +242,7 @@ pub struct TracingConfiguration {
     write_to_files: Option<TracingFileConfiguration>,
 }
 
-#[uniffi::export]
+#[matrix_sdk_ffi_macros::export]
 pub fn setup_tracing(config: TracingConfiguration) {
     log_panics();
 
