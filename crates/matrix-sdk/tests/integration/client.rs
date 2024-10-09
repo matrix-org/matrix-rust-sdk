@@ -15,7 +15,10 @@ use matrix_sdk_test::{
     async_test, sync_state_event,
     test_json::{
         self,
-        sync::{MIXED_INVITED_ROOM_ID, MIXED_JOINED_ROOM_ID, MIXED_LEFT_ROOM_ID, MIXED_SYNC},
+        sync::{
+            MIXED_INVITED_ROOM_ID, MIXED_JOINED_ROOM_ID, MIXED_KNOCKED_ROOM_ID, MIXED_LEFT_ROOM_ID,
+            MIXED_SYNC,
+        },
         sync_events::PINNED_EVENTS,
         TAG,
     },
@@ -340,7 +343,7 @@ async fn test_subscribe_all_room_updates() {
     client.sync_once(sync_settings).await.unwrap();
 
     let room_updates = rx.recv().now_or_never().unwrap().unwrap();
-    assert_let!(RoomUpdates { leave, join, invite } = room_updates);
+    assert_let!(RoomUpdates { leave, join, invite, knocked } = room_updates);
 
     // Check the left room updates.
     {
@@ -382,6 +385,16 @@ async fn test_subscribe_all_room_updates() {
 
         assert_eq!(room_id, *MIXED_INVITED_ROOM_ID);
         assert_eq!(update.invite_state.events.len(), 2);
+    }
+
+    // Check the knocked room updates.
+    {
+        assert_eq!(knocked.len(), 1);
+
+        let (room_id, update) = knocked.iter().next().unwrap();
+
+        assert_eq!(room_id, *MIXED_KNOCKED_ROOM_ID);
+        assert_eq!(update.knock_state.events.len(), 2);
     }
 }
 

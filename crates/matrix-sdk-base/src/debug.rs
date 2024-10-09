@@ -17,7 +17,10 @@
 use std::fmt;
 
 pub use matrix_sdk_common::debug::*;
-use ruma::{api::client::sync::sync_events::v3::InvitedRoom, serde::Raw};
+use ruma::{
+    api::client::sync::sync_events::v3::{InvitedRoom, KnockedRoom},
+    serde::Raw,
+};
 
 /// A wrapper around a slice of `Raw` events that implements `Debug` in a way
 /// that only prints the event type of each item.
@@ -42,6 +45,20 @@ impl<'a> fmt::Debug for DebugInvitedRoom<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("InvitedRoom")
             .field("invite_state", &DebugListOfRawEvents(&self.0.invite_state.events))
+            .finish()
+    }
+}
+
+/// A wrapper around a knocked on room as found in `/sync` responses that
+/// implements `Debug` in a way that only prints the event ID and event type for
+/// the raw events contained in `knock_state`.
+pub struct DebugKnockedRoom<'a>(pub &'a KnockedRoom);
+
+#[cfg(not(tarpaulin_include))]
+impl<'a> fmt::Debug for DebugKnockedRoom<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("KnockedRoom")
+            .field("knock_state", &DebugListOfRawEvents(&self.0.knock_state.events))
             .finish()
     }
 }

@@ -523,11 +523,22 @@ impl BaseClient {
         Ok(timeline)
     }
 
+    /// Handles the stripped state events in `invite_state`, modifying the
+    /// room's info and posting notifications as needed.
+    ///
+    /// * `room` - The [`Room`] to modify.
+    /// * `events` - The contents of `invite_state` in the form of list of pairs
+    ///   of raw stripped state events with their deserialized counterpart.
+    /// * `push_rules` - The push rules for this room.
+    /// * `room_info` - The current room's info.
+    /// * `changes` - The accumulated list of changes to apply once the
+    ///   processing is finished.
+    /// * `notifications` - Notifications to post for the current room.
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) async fn handle_invited_state(
         &self,
         room: &Room,
-        events: &[Raw<AnyStrippedStateEvent>],
+        events: &[(Raw<AnyStrippedStateEvent>, AnyStrippedStateEvent)],
         push_rules: &Ruleset,
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
@@ -535,22 +546,12 @@ impl BaseClient {
     ) -> Result<()> {
         let mut state_events = BTreeMap::new();
 
-        for raw_event in events {
-            match raw_event.deserialize() {
-                Ok(e) => {
-                    room_info.handle_stripped_state_event(&e);
-                    state_events
-                        .entry(e.event_type())
-                        .or_insert_with(BTreeMap::new)
-                        .insert(e.state_key().to_owned(), raw_event.clone());
-                }
-                Err(err) => {
-                    warn!(
-                        room_id = ?room_info.room_id,
-                        "Couldn't deserialize stripped state event: {err:?}",
-                    );
-                }
-            }
+        for (raw_event, event) in events {
+            room_info.handle_stripped_state_event(event);
+            state_events
+                .entry(event.event_type())
+                .or_insert_with(BTreeMap::new)
+                .insert(event.state_key().to_owned(), raw_event.clone());
         }
 
         changes.stripped_state.insert(room_info.room_id().to_owned(), state_events.clone());
@@ -1121,13 +1122,16 @@ impl BaseClient {
                 self.room_info_notable_update_sender.clone(),
             );
 
+            let invite_state =
+                Self::deserialize_stripped_state_events(&new_info.invite_state.events);
+
             let mut room_info = room.clone_info();
             room_info.mark_as_invited();
             room_info.mark_state_fully_synced();
 
             self.handle_invited_state(
                 &room,
-                &new_info.invite_state.events,
+                &invite_state,
                 &push_rules,
                 &mut room_info,
                 &mut changes,
@@ -1138,6 +1142,34 @@ impl BaseClient {
             changes.add_room(room_info);
 
             new_rooms.invite.insert(room_id, new_info);
+        }
+
+        for (room_id, new_info) in response.rooms.knock {
+            let room = self.store.get_or_create_room(
+                &room_id,
+                RoomState::Knocked,
+                self.room_info_notable_update_sender.clone(),
+            );
+
+            let knock_state = Self::deserialize_stripped_state_events(&new_info.knock_state.events);
+
+            let mut room_info = room.clone_info();
+            room_info.mark_as_knocked();
+            room_info.mark_state_fully_synced();
+
+            self.handle_invited_state(
+                &room,
+                &knock_state,
+                &push_rules,
+                &mut room_info,
+                &mut changes,
+                &mut notifications,
+            )
+            .await?;
+
+            changes.add_room(room_info);
+
+            new_rooms.knocked.insert(room_id, new_info);
         }
 
         account_data_processor.apply(&mut changes, &self.store).await;
@@ -1576,6 +1608,21 @@ impl BaseClient {
                 Ok(event) => Some((raw_event.clone(), event)),
                 Err(e) => {
                     warn!("Couldn't deserialize state event: {e}");
+                    None
+                }
+            })
+            .collect()
+    }
+
+    pub(crate) fn deserialize_stripped_state_events(
+        raw_events: &[Raw<AnyStrippedStateEvent>],
+    ) -> Vec<(Raw<AnyStrippedStateEvent>, AnyStrippedStateEvent)> {
+        raw_events
+            .iter()
+            .filter_map(|raw_event| match raw_event.deserialize() {
+                Ok(event) => Some((raw_event.clone(), event)),
+                Err(e) => {
+                    warn!("Couldn't deserialize stripped state event: {e}");
                     None
                 }
             })
