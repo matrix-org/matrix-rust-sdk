@@ -542,7 +542,7 @@ impl Timeline {
         match item.handle() {
             TimelineItemHandle::Remote(event_id) => {
                 self.room()
-                    .redact(&event_id, reason, None)
+                    .redact(event_id, reason, None)
                     .await
                     .map_err(|err| Error::RedactError(RedactError::HttpError(err)))?;
                 Ok(true)
