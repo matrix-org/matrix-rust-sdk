@@ -289,11 +289,14 @@ mod tests {
         assert!(map.get(&'c').is_none());
 
         // remove one item
-        map.remove(&'b');
+        assert_eq!(map.remove(&'b'), Some('f'));
 
         assert_eq!(map.get(&'a'), Some(&'e'));
         assert_eq!(map.get(&'b'), None);
         assert_eq!(map.get(&'c'), None);
+
+        // remove a non-existent item
+        assert_eq!(map.remove(&'c'), None);
     }
 
     #[test]

@@ -1405,6 +1405,8 @@ impl BaseClient {
 
     /// Forget the room with the given room ID.
     ///
+    /// The room will be dropped from the room list and the store.
+    ///
     /// # Arguments
     ///
     /// * `room_id` - The id of the room that should be forgotten.
