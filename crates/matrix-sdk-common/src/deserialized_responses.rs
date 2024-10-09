@@ -303,7 +303,7 @@ pub struct EncryptionInfo {
 /// Previously, this differed from [`TimelineEvent`] by wrapping an
 /// [`AnySyncTimelineEvent`] instead of an [`AnyTimelineEvent`], but nowadays
 /// they are essentially identical, and one of them should probably be removed.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct SyncTimelineEvent {
     /// The event itself, together with any information on decryption.
     pub kind: TimelineEventKind,
@@ -361,19 +361,6 @@ impl SyncTimelineEvent {
     /// Replace the Matrix event within this event. Used to handle redaction.
     pub fn set_raw(&mut self, event: Raw<AnySyncTimelineEvent>) {
         self.kind = TimelineEventKind::PlainText { event };
-    }
-}
-
-#[cfg(not(tarpaulin_include))]
-impl fmt::Debug for SyncTimelineEvent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let SyncTimelineEvent { kind, push_actions } = self;
-        let mut s = f.debug_struct("SyncTimelineEvent");
-        s.field("kind", &kind);
-        if !push_actions.is_empty() {
-            s.field("push_actions", push_actions);
-        }
-        s.finish()
     }
 }
 
@@ -448,7 +435,7 @@ impl<'de> Deserialize<'de> for SyncTimelineEvent {
 /// Previously, this differed from [`SyncTimelineEvent`] by wrapping an
 /// [`AnyTimelineEvent`] instead of an [`AnySyncTimelineEvent`], but nowadays
 /// they are essentially identical, and one of them should probably be removed.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TimelineEvent {
     /// The event itself, together with any information on decryption.
     pub kind: TimelineEventKind,
@@ -496,21 +483,6 @@ impl TimelineEvent {
 impl From<DecryptedRoomEvent> for TimelineEvent {
     fn from(decrypted: DecryptedRoomEvent) -> Self {
         Self { kind: TimelineEventKind::Decrypted(decrypted), push_actions: None }
-    }
-}
-
-#[cfg(not(tarpaulin_include))]
-impl fmt::Debug for TimelineEvent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let TimelineEvent { kind, push_actions } = self;
-        let mut s = f.debug_struct("TimelineEvent");
-        s.field("kind", &kind);
-        if let Some(push_actions) = &push_actions {
-            if !push_actions.is_empty() {
-                s.field("push_actions", push_actions);
-            }
-        }
-        s.finish()
     }
 }
 
