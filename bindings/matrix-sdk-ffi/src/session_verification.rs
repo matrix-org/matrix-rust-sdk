@@ -66,11 +66,10 @@ impl SessionVerificationController {
         *self.delegate.write().unwrap() = delegate;
     }
 
-    pub async fn accept_verification_request(
-        &self,
-        sender_id: String,
-        flow_id: String,
-    ) -> Result<(), ClientError> {
+    /// Set this particular request as the currently active one and register for events pertaining it.
+    /// * `sender_id` - The user requesting verification.
+    /// * `flow_id` - - The ID that uniquely identifies the verification flow.
+    pub async fn acknowledge_verification_request(&self, sender_id: String, flow_id: String) {
         let sender_id = UserId::parse(sender_id.clone())?;
 
         let verification_request = self
@@ -79,9 +78,24 @@ impl SessionVerificationController {
             .await
             .ok_or(ClientError::new("Unknown session verification request"))?;
 
-        verification_request.accept().await?;
+        *self.verification_request.write().unwrap() = Some(verification_request.clone());
 
-        *self.verification_request.write().unwrap() = Some(verification_request);
+        RUNTIME.spawn(Self::listen_to_verification_request_changes(
+            verification_request,
+            self.sas_verification.clone(),
+            self.delegate.clone(),
+        ));
+
+        Ok(())
+    }
+
+    /// Accept the previously acknowledged verification request
+    pub async fn accept_verification_request(&self) -> Result<(), ClientError> {
+        let verification_request = self.verification_request.read().unwrap().clone();
+
+        if let Some(verification_request) = verification_request {
+            verification_request.accept().await?;
+        }
 
         Ok(())
     }
