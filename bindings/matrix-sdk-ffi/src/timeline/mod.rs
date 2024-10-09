@@ -604,15 +604,15 @@ impl Timeline {
     /// redacted by sending a redaction request to the server.
     ///
     /// Will return an error if the event couldn't be redacted.
-    pub async fn redact_event(
+    pub async fn redact(
         &self,
-        event_or_transaction_id: EventOrTransactionId,
+        unique_id: Arc<TimelineUniqueId>,
         reason: Option<String>,
     ) -> Result<(), ClientError> {
-        self.inner
-            .redact_by_id(&(event_or_transaction_id.try_into()?), reason.as_deref())
-            .await
-            .map_err(Into::into)
+        if !self.inner.redact(&*unique_id, reason.as_deref()).await? {
+            warn!("Couldn't redact the item");
+        }
+        Ok(())
     }
 
     /// Load the reply details for the given event id.

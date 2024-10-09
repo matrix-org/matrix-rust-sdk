@@ -18,7 +18,7 @@
 
 use std::{path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
-use event_item::{extract_room_msg_edit_content, EventTimelineItemKind, TimelineItemHandle};
+use event_item::{extract_room_msg_edit_content, TimelineItemHandle};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::Vector;
@@ -435,21 +435,6 @@ impl Timeline {
         })
     }
 
-    /// Returns a local or remote timeline item identified by this transaction
-    /// id.
-    async fn item_by_transaction_id(&self, txn_id: &TransactionId) -> Option<EventTimelineItem> {
-        let items = self.controller.items().await;
-
-        let (_, found) = rfind_event_item(&items, |item| match &item.kind {
-            EventTimelineItemKind::Local(local) => local.transaction_id == txn_id,
-            EventTimelineItemKind::Remote(remote) => {
-                remote.transaction_id.as_deref() == Some(txn_id)
-            }
-        })?;
-
-        Some(found.clone())
-    }
-
     /// Edit an event.
     ///
     /// Only supports events for which [`EventTimelineItem::is_editable()`]
@@ -558,42 +543,6 @@ impl Timeline {
         SendAttachment::new(self, path.into(), mime_type, config)
     }
 
-    /// Redact an event given its [`TimelineEventItemId`] and an optional
-    /// reason.
-    ///
-    /// See [`Self::redact`] for more info.
-    pub async fn redact_by_id(
-        &self,
-        id: &TimelineEventItemId,
-        reason: Option<&str>,
-    ) -> Result<(), Error> {
-        let event_id = match id {
-            TimelineEventItemId::TransactionId(transaction_id) => {
-                let Some(item) = self.item_by_transaction_id(transaction_id).await else {
-                    return Err(Error::RedactError(RedactError::LocalEventNotFound(
-                        transaction_id.to_owned(),
-                    )));
-                };
-
-                match item.handle() {
-                    TimelineItemHandle::Local(handle) => {
-                        // If there is a local item that hasn't been sent yet, abort the upload
-                        handle.abort().await.map_err(RoomSendQueueError::StorageError)?;
-                        return Ok(());
-                    }
-                    TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
-                }
-            }
-            TimelineEventItemId::EventId(event_id) => event_id.to_owned(),
-        };
-        self.room()
-            .redact(&event_id, reason, None)
-            .await
-            .map_err(|e| Error::RedactError(RedactError::HttpError(e)))?;
-
-        Ok(())
-    }
-
     /// Redact an event.
     ///
     /// # Returns
@@ -605,16 +554,21 @@ impl Timeline {
     ///   interacting with the sending queue.
     pub async fn redact(
         &self,
-        event: &EventTimelineItem,
+        unique_id: &TimelineUniqueId,
         reason: Option<&str>,
     ) -> Result<bool, Error> {
-        match event.handle() {
+        let items = &self.controller.items().await;
+        let Some((_item_pos, item)) = rfind_event_by_uid(&items, unique_id) else {
+            warn!("couldn't find timeline item identified with id");
+            return Ok(false);
+        };
+
+        match item.handle() {
             TimelineItemHandle::Remote(event_id) => {
                 self.room()
                     .redact(&event_id, reason, None)
                     .await
                     .map_err(|err| Error::RedactError(RedactError::HttpError(err)))?;
-
                 Ok(true)
             }
 
