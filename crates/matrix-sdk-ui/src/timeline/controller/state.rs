@@ -54,6 +54,7 @@ use crate::{
             TimelineItemPosition,
         },
         event_item::{PollState, RemoteEventOrigin, ResponseData},
+        item::TimelineUniqueId,
         reactions::Reactions,
         read_receipts::ReadReceipts,
         traits::RoomDataProvider,
@@ -977,11 +978,11 @@ impl TimelineMetadata {
 
     /// Returns the next internal id for a timeline item (and increment our
     /// internal counter).
-    fn next_internal_id(&mut self) -> String {
+    fn next_internal_id(&mut self) -> TimelineUniqueId {
         let val = self.next_internal_id;
         self.next_internal_id = self.next_internal_id.wrapping_add(1);
         let prefix = self.internal_id_prefix.as_deref().unwrap_or("");
-        format!("{prefix}{val}")
+        TimelineUniqueId(format!("{prefix}{val}"))
     }
 
     /// Returns a new timeline item with a fresh internal id.
