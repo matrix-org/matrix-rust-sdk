@@ -1240,8 +1240,11 @@ pub static MIXED_LEFT_ROOM_ID: Lazy<&RoomId> =
 /// In the [`MIXED_SYNC`], the room id of the invited room.
 pub static MIXED_INVITED_ROOM_ID: Lazy<&RoomId> =
     Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgE:localhost"));
+/// In the [`MIXED_SYNC`], the room id of the knocked room.
+pub static MIXED_KNOCKED_ROOM_ID: Lazy<&RoomId> =
+    Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgF:localhost"));
 
-/// A sync that contains updates to joined/invited/left rooms.
+/// A sync that contains updates to joined/invited/knocked/left rooms.
 pub static MIXED_SYNC: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "account_data": {
@@ -1351,6 +1354,30 @@ pub static MIXED_SYNC: Lazy<JsonValue> = Lazy::new(|| {
                         "state_key": "@bob:example.com",
                         "content": {
                           "membership": "invite"
+                        }
+                      }
+                    ]
+                  }
+                }
+            },
+            "knock": {
+                *MIXED_KNOCKED_ROOM_ID: {
+                  "knock_state": {
+                    "events": [
+                      {
+                        "sender": "@alice:example.com",
+                        "type": "m.room.name",
+                        "state_key": "",
+                        "content": {
+                          "name": "My Room Name"
+                        }
+                      },
+                      {
+                        "sender": "@bob:example.com",
+                        "type": "m.room.member",
+                        "state_key": "@bob:example.com",
+                        "content": {
+                          "membership": "knock"
                         }
                       }
                     ]

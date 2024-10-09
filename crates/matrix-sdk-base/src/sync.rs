@@ -19,7 +19,7 @@ use std::{collections::BTreeMap, fmt};
 use matrix_sdk_common::{debug::DebugRawEvent, deserialized_responses::SyncTimelineEvent};
 use ruma::{
     api::client::sync::sync_events::{
-        v3::InvitedRoom as InvitedRoomUpdate,
+        v3::{InvitedRoom as InvitedRoomUpdate, KnockedRoom},
         UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
     events::{
@@ -33,7 +33,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    debug::{DebugInvitedRoom, DebugListOfRawEvents, DebugListOfRawEventsNoId},
+    debug::{DebugInvitedRoom, DebugKnockedRoom, DebugListOfRawEvents, DebugListOfRawEventsNoId},
     deserialized_responses::{AmbiguityChange, RawAnySyncOrStrippedTimelineEvent},
     store::Store,
 };
@@ -77,6 +77,8 @@ pub struct RoomUpdates {
     pub join: BTreeMap<OwnedRoomId, JoinedRoomUpdate>,
     /// The rooms that the user has been invited to.
     pub invite: BTreeMap<OwnedRoomId, InvitedRoomUpdate>,
+    /// The rooms that the user has knocked on.
+    pub knocked: BTreeMap<OwnedRoomId, KnockedRoom>,
 }
 
 impl RoomUpdates {
@@ -89,6 +91,7 @@ impl RoomUpdates {
             .keys()
             .chain(self.join.keys())
             .chain(self.invite.keys())
+            .chain(self.knocked.keys())
             .filter_map(|room_id| store.room(room_id))
         {
             let _ = room.compute_display_name().await;
@@ -103,6 +106,7 @@ impl fmt::Debug for RoomUpdates {
             .field("leave", &self.leave)
             .field("join", &self.join)
             .field("invite", &DebugInvitedRoomUpdates(&self.invite))
+            .field("knocked", &DebugKnockedRoomUpdates(&self.knocked))
             .finish()
     }
 }
@@ -247,6 +251,15 @@ struct DebugInvitedRoomUpdates<'a>(&'a BTreeMap<OwnedRoomId, InvitedRoomUpdate>)
 impl<'a> fmt::Debug for DebugInvitedRoomUpdates<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_map().entries(self.0.iter().map(|(k, v)| (k, DebugInvitedRoom(v)))).finish()
+    }
+}
+
+struct DebugKnockedRoomUpdates<'a>(&'a BTreeMap<OwnedRoomId, KnockedRoom>);
+
+#[cfg(not(tarpaulin_include))]
+impl<'a> fmt::Debug for DebugKnockedRoomUpdates<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map().entries(self.0.iter().map(|(k, v)| (k, DebugKnockedRoom(v)))).finish()
     }
 }
 
