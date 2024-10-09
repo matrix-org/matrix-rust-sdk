@@ -500,7 +500,7 @@ impl NotificationClient {
                     self.retry_decryption(&room, timeline_event).await?
                 {
                     let push_actions = timeline_event.push_actions.take();
-                    raw_event = RawNotificationEvent::Timeline(timeline_event.into_raw().cast());
+                    raw_event = RawNotificationEvent::Timeline(timeline_event.into_raw());
                     push_actions
                 } else {
                     room.event_push_actions(timeline_event).await?
@@ -566,7 +566,7 @@ impl NotificationClient {
         Ok(Some(
             NotificationItem::new(
                 &room,
-                RawNotificationEvent::Timeline(timeline_event.into_raw().cast()),
+                RawNotificationEvent::Timeline(timeline_event.into_raw()),
                 push_actions.as_deref(),
                 state_events,
             )

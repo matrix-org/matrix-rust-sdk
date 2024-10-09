@@ -413,11 +413,7 @@ impl Timeline {
             UnsupportedReplyItem::MissingEvent
         })?;
 
-        // We need to get the content and we can do that by casting the event as a
-        // `AnySyncTimelineEvent` which is the same as a `AnyTimelineEvent`, but without
-        // the `room_id` field. The cast is valid because we are just losing
-        // track of such field.
-        let raw_sync_event: Raw<AnySyncTimelineEvent> = event.into_raw().cast();
+        let raw_sync_event = event.into_raw();
         let sync_event = raw_sync_event.deserialize().map_err(|error| {
             error!("Failed to deserialize event with ID {event_id} with error: {error}");
             UnsupportedReplyItem::FailedToDeserializeEvent
