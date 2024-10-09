@@ -89,7 +89,7 @@ pub use self::{
         Sticker, TimelineDetails, TimelineEventItemId, TimelineItemContent,
     },
     event_type_filter::TimelineEventTypeFilter,
-    item::{TimelineItem, TimelineItemKind},
+    item::{TimelineItem, TimelineItemKind, TimelineUniqueId},
     pagination::LiveBackPaginationStatus,
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
@@ -557,7 +557,11 @@ impl Timeline {
     ///
     /// Ensures that only one reaction is sent at a time to avoid race
     /// conditions and spamming the homeserver with requests.
-    pub async fn toggle_reaction(&self, unique_id: &str, reaction_key: &str) -> Result<(), Error> {
+    pub async fn toggle_reaction(
+        &self,
+        unique_id: &TimelineUniqueId,
+        reaction_key: &str,
+    ) -> Result<(), Error> {
         self.controller.toggle_reaction_local(unique_id, reaction_key).await?;
         Ok(())
     }

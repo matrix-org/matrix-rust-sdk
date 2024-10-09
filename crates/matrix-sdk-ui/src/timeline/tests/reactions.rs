@@ -28,8 +28,8 @@ use stream_assert::assert_next_matches;
 use tokio::time::timeout;
 
 use crate::timeline::{
-    controller::TimelineEnd, event_item::RemoteEventOrigin, tests::TestTimeline, ReactionStatus,
-    TimelineItem,
+    controller::TimelineEnd, event_item::RemoteEventOrigin, item::TimelineUniqueId,
+    tests::TestTimeline, ReactionStatus, TimelineItem,
 };
 
 const REACTION_KEY: &str = "👍";
@@ -76,16 +76,6 @@ macro_rules! assert_reaction_is_updated {
         };
         event
     }};
-}
-
-#[async_test]
-async fn test_add_reaction_on_non_existent_event() {
-    let timeline = TestTimeline::new();
-    let mut stream = timeline.subscribe().await;
-
-    timeline.toggle_reaction_local("nonexisting_unique_id", REACTION_KEY).await.unwrap_err();
-
-    assert!(stream.next().now_or_never().is_none());
 }
 
 #[async_test]
@@ -216,7 +206,7 @@ async fn test_initial_reaction_timestamp_is_stored() {
 async fn send_first_message(
     timeline: &TestTimeline,
     stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
-) -> (String, OwnedEventId, usize) {
+) -> (TimelineUniqueId, OwnedEventId, usize) {
     timeline.handle_live_event(timeline.factory.text_msg("I want you to react").sender(&BOB)).await;
 
     let item = assert_next_matches!(*stream, VectorDiff::PushBack { value } => value);

@@ -58,6 +58,7 @@ pub(super) use self::state::{
 use super::{
     event_handler::TimelineEventKind,
     event_item::{ReactionStatus, RemoteEventOrigin},
+    item::TimelineUniqueId,
     traits::{Decryptor, RoomDataProvider},
     util::{rfind_event_by_id, rfind_event_item, RelativePosition},
     Error, EventSendState, EventTimelineItem, InReplyToDetails, Message, PaginationError, Profile,
@@ -484,7 +485,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     #[instrument(skip_all)]
     pub(super) async fn toggle_reaction_local(
         &self,
-        unique_id: &str,
+        unique_id: &TimelineUniqueId,
         key: &str,
     ) -> Result<bool, Error> {
         let mut state = self.state.write().await;
@@ -1541,7 +1542,7 @@ async fn fetch_replied_to_event(
     mut state: RwLockWriteGuard<'_, TimelineState>,
     index: usize,
     item: &EventTimelineItem,
-    internal_id: String,
+    internal_id: TimelineUniqueId,
     message: &Message,
     in_reply_to: &EventId,
     room: &Room,

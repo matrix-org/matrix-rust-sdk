@@ -32,6 +32,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{
     EventItemOrigin, LiveBackPaginationStatus, Profile, RepliedToEvent, TimelineDetails,
+    TimelineUniqueId,
 };
 use mime::Mime;
 use ruma::{
@@ -541,7 +542,11 @@ impl Timeline {
     ///
     /// Ensures that only one reaction is sent at a time to avoid race
     /// conditions and spamming the homeserver with requests.
-    pub async fn toggle_reaction(&self, unique_id: String, key: String) -> Result<(), ClientError> {
+    pub async fn toggle_reaction(
+        &self,
+        unique_id: Arc<TimelineUniqueId>,
+        key: String,
+    ) -> Result<(), ClientError> {
         self.inner.toggle_reaction(&unique_id, &key).await?;
         Ok(())
     }
@@ -893,8 +898,9 @@ impl TimelineItem {
         }
     }
 
-    pub fn unique_id(&self) -> String {
-        self.0.unique_id().to_owned()
+    /// An opaque unique identifier for this timeline item.
+    pub fn unique_id(&self) -> Arc<TimelineUniqueId> {
+        Arc::new(self.0.unique_id().clone())
     }
 
     pub fn fmt_debug(&self) -> String {
