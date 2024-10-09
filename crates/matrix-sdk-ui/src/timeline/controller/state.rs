@@ -623,11 +623,7 @@ impl TimelineStateTransaction<'_> {
             self.items.clear();
         }
 
-        // Only clear the internal counter if there are no local echoes. Otherwise, we
-        // might end up reusing the same internal id for a local echo and
-        // another item.
-        let reset_internal_id = !has_local_echoes;
-        self.meta.clear(reset_internal_id);
+        self.meta.clear();
 
         debug!(remaining_items = self.items.len(), "Timeline cleared");
     }
@@ -864,6 +860,13 @@ pub(in crate::timeline) struct TimelineMetadata {
     // **** DYNAMIC FIELDS ****
     /// The next internal identifier for timeline items, used for both local and
     /// remote echoes.
+    ///
+    /// This is never cleared, but always incremented, to avoid issues with
+    /// reusing a stale internal id across timeline clears. We don't expect
+    /// we can hit `u64::max_value()` realistically, but if this would
+    /// happen, we do a wrapping addition when incrementing this
+    /// id; the previous 0 value would have disappeared a long time ago, unless
+    /// the device has terabytes of RAM.
     next_internal_id: u64,
 
     /// List of all the events as received in the timeline, even the ones that
@@ -929,10 +932,9 @@ impl TimelineMetadata {
         }
     }
 
-    pub(crate) fn clear(&mut self, reset_internal_id: bool) {
-        if reset_internal_id {
-            self.next_internal_id = 0;
-        }
+    pub(crate) fn clear(&mut self) {
+        // Note: we don't clear the next internal id to avoid bad cases of stale unique
+        // ids across timeline clears.
         self.all_events.clear();
         self.reactions.clear();
         self.pending_poll_events.clear();
@@ -977,7 +979,7 @@ impl TimelineMetadata {
     /// internal counter).
     fn next_internal_id(&mut self) -> String {
         let val = self.next_internal_id;
-        self.next_internal_id += 1;
+        self.next_internal_id = self.next_internal_id.wrapping_add(1);
         let prefix = self.internal_id_prefix.as_deref().unwrap_or("");
         format!("{prefix}{val}")
     }
