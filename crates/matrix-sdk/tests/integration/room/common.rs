@@ -19,7 +19,7 @@ use ruma::{
             member::MembershipState,
             message::RoomMessageEventContent,
         },
-        AnyStateEvent, AnySyncStateEvent, AnyTimelineEvent, StateEventType,
+        AnySyncStateEvent, AnySyncTimelineEvent, StateEventType,
     },
     mxc_uri, room_id,
 };
@@ -671,7 +671,7 @@ async fn test_event() {
 
     let timeline_event = room.event(event_id, None).await.unwrap();
     assert_let!(
-        AnyTimelineEvent::State(AnyStateEvent::RoomTombstone(event)) =
+        AnySyncTimelineEvent::State(AnySyncStateEvent::RoomTombstone(event)) =
             timeline_event.raw().deserialize().unwrap()
     );
     assert_eq!(event.event_id(), event_id);

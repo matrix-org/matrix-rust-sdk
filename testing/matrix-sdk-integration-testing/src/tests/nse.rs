@@ -18,8 +18,7 @@ use matrix_sdk::{
                 message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
             },
             room_key::ToDeviceRoomKeyEvent,
-            AnyMessageLikeEventContent, AnySyncTimelineEvent, AnyTimelineEvent,
-            OriginalSyncMessageLikeEvent,
+            AnyMessageLikeEventContent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
         },
         serde::Raw,
         EventEncryptionAlgorithm, OwnedEventId, OwnedRoomId, RoomId,
@@ -425,7 +424,7 @@ async fn decrypt_event(
 
     let Ok(deserialized) = decrypted.raw().deserialize() else { return None };
 
-    let AnyTimelineEvent::MessageLike(message) = &deserialized else { return None };
+    let AnySyncTimelineEvent::MessageLike(message) = &deserialized else { return None };
 
     let Some(AnyMessageLikeEventContent::RoomMessage(content)) = message.original_content() else {
         return None;

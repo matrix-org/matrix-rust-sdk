@@ -755,8 +755,8 @@ async fn test_encrypt_room_event() {
         .expect("We should be able to deserialize the decrypted event");
 
     assert_let!(
-        ruma::events::AnyTimelineEvent::MessageLike(
-            ruma::events::AnyMessageLikeEvent::RoomMessage(message_event)
+        ruma::events::AnySyncTimelineEvent::MessageLike(
+            ruma::events::AnySyncMessageLikeEvent::RoomMessage(message_event)
         ) = event
     );
 
