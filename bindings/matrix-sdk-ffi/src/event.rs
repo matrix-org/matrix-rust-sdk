@@ -358,6 +358,7 @@ impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
 
 /// Contains the 2 possible identifiers of an event, either it has a remote
 /// event id or a local transaction id, never both or none.
+// TODO remove
 #[derive(Clone, uniffi::Enum)]
 pub enum EventOrTransactionId {
     EventId { event_id: String },

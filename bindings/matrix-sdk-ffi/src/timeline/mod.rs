@@ -492,13 +492,10 @@ impl Timeline {
     /// local events that are being processed.
     pub async fn edit(
         &self,
-        event_or_transaction_id: EventOrTransactionId,
+        unique_id: Arc<TimelineUniqueId>,
         new_content: EditedContent,
     ) -> Result<bool, ClientError> {
-        self.inner
-            .edit_by_id(&(event_or_transaction_id.try_into()?), new_content.try_into()?)
-            .await
-            .map_err(Into::into)
+        self.inner.edit(&*unique_id, new_content.try_into()?).await.map_err(Into::into)
     }
 
     pub async fn send_location(

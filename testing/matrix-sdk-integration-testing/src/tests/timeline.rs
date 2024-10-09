@@ -228,8 +228,9 @@ async fn test_stale_local_echo_time_abort_edit() {
     let timeline = room.timeline().await.unwrap();
     let (items, mut stream) = timeline
         .subscribe_filter_map(|item| {
-            item.as_event()
-                .and_then(|item| item.content().as_message().is_some().then(|| item.clone()))
+            item.as_event().and_then(|event_item| {
+                event_item.content().as_message().is_some().then(|| item.clone())
+            })
         })
         .await;
 
@@ -249,6 +250,8 @@ async fn test_stale_local_echo_time_abort_edit() {
     }
 
     let local_echo = assert_matches!(vector_diff, VectorDiff::PushBack { value } => value);
+    let local_echo_uid = local_echo.unique_id().clone();
+    let local_echo = local_echo.as_event().unwrap();
 
     if !local_echo.is_local_echo() {
         // If the server raced and we've already received the remote echo, then this
@@ -274,6 +277,7 @@ async fn test_stale_local_echo_time_abort_edit() {
             panic!("unexpected diff: {vector_diff:#?}");
         };
 
+        let echo = echo.as_event().unwrap();
         if echo.is_local_echo() {
             // If the sender profile wasn't available, we may receive an update about it;
             // ignore it.
@@ -290,7 +294,7 @@ async fn test_stale_local_echo_time_abort_edit() {
     // Now do a crime: try to edit the local echo.
     let did_edit = timeline
         .edit(
-            &local_echo,
+            &local_echo_uid,
             EditedContent::RoomMessage(RoomMessageEventContent::text_plain("bonjour").into()),
         )
         .await
@@ -301,6 +305,7 @@ async fn test_stale_local_echo_time_abort_edit() {
 
     let vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
     let remote_echo = assert_matches!(vector_diff, VectorDiff::Set { index: 0, value } => value);
+    let remote_echo = remote_echo.as_event().unwrap();
     assert!(!remote_echo.is_local_echo());
     assert!(remote_echo.is_editable());
 
