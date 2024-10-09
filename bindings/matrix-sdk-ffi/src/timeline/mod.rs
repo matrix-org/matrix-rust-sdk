@@ -494,7 +494,7 @@ impl Timeline {
         unique_id: Arc<TimelineUniqueId>,
         new_content: EditedContent,
     ) -> Result<bool, ClientError> {
-        self.inner.edit(&*unique_id, new_content.try_into()?).await.map_err(Into::into)
+        self.inner.edit(&unique_id, new_content.try_into()?).await.map_err(Into::into)
     }
 
     pub async fn send_location(
