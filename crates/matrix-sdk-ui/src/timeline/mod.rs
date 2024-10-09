@@ -437,7 +437,7 @@ impl Timeline {
 
         match item.handle() {
             TimelineItemHandle::Remote(event_id) => {
-                let content = self.room().make_edit_event(&event_id, new_content).await?;
+                let content = self.room().make_edit_event(event_id, new_content).await?;
                 self.send(content).await?;
                 Ok(true)
             }
