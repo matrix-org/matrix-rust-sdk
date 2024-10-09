@@ -534,7 +534,7 @@ impl Timeline {
         reason: Option<&str>,
     ) -> Result<bool, Error> {
         let items = &self.controller.items().await;
-        let Some((_item_pos, item)) = rfind_event_by_uid(&items, unique_id) else {
+        let Some((_item_pos, item)) = rfind_event_by_uid(items, unique_id) else {
             warn!("couldn't find timeline item identified with id");
             return Ok(false);
         };
