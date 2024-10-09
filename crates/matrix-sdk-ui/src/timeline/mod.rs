@@ -608,30 +608,20 @@ impl Timeline {
         event: &EventTimelineItem,
         reason: Option<&str>,
     ) -> Result<bool, Error> {
-        let event_id = match event.identifier() {
-            TimelineEventItemId::TransactionId(_) => {
-                // See if we have an up-to-date timeline item with that transaction id.
-                match event.handle() {
-                    TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
-                    TimelineItemHandle::Local(handle) => {
-                        return Ok(handle
-                            .abort()
-                            .await
-                            .map_err(RoomSendQueueError::StorageError)?);
-                    }
-                }
+        match event.handle() {
+            TimelineItemHandle::Remote(event_id) => {
+                self.room()
+                    .redact(&event_id, reason, None)
+                    .await
+                    .map_err(|err| Error::RedactError(RedactError::HttpError(err)))?;
+
+                Ok(true)
             }
 
-            TimelineEventItemId::EventId(event_id) => event_id,
-        };
-
-        self.room()
-            .redact(&event_id, reason, None)
-            .await
-            .map_err(RedactError::HttpError)
-            .map_err(Error::RedactError)?;
-
-        Ok(true)
+            TimelineItemHandle::Local(handle) => {
+                Ok(handle.abort().await.map_err(RoomSendQueueError::StorageError)?)
+            }
+        }
     }
 
     /// Fetch unavailable details about the event with the given ID.

@@ -553,6 +553,11 @@ impl EventTimelineItem {
         })
     }
 
+    /// Returns a handle that allows to run aggregated operations (edit/redact)
+    /// on a timeline item.
+    ///
+    /// For local items that have already been sent, this will prefer returning
+    /// the event id rather than the local send handle.
     pub(super) fn handle(&self) -> TimelineItemHandle<'_> {
         match &self.kind {
             EventTimelineItemKind::Local(local) => {
