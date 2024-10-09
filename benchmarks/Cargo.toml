@@ -36,3 +36,6 @@ harness = false
 [[bench]]
 name = "room_bench"
 harness = false
+
+[package.metadata.release]
+release = false

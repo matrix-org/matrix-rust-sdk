@@ -35,3 +35,6 @@ wasm-bindgen-test = "0.3.33"
 
 [lints]
 workspace = true
+
+[package.metadata.release]
+release = false

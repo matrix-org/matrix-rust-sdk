@@ -67,3 +67,6 @@ assert_matches2 = { workspace = true }
 
 [lints]
 workspace = true
+
+[package.metadata.release]
+release = false

@@ -7,3 +7,6 @@ license = "Apache-2.0"
 
 [dependencies]
 uniffi = { workspace = true, features = ["cli"] }
+
+[package.metadata.release]
+release = false

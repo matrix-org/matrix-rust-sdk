@@ -29,3 +29,6 @@ features = ["experimental-oidc"]
 
 [lints]
 workspace = true
+
+[package.metadata.release]
+release = false

@@ -23,3 +23,6 @@ url = "2.3.1"
 # have copied the example as it was at the time of the release you use.
 path = "../../crates/matrix-sdk"
 features = ["experimental-oidc"]
+
+[package.metadata.release]
+release = false
