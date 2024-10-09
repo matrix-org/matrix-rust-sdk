@@ -334,6 +334,12 @@ impl SyncTimelineEvent {
         Self { kind: TimelineEventKind::PlainText { event }, push_actions }
     }
 
+    /// Create a new `SyncTimelineEvent` to represent the given decryption
+    /// failure.
+    pub fn new_utd_event(event: Raw<AnySyncTimelineEvent>, utd_info: UnableToDecryptInfo) -> Self {
+        Self { kind: TimelineEventKind::UnableToDecrypt { event, utd_info }, push_actions: vec![] }
+    }
+
     /// Get the event id of this `SyncTimelineEvent` if the event has any valid
     /// id.
     pub fn event_id(&self) -> Option<OwnedEventId> {
@@ -450,6 +456,11 @@ impl TimelineEvent {
         }
     }
 
+    /// Create a new `TimelineEvent` to represent the given decryption failure.
+    pub fn new_utd_event(event: Raw<AnySyncTimelineEvent>, utd_info: UnableToDecryptInfo) -> Self {
+        Self { kind: TimelineEventKind::UnableToDecrypt { event, utd_info }, push_actions: None }
+    }
+
     /// Returns a reference to the (potentially decrypted) Matrix event inside
     /// this `TimelineEvent`.
     pub fn raw(&self) -> &Raw<AnySyncTimelineEvent> {
@@ -482,6 +493,17 @@ pub enum TimelineEventKind {
     /// A successfully-decrypted encrypted event.
     Decrypted(DecryptedRoomEvent),
 
+    /// An encrypted event which could not be decrypted.
+    UnableToDecrypt {
+        /// The `m.room.encrypted` event. Depending on the source of the event,
+        /// it could actually be an [`AnyTimelineEvent`] (i.e., it may
+        /// have a `room_id` property).
+        event: Raw<AnySyncTimelineEvent>,
+
+        /// Information on the reason we failed to decrypt
+        utd_info: UnableToDecryptInfo,
+    },
+
     /// An unencrypted event.
     PlainText {
         /// The actual event. Depending on the source of the event, it could
@@ -502,6 +524,7 @@ impl TimelineEventKind {
             // expected to contain a `room_id`). It just means that the `room_id` will be ignored
             // in a future deserialization.
             TimelineEventKind::Decrypted(d) => d.event.cast_ref(),
+            TimelineEventKind::UnableToDecrypt { event, .. } => event.cast_ref(),
             TimelineEventKind::PlainText { event } => event,
         }
     }
@@ -511,6 +534,7 @@ impl TimelineEventKind {
     pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
         match self {
             TimelineEventKind::Decrypted(d) => Some(&d.encryption_info),
+            TimelineEventKind::UnableToDecrypt { .. } => None,
             TimelineEventKind::PlainText { .. } => None,
         }
     }
@@ -525,6 +549,7 @@ impl TimelineEventKind {
             // expected to contain a `room_id`). It just means that the `room_id` will be ignored
             // in a future deserialization.
             TimelineEventKind::Decrypted(d) => d.event.cast(),
+            TimelineEventKind::UnableToDecrypt { event, .. } => event.cast(),
             TimelineEventKind::PlainText { event } => event,
         }
     }
@@ -537,6 +562,12 @@ impl fmt::Debug for TimelineEventKind {
             Self::PlainText { event } => f
                 .debug_struct("TimelineEventDecryptionResult::PlainText")
                 .field("event", &DebugRawEvent(event))
+                .finish(),
+
+            Self::UnableToDecrypt { event, utd_info } => f
+                .debug_struct("TimelineEventDecryptionResult::UnableToDecrypt")
+                .field("event", &DebugRawEvent(event))
+                .field("utd_info", &utd_info)
                 .finish(),
 
             Self::Decrypted(decrypted) => {
