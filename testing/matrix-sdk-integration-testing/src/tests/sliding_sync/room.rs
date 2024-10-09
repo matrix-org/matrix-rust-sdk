@@ -155,24 +155,31 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
     celine.account().set_avatar_url(Some(mxc_uri!("mxc://localhost/celine"))).await?;
 
     // Set up sliding sync for alice.
-    let sliding_alice = alice
+    let alice_sliding = alice
         .sliding_sync("main")?
         .with_all_extensions()
         .poll_timeout(Duration::from_secs(2))
         .network_timeout(Duration::from_secs(2))
         .add_list(
             SlidingSyncList::builder("all")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20))
+                .required_state(vec![(StateEventType::RoomAvatar, "".to_owned())]),
         )
         .build()
         .await?;
 
-    let s = sliding_alice.clone();
-    spawn(async move {
-        let stream = s.sync();
-        pin_mut!(stream);
-        while let Some(up) = stream.next().await {
-            warn!("received update: {up:?}");
+    spawn({
+        let alice_sliding = alice_sliding.clone();
+
+        async move {
+            let stream = alice_sliding.sync();
+            pin_mut!(stream);
+
+            while let Some(up) = stream.next().await {
+                let up = up.expect("update must not fail");
+
+                warn!("received update: {up:?}");
+            }
         }
     });
 
