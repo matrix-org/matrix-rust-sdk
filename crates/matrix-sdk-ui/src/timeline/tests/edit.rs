@@ -19,6 +19,7 @@ use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::{
     AlgorithmInfo, EncryptionInfo, VerificationLevel, VerificationState,
 };
+use matrix_sdk_base::deserialized_responses::{DecryptedRoomEvent, SyncTimelineEvent};
 use matrix_sdk_test::{async_test, ALICE};
 use ruma::{
     event_id,
@@ -26,6 +27,7 @@ use ruma::{
         room::message::{MessageType, RedactedRoomMessageEventContent},
         BundledMessageLikeRelations,
     },
+    room_id,
 };
 use stream_assert::{assert_next_matches, assert_pending};
 
@@ -158,13 +160,15 @@ async fn test_edit_updates_encryption_info() {
     let timeline = TestTimeline::new();
     let event_factory = &timeline.factory;
 
+    let room_id = room_id!("!room:id");
     let original_event_id = event_id!("$original_event");
 
-    let mut original_event = event_factory
+    let original_event = event_factory
         .text_msg("**original** message")
         .sender(*ALICE)
         .event_id(original_event_id)
-        .into_sync();
+        .room(room_id)
+        .into_raw_timeline();
 
     let mut encryption_info = EncryptionInfo {
         sender: (*ALICE).into(),
@@ -176,7 +180,12 @@ async fn test_edit_updates_encryption_info() {
         verification_state: VerificationState::Verified,
     };
 
-    original_event.encryption_info = Some(encryption_info.clone());
+    let original_event: SyncTimelineEvent = DecryptedRoomEvent {
+        event: original_event.cast(),
+        encryption_info: encryption_info.clone(),
+        unsigned_encryption_info: None,
+    }
+    .into();
 
     timeline.handle_live_event(original_event).await;
 
@@ -192,14 +201,20 @@ async fn test_edit_updates_encryption_info() {
     assert_let!(MessageType::Text(text) = message.msgtype());
     assert_eq!(text.body, "**original** message");
 
-    let mut edit_event = event_factory
+    let edit_event = event_factory
         .text_msg(" * !!edited!! **better** message")
         .sender(*ALICE)
+        .room(room_id)
         .edit(original_event_id, MessageType::text_plain("!!edited!! **better** message").into())
-        .into_sync();
+        .into_raw_timeline();
     encryption_info.verification_state =
         VerificationState::Unverified(VerificationLevel::UnverifiedIdentity);
-    edit_event.encryption_info = Some(encryption_info);
+    let edit_event: SyncTimelineEvent = DecryptedRoomEvent {
+        event: edit_event.cast(),
+        encryption_info: encryption_info.clone(),
+        unsigned_encryption_info: None,
+    }
+    .into();
 
     timeline.handle_live_event(edit_event).await;
 

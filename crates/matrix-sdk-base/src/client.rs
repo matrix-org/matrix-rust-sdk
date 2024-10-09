@@ -358,7 +358,7 @@ impl BaseClient {
         let event: SyncTimelineEvent =
             olm.decrypt_room_event(event.cast_ref(), room_id, &decryption_settings).await?.into();
 
-        if let Ok(AnySyncTimelineEvent::MessageLike(e)) = event.event.deserialize() {
+        if let Ok(AnySyncTimelineEvent::MessageLike(e)) = event.raw().deserialize() {
             match &e {
                 AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
                     original_event,
@@ -398,7 +398,7 @@ impl BaseClient {
         for event in events {
             let mut event: SyncTimelineEvent = event.into();
 
-            match event.event.deserialize() {
+            match event.raw().deserialize() {
                 Ok(e) => {
                     #[allow(clippy::single_match)]
                     match &e {
@@ -432,7 +432,7 @@ impl BaseClient {
                                 }
                             }
 
-                            let raw_event: Raw<AnySyncStateEvent> = event.event.clone().cast();
+                            let raw_event: Raw<AnySyncStateEvent> = event.raw().clone().cast();
                             changes.add_state_event(room.room_id(), s.clone(), raw_event);
                         }
 
@@ -443,8 +443,8 @@ impl BaseClient {
                                 room_info.room_version().unwrap_or(&RoomVersionId::V1);
 
                             if let Some(redacts) = r.redacts(room_version) {
-                                room_info.handle_redaction(r, event.event.cast_ref());
-                                let raw_event = event.event.clone().cast();
+                                room_info.handle_redaction(r, event.raw().cast_ref());
+                                let raw_event = event.raw().clone().cast();
 
                                 changes.add_redaction(room.room_id(), redacts, raw_event);
                             }
@@ -456,7 +456,7 @@ impl BaseClient {
                                 SyncMessageLikeEvent::Original(_),
                             ) => {
                                 if let Ok(Some(e)) = Box::pin(
-                                    self.decrypt_sync_room_event(&event.event, room.room_id()),
+                                    self.decrypt_sync_room_event(event.raw(), room.room_id()),
                                 )
                                 .await
                                 {
@@ -494,14 +494,14 @@ impl BaseClient {
                     }
 
                     if let Some(context) = &push_context {
-                        let actions = push_rules.get_actions(&event.event, context);
+                        let actions = push_rules.get_actions(event.raw(), context);
 
                         if actions.iter().any(Action::should_notify) {
                             notifications.entry(room.room_id().to_owned()).or_default().push(
                                 Notification {
                                     actions: actions.to_owned(),
                                     event: RawAnySyncOrStrippedTimelineEvent::Sync(
-                                        event.event.clone(),
+                                        event.raw().clone(),
                                     ),
                                 },
                             );
@@ -773,7 +773,7 @@ impl BaseClient {
 
             if let Ok(Some(decrypted)) = decrypt_sync_room_event.await {
                 // We found an event we can decrypt
-                if let Ok(any_sync_event) = decrypted.event.deserialize() {
+                if let Ok(any_sync_event) = decrypted.raw().deserialize() {
                     // We can deserialize it to find its type
                     match is_suitable_for_latest_event(&any_sync_event) {
                         PossibleLatestEvent::YesRoomMessage(_)

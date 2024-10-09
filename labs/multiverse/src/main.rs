@@ -729,7 +729,7 @@ impl App {
 
                         let rendered_events = events
                             .into_iter()
-                            .map(|sync_timeline_item| sync_timeline_item.event.json().to_string())
+                            .map(|sync_timeline_item| sync_timeline_item.raw().json().to_string())
                             .collect::<Vec<_>>()
                             .join("\n\n");
 

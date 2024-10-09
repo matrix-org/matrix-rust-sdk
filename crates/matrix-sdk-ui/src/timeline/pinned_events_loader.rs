@@ -109,7 +109,7 @@ impl PinnedEventsLoader {
 
         // Sort using chronological ordering (oldest -> newest)
         loaded_events.sort_by_key(|item| {
-            item.event
+            item.raw()
                 .deserialize()
                 .map(|e| e.origin_server_ts())
                 .unwrap_or_else(|_| MilliSecondsSinceUnixEpoch::now())

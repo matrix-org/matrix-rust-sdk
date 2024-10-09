@@ -24,7 +24,7 @@ use crate::{
 #[track_caller]
 pub fn assert_event_matches_msg<E: Clone + Into<SyncTimelineEvent>>(event: &E, expected: &str) {
     let event: SyncTimelineEvent = event.clone().into();
-    let event = event.event.deserialize().unwrap();
+    let event = event.raw().deserialize().unwrap();
     assert_let!(
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(message)) = event
     );

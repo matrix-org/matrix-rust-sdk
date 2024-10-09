@@ -142,7 +142,7 @@ async fn make_edit_event<S: EventSource>(
 ) -> Result<AnyMessageLikeEventContent, EditError> {
     let target = source.get_event(event_id).await?;
 
-    let event = target.event.deserialize().map_err(EditError::Deserialize)?;
+    let event = target.raw().deserialize().map_err(EditError::Deserialize)?;
 
     // The event must be message-like.
     let AnySyncTimelineEvent::MessageLike(message_like_event) = event else {
@@ -186,7 +186,7 @@ async fn make_edit_event<S: EventSource>(
             let replied_to_original_room_msg = replied_to_sync_timeline_event
                 .and_then(|sync_timeline_event| {
                     sync_timeline_event
-                        .event
+                        .raw()
                         .deserialize()
                         .map_err(|err| warn!("unable to deserialize replied-to event: {err}"))
                         .ok()

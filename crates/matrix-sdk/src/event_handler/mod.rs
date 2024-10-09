@@ -388,7 +388,7 @@ impl Client {
 
         for item in timeline_events {
             let TimelineEventDetails { event_type, state_key, unsigned } =
-                item.event.deserialize_as()?;
+                item.raw().deserialize_as()?;
 
             let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
             let (handler_kind_g, handler_kind_r) = match state_key {
@@ -396,8 +396,8 @@ impl Client {
                 None => (HandlerKind::MessageLike, HandlerKind::message_like_redacted(redacted)),
             };
 
-            let raw_event = item.event.json();
-            let encryption_info = item.encryption_info.as_ref();
+            let raw_event = item.raw().json();
+            let encryption_info = item.encryption_info();
             let push_actions = &item.push_actions;
 
             // Event handlers for possibly-redacted timeline events

@@ -305,10 +305,14 @@ pub struct EncryptionInfo {
 #[derive(Clone, Deserialize, Serialize)]
 pub struct SyncTimelineEvent {
     /// The actual event.
-    pub event: Raw<AnySyncTimelineEvent>,
+    #[serde(rename = "event")]
+    inner_event: Raw<AnySyncTimelineEvent>,
+
     /// The encryption info about the event. Will be `None` if the event was not
     /// encrypted.
-    pub encryption_info: Option<EncryptionInfo>,
+    #[serde(rename = "encryption_info")]
+    inner_encryption_info: Option<EncryptionInfo>,
+
     /// The push actions associated with this event.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub push_actions: Vec<Action>,
@@ -325,7 +329,12 @@ impl SyncTimelineEvent {
     /// This is a convenience constructor for when you don't need to set
     /// `encryption_info` or `push_action`, for example inside a test.
     pub fn new(event: Raw<AnySyncTimelineEvent>) -> Self {
-        Self { event, encryption_info: None, push_actions: vec![], unsigned_encryption_info: None }
+        Self {
+            inner_event: event,
+            inner_encryption_info: None,
+            push_actions: vec![],
+            unsigned_encryption_info: None,
+        }
     }
 
     /// Create a new `SyncTimelineEvent` from the given raw event and push
@@ -337,24 +346,56 @@ impl SyncTimelineEvent {
         event: Raw<AnySyncTimelineEvent>,
         push_actions: Vec<Action>,
     ) -> Self {
-        Self { event, encryption_info: None, push_actions, unsigned_encryption_info: None }
+        Self {
+            inner_event: event,
+            inner_encryption_info: None,
+            push_actions,
+            unsigned_encryption_info: None,
+        }
     }
 
     /// Get the event id of this `SyncTimelineEvent` if the event has any valid
     /// id.
     pub fn event_id(&self) -> Option<OwnedEventId> {
-        self.event.get_field::<OwnedEventId>("event_id").ok().flatten()
+        self.inner_event.get_field::<OwnedEventId>("event_id").ok().flatten()
+    }
+
+    /// Returns a reference to the (potentially decrypted) Matrix event inside
+    /// this `TimelineEvent`.
+    pub fn raw(&self) -> &Raw<AnySyncTimelineEvent> {
+        &self.inner_event
+    }
+
+    /// If the event was a decrypted event that was successfully decrypted, get
+    /// its encryption info. Otherwise, `None`.
+    pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
+        self.inner_encryption_info.as_ref()
+    }
+
+    /// Takes ownership of this `TimelineEvent`, returning the (potentially
+    /// decrypted) Matrix event within.
+    pub fn into_raw(self) -> Raw<AnySyncTimelineEvent> {
+        self.inner_event
+    }
+
+    /// Replace the Matrix event within this event. Used to handle redaction.
+    pub fn set_raw(&mut self, event: Raw<AnySyncTimelineEvent>) {
+        self.inner_event = event;
     }
 }
 
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SyncTimelineEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let SyncTimelineEvent { event, encryption_info, push_actions, unsigned_encryption_info } =
-            self;
+        let SyncTimelineEvent {
+            inner_event,
+            inner_encryption_info,
+            push_actions,
+            unsigned_encryption_info,
+        } = self;
         let mut s = f.debug_struct("SyncTimelineEvent");
-        s.field("event", &DebugRawEvent(event));
-        s.maybe_field("encryption_info", encryption_info);
+        s.field("event", &DebugRawEvent(inner_event));
+        s.maybe_field("encryption_info", inner_encryption_info);
         if !push_actions.is_empty() {
             s.field("push_actions", push_actions);
         }
@@ -376,8 +417,8 @@ impl From<TimelineEvent> for SyncTimelineEvent {
         // this way, we simply cause the `room_id` field in the json to be
         // ignored by a subsequent deserialization.
         Self {
-            event: o.event.cast(),
-            encryption_info: o.encryption_info,
+            inner_event: o.event.cast(),
+            inner_encryption_info: o.encryption_info,
             push_actions: o.push_actions.unwrap_or_default(),
             unsigned_encryption_info: o.unsigned_encryption_info,
         }
@@ -579,7 +620,7 @@ mod tests {
         let converted_room_event: SyncTimelineEvent = room_event.into();
 
         let converted_event: AnySyncTimelineEvent =
-            converted_room_event.event.deserialize().unwrap();
+            converted_room_event.raw().deserialize().unwrap();
 
         assert_eq!(converted_event.event_id(), "$xxxxx:example.org");
         assert_eq!(converted_event.sender(), "@carl:example.com");
@@ -628,8 +669,8 @@ mod tests {
     #[test]
     fn sync_timeline_event_serialisation() {
         let room_event = SyncTimelineEvent {
-            event: Raw::new(&example_event()).unwrap().cast(),
-            encryption_info: Some(EncryptionInfo {
+            inner_event: Raw::new(&example_event()).unwrap().cast(),
+            inner_encryption_info: Some(EncryptionInfo {
                 sender: user_id!("@sender:example.com").to_owned(),
                 sender_device: None,
                 algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
@@ -674,7 +715,7 @@ mod tests {
         let event: SyncTimelineEvent = serde_json::from_value(serialized).unwrap();
         assert_eq!(event.event_id(), Some(event_id!("$xxxxx:example.org").to_owned()));
         assert_matches!(
-            event.encryption_info.unwrap().algorithm_info,
+            event.encryption_info().unwrap().algorithm_info,
             AlgorithmInfo::MegolmV1AesSha2 { .. }
         )
     }

@@ -421,7 +421,7 @@ impl TimelineStateTransaction<'_> {
         settings: &TimelineSettings,
         day_divider_adjuster: &mut DayDividerAdjuster,
     ) -> HandleEventResult {
-        let raw = event.event;
+        let raw = event.raw();
         let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
         {
             Ok(event) => {
@@ -580,8 +580,8 @@ impl TimelineStateTransaction<'_> {
             is_highlighted: event.push_actions.iter().any(Action::is_highlight),
             flow: Flow::Remote {
                 event_id: event_id.clone(),
-                raw_event: raw,
-                encryption_info: event.encryption_info,
+                raw_event: raw.clone(),
+                encryption_info: event.encryption_info().cloned(),
                 txn_id,
                 position,
             },
