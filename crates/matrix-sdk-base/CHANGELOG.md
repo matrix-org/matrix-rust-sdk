@@ -1,3 +1,7 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
 # unreleased
 
 - Add `BaseClient::room_key_recipient_strategy` field
