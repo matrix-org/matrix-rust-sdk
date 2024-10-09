@@ -567,7 +567,7 @@ impl Timeline {
         unique_id: Arc<TimelineUniqueId>,
         reason: Option<String>,
     ) -> Result<(), ClientError> {
-        if !self.inner.redact(&*unique_id, reason.as_deref()).await? {
+        if !self.inner.redact(&unique_id, reason.as_deref()).await? {
             warn!("Couldn't redact the item");
         }
         Ok(())
