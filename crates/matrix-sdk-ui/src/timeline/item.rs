@@ -18,6 +18,14 @@ use as_variant::as_variant;
 
 use super::{EventTimelineItem, VirtualTimelineItem};
 
+/// Opaque unique identifier for a timeline item.
+///
+/// It is transferred whenever a timeline item is updated. This can be used as a
+/// stable identifier for UI purposes, as well as operations on the event
+/// represented by the item.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TimelineUniqueId(pub String);
+
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum TimelineItemKind {
@@ -32,12 +40,15 @@ pub enum TimelineItemKind {
 #[derive(Clone, Debug)]
 pub struct TimelineItem {
     pub(crate) kind: TimelineItemKind,
-    pub(crate) internal_id: String,
+    pub(crate) internal_id: TimelineUniqueId,
 }
 
 impl TimelineItem {
     /// Create a new `TimelineItem` with the given kind and internal id.
-    pub(crate) fn new(kind: impl Into<TimelineItemKind>, internal_id: String) -> Arc<Self> {
+    pub(crate) fn new(
+        kind: impl Into<TimelineItemKind>,
+        internal_id: TimelineUniqueId,
+    ) -> Arc<Self> {
         Arc::new(TimelineItem { kind: kind.into(), internal_id })
     }
 
@@ -71,14 +82,14 @@ impl TimelineItem {
     /// dividers, identity isn't easy to define though and you might
     /// see a new ID getting generated for a day divider that you
     /// perceive to be "the same" as a previous one.
-    pub fn unique_id(&self) -> &str {
+    pub fn unique_id(&self) -> &TimelineUniqueId {
         &self.internal_id
     }
 
     pub(crate) fn read_marker() -> Arc<TimelineItem> {
         Arc::new(Self {
             kind: TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker),
-            internal_id: "__read_marker".to_owned(),
+            internal_id: TimelineUniqueId("__read_marker".to_owned()),
         })
     }
 

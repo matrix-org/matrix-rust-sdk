@@ -133,12 +133,12 @@ async fn test_in_reply_to_details() {
     assert_let!(Some(VectorDiff::Set { index: 3, value: third }) = timeline_stream.next().await);
     assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
-    assert_eq!(third.unique_id(), unique_id);
+    assert_eq!(*third.unique_id(), unique_id);
 
     assert_let!(Some(VectorDiff::Set { index: 3, value: third }) = timeline_stream.next().await);
     assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Error(_));
-    assert_eq!(third.unique_id(), unique_id);
+    assert_eq!(*third.unique_id(), unique_id);
 
     // Set up fetching the replied-to event to succeed
     Mock::given(method("GET"))
@@ -162,12 +162,12 @@ async fn test_in_reply_to_details() {
     assert_let!(Some(VectorDiff::Set { index: 3, value: third }) = timeline_stream.next().await);
     assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Pending);
-    assert_eq!(third.unique_id(), unique_id);
+    assert_eq!(*third.unique_id(), unique_id);
 
     assert_let!(Some(VectorDiff::Set { index: 3, value: third }) = timeline_stream.next().await);
     assert_let!(TimelineItemContent::Message(message) = third.as_event().unwrap().content());
     assert_matches!(message.in_reply_to().unwrap().event, TimelineDetails::Ready(_));
-    assert_eq!(third.unique_id(), unique_id);
+    assert_eq!(*third.unique_id(), unique_id);
 }
 
 #[async_test]
