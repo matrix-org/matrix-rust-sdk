@@ -731,7 +731,7 @@ impl TestHelper {
 
             if add_to_timeline {
                 joined_room_builder =
-                    joined_room_builder.add_timeline_event(timeline_event.into_raw().cast());
+                    joined_room_builder.add_timeline_event(timeline_event.into_raw());
             }
         }
 

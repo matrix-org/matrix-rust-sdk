@@ -487,8 +487,9 @@ impl TimelineEvent {
 
     /// Takes ownership of this `TimelineEvent`, returning the (potentially
     /// decrypted) Matrix event within.
-    pub fn into_raw(self) -> Raw<AnyTimelineEvent> {
-        self.inner_event
+    pub fn into_raw(self) -> Raw<AnySyncTimelineEvent> {
+        // TODO: make `inner_event` an AnySyncTimelineEvent instead.
+        self.inner_event.cast()
     }
 }
 
