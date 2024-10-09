@@ -2663,7 +2663,7 @@ impl Room {
             }
         }
 
-        self.client.store().remove_room(self.inner.room_id()).await?;
+        self.client.base_client().forget_room(self.inner.room_id()).await?;
 
         Ok(())
     }

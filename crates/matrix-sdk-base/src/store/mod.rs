@@ -304,6 +304,17 @@ impl Store {
             })
             .clone()
     }
+
+    /// Forget the room with the given room ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room that should be forgotten.
+    pub(crate) async fn forget_room(&self, room_id: &RoomId) -> Result<()> {
+        self.inner.remove_room(room_id).await?;
+        self.rooms.write().unwrap().remove(room_id);
+        Ok(())
+    }
 }
 
 #[cfg(not(tarpaulin_include))]
