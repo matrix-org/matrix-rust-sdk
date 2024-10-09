@@ -69,25 +69,35 @@ async fn test_left_room() -> Result<()> {
         .network_timeout(Duration::from_secs(3))
         .add_list(
             SlidingSyncList::builder("all")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20)),
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20))
+                .required_state(vec![(StateEventType::RoomMember, "$ME".to_owned())]),
         )
         .build()
         .await?;
 
-    let s = sliding_peter.clone();
-    spawn(async move {
-        let stream = s.sync();
-        pin_mut!(stream);
-        while let Some(up) = stream.next().await {
-            warn!("received update: {up:?}");
+    spawn({
+        let peter_sliding = sliding_peter.clone();
+
+        async move {
+            let stream = peter_sliding.sync();
+            pin_mut!(stream);
+
+            while let Some(up) = stream.next().await {
+                let up = up.expect("sync should not fail");
+
+                warn!("received update: {up:?}");
+            }
         }
     });
 
     // Set up regular sync for Steven.
-    let steven2 = steven.clone();
-    spawn(async move {
-        if let Err(err) = steven2.sync(SyncSettings::default()).await {
-            error!("steven couldn't sync: {err}");
+    spawn({
+        let steven = steven.clone();
+
+        async move {
+            if let Err(err) = steven.sync(SyncSettings::default()).await {
+                error!("steven couldn't sync: {err}");
+            }
         }
     });
 
@@ -103,20 +113,33 @@ async fn test_left_room() -> Result<()> {
     let mut joined = false;
     for _ in 0..10 {
         sleep(Duration::from_secs(1)).await;
+
         if let Some(room) = steven.get_room(peter_room.room_id()) {
             room.join().await?;
             joined = true;
             break;
         }
     }
-    anyhow::ensure!(joined, "steven couldn't join after 10 seconds");
+
+    assert!(joined, "steven couldn't join after 10 seconds");
 
     // Now Peter is just being rude.
     peter_room.leave().await?;
 
-    sleep(Duration::from_secs(1)).await;
-    let peter_room = peter.get_room(peter_room.room_id()).unwrap();
-    assert_eq!(peter_room.state(), RoomState::Left);
+    let mut left = false;
+
+    for _ in 0..10 {
+        sleep(Duration::from_secs(1)).await;
+
+        let peter_room = peter.get_room(peter_room.room_id()).unwrap();
+
+        if peter_room.state() == RoomState::Left {
+            left = true;
+            break;
+        }
+    }
+
+    assert!(left, "peter couldn't leave after 10 seconds");
 
     Ok(())
 }
