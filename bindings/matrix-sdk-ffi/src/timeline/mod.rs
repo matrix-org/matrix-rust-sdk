@@ -53,7 +53,7 @@ use ruma::{
         },
         AnyMessageLikeEventContent,
     },
-    EventId, OwnedTransactionId,
+    EventId,
 };
 use tokio::{
     sync::Mutex,
@@ -68,7 +68,6 @@ use crate::client_builder::ClientBuilder;
 use crate::{
     client::ProgressWatcher,
     error::{ClientError, RoomError},
-    event::EventOrTransactionId,
     helpers::unwrap_or_clone_arc,
     ruma::{
         AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, PollKind, ThumbnailInfo,
@@ -554,47 +553,6 @@ impl Timeline {
         Ok(())
     }
 
-    /// Get the current timeline item for the given event ID, if any.
-    ///
-    /// Will return a remote event, *or* a local echo that has been sent but not
-    /// yet replaced by a remote echo.
-    ///
-    /// It's preferable to store the timeline items in the model for your UI, if
-    /// possible, instead of just storing IDs and coming back to the timeline
-    /// object to look up items.
-    pub async fn get_event_timeline_item_by_event_id(
-        &self,
-        event_id: String,
-    ) -> Result<EventTimelineItem, ClientError> {
-        let event_id = EventId::parse(event_id)?;
-        let item = self
-            .inner
-            .item_by_event_id(&event_id)
-            .await
-            .context("Item with given event ID not found")?;
-        Ok(item.into())
-    }
-
-    /// Get the current timeline item for the given transaction ID, if any.
-    ///
-    /// This will always return a local echo, if found.
-    ///
-    /// It's preferable to store the timeline items in the model for your UI, if
-    /// possible, instead of just storing IDs and coming back to the timeline
-    /// object to look up items.
-    pub async fn get_event_timeline_item_by_transaction_id(
-        &self,
-        transaction_id: String,
-    ) -> Result<EventTimelineItem, ClientError> {
-        let transaction_id: OwnedTransactionId = transaction_id.into();
-        let item = self
-            .inner
-            .local_item_by_transaction_id(&transaction_id)
-            .await
-            .context("Item with given transaction ID not found")?;
-        Ok(item.into())
-    }
-
     /// Redacts an event from the timeline.
     ///
     /// Only works for events that exist as timeline items.
@@ -896,8 +854,8 @@ impl TimelineItem {
     }
 
     /// An opaque unique identifier for this timeline item.
-    pub fn unique_id(&self) -> Arc<TimelineUniqueId> {
-        Arc::new(self.0.unique_id().clone())
+    pub fn unique_id(&self) -> TimelineUniqueId {
+        self.0.unique_id().clone()
     }
 
     pub fn fmt_debug(&self) -> String {
@@ -1037,7 +995,7 @@ impl From<SdkShieldState> for ShieldState {
 pub struct EventTimelineItem {
     is_local: bool,
     is_remote: bool,
-    event_or_transaction_id: EventOrTransactionId,
+    event_id: Option<String>,
     sender: String,
     sender_profile: ProfileDetails,
     is_own: bool,
@@ -1054,8 +1012,8 @@ pub struct EventTimelineItem {
 }
 
 impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
-    fn from(value: matrix_sdk_ui::timeline::EventTimelineItem) -> Self {
-        let reactions = value
+    fn from(item: matrix_sdk_ui::timeline::EventTimelineItem) -> Self {
+        let reactions = item
             .reactions()
             .iter()
             .map(|(k, v)| Reaction {
@@ -1069,27 +1027,27 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
                     .collect(),
             })
             .collect();
-        let value = Arc::new(value);
-        let debug_info_provider = Arc::new(EventTimelineItemDebugInfoProvider(value.clone()));
-        let shields_provider = Arc::new(EventShieldsProvider(value.clone()));
+        let item = Arc::new(item);
+        let debug_info_provider = Arc::new(EventTimelineItemDebugInfoProvider(item.clone()));
+        let shields_provider = Arc::new(EventShieldsProvider(item.clone()));
         let read_receipts =
-            value.read_receipts().iter().map(|(k, v)| (k.to_string(), v.clone().into())).collect();
+            item.read_receipts().iter().map(|(k, v)| (k.to_string(), v.clone().into())).collect();
         Self {
-            is_local: value.is_local_echo(),
-            is_remote: !value.is_local_echo(),
-            event_or_transaction_id: value.identifier().into(),
-            sender: value.sender().to_string(),
-            sender_profile: value.sender_profile().into(),
-            is_own: value.is_own(),
-            is_editable: value.is_editable(),
-            content: value.content().clone().into(),
-            timestamp: value.timestamp().0.into(),
+            is_local: item.is_local_echo(),
+            is_remote: !item.is_local_echo(),
+            event_id: item.event_id().map(ToString::to_string),
+            sender: item.sender().to_string(),
+            sender_profile: item.sender_profile().into(),
+            is_own: item.is_own(),
+            is_editable: item.is_editable(),
+            content: item.content().clone().into(),
+            timestamp: item.timestamp().0.into(),
             reactions,
             debug_info_provider,
-            local_send_state: value.send_state().map(|s| s.into()),
+            local_send_state: item.send_state().map(|s| s.into()),
             read_receipts,
-            origin: value.origin(),
-            can_be_replied_to: value.can_be_replied_to(),
+            origin: item.origin(),
+            can_be_replied_to: item.can_be_replied_to(),
             shields_provider,
         }
     }
