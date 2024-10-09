@@ -25,7 +25,7 @@ use matrix_sdk::{
     Client, Error,
 };
 use matrix_sdk_base::{
-    deserialized_responses::{ShieldStateCode, SyncTimelineEvent, SENT_IN_CLEAR},
+    deserialized_responses::{ShieldStateCode, SENT_IN_CLEAR},
     latest_event::LatestEvent,
 };
 use once_cell::sync::Lazy;
@@ -161,8 +161,8 @@ impl EventTimelineItem {
         // potential footgun which could one day turn into a security issue.
         use super::traits::RoomDataProvider;
 
-        let SyncTimelineEvent { event: raw_sync_event, encryption_info, .. } =
-            latest_event.event().clone();
+        let raw_sync_event = latest_event.event().raw().clone();
+        let encryption_info = latest_event.event().encryption_info().cloned();
 
         let Ok(event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
             warn!("Unable to deserialize latest_event as an AnySyncTimelineEvent!");

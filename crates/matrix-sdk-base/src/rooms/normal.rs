@@ -1283,9 +1283,9 @@ impl RoomInfo {
         if let Some(latest_event) = &mut self.latest_event {
             tracing::trace!("Checking if redaction applies to latest event");
             if latest_event.event_id().as_deref() == Some(redacts) {
-                match apply_redaction(&latest_event.event().event, _raw, room_version) {
+                match apply_redaction(latest_event.event().raw(), _raw, room_version) {
                     Some(redacted) => {
-                        latest_event.event_mut().event = redacted;
+                        latest_event.event_mut().set_raw(redacted);
                         debug!("Redacted latest event");
                     }
                     None => {

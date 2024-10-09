@@ -363,7 +363,7 @@ mod tests {
             let timeline = & $( $timeline_queue ).*;
 
             $(
-                assert_eq!(timeline[ $nth ].event.deserialize().unwrap().event_id(), $event_id);
+                assert_eq!(timeline[ $nth ].raw().deserialize().unwrap().event_id(), $event_id);
             )*
         };
     }
@@ -714,7 +714,7 @@ mod tests {
             // Check that the last event is the last event of the timeline, i.e. we only
             // keep the _latest_ events, not the _first_ events.
             assert_eq!(
-                frozen_room.timeline_queue.last().unwrap().event.deserialize().unwrap().event_id(),
+                frozen_room.timeline_queue.last().unwrap().raw().deserialize().unwrap().event_id(),
                 &format!("$x{max}:baz.org")
             );
         }
@@ -755,7 +755,7 @@ mod tests {
             // Check that the last event is the last event of the timeline, i.e. we only
             // keep the _latest_ events, not the _first_ events.
             assert_eq!(
-                frozen_room.timeline_queue.last().unwrap().event.deserialize().unwrap().event_id(),
+                frozen_room.timeline_queue.last().unwrap().raw().deserialize().unwrap().event_id(),
                 &format!("$x{max}:baz.org")
             );
         }

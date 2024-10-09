@@ -820,7 +820,7 @@ impl RoomEventCacheInner {
         event: &SyncTimelineEvent,
     ) {
         // Handle and cache events and relations.
-        if let Ok(AnySyncTimelineEvent::MessageLike(ev)) = event.event.deserialize() {
+        if let Ok(AnySyncTimelineEvent::MessageLike(ev)) = event.raw().deserialize() {
             // Handle redactions separately, as their logic is slightly different.
             if let AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(ev)) =
                 &ev

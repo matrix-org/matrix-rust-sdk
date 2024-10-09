@@ -2111,7 +2111,7 @@ impl Client {
     /// while let Some(Ok(response)) = sync_stream.next().await {
     ///     for room in response.rooms.join.values() {
     ///         for e in &room.timeline.events {
-    ///             if let Ok(event) = e.event.deserialize() {
+    ///             if let Ok(event) = e.raw().deserialize() {
     ///                 println!("Received event {:?}", event);
     ///             }
     ///         }

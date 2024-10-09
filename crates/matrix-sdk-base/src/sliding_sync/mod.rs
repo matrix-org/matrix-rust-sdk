@@ -680,7 +680,7 @@ async fn cache_latest_events(
         Vec::with_capacity(room.latest_encrypted_events.read().unwrap().capacity());
 
     for event in events.iter().rev() {
-        if let Ok(timeline_event) = event.event.deserialize() {
+        if let Ok(timeline_event) = event.raw().deserialize() {
             match is_suitable_for_latest_event(&timeline_event) {
                 PossibleLatestEvent::YesRoomMessage(_)
                 | PossibleLatestEvent::YesPoll(_)
@@ -760,7 +760,7 @@ async fn cache_latest_events(
                     // Check how many encrypted events we have seen. Only store another if we
                     // haven't already stored the maximum number.
                     if encrypted_events.len() < encrypted_events.capacity() {
-                        encrypted_events.push(event.event.clone());
+                        encrypted_events.push(event.raw().clone());
                     }
                 }
                 _ => {
@@ -1686,7 +1686,7 @@ mod tests {
 
         // But it's now redacted
         assert_matches!(
-            latest_event.event().event.deserialize().unwrap(),
+            latest_event.event().raw().deserialize().unwrap(),
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
                 SyncRoomMessageEvent::Redacted(_)
             ))

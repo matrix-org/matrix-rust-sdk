@@ -2303,7 +2303,7 @@ mod tests {
         let no_local_events = room_id!("!crepe:example.org");
         let already_limited = room_id!("!paris:example.org");
 
-        let response_timeline = vec![event_c.event.clone(), event_d.event.clone()];
+        let response_timeline = vec![event_c.raw().clone(), event_d.raw().clone()];
 
         let local_rooms = BTreeMap::from_iter([
             (
@@ -2386,21 +2386,21 @@ mod tests {
                 no_overlap.to_owned(),
                 assign!(http::response::Room::default(), {
                     initial: Some(true),
-                    timeline: vec![event_c.event.clone(), event_d.event.clone()],
+                    timeline: vec![event_c.raw().clone(), event_d.raw().clone()],
                 }),
             ),
             (
                 partial_overlap.to_owned(),
                 assign!(http::response::Room::default(), {
                     initial: Some(true),
-                    timeline: vec![event_c.event.clone(), event_d.event.clone()],
+                    timeline: vec![event_c.raw().clone(), event_d.raw().clone()],
                 }),
             ),
             (
                 complete_overlap.to_owned(),
                 assign!(http::response::Room::default(), {
                     initial: Some(true),
-                    timeline: vec![event_c.event.clone(), event_d.event.clone()],
+                    timeline: vec![event_c.raw().clone(), event_d.raw().clone()],
                 }),
             ),
             (
@@ -2414,7 +2414,7 @@ mod tests {
                 no_local_events.to_owned(),
                 assign!(http::response::Room::default(), {
                     initial: Some(true),
-                    timeline: vec![event_c.event.clone(), event_d.event.clone()],
+                    timeline: vec![event_c.raw().clone(), event_d.raw().clone()],
                 }),
             ),
             (
@@ -2422,7 +2422,7 @@ mod tests {
                 assign!(http::response::Room::default(), {
                     initial: Some(true),
                     limited: true,
-                    timeline: vec![event_c.event, event_d.event],
+                    timeline: vec![event_c.into_raw(), event_d.into_raw()],
                 }),
             ),
         ]);

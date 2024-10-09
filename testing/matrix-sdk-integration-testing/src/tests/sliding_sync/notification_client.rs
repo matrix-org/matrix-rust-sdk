@@ -154,7 +154,7 @@ async fn test_notification() -> Result<()> {
         .events
         .iter()
         .find_map(|event| {
-            let event = event.event.deserialize().ok()?;
+            let event = event.raw().deserialize().ok()?;
             (event.event_type() == TimelineEventType::RoomMessage)
                 .then(|| event.event_id().to_owned())
         })
