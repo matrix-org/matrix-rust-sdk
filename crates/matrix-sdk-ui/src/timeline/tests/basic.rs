@@ -330,16 +330,16 @@ async fn test_dedup_initial() {
     let event2 = &timeline_items[2];
     let event3 = &timeline_items[3];
 
-    // Make sure the order is right
+    // Make sure the order is right.
     assert_eq!(event1.as_event().unwrap().sender(), *ALICE);
     assert_eq!(event2.as_event().unwrap().sender(), *BOB);
     assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
 
-    // Make sure we reused IDs when deduplicating events
-    assert_eq!(event1.unique_id(), "0");
-    assert_eq!(event2.unique_id(), "1");
-    assert_eq!(event3.unique_id(), "2");
-    assert_eq!(timeline_items[0].unique_id(), "3");
+    // Make sure we reused IDs when deduplicating events.
+    assert_eq!(event1.unique_id().0, "0");
+    assert_eq!(event2.unique_id().0, "1");
+    assert_eq!(event3.unique_id().0, "2");
+    assert_eq!(timeline_items[0].unique_id().0, "3");
 }
 
 #[async_test]
@@ -360,19 +360,19 @@ async fn test_internal_id_prefix() {
     assert_eq!(timeline_items.len(), 4);
 
     assert!(timeline_items[0].is_day_divider());
-    assert_eq!(timeline_items[0].unique_id(), "le_prefix_3");
+    assert_eq!(timeline_items[0].unique_id().0, "le_prefix_3");
 
     let event1 = &timeline_items[1];
     assert_eq!(event1.as_event().unwrap().sender(), *ALICE);
-    assert_eq!(event1.unique_id(), "le_prefix_0");
+    assert_eq!(event1.unique_id().0, "le_prefix_0");
 
     let event2 = &timeline_items[2];
     assert_eq!(event2.as_event().unwrap().sender(), *BOB);
-    assert_eq!(event2.unique_id(), "le_prefix_1");
+    assert_eq!(event2.unique_id().0, "le_prefix_1");
 
     let event3 = &timeline_items[3];
     assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
-    assert_eq!(event3.unique_id(), "le_prefix_2");
+    assert_eq!(event3.unique_id().0, "le_prefix_2");
 }
 
 #[async_test]

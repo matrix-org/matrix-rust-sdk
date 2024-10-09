@@ -85,7 +85,7 @@ async fn test_remote_echo_full_trip() {
             event_item.send_state(),
             Some(EventSendState::SendingFailed { is_recoverable: true, .. })
         );
-        assert_eq!(item.unique_id(), id);
+        assert_eq!(*item.unique_id(), id);
     }
 
     // Scenario 3: The local event has been sent successfully to the server and an
@@ -104,7 +104,7 @@ async fn test_remote_echo_full_trip() {
         let event_item = item.as_event().unwrap();
         assert!(event_item.is_local_echo());
         assert_matches!(event_item.send_state(), Some(EventSendState::Sent { .. }));
-        assert_eq!(item.unique_id(), id);
+        assert_eq!(*item.unique_id(), id);
 
         event_item.timestamp()
     };
@@ -125,7 +125,7 @@ async fn test_remote_echo_full_trip() {
     // The local echo is replaced with the remote echo.
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     assert!(!item.as_event().unwrap().is_local_echo());
-    assert_eq!(item.unique_id(), id);
+    assert_eq!(*item.unique_id(), id);
 }
 
 #[async_test]

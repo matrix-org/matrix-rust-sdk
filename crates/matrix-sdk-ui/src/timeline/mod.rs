@@ -89,7 +89,7 @@ pub use self::{
         Sticker, TimelineDetails, TimelineEventItemId, TimelineItemContent,
     },
     event_type_filter::TimelineEventTypeFilter,
-    item::{TimelineItem, TimelineItemKind},
+    item::{TimelineItem, TimelineItemKind, TimelineUniqueId},
     pagination::LiveBackPaginationStatus,
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
