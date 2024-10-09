@@ -31,7 +31,7 @@ use ruma::{
             SyncRoomMessageEvent,
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        AnyTimelineEvent, BundledMessageLikeRelations, Mentions,
+        BundledMessageLikeRelations, Mentions,
     },
     html::RemoveReplyFallback,
     serde::Raw,
@@ -352,7 +352,7 @@ impl RepliedToEvent {
         room_data_provider: &P,
     ) -> Result<Self, TimelineError> {
         let event = match timeline_event.raw().deserialize() {
-            Ok(AnyTimelineEvent::MessageLike(event)) => event,
+            Ok(AnySyncTimelineEvent::MessageLike(event)) => event,
             _ => {
                 return Err(TimelineError::UnsupportedEvent);
             }

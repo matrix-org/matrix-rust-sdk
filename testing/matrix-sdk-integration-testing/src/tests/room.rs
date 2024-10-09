@@ -8,8 +8,8 @@ use matrix_sdk::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         assign, event_id, events,
         events::{
-            room::message::RoomMessageEventContent, AnyRoomAccountDataEventContent, AnyStateEvent,
-            AnyTimelineEvent, EventContent,
+            room::message::RoomMessageEventContent, AnyRoomAccountDataEventContent,
+            AnySyncStateEvent, AnySyncTimelineEvent, EventContent,
         },
         serde::Raw,
         uint,
@@ -180,7 +180,7 @@ async fn test_event_with_context() -> Result<()> {
 
         // Last event is the m.room.encryption event.
         let event = prev_events[9].raw().deserialize().unwrap();
-        assert_matches!(event, AnyTimelineEvent::State(AnyStateEvent::RoomEncryption(_)));
+        assert_matches!(event, AnySyncTimelineEvent::State(AnySyncStateEvent::RoomEncryption(_)));
 
         // There are other events before that (room creation, alice joining).
         assert!(prev_messages.end.is_some());

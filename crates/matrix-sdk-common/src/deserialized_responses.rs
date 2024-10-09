@@ -474,8 +474,9 @@ impl TimelineEvent {
 
     /// Returns a reference to the (potentially decrypted) Matrix event inside
     /// this `TimelineEvent`.
-    pub fn raw(&self) -> &Raw<AnyTimelineEvent> {
-        &self.inner_event
+    pub fn raw(&self) -> &Raw<AnySyncTimelineEvent> {
+        // TODO: make `inner_event` an AnySyncTimelineEvent instead.
+        self.inner_event.cast_ref()
     }
 
     /// If the event was a decrypted event that was successfully decrypted, get

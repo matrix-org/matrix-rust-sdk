@@ -552,9 +552,7 @@ impl NotificationClient {
         let mut timeline_event = response.event.ok_or(Error::ContextMissingEvent)?;
         let state_events = response.state;
 
-        if let Some(decrypted_event) =
-            self.retry_decryption(&room, timeline_event.raw().cast_ref()).await?
-        {
+        if let Some(decrypted_event) = self.retry_decryption(&room, timeline_event.raw()).await? {
             timeline_event = decrypted_event;
         }
 
