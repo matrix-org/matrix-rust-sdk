@@ -130,6 +130,18 @@ mod impl_non_wasm32 {
         pub(crate) fn stream(&self) -> (Vector<V>, impl Stream<Item = Vec<VectorDiff<V>>>) {
             self.values.subscribe().into_values_and_batched_stream()
         }
+
+        /// Remove a `V` value based on their ID, if it exists.
+        ///
+        /// Returns the removed value.
+        pub(crate) fn remove<L>(&mut self, key: &L) -> Option<V>
+        where
+            K: Borrow<L>,
+            L: Hash + Eq + ?Sized,
+        {
+            let position = self.mapping.remove(key)?;
+            Some(self.values.remove(position))
+        }
     }
 }
 
@@ -183,6 +195,17 @@ mod impl_wasm32 {
         /// Return an iterator over the existing values.
         pub(crate) fn iter(&self) -> impl Iterator<Item = &V> {
             self.0.values()
+        }
+
+        /// Remove a `V` value based on their ID, if it exists.
+        ///
+        /// Returns the removed value.
+        pub(crate) fn remove<L>(&mut self, key: &L) -> Option<V>
+        where
+            K: Borrow<L>,
+            L: Hash + Eq + Ord + ?Sized,
+        {
+            self.0.remove(key)
         }
     }
 }
@@ -250,6 +273,33 @@ mod tests {
     }
 
     #[test]
+    fn test_remove() {
+        let mut map = ObservableMap::<char, char>::new();
+
+        assert!(map.get(&'a').is_none());
+        assert!(map.get(&'b').is_none());
+        assert!(map.get(&'c').is_none());
+
+        // new items
+        map.insert('a', 'e');
+        map.insert('b', 'f');
+
+        assert_eq!(map.get(&'a'), Some(&'e'));
+        assert_eq!(map.get(&'b'), Some(&'f'));
+        assert!(map.get(&'c').is_none());
+
+        // remove one item
+        assert_eq!(map.remove(&'b'), Some('f'));
+
+        assert_eq!(map.get(&'a'), Some(&'e'));
+        assert_eq!(map.get(&'b'), None);
+        assert_eq!(map.get(&'c'), None);
+
+        // remove a non-existent item
+        assert_eq!(map.remove(&'c'), None);
+    }
+
+    #[test]
     fn test_iter() {
         let mut map = ObservableMap::<char, char>::new();
 
@@ -290,6 +340,12 @@ mod tests {
         // update one item
         map.insert('b', 'F');
         assert_next_eq!(stream, vec![VectorDiff::Set { index: 0, value: 'F' }]);
+
+        assert_pending!(stream);
+
+        // remove one item
+        map.remove(&'b');
+        assert_next_eq!(stream, vec![VectorDiff::Remove { index: 0 }]);
 
         assert_pending!(stream);
 

@@ -1403,6 +1403,17 @@ impl BaseClient {
         self.store.room(room_id)
     }
 
+    /// Forget the room with the given room ID.
+    ///
+    /// The room will be dropped from the room list and the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room that should be forgotten.
+    pub async fn forget_room(&self, room_id: &RoomId) -> StoreResult<()> {
+        self.store.forget_room(room_id).await
+    }
+
     /// Get the olm machine.
     #[cfg(feature = "e2e-encryption")]
     pub async fn olm_machine(&self) -> RwLockReadGuard<'_, Option<OlmMachine>> {
