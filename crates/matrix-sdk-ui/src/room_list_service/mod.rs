@@ -151,6 +151,7 @@ impl RoomListService {
                         (StateEventType::RoomMember, "$ME".to_owned()),
                         (StateEventType::RoomName, "".to_owned()),
                         (StateEventType::RoomCanonicalAlias, "".to_owned()),
+                        (StateEventType::RoomAvatar, "".to_owned()),
                         (StateEventType::RoomPowerLevels, "".to_owned()),
                     ])
                     .include_heroes(Some(true))
