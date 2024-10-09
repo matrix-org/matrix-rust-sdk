@@ -19,7 +19,7 @@ pub mod http;
 #[cfg(feature = "e2e-encryption")]
 use std::ops::Deref;
 use std::{borrow::Cow, collections::BTreeMap};
-
+use crate::ruma::assign;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 #[cfg(feature = "e2e-encryption")]
@@ -32,6 +32,9 @@ use ruma::{
     serde::Raw,
     JsOption, OwnedRoomId, RoomId, UInt,
 };
+use ruma::api::client::sync::sync_events::v3::KnockedRoom;
+use ruma::events::{AnyStrippedStateEvent, StateEventType, StrippedStateEvent, SyncStateEvent};
+use ruma::events::room::member::MembershipState;
 use tracing::{debug, error, instrument, trace, warn};
 
 use super::BaseClient;
@@ -168,7 +171,7 @@ impl BaseClient {
         let mut rooms_account_data = extensions.account_data.rooms.clone();
 
         for (room_id, response_room_data) in rooms {
-            let (room_info, joined_room, left_room, invited_room) = self
+            let (room_info, joined_room, left_room, invited_room, knocked_room) = self
                 .process_sliding_sync_room(
                     room_id,
                     response_room_data,
@@ -195,6 +198,10 @@ impl BaseClient {
 
             if let Some(invited_room) = invited_room {
                 new_rooms.invite.insert(room_id.clone(), invited_room);
+            }
+
+            if let Some(knocked_room) = knocked_room {
+                new_rooms.knocked.insert(room_id.clone(), knocked_room);
             }
         }
 
@@ -347,7 +354,7 @@ impl BaseClient {
         notifications: &mut BTreeMap<OwnedRoomId, Vec<Notification>>,
         ambiguity_cache: &mut AmbiguityCache,
         with_msc4186: bool,
-    ) -> Result<(RoomInfo, Option<JoinedRoomUpdate>, Option<LeftRoomUpdate>, Option<InvitedRoom>)>
+    ) -> Result<(RoomInfo, Option<JoinedRoomUpdate>, Option<LeftRoomUpdate>, Option<InvitedRoom>, Option<KnockedRoom>)>
     {
         // This method may change `room_data` (see the terrible hack describes below)
         // with `timestamp` and `invite_state. We don't want to change the `room_data`
@@ -404,7 +411,7 @@ impl BaseClient {
         }
 
         #[allow(unused_mut)] // Required for some feature flag combinations
-        let (mut room, mut room_info, invited_room) = self.process_sliding_sync_room_membership(
+        let (mut room, mut room_info, invited_room, knocked_room) = self.process_sliding_sync_room_membership(
             room_data.as_ref(),
             &state_events,
             store,
@@ -429,6 +436,7 @@ impl BaseClient {
 
         let push_rules = self.get_push_rules(account_data_processor).await?;
 
+        // This will be used for both invited and knocked rooms
         if let Some(invite_state) = &room_data.invite_state {
             self.handle_invited_state(
                 &room,
@@ -512,6 +520,7 @@ impl BaseClient {
                     )),
                     None,
                     None,
+                    None,
                 ))
             }
 
@@ -525,12 +534,12 @@ impl BaseClient {
                     ambiguity_changes,
                 )),
                 None,
+                None,
             )),
 
-            RoomState::Invited => Ok((room_info, None, None, invited_room)),
+            RoomState::Invited => Ok((room_info, None, None, invited_room, None)),
 
-            // TODO: implement special logic for retrieving the knocked room info
-            RoomState::Knocked => Ok((room_info, None, None, None)),
+            RoomState::Knocked => Ok((room_info, None, None, None, knocked_room)),
         }
     }
 
@@ -546,7 +555,8 @@ impl BaseClient {
         store: &Store,
         room_id: &RoomId,
         room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
-    ) -> (Room, RoomInfo, Option<InvitedRoom>) {
+    ) -> (Room, RoomInfo, Option<InvitedRoom>, Option<KnockedRoom>) {
+        let user_id = self.session_meta().expect("Sliding sync shouldn't run without an authenticated user.").user_id.to_owned();
         if let Some(invite_state) = &room_data.invite_state {
             let room = store.get_or_create_room(
                 room_id,
@@ -555,20 +565,41 @@ impl BaseClient {
             );
             let mut room_info = room.clone_info();
 
-            // We don't actually know what events are inside invite_state. In theory, they
-            // might not contain an m.room.member event, or they might set the
-            // membership to something other than invite. This would be very
-            // weird behaviour by the server, because invite_state is supposed
-            // to contain an m.room.member. We will call handle_invited_state, which will
-            // reflect any information found in the real events inside
-            // invite_state, but we default to considering this room invited
-            // simply because invite_state exists. This is needed in the normal
-            // case, because the sliding sync server tries to send minimal state,
-            // meaning that we normally actually just receive {"type": "m.room.member"} with
-            // no content at all.
-            room_info.mark_as_invited();
+            // We need to find the membership event since it could be for either an invited or knocked room
+            let membership_event_content = invite_state.iter()
+                .find_map(|raw| {
+                    raw.deserialize().ok().iter().find_map(|e| {
+                        if let AnyStrippedStateEvent::RoomMember(membership_event) = e {
+                            if membership_event.sender == user_id {
+                                return Some(membership_event.content.clone())
+                            }
+                        }
+                        None
+                    })
+                });
 
-            (room, room_info, Some(InvitedRoom::from(v3::InviteState::from(invite_state.clone()))))
+            if let Some(membership_event_content) = membership_event_content {
+                match membership_event_content.membership {
+                    MembershipState::Invite => {
+                        room_info.mark_as_invited();
+                        let invited_room = InvitedRoom::from(v3::InviteState::from(invite_state.clone()));
+                        return (room, room_info, Some(invited_room), None);
+                    }
+                    MembershipState::Knock => {
+                        room_info.mark_as_knocked();
+                        let knock_state = assign!(v3::KnockState::default(), { events: invite_state.clone() });
+                        let knocked_room = assign!(KnockedRoom::default(), { knock_state: knock_state });
+                        return (room, room_info, None, Some(knocked_room));
+                    }
+                    _ => {
+                        error!("The room {room_id} has `invite_state` but its membership event for the user {user_id} has an invalid membership type: {:?}", membership_event_content.membership);
+                    }
+                }
+            } else {
+                error!("The room {room_id} has `invite_state` but it doesn't contain a membership event for the user {user_id} so we can't know if it's an invited or a knocked room");
+            }
+
+            (room, room_info, None, None)
         } else {
             let room = store.get_or_create_room(
                 room_id,
@@ -594,7 +625,7 @@ impl BaseClient {
                 room_info_notable_updates,
             );
 
-            (room, room_info, None)
+            (room, room_info, None, None)
         }
     }
 

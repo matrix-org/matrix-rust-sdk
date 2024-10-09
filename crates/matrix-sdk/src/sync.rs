@@ -32,8 +32,9 @@ use ruma::{
     time::Instant,
     OwnedRoomId, RoomId,
 };
+use ruma::api::client::sync::sync_events::v3::KnockedRoom;
 use tracing::{debug, error, warn};
-
+use matrix_sdk_base::debug::DebugKnockedRoom;
 use crate::{event_handler::HandlerKind, Client, Result, Room};
 
 /// The processed response of a `/sync` request.
@@ -100,6 +101,13 @@ pub enum RoomUpdate {
         /// Updates to the room.
         updates: InvitedRoom,
     },
+    /// Updates to a room the user knocked on.
+    Knocked {
+        /// Room object with general information on the room.
+        room: Room,
+        /// Updates to the room.
+        updates: KnockedRoom,
+    }
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -117,6 +125,12 @@ impl fmt::Debug for RoomUpdate {
                 .field("room", room)
                 .field("updates", &DebugInvitedRoom(updates))
                 .finish(),
+            Self::Knocked { room, updates } => {
+                f.debug_struct("Knocked")
+                    .field("room", room)
+                    .field("updates", &DebugKnockedRoom(updates))
+                    .finish()
+            }
         }
     }
 }
@@ -223,6 +237,21 @@ impl Client {
 
             let invite_state = &room_info.invite_state.events;
             self.handle_sync_events(HandlerKind::StrippedState, Some(&room), invite_state).await?;
+        }
+
+        for (room_id, room_info) in &rooms.knocked {
+            let Some(room) = self.get_room(room_id) else {
+                error!(?room_id, "Can't call event handler, room not found");
+                continue;
+            };
+
+            self.send_room_update(room_id, || RoomUpdate::Knocked {
+                room: room.clone(),
+                updates: room_info.clone(),
+            });
+
+            let knock_state = &room_info.knock_state.events;
+            self.handle_sync_events(HandlerKind::StrippedState, Some(&room), knock_state).await?;
         }
 
         debug!("Ran event handlers in {:?}", now.elapsed());

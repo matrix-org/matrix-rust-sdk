@@ -44,7 +44,7 @@ use wiremock::{
     matchers::{header, method, path, path_regex},
     Mock, Request, ResponseTemplate,
 };
-
+use matrix_sdk_test::test_json::sync::MIXED_KNOCKED_ROOM_ID;
 use crate::{logged_in_client_with_server, mock_sync};
 
 #[async_test]
@@ -340,7 +340,7 @@ async fn test_subscribe_all_room_updates() {
     client.sync_once(sync_settings).await.unwrap();
 
     let room_updates = rx.recv().now_or_never().unwrap().unwrap();
-    assert_let!(RoomUpdates { leave, join, invite } = room_updates);
+    assert_let!(RoomUpdates { leave, join, invite, knocked } = room_updates);
 
     // Check the left room updates.
     {
@@ -381,6 +381,16 @@ async fn test_subscribe_all_room_updates() {
         let (room_id, update) = invite.iter().next().unwrap();
 
         assert_eq!(room_id, *MIXED_INVITED_ROOM_ID);
+        assert_eq!(update.invite_state.events.len(), 2);
+    }
+
+    // Check the knocked room updates.
+    {
+        assert_eq!(knocked.len(), 1);
+
+        let (room_id, update) = invite.iter().next().unwrap();
+
+        assert_eq!(room_id, *MIXED_KNOCKED_ROOM_ID);
         assert_eq!(update.invite_state.events.len(), 2);
     }
 }

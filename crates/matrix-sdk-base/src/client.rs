@@ -1128,11 +1128,37 @@ impl BaseClient {
                 &mut changes,
                 &mut notifications,
             )
-            .await?;
+                .await?;
 
             changes.add_room(room_info);
 
             new_rooms.invite.insert(room_id, new_info);
+        }
+
+        for (room_id, new_info) in response.rooms.knock {
+            let room = self.store.get_or_create_room(
+                &room_id,
+                RoomState::Knocked,
+                self.room_info_notable_update_sender.clone(),
+            );
+
+            let mut room_info = room.clone_info();
+            room_info.mark_as_invited();
+            room_info.mark_state_fully_synced();
+
+            self.handle_invited_state(
+                &room,
+                &new_info.knock_state.events,
+                &push_rules,
+                &mut room_info,
+                &mut changes,
+                &mut notifications,
+            )
+                .await?;
+
+            changes.add_room(room_info);
+
+            new_rooms.knocked.insert(room_id, new_info);
         }
 
         account_data_processor.apply(&mut changes, &self.store).await;
