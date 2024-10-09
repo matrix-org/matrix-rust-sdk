@@ -69,7 +69,11 @@ impl SessionVerificationController {
     /// Set this particular request as the currently active one and register for events pertaining it.
     /// * `sender_id` - The user requesting verification.
     /// * `flow_id` - - The ID that uniquely identifies the verification flow.
-    pub async fn acknowledge_verification_request(&self, sender_id: String, flow_id: String) {
+    pub async fn acknowledge_verification_request(
+        &self,
+        sender_id: String,
+        flow_id: String,
+    ) -> Result<(), ClientError> {
         let sender_id = UserId::parse(sender_id.clone())?;
 
         let verification_request = self
@@ -85,17 +89,6 @@ impl SessionVerificationController {
             self.sas_verification.clone(),
             self.delegate.clone(),
         ));
-
-        Ok(())
-    }
-
-    /// Accept the previously acknowledged verification request
-    pub async fn accept_verification_request(&self) -> Result<(), ClientError> {
-        let verification_request = self.verification_request.read().unwrap().clone();
-
-        if let Some(verification_request) = verification_request {
-            verification_request.accept().await?;
-        }
 
         Ok(())
     }
@@ -132,25 +125,28 @@ impl SessionVerificationController {
         Ok(())
     }
 
+    /// Transition the current verification request into a SAS verification flow.
     pub async fn start_sas_verification(&self) -> Result<(), ClientError> {
         let verification_request = self.verification_request.read().unwrap().clone();
 
-        if let Some(verification) = verification_request {
-            match verification.start_sas().await {
-                Ok(Some(verification)) => {
-                    *self.sas_verification.write().unwrap() = Some(verification.clone());
+        let Some(verification_request) = verification_request else {
+            return Err(ClientError::new("Verification request missing."));
+        };
 
-                    if let Some(delegate) = &*self.delegate.read().unwrap() {
-                        delegate.did_start_sas_verification()
-                    }
+        match verification_request.start_sas().await {
+            Ok(Some(verification)) => {
+                *self.sas_verification.write().unwrap() = Some(verification.clone());
 
-                    let delegate = self.delegate.clone();
-                    RUNTIME.spawn(Self::listen_to_sas_verification_changes(verification, delegate));
+                if let Some(delegate) = &*self.delegate.read().unwrap() {
+                    delegate.did_start_sas_verification()
                 }
-                _ => {
-                    if let Some(delegate) = &*self.delegate.read().unwrap() {
-                        delegate.did_fail()
-                    }
+
+                let delegate = self.delegate.clone();
+                RUNTIME.spawn(Self::listen_to_sas_verification_changes(verification, delegate));
+            }
+            _ => {
+                if let Some(delegate) = &*self.delegate.read().unwrap() {
+                    delegate.did_fail()
                 }
             }
         }
@@ -158,31 +154,37 @@ impl SessionVerificationController {
         Ok(())
     }
 
+    /// Confirm that the short auth strings match on both sides.
     pub async fn approve_verification(&self) -> Result<(), ClientError> {
         let sas_verification = self.sas_verification.read().unwrap().clone();
-        if let Some(sas_verification) = sas_verification {
-            sas_verification.confirm().await?;
-        }
 
-        Ok(())
+        let Some(sas_verification) = sas_verification else {
+            return Err(ClientError::new("SAS verification missing"));
+        };
+
+        Ok(sas_verification.confirm().await?)
     }
 
+    /// Reject the short auth string
     pub async fn decline_verification(&self) -> Result<(), ClientError> {
         let sas_verification = self.sas_verification.read().unwrap().clone();
-        if let Some(sas_verification) = sas_verification {
-            sas_verification.mismatch().await?;
-        }
 
-        Ok(())
+        let Some(sas_verification) = sas_verification else {
+            return Err(ClientError::new("SAS verification missing"));
+        };
+
+        Ok(sas_verification.mismatch().await?)
     }
 
+    /// Cancel the current verification request
     pub async fn cancel_verification(&self) -> Result<(), ClientError> {
         let verification_request = self.verification_request.read().unwrap().clone();
-        if let Some(verification) = verification_request {
-            verification.cancel().await?;
-        }
 
-        Ok(())
+        let Some(verification_request) = verification_request else {
+            return Err(ClientError::new("Verification request missing."));
+        };
+
+        Ok(verification_request.cancel().await?)
     }
 }
 
