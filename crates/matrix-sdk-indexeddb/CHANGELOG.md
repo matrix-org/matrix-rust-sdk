@@ -1,3 +1,7 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
 # UNRELEASED
 
 - Improve the efficiency of objects stored in the crypto store.
