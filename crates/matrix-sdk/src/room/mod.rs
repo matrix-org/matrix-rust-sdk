@@ -2653,6 +2653,16 @@ impl Room {
 
         let request = forget_room::v3::Request::new(self.inner.room_id().to_owned());
         let _response = self.client.send(request, None).await?;
+
+        // If it was a DM, remove the room from the `m.direct` global account data.
+        if self.inner.direct_targets_length() != 0 {
+            if let Err(e) = self.set_is_direct(false).await {
+                // It is not important whether we managed to remove the room, it will not have
+                // any consequences, so just log the error.
+                warn!(room_id = ?self.room_id(), "failed to remove room from m.direct account data: {e}");
+            }
+        }
+
         self.client.store().remove_room(self.inner.room_id()).await?;
 
         Ok(())
