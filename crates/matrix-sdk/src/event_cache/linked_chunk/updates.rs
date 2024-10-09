@@ -495,7 +495,7 @@ mod tests {
         // | d | e | f | g | h | i |
         // +---+---+---+---+---+---+
         //
-        // “main” will have its index updated from 3 to 0.
+        // “main” will have its index updated from 0 to 3.
         // “other” will have its index updated from 6 to 3.
         {
             let updates = linked_chunk.updates().unwrap();
