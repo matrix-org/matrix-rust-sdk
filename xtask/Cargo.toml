@@ -17,3 +17,6 @@ serde_json = { workspace = true }
 fs_extra = "1"
 uniffi_bindgen = { workspace = true }
 xshell = "0.1.17"
+
+[package.metadata.release]
+release = false

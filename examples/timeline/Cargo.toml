@@ -23,3 +23,6 @@ matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
 
 [lints]
 workspace = true
+
+[package.metadata.release]
+release = false

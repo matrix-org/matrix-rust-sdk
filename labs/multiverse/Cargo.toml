@@ -27,3 +27,6 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [lints]
 workspace = true
+
+[package.metadata.release]
+release = false

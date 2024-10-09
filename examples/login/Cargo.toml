@@ -20,3 +20,6 @@ matrix-sdk = { path = "../../crates/matrix-sdk", features = ["sso-login"] }
 
 [lints]
 workspace = true
+
+[package.metadata.release]
+release = false
