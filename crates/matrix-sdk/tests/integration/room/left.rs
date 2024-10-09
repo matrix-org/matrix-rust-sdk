@@ -48,6 +48,8 @@ async fn test_forget_non_direct_room() {
     assert_eq!(room.state(), RoomState::Left);
 
     room.forget().await.unwrap();
+
+    assert!(client.get_room(&DEFAULT_TEST_ROOM_ID).is_none());
 }
 
 #[async_test]
@@ -100,6 +102,8 @@ async fn test_forget_direct_room() {
         .await;
 
     room.forget().await.unwrap();
+
+    assert!(client.get_room(&DEFAULT_TEST_ROOM_ID).is_none());
 }
 
 #[async_test]
