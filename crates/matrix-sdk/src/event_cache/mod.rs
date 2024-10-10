@@ -39,7 +39,7 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, RoomUpdates, Timeline},
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
-use paginator::PaginatorState;
+use paginator::{Paginator, PaginatorState};
 use ruma::{
     events::{
         relation::RelationType,
@@ -52,12 +52,11 @@ use ruma::{
 };
 use tokio::sync::{
     broadcast::{error::RecvError, Receiver, Sender},
-    Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard,
+    Mutex, Notify, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
 use tracing::{error, info_span, instrument, trace, warn, Instrument as _, Span};
 
 use self::{
-    pagination::RoomPaginationData,
     paginator::PaginatorError,
     store::{Gap, RoomEvents},
 };
@@ -634,6 +633,9 @@ struct RoomEventCacheInner {
     /// [`RoomEventCacheInner`] instances.
     all_events: Arc<RwLock<AllEventsCache>>,
 
+    /// A notifier that we received a new pagination token.
+    pub pagination_batch_token_notifier: Notify,
+
     /// A paginator instance, that's configured to run back-pagination on our
     /// behalf.
     ///
@@ -642,7 +644,7 @@ struct RoomEventCacheInner {
     /// events received from those kinds of pagination with the cache. This
     /// paginator is only used for queries that interact with the actual event
     /// cache.
-    pagination: RoomPaginationData<WeakRoom>,
+    pub paginator: Paginator<WeakRoom>,
 }
 
 impl RoomEventCacheInner {
@@ -665,7 +667,8 @@ impl RoomEventCacheInner {
             }),
             all_events: all_events_cache,
             sender,
-            pagination: RoomPaginationData::new(weak_room),
+            pagination_batch_token_notifier: Default::default(),
+            paginator: Paginator::new(weak_room),
         }
     }
 
@@ -788,7 +791,7 @@ impl RoomEventCacheInner {
         .await?;
 
         // Reset the paginator status to initial.
-        self.pagination.paginator.set_idle_state(PaginatorState::Initial, prev_batch, None)?;
+        self.paginator.set_idle_state(PaginatorState::Initial, prev_batch, None)?;
 
         Ok(())
     }
@@ -923,7 +926,7 @@ impl RoomEventCacheInner {
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
         if prev_batch.is_some() {
-            self.pagination.token_notifier.notify_one();
+            self.pagination_batch_token_notifier.notify_one();
         }
 
         // The order of `RoomEventCacheUpdate`s is **really** important here.
