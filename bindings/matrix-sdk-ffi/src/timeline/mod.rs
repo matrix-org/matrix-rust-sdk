@@ -1042,17 +1042,16 @@ pub struct EventTimelineItem {
     content: TimelineItemContent,
     timestamp: u64,
     reactions: Vec<Reaction>,
-    debug_info_provider: Arc<EventTimelineItemDebugInfoProvider>,
     local_send_state: Option<EventSendState>,
     read_receipts: HashMap<String, Receipt>,
     origin: Option<EventItemOrigin>,
     can_be_replied_to: bool,
-    shields_provider: Arc<EventShieldsProvider>,
+    lazy_provider: Arc<LazyTimelineItemProvider>,
 }
 
 impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
-    fn from(value: matrix_sdk_ui::timeline::EventTimelineItem) -> Self {
-        let reactions = value
+    fn from(item: matrix_sdk_ui::timeline::EventTimelineItem) -> Self {
+        let reactions = item
             .reactions()
             .iter()
             .map(|(k, v)| Reaction {
@@ -1066,27 +1065,25 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
                     .collect(),
             })
             .collect();
-        let value = Arc::new(value);
-        let debug_info_provider = Arc::new(EventTimelineItemDebugInfoProvider(value.clone()));
-        let shields_provider = Arc::new(EventShieldsProvider(value.clone()));
+        let item = Arc::new(item);
+        let lazy_provider = Arc::new(LazyTimelineItemProvider(item.clone()));
         let read_receipts =
-            value.read_receipts().iter().map(|(k, v)| (k.to_string(), v.clone().into())).collect();
+            item.read_receipts().iter().map(|(k, v)| (k.to_string(), v.clone().into())).collect();
         Self {
-            is_remote: !value.is_local_echo(),
-            event_or_transaction_id: value.identifier().into(),
-            sender: value.sender().to_string(),
-            sender_profile: value.sender_profile().into(),
-            is_own: value.is_own(),
-            is_editable: value.is_editable(),
-            content: value.content().clone().into(),
-            timestamp: value.timestamp().0.into(),
+            is_remote: !item.is_local_echo(),
+            event_or_transaction_id: item.identifier().into(),
+            sender: item.sender().to_string(),
+            sender_profile: item.sender_profile().into(),
+            is_own: item.is_own(),
+            is_editable: item.is_editable(),
+            content: item.content().clone().into(),
+            timestamp: item.timestamp().0.into(),
             reactions,
-            debug_info_provider,
-            local_send_state: value.send_state().map(|s| s.into()),
+            local_send_state: item.send_state().map(|s| s.into()),
             read_receipts,
-            origin: value.origin(),
-            can_be_replied_to: value.can_be_replied_to(),
-            shields_provider,
+            origin: item.origin(),
+            can_be_replied_to: item.can_be_replied_to(),
+            lazy_provider,
         }
     }
 }
@@ -1099,22 +1096,6 @@ pub struct Receipt {
 impl From<ruma::events::receipt::Receipt> for Receipt {
     fn from(value: ruma::events::receipt::Receipt) -> Self {
         Receipt { timestamp: value.ts.map(|ts| ts.0.into()) }
-    }
-}
-
-/// Wrapper to retrieve the debug info lazily instead of immediately
-/// transforming it for each timeline event.
-#[derive(uniffi::Object)]
-pub struct EventTimelineItemDebugInfoProvider(Arc<matrix_sdk_ui::timeline::EventTimelineItem>);
-
-#[matrix_sdk_ffi_macros::export]
-impl EventTimelineItemDebugInfoProvider {
-    fn get(&self) -> EventTimelineItemDebugInfo {
-        EventTimelineItemDebugInfo {
-            model: format!("{:#?}", self.0),
-            original_json: self.0.original_json().map(|raw| raw.json().get().to_owned()),
-            latest_edit_json: self.0.latest_edit_json().map(|raw| raw.json().get().to_owned()),
-        }
     }
 }
 
@@ -1269,13 +1250,23 @@ impl TryFrom<EditedContent> for SdkEditedContent {
     }
 }
 
-/// Wrapper to retrieve the shields info lazily.
+/// Wrapper to retrieve some timeline item info lazily.
 #[derive(Clone, uniffi::Object)]
-pub struct EventShieldsProvider(Arc<matrix_sdk_ui::timeline::EventTimelineItem>);
+pub struct LazyTimelineItemProvider(Arc<matrix_sdk_ui::timeline::EventTimelineItem>);
 
 #[matrix_sdk_ffi_macros::export]
-impl EventShieldsProvider {
+impl LazyTimelineItemProvider {
+    /// Returns the shields for this event timeline item.
     fn get_shields(&self, strict: bool) -> Option<ShieldState> {
         self.0.get_shield(strict).map(Into::into)
+    }
+
+    /// Returns some debug information for this event timeline item.
+    fn debug_info(&self) -> EventTimelineItemDebugInfo {
+        EventTimelineItemDebugInfo {
+            model: format!("{:#?}", self.0),
+            original_json: self.0.original_json().map(|raw| raw.json().get().to_owned()),
+            latest_edit_json: self.0.latest_edit_json().map(|raw| raw.json().get().to_owned()),
+        }
     }
 }
