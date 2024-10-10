@@ -854,8 +854,10 @@ impl TimelineItem {
     }
 
     /// An opaque unique identifier for this timeline item.
-    pub fn unique_id(&self) -> TimelineUniqueId {
-        self.0.unique_id().clone()
+    pub fn unique_id(&self) -> Arc<TimelineUniqueId> {
+        // Note: an `Arc` because uniffi-go (used in complement crypto) isn't up to
+        // date.
+        Arc::new(self.0.unique_id().clone())
     }
 
     pub fn fmt_debug(&self) -> String {
