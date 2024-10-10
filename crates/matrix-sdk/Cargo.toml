@@ -75,6 +75,7 @@ async-channel = "2.2.1"
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 axum = { version = "0.7.4", optional = true }
+bloomfilter = { version = "1.0.13", default-features = false }
 bytes = "1.1.0"
 bytesize = "1.1"
 chrono = { version = "0.4.23", optional = true }
