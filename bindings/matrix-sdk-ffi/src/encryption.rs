@@ -212,7 +212,7 @@ impl From<encryption::VerificationState> for VerificationState {
     }
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl Encryption {
     /// Get the public ed25519 key of our own device. This is usually what is
     /// called the fingerprint of the device.
@@ -432,7 +432,7 @@ pub struct UserIdentity {
     inner: matrix_sdk::encryption::identities::UserIdentity,
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl UserIdentity {
     /// Remember this identity, ensuring it does not result in a pin violation.
     ///
@@ -468,7 +468,7 @@ pub struct IdentityResetHandle {
     pub(crate) inner: matrix_sdk::encryption::recovery::IdentityResetHandle,
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl IdentityResetHandle {
     /// Get the underlying [`CrossSigningResetAuthType`] this identity reset
     /// process is using.

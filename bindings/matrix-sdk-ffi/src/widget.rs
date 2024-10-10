@@ -29,7 +29,7 @@ pub fn make_widget_driver(settings: WidgetSettings) -> Result<WidgetDriverAndHan
 #[derive(uniffi::Object)]
 pub struct WidgetDriver(Mutex<Option<matrix_sdk::widget::WidgetDriver>>);
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl WidgetDriver {
     pub async fn run(
         &self,
@@ -96,7 +96,7 @@ impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
 /// * `room` - A matrix room which is used to query the logged in username
 /// * `props` - Properties from the client that can be used by a widget to adapt
 ///   to the client. e.g. language, font-scale...
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 pub async fn generate_webview_url(
     widget_settings: WidgetSettings,
     room: Arc<Room>,
@@ -354,7 +354,7 @@ impl From<ClientProperties> for matrix_sdk::widget::ClientProperties {
 #[derive(uniffi::Object)]
 pub struct WidgetDriverHandle(matrix_sdk::widget::WidgetDriverHandle);
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl WidgetDriverHandle {
     /// Receive a message from the widget driver.
     ///

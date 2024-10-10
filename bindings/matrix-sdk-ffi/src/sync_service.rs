@@ -62,7 +62,7 @@ pub struct SyncService {
     utd_hook: Option<Arc<UtdHookManager>>,
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl SyncService {
     pub fn room_list_service(&self) -> Arc<RoomListService> {
         Arc::new(RoomListService {
@@ -110,7 +110,7 @@ impl SyncServiceBuilder {
     }
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl SyncServiceBuilder {
     pub fn with_cross_process_lock(self: Arc<Self>, app_identifier: Option<String>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);

@@ -260,7 +260,7 @@ impl Client {
     }
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl Client {
     /// Information about login options for the client's homeserver.
     pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
@@ -526,7 +526,7 @@ impl Client {
     }
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl Client {
     /// The sliding sync version.
     pub fn sliding_sync_version(&self) -> SlidingSyncVersion {
