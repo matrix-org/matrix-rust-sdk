@@ -1032,7 +1032,7 @@ impl From<SdkShieldState> for ShieldState {
 
 #[derive(Clone, uniffi::Record)]
 pub struct EventTimelineItem {
-    is_local: bool,
+    /// Indicates that an event is remote.
     is_remote: bool,
     event_or_transaction_id: EventOrTransactionId,
     sender: String,
@@ -1072,7 +1072,6 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
         let read_receipts =
             value.read_receipts().iter().map(|(k, v)| (k.to_string(), v.clone().into())).collect();
         Self {
-            is_local: value.is_local_echo(),
             is_remote: !value.is_local_echo(),
             event_or_transaction_id: value.identifier().into(),
             sender: value.sender().to_string(),
