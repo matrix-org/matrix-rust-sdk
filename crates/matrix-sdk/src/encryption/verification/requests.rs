@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use futures_util::{Stream, StreamExt};
-use matrix_sdk_base::crypto::{CancelInfo, VerificationRequest as BaseVerificationRequest};
+use matrix_sdk_base::crypto::{
+    CancelInfo, DeviceData, VerificationRequest as BaseVerificationRequest,
+};
 use ruma::{events::key::verification::VerificationMethod, OwnedDeviceId, RoomId};
 
 #[cfg(feature = "qrcode")]
@@ -41,9 +43,9 @@ pub enum VerificationRequestState {
         /// The verification methods supported by the sender.
         their_methods: Vec<VerificationMethod>,
 
-        /// The device ID of the device that responded to the verification
+        /// The device data of the device that responded to the verification
         /// request.
-        other_device_id: OwnedDeviceId,
+        other_device_data: DeviceData,
     },
     /// The verification request is ready to start a verification flow.
     Ready {
@@ -218,8 +220,8 @@ impl VerificationRequest {
 
         match state {
             Created { our_methods } => VerificationRequestState::Created { our_methods },
-            Requested { their_methods, other_device_id } => {
-                VerificationRequestState::Requested { their_methods, other_device_id }
+            Requested { their_methods, other_device_data } => {
+                VerificationRequestState::Requested { their_methods, other_device_data }
             }
             Ready { their_methods, our_methods, other_device_id } => {
                 VerificationRequestState::Ready { their_methods, our_methods, other_device_id }
