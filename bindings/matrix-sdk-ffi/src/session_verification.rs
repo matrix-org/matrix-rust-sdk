@@ -200,32 +200,29 @@ impl SessionVerificationController {
     }
 
     pub(crate) async fn process_to_device_message(&self, event: AnyToDeviceEvent) {
-        match event {
-            AnyToDeviceEvent::KeyVerificationRequest(event) => {
-                info!("Received verification request: {:}", event.sender);
+        if let AnyToDeviceEvent::KeyVerificationRequest(event) = event {
+            info!("Received verification request: {:}", event.sender);
 
-                let Some(request) = self
-                    .encryption
-                    .get_verification_request(&event.sender, &event.content.transaction_id)
-                    .await
-                else {
-                    error!("Failed retrieving verification request");
-                    return;
-                };
+            let Some(request) = self
+                .encryption
+                .get_verification_request(&event.sender, &event.content.transaction_id)
+                .await
+            else {
+                error!("Failed retrieving verification request");
+                return;
+            };
 
-                if !request.is_self_verification() {
-                    info!("Received non-self verification request. Ignoring.");
-                    return;
-                }
-
-                if let Some(delegate) = &*self.delegate.read().unwrap() {
-                    delegate.did_receive_verification_request(
-                        request.other_user_id().into(),
-                        request.flow_id().into(),
-                    );
-                }
+            if !request.is_self_verification() {
+                info!("Received non-self verification request. Ignoring.");
+                return;
             }
-            _ => (),
+
+            if let Some(delegate) = &*self.delegate.read().unwrap() {
+                delegate.did_receive_verification_request(
+                    request.other_user_id().into(),
+                    request.flow_id().into(),
+                );
+            }
         }
     }
 
