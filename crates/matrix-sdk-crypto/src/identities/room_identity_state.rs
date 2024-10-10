@@ -204,7 +204,7 @@ fn state_of(user_identity: &UserIdentity) -> IdentityState {
 /// A change in the status of the identity of a member of the room. Returned by
 /// [`RoomIdentityState::process_change`] to indicate that something changed in
 /// this room and we should either show or hide a warning.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct IdentityStatusChange {
     /// The user ID of the user whose identity status changed
     pub user_id: OwnedUserId,
@@ -214,7 +214,7 @@ pub struct IdentityStatusChange {
 }
 
 /// The state of an identity - verified, pinned etc.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum IdentityState {
     /// The user is verified with us
