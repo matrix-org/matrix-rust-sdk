@@ -98,7 +98,7 @@ impl Drop for NotificationSettings {
     }
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl NotificationSettings {
     pub fn set_delegate(&self, delegate: Option<Box<dyn NotificationSettingsDelegate>>) {
         if let Some(delegate) = delegate {

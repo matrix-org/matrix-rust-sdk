@@ -58,7 +58,7 @@ pub struct SessionVerificationController {
     sas_verification: Arc<RwLock<Option<SasVerification>>>,
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl SessionVerificationController {
     pub async fn is_verified(&self) -> Result<bool, ClientError> {
         let device =

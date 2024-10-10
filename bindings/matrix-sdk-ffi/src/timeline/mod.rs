@@ -142,7 +142,7 @@ impl Timeline {
     }
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl Timeline {
     pub async fn add_listener(&self, listener: Box<dyn TimelineListener>) -> Arc<TaskHandle> {
         let (timeline_items, timeline_stream) = self.inner.subscribe_batched().await;
@@ -688,7 +688,7 @@ pub struct SendHandle {
     inner: Mutex<Option<matrix_sdk::send_queue::SendHandle>>,
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl SendHandle {
     /// Try to abort the sending of the current event.
     ///
@@ -1182,7 +1182,7 @@ impl SendAttachmentJoinHandle {
     }
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl SendAttachmentJoinHandle {
     pub async fn join(&self) -> Result<(), RoomError> {
         let join_hdl = self.join_hdl.clone();

@@ -270,7 +270,7 @@ pub struct ClientBuilder {
     request_config: Option<RequestConfig>,
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl ClientBuilder {
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {

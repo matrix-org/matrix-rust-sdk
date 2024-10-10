@@ -88,7 +88,7 @@ pub struct NotificationClient {
     pub(crate) _client: Arc<Client>,
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl NotificationClient {
     /// See also documentation of
     /// `MatrixNotificationClient::get_notification`.

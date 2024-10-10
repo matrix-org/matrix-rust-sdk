@@ -79,7 +79,7 @@ impl RoomDirectorySearch {
     }
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl RoomDirectorySearch {
     pub async fn next_page(&self) -> Result<(), ClientError> {
         let mut inner = self.inner.write().await;
