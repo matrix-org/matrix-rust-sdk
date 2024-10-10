@@ -35,7 +35,6 @@ as_variant = { workspace = true }
 async-trait = { workspace = true }
 bs58 = { version = "0.5.0" }
 byteorder = { workspace = true }
-cbc = { version = "0.1.2", features = ["std"] }
 cfg-if = "1.0"
 ctr = "0.9.1"
 eyeball = { workspace = true }
