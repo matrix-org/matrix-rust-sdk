@@ -135,6 +135,9 @@ impl RoomListService {
                 .with_to_device_extension(
                     assign!(http::request::ToDevice::default(), { enabled: Some(true) }),
                 );
+        } else {
+            // TODO: This is racy with encryption, needs cross-process lock
+            builder = builder.share_pos();
         }
 
         let sliding_sync = builder
