@@ -24,18 +24,7 @@ use super::{EventTimelineItem, VirtualTimelineItem};
 /// stable identifier for UI purposes, as well as operations on the event
 /// represented by the item.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
-pub struct TimelineUniqueId(pub(crate) String);
-
-#[cfg(all(not(tarpaulin_include), feature = "uniffi"))] // debug-logging functionality
-#[matrix_sdk_ffi_macros::export]
-impl TimelineUniqueId {
-    /// Returns a debug string representing the unique id, for debugging
-    /// purposes.
-    pub fn debug_string(&self) -> String {
-        format!("{self:?}")
-    }
-}
+pub struct TimelineUniqueId(pub String);
 
 impl PartialEq<TimelineUniqueId> for &TimelineUniqueId {
     fn eq(&self, other: &TimelineUniqueId) -> bool {

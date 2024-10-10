@@ -32,7 +32,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{
     EventItemOrigin, LiveBackPaginationStatus, Profile, RepliedToEvent, TimelineDetails,
-    TimelineUniqueId,
+    TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
 use ruma::{
@@ -491,10 +491,10 @@ impl Timeline {
     /// local events that are being processed.
     pub async fn edit(
         &self,
-        unique_id: Arc<TimelineUniqueId>,
+        unique_id: &TimelineUniqueId,
         new_content: EditedContent,
     ) -> Result<bool, ClientError> {
-        self.inner.edit(&unique_id, new_content.try_into()?).await.map_err(Into::into)
+        self.inner.edit(&unique_id.into(), new_content.try_into()?).await.map_err(Into::into)
     }
 
     pub async fn send_location(
@@ -540,10 +540,10 @@ impl Timeline {
     /// conditions and spamming the homeserver with requests.
     pub async fn toggle_reaction(
         &self,
-        unique_id: Arc<TimelineUniqueId>,
+        unique_id: &TimelineUniqueId,
         key: String,
     ) -> Result<(), ClientError> {
-        self.inner.toggle_reaction(&unique_id, &key).await?;
+        self.inner.toggle_reaction(&unique_id.into(), &key).await?;
         Ok(())
     }
 
@@ -564,10 +564,10 @@ impl Timeline {
     /// Will return an error if the event couldn't be redacted.
     pub async fn redact(
         &self,
-        unique_id: Arc<TimelineUniqueId>,
+        unique_id: &TimelineUniqueId,
         reason: Option<String>,
     ) -> Result<(), ClientError> {
-        if !self.inner.redact(&unique_id, reason.as_deref()).await? {
+        if !self.inner.redact(&unique_id.into(), reason.as_deref()).await? {
             warn!("Couldn't redact the item");
         }
         Ok(())
@@ -826,6 +826,23 @@ pub enum TimelineChange {
     Reset,
 }
 
+#[derive(Clone, uniffi::Record)]
+pub struct TimelineUniqueId {
+    id: String,
+}
+
+impl From<&SdkTimelineUniqueId> for TimelineUniqueId {
+    fn from(value: &SdkTimelineUniqueId) -> Self {
+        Self { id: value.0.clone() }
+    }
+}
+
+impl From<&TimelineUniqueId> for SdkTimelineUniqueId {
+    fn from(value: &TimelineUniqueId) -> Self {
+        Self(value.id.clone())
+    }
+}
+
 #[repr(transparent)]
 #[derive(Clone, uniffi::Object)]
 pub struct TimelineItem(pub(crate) matrix_sdk_ui::timeline::TimelineItem);
@@ -854,10 +871,8 @@ impl TimelineItem {
     }
 
     /// An opaque unique identifier for this timeline item.
-    pub fn unique_id(&self) -> Arc<TimelineUniqueId> {
-        // Note: an `Arc` because uniffi-go (used in complement crypto) isn't up to
-        // date.
-        Arc::new(self.0.unique_id().clone())
+    pub fn unique_id(&self) -> TimelineUniqueId {
+        self.0.unique_id().into()
     }
 
     pub fn fmt_debug(&self) -> String {
