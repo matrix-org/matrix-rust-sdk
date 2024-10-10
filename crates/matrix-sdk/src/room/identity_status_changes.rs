@@ -88,17 +88,19 @@ impl IdentityStatusChanges {
         };
 
         Ok(stream!({
-            let current_state =
+            let mut current_state =
                 filter_non_self(state.room_identity_state.current_state(), &own_user_id);
             if !current_state.is_empty() {
+                current_state.sort_by(|l, r| l.user_id.cmp(&r.user_id));
                 yield current_state;
             }
             while let Some(item) = unprocessed_stream.next().await {
-                let update = filter_non_self(
+                let mut update = filter_non_self(
                     state.room_identity_state.process_change(item).await,
                     &own_user_id,
                 );
                 if !update.is_empty() {
+                    update.sort_by(|l, r| l.user_id.cmp(&r.user_id));
                     yield update;
                 }
             }
