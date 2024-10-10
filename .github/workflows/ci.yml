@@ -49,6 +49,11 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install libsqlite
+        run: |
+          sudo apt-get update
+          sudo apt-get install libsqlite3-dev
+
       - name: Load cache
         uses: Swatinem/rust-cache@v2
         with:
