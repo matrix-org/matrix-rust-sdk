@@ -62,7 +62,7 @@ pub struct SsoHandler {
     pub(crate) url: String,
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl SsoHandler {
     /// Returns the URL for starting SSO authentication. The URL should be
     /// opened in a web view. Once the web view succeeds, call `finish` with

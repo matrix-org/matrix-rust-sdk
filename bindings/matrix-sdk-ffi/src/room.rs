@@ -82,7 +82,7 @@ impl Room {
     }
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl Room {
     pub fn id(&self) -> String {
         self.inner.room_id().to_string()

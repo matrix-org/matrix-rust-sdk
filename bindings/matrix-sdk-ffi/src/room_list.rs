@@ -85,7 +85,7 @@ pub struct RoomListService {
     pub(crate) utd_hook: Option<Arc<UtdHookManager>>,
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl RoomListService {
     fn state(&self, listener: Box<dyn RoomListServiceStateListener>) -> Arc<TaskHandle> {
         let state_stream = self.inner.state();
@@ -549,7 +549,7 @@ impl RoomListItem {
     }
 }
 
-#[matrix_sdk_ffi_macros::export_async]
+#[matrix_sdk_ffi_macros::export]
 impl RoomListItem {
     fn id(&self) -> String {
         self.inner.id().to_string()

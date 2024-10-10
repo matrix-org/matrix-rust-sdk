@@ -14,65 +14,52 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{spanned::Spanned as _, ImplItem, Item};
+use syn::{ImplItem, Item, TraitItem};
 
-/// Attribute to always specify the async runtime parameter for the `uniffi`
-/// export macros.
-#[proc_macro_attribute]
-pub fn export_async(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let item = proc_macro2::TokenStream::from(item);
-
-    quote! {
-        #[uniffi::export(async_runtime = "tokio")]
-        #item
-    }
-    .into()
-}
-
-/// Attribute to always specify the async runtime parameter for the `uniffi`
-/// export macros.
+/// Attribute to specify the async runtime parameter for the `uniffi`
+/// export macros if there any `async fn`s in the input.
 #[proc_macro_attribute]
 pub fn export(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let run_checks = || {
-        let item: Item = syn::parse(item.clone())?;
+    let has_async_fn = |item| {
         if let Item::Fn(fun) = &item {
-            // Fail compilation if the function is async.
             if fun.sig.asyncness.is_some() {
-                let error = syn::Error::new(
-                    fun.span(),
-                    "async function must be exported with #[export_async]",
-                );
-                return Err(error);
+                return true;
             }
         } else if let Item::Impl(blk) = &item {
-            // Fail compilation if at least one function in the impl block is async.
             for item in &blk.items {
                 if let ImplItem::Fn(fun) = item {
                     if fun.sig.asyncness.is_some() {
-                        let error = syn::Error::new(
-                            blk.span(),
-                            "impl block with async functions must be exported with #[export_async]",
-                        );
-                        return Err(error);
+                        return true;
+                    }
+                }
+            }
+        } else if let Item::Trait(blk) = &item {
+            for item in &blk.items {
+                if let TraitItem::Fn(fun) = item {
+                    if fun.sig.asyncness.is_some() {
+                        return true;
                     }
                 }
             }
         }
 
-        Ok(())
+        false
     };
 
-    let maybe_error =
-        if let Err(err) = run_checks() { Some(err.into_compile_error()) } else { None };
+    let attr2 = proc_macro2::TokenStream::from(attr);
+    let item2 = proc_macro2::TokenStream::from(item.clone());
 
-    let item = proc_macro2::TokenStream::from(item);
-    let attr = proc_macro2::TokenStream::from(attr);
+    let res = match syn::parse(item) {
+        Ok(item) => match has_async_fn(item) {
+            true => quote! { #[uniffi::export(async_runtime = "tokio", #attr2)] },
+            false => quote! { #[uniffi::export(#attr2)] },
+        },
+        Err(e) => e.into_compile_error(),
+    };
 
     quote! {
-        #maybe_error
-
-        #[uniffi::export(#attr)]
-        #item
+        #res
+        #item2
     }
     .into()
 }
