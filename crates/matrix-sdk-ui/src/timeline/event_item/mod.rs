@@ -237,11 +237,20 @@ impl EventTimelineItem {
     ///
     /// This returns `true` for events created locally, until the server echoes
     /// back the full event as part of a sync response.
+    ///
+    /// This is the opposite of [`Self::is_remote_event`].
     pub fn is_local_echo(&self) -> bool {
         matches!(self.kind, EventTimelineItemKind::Local(_))
     }
 
-    pub(super) fn is_remote_event(&self) -> bool {
+    /// Check whether this item is a remote event.
+    ///
+    /// This returns `true` only for events that have been echoed back from the
+    /// homeserver. A local echo sent but not echoed back yet will return
+    /// `false` here.
+    ///
+    /// This is the opposite of [`Self::is_local_echo`].
+    pub fn is_remote_event(&self) -> bool {
         matches!(self.kind, EventTimelineItemKind::Remote(_))
     }
 

@@ -995,7 +995,7 @@ impl From<SdkShieldState> for ShieldState {
 
 #[derive(Clone, uniffi::Record)]
 pub struct EventTimelineItem {
-    is_local: bool,
+    /// Indicates that an event is remote.
     is_remote: bool,
     /// An event id, for events that have been remote-echoed.
     event_id: Option<String>,
@@ -1040,8 +1040,7 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
         let read_receipts =
             item.read_receipts().iter().map(|(k, v)| (k.to_string(), v.clone().into())).collect();
         Self {
-            is_local: item.is_local_echo(),
-            is_remote: !item.is_local_echo(),
+            is_remote: item.is_remote_event(),
             event_id: item.event_id().map(ToString::to_string),
             transaction_id: item.transaction_id().map(ToString::to_string),
             sender: item.sender().to_string(),
