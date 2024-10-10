@@ -22,7 +22,8 @@ use itertools::Itertools;
 use matrix_sdk_common::{
     deserialized_responses::{
         AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, UnableToDecryptInfo,
-        UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel, VerificationState,
+        UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel,
+        VerificationState,
     },
     BoxFuture,
 };
@@ -94,7 +95,7 @@ use crate::{
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
     CrossSigningKeyExport, CryptoStoreError, DecryptionSettings, DeviceData, KeysQueryRequest,
-    LocalTrust, SignatureError, ToDeviceRequest, TrustRequirement,
+    LocalTrust, RoomEventDecryptionResult, SignatureError, ToDeviceRequest, TrustRequirement,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -1734,6 +1735,34 @@ impl OlmMachine {
         }
     }
 
+    /// Attempt to decrypt an event from a room timeline, returning information
+    /// on the failure if it fails.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event that should be decrypted.
+    ///
+    /// * `room_id` - The ID of the room where the event was sent to.
+    ///
+    /// # Returns
+    ///
+    /// The decrypted event, if it was successfully decrypted. Otherwise,
+    /// information on the failure, unless the failure was due to an
+    /// internal error, in which case, an `Err` result.
+    pub async fn try_decrypt_room_event(
+        &self,
+        raw_event: &Raw<EncryptedEvent>,
+        room_id: &RoomId,
+        decryption_settings: &DecryptionSettings,
+    ) -> Result<RoomEventDecryptionResult, CryptoStoreError> {
+        match self.decrypt_room_event_inner(raw_event, room_id, true, decryption_settings).await {
+            Ok(decrypted) => Ok(RoomEventDecryptionResult::Decrypted(decrypted)),
+            Err(e) => Ok(RoomEventDecryptionResult::UnableToDecrypt(megolm_error_to_utd_info(
+                raw_event, e,
+            )?)),
+        }
+    }
+
     /// Decrypt an event from a room timeline.
     ///
     /// # Arguments
@@ -1902,18 +1931,13 @@ impl OlmMachine {
                     *event = serde_json::to_value(decrypted_event.event).ok()?;
                     Some(UnsignedDecryptionResult::Decrypted(decrypted_event.encryption_info))
                 }
-                Err(_) => {
-                    let session_id =
-                        raw_event.deserialize().ok().and_then(|ev| match ev.content.scheme {
-                            RoomEventEncryptionScheme::MegolmV1AesSha2(s) => Some(s.session_id),
-                            #[cfg(feature = "experimental-algorithms")]
-                            RoomEventEncryptionScheme::MegolmV2AesSha2(s) => Some(s.session_id),
-                            RoomEventEncryptionScheme::Unknown(_) => None,
-                        });
-
-                    Some(UnsignedDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
-                        session_id,
-                    }))
+                Err(e) => {
+                    // For now, we throw away crypto store errors and just treat the unsigned event
+                    // as unencrypted. Crypto store errors represent problems with the application
+                    // rather than normal UTD errors, so they should probably be propagated
+                    // rather than swallowed.
+                    let utd_info = megolm_error_to_utd_info(&raw_event, e).ok()?;
+                    Some(UnsignedDecryptionResult::UnableToDecrypt(utd_info))
                 }
             }
         })
@@ -2538,6 +2562,38 @@ pub struct EncryptionSyncChanges<'a> {
     pub unused_fallback_keys: Option<&'a [DeviceKeyAlgorithm]>,
     /// A next-batch token obtained from a to-device sync query.
     pub next_batch_token: Option<String>,
+}
+
+fn megolm_error_to_utd_info(
+    raw_event: &Raw<EncryptedEvent>,
+    error: MegolmError,
+) -> Result<UnableToDecryptInfo, CryptoStoreError> {
+    use MegolmError::*;
+    let reason = match error {
+        EventError(_) => UnableToDecryptReason::MalformedEncryptedEvent,
+        Decode(_) => UnableToDecryptReason::MalformedEncryptedEvent,
+        MissingRoomKey(_) => UnableToDecryptReason::MissingMegolmSession,
+        Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
+            UnableToDecryptReason::UnknownMegolmMessageIndex
+        }
+        Decryption(_) => UnableToDecryptReason::MegolmDecryptionFailure,
+        JsonError(_) => UnableToDecryptReason::PayloadDeserializationFailure,
+        MismatchedIdentityKeys(_) => UnableToDecryptReason::MismatchedIdentityKeys,
+        SenderIdentityNotTrusted(level) => UnableToDecryptReason::SenderIdentityNotTrusted(level),
+
+        // Pass through crypto store errors, which indicate a problem with our
+        // application, rather than a UTD.
+        Store(error) => Err(error)?,
+    };
+
+    let session_id = raw_event.deserialize().ok().and_then(|ev| match ev.content.scheme {
+        RoomEventEncryptionScheme::MegolmV1AesSha2(s) => Some(s.session_id),
+        #[cfg(feature = "experimental-algorithms")]
+        RoomEventEncryptionScheme::MegolmV2AesSha2(s) => Some(s.session_id),
+        RoomEventEncryptionScheme::Unknown(_) => None,
+    });
+
+    Ok(UnableToDecryptInfo { session_id, reason })
 }
 
 #[cfg(test)]
