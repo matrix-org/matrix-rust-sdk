@@ -29,7 +29,8 @@ use futures_util::Stream;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     store::DynCryptoStore, CollectStrategy, DecryptionSettings, EncryptionSettings,
-    EncryptionSyncChanges, OlmError, OlmMachine, ToDeviceRequest, TrustRequirement,
+    EncryptionSyncChanges, OlmError, OlmMachine, RoomEventDecryptionResult, ToDeviceRequest,
+    TrustRequirement,
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -343,6 +344,13 @@ impl BaseClient {
         Ok(())
     }
 
+    /// Attempt to decrypt the given raw event into a `SyncTimelineEvent`.
+    ///
+    /// In the case of a decryption error, returns a `SyncTimelineEvent`
+    /// representing the decryption error; in the case of problems with our
+    /// application, returns `Err`.
+    ///
+    /// Returns `Ok(None)` if encryption is not configured.
     #[cfg(feature = "e2e-encryption")]
     async fn decrypt_sync_room_event(
         &self,
@@ -355,24 +363,37 @@ impl BaseClient {
         let decryption_settings = DecryptionSettings {
             sender_device_trust_requirement: self.decryption_trust_requirement,
         };
-        let event: SyncTimelineEvent =
-            olm.decrypt_room_event(event.cast_ref(), room_id, &decryption_settings).await?.into();
 
-        if let Ok(AnySyncTimelineEvent::MessageLike(e)) = event.raw().deserialize() {
-            match &e {
-                AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
-                    original_event,
-                )) => {
-                    if let MessageType::VerificationRequest(_) = &original_event.content.msgtype {
-                        self.handle_verification_event(&e, room_id).await?;
+        let event = match olm
+            .try_decrypt_room_event(event.cast_ref(), room_id, &decryption_settings)
+            .await?
+        {
+            RoomEventDecryptionResult::Decrypted(decrypted) => {
+                let event: SyncTimelineEvent = decrypted.into();
+
+                if let Ok(AnySyncTimelineEvent::MessageLike(e)) = event.raw().deserialize() {
+                    match &e {
+                        AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
+                            original_event,
+                        )) => {
+                            if let MessageType::VerificationRequest(_) =
+                                &original_event.content.msgtype
+                            {
+                                self.handle_verification_event(&e, room_id).await?;
+                            }
+                        }
+                        _ if e.event_type().to_string().starts_with("m.key.verification") => {
+                            self.handle_verification_event(&e, room_id).await?;
+                        }
+                        _ => (),
                     }
                 }
-                _ if e.event_type().to_string().starts_with("m.key.verification") => {
-                    self.handle_verification_event(&e, room_id).await?;
-                }
-                _ => (),
+                event
             }
-        }
+            RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
+                SyncTimelineEvent::new_utd_event(event.clone(), utd_info)
+            }
+        };
 
         Ok(Some(event))
     }
@@ -460,10 +481,10 @@ impl BaseClient {
                             AnySyncMessageLikeEvent::RoomEncrypted(
                                 SyncMessageLikeEvent::Original(_),
                             ) => {
-                                if let Ok(Some(e)) = Box::pin(
+                                if let Some(e) = Box::pin(
                                     self.decrypt_sync_room_event(event.raw(), room.room_id()),
                                 )
-                                .await
+                                .await?
                                 {
                                     event = e;
                                 }
