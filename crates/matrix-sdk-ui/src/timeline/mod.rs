@@ -669,6 +669,15 @@ impl Timeline {
         Ok(true)
     }
 
+    /// Returns a timeline item, given its unique id.
+    pub async fn event_timeline_item_by_unique_id(
+        &self,
+        unique_id: &TimelineUniqueId,
+    ) -> Option<EventTimelineItem> {
+        let items = &self.controller.items().await;
+        rfind_event_by_uid(items, unique_id).map(|(_item_pos, item)| item.inner.clone())
+    }
+
     /// Fetch unavailable details about the event with the given ID.
     ///
     /// This method only works for IDs of remote [`EventTimelineItem`]s,
