@@ -33,7 +33,6 @@ matrix-sdk-ui = { workspace = true, features = ["uniffi"] }
 mime = "0.3.16"
 once_cell = { workspace = true }
 ruma = { workspace = true, features = ["html", "unstable-unspecified", "unstable-msc3488", "compat-unset-avatar", "unstable-msc3245-v1-compat"] }
-sanitize-filename-reader-friendly = "2.2.1"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
