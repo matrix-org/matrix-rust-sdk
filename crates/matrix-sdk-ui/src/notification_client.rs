@@ -20,10 +20,7 @@ use std::{
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{room::Room, Client, ClientBuildError, SlidingSyncList, SlidingSyncMode};
 use matrix_sdk_base::{
-    crypto::{vodozemac, MegolmError},
-    deserialized_responses::TimelineEvent,
-    sliding_sync::http,
-    RoomState, StoreError,
+    deserialized_responses::TimelineEvent, sliding_sync::http, RoomState, StoreError,
 };
 use ruma::{
     assign,
@@ -216,23 +213,23 @@ impl NotificationClient {
 
                         tokio::time::sleep(Duration::from_millis(wait)).await;
 
-                        match room.decrypt_event(raw_event.cast_ref()).await {
-                            Ok(new_event) => {
+                        let new_event = room.decrypt_event(raw_event.cast_ref()).await?;
+
+                        match new_event.kind {
+                            matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
+                                utd_info, ..} => {
+                                if utd_info.reason.is_missing_room_key() {
+                                    // Decryption error that could be caused by a missing room
+                                    // key; retry in a few.
+                                    wait *= 2;
+                                } else {
+                                    debug!("Event could not be decrypted, but waiting longer is unlikely to help: {:?}", utd_info.reason);
+                                    return Ok(None);
+                                }
+                            }
+                            _ => {
                                 trace!("Waiting succeeded and event could be decrypted!");
                                 return Ok(Some(new_event));
-                            }
-                            Err(matrix_sdk::Error::MegolmError(
-                                MegolmError::MissingRoomKey(_)
-                                | MegolmError::Decryption(
-                                    vodozemac::megolm::DecryptionError::UnknownMessageIndex(_, _),
-                                ),
-                            )) => {
-                                // Decryption error that could be caused by a missing room key;
-                                // retry in a few.
-                                wait *= 2;
-                            }
-                            Err(err) => {
-                                return Err(err.into());
                             }
                         }
                     }
@@ -259,10 +256,21 @@ impl NotificationClient {
         match encryption_sync {
             Ok(sync) => match sync.run_fixed_iterations(2, sync_permit_guard).await {
                 Ok(()) => match room.decrypt_event(raw_event.cast_ref()).await {
-                    Ok(new_event) => {
-                        trace!("Encryption sync managed to decrypt the event.");
-                        Ok(Some(new_event))
-                    }
+                    Ok(new_event) => match new_event.kind {
+                        matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
+                            utd_info, ..
+                        } => {
+                            trace!(
+                                "Encryption sync failed to decrypt the event: {:?}",
+                                utd_info.reason
+                            );
+                            Ok(None)
+                        }
+                        _ => {
+                            trace!("Encryption sync managed to decrypt the event.");
+                            Ok(Some(new_event))
+                        }
+                    },
                     Err(err) => {
                         trace!("Encryption sync failed to decrypt the event: {err}");
                         Ok(None)

@@ -708,6 +708,14 @@ pub enum UnableToDecryptReason {
     SenderIdentityNotTrusted(VerificationLevel),
 }
 
+impl UnableToDecryptReason {
+    /// Returns true if this UTD is due to a missing room key (and hence might
+    /// resolve itself if we wait a bit.)
+    pub fn is_missing_room_key(&self) -> bool {
+        matches!(self, Self::MissingMegolmSession | Self::UnknownMegolmMessageIndex)
+    }
+}
+
 /// Deserialization helper for [`SyncTimelineEvent`], for the modern format.
 ///
 /// This has the exact same fields as [`SyncTimelineEvent`] itself, but has a
