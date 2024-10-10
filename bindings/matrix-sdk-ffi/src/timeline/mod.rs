@@ -547,6 +547,14 @@ impl Timeline {
         Ok(())
     }
 
+    /// Returns a timeline item, given its unique id.
+    pub async fn event_timeline_item_by_unique_id(
+        &self,
+        unique_id: &TimelineUniqueId,
+    ) -> Option<EventTimelineItem> {
+        self.inner.event_timeline_item_by_unique_id(&unique_id.into()).await.map(Into::into)
+    }
+
     pub async fn fetch_details_for_event(&self, event_id: String) -> Result<(), ClientError> {
         let event_id = <&EventId>::try_from(event_id.as_str())?;
         self.inner.fetch_details_for_event(event_id).await.context("Fetching event details")?;
