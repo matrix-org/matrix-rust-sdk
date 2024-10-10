@@ -18,30 +18,15 @@ use std::{future::Future, ops::ControlFlow, sync::Arc, time::Duration};
 
 use eyeball::Subscriber;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
-use tokio::{sync::Notify, time::timeout};
+use tokio::time::timeout;
 use tracing::{debug, instrument, trace};
 
 use super::{
-    paginator::{PaginableRoom, PaginationResult, Paginator, PaginatorState},
+    paginator::{PaginationResult, PaginatorState},
     store::Gap,
     BackPaginationOutcome, Result, RoomEventCacheInner,
 };
 use crate::event_cache::{linked_chunk::ChunkContent, store::RoomEvents};
-
-#[derive(Debug)]
-pub(super) struct RoomPaginationData<PR: PaginableRoom> {
-    /// A notifier that we received a new pagination token.
-    pub token_notifier: Notify,
-
-    /// The stateful paginator instance used for the integrated pagination.
-    pub paginator: Paginator<PR>,
-}
-
-impl<PR: PaginableRoom> RoomPaginationData<PR> {
-    pub(super) fn new(room: PR) -> Self {
-        Self { token_notifier: Default::default(), paginator: Paginator::new(room) }
-    }
-}
 
 /// An API object to run pagination queries on a [`super::RoomEventCache`].
 ///
@@ -135,7 +120,7 @@ impl RoomPagination {
 
         let prev_token = self.get_or_wait_for_token(Some(DEFAULT_WAIT_FOR_TOKEN_DURATION)).await;
 
-        let paginator = &self.inner.pagination.paginator;
+        let paginator = &self.inner.paginator;
 
         paginator.set_idle_state(PaginatorState::Idle, prev_token.clone(), None)?;
 
@@ -282,7 +267,7 @@ impl RoomPagination {
         // Otherwise, wait for a notification that we received a previous-batch token.
         // Note the state lock is released while doing so, allowing other tasks to write
         // into the linked chunk.
-        let _ = timeout(wait_time, self.inner.pagination.token_notifier.notified()).await;
+        let _ = timeout(wait_time, self.inner.pagination_batch_token_notifier.notified()).await;
 
         let mut state = self.inner.state.write().await;
         let token = get_oldest(&state.events);
@@ -293,7 +278,7 @@ impl RoomPagination {
     /// Returns a subscriber to the pagination status used for the
     /// back-pagination integrated to the event cache.
     pub fn status(&self) -> Subscriber<PaginatorState> {
-        self.inner.pagination.paginator.state()
+        self.inner.paginator.state()
     }
 
     /// Returns whether we've hit the start of the timeline.
@@ -301,7 +286,7 @@ impl RoomPagination {
     /// This is true if, and only if, we didn't have a previous-batch token and
     /// running backwards pagination would be useless.
     pub fn hit_timeline_start(&self) -> bool {
-        self.inner.pagination.paginator.hit_timeline_start()
+        self.inner.paginator.hit_timeline_start()
     }
 
     /// Returns whether we've hit the end of the timeline.
@@ -309,7 +294,7 @@ impl RoomPagination {
     /// This is true if, and only if, we didn't have a next-batch token and
     /// running forwards pagination would be useless.
     pub fn hit_timeline_end(&self) -> bool {
-        self.inner.pagination.paginator.hit_timeline_end()
+        self.inner.paginator.hit_timeline_end()
     }
 }
 
