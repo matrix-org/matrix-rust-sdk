@@ -628,6 +628,49 @@ pub struct UnableToDecryptInfo {
     /// `m.megolm.v1.aes-sha2` algorithm.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+
+    /// Reason code for the decryption failure
+    pub reason: UnableToDecryptReason,
+}
+
+/// Reason code for a decryption failure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum UnableToDecryptReason {
+    /// The `m.room.encrypted` event that should have been decrypted is
+    /// malformed in some way (e.g. unsupported algorithm, missing fields,
+    /// unknown megolm message type).
+    MalformedEncryptedEvent,
+
+    /// Decryption failed because we're missing the megolm session that was used
+    /// to encrypt the event.
+    ///
+    /// TODO: support withheld codes?
+    MissingMegolmSession,
+
+    /// Decryption failed because, while we have the megolm session that was
+    /// used to encrypt the message, it is ratcheted too far forward.
+    UnknownMegolmMessageIndex,
+
+    /// We found the Megolm session, but were unable to decrypt the event using
+    /// that session for some reason (e.g. incorrect MAC).
+    ///
+    /// This represents all `vodozemac::megolm::DecryptionError`s, with the
+    /// exception of `UnknownMessageIndex`, which is represented as
+    /// `UnknownMegolmMessageIndex`.
+    MegolmDecryptionFailure,
+
+    /// The event could not be deserialized after decryption.
+    PayloadDeserializationFailure,
+
+    /// Decryption failed because of a mismatch between the identity keys of the
+    /// device we received the room key from and the identity keys recorded in
+    /// the plaintext of the room key to-device message.
+    MismatchedIdentityKeys,
+
+    /// An encrypted message wasn't decrypted, because the sender's
+    /// cross-signing identity did not satisfy the requested
+    /// `TrustRequirement`.
+    SenderIdentityNotTrusted(VerificationLevel),
 }
 
 /// Deserialization helper for [`SyncTimelineEvent`], for the modern format.
