@@ -2,6 +2,12 @@
 
 Changes:
 
+- Add new method `OlmMachine::try_decrypt_room_event`.
+  ([#4116](https://github.com/matrix-org/matrix-rust-sdk/pull/4116))
+
+- Add reason code to `matrix_sdk_common::deserialized_responses::UnableToDecryptInfo`.
+  ([#4116](https://github.com/matrix-org/matrix-rust-sdk/pull/4116))
+
 - The `UserIdentity` struct has been renamed to `OtherUserIdentity`
   ([#4036](https://github.com/matrix-org/matrix-rust-sdk/pull/4036]))
 
@@ -65,7 +71,7 @@ Breaking changes:
 
 - `OlmMachine::decrypt_room_event` now takes a `DecryptionSettings` argument,
   which includes a `TrustRequirement` indicating the required trust level for
-  the sending device.  When it is called with `TrustRequirement` other than
+  the sending device. When it is called with `TrustRequirement` other than
   `TrustRequirement::Unverified`, it may return the new
   `MegolmError::SenderIdentityNotTrusted` variant if the sending device does not
   satisfy the required trust level.
@@ -196,18 +202,20 @@ Additions:
 - Include event timestamps on logs from event decryption.
   ([#3194](https://github.com/matrix-org/matrix-rust-sdk/pull/3194))
 
-
 # 0.7.2
 
 ### Security Fixes
 
 - Fix `UserIdentity::is_verified` to take into account our own identity
-  [#d8d9dae](https://github.com/matrix-org/matrix-rust-sdk/commit/d8d9dae9d77bee48a2591b9aad9bd2fa466354cc) (Moderate, [GHSA-4qg4-cvh2-crgg](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-4qg4-cvh2-crgg)).
+  [#d8d9dae](https://github.com/matrix-org/matrix-rust-sdk/commit/d8d9dae9d77bee48a2591b9aad9bd2fa466354cc) (
+  Moderate, [GHSA-4qg4-cvh2-crgg](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-4qg4-cvh2-crgg)).
 
 # 0.7.1
+
 ### Security Fixes
 
-- Don't log the private part of the backup key, introduced in [#71136e4](https://github.com/matrix-org/matrix-rust-sdk/commit/71136e44c03c79f80d6d1a2446673bc4d53a2067).
+- Don't log the private part of the backup key, introduced
+  in [#71136e4](https://github.com/matrix-org/matrix-rust-sdk/commit/71136e44c03c79f80d6d1a2446673bc4d53a2067).
 
 # 0.7.0
 
@@ -216,11 +224,11 @@ Additions:
 
 - `OlmMachine::toggle_room_key_forwarding` is replaced by two separate methods:
 
-  * `OlmMachine::set_room_key_requests_enabled`, which controls whether
-    outgoing room key requests are enabled, and:
+    * `OlmMachine::set_room_key_requests_enabled`, which controls whether
+      outgoing room key requests are enabled, and:
 
-  * `OlmMachine::set_room_key_forwarding_enabled`, which controls whether we
-    automatically reply to incoming room key requests.
+    * `OlmMachine::set_room_key_forwarding_enabled`, which controls whether we
+      automatically reply to incoming room key requests.
 
   `OlmMachine::is_room_key_forwarding_enabled` is updated to return the setting
   of `OlmMachine::set_room_key_forwarding_enabled`, while
@@ -268,11 +276,11 @@ Additions:
 
 - The parameter order of `OlmMachine::encrypt_room_event_raw` and
   `OutboundGroupSession::encrypt` has changed, `content` is now last
-  - The parameter type of `content` has also changed, from `serde_json::Value`
-    to `&Raw<AnyMessageLikeEventContent>`
+    - The parameter type of `content` has also changed, from `serde_json::Value`
+      to `&Raw<AnyMessageLikeEventContent>`
 
 - Change the return value of `bootstrap_cross_signing` so it returns an extra
-  keys upload request.  The three requests must be sent in the order they
+  keys upload request. The three requests must be sent in the order they
   appear in the return tuple.
 
 - Stop logging large quantities of data about the `Store` during olm
