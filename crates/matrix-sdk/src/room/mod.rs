@@ -19,7 +19,7 @@ use futures_util::{
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub use identity_status_changes::IdentityStatusChanges;
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::DecryptionSettings;
+use matrix_sdk_base::crypto::{DecryptionSettings, RoomEventDecryptionResult};
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
 use matrix_sdk_base::{
@@ -1215,7 +1215,8 @@ impl Room {
     /// # Arguments
     /// * `event` - The room event to be decrypted.
     ///
-    /// Returns the decrypted event.
+    /// Returns the decrypted event. In the case of a decryption error, returns
+    /// a `TimelineEvent` representing the decryption error.
     #[cfg(feature = "e2e-encryption")]
     pub async fn decrypt_event(
         &self,
@@ -1227,24 +1228,21 @@ impl Room {
         let decryption_settings = DecryptionSettings {
             sender_device_trust_requirement: self.client.base_client().decryption_trust_requirement,
         };
-        let decrypted = match machine
-            .decrypt_room_event(event.cast_ref(), self.inner.room_id(), &decryption_settings)
-            .await
+        let mut event: TimelineEvent = match machine
+            .try_decrypt_room_event(event.cast_ref(), self.inner.room_id(), &decryption_settings)
+            .await?
         {
-            Ok(event) => event,
-            Err(e) => {
+            RoomEventDecryptionResult::Decrypted(decrypted) => decrypted.into(),
+            RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
                 self.client
                     .encryption()
                     .backups()
                     .maybe_download_room_key(self.room_id().to_owned(), event.clone());
-
-                return Err(e.into());
+                TimelineEvent::new_utd_event(event.clone().cast(), utd_info)
             }
         };
 
-        let mut event: TimelineEvent = decrypted.into();
         event.push_actions = self.event_push_actions(event.raw()).await?;
-
         Ok(event)
     }
 
