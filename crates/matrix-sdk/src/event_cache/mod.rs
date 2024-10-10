@@ -18,26 +18,12 @@
 //! doesn't require subscribing to a specific room to get access to this
 //! information.
 //!
-//! It's intended to be fast, robust and easy to maintain.
+//! It's intended to be fast, robust and easy to maintain, having learned from
+//! previous endeavours at implementing middle to high level features elsewhere
+//! in the SDK, notably in the UI's Timeline object.
 //!
-//! See the [github issue](https://github.com/matrix-org/matrix-rust-sdk/issues/3058) for more details about the historical reasons that led us to start writing this.
-//!
-//! Most of it is still a work-in-progress, as of 2024-01-22.
-//!
-//! The desired set of features it may eventually implement is the following:
-//!
-//! - [ ] compute proper unread room counts, and use backpagination to get
-//!   missing messages/notifications/mentions, if needs be.
-//! - [ ] expose that information with a new data structure similar to the
-//!   `RoomInfo`, and that may update a `RoomListService`.
-//! - [ ] provide read receipts for each message.
-//! - [x] backwards pagination
-//! - [~] forward pagination
-//! - [ ] reconcile results with cached timelines.
-//! - [ ] retry decryption upon receiving new keys (from an encryption sync
-//!   service or from a key backup).
-//! - [ ] expose the latest event for a given room.
-//! - [ ] caching of events on-disk.
+//! See the [github issue](https://github.com/matrix-org/matrix-rust-sdk/issues/3058) for more
+//! details about the historical reasons that led us to start writing this.
 
 #![forbid(missing_docs)]
 
