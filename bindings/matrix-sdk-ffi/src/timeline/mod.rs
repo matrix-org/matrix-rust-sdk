@@ -32,6 +32,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{
     EventItemOrigin, LiveBackPaginationStatus, Profile, RepliedToEvent, TimelineDetails,
+    TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
 use ruma::{
@@ -52,7 +53,7 @@ use ruma::{
         },
         AnyMessageLikeEventContent,
     },
-    EventId, OwnedTransactionId,
+    EventId,
 };
 use tokio::{
     sync::Mutex,
@@ -67,7 +68,6 @@ use crate::client_builder::ClientBuilder;
 use crate::{
     client::ProgressWatcher,
     error::{ClientError, RoomError},
-    event::EventOrTransactionId,
     helpers::unwrap_or_clone_arc,
     ruma::{
         AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, PollKind, ThumbnailInfo,
@@ -491,13 +491,10 @@ impl Timeline {
     /// local events that are being processed.
     pub async fn edit(
         &self,
-        event_or_transaction_id: EventOrTransactionId,
+        unique_id: &TimelineUniqueId,
         new_content: EditedContent,
     ) -> Result<bool, ClientError> {
-        self.inner
-            .edit_by_id(&(event_or_transaction_id.try_into()?), new_content.try_into()?)
-            .await
-            .map_err(Into::into)
+        self.inner.edit(&unique_id.into(), new_content.try_into()?).await.map_err(Into::into)
     }
 
     pub async fn send_location(
@@ -541,56 +538,27 @@ impl Timeline {
     ///
     /// Ensures that only one reaction is sent at a time to avoid race
     /// conditions and spamming the homeserver with requests.
-    pub async fn toggle_reaction(&self, unique_id: String, key: String) -> Result<(), ClientError> {
-        self.inner.toggle_reaction(&unique_id, &key).await?;
+    pub async fn toggle_reaction(
+        &self,
+        unique_id: &TimelineUniqueId,
+        key: String,
+    ) -> Result<(), ClientError> {
+        self.inner.toggle_reaction(&unique_id.into(), &key).await?;
         Ok(())
+    }
+
+    /// Returns a timeline item, given its unique id.
+    pub async fn event_timeline_item_by_unique_id(
+        &self,
+        unique_id: &TimelineUniqueId,
+    ) -> Option<EventTimelineItem> {
+        self.inner.event_timeline_item_by_unique_id(&unique_id.into()).await.map(Into::into)
     }
 
     pub async fn fetch_details_for_event(&self, event_id: String) -> Result<(), ClientError> {
         let event_id = <&EventId>::try_from(event_id.as_str())?;
         self.inner.fetch_details_for_event(event_id).await.context("Fetching event details")?;
         Ok(())
-    }
-
-    /// Get the current timeline item for the given event ID, if any.
-    ///
-    /// Will return a remote event, *or* a local echo that has been sent but not
-    /// yet replaced by a remote echo.
-    ///
-    /// It's preferable to store the timeline items in the model for your UI, if
-    /// possible, instead of just storing IDs and coming back to the timeline
-    /// object to look up items.
-    pub async fn get_event_timeline_item_by_event_id(
-        &self,
-        event_id: String,
-    ) -> Result<EventTimelineItem, ClientError> {
-        let event_id = EventId::parse(event_id)?;
-        let item = self
-            .inner
-            .item_by_event_id(&event_id)
-            .await
-            .context("Item with given event ID not found")?;
-        Ok(item.into())
-    }
-
-    /// Get the current timeline item for the given transaction ID, if any.
-    ///
-    /// This will always return a local echo, if found.
-    ///
-    /// It's preferable to store the timeline items in the model for your UI, if
-    /// possible, instead of just storing IDs and coming back to the timeline
-    /// object to look up items.
-    pub async fn get_event_timeline_item_by_transaction_id(
-        &self,
-        transaction_id: String,
-    ) -> Result<EventTimelineItem, ClientError> {
-        let transaction_id: OwnedTransactionId = transaction_id.into();
-        let item = self
-            .inner
-            .local_item_by_transaction_id(&transaction_id)
-            .await
-            .context("Item with given transaction ID not found")?;
-        Ok(item.into())
     }
 
     /// Redacts an event from the timeline.
@@ -602,15 +570,15 @@ impl Timeline {
     /// redacted by sending a redaction request to the server.
     ///
     /// Will return an error if the event couldn't be redacted.
-    pub async fn redact_event(
+    pub async fn redact(
         &self,
-        event_or_transaction_id: EventOrTransactionId,
+        unique_id: &TimelineUniqueId,
         reason: Option<String>,
     ) -> Result<(), ClientError> {
-        self.inner
-            .redact_by_id(&(event_or_transaction_id.try_into()?), reason.as_deref())
-            .await
-            .map_err(Into::into)
+        if !self.inner.redact(&unique_id.into(), reason.as_deref()).await? {
+            warn!("Couldn't redact the item");
+        }
+        Ok(())
     }
 
     /// Load the reply details for the given event id.
@@ -866,6 +834,23 @@ pub enum TimelineChange {
     Reset,
 }
 
+#[derive(Clone, uniffi::Record)]
+pub struct TimelineUniqueId {
+    id: String,
+}
+
+impl From<&SdkTimelineUniqueId> for TimelineUniqueId {
+    fn from(value: &SdkTimelineUniqueId) -> Self {
+        Self { id: value.0.clone() }
+    }
+}
+
+impl From<&TimelineUniqueId> for SdkTimelineUniqueId {
+    fn from(value: &TimelineUniqueId) -> Self {
+        Self(value.id.clone())
+    }
+}
+
 #[repr(transparent)]
 #[derive(Clone, uniffi::Object)]
 pub struct TimelineItem(pub(crate) matrix_sdk_ui::timeline::TimelineItem);
@@ -893,8 +878,9 @@ impl TimelineItem {
         }
     }
 
-    pub fn unique_id(&self) -> String {
-        self.0.unique_id().to_owned()
+    /// An opaque unique identifier for this timeline item.
+    pub fn unique_id(&self) -> TimelineUniqueId {
+        self.0.unique_id().into()
     }
 
     pub fn fmt_debug(&self) -> String {
@@ -1032,9 +1018,14 @@ impl From<SdkShieldState> for ShieldState {
 
 #[derive(Clone, uniffi::Record)]
 pub struct EventTimelineItem {
-    is_local: bool,
+    /// Indicates that an event is remote.
     is_remote: bool,
-    event_or_transaction_id: EventOrTransactionId,
+    /// An event id, for events that have been remote-echoed.
+    event_id: Option<String>,
+    /// A transaction id, for events waiting in the send queue.
+    ///
+    /// Note: not set for remote-echoes.
+    transaction_id: Option<String>,
     sender: String,
     sender_profile: ProfileDetails,
     is_own: bool,
@@ -1042,17 +1033,16 @@ pub struct EventTimelineItem {
     content: TimelineItemContent,
     timestamp: u64,
     reactions: Vec<Reaction>,
-    debug_info_provider: Arc<EventTimelineItemDebugInfoProvider>,
     local_send_state: Option<EventSendState>,
     read_receipts: HashMap<String, Receipt>,
     origin: Option<EventItemOrigin>,
     can_be_replied_to: bool,
-    shields_provider: Arc<EventShieldsProvider>,
+    lazy_provider: Arc<LazyTimelineItemProvider>,
 }
 
 impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
-    fn from(value: matrix_sdk_ui::timeline::EventTimelineItem) -> Self {
-        let reactions = value
+    fn from(item: matrix_sdk_ui::timeline::EventTimelineItem) -> Self {
+        let reactions = item
             .reactions()
             .iter()
             .map(|(k, v)| Reaction {
@@ -1066,28 +1056,26 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
                     .collect(),
             })
             .collect();
-        let value = Arc::new(value);
-        let debug_info_provider = Arc::new(EventTimelineItemDebugInfoProvider(value.clone()));
-        let shields_provider = Arc::new(EventShieldsProvider(value.clone()));
+        let item = Arc::new(item);
+        let lazy_provider = Arc::new(LazyTimelineItemProvider(item.clone()));
         let read_receipts =
-            value.read_receipts().iter().map(|(k, v)| (k.to_string(), v.clone().into())).collect();
+            item.read_receipts().iter().map(|(k, v)| (k.to_string(), v.clone().into())).collect();
         Self {
-            is_local: value.is_local_echo(),
-            is_remote: !value.is_local_echo(),
-            event_or_transaction_id: value.identifier().into(),
-            sender: value.sender().to_string(),
-            sender_profile: value.sender_profile().into(),
-            is_own: value.is_own(),
-            is_editable: value.is_editable(),
-            content: value.content().clone().into(),
-            timestamp: value.timestamp().0.into(),
+            is_remote: item.is_remote_event(),
+            event_id: item.event_id().map(ToString::to_string),
+            transaction_id: item.transaction_id().map(ToString::to_string),
+            sender: item.sender().to_string(),
+            sender_profile: item.sender_profile().into(),
+            is_own: item.is_own(),
+            is_editable: item.is_editable(),
+            content: item.content().clone().into(),
+            timestamp: item.timestamp().0.into(),
             reactions,
-            debug_info_provider,
-            local_send_state: value.send_state().map(|s| s.into()),
+            local_send_state: item.send_state().map(|s| s.into()),
             read_receipts,
-            origin: value.origin(),
-            can_be_replied_to: value.can_be_replied_to(),
-            shields_provider,
+            origin: item.origin(),
+            can_be_replied_to: item.can_be_replied_to(),
+            lazy_provider,
         }
     }
 }
@@ -1100,22 +1088,6 @@ pub struct Receipt {
 impl From<ruma::events::receipt::Receipt> for Receipt {
     fn from(value: ruma::events::receipt::Receipt) -> Self {
         Receipt { timestamp: value.ts.map(|ts| ts.0.into()) }
-    }
-}
-
-/// Wrapper to retrieve the debug info lazily instead of immediately
-/// transforming it for each timeline event.
-#[derive(uniffi::Object)]
-pub struct EventTimelineItemDebugInfoProvider(Arc<matrix_sdk_ui::timeline::EventTimelineItem>);
-
-#[matrix_sdk_ffi_macros::export]
-impl EventTimelineItemDebugInfoProvider {
-    fn get(&self) -> EventTimelineItemDebugInfo {
-        EventTimelineItemDebugInfo {
-            model: format!("{:#?}", self.0),
-            original_json: self.0.original_json().map(|raw| raw.json().get().to_owned()),
-            latest_edit_json: self.0.latest_edit_json().map(|raw| raw.json().get().to_owned()),
-        }
     }
 }
 
@@ -1270,13 +1242,23 @@ impl TryFrom<EditedContent> for SdkEditedContent {
     }
 }
 
-/// Wrapper to retrieve the shields info lazily.
+/// Wrapper to retrieve some timeline item info lazily.
 #[derive(Clone, uniffi::Object)]
-pub struct EventShieldsProvider(Arc<matrix_sdk_ui::timeline::EventTimelineItem>);
+pub struct LazyTimelineItemProvider(Arc<matrix_sdk_ui::timeline::EventTimelineItem>);
 
 #[matrix_sdk_ffi_macros::export]
-impl EventShieldsProvider {
+impl LazyTimelineItemProvider {
+    /// Returns the shields for this event timeline item.
     fn get_shields(&self, strict: bool) -> Option<ShieldState> {
         self.0.get_shield(strict).map(Into::into)
+    }
+
+    /// Returns some debug information for this event timeline item.
+    fn debug_info(&self) -> EventTimelineItemDebugInfo {
+        EventTimelineItemDebugInfo {
+            model: format!("{:#?}", self.0),
+            original_json: self.0.original_json().map(|raw| raw.json().get().to_owned()),
+            latest_edit_json: self.0.latest_edit_json().map(|raw| raw.json().get().to_owned()),
+        }
     }
 }
