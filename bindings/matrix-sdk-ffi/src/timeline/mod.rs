@@ -997,7 +997,12 @@ impl From<SdkShieldState> for ShieldState {
 pub struct EventTimelineItem {
     is_local: bool,
     is_remote: bool,
+    /// An event id, for events that have been remote-echoed.
     event_id: Option<String>,
+    /// A transaction id, for events waiting in the send queue.
+    ///
+    /// Note: not set for remote-echoes.
+    transaction_id: Option<String>,
     sender: String,
     sender_profile: ProfileDetails,
     is_own: bool,
@@ -1038,6 +1043,7 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             is_local: item.is_local_echo(),
             is_remote: !item.is_local_echo(),
             event_id: item.event_id().map(ToString::to_string),
+            transaction_id: item.transaction_id().map(ToString::to_string),
             sender: item.sender().to_string(),
             sender_profile: item.sender_profile().into(),
             is_own: item.is_own(),
