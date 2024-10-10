@@ -90,6 +90,15 @@ impl From<Option<String>> for PaginationToken {
     }
 }
 
+/// Paginations tokens used for backward and forward pagination.
+#[derive(Debug)]
+struct PaginationTokens {
+    /// Pagination token used for backward pagination.
+    previous: PaginationToken,
+    /// Pagination token used for forward pagination.
+    next: PaginationToken,
+}
+
 /// A stateful object to reach to an event, and then paginate backward and
 /// forward from it.
 ///
@@ -101,15 +110,10 @@ pub struct Paginator<PR: PaginableRoom> {
     /// Current state of the paginator.
     state: SharedObservable<PaginatorState>,
 
-    /// The token to run the next backward pagination.
+    /// Pagination tokens used for subsequent requests.
     ///
-    /// This mutex is only taken for short periods of time, so it's sync.
-    prev_batch_token: Mutex<PaginationToken>,
-
-    /// The token to run the next forward pagination.
-    ///
-    /// This mutex is only taken for short periods of time, so it's sync.
-    next_batch_token: Mutex<PaginationToken>,
+    /// This mutex is always short-lived, so it's sync.
+    tokens: Mutex<PaginationTokens>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -118,8 +122,7 @@ impl<PR: PaginableRoom> std::fmt::Debug for Paginator<PR> {
         // Don't include the room in the debug output.
         f.debug_struct("Paginator")
             .field("state", &self.state.get())
-            .field("prev_batch_token", &self.prev_batch_token)
-            .field("next_batch_token", &self.next_batch_token)
+            .field("tokens", &self.tokens)
             .finish_non_exhaustive()
     }
 }
@@ -192,8 +195,7 @@ impl<PR: PaginableRoom> Paginator<PR> {
         Self {
             room,
             state: SharedObservable::new(PaginatorState::Initial),
-            prev_batch_token: Mutex::new(None.into()),
-            next_batch_token: Mutex::new(None.into()),
+            tokens: Mutex::new(PaginationTokens { previous: None.into(), next: None.into() }),
         }
     }
 
@@ -245,15 +247,19 @@ impl<PR: PaginableRoom> Paginator<PR> {
         }
 
         self.state.set_if_not_eq(next_state);
-        *self.prev_batch_token.lock().unwrap() = prev_batch_token.into();
-        *self.next_batch_token.lock().unwrap() = next_batch_token.into();
+
+        {
+            let mut tokens = self.tokens.lock().unwrap();
+            tokens.previous = prev_batch_token.into();
+            tokens.next = next_batch_token.into();
+        }
 
         Ok(())
     }
 
     /// Returns the current previous batch token, as stored in this paginator.
     pub(super) fn prev_batch_token(&self) -> Option<String> {
-        match &*self.prev_batch_token.lock().unwrap() {
+        match &self.tokens.lock().unwrap().previous {
             PaginationToken::HitEnd | PaginationToken::None => None,
             PaginationToken::HasMore(token) => Some(token.clone()),
         }
@@ -296,14 +302,17 @@ impl<PR: PaginableRoom> Paginator<PR> {
         let has_prev = response.prev_batch_token.is_some();
         let has_next = response.next_batch_token.is_some();
 
-        *self.prev_batch_token.lock().unwrap() = match response.prev_batch_token {
-            Some(token) => PaginationToken::HasMore(token),
-            None => PaginationToken::HitEnd,
-        };
-        *self.next_batch_token.lock().unwrap() = match response.next_batch_token {
-            Some(token) => PaginationToken::HasMore(token),
-            None => PaginationToken::HitEnd,
-        };
+        {
+            let mut tokens = self.tokens.lock().unwrap();
+            tokens.previous = match response.prev_batch_token {
+                Some(token) => PaginationToken::HasMore(token),
+                None => PaginationToken::HitEnd,
+            };
+            tokens.next = match response.next_batch_token {
+                Some(token) => PaginationToken::HasMore(token),
+                None => PaginationToken::HitEnd,
+            };
+        }
 
         // Forget the reset state guard, so its Drop method is not called.
         reset_state_guard.disarm();
@@ -339,7 +348,7 @@ impl<PR: PaginableRoom> Paginator<PR> {
         &self,
         num_events: UInt,
     ) -> Result<PaginationResult, PaginatorError> {
-        self.paginate(Direction::Backward, num_events, &self.prev_batch_token).await
+        self.paginate(Direction::Backward, num_events).await
     }
 
     /// Returns whether we've hit the start of the timeline.
@@ -347,7 +356,7 @@ impl<PR: PaginableRoom> Paginator<PR> {
     /// This is true if, and only if, we didn't have a previous-batch token and
     /// running backwards pagination would be useless.
     pub fn hit_timeline_start(&self) -> bool {
-        matches!(*self.prev_batch_token.lock().unwrap(), PaginationToken::HitEnd)
+        matches!(self.tokens.lock().unwrap().previous, PaginationToken::HitEnd)
     }
 
     /// Returns whether we've hit the end of the timeline.
@@ -355,7 +364,7 @@ impl<PR: PaginableRoom> Paginator<PR> {
     /// This is true if, and only if, we didn't have a next-batch token and
     /// running forwards pagination would be useless.
     pub fn hit_timeline_end(&self) -> bool {
-        matches!(*self.next_batch_token.lock().unwrap(), PaginationToken::HitEnd)
+        matches!(self.tokens.lock().unwrap().next, PaginationToken::HitEnd)
     }
 
     /// Runs a forward pagination (requesting `num_events` to the server), from
@@ -369,7 +378,7 @@ impl<PR: PaginableRoom> Paginator<PR> {
         &self,
         num_events: UInt,
     ) -> Result<PaginationResult, PaginatorError> {
-        self.paginate(Direction::Forward, num_events, &self.next_batch_token).await
+        self.paginate(Direction::Forward, num_events).await
     }
 
     /// Paginate in the given direction, requesting `num_events` events to the
@@ -379,13 +388,18 @@ impl<PR: PaginableRoom> Paginator<PR> {
         &self,
         dir: Direction,
         num_events: UInt,
-        token_lock: &Mutex<PaginationToken>,
     ) -> Result<PaginationResult, PaginatorError> {
         self.check_state(PaginatorState::Idle)?;
 
         let token = {
-            let token = token_lock.lock().unwrap();
-            match &*token {
+            let tokens = self.tokens.lock().unwrap();
+
+            let token = match dir {
+                Direction::Backward => &tokens.previous,
+                Direction::Forward => &tokens.next,
+            };
+
+            match token {
                 PaginationToken::None => None,
                 PaginationToken::HasMore(val) => Some(val.clone()),
                 PaginationToken::HitEnd => {
@@ -419,10 +433,19 @@ impl<PR: PaginableRoom> Paginator<PR> {
 
         let hit_end_of_timeline = response.end.is_none();
 
-        *token_lock.lock().unwrap() = match response.end {
-            Some(val) => PaginationToken::HasMore(val),
-            None => PaginationToken::HitEnd,
-        };
+        {
+            let mut tokens = self.tokens.lock().unwrap();
+
+            let token = match dir {
+                Direction::Backward => &mut tokens.previous,
+                Direction::Forward => &mut tokens.next,
+            };
+
+            *token = match response.end {
+                Some(val) => PaginationToken::HasMore(val),
+                None => PaginationToken::HitEnd,
+            };
+        }
 
         // TODO: what to do with state events?
 

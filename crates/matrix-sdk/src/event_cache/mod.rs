@@ -18,26 +18,12 @@
 //! doesn't require subscribing to a specific room to get access to this
 //! information.
 //!
-//! It's intended to be fast, robust and easy to maintain.
+//! It's intended to be fast, robust and easy to maintain, having learned from
+//! previous endeavours at implementing middle to high level features elsewhere
+//! in the SDK, notably in the UI's Timeline object.
 //!
-//! See the [github issue](https://github.com/matrix-org/matrix-rust-sdk/issues/3058) for more details about the historical reasons that led us to start writing this.
-//!
-//! Most of it is still a work-in-progress, as of 2024-01-22.
-//!
-//! The desired set of features it may eventually implement is the following:
-//!
-//! - [ ] compute proper unread room counts, and use backpagination to get
-//!   missing messages/notifications/mentions, if needs be.
-//! - [ ] expose that information with a new data structure similar to the
-//!   `RoomInfo`, and that may update a `RoomListService`.
-//! - [ ] provide read receipts for each message.
-//! - [x] backwards pagination
-//! - [~] forward pagination
-//! - [ ] reconcile results with cached timelines.
-//! - [ ] retry decryption upon receiving new keys (from an encryption sync
-//!   service or from a key backup).
-//! - [ ] expose the latest event for a given room.
-//! - [ ] caching of events on-disk.
+//! See the [github issue](https://github.com/matrix-org/matrix-rust-sdk/issues/3058) for more
+//! details about the historical reasons that led us to start writing this.
 
 #![forbid(missing_docs)]
 
@@ -53,7 +39,7 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, RoomUpdates, Timeline},
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
-use paginator::PaginatorState;
+use paginator::{Paginator, PaginatorState};
 use ruma::{
     events::{
         relation::RelationType,
@@ -66,13 +52,12 @@ use ruma::{
 };
 use tokio::sync::{
     broadcast::{error::RecvError, Receiver, Sender},
-    Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard,
+    Mutex, Notify, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
 use tracing::{error, info_span, instrument, trace, warn, Instrument as _, Span};
 
 use self::{
-    pagination::RoomPaginationData,
-    paginator::{Paginator, PaginatorError},
+    paginator::PaginatorError,
     store::{Gap, RoomEvents},
 };
 use crate::{client::WeakClient, room::WeakRoom, Client};
@@ -356,8 +341,8 @@ struct EventCacheInner {
     /// be updated, though (e.g. if it was encrypted before, and
     /// successfully decrypted later).
     ///
-    /// This is shared between the [`EventCache`] singleton and all
-    /// [`RoomEventCache`] instances.
+    /// This is shared between the [`EventCacheInner`] singleton and all
+    /// [`RoomEventCacheInner`] instances.
     all_events: Arc<RwLock<AllEventsCache>>,
 
     /// Handles to keep alive the task listening to updates.
@@ -383,9 +368,8 @@ impl EventCacheInner {
             // Notify all the observers that we've lost track of state. (We ignore the
             // error if there aren't any.)
             let _ = room.inner.sender.send(RoomEventCacheUpdate::Clear);
-            // Clear all the events in memory.
-            let mut events = room.inner.events.write().await;
-            room.inner.clear(&mut events).await;
+            // Clear all the room state.
+            room.inner.state.write().await.reset();
         }
     }
 
@@ -490,8 +474,8 @@ impl RoomEventCache {
     pub async fn subscribe(
         &self,
     ) -> Result<(Vec<SyncTimelineEvent>, Receiver<RoomEventCacheUpdate>)> {
-        let events =
-            self.inner.events.read().await.events().map(|(_position, item)| item.clone()).collect();
+        let state = self.inner.state.read().await;
+        let events = state.events.events().map(|(_position, item)| item.clone()).collect();
 
         Ok((events, self.inner.sender.subscribe()))
     }
@@ -505,15 +489,15 @@ impl RoomEventCache {
     /// Try to find an event by id in this room.
     pub async fn event(&self, event_id: &EventId) -> Option<SyncTimelineEvent> {
         if let Some((room_id, event)) =
-            self.inner.all_events_cache.read().await.events.get(event_id).cloned()
+            self.inner.all_events.read().await.events.get(event_id).cloned()
         {
             if room_id == self.inner.room_id {
                 return Some(event);
             }
         }
 
-        let events = self.inner.events.read().await;
-        for (_pos, event) in events.revents() {
+        let state = self.inner.state.read().await;
+        for (_pos, event) in state.events.revents() {
             if event.event_id().as_deref() == Some(event_id) {
                 return Some(event.clone());
             }
@@ -532,7 +516,7 @@ impl RoomEventCache {
     ) -> Option<(SyncTimelineEvent, Vec<SyncTimelineEvent>)> {
         let mut relation_events = Vec::new();
 
-        let cache = self.inner.all_events_cache.read().await;
+        let cache = self.inner.all_events.read().await;
         if let Some((_, event)) = cache.events.get(event_id) {
             Self::collect_related_events(&cache, event_id, &filter, &mut relation_events);
             Some((event.clone(), relation_events))
@@ -581,7 +565,7 @@ impl RoomEventCache {
     // cache. There is a discussion in https://github.com/matrix-org/matrix-rust-sdk/issues/3886.
     pub(crate) async fn save_event(&self, event: SyncTimelineEvent) {
         if let Some(event_id) = event.event_id() {
-            let mut cache = self.inner.all_events_cache.write().await;
+            let mut cache = self.inner.all_events.write().await;
 
             self.inner.append_related_event(&mut cache, &event);
             cache.events.insert(event_id, (self.inner.room_id.clone(), event));
@@ -597,7 +581,7 @@ impl RoomEventCache {
     // there'll be no distinction between the linked chunk and the separate
     // cache. There is a discussion in https://github.com/matrix-org/matrix-rust-sdk/issues/3886.
     pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = SyncTimelineEvent>) {
-        let mut cache = self.inner.all_events_cache.write().await;
+        let mut cache = self.inner.all_events.write().await;
         for event in events {
             if let Some(event_id) = event.event_id() {
                 self.inner.append_related_event(&mut cache, &event);
@@ -609,6 +593,29 @@ impl RoomEventCache {
     }
 }
 
+/// State for a single room's event cache.
+///
+/// This contains all inner mutable state that ought to be updated at the same
+/// time.
+struct RoomEventCacheState {
+    /// The events of the room.
+    events: RoomEvents,
+
+    /// Have we ever waited for a previous-batch-token to come from sync, in the
+    /// context of pagination? We do this at most once per room, the first
+    /// time we try to run backward pagination. We reset that upon clearing
+    /// the timeline events.
+    waited_for_initial_prev_token: bool,
+}
+
+impl RoomEventCacheState {
+    /// Resets this data structure as if it were brand new.
+    fn reset(&mut self) {
+        self.events.reset();
+        self.waited_for_initial_prev_token = false;
+    }
+}
+
 /// The (non-cloneable) details of the `RoomEventCache`.
 struct RoomEventCacheInner {
     /// The room id for this room.
@@ -617,11 +624,17 @@ struct RoomEventCacheInner {
     /// Sender part for subscribers to this room.
     sender: Sender<RoomEventCacheUpdate>,
 
-    /// The events of the room.
-    events: RwLock<RoomEvents>,
+    /// State for this room's event cache.
+    state: RwLock<RoomEventCacheState>,
 
-    /// See comment of [`EventCacheInner::events`].
-    all_events_cache: Arc<RwLock<AllEventsCache>>,
+    /// See comment of [`EventCacheInner::all_events`].
+    ///
+    /// This is shared between the [`EventCacheInner`] singleton and all
+    /// [`RoomEventCacheInner`] instances.
+    all_events: Arc<RwLock<AllEventsCache>>,
+
+    /// A notifier that we received a new pagination token.
+    pub pagination_batch_token_notifier: Notify,
 
     /// A paginator instance, that's configured to run back-pagination on our
     /// behalf.
@@ -631,10 +644,7 @@ struct RoomEventCacheInner {
     /// events received from those kinds of pagination with the cache. This
     /// paginator is only used for queries that interact with the actual event
     /// cache.
-    ///
-    /// It's protected behind a lock to avoid multiple accesses to the paginator
-    /// at the same time.
-    pagination: RoomPaginationData<WeakRoom>,
+    pub paginator: Paginator<WeakRoom>,
 }
 
 impl RoomEventCacheInner {
@@ -651,22 +661,15 @@ impl RoomEventCacheInner {
 
         Self {
             room_id: weak_room.room_id().to_owned(),
-            events: RwLock::new(RoomEvents::default()),
-            all_events_cache,
+            state: RwLock::new(RoomEventCacheState {
+                events: RoomEvents::default(),
+                waited_for_initial_prev_token: false,
+            }),
+            all_events: all_events_cache,
             sender,
-            pagination: RoomPaginationData {
-                paginator: Paginator::new(weak_room),
-                waited_for_initial_prev_token: Mutex::new(false),
-                token_notifier: Default::default(),
-            },
+            pagination_batch_token_notifier: Default::default(),
+            paginator: Paginator::new(weak_room),
         }
-    }
-
-    async fn clear(&self, room_events: &mut RwLockWriteGuard<'_, RoomEvents>) {
-        room_events.reset();
-
-        // Reset the back-pagination state to the initial too.
-        *self.pagination.waited_for_initial_prev_token.lock().await = false;
     }
 
     fn handle_account_data(&self, account_data: Vec<Raw<AnyRoomAccountDataEvent>>) {
@@ -769,17 +772,17 @@ impl RoomEventCacheInner {
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         // Acquire the lock.
-        let mut room_events = self.events.write().await;
+        let mut state = self.state.write().await;
 
         // Reset the room's state.
-        self.clear(&mut room_events).await;
+        state.reset();
 
         // Propagate to observers.
         let _ = self.sender.send(RoomEventCacheUpdate::Clear);
 
         // Push the new events.
         self.append_events_locked_impl(
-            room_events,
+            &mut state.events,
             sync_timeline_events,
             prev_batch.clone(),
             ephemeral_events,
@@ -788,7 +791,7 @@ impl RoomEventCacheInner {
         .await?;
 
         // Reset the paginator status to initial.
-        self.pagination.paginator.set_idle_state(PaginatorState::Initial, prev_batch, None)?;
+        self.paginator.set_idle_state(PaginatorState::Initial, prev_batch, None)?;
 
         Ok(())
     }
@@ -803,7 +806,7 @@ impl RoomEventCacheInner {
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
         self.append_events_locked_impl(
-            self.events.write().await,
+            &mut self.state.write().await.events,
             sync_timeline_events,
             prev_batch,
             ephemeral_events,
@@ -883,14 +886,12 @@ impl RoomEventCacheInner {
         }
     }
 
-    /// Append a set of events, with an attached lock.
-    ///
-    /// If the lock `room_events` is `None`, one will be created.
+    /// Append a set of events and associated room data.
     ///
     /// This is a private implementation. It must not be exposed publicly.
     async fn append_events_locked_impl(
         &self,
-        mut room_events: RwLockWriteGuard<'_, RoomEvents>,
+        room_events: &mut RoomEvents,
         sync_timeline_events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
@@ -913,7 +914,7 @@ impl RoomEventCacheInner {
 
             room_events.push_events(sync_timeline_events.clone());
 
-            let mut cache = self.all_events_cache.write().await;
+            let mut cache = self.all_events.write().await;
             for ev in &sync_timeline_events {
                 if let Some(event_id) = ev.event_id() {
                     self.append_related_event(&mut cache, ev);
@@ -925,7 +926,7 @@ impl RoomEventCacheInner {
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
         if prev_batch.is_some() {
-            self.pagination.token_notifier.notify_one();
+            self.pagination_batch_token_notifier.notify_one();
         }
 
         // The order of `RoomEventCacheUpdate`s is **really** important here.
