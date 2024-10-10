@@ -59,6 +59,7 @@ use super::{
     controller::{TimelineEnd, TimelineSettings},
     event_handler::TimelineEventKind,
     event_item::RemoteEventOrigin,
+    item::TimelineUniqueId,
     traits::RoomDataProvider,
     EventTimelineItem, Profile, TimelineController, TimelineFocus, TimelineItem,
 };
@@ -265,7 +266,11 @@ impl TestTimeline {
         self.controller.handle_read_receipts(ev_content).await;
     }
 
-    async fn toggle_reaction_local(&self, unique_id: &str, key: &str) -> Result<(), super::Error> {
+    async fn toggle_reaction_local(
+        &self,
+        unique_id: &TimelineUniqueId,
+        key: &str,
+    ) -> Result<(), super::Error> {
         if self.controller.toggle_reaction_local(unique_id, key).await? {
             // TODO(bnjbvr): hacky?
             if let Some(event_id) = self

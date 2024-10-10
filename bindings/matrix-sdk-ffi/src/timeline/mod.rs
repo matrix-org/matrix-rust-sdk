@@ -32,6 +32,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{
     EventItemOrigin, LiveBackPaginationStatus, Profile, RepliedToEvent, TimelineDetails,
+    TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
 use ruma::{
@@ -541,9 +542,21 @@ impl Timeline {
     ///
     /// Ensures that only one reaction is sent at a time to avoid race
     /// conditions and spamming the homeserver with requests.
-    pub async fn toggle_reaction(&self, unique_id: String, key: String) -> Result<(), ClientError> {
-        self.inner.toggle_reaction(&unique_id, &key).await?;
+    pub async fn toggle_reaction(
+        &self,
+        unique_id: &TimelineUniqueId,
+        key: String,
+    ) -> Result<(), ClientError> {
+        self.inner.toggle_reaction(&unique_id.into(), &key).await?;
         Ok(())
+    }
+
+    /// Returns a timeline item, given its unique id.
+    pub async fn event_timeline_item_by_unique_id(
+        &self,
+        unique_id: &TimelineUniqueId,
+    ) -> Option<EventTimelineItem> {
+        self.inner.event_timeline_item_by_unique_id(&unique_id.into()).await.map(Into::into)
     }
 
     pub async fn fetch_details_for_event(&self, event_id: String) -> Result<(), ClientError> {
@@ -866,6 +879,23 @@ pub enum TimelineChange {
     Reset,
 }
 
+#[derive(Clone, uniffi::Record)]
+pub struct TimelineUniqueId {
+    id: String,
+}
+
+impl From<&SdkTimelineUniqueId> for TimelineUniqueId {
+    fn from(value: &SdkTimelineUniqueId) -> Self {
+        Self { id: value.0.clone() }
+    }
+}
+
+impl From<&TimelineUniqueId> for SdkTimelineUniqueId {
+    fn from(value: &TimelineUniqueId) -> Self {
+        Self(value.id.clone())
+    }
+}
+
 #[repr(transparent)]
 #[derive(Clone, uniffi::Object)]
 pub struct TimelineItem(pub(crate) matrix_sdk_ui::timeline::TimelineItem);
@@ -893,8 +923,9 @@ impl TimelineItem {
         }
     }
 
-    pub fn unique_id(&self) -> String {
-        self.0.unique_id().to_owned()
+    /// An opaque unique identifier for this timeline item.
+    pub fn unique_id(&self) -> TimelineUniqueId {
+        self.0.unique_id().into()
     }
 
     pub fn fmt_debug(&self) -> String {
