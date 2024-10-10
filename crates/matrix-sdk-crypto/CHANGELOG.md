@@ -2,6 +2,12 @@
 
 Changes:
 
+- Add new method `OlmMachine::try_decrypt_room_event`.
+  ([#4116](https://github.com/matrix-org/matrix-rust-sdk/pull/4116))
+
+- Add reason code to `matrix_sdk_common::deserialized_responses::UnableToDecryptInfo`.
+  ([#4116](https://github.com/matrix-org/matrix-rust-sdk/pull/4116))
+
 - The `UserIdentity` struct has been renamed to `OtherUserIdentity`
   ([#4036](https://github.com/matrix-org/matrix-rust-sdk/pull/4036]))
 
