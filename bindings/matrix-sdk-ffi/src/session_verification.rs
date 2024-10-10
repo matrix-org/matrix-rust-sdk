@@ -38,9 +38,20 @@ pub enum SessionVerificationData {
     Decimals { values: Vec<u16> },
 }
 
+/// Details about the incoming verification request
+#[derive(Debug, uniffi::Record)]
+pub struct SessionVerificationRequestDetails {
+    sender_id: String,
+    flow_id: String,
+    device_id: String,
+    display_name: Option<String>,
+    /// First time this device was seen in milliseconds since epoch.
+    first_seen_timestamp: u64,
+}
+
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait SessionVerificationControllerDelegate: Sync + Send {
-    fn did_receive_verification_request(&self, sender_id: String, flow_id: String);
+    fn did_receive_verification_request(&self, details: SessionVerificationRequestDetails);
     fn did_accept_verification_request(&self);
     fn did_start_sas_verification(&self);
     fn did_receive_verification_data(&self, data: SessionVerificationData);
@@ -216,11 +227,20 @@ impl SessionVerificationController {
                 return;
             }
 
+            let VerificationRequestState::Requested { other_device_data, .. } = request.state()
+            else {
+                error!("Received key verification event but the request is in the wrong state.");
+                return;
+            };
+
             if let Some(delegate) = &*self.delegate.read().unwrap() {
-                delegate.did_receive_verification_request(
-                    request.other_user_id().into(),
-                    request.flow_id().into(),
-                );
+                delegate.did_receive_verification_request(SessionVerificationRequestDetails {
+                    sender_id: request.other_user_id().into(),
+                    flow_id: request.flow_id().into(),
+                    device_id: other_device_data.device_id().into(),
+                    display_name: other_device_data.display_name().map(str::to_string),
+                    first_seen_timestamp: other_device_data.first_time_seen_ts().get().into(),
+                });
             }
         }
     }
