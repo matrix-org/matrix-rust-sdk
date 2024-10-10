@@ -3535,7 +3535,6 @@ dependencies = [
  "itertools 0.12.1",
  "matrix-sdk",
  "matrix-sdk-base",
- "matrix-sdk-ffi-macros",
  "matrix-sdk-test",
  "mime",
  "once_cell",
