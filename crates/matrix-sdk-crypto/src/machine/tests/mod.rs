@@ -18,7 +18,7 @@ use assert_matches2::assert_matches;
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use itertools::Itertools;
 use matrix_sdk_common::deserialized_responses::{
-    UnableToDecryptInfo, UnsignedDecryptionResult, UnsignedEventLocation,
+    UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation,
 };
 use matrix_sdk_test::{async_test, message_like_event_content, ruma_response_from_json, test_json};
 use ruma::{
@@ -1355,7 +1355,8 @@ async fn test_unsigned_decryption() {
     assert_matches!(
         replace_encryption_result,
         UnsignedDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
-            session_id: Some(second_room_key_session_id)
+            session_id: Some(second_room_key_session_id),
+            reason: UnableToDecryptReason::MissingMegolmSession,
         })
     );
 
@@ -1460,7 +1461,8 @@ async fn test_unsigned_decryption() {
     assert_matches!(
         thread_encryption_result,
         UnsignedDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
-            session_id: Some(third_room_key_session_id)
+            session_id: Some(third_room_key_session_id),
+            reason: UnableToDecryptReason::MissingMegolmSession,
         })
     );
 
