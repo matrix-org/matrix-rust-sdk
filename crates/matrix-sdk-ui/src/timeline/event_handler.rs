@@ -523,6 +523,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     let Some(message) = event_item.content.as_message() else { return };
                     let Some(in_reply_to) = message.in_reply_to() else { return };
                     if replacement.event_id == in_reply_to.event_id {
+                        trace!(reply_event_id = ?event_item.identifier(), "Updating response to edited event");
                         let in_reply_to = InReplyToDetails {
                             event_id: in_reply_to.event_id.clone(),
                             event: TimelineDetails::Ready(Box::new(
@@ -554,6 +555,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     }
 
     /// Try to stash a pending edit, if it makes sense to do so.
+    #[instrument(skip(self, replacement))]
     fn stash_pending_edit(
         &mut self,
         position: TimelineItemPosition,
@@ -604,6 +606,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         event_id: &EventId,
     ) -> Option<PendingEdit> {
         let pos = edits.iter().position(|edit| edit.edited_event() == event_id)?;
+        trace!(edited_event = %event_id, "unstashed pending edit");
         Some(edits.remove(pos).unwrap())
     }
 

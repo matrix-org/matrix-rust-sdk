@@ -812,7 +812,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 }
             }
 
-            warn!("Timeline item not found, can't add event ID");
+            warn!("Timeline item not found, can't update send state");
             return;
         };
 

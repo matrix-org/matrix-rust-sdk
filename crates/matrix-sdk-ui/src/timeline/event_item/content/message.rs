@@ -37,7 +37,7 @@ use ruma::{
     serde::Raw,
     OwnedEventId, OwnedUserId, RoomVersionId, UserId,
 };
-use tracing::error;
+use tracing::{error, trace};
 
 use super::TimelineItemContent;
 use crate::{
@@ -99,6 +99,7 @@ impl Message {
 
     /// Apply an edit to the current message.
     pub(crate) fn apply_edit(&mut self, mut new_content: RoomMessageEventContentWithoutRelation) {
+        trace!("applying edit to a Message");
         // Edit's content is never supposed to contain the reply fallback.
         new_content.msgtype.sanitize(DEFAULT_SANITIZER_MODE, RemoveReplyFallback::No);
         self.msgtype = new_content.msgtype;
@@ -191,7 +192,10 @@ pub(crate) fn extract_room_msg_edit_content(
             .content
             .relates_to
         {
-            Some(Relation::Replacement(re)) => Some(re.new_content),
+            Some(Relation::Replacement(re)) => {
+                trace!("found a bundled edit event in a room message");
+                Some(re.new_content)
+            }
             _ => {
                 error!("got m.room.message event with an edit without a valid m.replace relation");
                 None
@@ -215,7 +219,10 @@ pub(crate) fn extract_poll_edit_content(
     match *relations.replace? {
         AnySyncMessageLikeEvent::UnstablePollStart(SyncUnstablePollStartEvent::Original(ev)) => {
             match ev.content {
-                UnstablePollStartEventContent::Replacement(re) => Some(re.relates_to.new_content),
+                UnstablePollStartEventContent::Replacement(re) => {
+                    trace!("found a bundled edit event in a poll");
+                    Some(re.relates_to.new_content)
+                }
                 _ => {
                     error!("got new poll start event in a bundled edit");
                     None
