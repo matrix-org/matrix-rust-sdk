@@ -12,8 +12,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
 #![doc = include_str!("../README.md")]
 #![warn(missing_debug_implementations, missing_docs)]
+#![cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 pub use async_trait::async_trait;

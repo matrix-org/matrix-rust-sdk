@@ -68,8 +68,6 @@ fn build_docs(
 
     // Keep in sync with .github/workflows/docs.yml
     cmd!("rustup run {NIGHTLY} cargo doc --no-deps --workspace --features docsrs")
-        // Work around https://github.com/rust-lang/cargo/issues/10744
-        .env("CARGO_TARGET_APPLIES_TO_HOST", "true")
         .env("RUSTDOCFLAGS", rustdocflags)
         .args(extra_args)
         .run()?;
