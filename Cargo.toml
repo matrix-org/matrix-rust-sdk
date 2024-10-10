@@ -131,8 +131,26 @@ tracing-appender = { git = "https://github.com/element-hq/tracing.git", rev = "c
 paranoid-android = { git = "https://github.com/element-hq/paranoid-android.git", rev = "69388ac5b4afeed7be4401c70ce17f6d9a2cf19b" }
 
 [workspace.lints.rust]
+rust_2018_idioms = "warn"
+semicolon_in_expressions_from_macros = "warn"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
+unused_extern_crates = "warn"
+unused_import_braces = "warn"
+unused_qualifications = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
 
 [workspace.lints.clippy]
 assigning_clones = "allow"
 box_default = "allow"
+cloned_instead_of_copied = "warn"
+dbg_macro = "warn"
+inefficient_to_string = "warn"
+macro_use_imports = "warn"
+mut_mut = "warn"
+needless_borrow = "warn"
+nonstandard_macro_braces = "warn"
+str_to_string = "warn"
+todo = "warn"
+unused_async = "warn"
+redundant_clone = "warn"

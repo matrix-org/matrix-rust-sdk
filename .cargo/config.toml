@@ -1,13 +1,3 @@
-# Pass the rustflags specified to host dependencies (build scripts, proc-macros)
-# when a `--target` is passed to Cargo. Historically this was not the case, and
-# because of that, cross-compilation would not set the rustflags configured
-# below in `target.'cfg(...)'` for them, resulting in cache invalidation.
-#
-# Since this is an unstable feature (enabled at the bottom of the file), this
-# setting is unfortunately ignored on stable toolchains, but it's still better
-# to have it apply on nightly than using the old behavior for all toolchains.
-target-applies-to-host = false
-
 [alias]
 xtask = "run --package xtask --"
 uniffi-bindgen = "run --package uniffi-bindgen --"
@@ -15,43 +5,5 @@ uniffi-bindgen = "run --package uniffi-bindgen --"
 [doc.extern-map.registries]
 crates-io = "https://docs.rs/"
 
-# Exclude tarpaulin, android and ios from extra lints since on stable, without
-# the nightly-only target-applies-to-host setting at the top, cross compilation
-# and otherwise changing cfg's can be very bad for caching. These should never
-# be the default either and don't have much target-specific code that would
-# benefit from the extra lints.
-[target.'cfg(not(any(tarpaulin, target_os = "android", target_os = "ios")))']
-rustflags = [
-    "-Wrust_2018_idioms",
-    "-Wsemicolon_in_expressions_from_macros",
-    "-Wunused_extern_crates",
-    "-Wunused_import_braces",
-    "-Wunused_qualifications",
-    "-Wtrivial_casts",
-    "-Wtrivial_numeric_casts",
-    "-Wclippy::cloned_instead_of_copied",
-    "-Wclippy::dbg_macro",
-    "-Wclippy::inefficient_to_string",
-    "-Wclippy::macro_use_imports",
-    "-Wclippy::mut_mut",
-    "-Wclippy::needless_borrow",
-    "-Wclippy::nonstandard_macro_braces",
-    "-Wclippy::str_to_string",
-    "-Wclippy::todo",
-    "-Wclippy::unused_async",
-    "-Wclippy::redundant_clone",
-]
-
-[target.'cfg(target_arch = "wasm32")']
-rustflags = [
-    # We have some types that are !Send and/or !Sync only on wasm, it would be
-    # slightly more efficient, but also pretty annoying, to wrap them in Rc
-    # where we would use Arc on other platforms.
-    "-Aclippy::arc_with_non_send_sync",
-]
-
-# activate the target-applies-to-host feature.
-# Required for `target-applies-to-host` at the top to take effect.
 [unstable]
 rustdoc-map = true
-target-applies-to-host = true
