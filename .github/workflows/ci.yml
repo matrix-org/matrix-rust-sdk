@@ -119,6 +119,11 @@ jobs:
       - name: Checkout the repo
         uses: actions/checkout@v4.2.0
 
+      - name: Install libsqlite
+        run: |
+          sudo apt-get update
+          sudo apt-get install libsqlite3-dev
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -169,6 +174,12 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: protoc@3.20.3
+
+      - name: Install libsqlite
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install libsqlite3-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -371,6 +382,11 @@ jobs:
     steps:
       - name: Checkout the repo
         uses: actions/checkout@v4.2.0
+
+      - name: Install libsqlite
+        run: |
+          sudo apt-get update
+          sudo apt-get install libsqlite3-dev
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
