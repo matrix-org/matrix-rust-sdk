@@ -705,6 +705,8 @@ impl From<SyncTimelineEventDeserializationHelperV0> for SyncTimelineEvent {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use assert_matches::assert_matches;
     use ruma::{
         event_id,
@@ -717,7 +719,8 @@ mod tests {
 
     use super::{
         AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, SyncTimelineEvent, TimelineEvent,
-        TimelineEventKind, VerificationState,
+        TimelineEventKind, UnableToDecryptInfo, UnsignedDecryptionResult, UnsignedEventLocation,
+        VerificationState,
     };
     use crate::deserialized_responses::{DeviceLinkProblem, VerificationLevel};
 
@@ -808,7 +811,12 @@ mod tests {
                     },
                     verification_state: VerificationState::Verified,
                 },
-                unsigned_encryption_info: None,
+                unsigned_encryption_info: Some(BTreeMap::from([(
+                    UnsignedEventLocation::RelationsReplace,
+                    UnsignedDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
+                        session_id: Some("xyz".to_owned()),
+                    }),
+                )])),
             }),
             push_actions: Default::default(),
         };
@@ -840,6 +848,9 @@ mod tests {
                             },
                             "verification_state": "Verified",
                         },
+                        "unsigned_encryption_info": {
+                            "RelationsReplace": {"UnableToDecrypt": {"session_id": "xyz"}}
+                        }
                     }
                 }
             })
@@ -881,5 +892,48 @@ mod tests {
             event.encryption_info().unwrap().algorithm_info,
             AlgorithmInfo::MegolmV1AesSha2 { .. }
         );
+
+        // Test that the previous format, with an undecryptable unsigned event, can also
+        // be deserialized.
+        let serialized = json!({
+            "event": {
+                "content": {"body": "secret", "msgtype": "m.text"},
+                "event_id": "$xxxxx:example.org",
+                "origin_server_ts": 2189,
+                "room_id": "!someroom:example.com",
+                "sender": "@carl:example.com",
+                "type": "m.room.message",
+            },
+            "encryption_info": {
+                "sender": "@sender:example.com",
+                "sender_device": null,
+                "algorithm_info": {
+                    "MegolmV1AesSha2": {
+                        "curve25519_key": "xxx",
+                        "sender_claimed_keys": {}
+                    }
+                },
+                "verification_state": "Verified",
+            },
+            "unsigned_encryption_info": {
+                "RelationsReplace": {"UnableToDecrypt": {"session_id": "xyz"}}
+            }
+        });
+        let event: SyncTimelineEvent = serde_json::from_value(serialized).unwrap();
+        assert_eq!(event.event_id(), Some(event_id!("$xxxxx:example.org").to_owned()));
+        assert_matches!(
+            event.encryption_info().unwrap().algorithm_info,
+            AlgorithmInfo::MegolmV1AesSha2 { .. }
+        );
+        assert_matches!(event.kind, TimelineEventKind::Decrypted(decrypted) => {
+            assert_matches!(decrypted.unsigned_encryption_info, Some(map) => {
+                assert_eq!(map.len(), 1);
+                let (location, result) = map.into_iter().next().unwrap();
+                assert_eq!(location, UnsignedEventLocation::RelationsReplace);
+                assert_matches!(result, UnsignedDecryptionResult::UnableToDecrypt(utd_info) => {
+                    assert_eq!(utd_info.session_id, Some("xyz".to_owned()));
+                })
+            });
+        });
     }
 }
