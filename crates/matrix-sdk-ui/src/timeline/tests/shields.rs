@@ -151,7 +151,8 @@ async fn test_utd_shield() {
                 ),
                 None,
             ))
-            .sender(&ALICE),
+            .sender(&ALICE)
+            .into_utd_sync_timeline_event(),
         )
         .await;
 
