@@ -18,8 +18,10 @@ use as_variant::as_variant;
 use eyeball_im::{ObservableVectorTransaction, ObservableVectorTransactionEntry};
 use indexmap::IndexMap;
 use matrix_sdk::{
-    crypto::types::events::UtdCause, deserialized_responses::EncryptionInfo,
-    ring_buffer::RingBuffer, send_queue::SendHandle,
+    crypto::types::events::UtdCause,
+    deserialized_responses::{EncryptionInfo, UnableToDecryptInfo},
+    ring_buffer::RingBuffer,
+    send_queue::SendHandle,
 };
 use ruma::{
     events::{
@@ -139,7 +141,10 @@ pub(super) enum TimelineEventKind {
     },
 
     /// An encrypted event that could not be decrypted
-    UnableToDecrypt { content: RoomEncryptedEventContent },
+    UnableToDecrypt {
+        content: RoomEncryptedEventContent,
+        unable_to_decrypt_info: UnableToDecryptInfo,
+    },
 
     /// Some remote event that was redacted a priori, i.e. we never had the
     /// original content, so we'll just display a dummy redacted timeline
@@ -176,7 +181,11 @@ pub(super) enum TimelineEventKind {
 
 impl TimelineEventKind {
     /// Creates a new `TimelineEventKind` with the given event and room version.
-    pub fn from_event(event: AnySyncTimelineEvent, room_version: &RoomVersionId) -> Self {
+    pub fn from_event(
+        event: AnySyncTimelineEvent,
+        room_version: &RoomVersionId,
+        unable_to_decrypt_info: Option<UnableToDecryptInfo>,
+    ) -> Self {
         match event {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
                 if let Some(redacts) = ev.redacts(room_version).map(ToOwned::to_owned) {
@@ -188,7 +197,19 @@ impl TimelineEventKind {
             AnySyncTimelineEvent::MessageLike(ev) => match ev.original_content() {
                 Some(AnyMessageLikeEventContent::RoomEncrypted(content)) => {
                     // An event which is still encrypted.
-                    Self::UnableToDecrypt { content }
+                    if let Some(unable_to_decrypt_info) = unable_to_decrypt_info {
+                        Self::UnableToDecrypt { content, unable_to_decrypt_info }
+                    } else {
+                        // If we get here, it means that some part of the code has created a
+                        // `SyncTimelineEvent` containing an `m.room.encrypted` event
+                        // without decrypting it. Possibly this means that encryption has not been
+                        // configured.
+                        // We treat it the same as any other message-like event.
+                        Self::Message {
+                            content: AnyMessageLikeEventContent::RoomEncrypted(content),
+                            relations: ev.relations(),
+                        }
+                    }
                 }
                 Some(content) => Self::Message { content, relations: ev.relations() },
                 None => Self::RedactedMessage { event_type: ev.event_type() },
@@ -395,7 +416,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
             },
 
-            TimelineEventKind::UnableToDecrypt { content } => {
+            TimelineEventKind::UnableToDecrypt { content, .. } => {
                 // TODO: Handle replacements if the replaced event is also UTD
                 let raw_event = self.ctx.flow.raw_event();
                 let cause = UtdCause::determine(raw_event);
