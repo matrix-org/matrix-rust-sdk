@@ -27,7 +27,7 @@ use matrix_sdk::{
     crypto::{decrypt_room_key_export, types::events::UtdCause, OlmMachine},
     test_utils::test_client_builder,
 };
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_base::deserialized_responses::{SyncTimelineEvent, UnableToDecryptReason};
 use matrix_sdk_test::{async_test, BOB};
 use ruma::{
     assign,
@@ -105,7 +105,8 @@ async fn test_retry_message_decryption() {
                 ),
                 None,
             ))
-            .sender(&BOB),
+            .sender(&BOB)
+            .into_utd_sync_timeline_event(),
         )
         .await;
 
@@ -215,7 +216,11 @@ async fn test_retry_edit_decryption() {
         .into(),
     );
     timeline
-        .handle_live_event(f.event(RoomEncryptedEventContent::new(encrypted, None)).sender(&BOB))
+        .handle_live_event(
+            f.event(RoomEncryptedEventContent::new(encrypted, None))
+                .sender(&BOB)
+                .into_utd_sync_timeline_event(),
+        )
         .await;
 
     let event_id =
@@ -242,7 +247,8 @@ async fn test_retry_edit_decryption() {
             f.event(assign!(RoomEncryptedEventContent::new(encrypted, None), {
                 relates_to: Some(Relation::Replacement(Replacement::new(event_id))),
             }))
-            .sender(&BOB),
+            .sender(&BOB)
+            .into_utd_sync_timeline_event(),
         )
         .await;
 
@@ -321,7 +327,8 @@ async fn test_retry_edit_and_more() {
                  mBZdKIaqDTUBFvcvbn2gQaWtUipQdJQRKyv2h0AWveVkv75lp5hRb7jolCi08oMX8cM+V3Zzyi7\
                  mlPAzZjDz0PaRbQwfbMTTHkcL7TZybBi4vLX4f5ZR2Iiysc7gw",
             ))
-            .sender(&BOB),
+            .sender(&BOB)
+            .into_utd_sync_timeline_event(),
         )
         .await;
 
@@ -337,7 +344,9 @@ async fn test_retry_edit_and_more() {
     );
     timeline
         .handle_live_event(
-            f.event(assign!(msg2, { relates_to: Some(Relation::Replacement(Replacement::new(event_id))) })).sender(&BOB),
+            f.event(assign!(msg2, { relates_to: Some(Relation::Replacement(Replacement::new(event_id))) }))
+                .sender(&BOB)
+                .into_utd_sync_timeline_event(),
         )
         .await;
 
@@ -349,7 +358,8 @@ async fn test_retry_edit_and_more() {
                  2r/fEvAW/9QB+N6fX4g9729bt5ftXRqa5QI7NA351RNUveRHxVvx+2x0WJArQjYGRk7tMS2rUto\
                  IYt2ZY17nE1UJjN7M87STnCF9c9qy4aGNqIpeVIht6XbtgD7gQ",
             ))
-            .sender(&BOB),
+            .sender(&BOB)
+            .into_utd_sync_timeline_event(),
         )
         .await;
 
@@ -422,7 +432,8 @@ async fn test_retry_message_decryption_highlighted() {
                 ),
                 None,
             ))
-            .sender(&BOB),
+            .sender(&BOB)
+            .into_utd_sync_timeline_event(),
         )
         .await;
 
@@ -547,7 +558,7 @@ async fn test_utd_cause_for_missing_membership_is_unknown() {
 }
 
 fn utd_event_with_unsigned(unsigned: serde_json::Value) -> SyncTimelineEvent {
-    SyncTimelineEvent::new(Raw::from_json(
+    let raw = Raw::from_json(
         to_raw_value(&json!({
             "event_id": "$myevent",
             "sender": "@u:s",
@@ -564,5 +575,13 @@ fn utd_event_with_unsigned(unsigned: serde_json::Value) -> SyncTimelineEvent {
 
         }))
         .unwrap(),
-    ))
+    );
+
+    SyncTimelineEvent::new_utd_event(
+        raw,
+        matrix_sdk::deserialized_responses::UnableToDecryptInfo {
+            session_id: Some("SESSION_ID".into()),
+            reason: UnableToDecryptReason::MissingMegolmSession,
+        },
+    )
 }

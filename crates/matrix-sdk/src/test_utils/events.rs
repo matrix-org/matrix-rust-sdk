@@ -16,7 +16,9 @@
 
 use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
 
+use as_variant::as_variant;
 use matrix_sdk_base::deserialized_responses::{SyncTimelineEvent, TimelineEvent};
+use matrix_sdk_common::deserialized_responses::UnableToDecryptReason;
 use ruma::{
     events::{
         message::TextContentBlock,
@@ -31,6 +33,7 @@ use ruma::{
         reaction::ReactionEventContent,
         relation::{Annotation, InReplyTo, Replacement, Thread},
         room::{
+            encrypted::{EncryptedEventScheme, RoomEncryptedEventContent},
             message::{Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
             redaction::RoomRedactionEventContent,
         },
@@ -182,6 +185,23 @@ where
 
     pub fn into_sync(self) -> SyncTimelineEvent {
         SyncTimelineEvent::new(self.into_raw_sync())
+    }
+}
+
+impl EventBuilder<RoomEncryptedEventContent> {
+    /// Turn this event into a SyncTimelineEvent representing a decryption
+    /// failure
+    pub fn into_utd_sync_timeline_event(self) -> SyncTimelineEvent {
+        let session_id = as_variant!(&self.content.scheme, EncryptedEventScheme::MegolmV1AesSha2)
+            .map(|content| content.session_id.clone());
+
+        SyncTimelineEvent::new_utd_event(
+            self.into(),
+            crate::deserialized_responses::UnableToDecryptInfo {
+                session_id,
+                reason: UnableToDecryptReason::MissingMegolmSession,
+            },
+        )
     }
 }
 
