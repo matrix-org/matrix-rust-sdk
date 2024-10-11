@@ -36,9 +36,7 @@ eyeball-im = { version = "0.5.0", features = ["tracing"] }
 eyeball-im-util = "0.6.0"
 futures-core = "0.3.28"
 futures-executor = "0.3.21"
-futures-util = { version = "0.3.26", default-features = false, features = [
-    "alloc",
-] }
+futures-util = { version = "0.3.26" }
 growable-bloom-filter = "2.1.0"
 http = "1.1.0"
 imbl = "3.0.0"
