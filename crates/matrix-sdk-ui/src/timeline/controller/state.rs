@@ -422,7 +422,17 @@ impl TimelineStateTransaction<'_> {
         settings: &TimelineSettings,
         day_divider_adjuster: &mut DayDividerAdjuster,
     ) -> HandleEventResult {
-        let raw = event.raw();
+        let SyncTimelineEvent { push_actions, kind } = event;
+        let encryption_info = kind.encryption_info().cloned();
+
+        let (raw, utd_info) = match kind {
+            matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
+                utd_info,
+                event,
+            } => (event, Some(utd_info)),
+            _ => (kind.into_raw(), None),
+        };
+
         let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
         {
             Ok(event) => {
@@ -479,7 +489,7 @@ impl TimelineStateTransaction<'_> {
                     event.sender().to_owned(),
                     event.origin_server_ts(),
                     event.transaction_id().map(ToOwned::to_owned),
-                    TimelineEventKind::from_event(event, &room_version),
+                    TimelineEventKind::from_event(event, &room_version, utd_info),
                     should_add,
                 )
             }
@@ -578,11 +588,11 @@ impl TimelineStateTransaction<'_> {
             } else {
                 Default::default()
             },
-            is_highlighted: event.push_actions.iter().any(Action::is_highlight),
+            is_highlighted: push_actions.iter().any(Action::is_highlight),
             flow: Flow::Remote {
                 event_id: event_id.clone(),
-                raw_event: raw.clone(),
-                encryption_info: event.encryption_info().cloned(),
+                raw_event: raw,
+                encryption_info,
                 txn_id,
                 position,
             },
