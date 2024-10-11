@@ -876,7 +876,10 @@ mod tests {
     };
 
     use assert_matches::assert_matches;
-    use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer};
+    use matrix_sdk_common::{
+        deserialized_responses::{SyncTimelineEvent, UnableToDecryptInfo, UnableToDecryptReason},
+        ring_buffer::RingBuffer,
+    };
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::sync::sync_events::UnreadNotificationsCount,
@@ -2494,7 +2497,7 @@ mod tests {
     }
 
     fn make_encrypted_event(id: &str) -> SyncTimelineEvent {
-        SyncTimelineEvent::new(
+        SyncTimelineEvent::new_utd_event(
             Raw::from_json_string(
                 json!({
                     "type": "m.room.encrypted",
@@ -2512,6 +2515,10 @@ mod tests {
                 .to_string(),
             )
             .unwrap(),
+            UnableToDecryptInfo {
+                session_id: Some("".to_owned()),
+                reason: UnableToDecryptReason::MissingMegolmSession,
+            },
         )
     }
 
