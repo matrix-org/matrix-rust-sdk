@@ -15,13 +15,14 @@
 use std::future::Future;
 
 use eyeball::Subscriber;
-use futures_util::FutureExt as _;
 use indexmap::IndexMap;
 #[cfg(test)]
 use matrix_sdk::crypto::{DecryptionSettings, TrustRequirement};
 use matrix_sdk::{
-    deserialized_responses::TimelineEvent, event_cache::paginator::PaginableRoom, BoxFuture,
-    Result, Room,
+    deserialized_responses::TimelineEvent,
+    event_cache::paginator::PaginableRoom,
+    executor::{BoxFuture, BoxFutureExt as _},
+    Result, Room, SendOutsideWasm, SyncOutsideWasm,
 };
 use matrix_sdk_base::{latest_event::LatestEvent, RoomInfo};
 use ruma::{
@@ -47,7 +48,18 @@ pub trait RoomExt {
     /// independent events.
     ///
     /// This is the same as using `room.timeline_builder().build()`.
+    #[cfg(not(target_arch = "wasm32"))]
     fn timeline(&self) -> impl Future<Output = Result<Timeline, timeline::Error>> + Send;
+
+    /// Get a [`Timeline`] for this room.
+    ///
+    /// This offers a higher-level API than event handlers, in treating things
+    /// like edits and reactions as updates of existing items rather than new
+    /// independent events.
+    ///
+    /// This is the same as using `room.timeline_builder().build()`.
+    #[cfg(target_arch = "wasm32")]
+    fn timeline(&self) -> impl Future<Output = Result<Timeline, timeline::Error>>;
 
     /// Get a [`TimelineBuilder`] for this room.
     ///
@@ -71,7 +83,7 @@ impl RoomExt for Room {
 }
 
 pub(super) trait RoomDataProvider:
-    Clone + Send + Sync + 'static + PaginableRoom + PinnedEventsRoom
+    Clone + SendOutsideWasm + SyncOutsideWasm + 'static + PaginableRoom + PinnedEventsRoom
 {
     fn own_user_id(&self) -> &UserId;
     fn room_version(&self) -> RoomVersionId;
@@ -137,7 +149,7 @@ impl RoomDataProvider for Room {
                 }
             }
         }
-        .boxed()
+        .box_future()
     }
 
     fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile> {
@@ -172,7 +184,7 @@ impl RoomDataProvider for Room {
                 }
             }
         }
-        .boxed()
+        .box_future()
     }
 
     fn load_event_receipts<'a>(
@@ -205,7 +217,7 @@ impl RoomDataProvider for Room {
             unthreaded_receipts.extend(main_thread_receipts);
             unthreaded_receipts
         }
-        .boxed()
+        .box_future()
     }
 
     fn push_rules_and_context(&self) -> BoxFuture<'_, Option<(Ruleset, PushConditionRoomCtx)>> {
@@ -228,7 +240,7 @@ impl RoomDataProvider for Room {
                 }
             }
         }
-        .boxed()
+        .box_future()
     }
 
     fn load_fully_read_marker(&self) -> BoxFuture<'_, Option<OwnedEventId>> {
@@ -248,7 +260,7 @@ impl RoomDataProvider for Room {
                 _ => None,
             }
         }
-        .boxed()
+        .box_future()
     }
 
     fn send(&self, content: AnyMessageLikeEventContent) -> BoxFuture<'_, Result<(), super::Error>> {
@@ -256,7 +268,7 @@ impl RoomDataProvider for Room {
             let _ = self.send_queue().send(content).await?;
             Ok(())
         }
-        .boxed()
+        .box_future()
     }
 
     fn redact<'a>(
@@ -273,7 +285,7 @@ impl RoomDataProvider for Room {
                 .map_err(super::Error::RedactError)?;
             Ok(())
         }
-        .boxed()
+        .box_future()
     }
 
     fn room_info(&self) -> Subscriber<RoomInfo> {
@@ -283,11 +295,18 @@ impl RoomDataProvider for Room {
 
 // Internal helper to make most of retry_event_decryption independent of a room
 // object, which is annoying to create for testing and not really needed
-pub(super) trait Decryptor: Clone + Send + Sync + 'static {
+pub(super) trait Decryptor: Clone + SendOutsideWasm + SyncOutsideWasm + 'static {
+    #[cfg(not(target_arch = "wasm32"))]
     fn decrypt_event_impl(
         &self,
         raw: &Raw<AnySyncTimelineEvent>,
     ) -> impl Future<Output = Result<TimelineEvent>> + Send;
+
+    #[cfg(target_arch = "wasm32")]
+    fn decrypt_event_impl(
+        &self,
+        raw: &Raw<AnySyncTimelineEvent>,
+    ) -> impl Future<Output = Result<TimelineEvent>>;
 }
 
 impl Decryptor for Room {

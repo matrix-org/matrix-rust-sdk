@@ -22,7 +22,6 @@ mod error;
 mod list;
 mod room;
 mod sticky_parameters;
-mod utils;
 
 use std::{
     collections::{btree_map::Entry, BTreeMap, HashSet},
@@ -36,20 +35,20 @@ use async_stream::stream;
 pub use client::{Version, VersionBuilder};
 use futures_core::stream::Stream;
 pub use matrix_sdk_base::sliding_sync::http;
-use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, timer};
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_common::executor::JoinHandleExt as _;
+use matrix_sdk_common::{executor::spawn, deserialized_responses::SyncTimelineEvent, timer};
 use ruma::{
     api::{client::error::ErrorKind, OutgoingRequest},
     assign, OwnedEventId, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
-    select, spawn,
+    select,
     sync::{broadcast::Sender, Mutex as AsyncMutex, OwnedMutexGuard, RwLock as AsyncRwLock},
 };
 use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
 
-#[cfg(feature = "e2e-encryption")]
-use self::utils::JoinHandleExt as _;
 pub use self::{builder::*, client::VersionBuilderError, error::*, list::*, room::*};
 use self::{
     cache::restore_sliding_sync_state,
@@ -609,6 +608,7 @@ impl SlidingSync {
                 // aborted as soon as possible.
 
                 let client = self.inner.client.clone();
+                #[cfg(feature = "e2e-encryption")]
                 let e2ee_uploads = spawn(async move {
                     if let Err(error) = client.send_outgoing_requests().await {
                         error!(?error, "Error while sending outgoing E2EE requests");
@@ -625,6 +625,7 @@ impl SlidingSync {
                 // `e2ee_uploads`. It did run concurrently, so it should not be blocking for too
                 // long. Otherwise —if `request` has failed— `e2ee_uploads` has
                 // been dropped, so aborted.
+                #[cfg(feature = "e2e-encryption")]
                 e2ee_uploads.await.map_err(|error| Error::JoinError {
                     task_description: "e2ee_uploads".to_owned(),
                     error,

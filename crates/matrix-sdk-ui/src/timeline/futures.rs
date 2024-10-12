@@ -1,6 +1,8 @@
 use std::{fs, future::IntoFuture, path::PathBuf};
 
-use eyeball::{SharedObservable, Subscriber};
+use eyeball::SharedObservable;
+#[cfg(not(target_arch = "wasm32"))]
+use eyeball::Subscriber;
 use matrix_sdk::{attachment::AttachmentConfig, TransmissionProgress};
 use matrix_sdk_base::boxed_into_future;
 use mime::Mime;

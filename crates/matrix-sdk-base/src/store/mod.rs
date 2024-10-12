@@ -29,9 +29,7 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
-#[cfg(not(target_arch = "wasm32"))]
 use eyeball_im::{Vector, VectorDiff};
-#[cfg(not(target_arch = "wasm32"))]
 use futures_util::Stream;
 use once_cell::sync::OnceCell;
 
@@ -266,7 +264,6 @@ impl Store {
 
     /// Get a stream of all the rooms changes, in addition to the existing
     /// rooms.
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>>) {
         self.rooms.read().unwrap().stream()
     }

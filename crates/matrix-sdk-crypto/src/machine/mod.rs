@@ -25,7 +25,7 @@ use matrix_sdk_common::{
         UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel,
         VerificationState,
     },
-    BoxFuture,
+    executor::BoxFuture,
 };
 use ruma::{
     api::client::{

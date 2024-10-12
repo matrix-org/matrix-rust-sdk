@@ -14,10 +14,12 @@
 
 use std::{fmt::Formatter, sync::Arc};
 
-use futures_util::{stream, FutureExt as _, StreamExt};
+use futures_util::{stream, StreamExt};
 use matrix_sdk::{
-    config::RequestConfig, event_cache::paginator::PaginatorError, BoxFuture, Room,
-    SendOutsideWasm, SyncOutsideWasm,
+    config::RequestConfig,
+    event_cache::paginator::PaginatorError,
+    executor::{BoxFuture, BoxFutureExt},
+    Room,
 };
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use ruma::{events::relation::RelationType, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
@@ -120,7 +122,7 @@ impl PinnedEventsLoader {
     }
 }
 
-pub trait PinnedEventsRoom: SendOutsideWasm + SyncOutsideWasm {
+pub trait PinnedEventsRoom: Send + Sync {
     /// Load a single room event using the cache or network and any events
     /// related to it, if they are cached.
     ///
@@ -166,7 +168,7 @@ impl PinnedEventsRoom for Room {
                 .map(|e| (e.into(), Vec::new()))
                 .map_err(|err| PaginatorError::SdkError(Box::new(err)))
         }
-        .boxed()
+        .box_future()
     }
 
     fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {

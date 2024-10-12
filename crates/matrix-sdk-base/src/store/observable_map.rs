@@ -149,6 +149,9 @@ mod impl_non_wasm32 {
 mod impl_wasm32 {
     use std::{borrow::Borrow, collections::BTreeMap, hash::Hash};
 
+    use eyeball_im::{Vector, VectorDiff};
+    use futures_util::{stream, Stream, StreamExt};
+
     /// An observable map for Wasm. It's a simple wrapper around `BTreeMap`.
     #[derive(Debug)]
     pub(crate) struct ObservableMap<K, V>(BTreeMap<K, V>)
@@ -197,15 +200,21 @@ mod impl_wasm32 {
             self.0.values()
         }
 
+        /// Get a [`Stream`] of the values.
+        pub(crate) fn stream(&self) -> (Vector<V>, impl Stream<Item = Vec<VectorDiff<V>>>) {
+            self.values.subscribe().into_values_and_batched_stream()
+        }
+
         /// Remove a `V` value based on their ID, if it exists.
         ///
         /// Returns the removed value.
         pub(crate) fn remove<L>(&mut self, key: &L) -> Option<V>
         where
             K: Borrow<L>,
-            L: Hash + Eq + Ord + ?Sized,
+            L: Hash + Eq + ?Sized,
         {
-            self.0.remove(key)
+            let position = self.mapping.remove(key)?;
+            Some(self.values.remove(position))
         }
     }
 }
