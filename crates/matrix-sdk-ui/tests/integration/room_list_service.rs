@@ -6,7 +6,12 @@ use std::{
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt};
-use matrix_sdk::{test_utils::logged_in_client_with_server, Client};
+use matrix_sdk::{
+    assert_next_matches_with_timeout,
+    config::RequestConfig,
+    test_utils::{logged_in_client_with_server, set_client_session, test_client_builder},
+    Client,
+};
 use matrix_sdk_base::{
     sliding_sync::http::request::RoomSubscription, sync::UnreadNotificationsCount,
 };
@@ -26,7 +31,8 @@ use ruma::{
     mxc_uri, room_id, uint,
 };
 use serde_json::json;
-use stream_assert::{assert_next_matches, assert_pending};
+use stream_assert::assert_pending;
+use tempfile::TempDir;
 use tokio::{spawn, sync::mpsc::channel, task::yield_now};
 use wiremock::{
     matchers::{header, method, path},
@@ -42,12 +48,30 @@ async fn new_room_list_service() -> Result<(Client, MockServer, RoomListService)
     Ok((client, server, room_list))
 }
 
+async fn new_persistent_room_list_service(
+    homeserver_url: String,
+    store_path: &std::path::Path,
+) -> Result<RoomListService, Error> {
+    let client = test_client_builder(Some(homeserver_url))
+        .request_config(RequestConfig::new().disable_retry())
+        .sqlite_store(store_path, None)
+        .build()
+        .await
+        .unwrap();
+    set_client_session(&client).await;
+
+    let room_list = RoomListService::new(client.clone()).await?;
+
+    Ok(room_list)
+}
+
 // Same macro as in the main, with additional checking that the state
 // before/after the sync loop match those we expect.
 macro_rules! sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $room_list:ident, $stream:ident]
         $( states = $pre_state:pat => $post_state:pat, )?
+        $( assert pos is $pos:tt, )?
         assert request $assert_request:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $( , after delay = $response_delay:expr )?
@@ -57,6 +81,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
             [$server, $room_list, $stream]
             sync matches Some(Ok(_)),
             $( states = $pre_state => $post_state, )?
+            $( assert pos is $pos, )?
             assert request $assert_request { $( $request_json )* },
             respond with = $( ( code $code ) )? { $( $response_json )* },
             $( after delay = $response_delay, )?
@@ -67,6 +92,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
         [$server:ident, $room_list:ident, $stream:ident]
         sync matches $sync_result:pat,
         $( states = $pre_state:pat => $post_state:pat, )?
+        $( assert pos is $pos:tt, )?
         assert request $assert_request:tt { $( $request_json:tt )* },
         respond with = $( ( code $code:expr ) )? { $( $response_json:tt )* }
         $( , after delay = $response_delay:expr )?
@@ -84,6 +110,7 @@ macro_rules! sync_then_assert_request_and_fake_response {
             let next = super::sliding_sync_then_assert_request_and_fake_response! {
                 [$server, $stream]
                 sync matches $sync_result,
+                $( assert pos is $pos, )?
                 assert request $assert_request { $( $request_json )* },
                 respond with = $( ( code $code ) )? { $( $response_json )* },
                 $( after delay = $response_delay, )?
@@ -484,6 +511,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Init => SettingUp,
+            assert pos is none,
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -512,6 +540,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = SettingUp => Running,
+            assert pos is "0",
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -540,6 +569,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
             states = Running => Running,
+            assert pos is "1",
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
@@ -558,6 +588,97 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
                 "rooms": {},
             },
         };
+    }
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Error> {
+    let tmp_dir = TempDir::new().unwrap();
+    let store_path = tmp_dir.path();
+
+    let server = MockServer::start().await;
+
+    {
+        let room_list = new_persistent_room_list_service(server.uri(), store_path).await?;
+        let sync = room_list.sync();
+        pin_mut!(sync);
+
+        let all_rooms = room_list.all_rooms().await?;
+        let mut all_rooms_loading_state = all_rooms.loading_state();
+
+        // The loading is not loaded.
+        assert_next_matches_with_timeout!(all_rooms_loading_state, RoomListLoadingState::NotLoaded);
+        assert_pending!(all_rooms_loading_state);
+
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = Init => SettingUp,
+            assert pos is none,
+            assert request >= {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 19]],
+                    },
+                },
+            },
+            respond with = {
+                "pos": "0",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 10,
+                    },
+                },
+                "rooms": {},
+            },
+        };
+    }
+
+    {
+        let room_list = new_persistent_room_list_service(server.uri(), store_path).await?;
+        let sync = room_list.sync();
+        pin_mut!(sync);
+
+        let all_rooms = room_list.all_rooms().await?;
+        let mut all_rooms_loading_state = all_rooms.loading_state();
+
+        // We already have a state stored so the list should already be loaded
+        assert_next_matches_with_timeout!(
+            all_rooms_loading_state,
+            RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(10) }
+        );
+        assert_pending!(all_rooms_loading_state);
+
+        // pos has been restored and is used when doing the req
+        sync_then_assert_request_and_fake_response! {
+            [server, room_list, sync]
+            states = Init => SettingUp,
+            assert pos is "0",
+            assert request >= {
+                "lists": {
+                    ALL_ROOMS: {
+                        "ranges": [[0, 19]],
+                    },
+                },
+            },
+            respond with = {
+                "pos": "1",
+                "lists": {
+                    ALL_ROOMS: {
+                        "count": 12,
+                    },
+                },
+                "rooms": {},
+            },
+        };
+
+        // maximum_number_of_rooms changed so we should get a new loaded state
+        assert_next_matches_with_timeout!(
+            all_rooms_loading_state,
+            RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
+        );
+        assert_pending!(all_rooms_loading_state);
     }
 
     Ok(())
@@ -1049,7 +1170,7 @@ async fn test_loading_states() -> Result<(), Error> {
         let mut all_rooms_loading_state = all_rooms.loading_state();
 
         // The loading is not loaded.
-        assert_matches!(all_rooms_loading_state.get(), RoomListLoadingState::NotLoaded);
+        assert_next_matches_with_timeout!(all_rooms_loading_state, RoomListLoadingState::NotLoaded);
         assert_pending!(all_rooms_loading_state);
 
         sync_then_assert_request_and_fake_response! {
@@ -1078,10 +1199,11 @@ async fn test_loading_states() -> Result<(), Error> {
         yield_now().await;
 
         // There is a loading state update, it's loaded now!
-        assert_next_matches!(
+        assert_next_matches_with_timeout!(
             all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(10) }
         );
+        assert_pending!(all_rooms_loading_state);
 
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
@@ -1109,10 +1231,11 @@ async fn test_loading_states() -> Result<(), Error> {
         yield_now().await;
 
         // There is a loading state update because the number of rooms has been updated.
-        assert_next_matches!(
+        assert_next_matches_with_timeout!(
             all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
         );
+        assert_pending!(all_rooms_loading_state);
 
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
@@ -1156,8 +1279,8 @@ async fn test_loading_states() -> Result<(), Error> {
         pin_mut!(sync);
 
         // The loading state is loaded! Indeed, there is data loaded from the cache.
-        assert_matches!(
-            all_rooms_loading_state.get(),
+        assert_next_matches_with_timeout!(
+            all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
         );
         assert_pending!(all_rooms_loading_state);
@@ -1188,10 +1311,11 @@ async fn test_loading_states() -> Result<(), Error> {
         yield_now().await;
 
         // The loading state has been updated.
-        assert_next_matches!(
+        assert_next_matches_with_timeout!(
             all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(13) }
         );
+        assert_pending!(all_rooms_loading_state);
     }
 
     Ok(())
