@@ -527,6 +527,7 @@ mod tests {
     use ruma::{
         device_id, events::room::history_visibility::HistoryVisibility, room_id, TransactionId,
     };
+    use serde_json::json;
 
     use crate::{
         error::SessionRecipientCollectionError,
@@ -534,6 +535,7 @@ mod tests {
         session_manager::{
             group_sessions::share_strategy::collect_session_recipients, CollectStrategy,
         },
+        testing::simulate_key_query_response_for_verification,
         types::events::room_key_withheld::WithheldCode,
         CrossSigningKeyExport, EncryptionSettings, LocalTrust, OlmError, OlmMachine,
     };
@@ -1337,41 +1339,32 @@ mod tests {
             .verify()
             .await
             .unwrap();
-        let raw_extracted =
-            verification_request.signed_keys.get(user2).unwrap().iter().next().unwrap().1.get();
-        let signed_key: crate::types::CrossSigningKey =
-            serde_json::from_str(raw_extracted).unwrap();
-        let new_signatures = signed_key.signatures.get(KeyDistributionTestData::me_id()).unwrap();
-        let mut master_key = machine
-            .get_identity(user2, None)
-            .await
-            .unwrap()
-            .unwrap()
-            .other()
-            .unwrap()
-            .master_key
-            .as_ref()
-            .clone();
 
-        for (key_id, signature) in new_signatures.iter() {
-            master_key.as_mut().signatures.add_signature(
-                KeyDistributionTestData::me_id().to_owned(),
-                key_id.to_owned(),
-                signature.as_ref().unwrap().ed25519().unwrap(),
-            );
-        }
-        let json = serde_json::json!({
-            "device_keys": {},
-            "failures": {},
-            "master_keys": {
-                user2: master_key,
-            },
-            "user_signing_keys": {},
-            "self_signing_keys": MaloIdentityChangeDataSet::updated_key_query().self_signing_keys,
-        }
+        let master_key =
+            &machine.get_identity(user2, None).await.unwrap().unwrap().other().unwrap().master_key;
+
+        let my_identity = machine
+            .get_identity(KeyDistributionTestData::me_id(), None)
+            .await
+            .expect("Should not fail to find own identity")
+            .expect("Our own identity should not be missing")
+            .own()
+            .expect("Our own identity should be of type Own");
+
+        let msk = json!({ user2: serde_json::to_value(master_key).expect("Should not fail to serialize")});
+        let ssk =
+            serde_json::to_value(&MaloIdentityChangeDataSet::updated_key_query().self_signing_keys)
+                .expect("Should not fail to serialize");
+
+        let kq_response = simulate_key_query_response_for_verification(
+            verification_request,
+            my_identity,
+            KeyDistributionTestData::me_id(),
+            user2,
+            msk,
+            ssk,
         );
 
-        let kq_response = matrix_sdk_test::ruma_response_from_json(&json);
         machine
             .mark_request_as_sent(
                 &TransactionId::new(),

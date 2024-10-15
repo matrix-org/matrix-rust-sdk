@@ -1189,7 +1189,15 @@ where
 #[cfg(any(test, feature = "testing"))]
 #[allow(dead_code)]
 pub(crate) mod testing {
-    use ruma::{api::client::keys::get_keys::v3::Response as KeyQueryResponse, user_id};
+    use matrix_sdk_test::ruma_response_from_json;
+    use ruma::{
+        api::client::keys::{
+            get_keys::v3::Response as KeyQueryResponse,
+            upload_signatures::v3::Request as SignatureUploadRequest,
+        },
+        user_id, UserId,
+    };
+    use serde_json::json;
 
     use super::{OtherUserIdentityData, OwnUserIdentity, OwnUserIdentityData};
     #[cfg(test)]
@@ -1266,6 +1274,117 @@ pub(crate) mod testing {
         OtherUserIdentityData::new(master_key.try_into().unwrap(), self_signing.try_into().unwrap())
             .unwrap()
     }
+
+    /// When we want to test identities that are verified, we need to simulate
+    /// the verification process. This function supports that by simulating
+    /// what happens when a successful verification dance happens and
+    /// providing the /keys/query response we would get when that happened.
+    ///
+    /// signature_upload_request will be the result of calling
+    /// [`super::OtherUserIdentity::verify`].
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let signature_upload_request = their_identity.verify().await.unwrap();
+    ///
+    /// let msk_json = json!({
+    ///     "their_user_id": {
+    ///         "keys": { "ed25519:blah": "blah" }
+    ///         "signatures": {
+    ///             "their_user_id": { "ed25519:blah": "blah", ... }
+    ///         }
+    ///         "usage": [ "master" ],
+    ///         "user_id": "their_user_id"
+    ///     }
+    /// });
+    ///
+    /// let ssk_json = json!({
+    ///     "their_user_id": {
+    ///         "keys": { "ed25519:blah": "blah" },
+    ///         "signatures": {
+    ///             "their_user_id": { "ed25519:blah": "blah" }
+    ///         },
+    ///         "usage": [ "self_signing" ],
+    ///         "user_id": "their_user_id"
+    ///     }
+    /// })
+    ///
+    /// let response = simulate_key_query_response_for_verification(
+    ///     signature_upload_request,
+    ///     my_identity,
+    ///     my_user_id,
+    ///     their_user_id,
+    ///     msk_json,
+    ///     ssk_json
+    /// ).await;
+    ///
+    /// olm_machine
+    ///     .mark_request_as_sent(
+    ///         &TransactionId::new(),
+    ///         crate::IncomingResponse::KeysQuery(&kq_response),
+    ///     )
+    ///     .await
+    ///     .unwrap();
+    /// ```
+    pub fn simulate_key_query_response_for_verification(
+        signature_upload_request: SignatureUploadRequest,
+        my_identity: OwnUserIdentity,
+        my_user_id: &UserId,
+        their_user_id: &UserId,
+        msk_json: serde_json::Value,
+        ssk_json: serde_json::Value,
+    ) -> KeyQueryResponse {
+        // Find the signed key inside the SignatureUploadRequest
+        let cross_signing_key: CrossSigningKey = serde_json::from_str(
+            signature_upload_request
+                .signed_keys
+                .get(their_user_id)
+                .expect("Signature upload request should contain a key for their user ID")
+                .iter()
+                .next()
+                .expect("There should be a key in the signature upload request")
+                .1
+                .get(),
+        )
+        .expect("Should not fail to deserialize the key");
+
+        // Find their master key that we want to update inside their msk JSON
+        let mut their_msk: CrossSigningKey = serde_json::from_value(
+            msk_json.get(their_user_id.as_str()).expect("msk should contain their user ID").clone(),
+        )
+        .expect("Should not fail to deserialize msk");
+
+        // Find our own user signing key
+        let my_user_signing_key_id = my_identity
+            .user_signing_key()
+            .keys()
+            .iter()
+            .next()
+            .expect("There should be a user signing key")
+            .0;
+
+        // Add the signature from the SignatureUploadRequest to their master key, under
+        // our user ID
+        their_msk.signatures.add_signature(
+            my_user_id.to_owned(),
+            my_user_signing_key_id.to_owned(),
+            cross_signing_key
+                .signatures
+                .get_signature(my_user_id, my_user_signing_key_id)
+                .expect("There should be a signature for our user"),
+        );
+
+        // Create a JSON response as if the verification has happened
+        ruma_response_from_json(&json!({
+            "device_keys": {}, // Don't need devices here, even though they would exist
+            "failures": {},
+            "master_keys": {
+                their_user_id: their_msk,
+            },
+            "self_signing_keys": ssk_json,
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -1273,11 +1392,8 @@ pub(crate) mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use assert_matches::assert_matches;
-    use matrix_sdk_test::{async_test, ruma_response_from_json, test_json};
-    use ruma::{
-        api::client::keys::get_keys::v3::Response as KeyQueryResponse, device_id, user_id,
-        TransactionId,
-    };
+    use matrix_sdk_test::{async_test, test_json};
+    use ruma::{device_id, user_id, TransactionId};
     use serde_json::{json, Value};
     use tokio::sync::Mutex;
 
@@ -1288,7 +1404,12 @@ pub(crate) mod tests {
     };
     use crate::{
         identities::{
-            manager::testing::own_key_query, user::OtherUserIdentityDataSerializer, Device,
+            manager::testing::own_key_query,
+            user::{
+                testing::simulate_key_query_response_for_verification,
+                OtherUserIdentityDataSerializer,
+            },
+            Device,
         },
         olm::{Account, PrivateCrossSigningIdentity},
         store::{CryptoStoreWrapper, MemoryStore},
@@ -1610,7 +1731,6 @@ pub(crate) mod tests {
         machine.bootstrap_cross_signing(false).await.unwrap();
 
         let my_id = machine.get_identity(my_user_id, None).await.unwrap().unwrap().own().unwrap();
-        let usk_key_id = my_id.inner.user_signing_key().keys().iter().next().unwrap().0;
 
         let keys_query = DataSet::key_query_with_identity_a();
         let txn_id = TransactionId::new();
@@ -1632,33 +1752,14 @@ pub(crate) mod tests {
         // Manually verify for the purpose of this test
         let sig_upload = other_identity.verify().await.unwrap();
 
-        let raw_extracted =
-            sig_upload.signed_keys.get(other_user_id).unwrap().iter().next().unwrap().1.get();
-
-        let new_signature: CrossSigningKey = serde_json::from_str(raw_extracted).unwrap();
-
-        let mut msk_to_update: CrossSigningKey =
-            serde_json::from_value(DataSet::msk_b().get("@bob:localhost").unwrap().clone())
-                .unwrap();
-
-        msk_to_update.signatures.add_signature(
-            my_user_id.to_owned(),
-            usk_key_id.to_owned(),
-            new_signature.signatures.get_signature(my_user_id, usk_key_id).unwrap(),
+        let kq_response = simulate_key_query_response_for_verification(
+            sig_upload,
+            my_id,
+            my_user_id,
+            other_user_id,
+            DataSet::msk_b(),
+            DataSet::ssk_b(),
         );
-
-        // we want to update bob device keys with the new signature
-        let data = json!({
-                "device_keys": {}, // For the purpose of this test we don't need devices here
-                "failures": {},
-                "master_keys": {
-                    DataSet::user_id(): msk_to_update
-        ,
-                },
-                "self_signing_keys": DataSet::ssk_b(),
-            });
-
-        let kq_response: KeyQueryResponse = ruma_response_from_json(&data);
         machine.mark_request_as_sent(&TransactionId::new(), &kq_response).await.unwrap();
 
         // The identity should not need any user approval now

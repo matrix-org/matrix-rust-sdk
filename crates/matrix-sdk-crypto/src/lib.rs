@@ -39,7 +39,9 @@ mod verification;
 pub mod testing {
     pub use crate::identities::{
         device::testing::get_device,
-        user::testing::{get_other_identity, get_own_identity},
+        user::testing::{
+            get_other_identity, get_own_identity, simulate_key_query_response_for_verification,
+        },
     };
 }
 
