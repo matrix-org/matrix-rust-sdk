@@ -49,8 +49,7 @@ use ruma::{
         SyncMessageLikeEvent,
     },
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomVersionId, TransactionId,
-    UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomVersionId, UserId,
 };
 use thiserror::Error;
 use tracing::{error, instrument, trace, warn};
@@ -95,11 +94,7 @@ pub use self::{
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
-use self::{
-    controller::TimelineController,
-    futures::SendAttachment,
-    util::{rfind_event_by_id, rfind_event_item},
-};
+use self::{controller::TimelineController, futures::SendAttachment, util::rfind_event_by_id};
 
 /// Information needed to reply to an event.
 #[derive(Debug, Clone)]
@@ -250,25 +245,6 @@ impl Timeline {
     pub async fn item_by_event_id(&self, event_id: &EventId) -> Option<EventTimelineItem> {
         let items = self.controller.items().await;
         let (_, item) = rfind_event_by_id(&items, event_id)?;
-        Some(item.to_owned())
-    }
-
-    /// Get the current local echo timeline item for the given transaction ID,
-    /// if any.
-    ///
-    /// This will always return a local echo, if found.
-    ///
-    /// It's preferable to store the timeline items in the model for your UI, if
-    /// possible, instead of just storing IDs and coming back to the timeline
-    /// object to look up items.
-    pub async fn local_item_by_transaction_id(
-        &self,
-        target: &TransactionId,
-    ) -> Option<EventTimelineItem> {
-        let items = self.controller.items().await;
-        let (_, item) = rfind_event_item(&items, |item| {
-            item.as_local().map_or(false, |local| local.transaction_id == target)
-        })?;
         Some(item.to_owned())
     }
 
