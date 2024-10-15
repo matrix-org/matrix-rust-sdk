@@ -53,7 +53,7 @@ use ruma::{
         },
         AnyMessageLikeEventContent,
     },
-    EventId, OwnedTransactionId,
+    EventId,
 };
 use tokio::{
     sync::Mutex,
@@ -573,26 +573,6 @@ impl Timeline {
             .item_by_event_id(&event_id)
             .await
             .context("Item with given event ID not found")?;
-        Ok(item.into())
-    }
-
-    /// Get the current timeline item for the given transaction ID, if any.
-    ///
-    /// This will always return a local echo, if found.
-    ///
-    /// It's preferable to store the timeline items in the model for your UI, if
-    /// possible, instead of just storing IDs and coming back to the timeline
-    /// object to look up items.
-    pub async fn get_event_timeline_item_by_transaction_id(
-        &self,
-        transaction_id: String,
-    ) -> Result<EventTimelineItem, ClientError> {
-        let transaction_id: OwnedTransactionId = transaction_id.into();
-        let item = self
-            .inner
-            .local_item_by_transaction_id(&transaction_id)
-            .await
-            .context("Item with given transaction ID not found")?;
         Ok(item.into())
     }
 
