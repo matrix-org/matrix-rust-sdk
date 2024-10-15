@@ -495,7 +495,7 @@ impl Timeline {
         new_content: EditedContent,
     ) -> Result<bool, ClientError> {
         self.inner
-            .edit_by_id(&(event_or_transaction_id.try_into()?), new_content.try_into()?)
+            .edit_by_id(&event_or_transaction_id.try_into()?, new_content.try_into()?)
             .await
             .map_err(Into::into)
     }
@@ -530,19 +530,21 @@ impl Timeline {
 
     /// Toggle a reaction on an event.
     ///
-    /// The `unique_id` parameter is a string returned by
-    /// the `TimelineItem::unique_id()` method. As such, this method works both
-    /// on local echoes and remote items.
-    ///
     /// Adds or redacts a reaction based on the state of the reaction at the
     /// time it is called.
+    ///
+    /// This method works both on local echoes and remote items.
     ///
     /// When redacting a previous reaction, the redaction reason is not set.
     ///
     /// Ensures that only one reaction is sent at a time to avoid race
     /// conditions and spamming the homeserver with requests.
-    pub async fn toggle_reaction(&self, unique_id: String, key: String) -> Result<(), ClientError> {
-        self.inner.toggle_reaction(&unique_id, &key).await?;
+    pub async fn toggle_reaction(
+        &self,
+        item_id: EventOrTransactionId,
+        key: String,
+    ) -> Result<(), ClientError> {
+        self.inner.toggle_reaction(&item_id.try_into()?, &key).await?;
         Ok(())
     }
 

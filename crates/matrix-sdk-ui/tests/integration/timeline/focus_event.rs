@@ -320,7 +320,7 @@ async fn test_focused_timeline_local_echoes() {
     assert_pending!(timeline_stream);
 
     // Add a reaction to the focused event, which will cause a local echo to happen.
-    timeline.toggle_reaction(items[1].unique_id(), "✨").await.unwrap();
+    timeline.toggle_reaction(&event_item.identifier(), "✨").await.unwrap();
 
     // We immediately get the local echo for the reaction.
     let item = assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Set { index: 1, value: item } => item);

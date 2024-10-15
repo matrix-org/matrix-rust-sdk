@@ -21,7 +21,8 @@ use ruma::{EventId, MilliSecondsSinceUnixEpoch};
 #[cfg(doc)]
 use super::controller::TimelineMetadata;
 use super::{
-    event_item::EventTimelineItemKind, EventTimelineItem, ReactionsByKeyBySender, TimelineItem,
+    event_item::EventTimelineItemKind, EventTimelineItem, ReactionsByKeyBySender,
+    TimelineEventItemId, TimelineItem,
 };
 
 pub(super) struct EventTimelineItemWithId<'a> {
@@ -80,17 +81,6 @@ pub(super) fn rfind_event_item(
     rfind_event_item_internal(items, |item_with_id| f(item_with_id.inner))
 }
 
-/// Find the timeline item that matches the given internal id, if any.
-///
-/// WARNING: Linear scan of the items, see documentation of
-/// [`rfind_event_item`].
-pub(super) fn rfind_event_by_uid<'a>(
-    items: &'a Vector<Arc<TimelineItem>>,
-    internal_id: &'a str,
-) -> Option<(usize, EventTimelineItemWithId<'a>)> {
-    rfind_event_item_internal(items, |item_with_id| item_with_id.internal_id == internal_id)
-}
-
 /// Find the timeline item that matches the given event id, if any.
 ///
 /// WARNING: Linear scan of the items, see documentation of
@@ -100,6 +90,28 @@ pub(super) fn rfind_event_by_id<'a>(
     event_id: &EventId,
 ) -> Option<(usize, EventTimelineItemWithId<'a>)> {
     rfind_event_item(items, |it| it.event_id() == Some(event_id))
+}
+
+/// Find the timeline item that matches the given item (event or transaction)
+/// id, if any.
+///
+/// WARNING: Linear scan of the items, see documentation of
+/// [`rfind_event_item`].
+pub(super) fn rfind_event_by_item_id<'a>(
+    items: &'a Vector<Arc<TimelineItem>>,
+    item_id: &TimelineEventItemId,
+) -> Option<(usize, EventTimelineItemWithId<'a>)> {
+    match item_id {
+        TimelineEventItemId::TransactionId(txn_id) => {
+            rfind_event_item(items, |item| match &item.kind {
+                EventTimelineItemKind::Local(local) => local.transaction_id == *txn_id,
+                EventTimelineItemKind::Remote(remote) => {
+                    remote.transaction_id.as_deref() == Some(txn_id)
+                }
+            })
+        }
+        TimelineEventItemId::EventId(event_id) => rfind_event_by_id(items, event_id),
+    }
 }
 
 /// Result of comparing events position in the timeline.

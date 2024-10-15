@@ -70,7 +70,7 @@ use crate::{
         event_item::EventTimelineItemKind,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
         reactions::FullReactionKey,
-        util::rfind_event_by_uid,
+        util::rfind_event_by_item_id,
         TimelineEventFilterFn,
     },
     unable_to_decrypt_hook::UtdHookManager,
@@ -484,12 +484,12 @@ impl<P: RoomDataProvider> TimelineController<P> {
     #[instrument(skip_all)]
     pub(super) async fn toggle_reaction_local(
         &self,
-        unique_id: &str,
+        item_id: &TimelineEventItemId,
         key: &str,
     ) -> Result<bool, Error> {
         let mut state = self.state.write().await;
 
-        let Some((item_pos, item)) = rfind_event_by_uid(&state.items, unique_id) else {
+        let Some((item_pos, item)) = rfind_event_by_item_id(&state.items, item_id) else {
             warn!("Timeline item not found, can't add reaction");
             return Err(Error::FailedToToggleReaction);
         };
@@ -502,7 +502,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             .map(|reaction_info| reaction_info.status.clone());
 
         let Some(prev_status) = prev_status else {
-            match &item.inner.kind {
+            match &item.kind {
                 EventTimelineItemKind::Local(local) => {
                     if let Some(send_handle) = local.send_handle.clone() {
                         if send_handle

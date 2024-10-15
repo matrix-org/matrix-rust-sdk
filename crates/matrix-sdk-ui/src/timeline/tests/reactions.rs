@@ -29,7 +29,7 @@ use tokio::time::timeout;
 
 use crate::timeline::{
     controller::TimelineEnd, event_item::RemoteEventOrigin, tests::TestTimeline, ReactionStatus,
-    TimelineItem,
+    TimelineEventItemId, TimelineItem,
 };
 
 const REACTION_KEY: &str = "👍";
@@ -83,7 +83,11 @@ async fn test_add_reaction_on_non_existent_event() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
 
-    timeline.toggle_reaction_local("nonexisting_unique_id", REACTION_KEY).await.unwrap_err();
+    let event_id = EventId::parse("$nonexisting_unique_id").unwrap();
+    timeline
+        .toggle_reaction_local(&TimelineEventItemId::EventId(event_id), REACTION_KEY)
+        .await
+        .unwrap_err();
 
     assert!(stream.next().now_or_never().is_none());
 }
@@ -92,10 +96,10 @@ async fn test_add_reaction_on_non_existent_event() {
 async fn test_add_reaction_success() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
-    let (msg_uid, event_id, item_pos) = send_first_message(&timeline, &mut stream).await;
+    let (item_id, event_id, item_pos) = send_first_message(&timeline, &mut stream).await;
 
     // If I toggle a reaction on an event which didn't have any…
-    timeline.toggle_reaction_local(&msg_uid, REACTION_KEY).await.unwrap();
+    timeline.toggle_reaction_local(&item_id, REACTION_KEY).await.unwrap();
 
     // The timeline item is updated, with a local echo for the reaction.
     assert_reaction_is_updated!(stream, &event_id, item_pos, false);
@@ -123,7 +127,7 @@ async fn test_redact_reaction_success() {
     let f = &timeline.factory;
 
     let mut stream = timeline.subscribe().await;
-    let (msg_uid, event_id, item_pos) = send_first_message(&timeline, &mut stream).await;
+    let (item_id, event_id, item_pos) = send_first_message(&timeline, &mut stream).await;
 
     // A reaction is added by sync.
     let reaction_id = event_id!("$reaction_id");
@@ -135,7 +139,7 @@ async fn test_redact_reaction_success() {
     assert_reaction_is_updated!(stream, &event_id, item_pos, true);
 
     // Toggling the reaction locally…
-    timeline.toggle_reaction_local(&msg_uid, REACTION_KEY).await.unwrap();
+    timeline.toggle_reaction_local(&item_id, REACTION_KEY).await.unwrap();
 
     // Will immediately redact it on the item.
     let event = assert_item_update!(stream, &event_id, item_pos);
@@ -166,12 +170,12 @@ async fn test_redact_reaction_success() {
 async fn test_reactions_store_timestamp() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe().await;
-    let (msg_uid, event_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
+    let (item_id, event_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
 
     // Creating a reaction adds a valid timestamp.
     let timestamp_before = MilliSecondsSinceUnixEpoch::now();
 
-    timeline.toggle_reaction_local(&msg_uid, REACTION_KEY).await.unwrap();
+    timeline.toggle_reaction_local(&item_id, REACTION_KEY).await.unwrap();
 
     let event = assert_reaction_is_updated!(stream, &event_id, msg_pos, false);
     let reactions = event.reactions().get(&REACTION_KEY.to_owned()).unwrap();
@@ -216,15 +220,17 @@ async fn test_initial_reaction_timestamp_is_stored() {
 async fn send_first_message(
     timeline: &TestTimeline,
     stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
-) -> (String, OwnedEventId, usize) {
+) -> (TimelineEventItemId, OwnedEventId, usize) {
     timeline.handle_live_event(timeline.factory.text_msg("I want you to react").sender(&BOB)).await;
 
     let item = assert_next_matches!(*stream, VectorDiff::PushBack { value } => value);
-    let event_id = item.as_event().unwrap().as_remote().unwrap().event_id.clone();
+    let event_item = item.as_event().unwrap();
+    let item_id = event_item.identifier();
+    let event_id = event_item.event_id().unwrap().to_owned();
     let position = timeline.len().await - 1;
 
     let day_divider = assert_next_matches!(*stream, VectorDiff::PushFront { value } => value);
     assert!(day_divider.is_day_divider());
 
-    (item.unique_id().to_owned(), event_id, position)
+    (item_id, event_id, position)
 }
