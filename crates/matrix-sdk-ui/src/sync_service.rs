@@ -29,13 +29,11 @@ use eyeball::{SharedObservable, Subscriber};
 use futures_core::Future;
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::Client;
+use matrix_sdk_base::executor::{spawn, JoinHandle};
 use thiserror::Error;
-use tokio::{
-    sync::{
-        mpsc::{Receiver, Sender},
-        Mutex as AsyncMutex, OwnedMutexGuard,
-    },
-    task::{spawn, JoinHandle},
+use tokio::sync::{
+    mpsc::{Receiver, Sender},
+    Mutex as AsyncMutex, OwnedMutexGuard,
 };
 use tracing::{error, info, instrument, trace, warn, Instrument, Level};
 

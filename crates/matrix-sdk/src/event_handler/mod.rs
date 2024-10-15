@@ -48,7 +48,7 @@ use anymap2::any::CloneAnySendSync;
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
-    SendOutsideWasm, SyncOutsideWasm,
+    SendOutsideWasm,
 };
 use ruma::{events::AnySyncStateEvent, push::Action, serde::Raw, OwnedRoomId};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -69,10 +69,7 @@ type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
 #[cfg(target_arch = "wasm32")]
 type EventHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
 
-#[cfg(not(target_arch = "wasm32"))]
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
-#[cfg(target_arch = "wasm32")]
-type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut;
 
 type AnyMap = anymap2::Map<dyn CloneAnySendSync + Send + Sync>;
 
@@ -197,7 +194,7 @@ pub struct EventHandlerHandle {
 ///
 /// ¹ the only thing stopping such types from existing in stable Rust is that
 /// all manual implementations of the `Fn` traits require a Nightly feature
-pub trait EventHandler<Ev, Ctx>: Clone + SendOutsideWasm + SyncOutsideWasm + 'static {
+pub trait EventHandler<Ev, Ctx>: Clone + Send + Sync + 'static {
     /// The future returned by `handle_event`.
     #[doc(hidden)]
     type Future: EventHandlerFuture;
@@ -512,7 +509,7 @@ macro_rules! impl_event_handler {
         impl<Ev, Fun, Fut, $($ty),*> EventHandler<Ev, ($($ty,)*)> for Fun
         where
             Ev: SyncEvent,
-            Fun: FnOnce(Ev, $($ty),*) -> Fut + Clone + SendOutsideWasm + SyncOutsideWasm + 'static,
+            Fun: FnOnce(Ev, $($ty),*) -> Fut + Clone + Send + Sync + 'static,
             Fut: EventHandlerFuture,
             $($ty: EventHandlerContext),*
         {

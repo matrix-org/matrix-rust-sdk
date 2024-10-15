@@ -102,7 +102,10 @@ pub trait Filter: Fn(&Room) -> bool {}
 impl<F> Filter for F where F: Fn(&Room) -> bool {}
 
 /// Type alias for a boxed filter function.
+#[cfg(not(target_arch = "wasm32"))]
 pub type BoxedFilterFn = Box<dyn Filter + Send + Sync>;
+#[cfg(target_arch = "wasm32")]
+pub type BoxedFilterFn = Box<dyn Filter>;
 
 /// Normalize a string, i.e. decompose it into NFD (Normalization Form D, i.e. a
 /// canonical decomposition, see http://www.unicode.org/reports/tr15/) and

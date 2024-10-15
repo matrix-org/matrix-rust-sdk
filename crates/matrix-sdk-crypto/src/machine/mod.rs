@@ -24,7 +24,7 @@ use matrix_sdk_common::{
         AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, UnableToDecryptInfo,
         UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel, VerificationState,
     },
-    BoxFuture,
+    executor::BoxFuture,
 };
 use ruma::{
     api::client::{
