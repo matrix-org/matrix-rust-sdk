@@ -547,9 +547,6 @@ impl Timeline {
 
     /// Toggle a reaction on an event.
     ///
-    /// The `unique_id` parameter is a string returned by
-    /// [`TimelineItem::unique_id()`].
-    ///
     /// Adds or redacts a reaction based on the state of the reaction at the
     /// time it is called.
     ///
@@ -557,8 +554,12 @@ impl Timeline {
     ///
     /// Ensures that only one reaction is sent at a time to avoid race
     /// conditions and spamming the homeserver with requests.
-    pub async fn toggle_reaction(&self, unique_id: &str, reaction_key: &str) -> Result<(), Error> {
-        self.controller.toggle_reaction_local(unique_id, reaction_key).await?;
+    pub async fn toggle_reaction(
+        &self,
+        item_id: &TimelineEventItemId,
+        reaction_key: &str,
+    ) -> Result<(), Error> {
+        self.controller.toggle_reaction_local(item_id, reaction_key).await?;
         Ok(())
     }
 
