@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{io, sync::Arc};
-
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     assert_next_matches_with_timeout, send_queue::RoomSendQueueUpdate,
-    test_utils::events::EventFactory, Error,
+    test_utils::events::EventFactory,
 };
+use matrix_sdk_base::deserialized_responses::QueueWedgeError;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     event_id,
@@ -66,15 +65,12 @@ async fn test_remote_echo_full_trip() {
     // Scenario 2: The local event has not been sent to the server successfully, it
     // has failed. In this case, there is no event ID.
     {
-        let some_io_error = Error::Io(io::Error::new(io::ErrorKind::Other, "this is a test"));
+        let some_io_error = QueueWedgeError::GenericApiError { msg: "this is a test".to_owned() };
         timeline
             .controller
             .update_event_send_state(
                 &txn_id,
-                EventSendState::SendingFailed {
-                    error: Arc::new(some_io_error),
-                    is_recoverable: true,
-                },
+                EventSendState::SendingFailed { error: some_io_error, is_recoverable: true },
             )
             .await;
 

@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
-
 use as_variant::as_variant;
-use matrix_sdk::{send_queue::SendHandle, Error};
+use matrix_sdk::send_queue::SendHandle;
+use matrix_sdk_base::deserialized_responses::QueueWedgeError;
 use ruma::{EventId, OwnedEventId, OwnedTransactionId};
 
 use super::TimelineEventItemId;
@@ -70,7 +69,7 @@ pub enum EventSendState {
     /// sending has failed.
     SendingFailed {
         /// Details about how sending the event failed.
-        error: Arc<Error>,
+        error: QueueWedgeError,
         /// Whether the error is considered recoverable or not.
         ///
         /// An error that's recoverable will disable the room's send queue,

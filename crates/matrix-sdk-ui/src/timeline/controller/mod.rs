@@ -29,6 +29,7 @@ use matrix_sdk::{
     },
     Result, Room,
 };
+use matrix_sdk_base::deserialized_responses::QueueWedgeError;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
@@ -1262,9 +1263,9 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         EventSendState::SendingFailed {
                             // Put a dummy error in this case, since we're not persisting the errors
                             // that occurred in previous sessions.
-                            error: Arc::new(matrix_sdk::Error::UnknownError(Box::new(
-                                MissingLocalEchoFailError,
-                            ))),
+                            error: QueueWedgeError::GenericApiError {
+                                msg: MISSING_LOCAL_ECHO_FAIL_ERROR.into(),
+                            },
                             is_recoverable: false,
                         },
                     )
@@ -1521,9 +1522,8 @@ impl TimelineController {
     }
 }
 
-#[derive(Debug, Error)]
-#[error("local echo failed to send in a previous session")]
-struct MissingLocalEchoFailError;
+const MISSING_LOCAL_ECHO_FAIL_ERROR: &'static str =
+    "local echo failed to send in a previous session";
 
 #[derive(Debug, Default)]
 pub(super) struct HandleManyEventsResult {

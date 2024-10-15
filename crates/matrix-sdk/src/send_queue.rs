@@ -58,18 +58,23 @@ use matrix_sdk_base::{
     },
     RoomState, StoreError,
 };
-use matrix_sdk_common::executor::{spawn, JoinHandle};
+use matrix_sdk_common::{
+    deserialized_responses::QueueWedgeError,
+    executor::{spawn, JoinHandle},
+};
 use ruma::{
     events::{
         reaction::ReactionEventContent, relation::Annotation, AnyMessageLikeEventContent,
         EventContent as _,
     },
     serde::Raw,
-    EventId, OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
+    EventId, OwnedEventId, OwnedRoomId, OwnedTransactionId, OwnedUserId, TransactionId,
 };
 use tokio::sync::{broadcast, Notify, RwLock};
 use tracing::{debug, error, info, instrument, trace, warn};
 
+#[cfg(feature = "e2e-encryption")]
+use crate::crypto::{OlmError, SessionRecipientCollectionError};
 use crate::{
     client::WeakClient,
     config::RequestConfig,
@@ -187,7 +192,7 @@ pub struct SendQueueRoomError {
     pub room_id: OwnedRoomId,
 
     /// The error the room has ran into, when trying to send an event.
-    pub error: Arc<crate::Error>,
+    pub error: QueueWedgeError,
 
     /// Whether the error is considered recoverable or not.
     ///
@@ -494,6 +499,8 @@ impl RoomSendQueue {
                         _ => false,
                     };
 
+                    let wedged_err = convert_error_to_wedged_reason(&err);
+
                     if is_recoverable {
                         warn!(txn_id = %queued_event.transaction_id, error = ?err, "Recoverable error when sending event: {err}, disabling send queue");
 
@@ -520,17 +527,15 @@ impl RoomSendQueue {
                         }
                     }
 
-                    let error = Arc::new(err);
-
                     let _ = global_error_reporter.send(SendQueueRoomError {
                         room_id: room.room_id().to_owned(),
-                        error: error.clone(),
+                        error: wedged_err.clone(),
                         is_recoverable,
                     });
 
                     let _ = updates.send(RoomSendQueueUpdate::SendError {
                         transaction_id: queued_event.transaction_id,
-                        error,
+                        error: wedged_err,
                         is_recoverable,
                     });
                 }
@@ -574,6 +579,37 @@ impl RoomSendQueue {
             .send(RoomSendQueueUpdate::RetryEvent { transaction_id: transaction_id.to_owned() });
 
         Ok(())
+    }
+}
+
+fn convert_error_to_wedged_reason(value: &crate::Error) -> QueueWedgeError {
+    match value {
+        #[cfg(feature = "e2e-encryption")]
+        crate::Error::OlmError(OlmError::SessionRecipientCollectionError(error)) => match error {
+            SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(user_map) => {
+                QueueWedgeError::InsecureDevices {
+                    user_device_map: user_map
+                        .iter()
+                        .map(|(user_id, devices)| {
+                            (
+                                user_id.to_string(),
+                                devices.iter().map(|device_id| device_id.to_string()).collect(),
+                            )
+                        })
+                        .collect(),
+                }
+            }
+            SessionRecipientCollectionError::VerifiedUserChangedIdentity(users) => {
+                QueueWedgeError::IdentityViolations {
+                    users: users.iter().map(OwnedUserId::to_string).collect(),
+                }
+            }
+            SessionRecipientCollectionError::CrossSigningNotSetup
+            | SessionRecipientCollectionError::SendingFromUnverifiedDevice => {
+                QueueWedgeError::CrossVerificationRequired
+            }
+        },
+        _ => QueueWedgeError::GenericApiError { msg: value.to_string() },
     }
 }
 
@@ -1193,7 +1229,7 @@ pub enum RoomSendQueueUpdate {
         /// Transaction id used to identify this event.
         transaction_id: OwnedTransactionId,
         /// Error received while sending the event.
-        error: Arc<crate::Error>,
+        error: QueueWedgeError,
         /// Whether the error is considered recoverable or not.
         ///
         /// An error that's recoverable will disable the room's send queue,
