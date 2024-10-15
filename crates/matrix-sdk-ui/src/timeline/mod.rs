@@ -54,6 +54,7 @@ use ruma::{
 };
 use thiserror::Error;
 use tracing::{error, instrument, trace, warn};
+use util::rfind_event_by_item_id;
 
 use crate::timeline::pinned_events_loader::PinnedEventsRoom;
 
@@ -602,41 +603,6 @@ impl Timeline {
     /// Redact an event given its [`TimelineEventItemId`] and an optional
     /// reason.
     ///
-    /// See [`Self::redact`] for more info.
-    pub async fn redact_by_id(
-        &self,
-        id: &TimelineEventItemId,
-        reason: Option<&str>,
-    ) -> Result<(), Error> {
-        let event_id = match id {
-            TimelineEventItemId::TransactionId(transaction_id) => {
-                let Some(item) = self.item_by_transaction_id(transaction_id).await else {
-                    return Err(Error::RedactError(RedactError::LocalEventNotFound(
-                        transaction_id.to_owned(),
-                    )));
-                };
-
-                match item.handle() {
-                    TimelineItemHandle::Local(handle) => {
-                        // If there is a local item that hasn't been sent yet, abort the upload
-                        handle.abort().await.map_err(RoomSendQueueError::StorageError)?;
-                        return Ok(());
-                    }
-                    TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
-                }
-            }
-            TimelineEventItemId::EventId(event_id) => event_id.to_owned(),
-        };
-        self.room()
-            .redact(&event_id, reason, None)
-            .await
-            .map_err(|e| Error::RedactError(RedactError::HttpError(e)))?;
-
-        Ok(())
-    }
-
-    /// Redact an event.
-    ///
     /// # Returns
     ///
     /// - Returns `Ok(true)` if the redact happened.
@@ -646,33 +612,27 @@ impl Timeline {
     ///   interacting with the sending queue.
     pub async fn redact(
         &self,
-        event: &EventTimelineItem,
+        item_id: &TimelineEventItemId,
         reason: Option<&str>,
     ) -> Result<bool, Error> {
-        let event_id = match event.identifier() {
-            TimelineEventItemId::TransactionId(_) => {
-                // See if we have an up-to-date timeline item with that transaction id.
-                match event.handle() {
-                    TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
-                    TimelineItemHandle::Local(handle) => {
-                        return Ok(handle
-                            .abort()
-                            .await
-                            .map_err(RoomSendQueueError::StorageError)?);
-                    }
-                }
-            }
-
-            TimelineEventItemId::EventId(event_id) => event_id,
+        let items = self.items().await;
+        let Some((_pos, event)) = rfind_event_by_item_id(&items, item_id) else {
+            return Err(Error::RedactError(RedactError::ItemNotFound(item_id.clone())));
         };
 
-        self.room()
-            .redact(&event_id, reason, None)
-            .await
-            .map_err(RedactError::HttpError)
-            .map_err(Error::RedactError)?;
-
-        Ok(true)
+        match event.handle() {
+            TimelineItemHandle::Remote(event_id) => {
+                self.room()
+                    .redact(event_id, reason, None)
+                    .await
+                    .map_err(RedactError::HttpError)
+                    .map_err(Error::RedactError)?;
+                Ok(true)
+            }
+            TimelineItemHandle::Local(handle) => {
+                Ok(handle.abort().await.map_err(RoomSendQueueError::StorageError)?)
+            }
+        }
     }
 
     /// Fetch unavailable details about the event with the given ID.

@@ -18,7 +18,6 @@ use matrix_sdk::{
     send_queue::RoomSendQueueError,
     HttpError,
 };
-use ruma::OwnedTransactionId;
 use thiserror::Error;
 
 use crate::timeline::{pinned_events_loader::PinnedEventsLoaderError, TimelineEventItemId};
@@ -83,8 +82,8 @@ pub enum Error {
 #[derive(Error, Debug)]
 pub enum RedactError {
     /// Local event to redact wasn't found for transaction id
-    #[error("Local event to redact wasn't found for transaction {0}")]
-    LocalEventNotFound(OwnedTransactionId),
+    #[error("Event to redact wasn't found for item id {0:?}")]
+    ItemNotFound(TimelineEventItemId),
 
     /// An error happened while attempting to redact an event.
     #[error(transparent)]
