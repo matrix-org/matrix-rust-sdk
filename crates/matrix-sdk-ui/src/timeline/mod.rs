@@ -18,7 +18,7 @@
 
 use std::{path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
-use event_item::{extract_room_msg_edit_content, EventTimelineItemKind, TimelineItemHandle};
+use event_item::{extract_room_msg_edit_content, TimelineItemHandle};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use imbl::Vector;
@@ -239,17 +239,6 @@ impl Timeline {
         self.controller.retry_event_decryption(self.room(), None).await;
     }
 
-    /// Get the current timeline item for the given [`TimelineEventItemId`], if
-    /// any.
-    async fn event_by_timeline_id(&self, id: &TimelineEventItemId) -> Option<EventTimelineItem> {
-        match id {
-            TimelineEventItemId::EventId(event_id) => self.item_by_event_id(event_id).await,
-            TimelineEventItemId::TransactionId(transaction_id) => {
-                self.item_by_transaction_id(transaction_id).await
-            }
-        }
-    }
-
     /// Get the current timeline item for the given event ID, if any.
     ///
     /// Will return a remote event, *or* a local echo that has been sent but not
@@ -456,37 +445,7 @@ impl Timeline {
         })
     }
 
-    /// Returns a local or remote timeline item identified by this transaction
-    /// id.
-    async fn item_by_transaction_id(&self, txn_id: &TransactionId) -> Option<EventTimelineItem> {
-        let items = self.controller.items().await;
-
-        let (_, found) = rfind_event_item(&items, |item| match &item.kind {
-            EventTimelineItemKind::Local(local) => local.transaction_id == txn_id,
-            EventTimelineItemKind::Remote(remote) => {
-                remote.transaction_id.as_deref() == Some(txn_id)
-            }
-        })?;
-
-        Some(found.clone())
-    }
-
     /// Edit an event given its [`TimelineEventItemId`] and some new content.
-    ///
-    /// See [`Self::edit`] for more information.
-    pub async fn edit_by_id(
-        &self,
-        id: &TimelineEventItemId,
-        new_content: EditedContent,
-    ) -> Result<bool, Error> {
-        let Some(event) = self.event_by_timeline_id(id).await else {
-            return Err(Error::EventNotInTimeline(id.clone()));
-        };
-
-        self.edit(&event, new_content).await
-    }
-
-    /// Edit an event.
     ///
     /// Only supports events for which [`EventTimelineItem::is_editable()`]
     /// returns `true`.
@@ -501,59 +460,49 @@ impl Timeline {
     #[instrument(skip(self, new_content))]
     pub async fn edit(
         &self,
-        item: &EventTimelineItem,
+        item_id: &TimelineEventItemId,
         new_content: EditedContent,
     ) -> Result<bool, Error> {
-        let event_id = match item.identifier() {
-            TimelineEventItemId::TransactionId(txn_id) => {
-                // See if we have an up-to-date timeline item with that transaction id.
-                if let Some(item) = self.item_by_transaction_id(&txn_id).await {
-                    match item.handle() {
-                        TimelineItemHandle::Remote(event_id) => event_id.to_owned(),
-                        TimelineItemHandle::Local(handle) => {
-                            // Relations are filled by the editing code itself.
-                            let new_content: AnyMessageLikeEventContent = match new_content {
-                                EditedContent::RoomMessage(message) => {
-                                    if matches!(item.content, TimelineItemContent::Message(_)) {
-                                        AnyMessageLikeEventContent::RoomMessage(message.into())
-                                    } else {
-                                        warn!("New content (m.room.message) doesn't match previous event content.");
-                                        return Ok(false);
-                                    }
-                                }
-                                EditedContent::PollStart { new_content, .. } => {
-                                    if matches!(item.content, TimelineItemContent::Poll(_)) {
-                                        AnyMessageLikeEventContent::UnstablePollStart(
-                                            UnstablePollStartEventContent::New(
-                                                NewUnstablePollStartEventContent::new(new_content),
-                                            ),
-                                        )
-                                    } else {
-                                        warn!("New content (poll start) doesn't match previous event content.");
-                                        return Ok(false);
-                                    }
-                                }
-                            };
-                            return Ok(handle
-                                .edit(new_content)
-                                .await
-                                .map_err(RoomSendQueueError::StorageError)?);
-                        }
-                    }
-                } else {
-                    warn!("Couldn't find the local echo anymore, nor a matching remote echo");
-                    return Ok(false);
-                }
-            }
-
-            TimelineEventItemId::EventId(event_id) => event_id,
+        let items = self.items().await;
+        let Some((_pos, item)) = rfind_event_by_item_id(&items, item_id) else {
+            return Err(Error::EventNotInTimeline(item_id.clone()));
         };
 
-        let content = self.room().make_edit_event(&event_id, new_content).await?;
+        match item.handle() {
+            TimelineItemHandle::Remote(event_id) => {
+                let content = self.room().make_edit_event(event_id, new_content).await?;
+                self.send(content).await?;
+                Ok(true)
+            }
 
-        self.send(content).await?;
+            TimelineItemHandle::Local(handle) => {
+                // Relations are filled by the editing code itself.
+                let new_content: AnyMessageLikeEventContent = match new_content {
+                    EditedContent::RoomMessage(message) => {
+                        if matches!(item.content, TimelineItemContent::Message(_)) {
+                            AnyMessageLikeEventContent::RoomMessage(message.into())
+                        } else {
+                            warn!("New content (m.room.message) doesn't match previous event content.");
+                            return Ok(false);
+                        }
+                    }
+                    EditedContent::PollStart { new_content, .. } => {
+                        if matches!(item.content, TimelineItemContent::Poll(_)) {
+                            AnyMessageLikeEventContent::UnstablePollStart(
+                                UnstablePollStartEventContent::New(
+                                    NewUnstablePollStartEventContent::new(new_content),
+                                ),
+                            )
+                        } else {
+                            warn!("New content (poll start) doesn't match previous event content.");
+                            return Ok(false);
+                        }
+                    }
+                };
 
-        Ok(true)
+                Ok(handle.edit(new_content).await.map_err(RoomSendQueueError::StorageError)?)
+            }
+        }
     }
 
     /// Toggle a reaction on an event.

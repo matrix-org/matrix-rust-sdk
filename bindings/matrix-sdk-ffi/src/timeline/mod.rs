@@ -496,7 +496,7 @@ impl Timeline {
         new_content: EditedContent,
     ) -> Result<bool, ClientError> {
         self.inner
-            .edit_by_id(&event_or_transaction_id.try_into()?, new_content.try_into()?)
+            .edit(&event_or_transaction_id.try_into()?, new_content.try_into()?)
             .await
             .map_err(Into::into)
     }
