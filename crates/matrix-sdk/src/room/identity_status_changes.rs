@@ -20,7 +20,9 @@ use std::collections::BTreeMap;
 use async_stream::stream;
 use futures_core::Stream;
 use futures_util::{stream_select, StreamExt};
-use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityChange, RoomIdentityState};
+use matrix_sdk_base::crypto::{
+    IdentityState, IdentityStatusChange, RoomIdentityChange, RoomIdentityState,
+};
 use ruma::{events::room::member::SyncRoomMemberEvent, OwnedUserId, UserId};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -70,6 +72,10 @@ impl IdentityStatusChanges {
     /// client to display a list of room members whose identities have
     /// changed, and allow the user to acknowledge this or act upon it.
     ///
+    /// The first item in the stream provides the current state of the room:
+    /// each member of the room who is not in "pinned" or "verified" state will
+    /// be included (except the current user).
+    ///
     /// Note: when an unpinned user leaves a room, an update is generated
     /// stating that they have become pinned, even though they may not
     /// necessarily have become pinned, but we don't care any more because they
@@ -89,7 +95,7 @@ impl IdentityStatusChanges {
 
         Ok(stream!({
             let mut current_state =
-                filter_non_self(state.room_identity_state.current_state(), &own_user_id);
+                filter_for_initial_update(state.room_identity_state.current_state(), &own_user_id);
 
             if !current_state.is_empty() {
                 current_state.sort();
@@ -110,10 +116,26 @@ impl IdentityStatusChanges {
     }
 }
 
+fn filter_for_initial_update(
+    mut input: Vec<IdentityStatusChange>,
+    own_user_id: &UserId,
+) -> Vec<IdentityStatusChange> {
+    // We are never interested in changes to our own identity, and also for initial
+    // updates, we are only interested in "bad" states where we need to
+    // notify the user, so we can remove Verified states (Pinned states are
+    // already missing, because Pinned is considered the default).
+    input.retain(|change| {
+        change.user_id != own_user_id && change.changed_to != IdentityState::Verified
+    });
+
+    input
+}
+
 fn filter_non_self(
     mut input: Vec<IdentityStatusChange>,
     own_user_id: &UserId,
 ) -> Vec<IdentityStatusChange> {
+    // We are never interested in changes to our own identity
     input.retain(|change| change.user_id != own_user_id);
     input
 }
@@ -355,6 +377,41 @@ mod tests {
         assert_eq!(change4.len(), 1);
     }
 
+    #[async_test]
+    async fn test_when_an_unpinned_user_is_already_present_we_report_it_immediately() {
+        // Given a room containing Bob, who is unpinned
+        let t = TestSetup::new_room_with_other_member().await;
+        t.unpin().await;
+
+        // When we start listening for identity changes
+        let changes = t.subscribe_to_identity_status_changes().await;
+
+        // Then we were immediately notified about Bob being unpinned
+        let change = next_change(&mut pin!(changes)).await;
+        assert_eq!(change[0].user_id, t.user_id());
+        assert_eq!(change[0].changed_to, IdentityState::PinViolation);
+        assert_eq!(change.len(), 1);
+    }
+
+    #[async_test]
+    async fn test_when_a_verified_user_is_already_present_we_dont_report_it() {
+        // Given a room containing Bob, who is unpinned
+        let t = TestSetup::new_room_with_other_member().await;
+        t.verify().await;
+
+        // When we start listening for identity changes
+        let changes = t.subscribe_to_identity_status_changes().await;
+
+        // (And we unpin so that something is available in the changes stream)
+        t.unpin().await;
+
+        // Then we were only notified about the unpin, not being verified
+        let change = next_change(&mut pin!(changes)).await;
+        assert_eq!(change[0].user_id, t.user_id());
+        assert_eq!(change[0].changed_to, IdentityState::VerificationViolation);
+        assert_eq!(change.len(), 1);
+    }
+
     // TODO: I (andyb) haven't figured out how to test room membership changes that
     // affect our own user (they should not be shown). Specifically, I haven't
     // figure out how to get out own user into a non-pinned state.
@@ -374,12 +431,15 @@ mod tests {
 
         use futures_core::Stream;
         use matrix_sdk_base::{
-            crypto::{IdentityStatusChange, OtherUserIdentity},
+            crypto::{
+                testing::simulate_key_query_response_for_verification, IdentityStatusChange,
+                OtherUserIdentity,
+            },
             RoomState,
         };
         use matrix_sdk_test::{
-            test_json::{self, keys_query_sets::IdentityChangeDataSet},
-            JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+            test_json, test_json::keys_query_sets::IdentityChangeDataSet, JoinedRoomBuilder,
+            StateTestEvent, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
         };
         use ruma::{
             api::client::keys::get_keys, events::room::member::MembershipState, owned_user_id,
@@ -445,7 +505,7 @@ mod tests {
                     self.change_identity(IdentityChangeDataSet::key_query_with_identity_a()).await;
                 }
 
-                // Sanity check: we are pinned
+                // Sanity check: they are pinned
                 assert!(self.is_pinned().await);
             }
 
@@ -459,8 +519,53 @@ mod tests {
                     self.change_identity(IdentityChangeDataSet::key_query_with_identity_b()).await;
                 }
 
-                // Sanity: we are unpinned
+                // Sanity: they are unpinned
                 assert!(!self.is_pinned().await);
+            }
+
+            pub(super) async fn verify(&self) {
+                // If they don't have an identity yet, set one up
+                if self.user_identity().await.is_none() {
+                    self.change_identity(IdentityChangeDataSet::key_query_with_identity_a()).await;
+                }
+
+                let my_user_id = self.client.user_id().expect("I should have a user id");
+                let my_identity = self
+                    .client
+                    .encryption()
+                    .get_user_identity(my_user_id)
+                    .await
+                    .expect("Should not fail to get own user identity")
+                    .expect("Should have an own user identity")
+                    .underlying_identity()
+                    .own()
+                    .expect("Our own identity should be of type Own");
+
+                // Get the request
+                let signature_upload_request = self
+                    .crypto_other_identity()
+                    .await
+                    .verify()
+                    .await
+                    .expect("Should be able to verify other identity");
+
+                let verification_response = simulate_key_query_response_for_verification(
+                    signature_upload_request,
+                    my_identity,
+                    my_user_id,
+                    self.user_id(),
+                    IdentityChangeDataSet::msk_a(),
+                    IdentityChangeDataSet::ssk_a(),
+                );
+
+                // Receive the response into our client
+                self.client
+                    .mark_request_as_sent(&TransactionId::new(), &verification_response)
+                    .await
+                    .unwrap();
+
+                // Sanity: they are verified
+                assert!(self.is_verified().await);
             }
 
             pub(super) async fn join(&mut self) {
@@ -483,6 +588,16 @@ mod tests {
 
             async fn init() -> (Client, OwnedUserId, SyncResponseBuilder) {
                 let (client, _server) = create_client_and_server().await;
+
+                // Ensure our user has cross-signing keys etc.
+                client
+                    .olm_machine()
+                    .await
+                    .as_ref()
+                    .expect("We should have an Olm machine")
+                    .bootstrap_cross_signing(true)
+                    .await
+                    .expect("Should be able to bootstrap cross-signing");
 
                 // Note: if you change the user_id, you will need to change lots of hard-coded
                 // stuff inside IdentityChangeDataSet
@@ -537,6 +652,10 @@ mod tests {
 
             async fn is_pinned(&self) -> bool {
                 !self.crypto_other_identity().await.identity_needs_user_approval()
+            }
+
+            async fn is_verified(&self) -> bool {
+                self.crypto_other_identity().await.is_verified()
             }
 
             async fn crypto_other_identity(&self) -> OtherUserIdentity {
