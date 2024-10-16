@@ -97,29 +97,6 @@ impl Timeline {
         unsafe { Arc::from_raw(Arc::into_raw(inner) as _) }
     }
 
-    fn build_thumbnail_info(
-        &self,
-        thumbnail_url: String,
-        thumbnail_info: ThumbnailInfo,
-    ) -> Result<Thumbnail, RoomError> {
-        let thumbnail_data =
-            fs::read(thumbnail_url).map_err(|_| RoomError::InvalidThumbnailData)?;
-
-        let base_thumbnail_info = BaseThumbnailInfo::try_from(&thumbnail_info)
-            .map_err(|_| RoomError::InvalidAttachmentData)?;
-
-        let mime_str =
-            thumbnail_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
-        let mime_type =
-            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
-
-        Ok(Thumbnail {
-            data: thumbnail_data,
-            content_type: mime_type,
-            info: Some(base_thumbnail_info),
-        })
-    }
-
     async fn send_attachment(
         &self,
         filename: String,
@@ -145,6 +122,41 @@ impl Timeline {
 fn parse_mime(mimetype: Option<String>) -> Result<Mime, RoomError> {
     let mime_str = mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
     mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
+}
+
+fn build_thumbnail_info(
+    thumbnail_url: Option<String>,
+    thumbnail_info: Option<ThumbnailInfo>,
+) -> Result<AttachmentConfig, RoomError> {
+    match (thumbnail_url, thumbnail_info) {
+        (None, None) => Ok(AttachmentConfig::new()),
+
+        (Some(thumbnail_url), Some(thumbnail_info)) => {
+            let thumbnail_data =
+                fs::read(thumbnail_url).map_err(|_| RoomError::InvalidThumbnailData)?;
+
+            let base_thumbnail_info = BaseThumbnailInfo::try_from(&thumbnail_info)
+                .map_err(|_| RoomError::InvalidAttachmentData)?;
+
+            let mime_str =
+                thumbnail_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+            let mime_type =
+                mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
+            let thumbnail = Thumbnail {
+                data: thumbnail_data,
+                content_type: mime_type,
+                info: Some(base_thumbnail_info),
+            };
+
+            Ok(AttachmentConfig::with_thumbnail(thumbnail))
+        }
+
+        _ => {
+            warn!("Ignoring thumbnail because either the thumbnail URL or info isn't defined");
+            Ok(AttachmentConfig::new())
+        }
+    }
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -270,19 +282,12 @@ impl Timeline {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_image_info = BaseImageInfo::try_from(&image_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
-
             let attachment_info = AttachmentInfo::Image(base_image_info);
 
-            let attachment_config = match (thumbnail_url, image_info.thumbnail_info) {
-                (Some(thumbnail_url), Some(thumbnail_image_info)) => {
-                    let thumbnail =
-                        self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
-                    AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info)
-                }
-                _ => AttachmentConfig::new().info(attachment_info),
-            }
-            .caption(caption)
-            .formatted_caption(formatted_caption.map(Into::into));
+            let attachment_config = build_thumbnail_info(thumbnail_url, image_info.thumbnail_info)?
+                .info(attachment_info)
+                .caption(caption)
+                .formatted_caption(formatted_caption.map(Into::into));
 
             self.send_attachment(
                 url,
@@ -306,19 +311,12 @@ impl Timeline {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_video_info: BaseVideoInfo = BaseVideoInfo::try_from(&video_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
-
             let attachment_info = AttachmentInfo::Video(base_video_info);
 
-            let attachment_config = match (thumbnail_url, video_info.thumbnail_info) {
-                (Some(thumbnail_url), Some(thumbnail_image_info)) => {
-                    let thumbnail =
-                        self.build_thumbnail_info(thumbnail_url, thumbnail_image_info)?;
-                    AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info)
-                }
-                _ => AttachmentConfig::new().info(attachment_info),
-            }
-            .caption(caption)
-            .formatted_caption(formatted_caption.map(Into::into));
+            let attachment_config = build_thumbnail_info(thumbnail_url, video_info.thumbnail_info)?
+                .info(attachment_info)
+                .caption(caption)
+                .formatted_caption(formatted_caption.map(Into::into));
 
             self.send_attachment(
                 url,
@@ -341,8 +339,8 @@ impl Timeline {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_audio_info: BaseAudioInfo = BaseAudioInfo::try_from(&audio_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
-
             let attachment_info = AttachmentInfo::Audio(base_audio_info);
+
             let attachment_config = AttachmentConfig::new()
                 .info(attachment_info)
                 .caption(caption)
@@ -370,9 +368,9 @@ impl Timeline {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_audio_info: BaseAudioInfo = BaseAudioInfo::try_from(&audio_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
-
             let attachment_info =
                 AttachmentInfo::Voice { audio_info: base_audio_info, waveform: Some(waveform) };
+
             let attachment_config = AttachmentConfig::new()
                 .info(attachment_info)
                 .caption(caption)
@@ -397,8 +395,8 @@ impl Timeline {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_file_info: BaseFileInfo =
                 BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?;
-
             let attachment_info = AttachmentInfo::File(base_file_info);
+
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
             self.send_attachment(
