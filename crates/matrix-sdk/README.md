@@ -60,8 +60,6 @@ The following crate feature flags are available:
 | `anyhow`            |   No    | Better logging for event handlers that return `anyhow::Result`                                                             |
 | `e2e-encryption`    |   Yes   | End-to-end encryption (E2EE) support                                                                                       |
 | `eyre`              |   No    | Better logging for event handlers that return `eyre::Result`                                                               |
-| `image-proc`        |   No    | Image processing for generating thumbnails                                                                                 |
-| `image-rayon`       |   No    | Enables faster image processing                                                                                            |
 | `js`                |   No    | Enables JavaScript API usage on WASM (does nothing on other targets)                                                       |
 | `markdown`          |   No    | Support for sending Markdown-formatted messages                                                                            |
 | `qrcode`            |   Yes   | QR code verification support                                                                                               |

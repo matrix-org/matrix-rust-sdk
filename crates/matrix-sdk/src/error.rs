@@ -336,11 +336,6 @@ pub enum Error {
     #[error(transparent)]
     UserTagName(#[from] InvalidUserTagName),
 
-    /// An error while processing images.
-    #[cfg(feature = "image-proc")]
-    #[error(transparent)]
-    ImageError(#[from] ImageError),
-
     /// An error occurred within sliding-sync
     #[cfg(feature = "experimental-sliding-sync")]
     #[error(transparent)]
@@ -498,27 +493,6 @@ impl From<ReqwestError> for Error {
     fn from(e: ReqwestError) -> Self {
         Error::Http(HttpError::Reqwest(e))
     }
-}
-
-/// All possible errors that can happen during image processing.
-#[cfg(feature = "image-proc")]
-#[derive(Error, Debug)]
-pub enum ImageError {
-    /// Error processing the image data.
-    #[error(transparent)]
-    Proc(#[from] image::ImageError),
-
-    /// Error parsing the mimetype of the image.
-    #[error(transparent)]
-    Mime(#[from] mime::FromStrError),
-
-    /// The image format is not supported.
-    #[error("the image format is not supported")]
-    FormatNotSupported,
-
-    /// The thumbnail size is bigger than the original image.
-    #[error("the thumbnail size is bigger than the original image size")]
-    ThumbnailBiggerThanOriginal,
 }
 
 /// Errors that can happen when interacting with the beacon API.

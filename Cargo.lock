@@ -3107,7 +3107,6 @@ dependencies = [
  "futures-util",
  "gloo-timers",
  "http",
- "image",
  "imbl",
  "indexmap 2.6.0",
  "js_int",
