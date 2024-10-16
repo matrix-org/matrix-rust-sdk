@@ -9,6 +9,7 @@ use mas_oidc_client::{
         errors::ClientErrorCode,
         iana::oauth::OAuthClientAuthenticationMethod,
         registration::{ClientMetadata, VerifiedClientMetadata},
+        requests::Prompt,
     },
 };
 use matrix_sdk_base::SessionMeta;
@@ -124,7 +125,7 @@ async fn test_high_level_login() -> anyhow::Result<()> {
 
     // When getting the OIDC login URL.
     let authorization_data =
-        oidc.url_for_oidc_login(metadata.clone(), registrations).await.unwrap();
+        oidc.url_for_oidc(metadata.clone(), registrations, Prompt::Login).await.unwrap();
 
     // Then the client should be configured correctly.
     assert!(oidc.issuer().is_some());
@@ -146,7 +147,7 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
     // Given a client ready to complete login.
     let (oidc, _server, metadata, registrations) = mock_environment().await.unwrap();
     let authorization_data =
-        oidc.url_for_oidc_login(metadata.clone(), registrations).await.unwrap();
+        oidc.url_for_oidc(metadata.clone(), registrations, Prompt::Login).await.unwrap();
 
     assert!(oidc.issuer().is_some());
     assert!(oidc.client_metadata().is_some());
@@ -170,7 +171,7 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
     // Given a client ready to complete login.
     let (oidc, _server, metadata, registrations) = mock_environment().await.unwrap();
     let authorization_data =
-        oidc.url_for_oidc_login(metadata.clone(), registrations).await.unwrap();
+        oidc.url_for_oidc(metadata.clone(), registrations, Prompt::Login).await.unwrap();
 
     assert!(oidc.issuer().is_some());
     assert!(oidc.client_metadata().is_some());

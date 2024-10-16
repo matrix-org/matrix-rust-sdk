@@ -443,10 +443,11 @@ impl Oidc {
     /// webview for a user to login to their account. Call
     /// [`Oidc::login_with_oidc_callback`] to finish the process when the
     /// webview is complete.
-    pub async fn url_for_oidc_login(
+    pub async fn url_for_oidc(
         &self,
         client_metadata: VerifiedClientMetadata,
         registrations: OidcRegistrations,
+        prompt: Prompt,
     ) -> Result<OidcAuthorizationData, OidcError> {
         let issuer = match self.fetch_authentication_issuer().await {
             Ok(issuer) => issuer,
@@ -470,7 +471,7 @@ impl Oidc {
         self.configure(issuer, client_metadata, registrations).await?;
 
         let mut data_builder = self.login(redirect_url.clone(), None)?;
-        data_builder = data_builder.prompt(vec![Prompt::Consent]);
+        data_builder = data_builder.prompt(vec![prompt]);
         let data = data_builder.build().await?;
 
         Ok(data)
@@ -478,7 +479,7 @@ impl Oidc {
 
     /// A higher level wrapper around the methods to complete a login after the
     /// user has logged in through a webview. This method should be used in
-    /// tandem with [`Oidc::url_for_oidc_login`].
+    /// tandem with [`Oidc::url_for_oidc`].
     pub async fn login_with_oidc_callback(
         &self,
         authorization_data: &OidcAuthorizationData,

@@ -19,6 +19,7 @@ use matrix_sdk::{
             registration::{
                 ClientMetadata, ClientMetadataVerificationError, VerifiedClientMetadata,
             },
+            requests::Prompt as SdkOidcPrompt,
         },
         OidcAuthorizationData, OidcSession,
     },
@@ -360,13 +361,14 @@ impl Client {
         Ok(Arc::new(SsoHandler { client: Arc::clone(self), url }))
     }
 
-    /// Requests the URL needed for login in a web view using OIDC. Once the web
+    /// Requests the URL needed for opening a web view using OIDC. Once the web
     /// view has succeeded, call `login_with_oidc_callback` with the callback it
     /// returns. If a failure occurs and a callback isn't available, make sure
-    /// to call `abort_oidc_login` to inform the client of this.
-    pub async fn url_for_oidc_login(
+    /// to call `abort_oidc_auth` to inform the client of this.
+    pub async fn url_for_oidc(
         &self,
         oidc_configuration: &OidcConfiguration,
+        prompt: OidcPrompt,
     ) -> Result<Arc<OidcAuthorizationData>, OidcError> {
         let oidc_metadata: VerifiedClientMetadata = oidc_configuration.try_into()?;
         let registrations_file = Path::new(&oidc_configuration.dynamic_registrations_file);
@@ -387,14 +389,15 @@ impl Client {
             static_registrations,
         )?;
 
-        let data = self.inner.oidc().url_for_oidc_login(oidc_metadata, registrations).await?;
+        let data =
+            self.inner.oidc().url_for_oidc(oidc_metadata, registrations, prompt.into()).await?;
 
         Ok(Arc::new(data))
     }
 
     /// Aborts an existing OIDC login operation that might have been cancelled,
     /// failed etc.
-    pub async fn abort_oidc_login(&self, authorization_data: Arc<OidcAuthorizationData>) {
+    pub async fn abort_oidc_auth(&self, authorization_data: Arc<OidcAuthorizationData>) {
         self.inner.oidc().abort_authorization(&authorization_data.state).await;
     }
 
@@ -1729,5 +1732,50 @@ impl TryFrom<SlidingSyncVersion> for SdkSlidingSyncVersion {
             },
             SlidingSyncVersion::Native => Self::Native,
         })
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum OidcPrompt {
+    /// The Authorization Server must not display any authentication or consent
+    /// user interface pages.
+    None,
+
+    /// The Authorization Server should prompt the End-User for
+    /// reauthentication.
+    Login,
+
+    /// The Authorization Server should prompt the End-User for consent before
+    /// returning information to the Client.
+    Consent,
+
+    /// The Authorization Server should prompt the End-User to select a user
+    /// account.
+    ///
+    /// This enables an End-User who has multiple accounts at the Authorization
+    /// Server to select amongst the multiple accounts that they might have
+    /// current sessions for.
+    SelectAccount,
+
+    /// The Authorization Server should prompt the End-User to create a user
+    /// account.
+    ///
+    /// Defined in [Initiating User Registration via OpenID Connect](https://openid.net/specs/openid-connect-prompt-create-1_0.html).
+    Create,
+
+    /// An unknown value.
+    Unknown { value: String },
+}
+
+impl From<OidcPrompt> for SdkOidcPrompt {
+    fn from(value: OidcPrompt) -> Self {
+        match value {
+            OidcPrompt::None => Self::None,
+            OidcPrompt::Login => Self::Login,
+            OidcPrompt::Consent => Self::Consent,
+            OidcPrompt::SelectAccount => Self::SelectAccount,
+            OidcPrompt::Create => Self::Create,
+            OidcPrompt::Unknown { value } => Self::Unknown(value),
+        }
     }
 }
