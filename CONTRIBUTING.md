@@ -92,7 +92,7 @@ This patch adds the `Ed25519PublicKey::to_base64()` method, which allows us to
 stringify Ed25519 and thus present them to users. It's also commonly used when
 Ed25519 keys need to be inserted into JSON.
 
-Changelog: Added the `Ed25519PublicKey::to_base64()` method which can be used to
+Changelog: Add the `Ed25519PublicKey::to_base64()` method which can be used to
 stringify the Ed25519 public key.
 ```
 
