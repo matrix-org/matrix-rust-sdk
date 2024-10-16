@@ -47,13 +47,7 @@ use ruma::{
         uiaa::{AuthData, UiaaInfo},
     },
     assign,
-    events::room::{
-        message::{
-            AudioMessageEventContent, FileInfo, FileMessageEventContent, ImageMessageEventContent,
-            MessageType, VideoInfo, VideoMessageEventContent,
-        },
-        ImageInfo, MediaSource, ThumbnailInfo,
-    },
+    events::room::{MediaSource, ThumbnailInfo},
     DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
 use serde::Deserialize;
@@ -72,7 +66,7 @@ use self::{
     verification::{SasVerification, Verification, VerificationRequest},
 };
 use crate::{
-    attachment::{AttachmentConfig, Thumbnail},
+    attachment::Thumbnail,
     client::{ClientInner, WeakClient},
     error::HttpResult,
     store_locks::CrossProcessStoreLockGuard,
@@ -457,18 +451,17 @@ impl Client {
         PrepareEncryptedFile::new(self, content_type, reader)
     }
 
-    /// Encrypt and upload the file to be read from `reader` and construct an
-    /// attachment message.
+    /// Encrypt and upload the file and thumbnails, and return the source
+    /// information.
     pub(crate) async fn prepare_encrypted_attachment_message(
         &self,
-        filename: &str,
         content_type: &mime::Mime,
         data: Vec<u8>,
-        config: AttachmentConfig,
+        thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<MessageType> {
+    ) -> Result<(MediaSource, Option<MediaSource>, Option<Box<ThumbnailInfo>>)> {
         let upload_thumbnail =
-            self.upload_encrypted_thumbnail(config.thumbnail, content_type, send_progress.clone());
+            self.upload_encrypted_thumbnail(thumbnail, content_type, send_progress.clone());
 
         let upload_attachment = async {
             let mut cursor = Cursor::new(data);
@@ -480,66 +473,11 @@ impl Client {
         let ((thumbnail_source, thumbnail_info), file) =
             try_join(upload_thumbnail, upload_attachment).await?;
 
-        // if config.caption is set, use it as body, and filename as the file name
-        // otherwise, body is the filename, and the filename is not set
-        // https://github.com/tulir/matrix-spec-proposals/blob/body-as-caption/proposals/2530-body-as-caption.md
-        let (body, filename) = match config.caption {
-            Some(caption) => (caption, Some(filename.to_owned())),
-            None => (filename.to_owned(), None),
-        };
-
-        Ok(match content_type.type_() {
-            mime::IMAGE => {
-                let info = assign!(config.info.map(ImageInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                let content = assign!(ImageMessageEventContent::encrypted(body, file), {
-                    info: Some(Box::new(info)),
-                    formatted: config.formatted_caption,
-                    filename
-                });
-                MessageType::Image(content)
-            }
-
-            mime::AUDIO => {
-                let content = AudioMessageEventContent::encrypted(body, file);
-                MessageType::Audio(crate::media::update_audio_message_event(
-                    content,
-                    content_type,
-                    config.info,
-                ))
-            }
-
-            mime::VIDEO => {
-                let info = assign!(config.info.map(VideoInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                let content = assign!(VideoMessageEventContent::encrypted(body, file), {
-                    info: Some(Box::new(info)),
-                    formatted: config.formatted_caption,
-                    filename
-                });
-                MessageType::Video(content)
-            }
-
-            _ => {
-                let info = assign!(config.info.map(FileInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                let content = assign!(FileMessageEventContent::encrypted(body, file), {
-                    info: Some(Box::new(info))
-                });
-                MessageType::File(content)
-            }
-        })
+        Ok((MediaSource::Encrypted(Box::new(file)), thumbnail_source, thumbnail_info))
     }
 
+    /// Uploads an encrypted thumbnail to the media repository, and returns
+    /// its source and extra information.
     async fn upload_encrypted_thumbnail(
         &self,
         thumbnail: Option<Thumbnail>,

@@ -69,12 +69,16 @@ use ruma::{
             avatar::{self, RoomAvatarEventContent},
             encryption::RoomEncryptionEventContent,
             history_visibility::HistoryVisibility,
-            message::RoomMessageEventContent,
+            message::{
+                AudioMessageEventContent, FileInfo, FileMessageEventContent,
+                ImageMessageEventContent, MessageType, RoomMessageEventContent, VideoInfo,
+                VideoMessageEventContent,
+            },
             name::RoomNameEventContent,
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
             server_acl::RoomServerAclEventContent,
             topic::RoomTopicEventContent,
-            MediaSource,
+            ImageInfo, MediaSource, ThumbnailInfo,
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         tag::{TagInfo, TagName},
@@ -1920,41 +1924,125 @@ impl Room {
         let mentions = config.mentions.take();
 
         #[cfg(feature = "e2e-encryption")]
-        let content = if self.is_encrypted().await? {
+        let (media_source, thumbnail_source, thumbnail_info) = if self.is_encrypted().await? {
             self.client
                 .prepare_encrypted_attachment_message(
-                    filename,
                     content_type,
                     data,
-                    config,
+                    config.thumbnail.take(),
                     send_progress,
                 )
                 .await?
         } else {
             self.client
                 .media()
-                .prepare_attachment_message(filename, content_type, data, config, send_progress)
+                .prepare_attachment_message(
+                    content_type,
+                    data,
+                    config.thumbnail.take(),
+                    send_progress,
+                )
                 .await?
         };
 
         #[cfg(not(feature = "e2e-encryption"))]
-        let content = self
+        let (media_source, thumbnail_source, thumbnail_info) = self
             .client
             .media()
-            .prepare_attachment_message(filename, content_type, data, config, send_progress)
+            .prepare_attachment_message(content_type, data, config.thumbnail.take(), send_progress)
             .await?;
 
-        let mut message = RoomMessageEventContent::new(content);
+        let msg_type = self.make_attachment_message(
+            content_type,
+            media_source,
+            thumbnail_source,
+            thumbnail_info,
+            filename,
+            config,
+        );
+
+        let mut content = RoomMessageEventContent::new(msg_type);
 
         if let Some(mentions) = mentions {
-            message = message.add_mentions(mentions);
+            content = content.add_mentions(mentions);
         }
 
-        let mut fut = self.send(message);
+        let mut fut = self.send(content);
         if let Some(txn_id) = &txn_id {
             fut = fut.with_transaction_id(txn_id);
         }
         fut.await
+    }
+
+    /// Creates the inner [`MessageType`] for an already-uploaded media file
+    /// provided by its source.
+    pub(crate) fn make_attachment_message(
+        &self,
+        content_type: &Mime,
+        source: MediaSource,
+        thumbnail_source: Option<MediaSource>,
+        thumbnail_info: Option<Box<ThumbnailInfo>>,
+        filename: &str,
+        config: AttachmentConfig,
+    ) -> MessageType {
+        // if config.caption is set, use it as body, and filename as the file name
+        // otherwise, body is the filename, and the filename is not set.
+        // https://github.com/tulir/matrix-spec-proposals/blob/body-as-caption/proposals/2530-body-as-caption.md
+        let (body, filename) = match config.caption {
+            Some(caption) => (caption, Some(filename.to_owned())),
+            None => (filename.to_owned(), None),
+        };
+
+        match content_type.type_() {
+            mime::IMAGE => {
+                let info = assign!(config.info.map(ImageInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(ImageMessageEventContent::new(body, source), {
+                    info: Some(Box::new(info)),
+                    formatted: config.formatted_caption,
+                    filename
+                });
+                MessageType::Image(content)
+            }
+
+            mime::AUDIO => {
+                let content = AudioMessageEventContent::new(body, source);
+                MessageType::Audio(crate::media::update_audio_message_event(
+                    content,
+                    content_type,
+                    config.info,
+                ))
+            }
+
+            mime::VIDEO => {
+                let info = assign!(config.info.map(VideoInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(VideoMessageEventContent::new(body, source), {
+                    info: Some(Box::new(info)),
+                    formatted: config.formatted_caption,
+                    filename
+                });
+                MessageType::Video(content)
+            }
+
+            _ => {
+                let info = assign!(config.info.map(FileInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(FileMessageEventContent::new(body, source), {
+                    info: Some(Box::new(info))
+                });
+                MessageType::File(content)
+            }
+        }
     }
 
     /// Update the power levels of a select set of users of this room.
