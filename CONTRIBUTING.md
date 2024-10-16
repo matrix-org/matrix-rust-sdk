@@ -193,7 +193,7 @@ requested.
    commits, the [autosquash] option can help with this.
 
 ```bash
-git rebase main --autosquash
+git rebase main --interactive --autosquash
 ```
 
 [fixup]: https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---fixupamendrewordltcommitgt
