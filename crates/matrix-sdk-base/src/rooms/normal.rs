@@ -42,6 +42,7 @@ use ruma::{
             history_visibility::HistoryVisibility,
             join_rules::JoinRule,
             member::{MembershipState, RoomMemberEventContent},
+            name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             redaction::SyncRoomRedactionEvent,
             tombstone::RoomTombstoneEventContent,
@@ -1496,6 +1497,14 @@ impl RoomInfo {
             Some(MinimalStateEvent::Original(ev)) => &ev.content.join_rule,
             _ => &JoinRule::Public,
         }
+    }
+
+    /// Update the room name.
+    pub fn update_name(&mut self, name: String) {
+        self.base_info.name = Some(MinimalStateEvent::Original(OriginalMinimalStateEvent {
+            content: RoomNameEventContent::new(name),
+            event_id: None,
+        }))
     }
 
     /// Get the name of this room.

@@ -774,6 +774,11 @@ fn process_room_properties(
         JsOption::Undefined => {}
     }
 
+    // If name updates come down in the payload, we need to update our cache.
+    if let Some(name) = &room_data.name {
+        room_info.update_name(name.clone());
+    }
+
     // Sliding sync doesn't have a room summary, nevertheless it contains the joined
     // and invited member counts, in addition to the heroes if it's been configured
     // to return them (see the [`http::RequestRoomSubscription::include_heroes`]).
@@ -876,7 +881,7 @@ mod tests {
         response.rooms.insert(
             room_id.to_owned(),
             assign!(http::response::Room::new(), {
-                unread_notifications: count.clone()
+                unread_notifications: count.clone(),
             }),
         );
 
@@ -892,6 +897,28 @@ mod tests {
         // Check it's been updated in the store.
         let room = client.get_room(room_id).expect("found room");
         assert_eq!(room.unread_notification_counts(), count.into());
+    }
+
+    #[async_test]
+    async fn test_name_set() {
+        let client = logged_in_base_client(None).await;
+
+        let mut response = http::Response::new("42".to_owned());
+        let room_id = room_id!("!room:example.org");
+        let new_name = "New name for a room".to_owned();
+
+        response.rooms.insert(
+            room_id.to_owned(),
+            assign!(http::response::Room::new(), {
+                name: Some(new_name.clone()),
+            }),
+        );
+
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
+
+        // Check it's been updated in the store.
+        let room = client.get_room(room_id).expect("found room");
+        assert_eq!(room.name(), new_name.into());
     }
 
     #[async_test]
