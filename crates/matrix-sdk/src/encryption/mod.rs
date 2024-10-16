@@ -502,14 +502,16 @@ impl Client {
                 });
                 MessageType::Image(content)
             }
+
             mime::AUDIO => {
-                let audio_message_event_content = AudioMessageEventContent::encrypted(body, file);
+                let content = AudioMessageEventContent::encrypted(body, file);
                 MessageType::Audio(crate::media::update_audio_message_event(
-                    audio_message_event_content,
+                    content,
                     content_type,
                     config.info,
                 ))
             }
+
             mime::VIDEO => {
                 let info = assign!(config.info.map(VideoInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
@@ -523,6 +525,7 @@ impl Client {
                 });
                 MessageType::Video(content)
             }
+
             _ => {
                 let info = assign!(config.info.map(FileInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
