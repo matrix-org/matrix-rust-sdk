@@ -70,8 +70,9 @@ use ruma::{
             encryption::RoomEncryptionEventContent,
             history_visibility::HistoryVisibility,
             message::{
-                AudioMessageEventContent, FileInfo, FileMessageEventContent,
-                ImageMessageEventContent, MessageType, RoomMessageEventContent, VideoInfo,
+                AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
+                ImageMessageEventContent, MessageType, RoomMessageEventContent,
+                UnstableAudioDetailsContentBlock, UnstableVoiceContentBlock, VideoInfo,
                 VideoMessageEventContent,
             },
             name::RoomNameEventContent,
@@ -108,7 +109,7 @@ pub use self::{
 #[cfg(doc)]
 use crate::event_cache::EventCache;
 use crate::{
-    attachment::AttachmentConfig,
+    attachment::{AttachmentConfig, AttachmentInfo},
     client::WeakClient,
     config::RequestConfig,
     error::{BeaconError, WrongRoomState},
@@ -2014,12 +2015,24 @@ impl Room {
             }
 
             mime::AUDIO => {
-                let content = AudioMessageEventContent::new(body, source);
-                MessageType::Audio(crate::media::update_audio_message_event(
-                    content,
-                    content_type,
-                    config.info,
-                ))
+                let mut content = AudioMessageEventContent::new(body, source);
+
+                if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) =
+                    &config.info
+                {
+                    if let Some(duration) = audio_info.duration {
+                        let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
+                        content.audio =
+                            Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
+                    }
+                    content.voice = Some(UnstableVoiceContentBlock::new());
+                }
+
+                let mut audio_info = config.info.map(AudioInfo::from).unwrap_or_default();
+                audio_info.mimetype = Some(content_type.as_ref().to_owned());
+                let content = content.info(Box::new(audio_info));
+
+                MessageType::Audio(content)
             }
 
             mime::VIDEO => {

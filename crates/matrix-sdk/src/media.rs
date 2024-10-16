@@ -31,13 +31,7 @@ use ruma::{
         MatrixVersion,
     },
     assign,
-    events::room::{
-        message::{
-            AudioInfo, AudioMessageEventContent, UnstableAudioDetailsContentBlock,
-            UnstableVoiceContentBlock,
-        },
-        MediaSource, ThumbnailInfo,
-    },
+    events::room::{MediaSource, ThumbnailInfo},
     MxcUri,
 };
 #[cfg(not(target_arch = "wasm32"))]
@@ -45,11 +39,7 @@ use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
-use crate::{
-    attachment::{AttachmentInfo, Thumbnail},
-    futures::SendRequest,
-    Client, Result, TransmissionProgress,
-};
+use crate::{attachment::Thumbnail, futures::SendRequest, Client, Result, TransmissionProgress};
 
 /// A conservative upload speed of 1Mbps
 const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
@@ -552,22 +542,4 @@ impl Media {
 
         Ok((Some(MediaSource::Plain(url)), Some(Box::new(thumbnail_info))))
     }
-}
-
-pub(crate) fn update_audio_message_event(
-    mut audio_message_event_content: AudioMessageEventContent,
-    content_type: &Mime,
-    info: Option<AttachmentInfo>,
-) -> AudioMessageEventContent {
-    if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) = &info {
-        if let Some(duration) = audio_info.duration {
-            let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
-            audio_message_event_content.audio =
-                Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
-        }
-        audio_message_event_content.voice = Some(UnstableVoiceContentBlock::new());
-    }
-
-    let audio_info = assign!(info.map(AudioInfo::from).unwrap_or_default(), {mimetype: Some(content_type.as_ref().to_owned()), });
-    audio_message_event_content.info(Box::new(audio_info))
 }
