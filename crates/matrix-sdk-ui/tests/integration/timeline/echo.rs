@@ -60,7 +60,13 @@ async fn test_echo() {
     mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Arc::new(room.timeline().await.unwrap());
+    let timeline = Arc::new(
+        room.timeline_builder()
+            .with_internal_id_prefix("le_prefix".to_owned())
+            .build()
+            .await
+            .unwrap(),
+    );
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     Mock::given(method("PUT"))
