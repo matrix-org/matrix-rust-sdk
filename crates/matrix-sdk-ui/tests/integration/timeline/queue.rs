@@ -19,6 +19,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
+use matrix_sdk_base::deserialized_responses::QueueWedgeError;
 use matrix_sdk_test::{
     async_test, mocks::mock_encryption_state, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder,
     ALICE,
@@ -277,9 +278,13 @@ async fn test_reloaded_failed_local_echoes_are_marked_as_failed() {
     // The error is not recoverable.
     assert!(!is_recoverable);
     // And it's properly pattern-matched.
-    assert_matches!(
-        error.as_client_api_error().unwrap().error_kind(),
-        Some(ruma::api::client::error::ErrorKind::TooLarge)
+    let msg = assert_matches!(
+        error,
+        QueueWedgeError::GenericApiError { msg } => msg
+    );
+    assert_eq!(
+        msg,
+        "the server returned an error: [413 / M_TOO_LARGE] Sounds like you have a lot to say!"
     );
 
     assert_pending!(timeline_stream);
@@ -296,8 +301,15 @@ async fn test_reloaded_failed_local_echoes_are_marked_as_failed() {
 
     // Same recoverable status as above.
     assert!(!is_recoverable);
-    // But the error details have been lost.
-    assert!(error.as_client_api_error().is_none());
+    // It was persisted and it's properly pattern-matched.
+    let msg = assert_matches!(
+        error,
+        QueueWedgeError::GenericApiError { msg } => msg
+    );
+    assert_eq!(
+        msg,
+        "the server returned an error: [413 / M_TOO_LARGE] Sounds like you have a lot to say!"
+    );
 }
 
 #[async_test]

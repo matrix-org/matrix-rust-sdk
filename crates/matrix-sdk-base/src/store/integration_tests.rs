@@ -6,6 +6,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloomBuilder;
+use matrix_sdk_common::deserialized_responses::QueueWedgeError;
 use matrix_sdk_test::test_json;
 use ruma::{
     api::MatrixVersion,
@@ -1223,7 +1224,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
             assert_eq!(content.body(), "msg0");
 
-            assert!(!pending[0].is_wedged);
+            assert!(!pending[0].is_wedged());
         }
 
         // Saving another three things should work.
@@ -1249,12 +1250,18 @@ impl StateStoreIntegrationTests for DynStateStore {
             let deserialized = pending[i].event.deserialize().unwrap();
             assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
             assert_eq!(content.body(), format!("msg{i}"));
-            assert!(!pending[i].is_wedged);
+            assert!(!pending[i].is_wedged());
         }
 
         // Marking an event as wedged works.
         let txn2 = &pending[2].transaction_id;
-        self.update_send_queue_event_status(room_id, txn2, true).await.unwrap();
+        self.update_send_queue_event_status(
+            room_id,
+            txn2,
+            Some(QueueWedgeError::GenericApiError { msg: "Oops".to_owned() }),
+        )
+        .await
+        .unwrap();
 
         // And it is reflected.
         let pending = self.load_send_queue_events(room_id).await.unwrap();
@@ -1263,10 +1270,13 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(pending.len(), 4);
         assert_eq!(pending[0].transaction_id, txn0);
         assert_eq!(pending[2].transaction_id, *txn2);
-        assert!(pending[2].is_wedged);
+        assert!(pending[2].is_wedged());
+        let error = pending[2].clone().error.unwrap();
+        let generic_error = assert_matches!(error, QueueWedgeError::GenericApiError { msg } => msg);
+        assert_eq!(generic_error, "Oops");
         for i in 0..4 {
             if i != 2 {
-                assert!(!pending[i].is_wedged);
+                assert!(!pending[i].is_wedged());
             }
         }
 
@@ -1288,7 +1298,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
             assert_eq!(content.body(), "wow that's a cool test");
 
-            assert!(!pending[2].is_wedged);
+            assert!(!pending[2].is_wedged());
 
             for i in 0..4 {
                 if i != 2 {
@@ -1296,7 +1306,7 @@ impl StateStoreIntegrationTests for DynStateStore {
                     assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
                     assert_eq!(content.body(), format!("msg{i}"));
 
-                    assert!(!pending[i].is_wedged);
+                    assert!(!pending[i].is_wedged());
                 }
             }
         }

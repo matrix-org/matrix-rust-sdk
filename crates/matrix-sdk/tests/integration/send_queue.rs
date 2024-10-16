@@ -78,7 +78,7 @@ macro_rules! assert_update {
                     serialized_event,
                     send_handle,
                     // New local echoes should always start as not wedged.
-                    is_wedged: false,
+                    send_error: None,
                 },
                 transaction_id: txn,
             }))) = timeout(Duration::from_secs(1), $watch.recv()).await
@@ -1056,7 +1056,7 @@ async fn test_edit_with_poll_start() {
             content: LocalEchoContent::Event {
                 serialized_event,
                 // New local echoes should always start as not wedged.
-                is_wedged: false,
+                send_error: None,
                 ..
             },
             transaction_id: txn1,

@@ -29,7 +29,6 @@ use matrix_sdk::{
     },
     Result, Room,
 };
-use matrix_sdk_base::deserialized_responses::QueueWedgeError;
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
@@ -1241,7 +1240,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     /// Handle a room send update that's a new local echo.
     pub(crate) async fn handle_local_echo(&self, echo: LocalEcho) {
         match echo.content {
-            LocalEchoContent::Event { serialized_event, send_handle, is_wedged } => {
+            LocalEchoContent::Event { serialized_event, send_handle, send_error } => {
                 let content = match serialized_event.deserialize() {
                     Ok(d) => d,
                     Err(err) => {
@@ -1257,17 +1256,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 )
                 .await;
 
-                if is_wedged {
+                if let Some(send_error) = send_error {
                     self.update_event_send_state(
                         &echo.transaction_id,
-                        EventSendState::SendingFailed {
-                            // Put a dummy error in this case, since we're not persisting the errors
-                            // that occurred in previous sessions.
-                            error: QueueWedgeError::GenericApiError {
-                                msg: MISSING_LOCAL_ECHO_FAIL_ERROR.into(),
-                            },
-                            is_recoverable: false,
-                        },
+                        EventSendState::SendingFailed { error: send_error, is_recoverable: false },
                     )
                     .await;
                 }
@@ -1521,9 +1513,6 @@ impl TimelineController {
         state.meta.all_events.back().map(|event_meta| &event_meta.event_id).cloned()
     }
 }
-
-const MISSING_LOCAL_ECHO_FAIL_ERROR: &'static str =
-    "local echo failed to send in a previous session";
 
 #[derive(Debug, Default)]
 pub(super) struct HandleManyEventsResult {
