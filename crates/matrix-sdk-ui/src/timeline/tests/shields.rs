@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use matrix_sdk_base::deserialized_responses::{ShieldState, ShieldStateCode};
+use matrix_sdk_base::deserialized_responses::{ShieldState, ShieldStateCode, SyncTimelineEvent};
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE};
 use ruma::{
     event_id,
@@ -97,7 +97,7 @@ async fn test_local_sent_in_clear_shield() {
 
     // When the remote echo comes in.
     timeline
-        .handle_live_event(sync_timeline_event!({
+        .handle_live_event(SyncTimelineEvent::new(sync_timeline_event!({
             "content": {
                 "body": "Local message",
                 "msgtype": "m.text",
@@ -106,7 +106,7 @@ async fn test_local_sent_in_clear_shield() {
             "event_id": event_id,
             "origin_server_ts": timestamp,
             "type": "m.room.message",
-        }))
+        })))
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let event_item = item.as_event().unwrap();
