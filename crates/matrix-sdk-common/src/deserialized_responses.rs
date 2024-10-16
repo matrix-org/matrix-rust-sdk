@@ -359,12 +359,6 @@ impl SyncTimelineEvent {
     }
 }
 
-impl From<Raw<AnySyncTimelineEvent>> for SyncTimelineEvent {
-    fn from(inner: Raw<AnySyncTimelineEvent>) -> Self {
-        Self::new(inner)
-    }
-}
-
 impl From<TimelineEvent> for SyncTimelineEvent {
     fn from(o: TimelineEvent) -> Self {
         Self { kind: o.kind, push_actions: o.push_actions.unwrap_or_default() }

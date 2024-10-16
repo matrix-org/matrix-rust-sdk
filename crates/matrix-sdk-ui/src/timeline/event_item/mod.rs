@@ -1023,7 +1023,7 @@ mod tests {
         formatted_body: &str,
         ts: u64,
     ) -> SyncTimelineEvent {
-        sync_timeline_event!({
+        SyncTimelineEvent::new(sync_timeline_event!({
             "event_id": "$eventid6",
             "sender": user_id,
             "origin_server_ts": ts,
@@ -1035,7 +1035,6 @@ mod tests {
                 "formatted_body": formatted_body,
                 "msgtype": "m.text"
             },
-        })
-        .into()
+        }))
     }
 }

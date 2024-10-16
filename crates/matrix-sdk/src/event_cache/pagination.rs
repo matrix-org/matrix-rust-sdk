@@ -320,7 +320,10 @@ mod tests {
         use ruma::room_id;
         use tokio::{spawn, time::sleep};
 
-        use crate::{event_cache::store::Gap, test_utils::logged_in_client};
+        use crate::{
+            deserialized_responses::SyncTimelineEvent, event_cache::store::Gap,
+            test_utils::logged_in_client,
+        };
 
         #[async_test]
         async fn test_wait_no_pagination_token() {
@@ -335,14 +338,15 @@ mod tests {
             let (room_event_cache, _drop_handlers) = event_cache.for_room(room_id).await.unwrap();
 
             // When I only have events in a room,
-            room_event_cache.inner.state.write().await.events.push_events([sync_timeline_event!({
-                "sender": "b@z.h",
-                "type": "m.room.message",
-                "event_id": "$ida",
-                "origin_server_ts": 12344446,
-                "content": { "body":"yolo", "msgtype": "m.text" },
-            })
-            .into()]);
+            room_event_cache.inner.state.write().await.events.push_events([
+                SyncTimelineEvent::new(sync_timeline_event!({
+                    "sender": "b@z.h",
+                    "type": "m.room.message",
+                    "event_id": "$ida",
+                    "origin_server_ts": 12344446,
+                    "content": { "body":"yolo", "msgtype": "m.text" },
+                })),
+            ]);
 
             let pagination = room_event_cache.pagination();
 
@@ -395,14 +399,13 @@ mod tests {
             {
                 let room_events = &mut room_event_cache.inner.state.write().await.events;
                 room_events.push_gap(Gap { prev_token: expected_token.clone() });
-                room_events.push_events([sync_timeline_event!({
+                room_events.push_events([SyncTimelineEvent::new(sync_timeline_event!({
                     "sender": "b@z.h",
                     "type": "m.room.message",
                     "event_id": "$ida",
                     "origin_server_ts": 12344446,
                     "content": { "body":"yolo", "msgtype": "m.text" },
-                })
-                .into()]);
+                }))]);
             }
 
             let pagination = room_event_cache.pagination();
