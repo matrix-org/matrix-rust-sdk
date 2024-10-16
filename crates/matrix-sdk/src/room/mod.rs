@@ -392,8 +392,8 @@ impl Room {
     /// will be included.)
     ///
     /// The first item in the stream provides the current state of the room:
-    /// each member of the room who is not in "pinned" state will be
-    /// included (except the current user).
+    /// each member of the room who is not in "pinned" or "verified" state will
+    /// be included (except the current user).
     ///
     /// If the `changed_to` property of an [`IdentityStatusChange`] is set to
     /// `PinViolation` then a warning should be displayed to the user. If it is
