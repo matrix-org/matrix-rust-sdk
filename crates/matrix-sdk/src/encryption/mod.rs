@@ -58,7 +58,7 @@ use vodozemac::Curve25519PublicKey;
 
 use self::{
     backups::{types::BackupClientState, Backups},
-    futures::PrepareEncryptedFile,
+    futures::UploadEncryptedFile,
     identities::{Device, DeviceUpdates, IdentityUpdates, UserDevices, UserIdentity},
     recovery::{Recovery, RecoveryState},
     secret_storage::SecretStorage,
@@ -438,17 +438,17 @@ impl Client {
     /// # let client = Client::new(homeserver).await?;
     /// # let room = client.get_room(&room_id!("!test:example.com")).unwrap();
     /// let mut reader = std::io::Cursor::new(b"Hello, world!");
-    /// let encrypted_file = client.prepare_encrypted_file(&mime::TEXT_PLAIN, &mut reader).await?;
+    /// let encrypted_file = client.upload_encrypted_file(&mime::TEXT_PLAIN, &mut reader).await?;
     ///
     /// room.send(CustomEventContent { encrypted_file }).await?;
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn prepare_encrypted_file<'a, R: Read + ?Sized + 'a>(
+    pub fn upload_encrypted_file<'a, R: Read + ?Sized + 'a>(
         &'a self,
         content_type: &'a mime::Mime,
         reader: &'a mut R,
-    ) -> PrepareEncryptedFile<'a, R> {
-        PrepareEncryptedFile::new(self, content_type, reader)
+    ) -> UploadEncryptedFile<'a, R> {
+        UploadEncryptedFile::new(self, content_type, reader)
     }
 
     /// Encrypt and upload the file and thumbnails, and return the source
@@ -465,7 +465,7 @@ impl Client {
 
         let upload_attachment = async {
             let mut cursor = Cursor::new(data);
-            self.prepare_encrypted_file(content_type, &mut cursor)
+            self.upload_encrypted_file(content_type, &mut cursor)
                 .with_send_progress_observable(send_progress)
                 .await
         };
@@ -491,7 +491,7 @@ impl Client {
         let mut cursor = Cursor::new(thumbnail.data);
 
         let file = self
-            .prepare_encrypted_file(content_type, &mut cursor)
+            .upload_encrypted_file(content_type, &mut cursor)
             .with_send_progress_observable(send_progress)
             .await?;
 

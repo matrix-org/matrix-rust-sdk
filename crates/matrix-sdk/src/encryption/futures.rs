@@ -27,16 +27,16 @@ use ruma::events::room::{EncryptedFile, EncryptedFileInit};
 
 use crate::{Client, Result, TransmissionProgress};
 
-/// Future returned by [`Client::prepare_encrypted_file`].
+/// Future returned by [`Client::upload_encrypted_file`].
 #[allow(missing_debug_implementations)]
-pub struct PrepareEncryptedFile<'a, R: ?Sized> {
+pub struct UploadEncryptedFile<'a, R: ?Sized> {
     client: &'a Client,
     content_type: &'a mime::Mime,
     reader: &'a mut R,
     send_progress: SharedObservable<TransmissionProgress>,
 }
 
-impl<'a, R: ?Sized> PrepareEncryptedFile<'a, R> {
+impl<'a, R: ?Sized> UploadEncryptedFile<'a, R> {
     pub(crate) fn new(client: &'a Client, content_type: &'a mime::Mime, reader: &'a mut R) -> Self {
         Self { client, content_type, reader, send_progress: Default::default() }
     }
@@ -63,7 +63,7 @@ impl<'a, R: ?Sized> PrepareEncryptedFile<'a, R> {
     }
 }
 
-impl<'a, R> IntoFuture for PrepareEncryptedFile<'a, R>
+impl<'a, R> IntoFuture for UploadEncryptedFile<'a, R>
 where
     R: Read + Send + ?Sized + 'a,
 {
