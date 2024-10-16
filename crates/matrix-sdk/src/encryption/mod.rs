@@ -50,7 +50,10 @@ use ruma::{
         uiaa::{AuthData, UiaaInfo},
     },
     assign,
-    events::room::{MediaSource, ThumbnailInfo},
+    events::{
+        direct::DirectUserIdentifier,
+        room::{MediaSource, ThumbnailInfo},
+    },
     DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
 use serde::Deserialize;
@@ -605,7 +608,7 @@ impl Client {
         // Find the room we share with the `user_id` and only with `user_id`
         let room = rooms.into_iter().find(|r| {
             let targets = r.direct_targets();
-            targets.len() == 1 && targets.contains(user_id)
+            targets.len() == 1 && targets.contains(<&DirectUserIdentifier>::from(user_id))
         });
 
         trace!(?room, "Found room");

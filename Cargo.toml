@@ -56,7 +56,7 @@ proptest = { version = "1.5.0", default-features = false, features = ["std"] }
 rand = "0.8.5"
 reqwest = { version = "0.12.4", default-features = false }
 rmp-serde = "1.3.0"
-ruma = { version = "0.11.1", features = [
+ruma = { git = "https://github.com/ruma/ruma.git", rev = "35fda7f2f7811156df2e60b223dbf136fc143bc8", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -70,7 +70,7 @@ ruma = { version = "0.11.1", features = [
     "unstable-msc4075",
     "unstable-msc4140",
 ] }
-ruma-common = "0.14.1"
+ruma-common = { git = "https://github.com/ruma/ruma.git", rev = "35fda7f2f7811156df2e60b223dbf136fc143bc8" }
 serde = "1.0.151"
 serde_html_form = "0.2.0"
 serde_json = "1.0.91"

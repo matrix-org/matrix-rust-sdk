@@ -23,6 +23,7 @@ use std::{
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 use ruma::{
     events::{
+        direct::OwnedDirectUserIdentifier,
         room::{
             avatar::RoomAvatarEventContent,
             canonical_alias::RoomCanonicalAliasEventContent,
@@ -37,7 +38,7 @@ use ruma::{
         },
         EmptyStateKey, EventContent, RedactContent, StateEventContent, StateEventType,
     },
-    OwnedRoomId, OwnedUserId, RoomId,
+    OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -155,7 +156,7 @@ fn encryption_state_default() -> bool {
 struct BaseRoomInfoV1 {
     avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
     canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
-    dm_targets: HashSet<OwnedUserId>,
+    dm_targets: HashSet<OwnedDirectUserIdentifier>,
     encryption: Option<RoomEncryptionEventContent>,
     guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
     history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,

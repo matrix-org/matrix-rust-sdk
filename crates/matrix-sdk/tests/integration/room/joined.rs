@@ -22,13 +22,14 @@ use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
     assign, event_id,
     events::{
+        direct::DirectUserIdentifier,
         receipt::ReceiptThread,
         room::message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         TimelineEventType,
     },
     int, mxc_uri, owned_event_id, room_id, thirdparty, user_id, OwnedUserId, TransactionId,
 };
-use serde_json::{json, Value};
+use serde_json::{from_value, json, Value};
 use wiremock::{
     matchers::{body_json, body_partial_json, header, method, path_regex},
     Mock, ResponseTemplate,
@@ -629,6 +630,38 @@ async fn test_reset_power_levels() {
     assert_eq!(initial_power_levels.events[&TimelineEventType::RoomAvatar], int!(100));
 
     room.reset_power_levels().await.unwrap();
+}
+
+#[async_test]
+async fn test_is_direct_invite_by_3pid() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    sync_builder.add_joined_room(JoinedRoomBuilder::default());
+    let data = json!({
+        "content": {
+            "invited@localhost.com": [*DEFAULT_TEST_ROOM_ID],
+        },
+        "event_id": "$757957878228ekrDs:localhost",
+        "origin_server_ts": 17195787,
+        "sender": "@example:localhost",
+        "state_key": "",
+        "type": "m.direct",
+        "unsigned": {
+          "age": 139298
+        }
+    });
+    sync_builder.add_global_account_data_bulk(vec![from_value(data).unwrap()]);
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    mock_encryption_state(&server, false).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    assert!(room.is_direct().await.unwrap());
+    assert!(room.direct_targets().contains(<&DirectUserIdentifier>::from("invited@localhost.com")));
 }
 
 #[async_test]
