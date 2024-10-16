@@ -143,6 +143,11 @@ impl Timeline {
     }
 }
 
+fn parse_mime(mimetype: Option<String>) -> Result<Mime, RoomError> {
+    let mime_str = mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+    mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
+}
+
 #[matrix_sdk_ffi_macros::export]
 impl Timeline {
     pub async fn add_listener(&self, listener: Box<dyn TimelineListener>) -> Arc<TaskHandle> {
@@ -264,11 +269,6 @@ impl Timeline {
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
-            let mime_str =
-                image_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
-            let mime_type =
-                mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
-
             let base_image_info = BaseImageInfo::try_from(&image_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
 
@@ -285,7 +285,13 @@ impl Timeline {
             .caption(caption)
             .formatted_caption(formatted_caption.map(Into::into));
 
-            self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(
+                url,
+                parse_mime(image_info.mimetype)?,
+                attachment_config,
+                progress_watcher,
+            )
+            .await
         }))
     }
 
@@ -299,11 +305,6 @@ impl Timeline {
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
-            let mime_str =
-                video_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
-            let mime_type =
-                mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
-
             let base_video_info: BaseVideoInfo = BaseVideoInfo::try_from(&video_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
 
@@ -320,7 +321,13 @@ impl Timeline {
             .caption(caption)
             .formatted_caption(formatted_caption.map(Into::into));
 
-            self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(
+                url,
+                parse_mime(video_info.mimetype)?,
+                attachment_config,
+                progress_watcher,
+            )
+            .await
         }))
     }
 
@@ -333,11 +340,6 @@ impl Timeline {
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
-            let mime_str =
-                audio_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
-            let mime_type =
-                mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
-
             let base_audio_info: BaseAudioInfo = BaseAudioInfo::try_from(&audio_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
 
@@ -347,7 +349,13 @@ impl Timeline {
                 .caption(caption)
                 .formatted_caption(formatted_caption.map(Into::into));
 
-            self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(
+                url,
+                parse_mime(audio_info.mimetype)?,
+                attachment_config,
+                progress_watcher,
+            )
+            .await
         }))
     }
 
@@ -361,11 +369,6 @@ impl Timeline {
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
-            let mime_str =
-                audio_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
-            let mime_type =
-                mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
-
             let base_audio_info: BaseAudioInfo = BaseAudioInfo::try_from(&audio_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
 
@@ -376,7 +379,13 @@ impl Timeline {
                 .caption(caption)
                 .formatted_caption(formatted_caption.map(Into::into));
 
-            self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(
+                url,
+                parse_mime(audio_info.mimetype)?,
+                attachment_config,
+                progress_watcher,
+            )
+            .await
         }))
     }
 
@@ -387,18 +396,19 @@ impl Timeline {
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
-            let mime_str =
-                file_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
-            let mime_type =
-                mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
-
             let base_file_info: BaseFileInfo =
                 BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?;
 
             let attachment_info = AttachmentInfo::File(base_file_info);
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
-            self.send_attachment(url, mime_type, attachment_config, progress_watcher).await
+            self.send_attachment(
+                url,
+                parse_mime(file_info.mimetype)?,
+                attachment_config,
+                progress_watcher,
+            )
+            .await
         }))
     }
 
