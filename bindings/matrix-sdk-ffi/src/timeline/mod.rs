@@ -101,10 +101,14 @@ impl Timeline {
     async fn send_attachment(
         &self,
         filename: String,
-        mime_type: Mime,
+        mime_type: Option<String>,
         attachment_config: AttachmentConfig,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<(), RoomError> {
+        let mime_str = mime_type.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+        let mime_type =
+            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
         let request = self.inner.send_attachment(filename, mime_type, attachment_config);
         if let Some(progress_watcher) = progress_watcher {
             let mut subscriber = request.subscribe_to_send_progress();
@@ -118,11 +122,6 @@ impl Timeline {
         request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
         Ok(())
     }
-}
-
-fn parse_mime(mimetype: Option<String>) -> Result<Mime, RoomError> {
-    let mime_str = mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
-    mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)
 }
 
 fn build_thumbnail_info(
@@ -290,13 +289,8 @@ impl Timeline {
                 .caption(caption)
                 .formatted_caption(formatted_caption.map(Into::into));
 
-            self.send_attachment(
-                url,
-                parse_mime(image_info.mimetype)?,
-                attachment_config,
-                progress_watcher,
-            )
-            .await
+            self.send_attachment(url, image_info.mimetype, attachment_config, progress_watcher)
+                .await
         }))
     }
 
@@ -319,13 +313,8 @@ impl Timeline {
                 .caption(caption)
                 .formatted_caption(formatted_caption.map(Into::into));
 
-            self.send_attachment(
-                url,
-                parse_mime(video_info.mimetype)?,
-                attachment_config,
-                progress_watcher,
-            )
-            .await
+            self.send_attachment(url, video_info.mimetype, attachment_config, progress_watcher)
+                .await
         }))
     }
 
@@ -347,13 +336,8 @@ impl Timeline {
                 .caption(caption)
                 .formatted_caption(formatted_caption.map(Into::into));
 
-            self.send_attachment(
-                url,
-                parse_mime(audio_info.mimetype)?,
-                attachment_config,
-                progress_watcher,
-            )
-            .await
+            self.send_attachment(url, audio_info.mimetype, attachment_config, progress_watcher)
+                .await
         }))
     }
 
@@ -377,13 +361,8 @@ impl Timeline {
                 .caption(caption)
                 .formatted_caption(formatted_caption.map(Into::into));
 
-            self.send_attachment(
-                url,
-                parse_mime(audio_info.mimetype)?,
-                attachment_config,
-                progress_watcher,
-            )
-            .await
+            self.send_attachment(url, audio_info.mimetype, attachment_config, progress_watcher)
+                .await
         }))
     }
 
@@ -400,13 +379,7 @@ impl Timeline {
 
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
-            self.send_attachment(
-                url,
-                parse_mime(file_info.mimetype)?,
-                attachment_config,
-                progress_watcher,
-            )
-            .await
+            self.send_attachment(url, file_info.mimetype, attachment_config, progress_watcher).await
         }))
     }
 
