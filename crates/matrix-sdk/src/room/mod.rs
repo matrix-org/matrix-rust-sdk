@@ -1926,7 +1926,7 @@ impl Room {
         #[cfg(feature = "e2e-encryption")]
         let (media_source, thumbnail_source, thumbnail_info) = if self.is_encrypted().await? {
             self.client
-                .prepare_encrypted_attachment_message(
+                .upload_encrypted_media_and_thumbnail(
                     content_type,
                     data,
                     config.thumbnail.take(),
@@ -1936,7 +1936,7 @@ impl Room {
         } else {
             self.client
                 .media()
-                .prepare_attachment_message(
+                .upload_plain_media_and_thumbnail(
                     content_type,
                     data,
                     config.thumbnail.take(),
@@ -1949,7 +1949,12 @@ impl Room {
         let (media_source, thumbnail_source, thumbnail_info) = self
             .client
             .media()
-            .prepare_attachment_message(content_type, data, config.thumbnail.take(), send_progress)
+            .upload_plain_media_and_thumbnail(
+                content_type,
+                data,
+                config.thumbnail.take(),
+                send_progress,
+            )
             .await?;
 
         let msg_type = self.make_attachment_message(
@@ -1976,7 +1981,7 @@ impl Room {
 
     /// Creates the inner [`MessageType`] for an already-uploaded media file
     /// provided by its source.
-    pub(crate) fn make_attachment_message(
+    fn make_attachment_message(
         &self,
         content_type: &Mime,
         source: MediaSource,

@@ -453,7 +453,7 @@ impl Client {
 
     /// Encrypt and upload the file and thumbnails, and return the source
     /// information.
-    pub(crate) async fn prepare_encrypted_attachment_message(
+    pub(crate) async fn upload_encrypted_media_and_thumbnail(
         &self,
         content_type: &mime::Mime,
         data: Vec<u8>,
