@@ -41,8 +41,6 @@ native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
 sso-login = ["dep:axum", "dep:rand", "dep:tower"]
-image-proc = ["dep:image"]
-image-rayon = ["image-proc", "image?/rayon"]
 
 uniffi = ["dep:uniffi", "matrix-sdk-base/uniffi", "dep:matrix-sdk-ffi-macros"]
 
@@ -63,7 +61,7 @@ experimental-sliding-sync = [
 ]
 experimental-widgets = ["dep:language-tags", "dep:uuid"]
 
-docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "image-proc"]
+docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode"]
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
@@ -115,12 +113,6 @@ urlencoding = "2.1.3"
 uuid = { version = "1.4.1", features = ["serde", "v4"], optional = true }
 vodozemac = { workspace = true }
 zeroize = { workspace = true }
-
-[dependencies.image]
-version = "0.25.1"
-default-features = false
-features = ["default-formats"]
-optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { version = "0.3.0", features = ["futures"] }
