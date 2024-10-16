@@ -357,6 +357,41 @@ impl App {
         }
     }
 
+    async fn toggle_reaction_to_latest_msg(&mut self) {
+        let selected = self.get_selected_room_id(None);
+
+        if let Some((sdk_timeline, items)) = selected.and_then(|room_id| {
+            self.timelines
+                .lock()
+                .unwrap()
+                .get(&room_id)
+                .map(|timeline| (timeline.timeline.clone(), timeline.items.clone()))
+        }) {
+            // Look for the latest (most recent) room message.
+            let item_id = {
+                let items = items.lock().unwrap();
+                items.iter().rev().find_map(|it| {
+                    it.as_event()
+                        .and_then(|ev| ev.content().as_message().is_some().then(|| ev.identifier()))
+                })
+            };
+
+            // If found, send a reaction.
+            if let Some(item_id) = item_id {
+                match sdk_timeline.toggle_reaction(&item_id, "🥰").await {
+                    Ok(_) => {
+                        self.set_status_message("reaction sent!".to_owned());
+                    }
+                    Err(err) => self.set_status_message(format!("error when reacting: {err}")),
+                }
+            } else {
+                self.set_status_message("no item to react to".to_owned());
+            }
+        } else {
+            self.set_status_message("missing timeline for room".to_owned());
+        };
+    }
+
     /// Run a small back-pagination (expect a batch of 20 events, continue until
     /// we get 10 timeline items or hit the timeline start).
     fn back_paginate(&mut self) {
@@ -483,6 +518,8 @@ impl App {
                                     self.set_status_message("missing timeline for room".to_owned());
                                 };
                             }
+
+                            Char('l') => self.toggle_reaction_to_latest_msg().await,
 
                             Char('r') => self.details_mode = DetailsMode::ReadReceipts,
                             Char('t') => self.details_mode = DetailsMode::TimelineItems,
