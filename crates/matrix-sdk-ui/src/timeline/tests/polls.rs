@@ -1,3 +1,4 @@
+use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     events::{
@@ -216,7 +217,7 @@ impl TestTimeline {
         );
         let event =
             self.event_builder.make_sync_message_event_with_id(sender, event_id, event_content);
-        self.handle_live_event(event).await;
+        self.handle_live_event(SyncTimelineEvent::new(event)).await;
     }
 
     async fn send_poll_response(&self, sender: &UserId, answers: Vec<&str>, poll_id: &EventId) {

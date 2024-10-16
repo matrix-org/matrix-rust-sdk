@@ -17,6 +17,7 @@ use std::sync::Arc;
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
+use matrix_sdk::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
 use ruma::events::{
     room::{
@@ -164,26 +165,26 @@ async fn test_hide_failed_to_parse() {
     // m.room.message events must have a msgtype and body in content, so this
     // event with an empty content object should fail to deserialize.
     timeline
-        .handle_live_event(sync_timeline_event!({
+        .handle_live_event(SyncTimelineEvent::new(sync_timeline_event!({
             "content": {},
             "event_id": "$eeG0HA0FAZ37wP8kXlNkxx3I",
             "origin_server_ts": 10,
             "sender": "@alice:example.org",
             "type": "m.room.message",
-        }))
+        })))
         .await;
 
     // Similar to above, the m.room.member state event must also not have an
     // empty content object.
     timeline
-        .handle_live_event(sync_timeline_event!({
+        .handle_live_event(SyncTimelineEvent::new(sync_timeline_event!({
             "content": {},
             "event_id": "$d5G0HA0FAZ37wP8kXlNkxx3I",
             "origin_server_ts": 2179,
             "sender": "@alice:example.org",
             "type": "m.room.member",
             "state_key": "@alice:example.org",
-        }))
+        })))
         .await;
 
     assert_eq!(timeline.controller.items().await.len(), 0);

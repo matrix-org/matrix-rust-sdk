@@ -183,7 +183,7 @@ impl TestTimeline {
         C: RedactedMessageLikeEventContent,
     {
         let ev = self.event_builder.make_sync_redacted_message_event(sender, content);
-        self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
+        self.handle_live_event(SyncTimelineEvent::new(ev)).await;
     }
 
     async fn handle_live_state_event<C>(&self, sender: &UserId, content: C, prev_content: Option<C>)
@@ -191,7 +191,7 @@ impl TestTimeline {
         C: StaticStateEventContent<StateKey = EmptyStateKey>,
     {
         let ev = self.event_builder.make_sync_state_event(sender, "", content, prev_content);
-        self.handle_live_event(ev).await;
+        self.handle_live_event(SyncTimelineEvent::new(ev)).await;
     }
 
     async fn handle_live_state_event_with_state_key<C>(
@@ -209,7 +209,7 @@ impl TestTimeline {
             content,
             prev_content,
         );
-        self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
+        self.handle_live_event(SyncTimelineEvent::new(ev)).await;
     }
 
     async fn handle_live_redacted_state_event<C>(&self, sender: &UserId, content: C)
@@ -217,7 +217,7 @@ impl TestTimeline {
         C: RedactedStateEventContent<StateKey = EmptyStateKey>,
     {
         let ev = self.event_builder.make_sync_redacted_state_event(sender, "", content);
-        self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
+        self.handle_live_event(SyncTimelineEvent::new(ev)).await;
     }
 
     async fn handle_live_redacted_state_event_with_state_key<C>(
@@ -230,7 +230,7 @@ impl TestTimeline {
     {
         let ev =
             self.event_builder.make_sync_redacted_state_event(sender, state_key.as_ref(), content);
-        self.handle_live_event(Raw::new(&ev).unwrap().cast()).await;
+        self.handle_live_event(SyncTimelineEvent::new(ev)).await;
     }
 
     async fn handle_live_event(&self, event: impl Into<SyncTimelineEvent>) {

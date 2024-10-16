@@ -27,15 +27,13 @@ use matrix_sdk::{
     crypto::{decrypt_room_key_export, types::events::UtdCause, OlmMachine},
     test_utils::test_client_builder,
 };
+use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{async_test, BOB};
 use ruma::{
     assign,
-    events::{
-        room::encrypted::{
-            EncryptedEventScheme, MegolmV1AesSha2ContentInit, Relation, Replacement,
-            RoomEncryptedEventContent,
-        },
-        AnySyncTimelineEvent,
+    events::room::encrypted::{
+        EncryptedEventScheme, MegolmV1AesSha2ContentInit, Relation, Replacement,
+        RoomEncryptedEventContent,
     },
     room_id,
     serde::Raw,
@@ -475,7 +473,7 @@ async fn test_utd_cause_for_nonmember_event_is_found() {
     let mut stream = timeline.subscribe().await;
 
     // When we add an event with "membership: leave"
-    timeline.handle_live_event(raw_event_with_unsigned(json!({ "membership": "leave" }))).await;
+    timeline.handle_live_event(utd_event_with_unsigned(json!({ "membership": "leave" }))).await;
 
     // Then its UTD cause is membership
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -495,7 +493,7 @@ async fn test_utd_cause_for_nonmember_event_is_found_unstable_prefix() {
 
     // When we add an event with "io.element.msc4115.membership: leave"
     timeline
-        .handle_live_event(raw_event_with_unsigned(
+        .handle_live_event(utd_event_with_unsigned(
             json!({ "io.element.msc4115.membership": "leave" }),
         ))
         .await;
@@ -517,7 +515,7 @@ async fn test_utd_cause_for_member_event_is_unknown() {
     let mut stream = timeline.subscribe().await;
 
     // When we add an event with "membership: join"
-    timeline.handle_live_event(raw_event_with_unsigned(json!({ "membership": "join" }))).await;
+    timeline.handle_live_event(utd_event_with_unsigned(json!({ "membership": "join" }))).await;
 
     // Then its UTD cause is membership
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -536,7 +534,7 @@ async fn test_utd_cause_for_missing_membership_is_unknown() {
     let mut stream = timeline.subscribe().await;
 
     // When we add an event with no membership in unsigned
-    timeline.handle_live_event(raw_event_with_unsigned(json!({}))).await;
+    timeline.handle_live_event(utd_event_with_unsigned(json!({}))).await;
 
     // Then its UTD cause is membership
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -548,8 +546,8 @@ async fn test_utd_cause_for_missing_membership_is_unknown() {
     assert_eq!(*cause, UtdCause::Unknown);
 }
 
-fn raw_event_with_unsigned(unsigned: serde_json::Value) -> Raw<AnySyncTimelineEvent> {
-    Raw::from_json(
+fn utd_event_with_unsigned(unsigned: serde_json::Value) -> SyncTimelineEvent {
+    SyncTimelineEvent::new(Raw::from_json(
         to_raw_value(&json!({
             "event_id": "$myevent",
             "sender": "@u:s",
@@ -566,5 +564,5 @@ fn raw_event_with_unsigned(unsigned: serde_json::Value) -> Raw<AnySyncTimelineEv
 
         }))
         .unwrap(),
-    )
+    ))
 }
