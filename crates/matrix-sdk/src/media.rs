@@ -503,7 +503,7 @@ impl Media {
     }
 
     /// Upload the file bytes in `data` and return the source information.
-    pub(crate) async fn prepare_attachment_message(
+    pub(crate) async fn upload_plain_media_and_thumbnail(
         &self,
         content_type: &Mime,
         data: Vec<u8>,
