@@ -461,6 +461,14 @@ impl UserIdentity {
     pub(crate) fn master_key(&self) -> Option<String> {
         self.inner.master_key().get_first_key().map(|k| k.to_base64())
     }
+
+    /// Is the user identity considered to be verified.
+    ///
+    /// If the identity belongs to another user, our own user identity needs to
+    /// be verified as well for the identity to be considered to be verified.
+    pub fn is_verified(&self) -> bool {
+        self.inner.is_verified()
+    }
 }
 
 #[derive(uniffi::Object)]
