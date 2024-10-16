@@ -590,25 +590,25 @@ impl Media {
         thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<(Option<MediaSource>, Option<Box<ThumbnailInfo>>)> {
-        if let Some(thumbnail) = thumbnail {
-            let response = self
-                .upload(&thumbnail.content_type, thumbnail.data)
-                .with_send_progress_observable(send_progress)
-                .await?;
-            let url = response.content_uri;
+        let Some(thumbnail) = thumbnail else {
+            return Ok((None, None));
+        };
 
-            let thumbnail_info = assign!(
-                thumbnail.info
-                    .as_ref()
-                    .map(|info| ThumbnailInfo::from(info.clone()))
-                    .unwrap_or_default(),
-                { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
-            );
+        let response = self
+            .upload(&thumbnail.content_type, thumbnail.data)
+            .with_send_progress_observable(send_progress)
+            .await?;
+        let url = response.content_uri;
 
-            Ok((Some(MediaSource::Plain(url)), Some(Box::new(thumbnail_info))))
-        } else {
-            Ok((None, None))
-        }
+        let thumbnail_info = assign!(
+            thumbnail.info
+                .as_ref()
+                .map(|info| ThumbnailInfo::from(info.clone()))
+                .unwrap_or_default(),
+            { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
+        );
+
+        Ok((Some(MediaSource::Plain(url)), Some(Box::new(thumbnail_info))))
     }
 }
 
