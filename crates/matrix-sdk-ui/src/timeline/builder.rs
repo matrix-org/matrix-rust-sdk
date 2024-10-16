@@ -163,7 +163,7 @@ impl TimelineBuilder {
         let controller = TimelineController::new(
             room,
             focus.clone(),
-            internal_id_prefix,
+            internal_id_prefix.clone(),
             unable_to_decrypt_hook,
             is_room_encrypted,
         )
@@ -206,8 +206,13 @@ impl TimelineBuilder {
             let room_event_cache = room_event_cache.clone();
             let inner = controller.clone();
 
-            let span =
-                info_span!(parent: Span::none(), "room_update_handler", room_id = ?room.room_id());
+            let span = info_span!(
+                parent: Span::none(),
+                "live_update_handler",
+                room_id = ?room.room_id(),
+                focus = focus.debug_string(),
+                prefix = internal_id_prefix
+            );
             span.follows_from(Span::current());
 
             async move {
@@ -307,7 +312,13 @@ impl TimelineBuilder {
                     timeline.handle_local_echo(echo).await;
                 }
 
-                let span = info_span!(parent: Span::none(), "local_echo_handler", room_id = ?room.room_id());
+                let span = info_span!(
+                    parent: Span::none(),
+                    "local_echo_handler",
+                    room_id = ?room.room_id(),
+                    focus = focus.debug_string(),
+                    prefix = internal_id_prefix
+                );
                 span.follows_from(Span::current());
 
                 // React to future local echoes too.

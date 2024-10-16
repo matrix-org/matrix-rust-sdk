@@ -171,6 +171,16 @@ pub enum TimelineFocus {
     PinnedEvents { max_events_to_load: u16, max_concurrent_requests: u16 },
 }
 
+impl TimelineFocus {
+    pub(super) fn debug_string(&self) -> String {
+        match self {
+            TimelineFocus::Live => "live".to_owned(),
+            TimelineFocus::Event { target, .. } => format!("permalink:{target}"),
+            TimelineFocus::PinnedEvents { .. } => "pinned-events".to_owned(),
+        }
+    }
+}
+
 impl Timeline {
     /// Create a new [`TimelineBuilder`] for the given room.
     pub fn builder(room: &Room) -> TimelineBuilder {
