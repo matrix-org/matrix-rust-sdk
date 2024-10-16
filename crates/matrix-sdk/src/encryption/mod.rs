@@ -562,7 +562,7 @@ impl Client {
         request: &RoomMessageRequest,
     ) -> Result<send_message_event::v3::Response> {
         let content = request.content.clone();
-        let txn_id = &request.txn_id;
+        let txn_id = request.txn_id.clone();
         let room_id = &request.room_id;
 
         self.get_room(room_id)

@@ -687,7 +687,7 @@ async fn test_incremental_upload_of_keys() -> Result<()> {
     // backup
     let content = RoomMessageEventContent::text_plain("Hello world");
     let txn_id = TransactionId::new();
-    let _ = alice_room.send(content).with_transaction_id(&txn_id).await?;
+    let _ = alice_room.send(content).with_transaction_id(txn_id).await?;
 
     Mock::given(method("GET"))
         .and(path("/_matrix/client/r0/sync"))
@@ -773,7 +773,7 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
     // backup
     let content = RoomMessageEventContent::text_plain("Hello world");
     let txn_id = TransactionId::new();
-    let _ = alice_room.send(content).with_transaction_id(&txn_id).await?;
+    let _ = alice_room.send(content).with_transaction_id(txn_id).await?;
 
     // Set up sliding sync.
     let sliding = client

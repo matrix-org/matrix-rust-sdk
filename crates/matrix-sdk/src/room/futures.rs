@@ -72,8 +72,8 @@ impl<'a> SendMessageLikeEvent<'a> {
     ///   corresponding [`SyncMessageLikeEvent`], but only for the *sending*
     ///   device. Other devices will not see it. This is then used to ignore
     ///   events sent by our own device and/or to implement local echo.
-    pub fn with_transaction_id(mut self, txn_id: &TransactionId) -> Self {
-        self.transaction_id = Some(txn_id.to_owned());
+    pub fn with_transaction_id(mut self, txn_id: OwnedTransactionId) -> Self {
+        self.transaction_id = Some(txn_id);
         self
     }
 
