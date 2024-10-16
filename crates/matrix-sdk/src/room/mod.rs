@@ -1715,7 +1715,7 @@ impl Room {
     /// let txn_id = TransactionId::new();
     ///
     /// if let Some(room) = client.get_room(&room_id) {
-    ///     room.send(content).with_transaction_id(&txn_id).await?;
+    ///     room.send(content).with_transaction_id(txn_id).await?;
     /// }
     ///
     /// // Custom events work too:
@@ -1968,7 +1968,7 @@ impl Room {
         }
 
         let mut fut = self.send(content);
-        if let Some(txn_id) = &txn_id {
+        if let Some(txn_id) = txn_id {
             fut = fut.with_transaction_id(txn_id);
         }
         fut.await
