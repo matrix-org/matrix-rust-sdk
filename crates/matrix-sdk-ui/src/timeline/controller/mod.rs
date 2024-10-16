@@ -735,7 +735,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     ///
     /// If the corresponding local timeline item is missing, a warning is
     /// raised.
-    #[instrument(skip_all, fields(txn_id))]
+    #[instrument(skip(self))]
     pub(super) async fn update_event_send_state(
         &self,
         txn_id: &TransactionId,
