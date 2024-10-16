@@ -31,7 +31,7 @@ use matrix_sdk::{
     Error,
 };
 use matrix_sdk_ui::timeline::{
-    EventItemOrigin, LiveBackPaginationStatus, Profile, RepliedToEvent, TimelineDetails,
+    self, EventItemOrigin, LiveBackPaginationStatus, Profile, RepliedToEvent, TimelineDetails,
     TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
@@ -494,11 +494,30 @@ impl Timeline {
         &self,
         event_or_transaction_id: EventOrTransactionId,
         new_content: EditedContent,
-    ) -> Result<bool, ClientError> {
-        self.inner
-            .edit(&event_or_transaction_id.try_into()?, new_content.try_into()?)
+    ) -> Result<(), ClientError> {
+        match self
+            .inner
+            .edit(&event_or_transaction_id.clone().try_into()?, new_content.clone().try_into()?)
             .await
-            .map_err(Into::into)
+        {
+            Ok(true) => Ok(()),
+            Ok(false) | Err(timeline::Error::EventNotInTimeline(_)) => {
+                // If we couldn't edit, assume it was an (remote) event that wasn't in the
+                // timeline, and try to edit it via the room itself.
+                let event_id = match event_or_transaction_id {
+                    EventOrTransactionId::EventId { event_id } => EventId::parse(event_id)?,
+                    EventOrTransactionId::TransactionId { .. } => {
+                        warn!("trying to apply an edit to a local echo that doesn't exist in this timeline, aborting");
+                        return Ok(());
+                    }
+                };
+                let room = self.inner.room();
+                let edit_event = room.make_edit_event(&event_id, new_content.try_into()?).await?;
+                room.send_queue().send(edit_event).await?;
+                Ok(())
+            }
+            Err(err) => Err(err)?,
+        }
     }
 
     pub async fn send_location(
