@@ -486,7 +486,7 @@ impl IdentityChangeDataSet {
         })
     }
 
-    fn msk_a() -> Value {
+    pub fn msk_a() -> Value {
         json!({
             "@bob:localhost": {
                 "keys": {
@@ -505,7 +505,8 @@ impl IdentityChangeDataSet {
             }
         })
     }
-    fn ssk_a() -> Value {
+
+    pub fn ssk_a() -> Value {
         json!({
             "@bob:localhost": {
                 "keys": {
