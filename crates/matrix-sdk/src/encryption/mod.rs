@@ -543,24 +543,24 @@ impl Client {
         content_type: &mime::Mime,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<(Option<MediaSource>, Option<Box<ThumbnailInfo>>)> {
-        if let Some(thumbnail) = thumbnail {
-            let mut cursor = Cursor::new(thumbnail.data);
+        let Some(thumbnail) = thumbnail else {
+            return Ok((None, None));
+        };
 
-            let file = self
-                .prepare_encrypted_file(content_type, &mut cursor)
-                .with_send_progress_observable(send_progress)
-                .await?;
+        let mut cursor = Cursor::new(thumbnail.data);
 
-            #[rustfmt::skip]
+        let file = self
+            .prepare_encrypted_file(content_type, &mut cursor)
+            .with_send_progress_observable(send_progress)
+            .await?;
+
+        #[rustfmt::skip]
             let thumbnail_info =
                 assign!(thumbnail.info.map(ThumbnailInfo::from).unwrap_or_default(), {
                     mimetype: Some(thumbnail.content_type.as_ref().to_owned())
                 });
 
-            Ok((Some(MediaSource::Encrypted(Box::new(file))), Some(Box::new(thumbnail_info))))
-        } else {
-            Ok((None, None))
-        }
+        Ok((Some(MediaSource::Encrypted(Box::new(file))), Some(Box::new(thumbnail_info))))
     }
 
     /// Claim one-time keys creating new Olm sessions.
