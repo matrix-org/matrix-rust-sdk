@@ -573,22 +573,21 @@ impl Timeline {
         Ok(())
     }
 
-    /// Sends an attachment to the room. It does not currently support local
-    /// echoes
+    /// Sends an attachment to the room.
+    ///
+    /// It does not currently support local echoes.
     ///
     /// If the encryption feature is enabled, this method will transparently
     /// encrypt the room message if the room is encrypted.
     ///
     /// # Arguments
     ///
-    /// * `path` - The path of the file to be sent
+    /// * `path` - The path of the file to be sent.
     ///
-    /// * `mime_type` - The attachment's mime type
+    /// * `mime_type` - The attachment's mime type.
     ///
     /// * `config` - An attachment configuration object containing details about
-    ///   the attachment
-    ///
-    /// like a thumbnail, its size, duration etc.
+    ///   the attachment like a thumbnail, its size, duration etc.
     #[instrument(skip_all)]
     pub fn send_attachment(
         &self,
