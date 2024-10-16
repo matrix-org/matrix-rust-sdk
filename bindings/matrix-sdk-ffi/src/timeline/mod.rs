@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt::Write as _, fs, sync::Arc};
+use std::{collections::HashMap, fmt::Write as _, fs, panic, sync::Arc};
 
 use anyhow::{Context, Result};
 use as_variant::as_variant;
@@ -1205,11 +1205,28 @@ impl SendAttachmentJoinHandle {
 
 #[matrix_sdk_ffi_macros::export]
 impl SendAttachmentJoinHandle {
+    /// Wait until the attachment has been sent.
+    ///
+    /// If the sending had been cancelled, will return immediately.
     pub async fn join(&self) -> Result<(), RoomError> {
-        let join_hdl = self.join_hdl.clone();
-        RUNTIME.spawn(async move { (&mut *join_hdl.lock().await).await.unwrap() }).await.unwrap()
+        let handle = self.join_hdl.clone();
+        let mut locked_handle = handle.lock().await;
+        let join_result = (&mut *locked_handle).await;
+        match join_result {
+            Ok(res) => res,
+            Err(err) => {
+                if err.is_cancelled() {
+                    return Ok(());
+                }
+                error!("task panicked! resuming panic from here.");
+                panic::resume_unwind(err.into_panic());
+            }
+        }
     }
 
+    /// Cancel the current sending task.
+    ///
+    /// A subsequent call to [`Self::join`] will return immediately.
     pub fn cancel(&self) {
         self.abort_hdl.abort();
     }
