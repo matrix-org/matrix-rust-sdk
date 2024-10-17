@@ -104,12 +104,18 @@ impl Timeline {
         mime_type: Option<String>,
         attachment_config: AttachmentConfig,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
+        store_in_cache: bool,
     ) -> Result<(), RoomError> {
         let mime_str = mime_type.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
         let mime_type =
             mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
 
-        let request = self.inner.send_attachment(filename, mime_type, attachment_config);
+        let mut request = self.inner.send_attachment(filename, mime_type, attachment_config);
+
+        if store_in_cache {
+            request.store_in_cache();
+        }
+
         if let Some(progress_watcher) = progress_watcher {
             let mut subscriber = request.subscribe_to_send_progress();
             RUNTIME.spawn(async move {
@@ -270,6 +276,7 @@ impl Timeline {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn send_image(
         self: Arc<Self>,
         url: String,
@@ -278,6 +285,7 @@ impl Timeline {
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
+        store_in_cache: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_image_info = BaseImageInfo::try_from(&image_info)
@@ -289,11 +297,18 @@ impl Timeline {
                 .caption(caption)
                 .formatted_caption(formatted_caption.map(Into::into));
 
-            self.send_attachment(url, image_info.mimetype, attachment_config, progress_watcher)
-                .await
+            self.send_attachment(
+                url,
+                image_info.mimetype,
+                attachment_config,
+                progress_watcher,
+                store_in_cache,
+            )
+            .await
         }))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn send_video(
         self: Arc<Self>,
         url: String,
@@ -302,6 +317,7 @@ impl Timeline {
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
+        store_in_cache: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_video_info: BaseVideoInfo = BaseVideoInfo::try_from(&video_info)
@@ -313,8 +329,14 @@ impl Timeline {
                 .caption(caption)
                 .formatted_caption(formatted_caption.map(Into::into));
 
-            self.send_attachment(url, video_info.mimetype, attachment_config, progress_watcher)
-                .await
+            self.send_attachment(
+                url,
+                video_info.mimetype,
+                attachment_config,
+                progress_watcher,
+                store_in_cache,
+            )
+            .await
         }))
     }
 
@@ -325,6 +347,7 @@ impl Timeline {
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
+        store_in_cache: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_audio_info: BaseAudioInfo = BaseAudioInfo::try_from(&audio_info)
@@ -336,11 +359,18 @@ impl Timeline {
                 .caption(caption)
                 .formatted_caption(formatted_caption.map(Into::into));
 
-            self.send_attachment(url, audio_info.mimetype, attachment_config, progress_watcher)
-                .await
+            self.send_attachment(
+                url,
+                audio_info.mimetype,
+                attachment_config,
+                progress_watcher,
+                store_in_cache,
+            )
+            .await
         }))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn send_voice_message(
         self: Arc<Self>,
         url: String,
@@ -349,6 +379,7 @@ impl Timeline {
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
+        store_in_cache: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_audio_info: BaseAudioInfo = BaseAudioInfo::try_from(&audio_info)
@@ -361,8 +392,14 @@ impl Timeline {
                 .caption(caption)
                 .formatted_caption(formatted_caption.map(Into::into));
 
-            self.send_attachment(url, audio_info.mimetype, attachment_config, progress_watcher)
-                .await
+            self.send_attachment(
+                url,
+                audio_info.mimetype,
+                attachment_config,
+                progress_watcher,
+                store_in_cache,
+            )
+            .await
         }))
     }
 
@@ -371,6 +408,7 @@ impl Timeline {
         url: String,
         file_info: FileInfo,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
+        store_in_cache: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_file_info: BaseFileInfo =
@@ -379,7 +417,14 @@ impl Timeline {
 
             let attachment_config = AttachmentConfig::new().info(attachment_info);
 
-            self.send_attachment(url, file_info.mimetype, attachment_config, progress_watcher).await
+            self.send_attachment(
+                url,
+                file_info.mimetype,
+                attachment_config,
+                progress_watcher,
+                store_in_cache,
+            )
+            .await
         }))
     }
 
