@@ -1959,7 +1959,7 @@ impl Room {
         let (media_source, thumbnail_source, thumbnail_info) = self
             .client
             .media()
-            .upload_plain_media_and_thumbnail(content_type, data, thumbnail, send_progress)
+            .upload_plain_media_and_thumbnail(content_type, data.clone(), thumbnail, send_progress)
             .await?;
 
         if store_in_cache {
