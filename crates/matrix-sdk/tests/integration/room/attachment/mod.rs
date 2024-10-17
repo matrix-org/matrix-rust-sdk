@@ -6,10 +6,15 @@ use matrix_sdk::{
         Thumbnail,
     },
     config::SyncSettings,
+    media::{MediaFormat, MediaRequest},
     test_utils::logged_in_client_with_server,
 };
 use matrix_sdk_test::{async_test, mocks::mock_encryption_state, test_json, DEFAULT_TEST_ROOM_ID};
-use ruma::{event_id, events::Mentions, owned_user_id, uint};
+use ruma::{
+    event_id,
+    events::{room::MediaSource, Mentions},
+    owned_mxc_uri, owned_user_id, uint,
+};
 use serde_json::json;
 use wiremock::{
     matchers::{body_partial_json, header, method, path, path_regex},
@@ -60,10 +65,29 @@ async fn test_room_attachment_send() {
             b"Hello world".to_vec(),
             AttachmentConfig::new(),
         )
+        .store_in_cache()
         .await
         .unwrap();
 
-    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
+    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
+
+    // The media is immediately cached in the cache store, so we don't need to set
+    // up another mock endpoint for getting the media.
+    let reloaded = client
+        .media()
+        .get_media_content(
+            &MediaRequest {
+                source: MediaSource::Plain(owned_mxc_uri!(
+                    "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
+                )),
+                format: MediaFormat::File,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(reloaded, b"Hello world");
 }
 
 #[async_test]
