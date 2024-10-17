@@ -449,20 +449,12 @@ impl Timeline {
     ///
     /// Only supports events for which [`EventTimelineItem::is_editable()`]
     /// returns `true`.
-    ///
-    /// # Returns
-    ///
-    /// - Returns `Ok(true)` if the edit was added to the send queue.
-    /// - Returns `Ok(false)` if the edit targets an item that has no local nor
-    ///   matching remote item.
-    /// - Returns an error if there was an issue sending the redaction event, or
-    ///   interacting with the sending queue.
     #[instrument(skip(self, new_content))]
     pub async fn edit(
         &self,
         item_id: &TimelineEventItemId,
         new_content: EditedContent,
-    ) -> Result<bool, Error> {
+    ) -> Result<(), Error> {
         let items = self.items().await;
         let Some((_pos, item)) = rfind_event_by_item_id(&items, item_id) else {
             return Err(Error::EventNotInTimeline(item_id.clone()));
@@ -470,9 +462,13 @@ impl Timeline {
 
         match item.handle() {
             TimelineItemHandle::Remote(event_id) => {
-                let content = self.room().make_edit_event(event_id, new_content).await?;
+                let content = self
+                    .room()
+                    .make_edit_event(event_id, new_content)
+                    .await
+                    .map_err(EditError::RoomError)?;
                 self.send(content).await?;
-                Ok(true)
+                Ok(())
             }
 
             TimelineItemHandle::Local(handle) => {
@@ -482,8 +478,11 @@ impl Timeline {
                         if matches!(item.content, TimelineItemContent::Message(_)) {
                             AnyMessageLikeEventContent::RoomMessage(message.into())
                         } else {
-                            warn!("New content (m.room.message) doesn't match previous event content.");
-                            return Ok(false);
+                            return Err(EditError::ContentMismatch {
+                                original: item.content.debug_string().to_owned(),
+                                new: "a message".to_owned(),
+                            }
+                            .into());
                         }
                     }
                     EditedContent::PollStart { new_content, .. } => {
@@ -494,13 +493,20 @@ impl Timeline {
                                 ),
                             )
                         } else {
-                            warn!("New content (poll start) doesn't match previous event content.");
-                            return Ok(false);
+                            return Err(EditError::ContentMismatch {
+                                original: item.content.debug_string().to_owned(),
+                                new: "a poll".to_owned(),
+                            }
+                            .into());
                         }
                     }
                 };
 
-                Ok(handle.edit(new_content).await.map_err(RoomSendQueueError::StorageError)?)
+                if !handle.edit(new_content).await.map_err(RoomSendQueueError::StorageError)? {
+                    return Err(EditError::InvalidLocalEchoState.into());
+                }
+
+                Ok(())
             }
         }
     }
