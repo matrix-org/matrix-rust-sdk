@@ -276,9 +276,7 @@ async fn test_redact_message() {
     // Redacting a remote event works.
     mock_redaction(event_id!("$42")).mount(&server).await;
 
-    let did_redact =
-        timeline.redact(&first.as_event().unwrap().identifier(), Some("inapprops")).await.unwrap();
-    assert!(did_redact);
+    timeline.redact(&first.as_event().unwrap().identifier(), Some("inapprops")).await.unwrap();
 
     // Redacting a local event works.
     timeline
@@ -300,8 +298,7 @@ async fn test_redact_message() {
     assert_matches!(second.send_state(), Some(EventSendState::SendingFailed { .. }));
 
     // Let's redact the local echo.
-    let did_redact = timeline.redact(&second.identifier(), None).await.unwrap();
-    assert!(did_redact);
+    timeline.redact(&second.identifier(), None).await.unwrap();
 
     // Observe local echo being removed.
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 2 }));
