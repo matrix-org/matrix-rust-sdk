@@ -1924,13 +1924,15 @@ impl Room {
         let txn_id = config.txn_id.take();
         let mentions = config.mentions.take();
 
+        let thumbnail = config.thumbnail.take();
+
         #[cfg(feature = "e2e-encryption")]
         let (media_source, thumbnail_source, thumbnail_info) = if self.is_encrypted().await? {
             self.client
                 .upload_encrypted_media_and_thumbnail(
                     content_type,
-                    data,
-                    config.thumbnail.take(),
+                    data.clone(),
+                    thumbnail,
                     send_progress,
                 )
                 .await?
@@ -1939,8 +1941,8 @@ impl Room {
                 .media()
                 .upload_plain_media_and_thumbnail(
                     content_type,
-                    data,
-                    config.thumbnail.take(),
+                    data.clone(),
+                    thumbnail,
                     send_progress,
                 )
                 .await?
@@ -1950,13 +1952,18 @@ impl Room {
         let (media_source, thumbnail_source, thumbnail_info) = self
             .client
             .media()
-            .upload_plain_media_and_thumbnail(
-                content_type,
-                data,
-                config.thumbnail.take(),
-                send_progress,
-            )
+            .upload_plain_media_and_thumbnail(content_type, data, thumbnail, send_progress)
             .await?;
+
+        {
+            let cache_store = self.client.event_cache_store();
+
+            let request = MediaRequest { source: media_source.clone(), format: MediaFormat::File };
+            // This shouldn't prevent the whole process from finishing properly.
+            if let Err(err) = cache_store.add_media_content(&request, data).await {
+                warn!("unable to cache the media after uploading it: {err}");
+            }
+        }
 
         let msg_type = self.make_attachment_message(
             content_type,
