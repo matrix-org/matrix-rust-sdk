@@ -30,7 +30,11 @@ use matrix_sdk_base::{
     ComposerDraft, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges, StateStoreDataKey,
     StateStoreDataValue,
 };
-use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, timeout::timeout};
+use matrix_sdk_common::{
+    deserialized_responses::SyncTimelineEvent,
+    executor::{spawn, JoinHandle},
+    timeout::timeout,
+};
 use mime::Mime;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -59,7 +63,7 @@ use ruma::{
     },
     assign,
     events::{
-        beacon::BeaconEventContent,
+        beacon::{BeaconEventContent, OriginalSyncBeaconEvent},
         beacon_info::BeaconInfoEventContent,
         call::notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         direct::DirectEventContent,
@@ -110,6 +114,7 @@ use crate::{
     error::{BeaconError, WrongRoomState},
     event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
+    live_location::{LastLocation, LiveLocationShare},
     media::{MediaFormat, MediaRequest},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     room::power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
@@ -2820,7 +2825,7 @@ impl Room {
         Ok(())
     }
 
-    /// Get the beacon information event in the room for the current user.
+    /// Get the beacon information event in the room for the `user_id`.
     ///
     /// # Errors
     ///
@@ -2828,9 +2833,10 @@ impl Room {
     /// not be deserialized.
     async fn get_user_beacon_info(
         &self,
+        user_id: &UserId,
     ) -> Result<OriginalSyncStateEvent<BeaconInfoEventContent>, BeaconError> {
         let raw_event = self
-            .get_state_event_static_for_key::<BeaconInfoEventContent, _>(self.own_user_id())
+            .get_state_event_static_for_key::<BeaconInfoEventContent, _>(user_id)
             .await?
             .ok_or(BeaconError::NotFound)?;
 
@@ -2883,7 +2889,7 @@ impl Room {
     ) -> Result<send_state_event::v3::Response, BeaconError> {
         self.ensure_room_joined()?;
 
-        let mut beacon_info_event = self.get_user_beacon_info().await?;
+        let mut beacon_info_event = self.get_user_beacon_info(self.own_user_id()).await?;
         beacon_info_event.content.stop();
         Ok(self.send_state_event_for_key(self.own_user_id(), beacon_info_event.content).await?)
     }
@@ -2905,7 +2911,7 @@ impl Room {
     ) -> Result<send_message_event::v3::Response, BeaconError> {
         self.ensure_room_joined()?;
 
-        let beacon_info_event = self.get_user_beacon_info().await?;
+        let beacon_info_event = self.get_user_beacon_info(self.own_user_id()).await?;
 
         if beacon_info_event.content.is_live() {
             let content = BeaconEventContent::new(beacon_info_event.event_id, geo_uri, None);
@@ -2969,6 +2975,40 @@ impl Room {
             .remove_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
             .await?;
         Ok(())
+    }
+
+    /// Subscribe to live location sharing events for this room.
+    ///
+    /// The returned receiver will receive a new event for each sync response
+    /// that contains a 'm.beacon' event.
+    pub fn subscribe_to_live_location_shares(
+        &self,
+    ) -> (JoinHandle<()>, broadcast::Receiver<LiveLocationShare>) {
+        let (sender, receiver) = broadcast::channel(128);
+
+        let client = self.client.clone();
+        let room_id = self.room_id().to_owned();
+
+        let handle: JoinHandle<()> = spawn(async move {
+            let beacon_event_handler_handle = client.add_room_event_handler(&room_id, {
+                move |event: OriginalSyncBeaconEvent| async move {
+                    let live_location_share = LiveLocationShare {
+                        user_id: event.sender,
+                        last_location: LastLocation {
+                            location: event.content.location,
+                            ts: event.content.ts,
+                        },
+                    };
+
+                    // Send the live location update to all subscribers.
+                    let _ = sender.send(live_location_share);
+                }
+            });
+
+            let _ = beacon_event_handler_handle;
+        });
+
+        (handle, receiver)
     }
 }
 
