@@ -29,8 +29,8 @@ use ruma::{
         AnyMessageLikeEventContent, AnyStateEventContent, AnySyncTimelineEvent, AnyTimelineEvent,
         MessageLikeEventType, StateEventType, TimelineEventType,
     },
-    serde::Raw,
-    RoomId, TransactionId,
+    serde::{from_raw_json_value, Raw},
+    OwnedEventId, RoomId, TransactionId,
 };
 use serde_json::value::RawValue as RawJsonValue;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
@@ -45,6 +45,11 @@ use crate::{
 /// widgets.
 pub(crate) struct MatrixDriver {
     room: Room,
+}
+
+#[derive(serde::Deserialize)]
+struct RedactBody {
+    redacts: OwnedEventId,
 }
 
 impl MatrixDriver {
@@ -116,14 +121,20 @@ impl MatrixDriver {
         delayed_event_parameters: Option<delayed_events::DelayParameters>,
     ) -> Result<SendEventResponse> {
         let type_str = event_type.to_string();
-        Ok(match (state_key, delayed_event_parameters) {
-            (None, None) => SendEventResponse::from_event_id(
+
+        let redacts =
+            from_raw_json_value::<RedactBody, serde_json::Error>(&content).ok().map(|b| b.redacts);
+        Ok(match (state_key, delayed_event_parameters, redacts) {
+            (None, None, None) => SendEventResponse::from_event_id(
                 self.room.send_raw(&type_str, content).await?.event_id,
             ),
-            (Some(key), None) => SendEventResponse::from_event_id(
+            (None, None, Some(redacts)) => SendEventResponse::from_event_id(
+                self.room.redact(&redacts, None, None).await?.event_id,
+            ),
+            (Some(key), None, _) => SendEventResponse::from_event_id(
                 self.room.send_state_event_raw(&type_str, &key, content).await?.event_id,
             ),
-            (None, Some(delayed_event_parameters)) => {
+            (None, Some(delayed_event_parameters), _) => {
                 let r = delayed_events::delayed_message_event::unstable::Request::new_raw(
                     self.room.room_id().to_owned(),
                     TransactionId::new(),
@@ -133,7 +144,7 @@ impl MatrixDriver {
                 );
                 self.room.client.send(r, None).await.map(|r| r.into())?
             }
-            (Some(key), Some(delayed_event_parameters)) => {
+            (Some(key), Some(delayed_event_parameters), _) => {
                 let r = delayed_events::delayed_state_event::unstable::Request::new_raw(
                     self.room.room_id().to_owned(),
                     key,

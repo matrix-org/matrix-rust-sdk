@@ -827,6 +827,55 @@ async fn test_try_update_delayed_event_without_permission_negotiate() {
     }
 }
 
+#[async_test]
+async fn test_send_redaction() {
+    let (_, mock_server, driver_handle) = run_test_driver(false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!([
+            // "org.matrix.msc4157.send.delayed_event",
+            "org.matrix.msc2762.send.event:m.room.redaction"
+        ]),
+    )
+    .await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/redact/.*$"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "event_id":"$redact_event_id"
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    send_request(
+        &driver_handle,
+        "send-redact-message",
+        "send_event",
+        json!({
+            "type": "m.room.redaction",
+            "content": {
+                "redacts": "$1234"
+            },
+        }),
+    )
+    .await;
+
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_event");
+    let redact_event_id = msg["response"]["event_id"].as_str().unwrap();
+    let redact_room_id = msg["response"]["room_id"].as_str().unwrap();
+
+    assert_eq!(redact_event_id, "$redact_event_id");
+    assert_eq!(redact_room_id, "!a98sd12bjh:example.org");
+
+    // Make sure the event-sending endpoint was hit exactly once
+    mock_server.verify().await;
+}
+
 async fn negotiate_capabilities(driver_handle: &WidgetDriverHandle, caps: JsonValue) {
     {
         // Receive toWidget capabilities request
