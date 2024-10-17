@@ -120,6 +120,8 @@ pub enum MegolmError {
     /// An encrypted message wasn't decrypted, because the sender's
     /// cross-signing identity did not satisfy the requested
     /// [`crate::TrustRequirement`].
+    ///
+    /// The nested value is the sender's current verification level.
     #[error("decryption failed because trust requirement not satisfied: {0}")]
     SenderIdentityNotTrusted(VerificationLevel),
 }
