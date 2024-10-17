@@ -1,7 +1,7 @@
 use matrix_sdk::room::{RoomMember as SdkRoomMember, RoomMemberRole};
 use ruma::UserId;
 
-use crate::error::ClientError;
+use crate::error::{ClientError, NotYetImplemented};
 
 #[derive(Clone, uniffi::Enum)]
 pub enum MembershipState {
@@ -21,23 +21,32 @@ pub enum MembershipState {
     Leave,
 }
 
-impl From<matrix_sdk::ruma::events::room::member::MembershipState> for MembershipState {
-    fn from(m: matrix_sdk::ruma::events::room::member::MembershipState) -> Self {
+impl TryFrom<matrix_sdk::ruma::events::room::member::MembershipState> for MembershipState {
+    type Error = NotYetImplemented;
+
+    fn try_from(
+        m: matrix_sdk::ruma::events::room::member::MembershipState,
+    ) -> Result<Self, Self::Error> {
         match m {
-            matrix_sdk::ruma::events::room::member::MembershipState::Ban => MembershipState::Ban,
-            matrix_sdk::ruma::events::room::member::MembershipState::Invite => {
-                MembershipState::Invite
+            matrix_sdk::ruma::events::room::member::MembershipState::Ban => {
+                Ok(MembershipState::Ban)
             }
-            matrix_sdk::ruma::events::room::member::MembershipState::Join => MembershipState::Join,
+            matrix_sdk::ruma::events::room::member::MembershipState::Invite => {
+                Ok(MembershipState::Invite)
+            }
+            matrix_sdk::ruma::events::room::member::MembershipState::Join => {
+                Ok(MembershipState::Join)
+            }
             matrix_sdk::ruma::events::room::member::MembershipState::Knock => {
-                MembershipState::Knock
+                Ok(MembershipState::Knock)
             }
             matrix_sdk::ruma::events::room::member::MembershipState::Leave => {
-                MembershipState::Leave
+                Ok(MembershipState::Leave)
             }
-            _ => unimplemented!(
-                "Handle Custom case: https://github.com/matrix-org/matrix-rust-sdk/issues/1254"
-            ),
+            _ => {
+                tracing::warn!("Other membership state change not yet implemented");
+                Err(NotYetImplemented)
+            }
         }
     }
 }
@@ -74,18 +83,20 @@ pub struct RoomMember {
     pub suggested_role_for_power_level: RoomMemberRole,
 }
 
-impl From<SdkRoomMember> for RoomMember {
-    fn from(m: SdkRoomMember) -> Self {
-        RoomMember {
+impl TryFrom<SdkRoomMember> for RoomMember {
+    type Error = NotYetImplemented;
+
+    fn try_from(m: SdkRoomMember) -> Result<Self, Self::Error> {
+        Ok(RoomMember {
             user_id: m.user_id().to_string(),
             display_name: m.display_name().map(|s| s.to_owned()),
             avatar_url: m.avatar_url().map(|a| a.to_string()),
-            membership: m.membership().clone().into(),
+            membership: m.membership().clone().try_into()?,
             is_name_ambiguous: m.name_ambiguous(),
             power_level: m.power_level(),
             normalized_power_level: m.normalized_power_level(),
             is_ignored: m.is_ignored(),
             suggested_role_for_power_level: m.suggested_role_for_power_level(),
-        }
+        })
     }
 }
