@@ -54,7 +54,10 @@ enum Membership {
 
 impl UtdCause {
     /// Decide the cause of this UTD, based on the evidence we have.
-    pub fn determine(raw_event: Option<&Raw<AnySyncTimelineEvent>>) -> Self {
+    pub fn determine(
+        raw_event: Option<&Raw<AnySyncTimelineEvent>>,
+        unable_to_decrypt_info: &UnableToDecryptInfo,
+    ) -> Self {
         // TODO: in future, use more information to give a richer answer. E.g.
         // is this event device-historical? Was the Olm communication disrupted?
         // Did the sender refuse to send the key because we're not verified?
@@ -76,6 +79,7 @@ impl UtdCause {
 
 #[cfg(test)]
 mod tests {
+    use matrix_sdk_common::deserialized_responses::{UnableToDecryptInfo, UnableToDecryptReason};
     use ruma::{events::AnySyncTimelineEvent, serde::Raw};
     use serde_json::{json, value::to_raw_value};
 
@@ -85,13 +89,31 @@ mod tests {
     fn a_missing_raw_event_means_we_guess_unknown() {
         // When we don't provide any JSON to check for membership, then we guess the UTD
         // is unknown.
-        assert_eq!(UtdCause::determine(None), UtdCause::Unknown);
+        assert_eq!(
+            UtdCause::determine(
+                None,
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession,
+                }
+            ),
+            UtdCause::Unknown
+        );
     }
 
     #[test]
     fn if_there_is_no_membership_info_we_guess_unknown() {
         // If our JSON contains no membership info, then we guess the UTD is unknown.
-        assert_eq!(UtdCause::determine(Some(&raw_event(json!({})))), UtdCause::Unknown);
+        assert_eq!(
+            UtdCause::determine(
+                Some(&raw_event(json!({}))),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
+            UtdCause::Unknown
+        );
     }
 
     #[test]
@@ -99,7 +121,13 @@ mod tests {
         // If our JSON contains a membership property but not the JSON we expected, then
         // we guess the UTD is unknown.
         assert_eq!(
-            UtdCause::determine(Some(&raw_event(json!({ "unsigned": { "membership": 3 } })))),
+            UtdCause::determine(
+                Some(&raw_event(json!({ "unsigned": { "membership": 3 } }))),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
             UtdCause::Unknown
         );
     }
@@ -109,9 +137,13 @@ mod tests {
         // If membership=invite then we expected to be sent the keys so the cause of the
         // UTD is unknown.
         assert_eq!(
-            UtdCause::determine(Some(&raw_event(
-                json!({ "unsigned": { "membership": "invite" } }),
-            ))),
+            UtdCause::determine(
+                Some(&raw_event(json!({ "unsigned": { "membership": "invite" } }),)),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
             UtdCause::Unknown
         );
     }
@@ -121,7 +153,13 @@ mod tests {
         // If membership=join then we expected to be sent the keys so the cause of the
         // UTD is unknown.
         assert_eq!(
-            UtdCause::determine(Some(&raw_event(json!({ "unsigned": { "membership": "join" } })))),
+            UtdCause::determine(
+                Some(&raw_event(json!({ "unsigned": { "membership": "join" } }))),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
             UtdCause::Unknown
         );
     }
@@ -131,7 +169,13 @@ mod tests {
         // If membership=leave then we have an explanation for why we can't decrypt,
         // until we have MSC3061.
         assert_eq!(
-            UtdCause::determine(Some(&raw_event(json!({ "unsigned": { "membership": "leave" } })))),
+            UtdCause::determine(
+                Some(&raw_event(json!({ "unsigned": { "membership": "leave" } }))),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
             UtdCause::SentBeforeWeJoined
         );
     }
@@ -140,9 +184,15 @@ mod tests {
     fn if_unstable_prefix_membership_is_leave_we_guess_membership() {
         // Before MSC4115 is merged, we support the unstable prefix too.
         assert_eq!(
-            UtdCause::determine(Some(&raw_event(
-                json!({ "unsigned": { "io.element.msc4115.membership": "leave" } })
-            ))),
+            UtdCause::determine(
+                Some(&raw_event(
+                    json!({ "unsigned": { "io.element.msc4115.membership": "leave" } })
+                )),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
             UtdCause::SentBeforeWeJoined
         );
     }

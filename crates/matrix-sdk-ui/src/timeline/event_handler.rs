@@ -416,10 +416,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
             },
 
-            TimelineEventKind::UnableToDecrypt { content, .. } => {
+            TimelineEventKind::UnableToDecrypt { content, unable_to_decrypt_info } => {
                 // TODO: Handle replacements if the replaced event is also UTD
                 let raw_event = self.ctx.flow.raw_event();
-                let cause = UtdCause::determine(raw_event);
+                let cause = UtdCause::determine(raw_event, &unable_to_decrypt_info);
                 self.add_item(TimelineItemContent::unable_to_decrypt(content, cause), None);
 
                 // Let the hook know that we ran into an unable-to-decrypt that is added to the
