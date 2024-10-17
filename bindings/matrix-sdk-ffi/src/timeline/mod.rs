@@ -629,11 +629,7 @@ impl Timeline {
         event_or_transaction_id: EventOrTransactionId,
         reason: Option<String>,
     ) -> Result<(), ClientError> {
-        if !self.inner.redact(&(event_or_transaction_id.try_into()?), reason.as_deref()).await? {
-            // TODO make it a hard error instead
-            warn!("Couldn't redact item");
-        }
-        Ok(())
+        Ok(self.inner.redact(&(event_or_transaction_id.try_into()?), reason.as_deref()).await?)
     }
 
     /// Load the reply details for the given event id.

@@ -76,7 +76,7 @@ pub enum Error {
 
     /// An error happened while attempting to redact an event.
     #[error(transparent)]
-    RedactError(RedactError),
+    RedactError(#[from] RedactError),
 }
 
 #[derive(Error, Debug)]
@@ -88,6 +88,10 @@ pub enum RedactError {
     /// An error happened while attempting to redact an event.
     #[error(transparent)]
     HttpError(#[from] HttpError),
+
+    /// The local echo we tried to abort has been lost.
+    #[error("Invalid state: the local echo we tried to abort has been lost.")]
+    InvalidLocalEchoState,
 }
 
 #[derive(Error, Debug)]

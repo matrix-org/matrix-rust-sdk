@@ -551,37 +551,28 @@ impl Timeline {
 
     /// Redact an event given its [`TimelineEventItemId`] and an optional
     /// reason.
-    ///
-    /// # Returns
-    ///
-    /// - Returns `Ok(true)` if the redact happened.
-    /// - Returns `Ok(false)` if the redact targets an item that has no local
-    ///   nor matching remote item.
-    /// - Returns an error if there was an issue sending the redaction event, or
-    ///   interacting with the sending queue.
     pub async fn redact(
         &self,
         item_id: &TimelineEventItemId,
         reason: Option<&str>,
-    ) -> Result<bool, Error> {
+    ) -> Result<(), Error> {
         let items = self.items().await;
         let Some((_pos, event)) = rfind_event_by_item_id(&items, item_id) else {
-            return Err(Error::RedactError(RedactError::ItemNotFound(item_id.clone())));
+            return Err(RedactError::ItemNotFound(item_id.clone()).into());
         };
 
         match event.handle() {
             TimelineItemHandle::Remote(event_id) => {
-                self.room()
-                    .redact(event_id, reason, None)
-                    .await
-                    .map_err(RedactError::HttpError)
-                    .map_err(Error::RedactError)?;
-                Ok(true)
+                self.room().redact(event_id, reason, None).await.map_err(RedactError::HttpError)?;
             }
             TimelineItemHandle::Local(handle) => {
-                Ok(handle.abort().await.map_err(RoomSendQueueError::StorageError)?)
+                if !handle.abort().await.map_err(RoomSendQueueError::StorageError)? {
+                    return Err(RedactError::InvalidLocalEchoState.into());
+                }
             }
         }
+
+        Ok(())
     }
 
     /// Fetch unavailable details about the event with the given ID.
