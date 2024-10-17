@@ -55,7 +55,8 @@ use ruma::{
     },
     events::{
         ignored_user_list::IgnoredUserListEventContent,
-        room::power_levels::RoomPowerLevelsEventContent, GlobalAccountDataEventType,
+        room::{join_rules::RoomJoinRulesEventContent, power_levels::RoomPowerLevelsEventContent},
+        GlobalAccountDataEventType,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
     OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
@@ -645,7 +646,7 @@ impl Client {
     }
 
     pub async fn create_room(&self, request: CreateRoomParameters) -> Result<String, ClientError> {
-        let response = self.inner.create_room(request.into()).await?;
+        let response = self.inner.create_room(request.try_into()?).await?;
         Ok(String::from(response.room_id()))
     }
 
@@ -1316,10 +1317,14 @@ pub struct CreateRoomParameters {
     pub avatar: Option<String>,
     #[uniffi(default = None)]
     pub power_level_content_override: Option<PowerLevels>,
+    #[uniffi(default = None)]
+    pub join_rule_override: Option<JoinRule>,
 }
 
-impl From<CreateRoomParameters> for create_room::v3::Request {
-    fn from(value: CreateRoomParameters) -> create_room::v3::Request {
+impl TryFrom<CreateRoomParameters> for create_room::v3::Request {
+    type Error = ClientError;
+
+    fn try_from(value: CreateRoomParameters) -> Result<create_room::v3::Request, Self::Error> {
         let mut request = create_room::v3::Request::new();
         request.name = value.name;
         request.topic = value.topic;
@@ -1353,6 +1358,12 @@ impl From<CreateRoomParameters> for create_room::v3::Request {
             content.url = Some(url.into());
             initial_state.push(InitialStateEvent::new(content).to_raw_any());
         }
+
+        if let Some(join_rule_override) = value.join_rule_override {
+            let content = RoomJoinRulesEventContent::new(join_rule_override.try_into()?);
+            initial_state.push(InitialStateEvent::new(content).to_raw_any());
+        }
+
         request.initial_state = initial_state;
 
         if let Some(power_levels) = value.power_level_content_override {
@@ -1361,12 +1372,14 @@ impl From<CreateRoomParameters> for create_room::v3::Request {
                     request.power_level_content_override = Some(power_levels);
                 }
                 Err(e) => {
-                    error!("Failed to serialize power levels, error: {e}");
+                    return Err(ClientError::Generic {
+                        msg: format!("Failed to serialize power levels, error: {e}"),
+                    })
                 }
             }
         }
 
-        request
+        Ok(request)
     }
 }
 
@@ -1776,6 +1789,93 @@ impl From<OidcPrompt> for SdkOidcPrompt {
             OidcPrompt::SelectAccount => Self::SelectAccount,
             OidcPrompt::Create => Self::Create,
             OidcPrompt::Unknown { value } => Self::Unknown(value),
+        }
+    }
+}
+
+/// The rule used for users wishing to join this room.
+#[derive(uniffi::Enum)]
+pub enum JoinRule {
+    /// Anyone can join the room without any prior action.
+    Public,
+
+    /// A user who wishes to join the room must first receive an invite to the
+    /// room from someone already inside of the room.
+    Invite,
+
+    /// Users can join the room if they are invited, or they can request an
+    /// invite to the room.
+    ///
+    /// They can be allowed (invited) or denied (kicked/banned) access.
+    Knock,
+
+    /// Reserved but not yet implemented by the Matrix specification.
+    Private,
+
+    /// Users can join the room if they are invited, or if they meet any of the
+    /// conditions described in a set of [`AllowRule`]s.
+    Restricted { rules: Vec<AllowRule> },
+
+    /// Users can join the room if they are invited, or if they meet any of the
+    /// conditions described in a set of [`AllowRule`]s, or they can request
+    /// an invite to the room.
+    KnockRestricted { rules: Vec<AllowRule> },
+}
+
+/// An allow rule which defines a condition that allows joining a room.
+#[derive(uniffi::Enum)]
+pub enum AllowRule {
+    /// Only a member of the `room_id` Room can join the one this rule is used
+    /// in.
+    RoomMembership { room_id: String },
+}
+
+impl TryFrom<JoinRule> for ruma::events::room::join_rules::JoinRule {
+    type Error = ClientError;
+
+    fn try_from(value: JoinRule) -> Result<Self, Self::Error> {
+        match value {
+            JoinRule::Public => Ok(Self::Public),
+            JoinRule::Invite => Ok(Self::Invite),
+            JoinRule::Knock => Ok(Self::Knock),
+            JoinRule::Private => Ok(Self::Private),
+            JoinRule::Restricted { rules } => {
+                let rules = allow_rules_from(rules)?;
+                Ok(Self::Restricted(ruma::events::room::join_rules::Restricted::new(rules)))
+            }
+            JoinRule::KnockRestricted { rules } => {
+                let rules = allow_rules_from(rules)?;
+                Ok(Self::KnockRestricted(ruma::events::room::join_rules::Restricted::new(rules)))
+            }
+        }
+    }
+}
+
+fn allow_rules_from(
+    value: Vec<AllowRule>,
+) -> Result<Vec<ruma::events::room::join_rules::AllowRule>, ClientError> {
+    let mut ret = Vec::with_capacity(value.len());
+    for rule in value {
+        let rule: Result<ruma::events::room::join_rules::AllowRule, ClientError> = rule.try_into();
+        match rule {
+            Ok(rule) => ret.push(rule),
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(ret)
+}
+
+impl TryFrom<AllowRule> for ruma::events::room::join_rules::AllowRule {
+    type Error = ClientError;
+
+    fn try_from(value: AllowRule) -> Result<Self, Self::Error> {
+        match value {
+            AllowRule::RoomMembership { room_id } => {
+                let room_id = RoomId::parse(room_id)?;
+                Ok(Self::RoomMembership(ruma::events::room::join_rules::RoomMembership::new(
+                    room_id,
+                )))
+            }
         }
     }
 }
