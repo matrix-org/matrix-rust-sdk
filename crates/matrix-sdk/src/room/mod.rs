@@ -1911,6 +1911,12 @@ impl Room {
     ///   media.
     ///
     /// * `config` - Metadata and configuration for the attachment.
+    ///
+    /// * `send_progress` - An observable to transmit forward progress about the
+    ///   upload.
+    ///
+    /// * `store_in_cache` - A boolean defining whether the uploaded media will
+    ///   be stored in the cache immediately after a successful upload.
     pub(super) async fn prepare_and_send_attachment<'a>(
         &'a self,
         filename: &'a str,
@@ -1918,19 +1924,22 @@ impl Room {
         data: Vec<u8>,
         mut config: AttachmentConfig,
         send_progress: SharedObservable<TransmissionProgress>,
+        store_in_cache: bool,
     ) -> Result<send_message_event::v3::Response> {
         self.ensure_room_joined()?;
 
         let txn_id = config.txn_id.take();
         let mentions = config.mentions.take();
 
+        let thumbnail = config.thumbnail.take();
+
         #[cfg(feature = "e2e-encryption")]
         let (media_source, thumbnail_source, thumbnail_info) = if self.is_encrypted().await? {
             self.client
                 .upload_encrypted_media_and_thumbnail(
                     content_type,
-                    data,
-                    config.thumbnail.take(),
+                    data.clone(),
+                    thumbnail,
                     send_progress,
                 )
                 .await?
@@ -1939,8 +1948,8 @@ impl Room {
                 .media()
                 .upload_plain_media_and_thumbnail(
                     content_type,
-                    data,
-                    config.thumbnail.take(),
+                    data.clone(),
+                    thumbnail,
                     send_progress,
                 )
                 .await?
@@ -1950,13 +1959,18 @@ impl Room {
         let (media_source, thumbnail_source, thumbnail_info) = self
             .client
             .media()
-            .upload_plain_media_and_thumbnail(
-                content_type,
-                data,
-                config.thumbnail.take(),
-                send_progress,
-            )
+            .upload_plain_media_and_thumbnail(content_type, data.clone(), thumbnail, send_progress)
             .await?;
+
+        if store_in_cache {
+            let cache_store = self.client.event_cache_store();
+
+            let request = MediaRequest { source: media_source.clone(), format: MediaFormat::File };
+            // This shouldn't prevent the whole process from finishing properly.
+            if let Err(err) = cache_store.add_media_content(&request, data).await {
+                warn!("unable to cache the media after uploading it: {err}");
+            }
+        }
 
         let msg_type = self.make_attachment_message(
             content_type,
