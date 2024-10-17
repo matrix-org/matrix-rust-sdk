@@ -977,9 +977,16 @@ impl Client {
     }
 
     /// Knock on a room to join it using its ID or alias.
-    pub async fn knock(&self, room_id_or_alias: String) -> Result<Arc<Room>, ClientError> {
+    pub async fn knock(
+        &self,
+        room_id_or_alias: String,
+        reason: Option<String>,
+        server_names: Vec<String>,
+    ) -> Result<Arc<Room>, ClientError> {
         let room_id = RoomOrAliasId::parse(&room_id_or_alias)?;
-        let room = self.inner.knock(room_id).await?;
+        let server_names =
+            server_names.iter().map(ServerName::parse).collect::<Result<Vec<_>, _>>()?;
+        let room = self.inner.knock(room_id, reason, server_names).await?;
         Ok(Arc::new(Room::new(room)))
     }
 
