@@ -246,6 +246,7 @@ pub struct SendAttachment<'a> {
     config: AttachmentConfig,
     tracing_span: Span,
     send_progress: SharedObservable<TransmissionProgress>,
+    store_in_cache: bool,
 }
 
 impl<'a> SendAttachment<'a> {
@@ -264,6 +265,7 @@ impl<'a> SendAttachment<'a> {
             config,
             tracing_span: Span::current(),
             send_progress: Default::default(),
+            store_in_cache: false,
         }
     }
 
@@ -277,6 +279,15 @@ impl<'a> SendAttachment<'a> {
         self.send_progress = send_progress;
         self
     }
+
+    /// Whether the sent attachment should be stored in the cache or not.
+    ///
+    /// If set to true, then retrieving the data for the attachment will result
+    /// in a cache hit immediately after upload.
+    pub fn store_in_cache(mut self) -> Self {
+        self.store_in_cache = true;
+        self
+    }
 }
 
 impl<'a> IntoFuture for SendAttachment<'a> {
@@ -284,10 +295,26 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { room, filename, content_type, data, config, tracing_span, send_progress } = self;
+        let Self {
+            room,
+            filename,
+            content_type,
+            data,
+            config,
+            tracing_span,
+            send_progress,
+            store_in_cache,
+        } = self;
         let fut = async move {
-            room.prepare_and_send_attachment(filename, content_type, data, config, send_progress)
-                .await
+            room.prepare_and_send_attachment(
+                filename,
+                content_type,
+                data,
+                config,
+                send_progress,
+                store_in_cache,
+            )
+            .await
         };
 
         Box::pin(fut.instrument(tracing_span))

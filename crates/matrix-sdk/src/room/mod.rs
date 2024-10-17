@@ -1911,6 +1911,12 @@ impl Room {
     ///   media.
     ///
     /// * `config` - Metadata and configuration for the attachment.
+    ///
+    /// * `send_progress` - An observable to transmit forward progress about the
+    ///   upload.
+    ///
+    /// * `store_in_cache` - A boolean defining whether the uploaded media will
+    ///   be stored in the cache immediately after a successful upload.
     pub(super) async fn prepare_and_send_attachment<'a>(
         &'a self,
         filename: &'a str,
@@ -1918,6 +1924,7 @@ impl Room {
         data: Vec<u8>,
         mut config: AttachmentConfig,
         send_progress: SharedObservable<TransmissionProgress>,
+        store_in_cache: bool,
     ) -> Result<send_message_event::v3::Response> {
         self.ensure_room_joined()?;
 
@@ -1955,7 +1962,7 @@ impl Room {
             .upload_plain_media_and_thumbnail(content_type, data, thumbnail, send_progress)
             .await?;
 
-        {
+        if store_in_cache {
             let cache_store = self.client.event_cache_store();
 
             let request = MediaRequest { source: media_source.clone(), format: MediaFormat::File };

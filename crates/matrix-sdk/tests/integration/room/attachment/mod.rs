@@ -65,6 +65,7 @@ async fn test_room_attachment_send() {
             b"Hello world".to_vec(),
             AttachmentConfig::new(),
         )
+        .store_in_cache()
         .await
         .unwrap();
 
