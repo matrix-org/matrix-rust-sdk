@@ -24,9 +24,9 @@ pub enum UtdCause {
     #[default]
     Unknown = 0,
 
-    /// This event was sent when we were not a member of the room (or invited),
-    /// so it is impossible to decrypt (without MSC3061).
-    Membership = 1,
+    /// We are missing the keys for this event, and the event was sent when we
+    /// were not a member of the room (or invited).
+    SentBeforeWeJoined = 1,
     //
     // TODO: Other causes for UTDs. For example, this message is device-historical, information
     // extracted from the WithheldCode in the MissingRoomKey object, or various types of Olm
@@ -64,7 +64,7 @@ impl UtdCause {
             if let Ok(Some(unsigned)) = raw_event.get_field::<UnsignedWithMembership>("unsigned") {
                 if let Membership::Leave = unsigned.membership {
                     // We were not a member - this is the cause of the UTD
-                    return UtdCause::Membership;
+                    return UtdCause::SentBeforeWeJoined;
                 }
             }
         }
@@ -132,7 +132,7 @@ mod tests {
         // until we have MSC3061.
         assert_eq!(
             UtdCause::determine(Some(&raw_event(json!({ "unsigned": { "membership": "leave" } })))),
-            UtdCause::Membership
+            UtdCause::SentBeforeWeJoined
         );
     }
 
@@ -143,7 +143,7 @@ mod tests {
             UtdCause::determine(Some(&raw_event(
                 json!({ "unsigned": { "io.element.msc4115.membership": "leave" } })
             ))),
-            UtdCause::Membership
+            UtdCause::SentBeforeWeJoined
         );
     }
 

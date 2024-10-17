@@ -493,7 +493,7 @@ async fn test_utd_cause_for_nonmember_event_is_found() {
         TimelineItemContent::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 { cause, .. }) =
             event.content()
     );
-    assert_eq!(*cause, UtdCause::Membership);
+    assert_eq!(*cause, UtdCause::SentBeforeWeJoined);
 }
 
 #[async_test]
@@ -516,7 +516,7 @@ async fn test_utd_cause_for_nonmember_event_is_found_unstable_prefix() {
         TimelineItemContent::UnableToDecrypt(EncryptedMessage::MegolmV1AesSha2 { cause, .. }) =
             event.content()
     );
-    assert_eq!(*cause, UtdCause::Membership);
+    assert_eq!(*cause, UtdCause::SentBeforeWeJoined);
 }
 
 #[async_test]
