@@ -31,12 +31,9 @@ use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 use matrix_sdk_test::{async_test, BOB};
 use ruma::{
     assign,
-    events::{
-        room::encrypted::{
-            EncryptedEventScheme, MegolmV1AesSha2ContentInit, Relation, Replacement,
-            RoomEncryptedEventContent,
-        },
-        AnySyncTimelineEvent,
+    events::room::encrypted::{
+        EncryptedEventScheme, MegolmV1AesSha2ContentInit, Relation, Replacement,
+        RoomEncryptedEventContent,
     },
     room_id,
     serde::Raw,
