@@ -217,3 +217,8 @@ impl From<matrix_sdk::Error> for NotificationSettingsError {
         Self::Generic { msg: e.to_string() }
     }
 }
+
+/// Something has not been implemented yet.
+#[derive(thiserror::Error, Debug)]
+#[error("not implemented yet")]
+pub struct NotYetImplemented;

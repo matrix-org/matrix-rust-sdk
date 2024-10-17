@@ -90,7 +90,10 @@ impl RoomInfo {
                     .await
                     .ok()
                     .and_then(|details| details.inviter)
-                    .map(Into::into),
+                    .map(TryInto::try_into)
+                    .transpose()
+                    .ok()
+                    .flatten(),
                 _ => None,
             },
             heroes: room.heroes().into_iter().map(Into::into).collect(),

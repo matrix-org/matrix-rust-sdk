@@ -105,7 +105,7 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
                 let original_content = get_state_event_original_content(content)?;
                 StateEventContent::RoomMemberContent {
                     user_id: state_key,
-                    membership_state: original_content.membership.into(),
+                    membership_state: original_content.membership.try_into()?,
                 }
             }
             AnySyncStateEvent::RoomName(_) => StateEventContent::RoomName,
