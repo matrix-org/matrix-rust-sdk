@@ -19,6 +19,9 @@ pub enum MembershipState {
 
     /// The user has left.
     Leave,
+
+    /// A custom membership state value.
+    Custom { value: String },
 }
 
 impl TryFrom<matrix_sdk::ruma::events::room::member::MembershipState> for MembershipState {
@@ -42,6 +45,9 @@ impl TryFrom<matrix_sdk::ruma::events::room::member::MembershipState> for Member
             }
             matrix_sdk::ruma::events::room::member::MembershipState::Leave => {
                 Ok(MembershipState::Leave)
+            }
+            matrix_sdk::ruma::events::room::member::MembershipState::_Custom(_) => {
+                Ok(MembershipState::Custom { value: m.to_string() })
             }
             _ => {
                 tracing::warn!("Other membership state change not yet implemented");
