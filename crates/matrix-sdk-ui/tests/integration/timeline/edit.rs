@@ -30,7 +30,8 @@ use matrix_sdk_test::{
 };
 use matrix_sdk_ui::{
     timeline::{
-        Error, EventSendState, RoomExt, TimelineDetails, TimelineEventItemId, TimelineItemContent,
+        EditError, Error, EventSendState, RoomExt, TimelineDetails, TimelineEventItemId,
+        TimelineItemContent,
     },
     Timeline,
 };
@@ -235,17 +236,14 @@ async fn test_edit_local_echo() {
         .mount(&server)
         .await;
 
-    // Let's edit the local echo.
-    let did_edit = timeline
+    // Editing the local echo works, since it was in the failed state.
+    timeline
         .edit(
             &item.identifier(),
             EditedContent::RoomMessage(RoomMessageEventContent::text_plain("hello, world").into()),
         )
         .await
         .unwrap();
-
-    // We could edit the local echo, since it was in the failed state.
-    assert!(did_edit);
 
     // Observe local echo being replaced.
     assert_let!(Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next().await);
@@ -410,7 +408,7 @@ async fn test_send_reply_edit() {
         .mount(&server)
         .await;
 
-    let edited = timeline
+    timeline
         .edit(
             &reply_item.identifier(),
             EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(
@@ -419,7 +417,6 @@ async fn test_send_reply_edit() {
         )
         .await
         .unwrap();
-    assert!(edited);
 
     // Let the send queue handle the event.
     yield_now().await;
@@ -521,7 +518,7 @@ async fn test_edit_to_replied_updates_reply() {
         .await;
 
     // If I edit the first message,…
-    let edited = timeline
+    timeline
         .edit(
             &replied_to_item.identifier(),
             EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(
@@ -530,7 +527,6 @@ async fn test_edit_to_replied_updates_reply() {
         )
         .await
         .unwrap();
-    assert!(edited);
 
     yield_now().await; // let the send queue handle the edit.
 
@@ -822,10 +818,10 @@ async fn test_edit_local_echo_with_unsupported_content() {
     };
 
     // Let's edit the local echo (message) with an unsupported type (poll start).
-    let did_edit = timeline.edit(&item.identifier(), poll_start_content).await.unwrap();
+    let edit_err = timeline.edit(&item.identifier(), poll_start_content).await.unwrap_err();
 
     // We couldn't edit the local echo, since their content types didn't match
-    assert!(!did_edit);
+    assert_matches!(edit_err, Error::EditError(EditError::ContentMismatch { .. }));
 
     timeline
         .send(AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent::New(
@@ -840,7 +836,7 @@ async fn test_edit_local_echo_with_unsupported_content() {
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
     // Let's edit the local echo (poll start) with an unsupported type (message).
-    let did_edit = timeline
+    let edit_err = timeline
         .edit(
             &item.identifier(),
             EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(
@@ -848,10 +844,10 @@ async fn test_edit_local_echo_with_unsupported_content() {
             )),
         )
         .await
-        .unwrap();
+        .unwrap_err();
 
     // We couldn't edit the local echo, since their content types didn't match
-    assert!(!did_edit);
+    assert_matches!(edit_err, Error::EditError(EditError::ContentMismatch { .. }));
 }
 
 struct PendingEditHelper {

@@ -14,7 +14,6 @@
 
 use matrix_sdk::{
     event_cache::{paginator::PaginatorError, EventCacheError},
-    room::edit::EditError,
     send_queue::RoomSendQueueError,
     HttpError,
 };
@@ -77,6 +76,21 @@ pub enum Error {
     /// An error happened while attempting to redact an event.
     #[error(transparent)]
     RedactError(#[from] RedactError),
+}
+
+#[derive(Error, Debug)]
+pub enum EditError {
+    /// The content types have changed.
+    #[error("the new content type ({new}) doesn't match that of the previous content ({original}")]
+    ContentMismatch { original: String, new: String },
+
+    /// The local echo we tried to edit has been lost.
+    #[error("Invalid state: the local echo we tried to abort has been lost.")]
+    InvalidLocalEchoState,
+
+    /// An error happened at a lower level.
+    #[error(transparent)]
+    RoomError(#[from] matrix_sdk::room::edit::EditError),
 }
 
 #[derive(Error, Debug)]

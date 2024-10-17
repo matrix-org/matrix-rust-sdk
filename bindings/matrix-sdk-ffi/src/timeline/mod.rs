@@ -500,8 +500,8 @@ impl Timeline {
             .edit(&event_or_transaction_id.clone().try_into()?, new_content.clone().try_into()?)
             .await
         {
-            Ok(true) => Ok(()),
-            Ok(false) | Err(timeline::Error::EventNotInTimeline(_)) => {
+            Ok(()) => Ok(()),
+            Err(timeline::Error::EventNotInTimeline(_)) => {
                 // If we couldn't edit, assume it was an (remote) event that wasn't in the
                 // timeline, and try to edit it via the room itself.
                 let event_id = match event_or_transaction_id {

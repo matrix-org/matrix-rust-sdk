@@ -289,16 +289,14 @@ async fn test_stale_local_echo_time_abort_edit() {
     }
 
     // Now do a crime: try to edit the local echo.
-    let did_edit = timeline
+    // The edit works on the local echo and applies to the remote echo \o/.
+    timeline
         .edit(
             &local_echo.identifier(),
             EditedContent::RoomMessage(RoomMessageEventContent::text_plain("bonjour").into()),
         )
         .await
         .unwrap();
-
-    // The edit works on the local echo and applies to the remote echo \o/.
-    assert!(did_edit);
 
     let vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
     let remote_echo = assert_matches!(vector_diff, VectorDiff::Set { index: 0, value } => value);
