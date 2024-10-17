@@ -989,8 +989,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
         decryptor: impl Decryptor,
         session_ids: Option<BTreeSet<String>>,
     ) {
-        use matrix_sdk::crypto::types::events::UtdCause;
-
         use super::EncryptedMessage;
 
         let mut state = self.state.clone().write_owned().await;
@@ -1072,8 +1070,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
                             // Notify observers that we managed to eventually decrypt an event.
                             if let Some(hook) = unable_to_decrypt_hook {
-                                hook.on_late_decrypt(&remote_event.event_id, utd_cause.clone())
-                                    .await;
+                                hook.on_late_decrypt(&remote_event.event_id, *utd_cause).await;
                             }
 
                             Some(event)
