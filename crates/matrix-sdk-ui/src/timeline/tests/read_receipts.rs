@@ -400,7 +400,8 @@ async fn test_read_receipts_updates_on_message_decryption() {
                 ),
                 None,
             ))
-            .sender(&BOB),
+            .sender(&BOB)
+            .into_utd_sync_timeline_event(),
         )
         .await;
 

@@ -36,7 +36,7 @@ use async_stream::stream;
 pub use client::{Version, VersionBuilder};
 use futures_core::stream::Stream;
 pub use matrix_sdk_base::sliding_sync::http;
-use matrix_sdk_common::timer;
+use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, timer};
 use ruma::{
     api::{client::error::ErrorKind, OutgoingRequest},
     assign, OwnedEventId, OwnedRoomId, RoomId,
@@ -345,7 +345,7 @@ impl SlidingSync {
                         if let Some(joined_room) = sync_response.rooms.join.remove(&room_id) {
                             joined_room.timeline.events
                         } else {
-                            room_data.timeline.drain(..).map(Into::into).collect()
+                            room_data.timeline.drain(..).map(SyncTimelineEvent::new).collect()
                         };
 
                     match rooms_map.get_mut(&room_id) {
