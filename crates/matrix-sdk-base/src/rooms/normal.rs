@@ -1876,9 +1876,9 @@ mod tests {
             last_prev_batch: Some("pb".to_owned()),
             sync_info: SyncInfo::FullySynced,
             encryption_state_synced: true,
-            latest_event: Some(Box::new(LatestEvent::new(
-                Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap().into(),
-            ))),
+            latest_event: Some(Box::new(LatestEvent::new(SyncTimelineEvent::new(
+                Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap(),
+            )))),
             base_info: Box::new(
                 assign!(BaseRoomInfo::new(), { pinned_events: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$a")])) }),
             ),

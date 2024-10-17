@@ -396,8 +396,10 @@ impl BaseClient {
         let mut timeline = Timeline::new(limited, prev_batch);
         let mut push_context = self.get_push_room_context(room, room_info, changes).await?;
 
-        for event in events {
-            let mut event: SyncTimelineEvent = event.into();
+        for raw_event in events {
+            // Start by assuming we have a plaintext event. We'll replace it with a
+            // decrypted or UTD event below if necessary.
+            let mut event = SyncTimelineEvent::new(raw_event);
 
             match event.raw().deserialize() {
                 Ok(e) => {
