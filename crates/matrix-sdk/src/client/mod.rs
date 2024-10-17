@@ -2243,8 +2243,14 @@ impl Client {
 
     /// Knock on a room given its `room_id_or_alias` to ask for permission to
     /// join it.
-    pub async fn knock(&self, room_id_or_alias: OwnedRoomOrAliasId) -> Result<Room> {
-        let request = knock_room::v3::Request::new(room_id_or_alias);
+    pub async fn knock(
+        &self,
+        room_id_or_alias: OwnedRoomOrAliasId,
+        reason: Option<String>,
+        server_names: Vec<OwnedServerName>,
+    ) -> Result<Room> {
+        let request =
+            assign!(knock_room::v3::Request::new(room_id_or_alias), { reason, via: server_names });
         let response = self.send(request, None).await?;
         let base_room = self.inner.base_client.room_knocked(&response.room_id).await?;
         Ok(Room::new(self.clone(), base_room))
