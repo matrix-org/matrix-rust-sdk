@@ -320,7 +320,7 @@ mod tests {
         // Given someone in the room is pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identities(user_id, IdentityState::Pinned).await);
+        room.member(other_user_identity(user_id, IdentityState::Pinned).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When their identity changes to unpinned
@@ -342,7 +342,7 @@ mod tests {
         // Given someone in the room is unpinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identities(user_id, IdentityState::PinViolation).await);
+        room.member(other_user_identity(user_id, IdentityState::PinViolation).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When their identity changes to pinned
@@ -394,7 +394,7 @@ mod tests {
         // Given someone in the room is pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identities(user_id, IdentityState::Pinned).await);
+        room.member(other_user_identity(user_id, IdentityState::Pinned).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When we are told they are pinned
@@ -410,7 +410,7 @@ mod tests {
         // Given someone in the room is unpinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identities(user_id, IdentityState::PinViolation).await);
+        room.member(other_user_identity(user_id, IdentityState::PinViolation).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When we are told they are unpinned
@@ -426,7 +426,7 @@ mod tests {
         // Given an empty room and we know of a user who is pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.non_member(other_user_identities(user_id, IdentityState::Pinned).await);
+        room.non_member(other_user_identity(user_id, IdentityState::Pinned).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When the pinned user joins the room
@@ -442,7 +442,7 @@ mod tests {
         // Given an empty room and we know of a user who is unpinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.non_member(other_user_identities(user_id, IdentityState::PinViolation).await);
+        room.non_member(other_user_identity(user_id, IdentityState::PinViolation).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When the unpinned user joins the room
@@ -464,7 +464,7 @@ mod tests {
         // Given an empty room and we know of a user who is pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.non_member(other_user_identities(user_id, IdentityState::Pinned).await);
+        room.non_member(other_user_identity(user_id, IdentityState::Pinned).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When the pinned user is invited to the room
@@ -480,7 +480,7 @@ mod tests {
         // Given an empty room and we know of a user who is unpinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.non_member(other_user_identities(user_id, IdentityState::PinViolation).await);
+        room.non_member(other_user_identity(user_id, IdentityState::PinViolation).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When the unpinned user is invited to the room
@@ -502,7 +502,7 @@ mod tests {
         // Given I am pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(own_user_identities(user_id, IdentityState::Pinned).await);
+        room.member(own_user_identity(user_id, IdentityState::Pinned).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When I become unpinned
@@ -518,7 +518,7 @@ mod tests {
         // Given I am unpinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(own_user_identities(user_id, IdentityState::PinViolation).await);
+        room.member(own_user_identity(user_id, IdentityState::PinViolation).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When I become unpinned
@@ -534,7 +534,7 @@ mod tests {
         // Given an empty room and we know of a user who is pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.non_member(own_user_identities(user_id, IdentityState::Pinned).await);
+        room.non_member(own_user_identity(user_id, IdentityState::Pinned).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When the pinned user joins the room
@@ -550,7 +550,7 @@ mod tests {
         // Given an empty room and we know of a user who is unpinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.non_member(own_user_identities(user_id, IdentityState::PinViolation).await);
+        room.non_member(own_user_identity(user_id, IdentityState::PinViolation).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When the unpinned user joins the room
@@ -566,7 +566,7 @@ mod tests {
         // Given a pinned user is in the room
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identities(user_id, IdentityState::Pinned).await);
+        room.member(other_user_identity(user_id, IdentityState::Pinned).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When the pinned user leaves the room
@@ -582,7 +582,7 @@ mod tests {
         // Given an unpinned user is in the room
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identities(user_id, IdentityState::PinViolation).await);
+        room.member(other_user_identity(user_id, IdentityState::PinViolation).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When the unpinned user leaves the room
@@ -604,7 +604,7 @@ mod tests {
         // Given a pinned user is in the room
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identities(user_id, IdentityState::Pinned).await);
+        room.member(other_user_identity(user_id, IdentityState::Pinned).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When the pinned user is banned
@@ -620,7 +620,7 @@ mod tests {
         // Given an unpinned user is in the room
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identities(user_id, IdentityState::PinViolation).await);
+        room.member(other_user_identity(user_id, IdentityState::PinViolation).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When the unpinned user is banned
@@ -644,9 +644,9 @@ mod tests {
         let user2 = user_id!("@u2:s.co");
         let user3 = user_id!("@u3:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identities(user1, IdentityState::Pinned).await);
-        room.member(other_user_identities(user2, IdentityState::PinViolation).await);
-        room.member(other_user_identities(user3, IdentityState::Pinned).await);
+        room.member(other_user_identity(user1, IdentityState::Pinned).await);
+        room.member(other_user_identity(user2, IdentityState::PinViolation).await);
+        room.member(other_user_identity(user3, IdentityState::Pinned).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When they all change state simultaneously
@@ -698,7 +698,7 @@ mod tests {
         // Given someone in the room is pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identities(user_id, IdentityState::Pinned).await);
+        room.member(other_user_identity(user_id, IdentityState::Pinned).await);
         let mut state = RoomIdentityState::new(room).await;
 
         // When they change state multiple times
@@ -753,8 +753,8 @@ mod tests {
         let user1 = user_id!("@u1:s.co");
         let user2 = user_id!("@u2:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identities(user1, IdentityState::Pinned).await);
-        room.member(other_user_identities(user2, IdentityState::Pinned).await);
+        room.member(other_user_identity(user1, IdentityState::Pinned).await);
+        room.member(other_user_identity(user2, IdentityState::Pinned).await);
         let state = RoomIdentityState::new(room).await;
         assert!(state.current_state().is_empty());
     }
@@ -767,10 +767,10 @@ mod tests {
         let user3 = user_id!("@u3:s.co");
         let user4 = user_id!("@u4:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identities(user1, IdentityState::Pinned).await);
-        room.member(other_user_identities(user2, IdentityState::PinViolation).await);
-        room.member(other_user_identities(user3, IdentityState::Pinned).await);
-        room.member(other_user_identities(user4, IdentityState::PinViolation).await);
+        room.member(other_user_identity(user1, IdentityState::Pinned).await);
+        room.member(other_user_identity(user2, IdentityState::PinViolation).await);
+        room.member(other_user_identity(user3, IdentityState::Pinned).await);
+        room.member(other_user_identity(user4, IdentityState::PinViolation).await);
         let mut state = RoomIdentityState::new(room).await.current_state();
         state.sort_by_key(|change| change.user_id.to_owned());
         assert_eq!(
@@ -866,13 +866,9 @@ mod tests {
 
         for change in changes {
             let user_identities = if change.own {
-                let user_identity =
-                    own_user_identity(&change.user_id, change.changed_to.clone()).await;
-                UserIdentity::Own(user_identity)
+                own_user_identity(&change.user_id, change.changed_to.clone()).await
             } else {
-                let user_identity =
-                    other_user_identity(&change.user_id, change.changed_to.clone()).await;
-                UserIdentity::Other(user_identity)
+                other_user_identity(&change.user_id, change.changed_to.clone()).await
             };
 
             if change.new {
@@ -884,19 +880,8 @@ mod tests {
         RoomIdentityChange::IdentityUpdates(updates)
     }
 
-    /// Create an other `UserIdentity`
-    async fn other_user_identities(
-        user_id: &UserId,
-        identity_state: IdentityState,
-    ) -> UserIdentity {
-        UserIdentity::Other(other_user_identity(user_id, identity_state).await)
-    }
-
     /// Create an other `UserIdentity` for use in tests
-    async fn other_user_identity(
-        user_id: &UserId,
-        identity_state: IdentityState,
-    ) -> OtherUserIdentity {
+    async fn other_user_identity(user_id: &UserId, identity_state: IdentityState) -> UserIdentity {
         use std::sync::Arc;
 
         use ruma::owned_device_id;
@@ -965,16 +950,11 @@ mod tests {
             }
         }
 
-        user_identity
-    }
-
-    /// Create an own `UserIdentity`
-    async fn own_user_identities(user_id: &UserId, identity_state: IdentityState) -> UserIdentity {
-        UserIdentity::Own(own_user_identity(user_id, identity_state).await)
+        UserIdentity::Other(user_identity)
     }
 
     /// Create an own `UserIdentity` for use in tests
-    async fn own_user_identity(user_id: &UserId, identity_state: IdentityState) -> OwnUserIdentity {
+    async fn own_user_identity(user_id: &UserId, identity_state: IdentityState) -> UserIdentity {
         use std::sync::Arc;
 
         use ruma::owned_device_id;
@@ -1049,7 +1029,7 @@ mod tests {
             }
         }
 
-        user_identity
+        UserIdentity::Own(user_identity)
     }
 
     async fn change_master_key(user_identity: &mut OtherUserIdentity, account: &Account) {
