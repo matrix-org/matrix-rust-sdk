@@ -18,6 +18,8 @@ mod platform;
 mod room;
 mod room_directory_search;
 mod room_info;
+
+#[allow(deprecated)]
 mod room_list;
 mod room_member;
 mod room_preview;
