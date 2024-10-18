@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use matrix_sdk_common::deserialized_responses::{
+    UnableToDecryptInfo, UnableToDecryptReason, VerificationLevel,
+};
 use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use serde::Deserialize;
 
@@ -24,16 +27,27 @@ pub enum UtdCause {
     #[default]
     Unknown = 0,
 
-    /// This event was sent when we were not a member of the room (or invited),
-    /// so it is impossible to decrypt (without MSC3061).
-    Membership = 1,
-    //
-    // TODO: Other causes for UTDs. For example, this message is device-historical, information
-    // extracted from the WithheldCode in the MissingRoomKey object, or various types of Olm
-    // session problems.
-    //
-    // Note: This needs to be a simple enum so we can export it via FFI, so if more information
-    // needs to be provided, it should be through a separate type.
+    /// We are missing the keys for this event, and the event was sent when we
+    /// were not a member of the room (or invited).
+    SentBeforeWeJoined = 1,
+
+    /// The message was sent by a user identity we have not verified, but the
+    /// user was previously verified.
+    VerificationViolation = 2,
+
+    /// The [`crate::TrustRequirement`] requires that the sending device be
+    /// signed by its owner, and it was not.
+    UnsignedDevice = 3,
+
+    /// The [`crate::TrustRequirement`] requires that the sending device be
+    /// signed by its owner, and we were unable to securely  find the device.
+    ///
+    /// This could be because the device has since been deleted, because we
+    /// haven't yet downloaded it from the server, or because the session
+    /// data was obtained from an insecure source (imported from a file,
+    /// obtained from a legacy (asymmetric) backup, unsafe key forward, etc.
+    /// )
+    UnknownDevice = 4,
 }
 
 /// MSC4115 membership info in the unsigned area.
@@ -54,28 +68,50 @@ enum Membership {
 
 impl UtdCause {
     /// Decide the cause of this UTD, based on the evidence we have.
-    pub fn determine(raw_event: Option<&Raw<AnySyncTimelineEvent>>) -> Self {
+    pub fn determine(
+        raw_event: Option<&Raw<AnySyncTimelineEvent>>,
+        unable_to_decrypt_info: &UnableToDecryptInfo,
+    ) -> Self {
         // TODO: in future, use more information to give a richer answer. E.g.
-        // is this event device-historical? Was the Olm communication disrupted?
-        // Did the sender refuse to send the key because we're not verified?
-
-        // Look in the unsigned area for a `membership` field.
-        if let Some(raw_event) = raw_event {
-            if let Ok(Some(unsigned)) = raw_event.get_field::<UnsignedWithMembership>("unsigned") {
-                if let Membership::Leave = unsigned.membership {
-                    // We were not a member - this is the cause of the UTD
-                    return UtdCause::Membership;
+        match unable_to_decrypt_info.reason {
+            UnableToDecryptReason::MissingMegolmSession
+            | UnableToDecryptReason::UnknownMegolmMessageIndex => {
+                // Look in the unsigned area for a `membership` field.
+                if let Some(raw_event) = raw_event {
+                    if let Ok(Some(unsigned)) =
+                        raw_event.get_field::<UnsignedWithMembership>("unsigned")
+                    {
+                        if let Membership::Leave = unsigned.membership {
+                            // We were not a member - this is the cause of the UTD
+                            return UtdCause::SentBeforeWeJoined;
+                        }
+                    }
                 }
+                UtdCause::Unknown
             }
-        }
 
-        // We can't find an explanation for this UTD
-        UtdCause::Unknown
+            UnableToDecryptReason::SenderIdentityNotTrusted(
+                VerificationLevel::VerificationViolation,
+            ) => UtdCause::VerificationViolation,
+
+            UnableToDecryptReason::SenderIdentityNotTrusted(VerificationLevel::UnsignedDevice) => {
+                UtdCause::UnsignedDevice
+            }
+
+            UnableToDecryptReason::SenderIdentityNotTrusted(VerificationLevel::None(_)) => {
+                UtdCause::UnknownDevice
+            }
+
+            _ => UtdCause::Unknown,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use matrix_sdk_common::deserialized_responses::{
+        DeviceLinkProblem, UnableToDecryptInfo, UnableToDecryptReason, VerificationLevel,
+    };
     use ruma::{events::AnySyncTimelineEvent, serde::Raw};
     use serde_json::{json, value::to_raw_value};
 
@@ -85,13 +121,31 @@ mod tests {
     fn a_missing_raw_event_means_we_guess_unknown() {
         // When we don't provide any JSON to check for membership, then we guess the UTD
         // is unknown.
-        assert_eq!(UtdCause::determine(None), UtdCause::Unknown);
+        assert_eq!(
+            UtdCause::determine(
+                None,
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession,
+                }
+            ),
+            UtdCause::Unknown
+        );
     }
 
     #[test]
     fn if_there_is_no_membership_info_we_guess_unknown() {
         // If our JSON contains no membership info, then we guess the UTD is unknown.
-        assert_eq!(UtdCause::determine(Some(&raw_event(json!({})))), UtdCause::Unknown);
+        assert_eq!(
+            UtdCause::determine(
+                Some(&raw_event(json!({}))),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
+            UtdCause::Unknown
+        );
     }
 
     #[test]
@@ -99,7 +153,13 @@ mod tests {
         // If our JSON contains a membership property but not the JSON we expected, then
         // we guess the UTD is unknown.
         assert_eq!(
-            UtdCause::determine(Some(&raw_event(json!({ "unsigned": { "membership": 3 } })))),
+            UtdCause::determine(
+                Some(&raw_event(json!({ "unsigned": { "membership": 3 } }))),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
             UtdCause::Unknown
         );
     }
@@ -109,9 +169,13 @@ mod tests {
         // If membership=invite then we expected to be sent the keys so the cause of the
         // UTD is unknown.
         assert_eq!(
-            UtdCause::determine(Some(&raw_event(
-                json!({ "unsigned": { "membership": "invite" } }),
-            ))),
+            UtdCause::determine(
+                Some(&raw_event(json!({ "unsigned": { "membership": "invite" } }),)),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
             UtdCause::Unknown
         );
     }
@@ -121,7 +185,13 @@ mod tests {
         // If membership=join then we expected to be sent the keys so the cause of the
         // UTD is unknown.
         assert_eq!(
-            UtdCause::determine(Some(&raw_event(json!({ "unsigned": { "membership": "join" } })))),
+            UtdCause::determine(
+                Some(&raw_event(json!({ "unsigned": { "membership": "join" } }))),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
             UtdCause::Unknown
         );
     }
@@ -131,8 +201,32 @@ mod tests {
         // If membership=leave then we have an explanation for why we can't decrypt,
         // until we have MSC3061.
         assert_eq!(
-            UtdCause::determine(Some(&raw_event(json!({ "unsigned": { "membership": "leave" } })))),
-            UtdCause::Membership
+            UtdCause::determine(
+                Some(&raw_event(json!({ "unsigned": { "membership": "leave" } }))),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
+            UtdCause::SentBeforeWeJoined
+        );
+    }
+
+    #[test]
+    fn if_reason_is_not_missing_key_we_guess_unknown_even_if_membership_is_leave_we_guess_membership(
+    ) {
+        // If the UnableToDecryptReason is other than MissingMegolmSession or
+        // UnknownMegolmMessageIndex, we do not know the reason for the failure
+        // even if membership=leave.
+        assert_eq!(
+            UtdCause::determine(
+                Some(&raw_event(json!({ "unsigned": { "membership": "leave" } }))),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MalformedEncryptedEvent
+                }
+            ),
+            UtdCause::Unknown
         );
     }
 
@@ -140,10 +234,64 @@ mod tests {
     fn if_unstable_prefix_membership_is_leave_we_guess_membership() {
         // Before MSC4115 is merged, we support the unstable prefix too.
         assert_eq!(
-            UtdCause::determine(Some(&raw_event(
-                json!({ "unsigned": { "io.element.msc4115.membership": "leave" } })
-            ))),
-            UtdCause::Membership
+            UtdCause::determine(
+                Some(&raw_event(
+                    json!({ "unsigned": { "io.element.msc4115.membership": "leave" } })
+                )),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
+            UtdCause::SentBeforeWeJoined
+        );
+    }
+
+    #[test]
+    fn verification_violation_is_passed_through() {
+        assert_eq!(
+            UtdCause::determine(
+                Some(&raw_event(json!({}))),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::SenderIdentityNotTrusted(
+                        VerificationLevel::VerificationViolation,
+                    )
+                }
+            ),
+            UtdCause::VerificationViolation
+        );
+    }
+
+    #[test]
+    fn unsigned_device_is_passed_through() {
+        assert_eq!(
+            UtdCause::determine(
+                Some(&raw_event(json!({}))),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::SenderIdentityNotTrusted(
+                        VerificationLevel::UnsignedDevice,
+                    )
+                }
+            ),
+            UtdCause::UnsignedDevice
+        );
+    }
+
+    #[test]
+    fn unknown_device_is_passed_through() {
+        assert_eq!(
+            UtdCause::determine(
+                Some(&raw_event(json!({}))),
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::SenderIdentityNotTrusted(
+                        VerificationLevel::None(DeviceLinkProblem::MissingDevice)
+                    )
+                }
+            ),
+            UtdCause::UnknownDevice
         );
     }
 
