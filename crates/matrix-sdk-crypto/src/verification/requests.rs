@@ -1069,7 +1069,8 @@ struct Requested {
     /// The verification methods supported by the sender.
     pub their_methods: Vec<VerificationMethod>,
 
-    /// The device data of the device that responded to the verification request.
+    /// The device data of the device that responded to the verification
+    /// request.
     pub other_device_data: DeviceData,
 }
 
