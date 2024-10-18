@@ -48,7 +48,7 @@ pub enum RoomListError {
     #[error("Event cache ran into an error: {error}")]
     EventCache { error: String },
     #[error("The requested room doesn't match the membership requirements {expected:?}, observed {actual:?}")]
-    IncorrectRoomMembership { expected: Membership, actual: Membership },
+    IncorrectRoomMembership { expected: Vec<Membership>, actual: Membership },
 }
 
 impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
@@ -574,16 +574,32 @@ impl RoomListItem {
     }
 
     /// Builds a `Room` FFI from an invited room without initializing its
-    /// internal timeline
+    /// internal timeline.
     ///
-    /// An error will be returned if the room is a state different than invited
+    /// An error will be returned if the room is a state different than invited.
     ///
     /// ⚠️ Holding on to this room instance after it has been joined is not
-    /// safe. Use `full_room` instead
+    /// safe. Use `full_room` instead.
+    #[deprecated(note = "Please use `room_without_timeline` instead.")]
     fn invited_room(&self) -> Result<Arc<Room>, RoomListError> {
-        if !matches!(self.membership(), Membership::Invited) {
+        self.room_without_timeline()
+    }
+
+    /// Builds a `Room` FFI from a room without initializing its internal
+    /// timeline.
+    ///
+    /// An error will be returned if the room is a state other than invited
+    /// or knocked, the 2 states that would match this use case.
+    ///
+    /// ⚠️ Holding on to this room instance after it has been joined is not
+    /// safe. Use `full_room` instead.
+    fn room_without_timeline(&self) -> Result<Arc<Room>, RoomListError> {
+        let membership = self.membership();
+        if !matches!(membership, Membership::Invited)
+            && !matches!(self.membership(), Membership::Knocked)
+        {
             return Err(RoomListError::IncorrectRoomMembership {
-                expected: Membership::Invited,
+                expected: vec![Membership::Invited, Membership::Knocked],
                 actual: self.membership(),
             });
         }
@@ -598,7 +614,7 @@ impl RoomListItem {
     fn full_room(&self) -> Result<Arc<Room>, RoomListError> {
         if !matches!(self.membership(), Membership::Joined) {
             return Err(RoomListError::IncorrectRoomMembership {
-                expected: Membership::Joined,
+                expected: vec![Membership::Joined],
                 actual: self.membership(),
             });
         }
