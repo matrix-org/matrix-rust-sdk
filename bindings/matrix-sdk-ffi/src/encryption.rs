@@ -411,17 +411,53 @@ impl Encryption {
         self.inner.wait_for_e2ee_initialization_tasks().await;
     }
 
-    /// Get the E2EE identity of a user.
+    /// Get the E2EE identity of a user from the crypto store.
     ///
-    /// Returns Ok(None) if this user does not exist.
+    /// Usually, we only have the E2EE identity of a user locally if the user
+    /// is tracked, meaning that we are both members of the same encrypted room.
     ///
-    /// Returns an error if there was a problem contacting the crypto store, or
-    /// if our client is not logged in.
+    /// To get the E2EE identity of a user even if it is not available locally
+    /// use `request_user_identity()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the identity belongs to.
+    ///
+    /// Returns a `UserIdentity` if one is found and the crypto store
+    /// didn't throw an error.
+    ///
+    /// This will always return None if the client hasn't been logged in.
     pub async fn get_user_identity(
         &self,
         user_id: String,
     ) -> Result<Option<Arc<UserIdentity>>, ClientError> {
         let identity = self.inner.get_user_identity(user_id.as_str().try_into()?).await?;
+        Ok(identity.map(|i| Arc::new(UserIdentity { inner: i })))
+    }
+
+    /// Get the E2EE identity of a user from the homeserver.
+    ///
+    /// The E2EE identity returned is always guaranteed to be up-to-date. If the
+    /// E2EE identity is not found, it should mean that the user did not set
+    /// up cross-signing.
+    ///
+    /// If you want the E2EE identity of a user without making a request to the
+    /// homeserver, use `get_user_identity()` instead.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user that the identity belongs to.
+    ///
+    /// Returns a `UserIdentity` if one is found. Returns an error if there
+    /// was an issue with the crypto store or with the request to the
+    /// homeserver.
+    ///
+    /// This will always return `None` if the client hasn't been logged in.
+    pub async fn request_user_identity(
+        &self,
+        user_id: String,
+    ) -> Result<Option<Arc<UserIdentity>>, ClientError> {
+        let identity = self.inner.request_user_identity(user_id.as_str().try_into()?).await?;
         Ok(identity.map(|i| Arc::new(UserIdentity { inner: i })))
     }
 }
