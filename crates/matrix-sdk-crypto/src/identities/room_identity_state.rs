@@ -121,7 +121,6 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
 
         for user_identity in identity_updates.new.values().chain(identity_updates.changed.values())
         {
-            // Ignore updates to our own identity
             let user_id = user_identity.user_id();
             if self.room.is_member(user_id).await {
                 let update = self.update_user_state(user_id, user_identity);
@@ -144,20 +143,27 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
             // Ignore invalid user IDs
             let user_id: Result<&UserId, _> = event.state_key.as_str().try_into();
             if let Ok(user_id) = user_id {
-                // Ignore non-existent users
-                if let Some(user_identity) = self.room.user_identity(user_id).await {
+                // Ignore non-existent users, and changes to our own identity
+                if let Some(user_identity @ UserIdentity::Other(_)) =
+                    self.room.user_identity(user_id).await
+                {
                     match event.content.membership {
                         MembershipState::Join | MembershipState::Invite => {
+                            // They are joining the room - check whether we need to display a
+                            // warning to the user
                             if let Some(update) = self.update_user_state(user_id, &user_identity) {
                                 return vec![update];
                             }
                         }
                         MembershipState::Leave | MembershipState::Ban => {
-                            let leaving_state = self.room.state_of(&user_identity);
-                            if leaving_state == IdentityState::PinViolation {
-                                // If a user with bad state leaves the room, set them to Pinned,
-                                // which effectively removes them
-                                return vec![self.set_state(user_id, IdentityState::Pinned)];
+                            // They are leaving the room - treat that as if they are becoming
+                            // Pinned, which means the UI will remove any banner it was displaying
+                            // for them.
+
+                            if let Some(update) =
+                                self.update_user_state_to(user_id, IdentityState::Pinned)
+                            {
+                                return vec![update];
                             }
                         }
                         MembershipState::Knock => {
@@ -179,18 +185,56 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
         user_identity: &UserIdentity,
     ) -> Option<IdentityStatusChange> {
         if let UserIdentity::Other(_) = &user_identity {
-            // If the user's state has changed
-            let new_state = self.room.state_of(user_identity);
-            let old_state = self.known_states.get(user_id);
-            if new_state != old_state {
-                Some(self.set_state(user_identity.user_id(), new_state))
-            } else {
-                // Nothing changed
-                None
-            }
+            self.update_user_state_to(user_id, self.room.state_of(user_identity))
         } else {
             // Ignore updates to our own identity
             None
+        }
+    }
+
+    // If the supplied `new_state` represents an actual change, updates our internal
+    // state for this user, and returns the change information we will surface to
+    // the UI.
+    fn update_user_state_to(
+        &mut self,
+        user_id: &UserId,
+        new_state: IdentityState,
+    ) -> Option<IdentityStatusChange> {
+        use IdentityState::*;
+
+        let old_state = self.known_states.get(user_id);
+
+        match (old_state, &new_state) {
+            // good -> bad - report so we can add a message
+            (Pinned, PinViolation) |
+            (Pinned, VerificationViolation) |
+            (Verified, PinViolation) |
+            (Verified, VerificationViolation) |
+
+            // bad -> good - report so we can remove a message
+            (PinViolation, Pinned) |
+            (PinViolation, Verified) |
+            (VerificationViolation, Pinned) |
+            (VerificationViolation, Verified) |
+
+            // Changed the type of bad - report so can change the message
+            (PinViolation, VerificationViolation) |
+            (VerificationViolation, PinViolation) => Some(self.set_state(user_id, new_state)),
+
+            // good -> good - don't report - no message needed in either case
+            (Pinned, Verified) |
+            (Verified, Pinned) => {
+                // The state has changed, so we update it
+                self.set_state(user_id, new_state);
+                // but there is no need to report a change to the UI
+                None
+            }
+
+            // State didn't change - don't report - nothing changed
+            (Pinned, Pinned) |
+            (Verified, Verified) |
+            (PinViolation, PinViolation) |
+            (VerificationViolation, VerificationViolation) => None,
         }
     }
 
@@ -204,8 +248,16 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
 }
 
 /// A change in the status of the identity of a member of the room. Returned by
-/// [`RoomIdentityState::process_change`] to indicate that something changed in
-/// this room and we should either show or hide a warning.
+/// [`RoomIdentityState::process_change`] to indicate that something significant
+/// changed in this room and we should either show or hide a warning.
+///
+/// Examples of "significant" changes:
+/// - pinned->unpinned
+/// - verification violation->verified
+///
+/// Examples of "insignificant" changes:
+/// - pinned->verified
+/// - verified->pinned
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct IdentityStatusChange {
     /// The user ID of the user whose identity status changed
@@ -345,6 +397,23 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_verifying_a_pinned_identity_in_the_room_does_nothing() {
+        // Given someone in the room is pinned
+        let user_id = user_id!("@u:s.co");
+        let mut room = FakeRoom::new();
+        room.member(other_user_identity(user_id).await, IdentityState::Pinned);
+        let mut state = RoomIdentityState::new(room.clone()).await;
+
+        // When their identity changes to verified
+        let updates =
+            identity_change(&mut room, user_id, IdentityState::Verified, false, false).await;
+        let update = state.process_change(updates).await;
+
+        // Then we emit no update
+        assert_eq!(update, vec![]);
+    }
+
+    #[async_test]
     async fn test_pinning_an_unpinned_identity_in_the_room_notifies() {
         // Given someone in the room is unpinned
         let user_id = user_id!("@u:s.co");
@@ -363,6 +432,30 @@ mod tests {
             vec![IdentityStatusChange {
                 user_id: user_id.to_owned(),
                 changed_to: IdentityState::Pinned
+            }]
+        );
+    }
+
+    #[async_test]
+    async fn test_unpinned_identity_becoming_verification_violating_in_the_room_notifies() {
+        // Given someone in the room is unpinned
+        let user_id = user_id!("@u:s.co");
+        let mut room = FakeRoom::new();
+        room.member(other_user_identity(user_id).await, IdentityState::PinViolation);
+        let mut state = RoomIdentityState::new(room.clone()).await;
+
+        // When their identity changes to verification violation
+        let updates =
+            identity_change(&mut room, user_id, IdentityState::VerificationViolation, false, false)
+                .await;
+        let update = state.process_change(updates).await;
+
+        // Then we emit an update saying they became verification violating
+        assert_eq!(
+            update,
+            vec![IdentityStatusChange {
+                user_id: user_id.to_owned(),
+                changed_to: IdentityState::VerificationViolation
             }]
         );
     }
@@ -449,6 +542,22 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_a_verified_identity_joining_the_room_does_nothing() {
+        // Given an empty room and we know of a user who is verified
+        let user_id = user_id!("@u:s.co");
+        let mut room = FakeRoom::new();
+        room.non_member(other_user_identity(user_id).await, IdentityState::Verified);
+        let mut state = RoomIdentityState::new(room).await;
+
+        // When the verified user joins the room
+        let updates = room_change(user_id, MembershipState::Join);
+        let update = state.process_change(updates).await;
+
+        // Then we emit no update because they are verified
+        assert_eq!(update, []);
+    }
+
+    #[async_test]
     async fn test_an_unpinned_identity_joining_the_room_notifies() {
         // Given an empty room and we know of a user who is unpinned
         let user_id = user_id!("@u:s.co");
@@ -504,6 +613,28 @@ mod tests {
             vec![IdentityStatusChange {
                 user_id: user_id.to_owned(),
                 changed_to: IdentityState::PinViolation
+            }]
+        );
+    }
+
+    #[async_test]
+    async fn test_a_verification_violating_identity_invited_to_the_room_notifies() {
+        // Given an empty room and we know of a user who is unpinned
+        let user_id = user_id!("@u:s.co");
+        let mut room = FakeRoom::new();
+        room.non_member(other_user_identity(user_id).await, IdentityState::VerificationViolation);
+        let mut state = RoomIdentityState::new(room).await;
+
+        // When the user is invited to the room
+        let updates = room_change(user_id, MembershipState::Invite);
+        let update = state.process_change(updates).await;
+
+        // Then we emit an update saying they became verification violation
+        assert_eq!(
+            update,
+            vec![IdentityStatusChange {
+                user_id: user_id.to_owned(),
+                changed_to: IdentityState::VerificationViolation
             }]
         );
     }
@@ -590,6 +721,22 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_a_verified_identity_leaving_the_room_does_nothing() {
+        // Given a pinned user is in the room
+        let user_id = user_id!("@u:s.co");
+        let mut room = FakeRoom::new();
+        room.member(other_user_identity(user_id).await, IdentityState::Verified);
+        let mut state = RoomIdentityState::new(room).await;
+
+        // When the user leaves the room
+        let updates = room_change(user_id, MembershipState::Leave);
+        let update = state.process_change(updates).await;
+
+        // Then we emit no update because they are verified
+        assert_eq!(update, []);
+    }
+
+    #[async_test]
     async fn test_an_unpinned_identity_leaving_the_room_notifies() {
         // Given an unpinned user is in the room
         let user_id = user_id!("@u:s.co");
@@ -601,7 +748,29 @@ mod tests {
         let updates = room_change(user_id, MembershipState::Leave);
         let update = state.process_change(updates).await;
 
-        // Then we emit an update saying they became unpinned
+        // Then we emit an update saying they became pinned
+        assert_eq!(
+            update,
+            vec![IdentityStatusChange {
+                user_id: user_id.to_owned(),
+                changed_to: IdentityState::Pinned
+            }]
+        );
+    }
+
+    #[async_test]
+    async fn test_a_verification_violating_identity_leaving_the_room_notifies() {
+        // Given an unpinned user is in the room
+        let user_id = user_id!("@u:s.co");
+        let mut room = FakeRoom::new();
+        room.member(other_user_identity(user_id).await, IdentityState::VerificationViolation);
+        let mut state = RoomIdentityState::new(room).await;
+
+        // When the user leaves the room
+        let updates = room_change(user_id, MembershipState::Leave);
+        let update = state.process_change(updates).await;
+
+        // Then we emit an update saying they became pinned
         assert_eq!(
             update,
             vec![IdentityStatusChange {
@@ -780,17 +949,21 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_current_state_contains_all_unpinned_users() {
+    async fn test_current_state_contains_all_nonpinned_users() {
         // Given some people are unpinned
         let user1 = user_id!("@u1:s.co");
         let user2 = user_id!("@u2:s.co");
         let user3 = user_id!("@u3:s.co");
         let user4 = user_id!("@u4:s.co");
+        let user5 = user_id!("@u5:s.co");
+        let user6 = user_id!("@u6:s.co");
         let mut room = FakeRoom::new();
         room.member(other_user_identity(user1).await, IdentityState::Pinned);
         room.member(other_user_identity(user2).await, IdentityState::PinViolation);
         room.member(other_user_identity(user3).await, IdentityState::Pinned);
         room.member(other_user_identity(user4).await, IdentityState::PinViolation);
+        room.member(other_user_identity(user5).await, IdentityState::Verified);
+        room.member(other_user_identity(user6).await, IdentityState::VerificationViolation);
         let mut state = RoomIdentityState::new(room).await.current_state();
         state.sort_by_key(|change| change.user_id.to_owned());
         assert_eq!(
