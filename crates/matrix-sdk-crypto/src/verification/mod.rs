@@ -819,7 +819,7 @@ pub(crate) mod tests {
     }
 
     pub fn bob_device_id() -> &'static DeviceId {
-        device_id!("BOBDEVCIE")
+        device_id!("BOBDEVICE")
     }
 
     pub(crate) async fn setup_stores() -> (Account, VerificationStore, Account, VerificationStore) {
