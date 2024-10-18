@@ -192,7 +192,7 @@ pub struct SendQueueRoomError {
     pub room_id: OwnedRoomId,
 
     /// The error the room has ran into, when trying to send an event.
-    pub error: QueueWedgeError,
+    pub error: Arc<crate::Error>,
 
     /// Whether the error is considered recoverable or not.
     ///
@@ -499,8 +499,6 @@ impl RoomSendQueue {
                         _ => false,
                     };
 
-                    let wedged_err = convert_error_to_wedged_reason(&err);
-
                     if is_recoverable {
                         warn!(txn_id = %queued_event.transaction_id, error = ?err, "Recoverable error when sending event: {err}, disabling send queue");
 
@@ -522,23 +520,29 @@ impl RoomSendQueue {
                         warn!(txn_id = %queued_event.transaction_id, error = ?err, "Unrecoverable error when sending event: {err}");
 
                         // Mark the event as wedged, so it's not picked at any future point.
-                        if let Err(err) = queue
-                            .mark_as_wedged(&queued_event.transaction_id, wedged_err.clone())
+
+                        if let Err(storage_error) = queue
+                            .mark_as_wedged(
+                                &queued_event.transaction_id,
+                                QueueWedgeError::from(&err),
+                            )
                             .await
                         {
-                            warn!("unable to mark event as wedged: {err}");
+                            warn!("unable to mark event as wedged: {storage_error}");
                         }
                     }
 
+                    let error = Arc::new(err);
+
                     let _ = global_error_reporter.send(SendQueueRoomError {
                         room_id: room.room_id().to_owned(),
-                        error: wedged_err.clone(),
+                        error: error.clone(),
                         is_recoverable,
                     });
 
                     let _ = updates.send(RoomSendQueueUpdate::SendError {
                         transaction_id: queued_event.transaction_id,
-                        error: wedged_err,
+                        error,
                         is_recoverable,
                     });
                 }
@@ -585,34 +589,37 @@ impl RoomSendQueue {
     }
 }
 
-fn convert_error_to_wedged_reason(value: &crate::Error) -> QueueWedgeError {
-    match value {
-        #[cfg(feature = "e2e-encryption")]
-        crate::Error::OlmError(OlmError::SessionRecipientCollectionError(error)) => match error {
-            SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(user_map) => {
-                QueueWedgeError::InsecureDevices {
-                    user_device_map: user_map
-                        .iter()
-                        .map(|(user_id, devices)| {
-                            (
-                                user_id.to_string(),
-                                devices.iter().map(|device_id| device_id.to_string()).collect(),
-                            )
-                        })
-                        .collect(),
+impl From<&crate::Error> for QueueWedgeError {
+    fn from(value: &crate::Error) -> Self {
+        match value {
+            #[cfg(feature = "e2e-encryption")]
+            crate::Error::OlmError(OlmError::SessionRecipientCollectionError(error)) => match error
+            {
+                SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(user_map) => {
+                    QueueWedgeError::InsecureDevices {
+                        user_device_map: user_map
+                            .iter()
+                            .map(|(user_id, devices)| {
+                                (
+                                    user_id.to_string(),
+                                    devices.iter().map(|device_id| device_id.to_string()).collect(),
+                                )
+                            })
+                            .collect(),
+                    }
                 }
-            }
-            SessionRecipientCollectionError::VerifiedUserChangedIdentity(users) => {
-                QueueWedgeError::IdentityViolations {
-                    users: users.iter().map(ruma::OwnedUserId::to_string).collect(),
+                SessionRecipientCollectionError::VerifiedUserChangedIdentity(users) => {
+                    QueueWedgeError::IdentityViolations {
+                        users: users.iter().map(ruma::OwnedUserId::to_string).collect(),
+                    }
                 }
-            }
-            SessionRecipientCollectionError::CrossSigningNotSetup
-            | SessionRecipientCollectionError::SendingFromUnverifiedDevice => {
-                QueueWedgeError::CrossVerificationRequired
-            }
-        },
-        _ => QueueWedgeError::GenericApiError { msg: value.to_string() },
+                SessionRecipientCollectionError::CrossSigningNotSetup
+                | SessionRecipientCollectionError::SendingFromUnverifiedDevice => {
+                    QueueWedgeError::CrossVerificationRequired
+                }
+            },
+            _ => QueueWedgeError::GenericApiError { msg: value.to_string() },
+        }
     }
 }
 
@@ -1233,7 +1240,7 @@ pub enum RoomSendQueueUpdate {
         /// Transaction id used to identify this event.
         transaction_id: OwnedTransactionId,
         /// Error received while sending the event.
-        error: QueueWedgeError,
+        error: Arc<crate::Error>,
         /// Whether the error is considered recoverable or not.
         ///
         /// An error that's recoverable will disable the room's send queue,

@@ -709,45 +709,30 @@ impl From<SyncTimelineEventDeserializationHelperV0> for SyncTimelineEvent {
 /// Represent a failed to send error of an event sent via the send_queue.
 /// These errors are not automatically retrievable, but yet some manual action
 /// can be taken before retry sending.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Clone, Debug, Serialize, Deserialize, thiserror::Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum QueueWedgeError {
     /// This error occurs when there are some insecure devices in the room, and
     /// the current encryption setting prohibit sharing with them.
+    #[error("There are insecure devices in the room")]
     InsecureDevices {
         /// The insecure devices as a Map of userID to deviceID.
         user_device_map: HashMap<String, Vec<String>>,
     },
     /// This error occurs when a previously verified user is not anymore, and
     /// the current encryption setting prohibit sharing when it happens.
+    #[error("Some users that were previously verified are not anymore")]
     IdentityViolations {
         /// The users that are expected to be verified but are not.
         users: Vec<String>,
     },
-    /// It is required to set up cross-signing and properly verify the current
+    /// It is required to set up cross-signing and properly erify the current
     /// session before sending.
+    #[error("Own verification is required")]
     CrossVerificationRequired,
     /// Other errors.
+    #[error("Other unrecoverable error: {msg}")]
     GenericApiError { msg: String },
-}
-
-/// Simple display implementation that strips out userIds/DeviceIds to avoid
-/// accidental logging.
-impl fmt::Display for QueueWedgeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            QueueWedgeError::InsecureDevices { .. } => {
-                f.write_str("There are insecure devices in the room")
-            }
-            QueueWedgeError::IdentityViolations { .. } => {
-                f.write_str("Some users that were previously verified are not anymore")
-            }
-            QueueWedgeError::CrossVerificationRequired => {
-                f.write_str("Own verification is required")
-            }
-            QueueWedgeError::GenericApiError { msg } => f.write_str(msg),
-        }
-    }
 }
 
 #[cfg(test)]

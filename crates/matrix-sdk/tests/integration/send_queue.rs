@@ -10,7 +10,6 @@ use std::{
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
     config::{RequestConfig, StoreConfig},
-    deserialized_responses::QueueWedgeError,
     send_queue::{LocalEcho, LocalEchoContent, RoomSendQueueError, RoomSendQueueUpdate},
     test_utils::{
         events::EventFactory, logged_in_client, logged_in_client_with_server, set_client_session,
@@ -472,7 +471,8 @@ async fn test_error_then_locally_reenabling() {
     // seconds).
     // It's the same transaction id that's used to signal the send error.
     let error = assert_update!(watch => error { recoverable=true, txn=txn1 });
-    assert_matches!(error, QueueWedgeError::GenericApiError { .. });
+    let error = error.as_client_api_error().unwrap();
+    assert_eq!(error.status_code, 500);
 
     sleep(Duration::from_millis(50)).await;
 

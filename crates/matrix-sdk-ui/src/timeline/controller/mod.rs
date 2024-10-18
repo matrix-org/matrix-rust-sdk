@@ -1345,7 +1345,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             RoomSendQueueUpdate::SendError { transaction_id, error, is_recoverable } => {
                 self.update_event_send_state(
                     &transaction_id,
-                    EventSendState::SendingFailed { error, is_recoverable },
+                    EventSendState::SendingFailed { error: error.as_ref().into(), is_recoverable },
                 )
                 .await;
             }
