@@ -43,6 +43,24 @@ pub trait RoomIdentityProvider: core::fmt::Debug {
     /// they are not a member of this room) or None if this user does not
     /// exist.
     async fn user_identity(&self, user_id: &UserId) -> Option<UserIdentity>;
+
+    /// Return the [`IdentityState`] of the supplied user identity.
+    /// Normally only overridden in tests.
+    fn state_of(&self, user_identity: &UserIdentity) -> IdentityState {
+        if user_identity.is_verified() {
+            IdentityState::Verified
+        } else if user_identity.has_verification_violation() {
+            IdentityState::VerificationViolation
+        } else if let UserIdentity::Other(u) = user_identity {
+            if u.identity_needs_user_approval() {
+                IdentityState::PinViolation
+            } else {
+                IdentityState::Pinned
+            }
+        } else {
+            IdentityState::Pinned
+        }
+    }
 }
 
 /// The state of the identities in a given room - whether they are:
@@ -62,7 +80,7 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
     /// Create a new RoomIdentityState using the provided room to check whether
     /// users are members.
     pub async fn new(room: R) -> Self {
-        let known_states = KnownStates::from_identities(room.member_identities().await);
+        let known_states = KnownStates::from_identities(room.member_identities().await, &room);
         Self { room, known_states }
     }
 
@@ -135,7 +153,7 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
                             }
                         }
                         MembershipState::Leave | MembershipState::Ban => {
-                            let leaving_state = state_of(&user_identity);
+                            let leaving_state = self.room.state_of(&user_identity);
                             if leaving_state == IdentityState::PinViolation {
                                 // If a user with bad state leaves the room, set them to Pinned,
                                 // which effectively removes them
@@ -162,7 +180,7 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
     ) -> Option<IdentityStatusChange> {
         if let UserIdentity::Other(_) = &user_identity {
             // If the user's state has changed
-            let new_state = state_of(user_identity);
+            let new_state = self.room.state_of(user_identity);
             let old_state = self.known_states.get(user_id);
             if new_state != old_state {
                 Some(self.set_state(user_identity.user_id(), new_state))
@@ -182,22 +200,6 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
 
         // And return the update
         IdentityStatusChange { user_id: user_id.to_owned(), changed_to: new_state }
-    }
-}
-
-fn state_of(user_identity: &UserIdentity) -> IdentityState {
-    if user_identity.is_verified() {
-        IdentityState::Verified
-    } else if user_identity.has_verification_violation() {
-        IdentityState::VerificationViolation
-    } else if let UserIdentity::Other(u) = user_identity {
-        if u.identity_needs_user_approval() {
-            IdentityState::PinViolation
-        } else {
-            IdentityState::Pinned
-        }
-    } else {
-        IdentityState::Pinned
     }
 }
 
@@ -259,10 +261,13 @@ struct KnownStates {
 }
 
 impl KnownStates {
-    fn from_identities(member_identities: impl IntoIterator<Item = UserIdentity>) -> Self {
+    fn from_identities(
+        member_identities: impl IntoIterator<Item = UserIdentity>,
+        room: &dyn RoomIdentityProvider,
+    ) -> Self {
         let mut known_states = HashMap::new();
         for user_identity in member_identities {
-            let state = state_of(&user_identity);
+            let state = room.state_of(&user_identity);
             if state != IdentityState::Pinned {
                 known_states.insert(user_identity.user_id().to_owned(), state);
             }
@@ -289,7 +294,10 @@ impl KnownStates {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
 
     use async_trait::async_trait;
     use matrix_sdk_test::async_test;
@@ -304,15 +312,13 @@ mod tests {
         owned_event_id, owned_user_id, user_id, MilliSecondsSinceUnixEpoch, OwnedUserId, UInt,
         UserId,
     };
-    use tokio::sync::Mutex;
 
     use super::{IdentityState, RoomIdentityChange, RoomIdentityProvider, RoomIdentityState};
     use crate::{
         identities::user::testing::own_identity_wrapped,
-        olm::PrivateCrossSigningIdentity,
         store::{IdentityUpdates, Store},
-        Account, IdentityStatusChange, OtherUserIdentity, OtherUserIdentityData, OwnUserIdentity,
-        OwnUserIdentityData, UserIdentity,
+        IdentityStatusChange, OtherUserIdentity, OtherUserIdentityData, OwnUserIdentityData,
+        UserIdentity,
     };
 
     #[async_test]
@@ -320,11 +326,12 @@ mod tests {
         // Given someone in the room is pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identity(user_id, IdentityState::Pinned).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.member(other_user_identity(user_id).await, IdentityState::Pinned);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When their identity changes to unpinned
-        let updates = identity_change(user_id, IdentityState::PinViolation, false, false).await;
+        let updates =
+            identity_change(&mut room, user_id, IdentityState::PinViolation, false, false).await;
         let update = state.process_change(updates).await;
 
         // Then we emit an update saying they became unpinned
@@ -342,11 +349,12 @@ mod tests {
         // Given someone in the room is unpinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identity(user_id, IdentityState::PinViolation).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.member(other_user_identity(user_id).await, IdentityState::PinViolation);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When their identity changes to pinned
-        let updates = identity_change(user_id, IdentityState::Pinned, false, false).await;
+        let updates =
+            identity_change(&mut room, user_id, IdentityState::Pinned, false, false).await;
         let update = state.process_change(updates).await;
 
         // Then we emit an update saying they became pinned
@@ -363,11 +371,12 @@ mod tests {
     async fn test_unpinning_an_identity_not_in_the_room_does_nothing() {
         // Given an empty room
         let user_id = user_id!("@u:s.co");
-        let room = FakeRoom::new();
-        let mut state = RoomIdentityState::new(room).await;
+        let mut room = FakeRoom::new();
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When a new unpinned user identity appears but they are not in the room
-        let updates = identity_change(user_id, IdentityState::PinViolation, true, false).await;
+        let updates =
+            identity_change(&mut room, user_id, IdentityState::PinViolation, true, false).await;
         let update = state.process_change(updates).await;
 
         // Then we emit no update
@@ -378,11 +387,11 @@ mod tests {
     async fn test_pinning_an_identity_not_in_the_room_does_nothing() {
         // Given an empty room
         let user_id = user_id!("@u:s.co");
-        let room = FakeRoom::new();
-        let mut state = RoomIdentityState::new(room).await;
+        let mut room = FakeRoom::new();
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When a new pinned user appears but is not in the room
-        let updates = identity_change(user_id, IdentityState::Pinned, true, false).await;
+        let updates = identity_change(&mut room, user_id, IdentityState::Pinned, true, false).await;
         let update = state.process_change(updates).await;
 
         // Then we emit no update
@@ -394,11 +403,12 @@ mod tests {
         // Given someone in the room is pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identity(user_id, IdentityState::Pinned).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.member(other_user_identity(user_id).await, IdentityState::Pinned);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When we are told they are pinned
-        let updates = identity_change(user_id, IdentityState::Pinned, false, false).await;
+        let updates =
+            identity_change(&mut room, user_id, IdentityState::Pinned, false, false).await;
         let update = state.process_change(updates).await;
 
         // Then we emit no update
@@ -410,11 +420,12 @@ mod tests {
         // Given someone in the room is unpinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identity(user_id, IdentityState::PinViolation).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.member(other_user_identity(user_id).await, IdentityState::PinViolation);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When we are told they are unpinned
-        let updates = identity_change(user_id, IdentityState::PinViolation, false, false).await;
+        let updates =
+            identity_change(&mut room, user_id, IdentityState::PinViolation, false, false).await;
         let update = state.process_change(updates).await;
 
         // Then we emit no update
@@ -426,8 +437,8 @@ mod tests {
         // Given an empty room and we know of a user who is pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.non_member(other_user_identity(user_id, IdentityState::Pinned).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.non_member(other_user_identity(user_id).await, IdentityState::Pinned);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When the pinned user joins the room
         let updates = room_change(user_id, MembershipState::Join);
@@ -442,8 +453,8 @@ mod tests {
         // Given an empty room and we know of a user who is unpinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.non_member(other_user_identity(user_id, IdentityState::PinViolation).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.non_member(other_user_identity(user_id).await, IdentityState::PinViolation);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When the unpinned user joins the room
         let updates = room_change(user_id, MembershipState::Join);
@@ -464,8 +475,8 @@ mod tests {
         // Given an empty room and we know of a user who is pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.non_member(other_user_identity(user_id, IdentityState::Pinned).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.non_member(other_user_identity(user_id).await, IdentityState::Pinned);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When the pinned user is invited to the room
         let updates = room_change(user_id, MembershipState::Invite);
@@ -480,8 +491,8 @@ mod tests {
         // Given an empty room and we know of a user who is unpinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.non_member(other_user_identity(user_id, IdentityState::PinViolation).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.non_member(other_user_identity(user_id).await, IdentityState::PinViolation);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When the unpinned user is invited to the room
         let updates = room_change(user_id, MembershipState::Invite);
@@ -502,11 +513,12 @@ mod tests {
         // Given I am pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(own_user_identity(user_id, IdentityState::Pinned).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.member(own_user_identity(user_id).await, IdentityState::Pinned);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When I become unpinned
-        let updates = identity_change(user_id, IdentityState::PinViolation, false, true).await;
+        let updates =
+            identity_change(&mut room, user_id, IdentityState::PinViolation, false, true).await;
         let update = state.process_change(updates).await;
 
         // Then we do nothing because own identities are ignored
@@ -518,11 +530,11 @@ mod tests {
         // Given I am unpinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(own_user_identity(user_id, IdentityState::PinViolation).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.member(own_user_identity(user_id).await, IdentityState::PinViolation);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When I become unpinned
-        let updates = identity_change(user_id, IdentityState::Pinned, false, true).await;
+        let updates = identity_change(&mut room, user_id, IdentityState::Pinned, false, true).await;
         let update = state.process_change(updates).await;
 
         // Then we do nothing because own identities are ignored
@@ -534,8 +546,8 @@ mod tests {
         // Given an empty room and we know of a user who is pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.non_member(own_user_identity(user_id, IdentityState::Pinned).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.non_member(own_user_identity(user_id).await, IdentityState::Pinned);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When the pinned user joins the room
         let updates = room_change(user_id, MembershipState::Join);
@@ -550,8 +562,8 @@ mod tests {
         // Given an empty room and we know of a user who is unpinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.non_member(own_user_identity(user_id, IdentityState::PinViolation).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.non_member(own_user_identity(user_id).await, IdentityState::PinViolation);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When the unpinned user joins the room
         let updates = room_change(user_id, MembershipState::Join);
@@ -566,8 +578,8 @@ mod tests {
         // Given a pinned user is in the room
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identity(user_id, IdentityState::Pinned).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.member(other_user_identity(user_id).await, IdentityState::Pinned);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When the pinned user leaves the room
         let updates = room_change(user_id, MembershipState::Leave);
@@ -582,8 +594,8 @@ mod tests {
         // Given an unpinned user is in the room
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identity(user_id, IdentityState::PinViolation).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.member(other_user_identity(user_id).await, IdentityState::PinViolation);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When the unpinned user leaves the room
         let updates = room_change(user_id, MembershipState::Leave);
@@ -604,8 +616,8 @@ mod tests {
         // Given a pinned user is in the room
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identity(user_id, IdentityState::Pinned).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.member(other_user_identity(user_id).await, IdentityState::Pinned);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When the pinned user is banned
         let updates = room_change(user_id, MembershipState::Ban);
@@ -620,8 +632,8 @@ mod tests {
         // Given an unpinned user is in the room
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identity(user_id, IdentityState::PinViolation).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.member(other_user_identity(user_id).await, IdentityState::PinViolation);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When the unpinned user is banned
         let updates = room_change(user_id, MembershipState::Ban);
@@ -644,32 +656,35 @@ mod tests {
         let user2 = user_id!("@u2:s.co");
         let user3 = user_id!("@u3:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identity(user1, IdentityState::Pinned).await);
-        room.member(other_user_identity(user2, IdentityState::PinViolation).await);
-        room.member(other_user_identity(user3, IdentityState::Pinned).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.member(other_user_identity(user1).await, IdentityState::Pinned);
+        room.member(other_user_identity(user2).await, IdentityState::PinViolation);
+        room.member(other_user_identity(user3).await, IdentityState::Pinned);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When they all change state simultaneously
-        let updates = identity_changes(&[
-            IdentityChangeSpec {
-                user_id: user1.to_owned(),
-                changed_to: IdentityState::PinViolation,
-                new: false,
-                own: false,
-            },
-            IdentityChangeSpec {
-                user_id: user2.to_owned(),
-                changed_to: IdentityState::Pinned,
-                new: false,
-                own: false,
-            },
-            IdentityChangeSpec {
-                user_id: user3.to_owned(),
-                changed_to: IdentityState::PinViolation,
-                new: false,
-                own: false,
-            },
-        ])
+        let updates = identity_changes(
+            &mut room,
+            &[
+                IdentityChangeSpec {
+                    user_id: user1.to_owned(),
+                    changed_to: IdentityState::PinViolation,
+                    new: false,
+                    own: false,
+                },
+                IdentityChangeSpec {
+                    user_id: user2.to_owned(),
+                    changed_to: IdentityState::Pinned,
+                    new: false,
+                    own: false,
+                },
+                IdentityChangeSpec {
+                    user_id: user3.to_owned(),
+                    changed_to: IdentityState::PinViolation,
+                    new: false,
+                    own: false,
+                },
+            ],
+        )
         .await;
         let update = state.process_change(updates).await;
 
@@ -698,26 +713,31 @@ mod tests {
         // Given someone in the room is pinned
         let user_id = user_id!("@u:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identity(user_id, IdentityState::Pinned).await);
-        let mut state = RoomIdentityState::new(room).await;
+        room.member(other_user_identity(user_id).await, IdentityState::Pinned);
+        let mut state = RoomIdentityState::new(room.clone()).await;
 
         // When they change state multiple times
         let update1 = state
             .process_change(
-                identity_change(user_id, IdentityState::PinViolation, false, false).await,
+                identity_change(&mut room, user_id, IdentityState::PinViolation, false, false)
+                    .await,
             )
             .await;
         let update2 = state
             .process_change(
-                identity_change(user_id, IdentityState::PinViolation, false, false).await,
+                identity_change(&mut room, user_id, IdentityState::PinViolation, false, false)
+                    .await,
             )
             .await;
         let update3 = state
-            .process_change(identity_change(user_id, IdentityState::Pinned, false, false).await)
+            .process_change(
+                identity_change(&mut room, user_id, IdentityState::Pinned, false, false).await,
+            )
             .await;
         let update4 = state
             .process_change(
-                identity_change(user_id, IdentityState::PinViolation, false, false).await,
+                identity_change(&mut room, user_id, IdentityState::PinViolation, false, false)
+                    .await,
             )
             .await;
 
@@ -753,8 +773,8 @@ mod tests {
         let user1 = user_id!("@u1:s.co");
         let user2 = user_id!("@u2:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identity(user1, IdentityState::Pinned).await);
-        room.member(other_user_identity(user2, IdentityState::Pinned).await);
+        room.member(other_user_identity(user1).await, IdentityState::Pinned);
+        room.member(other_user_identity(user2).await, IdentityState::Pinned);
         let state = RoomIdentityState::new(room).await;
         assert!(state.current_state().is_empty());
     }
@@ -767,10 +787,10 @@ mod tests {
         let user3 = user_id!("@u3:s.co");
         let user4 = user_id!("@u4:s.co");
         let mut room = FakeRoom::new();
-        room.member(other_user_identity(user1, IdentityState::Pinned).await);
-        room.member(other_user_identity(user2, IdentityState::PinViolation).await);
-        room.member(other_user_identity(user3, IdentityState::Pinned).await);
-        room.member(other_user_identity(user4, IdentityState::PinViolation).await);
+        room.member(other_user_identity(user1).await, IdentityState::Pinned);
+        room.member(other_user_identity(user2).await, IdentityState::PinViolation);
+        room.member(other_user_identity(user3).await, IdentityState::Pinned);
+        room.member(other_user_identity(user4).await, IdentityState::PinViolation);
         let mut state = RoomIdentityState::new(room).await.current_state();
         state.sort_by_key(|change| change.user_id.to_owned());
         assert_eq!(
@@ -783,47 +803,85 @@ mod tests {
                 IdentityStatusChange {
                     user_id: owned_user_id!("@u4:s.co"),
                     changed_to: IdentityState::PinViolation
+                },
+                IdentityStatusChange {
+                    user_id: owned_user_id!("@u5:s.co"),
+                    changed_to: IdentityState::Verified
+                },
+                IdentityStatusChange {
+                    user_id: owned_user_id!("@u6:s.co"),
+                    changed_to: IdentityState::VerificationViolation
                 }
             ]
         );
     }
 
     #[derive(Debug)]
+    struct Membership {
+        is_member: bool,
+        user_identity: UserIdentity,
+        identity_state: IdentityState,
+    }
+
+    #[derive(Clone, Debug)]
     struct FakeRoom {
-        members: Vec<UserIdentity>,
-        non_members: Vec<UserIdentity>,
+        users: Arc<Mutex<HashMap<OwnedUserId, Membership>>>,
     }
 
     impl FakeRoom {
         fn new() -> Self {
-            Self { members: Default::default(), non_members: Default::default() }
+            Self { users: Default::default() }
         }
 
-        fn member(&mut self, user_identity: UserIdentity) {
-            self.members.push(user_identity);
+        fn member(&mut self, user_identity: UserIdentity, identity_state: IdentityState) {
+            self.users.lock().unwrap().insert(
+                user_identity.user_id().to_owned(),
+                Membership { is_member: true, user_identity, identity_state },
+            );
         }
 
-        fn non_member(&mut self, user_identity: UserIdentity) {
-            self.non_members.push(user_identity);
+        fn non_member(&mut self, user_identity: UserIdentity, identity_state: IdentityState) {
+            self.users.lock().unwrap().insert(
+                user_identity.user_id().to_owned(),
+                Membership { is_member: false, user_identity, identity_state },
+            );
+        }
+
+        fn update_state(&self, user_id: &UserId, changed_to: &IdentityState) {
+            self.users
+                .lock()
+                .unwrap()
+                .entry(user_id.to_owned())
+                .and_modify(|m| m.identity_state = changed_to.clone());
         }
     }
 
     #[async_trait]
     impl RoomIdentityProvider for FakeRoom {
         async fn is_member(&self, user_id: &UserId) -> bool {
-            self.members.iter().any(|u| u.user_id() == user_id)
+            self.users.lock().unwrap().get(user_id).map(|m| m.is_member).unwrap_or(false)
         }
 
         async fn member_identities(&self) -> Vec<UserIdentity> {
-            self.members.clone()
+            self.users
+                .lock()
+                .unwrap()
+                .values()
+                .filter_map(|m| if m.is_member { Some(m.user_identity.clone()) } else { None })
+                .collect()
         }
 
         async fn user_identity(&self, user_id: &UserId) -> Option<UserIdentity> {
-            self.non_members
-                .iter()
-                .chain(self.members.iter())
-                .find(|u| u.user_id() == user_id)
-                .cloned()
+            self.users.lock().unwrap().get(user_id).map(|m| m.user_identity.clone())
+        }
+
+        fn state_of(&self, user_identity: &UserIdentity) -> IdentityState {
+            self.users
+                .lock()
+                .unwrap()
+                .get(user_identity.user_id())
+                .map(|m| m.identity_state.clone())
+                .unwrap_or(IdentityState::Pinned)
         }
     }
 
@@ -840,17 +898,16 @@ mod tests {
     }
 
     async fn identity_change(
+        room: &mut FakeRoom,
         user_id: &UserId,
         changed_to: IdentityState,
         new: bool,
         own: bool,
     ) -> RoomIdentityChange {
-        identity_changes(&[IdentityChangeSpec {
-            user_id: user_id.to_owned(),
-            changed_to,
-            new,
-            own,
-        }])
+        identity_changes(
+            room,
+            &[IdentityChangeSpec { user_id: user_id.to_owned(), changed_to, new, own }],
+        )
         .await
     }
 
@@ -861,27 +918,31 @@ mod tests {
         own: bool,
     }
 
-    async fn identity_changes(changes: &[IdentityChangeSpec]) -> RoomIdentityChange {
+    async fn identity_changes(
+        room: &mut FakeRoom,
+        changes: &[IdentityChangeSpec],
+    ) -> RoomIdentityChange {
         let mut updates = IdentityUpdates::default();
 
         for change in changes {
-            let user_identities = if change.own {
-                own_user_identity(&change.user_id, change.changed_to.clone()).await
+            let user_identity = if change.own {
+                own_user_identity(&change.user_id).await
             } else {
-                other_user_identity(&change.user_id, change.changed_to.clone()).await
+                other_user_identity(&change.user_id).await
             };
 
+            room.update_state(user_identity.user_id(), &change.changed_to);
             if change.new {
-                updates.new.insert(user_identities.user_id().to_owned(), user_identities);
+                updates.new.insert(user_identity.user_id().to_owned(), user_identity);
             } else {
-                updates.changed.insert(user_identities.user_id().to_owned(), user_identities);
+                updates.changed.insert(user_identity.user_id().to_owned(), user_identity);
             }
         }
         RoomIdentityChange::IdentityUpdates(updates)
     }
 
     /// Create an other `UserIdentity` for use in tests
-    async fn other_user_identity(user_id: &UserId, identity_state: IdentityState) -> UserIdentity {
+    async fn other_user_identity(user_id: &UserId) -> UserIdentity {
         use std::sync::Arc;
 
         use ruma::owned_device_id;
@@ -903,7 +964,7 @@ mod tests {
         let other_user_identity_data =
             OtherUserIdentityData::from_private(&*private_identity.lock().await).await;
 
-        let mut user_identity = OtherUserIdentity {
+        UserIdentity::Other(OtherUserIdentity {
             inner: other_user_identity_data,
             own_identity: None,
             verification_machine: VerificationMachine::new(
@@ -917,44 +978,11 @@ mod tests {
                     MemoryStore::new(),
                 )),
             ),
-        };
-
-        match identity_state {
-            IdentityState::Verified => {
-                // TODO
-                assert!(user_identity.is_verified());
-                assert!(!user_identity.was_previously_verified());
-                assert!(!user_identity.has_verification_violation());
-                assert!(!user_identity.identity_needs_user_approval());
-            }
-            IdentityState::Pinned => {
-                // Pinned is the default state
-                assert!(!user_identity.is_verified());
-                assert!(!user_identity.was_previously_verified());
-                assert!(!user_identity.has_verification_violation());
-                assert!(!user_identity.identity_needs_user_approval());
-            }
-            IdentityState::PinViolation => {
-                change_master_key(&mut user_identity, &account).await;
-                assert!(!user_identity.is_verified());
-                assert!(!user_identity.was_previously_verified());
-                assert!(!user_identity.has_verification_violation());
-                assert!(user_identity.identity_needs_user_approval());
-            }
-            IdentityState::VerificationViolation => {
-                // TODO
-                assert!(!user_identity.is_verified());
-                assert!(user_identity.was_previously_verified());
-                assert!(!user_identity.has_verification_violation());
-                assert!(user_identity.identity_needs_user_approval());
-            }
-        }
-
-        UserIdentity::Other(user_identity)
+        })
     }
 
     /// Create an own `UserIdentity` for use in tests
-    async fn own_user_identity(user_id: &UserId, identity_state: IdentityState) -> UserIdentity {
+    async fn own_user_identity(user_id: &UserId) -> UserIdentity {
         use std::sync::Arc;
 
         use ruma::owned_device_id;
@@ -987,7 +1015,7 @@ mod tests {
             )),
         );
 
-        let mut user_identity = own_identity_wrapped(
+        UserIdentity::Own(own_identity_wrapped(
             own_user_identity_data,
             verification_machine.clone(),
             Store::new(
@@ -1000,63 +1028,6 @@ mod tests {
                 )),
                 verification_machine,
             ),
-        );
-
-        match identity_state {
-            IdentityState::Verified => {
-                // TODO
-                assert!(user_identity.is_verified());
-                assert!(!user_identity.was_previously_verified());
-                assert!(!user_identity.has_verification_violation());
-            }
-            IdentityState::Pinned => {
-                // Pinned is the default state
-                assert!(!user_identity.is_verified());
-                assert!(!user_identity.was_previously_verified());
-                assert!(!user_identity.has_verification_violation());
-            }
-            IdentityState::PinViolation => {
-                change_own_master_key(&mut user_identity, &account).await;
-                assert!(!user_identity.is_verified());
-                assert!(!user_identity.was_previously_verified());
-                assert!(!user_identity.has_verification_violation());
-            }
-            IdentityState::VerificationViolation => {
-                // TODO
-                assert!(!user_identity.is_verified());
-                assert!(user_identity.was_previously_verified());
-                assert!(!user_identity.has_verification_violation());
-            }
-        }
-
-        UserIdentity::Own(user_identity)
-    }
-
-    async fn change_master_key(user_identity: &mut OtherUserIdentity, account: &Account) {
-        // Create a new master key and self signing key
-        let private_identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::with_account(account).await.0));
-        let data = OtherUserIdentityData::from_private(&*private_identity.lock().await).await;
-
-        // And set them on the existing identity
-        user_identity
-            .update(data.master_key().clone(), data.self_signing_key().clone(), None)
-            .unwrap();
-    }
-
-    async fn change_own_master_key(user_identity: &mut OwnUserIdentity, account: &Account) {
-        // Create a new master key and self signing key
-        let private_identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::with_account(account).await.0));
-        let data = OwnUserIdentityData::from_private(&*private_identity.lock().await).await;
-
-        // And set them on the existing identity
-        user_identity
-            .update(
-                data.master_key().clone(),
-                data.self_signing_key().clone(),
-                data.user_signing_key().clone(),
-            )
-            .unwrap();
+        ))
     }
 }
