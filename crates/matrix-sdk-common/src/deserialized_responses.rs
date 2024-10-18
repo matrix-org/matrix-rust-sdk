@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, HashMap},
-    fmt,
-};
+use std::{collections::BTreeMap, fmt};
 
 use ruma::{
     events::{AnyMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent},
@@ -706,25 +703,26 @@ impl From<SyncTimelineEventDeserializationHelperV0> for SyncTimelineEvent {
     }
 }
 
-/// Represent a failed to send error of an event sent via the send_queue.
-/// These errors are not automatically retrievable, but yet some manual action
-/// can be taken before retry sending.
+/// Represent a failed to send unrecoverable error of an event sent via the
+/// send_queue. It is a serializable representation of a client error, see
+/// `From` implementation for more details. These errors can not be
+/// automatically retried, but yet some manual action can be taken before retry
+/// sending. If not the only solution is to delete the local event.
 #[derive(Clone, Debug, Serialize, Deserialize, thiserror::Error)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum QueueWedgeError {
     /// This error occurs when there are some insecure devices in the room, and
     /// the current encryption setting prohibit sharing with them.
     #[error("There are insecure devices in the room")]
     InsecureDevices {
         /// The insecure devices as a Map of userID to deviceID.
-        user_device_map: HashMap<String, Vec<String>>,
+        user_device_map: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
     },
     /// This error occurs when a previously verified user is not anymore, and
     /// the current encryption setting prohibit sharing when it happens.
     #[error("Some users that were previously verified are not anymore")]
     IdentityViolations {
         /// The users that are expected to be verified but are not.
-        users: Vec<String>,
+        users: Vec<OwnedUserId>,
     },
     /// It is required to set up cross-signing and properly erify the current
     /// session before sending.

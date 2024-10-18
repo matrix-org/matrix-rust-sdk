@@ -596,22 +596,10 @@ impl From<&crate::Error> for QueueWedgeError {
             crate::Error::OlmError(OlmError::SessionRecipientCollectionError(error)) => match error
             {
                 SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(user_map) => {
-                    QueueWedgeError::InsecureDevices {
-                        user_device_map: user_map
-                            .iter()
-                            .map(|(user_id, devices)| {
-                                (
-                                    user_id.to_string(),
-                                    devices.iter().map(|device_id| device_id.to_string()).collect(),
-                                )
-                            })
-                            .collect(),
-                    }
+                    QueueWedgeError::InsecureDevices { user_device_map: user_map.clone() }
                 }
                 SessionRecipientCollectionError::VerifiedUserChangedIdentity(users) => {
-                    QueueWedgeError::IdentityViolations {
-                        users: users.iter().map(ruma::OwnedUserId::to_string).collect(),
-                    }
+                    QueueWedgeError::IdentityViolations { users: users.clone() }
                 }
                 SessionRecipientCollectionError::CrossSigningNotSetup
                 | SessionRecipientCollectionError::SendingFromUnverifiedDevice => {

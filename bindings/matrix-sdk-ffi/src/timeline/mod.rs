@@ -80,7 +80,8 @@ use crate::{
 mod content;
 
 pub use content::MessageContent;
-use matrix_sdk::deserialized_responses::QueueWedgeError;
+
+use crate::error::QueueWedgeError;
 
 #[derive(uniffi::Object)]
 #[repr(transparent)]
@@ -932,7 +933,7 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
         match value {
             NotSentYet => Self::NotSentYet,
             SendingFailed { error, is_recoverable } => {
-                Self::SendingFailed { is_recoverable: *is_recoverable, error: error.clone() }
+                Self::SendingFailed { is_recoverable: *is_recoverable, error: error.clone().into() }
             }
             Sent { event_id } => Self::Sent { event_id: event_id.to_string() },
         }
