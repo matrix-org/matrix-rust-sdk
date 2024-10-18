@@ -77,7 +77,8 @@ impl SessionVerificationController {
         *self.delegate.write().unwrap() = delegate;
     }
 
-    /// Set this particular request as the currently active one and register for events pertaining it.
+    /// Set this particular request as the currently active one and register for
+    /// events pertaining it.
     /// * `sender_id` - The user requesting verification.
     /// * `flow_id` - - The ID that uniquely identifies the verification flow.
     pub async fn acknowledge_verification_request(
@@ -135,7 +136,8 @@ impl SessionVerificationController {
         Ok(())
     }
 
-    /// Transition the current verification request into a SAS verification flow.
+    /// Transition the current verification request into a SAS verification
+    /// flow.
     pub async fn start_sas_verification(&self) -> Result<(), ClientError> {
         let verification_request = self.verification_request.read().unwrap().clone();
 
