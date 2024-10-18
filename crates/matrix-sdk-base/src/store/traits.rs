@@ -23,7 +23,7 @@ use std::{
 use as_variant::as_variant;
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
-use matrix_sdk_common::AsyncTraitDeps;
+use matrix_sdk_common::{deserialized_responses::QueueWedgeError, AsyncTraitDeps};
 use ruma::{
     api::MatrixVersion,
     events::{
@@ -392,12 +392,13 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
     ) -> Result<Vec<QueuedEvent>, Self::Error>;
 
-    /// Updates the send queue wedged status for a given send queue event.
+    /// Updates the send queue error status (wedge) for a given send queue
+    /// event.
     async fn update_send_queue_event_status(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-        wedged: bool,
+        error: Option<QueueWedgeError>,
     ) -> Result<(), Self::Error>;
 
     /// Loads all the rooms which have any pending events in their send queue.
@@ -662,10 +663,10 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-        wedged: bool,
+        error: Option<QueueWedgeError>,
     ) -> Result<(), Self::Error> {
         self.0
-            .update_send_queue_event_status(room_id, transaction_id, wedged)
+            .update_send_queue_event_status(room_id, transaction_id, error)
             .await
             .map_err(Into::into)
     }
@@ -1156,7 +1157,16 @@ pub struct QueuedEvent {
     /// If the event couldn't be sent because of an API error, it's marked as
     /// wedged, and won't ever be peeked for sending. The only option is to
     /// remove it.
-    pub is_wedged: bool,
+    pub error: Option<QueueWedgeError>,
+}
+
+impl QueuedEvent {
+    /// If the event couldn't be sent because of an API error, it's marked as
+    /// wedged, and won't ever be peeked for sending. The only option is to
+    /// remove it.
+    pub fn is_wedged(&self) -> bool {
+        self.error.is_some()
+    }
 }
 
 /// The specific user intent that characterizes a [`DependentQueuedEvent`].
@@ -1254,7 +1264,7 @@ impl fmt::Debug for QueuedEvent {
         // Hide the content from the debug log.
         f.debug_struct("QueuedEvent")
             .field("transaction_id", &self.transaction_id)
-            .field("is_wedged", &self.is_wedged)
+            .field("is_wedged", &self.is_wedged())
             .finish_non_exhaustive()
     }
 }

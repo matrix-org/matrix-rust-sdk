@@ -58,7 +58,10 @@ use matrix_sdk_base::{
     },
     RoomState, StoreError,
 };
-use matrix_sdk_common::executor::{spawn, JoinHandle};
+use matrix_sdk_common::{
+    deserialized_responses::QueueWedgeError,
+    executor::{spawn, JoinHandle},
+};
 use ruma::{
     events::{
         reaction::ReactionEventContent, relation::Annotation, AnyMessageLikeEventContent,
@@ -70,6 +73,8 @@ use ruma::{
 use tokio::sync::{broadcast, Notify, RwLock};
 use tracing::{debug, error, info, instrument, trace, warn};
 
+#[cfg(feature = "e2e-encryption")]
+use crate::crypto::{OlmError, SessionRecipientCollectionError};
 use crate::{
     client::WeakClient,
     config::RequestConfig,
@@ -350,7 +355,7 @@ impl RoomSendQueue {
                     room: self.clone(),
                     transaction_id: transaction_id.clone(),
                 },
-                is_wedged: false,
+                send_error: None,
             },
         }));
 
@@ -515,8 +520,15 @@ impl RoomSendQueue {
                         warn!(txn_id = %queued_event.transaction_id, error = ?err, "Unrecoverable error when sending event: {err}");
 
                         // Mark the event as wedged, so it's not picked at any future point.
-                        if let Err(err) = queue.mark_as_wedged(&queued_event.transaction_id).await {
-                            warn!("unable to mark event as wedged: {err}");
+
+                        if let Err(storage_error) = queue
+                            .mark_as_wedged(
+                                &queued_event.transaction_id,
+                                QueueWedgeError::from(&err),
+                            )
+                            .await
+                        {
+                            warn!("unable to mark event as wedged: {storage_error}");
                         }
                     }
 
@@ -574,6 +586,28 @@ impl RoomSendQueue {
             .send(RoomSendQueueUpdate::RetryEvent { transaction_id: transaction_id.to_owned() });
 
         Ok(())
+    }
+}
+
+impl From<&crate::Error> for QueueWedgeError {
+    fn from(value: &crate::Error) -> Self {
+        match value {
+            #[cfg(feature = "e2e-encryption")]
+            crate::Error::OlmError(OlmError::SessionRecipientCollectionError(error)) => match error
+            {
+                SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(user_map) => {
+                    QueueWedgeError::InsecureDevices { user_device_map: user_map.clone() }
+                }
+                SessionRecipientCollectionError::VerifiedUserChangedIdentity(users) => {
+                    QueueWedgeError::IdentityViolations { users: users.clone() }
+                }
+                SessionRecipientCollectionError::CrossSigningNotSetup
+                | SessionRecipientCollectionError::SendingFromUnverifiedDevice => {
+                    QueueWedgeError::CrossVerificationRequired
+                }
+            },
+            _ => QueueWedgeError::GenericApiError { msg: value.to_string() },
+        }
     }
 }
 
@@ -658,7 +692,7 @@ impl QueueStorage {
 
         let queued_events = self.client()?.store().load_send_queue_events(&self.room_id).await?;
 
-        if let Some(event) = queued_events.iter().find(|queued| !queued.is_wedged) {
+        if let Some(event) = queued_events.iter().find(|queued| !queued.is_wedged()) {
             being_sent.insert(event.transaction_id.clone());
 
             Ok(Some(event.clone()))
@@ -680,6 +714,7 @@ impl QueueStorage {
     async fn mark_as_wedged(
         &self,
         transaction_id: &TransactionId,
+        reason: QueueWedgeError,
     ) -> Result<(), RoomSendQueueStorageError> {
         // Keep the lock until we're done touching the storage.
         let mut being_sent = self.being_sent.write().await;
@@ -688,7 +723,7 @@ impl QueueStorage {
         Ok(self
             .client()?
             .store()
-            .update_send_queue_event_status(&self.room_id, transaction_id, true)
+            .update_send_queue_event_status(&self.room_id, transaction_id, Some(reason))
             .await?)
     }
 
@@ -701,7 +736,7 @@ impl QueueStorage {
         Ok(self
             .client()?
             .store()
-            .update_send_queue_event_status(&self.room_id, transaction_id, false)
+            .update_send_queue_event_status(&self.room_id, transaction_id, None)
             .await?)
     }
 
@@ -855,7 +890,7 @@ impl QueueStorage {
                             room: room.clone(),
                             transaction_id: queued.transaction_id,
                         },
-                        is_wedged: queued.is_wedged,
+                        send_error: queued.error,
                     },
                 }
             });
@@ -1135,8 +1170,8 @@ pub enum LocalEchoContent {
         /// A handle to manipulate the sending of the associated event.
         send_handle: SendHandle,
         /// Whether trying to send this local echo failed in the past with an
-        /// unrecoverable error (see [`SendQueueRoomError::is_recoverable`]).
-        is_wedged: bool,
+        /// error (see [`SendQueueRoomError::is_recoverable`]).
+        send_error: Option<QueueWedgeError>,
     },
 
     /// A local echo has been reacted to.

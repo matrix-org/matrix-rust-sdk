@@ -147,6 +147,7 @@ mod keys {
 }
 
 pub use keys::ALL_STORES;
+use matrix_sdk_base::deserialized_responses::QueueWedgeError;
 
 /// Encrypt (if needs be) then JSON-serialize a value.
 fn serialize_value(store_cipher: Option<&StoreCipher>, event: &impl Serialize) -> Result<JsValue> {
@@ -432,7 +433,12 @@ struct PersistedQueuedEvent {
     // All these fields are the same as in [`QueuedEvent`].
     event: SerializableEventContent,
     transaction_id: OwnedTransactionId,
-    is_wedged: bool,
+
+    // Deprecated (from old format), now replaced with error field.
+    // Kept here for migration
+    is_wedged: Option<bool>,
+
+    pub error: Option<QueueWedgeError>,
 }
 
 // Small hack to have the following macro invocation act as the appropriate
@@ -1325,7 +1331,8 @@ impl_state_store!({
             room_id: room_id.to_owned(),
             event: content,
             transaction_id,
-            is_wedged: false,
+            is_wedged: None,
+            error: None,
         });
 
         // Save the new vector into db.
@@ -1363,7 +1370,8 @@ impl_state_store!({
         // Modify the one event.
         if let Some(entry) = prev.iter_mut().find(|entry| entry.transaction_id == transaction_id) {
             entry.event = content;
-            entry.is_wedged = false;
+            entry.is_wedged = None;
+            entry.error = None;
 
             // Save the new vector into db.
             obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
@@ -1432,7 +1440,19 @@ impl_state_store!({
             .map(|item| QueuedEvent {
                 event: item.event,
                 transaction_id: item.transaction_id,
-                is_wedged: item.is_wedged,
+                error: match item.is_wedged {
+                    Some(legacy_wedged) => {
+                        if legacy_wedged {
+                            // migrate a generic error
+                            Some(QueueWedgeError::GenericApiError {
+                                msg: "local echo failed to send in a previous session".into(),
+                            })
+                        } else {
+                            None
+                        }
+                    }
+                    None => item.error,
+                },
             })
             .collect())
     }
@@ -1441,7 +1461,7 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-        wedged: bool,
+        error: Option<QueueWedgeError>,
     ) -> Result<()> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
@@ -1456,7 +1476,8 @@ impl_state_store!({
             if let Some(queued_event) =
                 prev.iter_mut().find(|item| item.transaction_id == transaction_id)
             {
-                queued_event.is_wedged = wedged;
+                queued_event.is_wedged = None;
+                queued_event.error = error;
                 obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
             }
         }
