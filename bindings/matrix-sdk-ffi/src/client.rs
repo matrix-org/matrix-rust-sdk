@@ -1319,6 +1319,8 @@ pub struct CreateRoomParameters {
     pub power_level_content_override: Option<PowerLevels>,
     #[uniffi(default = None)]
     pub join_rule_override: Option<JoinRule>,
+    #[uniffi(default = None)]
+    pub canonical_alias: Option<String>,
 }
 
 impl TryFrom<CreateRoomParameters> for create_room::v3::Request {
@@ -1331,6 +1333,7 @@ impl TryFrom<CreateRoomParameters> for create_room::v3::Request {
         request.is_direct = value.is_direct;
         request.visibility = value.visibility.into();
         request.preset = Some(value.preset.into());
+        request.room_alias_name = value.canonical_alias;
         request.invite = match value.invite {
             Some(invite) => invite
                 .iter()
