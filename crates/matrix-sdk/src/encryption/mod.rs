@@ -456,7 +456,7 @@ impl Client {
     pub(crate) async fn upload_encrypted_media_and_thumbnail(
         &self,
         content_type: &mime::Mime,
-        data: Vec<u8>,
+        data: &[u8],
         thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<(MediaSource, Option<MediaSource>, Option<Box<ThumbnailInfo>>)> {
