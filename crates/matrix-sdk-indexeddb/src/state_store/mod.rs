@@ -1661,6 +1661,58 @@ impl From<&StrippedRoomMemberEvent> for RoomMember {
     }
 }
 
+#[cfg(test)]
+mod migration_tests {
+    use matrix_sdk_base::store::SerializableEventContent;
+    use ruma::{
+        events::room::message::RoomMessageEventContent, room_id, OwnedRoomId, OwnedTransactionId,
+        TransactionId,
+    };
+    use serde::{Deserialize, Serialize};
+
+    use crate::state_store::PersistedQueuedEvent;
+
+    #[derive(Serialize, Deserialize)]
+    struct OldPersistedQueuedEvent {
+        /// In which room is this event going to be sent.
+        pub room_id: OwnedRoomId,
+
+        // All these fields are the same as in [`QueuedEvent`].
+        event: SerializableEventContent,
+        transaction_id: OwnedTransactionId,
+
+        is_wedged: bool,
+    }
+
+    // We now persist an error when an event failed to send instead of just a
+    // boolean. To support that, `PersistedQueueEvent` changed a bool to
+    // Option<bool>, ensures that this work properly.
+    #[test]
+    fn test_migrating_persisted_queue_event_serialization() {
+        let room_a_id = room_id!("!room_a:dummy.local");
+        let transaction_id = TransactionId::new();
+        let content =
+            SerializableEventContent::new(&RoomMessageEventContent::text_plain("Hello").into())
+                .unwrap();
+
+        let old_persisted_queue_event = OldPersistedQueuedEvent {
+            room_id: room_a_id.to_owned(),
+            event: content,
+            transaction_id,
+            is_wedged: true,
+        };
+
+        let serialized_persisted_event = serde_json::to_vec(&old_persisted_queue_event).unwrap();
+
+        // Load it with the new version.
+        let new_persisted: PersistedQueuedEvent =
+            serde_json::from_slice(&serialized_persisted_event).unwrap();
+
+        assert_eq!(new_persisted.is_wedged, Some(true));
+        assert!(new_persisted.error.is_none());
+    }
+}
+
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     #[cfg(target_arch = "wasm32")]
