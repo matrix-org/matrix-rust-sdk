@@ -70,6 +70,7 @@ async fn test_mutual_sas_verification() -> Result<()> {
     bob.get_room(room_id).unwrap().join().await?;
 
     alice.sync_once().await?;
+    bob.sync_once().await?;
 
     warn!("alice and bob are both aware of each other in the e2ee room");
 
@@ -331,6 +332,7 @@ async fn test_mutual_qrcode_verification() -> Result<()> {
     bob.get_room(room_id).unwrap().join().await?;
 
     alice.sync_once().await?;
+    bob.sync_once().await?;
 
     warn!("alice and bob are both aware of each other in the e2ee room");
 
@@ -840,6 +842,9 @@ async fn test_secret_gossip_after_interactive_verification() -> Result<()> {
 
     // The first client is not verified from the point of view of the second client.
     assert!(!seconds_first_device.is_verified());
+
+    // Make the first client aware of the device we're requesting verification for
+    first_client.sync_once().await?;
 
     // Let's send out a request to verify with each other.
     let seconds_verification_request = seconds_first_device.request_verification().await?;
