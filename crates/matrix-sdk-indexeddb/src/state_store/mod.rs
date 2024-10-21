@@ -1441,17 +1441,13 @@ impl_state_store!({
                 event: item.event,
                 transaction_id: item.transaction_id,
                 error: match item.is_wedged {
-                    Some(legacy_wedged) => {
-                        if legacy_wedged {
-                            // migrate a generic error
-                            Some(QueueWedgeError::GenericApiError {
-                                msg: "local echo failed to send in a previous session".into(),
-                            })
-                        } else {
-                            None
-                        }
+                    Some(true) => {
+                        // migrate a generic error
+                        Some(QueueWedgeError::GenericApiError {
+                            msg: "local echo failed to send in a previous session".into(),
+                        })
                     }
-                    None => item.error,
+                    _ => item.error,
                 },
             })
             .collect())

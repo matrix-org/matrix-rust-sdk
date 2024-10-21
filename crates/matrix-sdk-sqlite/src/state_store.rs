@@ -1785,7 +1785,10 @@ impl StateStore for SqliteStateStore {
 
         // See comment in `save_send_queue_event`.
         let transaction_id = transaction_id.to_string();
+
+        // Serialize the error to json bytes (encrypted if option is enabled) if set.
         let error_value = error.map(|e| self.serialize_value(&e)).transpose()?;
+
         self.acquire()
             .await?
             .with_transaction(move |txn| {
@@ -2270,13 +2273,12 @@ mod migration_tests {
             let db = create_fake_db(&path, 7).await.unwrap();
             let conn = db.pool.get().await.unwrap();
 
-            let this = db.clone();
             let wedge_tx = wedged_event_transaction_id.clone();
             let local_tx = local_event_transaction_id.clone();
 
             conn.with_transaction(move |txn| {
-                add_send_queue_event_v7(&this, txn, &wedge_tx, room_a_id, true)?;
-                add_send_queue_event_v7(&this, txn, &local_tx, room_a_id, false)?;
+                add_send_queue_event_v7(&db, txn, &wedge_tx, room_a_id, true)?;
+                add_send_queue_event_v7(&db, txn, &local_tx, room_a_id, false)?;
 
                 Result::<_, Error>::Ok(())
             })

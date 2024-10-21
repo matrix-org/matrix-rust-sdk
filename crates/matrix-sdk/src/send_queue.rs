@@ -1170,7 +1170,7 @@ pub enum LocalEchoContent {
         /// A handle to manipulate the sending of the associated event.
         send_handle: SendHandle,
         /// Whether trying to send this local echo failed in the past with an
-        /// error (see [`SendQueueRoomError::is_recoverable`]).
+        /// unrecoverable error (see [`SendQueueRoomError::is_recoverable`]).
         send_error: Option<QueueWedgeError>,
     },
 

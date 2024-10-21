@@ -394,6 +394,8 @@ pub trait StateStore: AsyncTraitDeps {
 
     /// Updates the send queue error status (wedge) for a given send queue
     /// event.
+    /// Set `error` to None if the problem has been resolved and the event was
+    /// finally sent.
     async fn update_send_queue_event_status(
         &self,
         room_id: &RoomId,
@@ -1154,16 +1156,14 @@ pub struct QueuedEvent {
     /// Unique transaction id for the queued event, acting as a key.
     pub transaction_id: OwnedTransactionId,
 
-    /// If the event couldn't be sent because of an API error, it's marked as
-    /// wedged, and won't ever be peeked for sending. The only option is to
-    /// remove it.
+    /// Set when the event couldn't be sent because of an unrecoverable API
+    /// error. `None` if the event is in queue for being sent.
     pub error: Option<QueueWedgeError>,
 }
 
 impl QueuedEvent {
-    /// If the event couldn't be sent because of an API error, it's marked as
-    /// wedged, and won't ever be peeked for sending. The only option is to
-    /// remove it.
+    /// True if the event couldn't be sent because of an unrecoverable API
+    /// error. See `error` for more details on the reason.
     pub fn is_wedged(&self) -> bool {
         self.error.is_some()
     }
