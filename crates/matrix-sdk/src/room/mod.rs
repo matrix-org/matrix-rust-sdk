@@ -1936,12 +1936,7 @@ impl Room {
         #[cfg(feature = "e2e-encryption")]
         let (media_source, thumbnail_source, thumbnail_info) = if self.is_encrypted().await? {
             self.client
-                .upload_encrypted_media_and_thumbnail(
-                    content_type,
-                    data.clone(),
-                    thumbnail,
-                    send_progress,
-                )
+                .upload_encrypted_media_and_thumbnail(content_type, &data, thumbnail, send_progress)
                 .await?
         } else {
             self.client
