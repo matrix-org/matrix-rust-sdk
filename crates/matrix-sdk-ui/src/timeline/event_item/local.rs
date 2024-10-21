@@ -14,7 +14,7 @@
 
 use as_variant::as_variant;
 use matrix_sdk::send_queue::SendHandle;
-use matrix_sdk_base::deserialized_responses::QueueWedgeError;
+use matrix_sdk_base::store::QueueWedgeError;
 use ruma::{EventId, OwnedEventId, OwnedTransactionId};
 
 use super::TimelineEventItemId;

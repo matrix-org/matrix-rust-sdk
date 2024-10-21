@@ -1,14 +1,13 @@
 use std::{collections::HashMap, fmt::Display};
 
 use matrix_sdk::{
-    deserialized_responses::QueueWedgeError as SdkQueueWedgeError, encryption::CryptoStoreError,
-    event_cache::EventCacheError, oidc::OidcError, reqwest, room::edit::EditError,
-    send_queue::RoomSendQueueError, HttpError, IdParseError,
-    NotificationSettingsError as SdkNotificationSettingsError, StoreError,
+    encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, reqwest,
+    room::edit::EditError, send_queue::RoomSendQueueError, HttpError, IdParseError,
+    NotificationSettingsError as SdkNotificationSettingsError,
+    QueueWedgeError as SdkQueueWedgeError, StoreError,
 };
 use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
 use uniffi::UnexpectedUniFFICallbackError;
-
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     #[error("client error: {msg}")]

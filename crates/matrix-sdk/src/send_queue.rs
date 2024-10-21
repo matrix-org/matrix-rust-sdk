@@ -53,15 +53,12 @@ use std::{
 
 use matrix_sdk_base::{
     store::{
-        ChildTransactionId, DependentQueuedEvent, DependentQueuedEventKind, QueuedEvent,
-        SerializableEventContent,
+        ChildTransactionId, DependentQueuedEvent, DependentQueuedEventKind, QueueWedgeError,
+        QueuedEvent, SerializableEventContent,
     },
     RoomState, StoreError,
 };
-use matrix_sdk_common::{
-    deserialized_responses::QueueWedgeError,
-    executor::{spawn, JoinHandle},
-};
+use matrix_sdk_common::executor::{spawn, JoinHandle};
 use ruma::{
     events::{
         reaction::ReactionEventContent, relation::Annotation, AnyMessageLikeEventContent,

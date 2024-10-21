@@ -19,7 +19,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
-use matrix_sdk_base::deserialized_responses::QueueWedgeError;
+use matrix_sdk_base::store::QueueWedgeError;
 use matrix_sdk_test::{
     async_test, mocks::mock_encryption_state, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder,
     ALICE,

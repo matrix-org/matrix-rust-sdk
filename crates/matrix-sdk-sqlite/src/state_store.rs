@@ -9,10 +9,10 @@ use std::{
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
-    deserialized_responses::{QueueWedgeError, RawAnySyncOrStrippedState, SyncOrStrippedState},
+    deserialized_responses::{RawAnySyncOrStrippedState, SyncOrStrippedState},
     store::{
         migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedEvent,
-        DependentQueuedEventKind, QueuedEvent, SerializableEventContent,
+        DependentQueuedEventKind, QueueWedgeError, QueuedEvent, SerializableEventContent,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue,
@@ -2001,8 +2001,9 @@ mod migration_tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
-        deserialized_responses::QueueWedgeError, store::SerializableEventContent,
-        sync::UnreadNotificationsCount, RoomState, StateStore,
+        store::{QueueWedgeError, SerializableEventContent},
+        sync::UnreadNotificationsCount,
+        RoomState, StateStore,
     };
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;

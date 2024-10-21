@@ -23,7 +23,7 @@ use std::{
 use as_variant::as_variant;
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
-use matrix_sdk_common::{deserialized_responses::QueueWedgeError, AsyncTraitDeps};
+use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
     api::MatrixVersion,
     events::{
@@ -37,8 +37,8 @@ use ruma::{
     },
     serde::Raw,
     time::SystemTime,
-    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId,
-    TransactionId, UserId,
+    EventId, OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedTransactionId,
+    OwnedUserId, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -1167,6 +1167,39 @@ impl QueuedEvent {
     pub fn is_wedged(&self) -> bool {
         self.error.is_some()
     }
+}
+
+/// Represent a failed to send unrecoverable error of an event sent via the
+/// send_queue. It is a serializable representation of a client error, see
+/// `From` implementation for more details. These errors can not be
+/// automatically retried, but yet some manual action can be taken before retry
+/// sending. If not the only solution is to delete the local event.
+#[derive(Clone, Debug, Serialize, Deserialize, thiserror::Error)]
+pub enum QueueWedgeError {
+    /// This error occurs when there are some insecure devices in the room, and
+    /// the current encryption setting prohibit sharing with them.
+    #[error("There are insecure devices in the room")]
+    InsecureDevices {
+        /// The insecure devices as a Map of userID to deviceID.
+        user_device_map: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+    },
+    /// This error occurs when a previously verified user is not anymore, and
+    /// the current encryption setting prohibit sharing when it happens.
+    #[error("Some users that were previously verified are not anymore")]
+    IdentityViolations {
+        /// The users that are expected to be verified but are not.
+        users: Vec<OwnedUserId>,
+    },
+    /// It is required to set up cross-signing and properly erify the current
+    /// session before sending.
+    #[error("Own verification is required")]
+    CrossVerificationRequired,
+    /// Other errors.
+    #[error("Other unrecoverable error: {msg}")]
+    GenericApiError {
+        /// Description of the error.
+        msg: String,
+    },
 }
 
 /// The specific user intent that characterizes a [`DependentQueuedEvent`].

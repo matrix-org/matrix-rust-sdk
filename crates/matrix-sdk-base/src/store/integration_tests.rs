@@ -6,7 +6,6 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloomBuilder;
-use matrix_sdk_common::deserialized_responses::QueueWedgeError;
 use matrix_sdk_test::test_json;
 use ruma::{
     api::MatrixVersion,
@@ -37,7 +36,10 @@ use serde_json::{json, value::Value as JsonValue};
 use super::{DependentQueuedEventKind, DynStateStore, ServerCapabilities};
 use crate::{
     deserialized_responses::MemberEvent,
-    store::{traits::ChildTransactionId, Result, SerializableEventContent, StateStoreExt},
+    store::{
+        traits::ChildTransactionId, QueueWedgeError, Result, SerializableEventContent,
+        StateStoreExt,
+    },
     RoomInfo, RoomMemberships, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
 

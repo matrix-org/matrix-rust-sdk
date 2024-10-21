@@ -18,7 +18,7 @@ use matrix_sdk::{
     assert_next_matches_with_timeout, send_queue::RoomSendQueueUpdate,
     test_utils::events::EventFactory,
 };
-use matrix_sdk_base::deserialized_responses::QueueWedgeError;
+use matrix_sdk_base::store::QueueWedgeError;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     event_id,

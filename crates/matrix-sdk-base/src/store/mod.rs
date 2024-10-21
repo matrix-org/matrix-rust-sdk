@@ -75,7 +75,7 @@ pub use self::{
     memory_store::MemoryStore,
     traits::{
         ChildTransactionId, ComposerDraft, ComposerDraftType, DependentQueuedEvent,
-        DependentQueuedEventKind, DynStateStore, IntoStateStore, QueuedEvent,
+        DependentQueuedEventKind, DynStateStore, IntoStateStore, QueueWedgeError, QueuedEvent,
         SerializableEventContent, ServerCapabilities, StateStore, StateStoreDataKey,
         StateStoreDataValue, StateStoreExt,
     },

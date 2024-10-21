@@ -19,7 +19,6 @@ use std::{
 
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
-use matrix_sdk_common::deserialized_responses::QueueWedgeError;
 use ruma::{
     canonical_json::{redact, RedactedBecause},
     events::{
@@ -45,8 +44,8 @@ use super::{
     StoreError,
 };
 use crate::{
-    deserialized_responses::RawAnySyncOrStrippedState, MinimalRoomMemberEvent, RoomMemberships,
-    StateStoreDataKey, StateStoreDataValue,
+    deserialized_responses::RawAnySyncOrStrippedState, store::QueueWedgeError,
+    MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
 };
 
 /// In-memory, non-persistent implementation of the `StateStore`.

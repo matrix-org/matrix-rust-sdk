@@ -147,7 +147,7 @@ mod keys {
 }
 
 pub use keys::ALL_STORES;
-use matrix_sdk_base::deserialized_responses::QueueWedgeError;
+use matrix_sdk_base::store::QueueWedgeError;
 
 /// Encrypt (if needs be) then JSON-serialize a value.
 fn serialize_value(store_cipher: Option<&StoreCipher>, event: &impl Serialize) -> Result<JsValue> {
