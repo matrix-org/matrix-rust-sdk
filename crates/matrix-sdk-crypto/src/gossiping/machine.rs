@@ -510,7 +510,8 @@ impl GossipMachine {
                     }
                     #[cfg(feature = "experimental-algorithms")]
                     RequestedKeyInfo::MegolmV2AesSha2(i) => {
-                        self.handle_supported_key_request(event, &i.room_id, &i.session_id).await
+                        self.handle_supported_key_request(cache, event, &i.room_id, &i.session_id)
+                            .await
                     }
                     RequestedKeyInfo::Unknown(i) => {
                         debug!(
