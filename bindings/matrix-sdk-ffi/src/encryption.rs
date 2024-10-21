@@ -6,6 +6,7 @@ use matrix_sdk::{
     encryption::{backups, recovery},
 };
 use thiserror::Error;
+use tracing::{error, info};
 use zeroize::Zeroize;
 
 use super::RUNTIME;
@@ -411,38 +412,12 @@ impl Encryption {
         self.inner.wait_for_e2ee_initialization_tasks().await;
     }
 
-    /// Get the E2EE identity of a user from the crypto store.
+    /// Get the E2EE identity of a user.
     ///
-    /// Usually, we only have the E2EE identity of a user locally if the user
-    /// is tracked, meaning that we are both members of the same encrypted room.
-    ///
-    /// To get the E2EE identity of a user even if it is not available locally
-    /// use `request_user_identity()`.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The unique id of the user that the identity belongs to.
-    ///
-    /// Returns a `UserIdentity` if one is found and the crypto store
-    /// didn't throw an error.
-    ///
-    /// This will always return None if the client hasn't been logged in.
-    pub async fn get_user_identity(
-        &self,
-        user_id: String,
-    ) -> Result<Option<Arc<UserIdentity>>, ClientError> {
-        let identity = self.inner.get_user_identity(user_id.as_str().try_into()?).await?;
-        Ok(identity.map(|i| Arc::new(UserIdentity { inner: i })))
-    }
-
-    /// Get the E2EE identity of a user from the homeserver.
-    ///
-    /// The E2EE identity returned is always guaranteed to be up-to-date. If the
-    /// E2EE identity is not found, it should mean that the user did not set
-    /// up cross-signing.
-    ///
-    /// If you want the E2EE identity of a user without making a request to the
-    /// homeserver, use `get_user_identity()` instead.
+    /// This method always tries to fetch the identity from the store, which we
+    /// only have if the user is tracked, meaning that we are both members
+    /// of the same encrypted room. If no user is found locally, a request will
+    /// be made to the homeserver.
     ///
     /// # Arguments
     ///
@@ -453,12 +428,26 @@ impl Encryption {
     /// homeserver.
     ///
     /// This will always return `None` if the client hasn't been logged in.
-    pub async fn request_user_identity(
+    pub async fn user_identity(
         &self,
         user_id: String,
     ) -> Result<Option<Arc<UserIdentity>>, ClientError> {
+        match self.inner.get_user_identity(user_id.as_str().try_into()?).await {
+            Ok(Some(identity)) => {
+                return Ok(Some(Arc::new(UserIdentity { inner: identity })));
+            }
+            Ok(None) => {
+                info!("No identity found in the store.");
+            }
+            Err(error) => {
+                error!("Failed fetching identity from the store: {}", error);
+            }
+        };
+
+        info!("Requesting identity from the server.");
+
         let identity = self.inner.request_user_identity(user_id.as_str().try_into()?).await?;
-        Ok(identity.map(|i| Arc::new(UserIdentity { inner: i })))
+        Ok(identity.map(|identity| Arc::new(UserIdentity { inner: identity })))
     }
 }
 
