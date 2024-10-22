@@ -722,8 +722,8 @@ mod tests {
             pub(super) async fn verify_with(
                 &self,
                 key_query: KeyQueryResponse,
-                msk: serde_json::Value,
-                ssk: serde_json::Value,
+                master_signing_key: serde_json::Value,
+                self_signing_key: serde_json::Value,
             ) {
                 // Make sure the requested identity is set
                 self.change_identity(key_query).await;
@@ -753,8 +753,8 @@ mod tests {
                     my_identity,
                     my_user_id,
                     self.user_id(),
-                    msk,
-                    ssk,
+                    master_signing_key,
+                    self_signing_key,
                 );
 
                 // Receive the response into our client
