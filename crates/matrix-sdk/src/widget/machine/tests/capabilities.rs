@@ -196,7 +196,7 @@ pub(super) fn assert_capabilities_dance(
         .any(|c| capability.starts_with(c))
     {
         let action = actions.remove(0);
-        assert_matches!(action, Action::Subscribe);
+        assert_matches!(action, Action::SubscribeTimeline);
     }
 
     // Inform the widget about the acquired capabilities.

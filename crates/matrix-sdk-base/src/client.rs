@@ -56,7 +56,7 @@ use ruma::{
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
     time::Instant,
-    OwnedRoomId, OwnedUserId, RoomId, RoomVersionId, UInt, UserId,
+    OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId, RoomVersionId, UInt, UserId,
 };
 use tokio::sync::{broadcast, Mutex};
 #[cfg(feature = "e2e-encryption")]

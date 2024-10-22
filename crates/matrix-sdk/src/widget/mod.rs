@@ -17,6 +17,7 @@
 use std::{fmt, time::Duration};
 
 use async_channel::{Receiver, Sender};
+use machine::MatrixEvent;
 use ruma::api::client::delayed_events::DelayParameters;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -151,6 +152,7 @@ impl WidgetDriver {
             widget_machine: client_api,
             matrix_driver: MatrixDriver::new(room.clone()),
             event_forwarding_guard: None,
+            to_device_event_forwarding_guard: None,
             to_widget_tx: self.to_widget_tx,
             events_tx,
             capabilities_provider,
@@ -175,6 +177,7 @@ struct ProcessingContext<T> {
     widget_machine: WidgetMachine,
     matrix_driver: MatrixDriver,
     event_forwarding_guard: Option<DropGuard>,
+    to_device_event_forwarding_guard: Option<DropGuard>,
     to_widget_tx: Sender<String>,
     events_tx: UnboundedSender<IncomingMessage>,
     capabilities_provider: T,
@@ -247,13 +250,24 @@ impl<T: CapabilitiesProvider> ProcessingContext<T> {
                         .await
                         .map(MatrixDriverResponse::MatrixDelayedEventUpdate)
                         .map_err(|e: HttpError| e.to_string()),
+
+                    MatrixDriverRequestData::SendToDeviceEvent(send_to_device_request) => self
+                        .matrix_driver
+                        .send_to_device(
+                            send_to_device_request.event_type,
+                            send_to_device_request.encrypted,
+                            send_to_device_request.messages,
+                        )
+                        .await
+                        .map(MatrixDriverResponse::MatrixToDeviceSent)
+                        .map_err(|e| e.to_string()),
                 };
 
                 self.events_tx
                     .send(IncomingMessage::MatrixDriverResponse { request_id, response })
                     .map_err(|_| ())?;
             }
-            Action::Subscribe => {
+            Action::SubscribeTimeline => {
                 // Only subscribe if we are not already subscribed.
                 if self.event_forwarding_guard.is_none() {
                     let (stop_forwarding, guard) = {
@@ -269,15 +283,43 @@ impl<T: CapabilitiesProvider> ProcessingContext<T> {
                             tokio::select! {
                                 _ = stop_forwarding.cancelled() => { return }
                                 Some(event) = matrix.recv() => {
-                                    let _ = events_tx.send(IncomingMessage::MatrixEventReceived(event));
+                                    let ev = MatrixEvent::Timeline(event);
+                                    let _ = events_tx.send(IncomingMessage::MatrixEventReceived(ev));
                                 }
                             }
                         }
                     });
                 }
             }
-            Action::Unsubscribe => {
+            Action::UnsubscribeTimeline => {
                 self.event_forwarding_guard = None;
+            }
+            Action::SubscribeToDevice => {
+                // Only subscribe if we are not already subscribed.
+                if self.to_device_event_forwarding_guard.is_none() {
+                    let (stop_forwarding, guard) = {
+                        let token = CancellationToken::new();
+                        (token.child_token(), token.drop_guard())
+                    };
+
+                    self.to_device_event_forwarding_guard = Some(guard);
+                    let (mut matrix, events_tx) =
+                        (self.matrix_driver.to_device_events(), self.events_tx.clone());
+                    tokio::spawn(async move {
+                        loop {
+                            tokio::select! {
+                                _ = stop_forwarding.cancelled() => { return }
+                                Some(event) = matrix.recv() => {
+                                    let ev = MatrixEvent::ToDevice(event);
+                                    let _ = events_tx.send(IncomingMessage::MatrixEventReceived(ev));
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+            Action::UnsubscribeToDevice => {
+                self.to_device_event_forwarding_guard = None;
             }
         }
 

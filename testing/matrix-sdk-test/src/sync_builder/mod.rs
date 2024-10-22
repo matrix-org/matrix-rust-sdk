@@ -8,7 +8,7 @@ use ruma::{
         },
         IncomingResponse,
     },
-    events::{presence::PresenceEvent, AnyGlobalAccountDataEvent},
+    events::{presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyToDeviceEvent, ToDeviceEvent},
     serde::Raw,
     OwnedRoomId, OwnedUserId, UserId,
 };
@@ -54,6 +54,7 @@ pub struct SyncResponseBuilder {
     batch_counter: i64,
     /// The device lists of the user.
     changed_device_lists: Vec<OwnedUserId>,
+    to_device_events: Vec<Raw<AnyToDeviceEvent>>,
 }
 
 impl SyncResponseBuilder {
@@ -143,6 +144,12 @@ impl SyncResponseBuilder {
         self
     }
 
+    /// Add a presence event.
+    pub fn add_to_device_event(&mut self, event: JsonValue) -> &mut Self {
+        self.to_device_events.push(from_json_value(event).unwrap());
+        self
+    }
+
     /// Builds a sync response as a JSON Value containing the events we queued
     /// so far.
     ///
@@ -171,7 +178,7 @@ impl SyncResponseBuilder {
                     "leave": self.left_rooms,
                 },
                 "to_device": {
-                    "events": []
+                    "events": self.to_device_events,
                 },
                 "presence": {
                     "events": self.presence,
