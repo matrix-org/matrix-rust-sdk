@@ -2098,12 +2098,8 @@ pub(crate) mod tests {
         // We should now have an identity for the user but no pin violation
         // (pinned master key is the current one)
         assert!(!other_identity.has_pin_violation());
-        let first_device = manager
-            .store
-            .get_device_data(other_user, DataSet::first_device_id())
-            .await
-            .unwrap()
-            .unwrap();
+        let first_device =
+            manager.store.get_device_data(other_user, DataSet::device_a()).await.unwrap().unwrap();
         assert!(first_device.is_cross_signed_by_owner(&identity));
 
         // We receive a new keys update for that user, with a new identity
@@ -2122,23 +2118,15 @@ pub(crate) mod tests {
         // violation
         assert!(other_identity.has_pin_violation());
 
-        let second_device = manager
-            .store
-            .get_device_data(other_user, DataSet::second_device_id())
-            .await
-            .unwrap()
-            .unwrap();
+        let second_device =
+            manager.store.get_device_data(other_user, DataSet::device_b()).await.unwrap().unwrap();
 
         // There is a new device signed by the new identity
         assert!(second_device.is_cross_signed_by_owner(&identity));
 
         // The first device should not be signed by the new identity
-        let first_device = manager
-            .store
-            .get_device_data(other_user, DataSet::first_device_id())
-            .await
-            .unwrap()
-            .unwrap();
+        let first_device =
+            manager.store.get_device_data(other_user, DataSet::device_a()).await.unwrap().unwrap();
         assert!(!first_device.is_cross_signed_by_owner(&identity));
 
         let remember_previous_identity = other_identity.clone();
