@@ -472,11 +472,11 @@ impl IdentityChangeDataSet {
         KeysQueryUser::bob_c().device_id
     }
 
-    pub fn msk_a() -> Value {
+    pub fn master_signing_keys_a() -> Value {
         master_keys(&KeysQueryUser::bob_a())
     }
 
-    pub fn ssk_a() -> Value {
+    pub fn self_signing_keys_a() -> Value {
         self_signing_keys(&KeysQueryUser::bob_a())
     }
 
@@ -486,11 +486,11 @@ impl IdentityChangeDataSet {
         keys_query(&KeysQueryUser::bob_a(), &[])
     }
 
-    pub fn msk_b() -> Value {
+    pub fn master_signing_keys_b() -> Value {
         master_keys(&KeysQueryUser::bob_b())
     }
 
-    pub fn ssk_b() -> Value {
+    pub fn self_signing_keys_b() -> Value {
         self_signing_keys(&KeysQueryUser::bob_b())
     }
 
