@@ -334,8 +334,8 @@ mod tests {
         // And Bob's is in verification violation
         t.verify_with(
             IdentityChangeDataSet::key_query_with_identity_b(),
-            IdentityChangeDataSet::msk_b(),
-            IdentityChangeDataSet::ssk_b(),
+            IdentityChangeDataSet::master_signing_keys_b(),
+            IdentityChangeDataSet::self_signing_keys_b(),
         )
         .await;
         t.unpin().await;
@@ -713,8 +713,8 @@ mod tests {
             pub(super) async fn verify(&self) {
                 self.verify_with(
                     IdentityChangeDataSet::key_query_with_identity_a(),
-                    IdentityChangeDataSet::msk_a(),
-                    IdentityChangeDataSet::ssk_a(),
+                    IdentityChangeDataSet::master_signing_keys_a(),
+                    IdentityChangeDataSet::self_signing_keys_a(),
                 )
                 .await;
             }

@@ -1757,8 +1757,8 @@ pub(crate) mod tests {
             my_id,
             my_user_id,
             other_user_id,
-            DataSet::msk_b(),
-            DataSet::ssk_b(),
+            DataSet::master_signing_keys_b(),
+            DataSet::self_signing_keys_b(),
         );
         machine.mark_request_as_sent(&TransactionId::new(), &kq_response).await.unwrap();
 
