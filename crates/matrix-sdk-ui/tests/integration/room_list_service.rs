@@ -7,9 +7,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use matrix_sdk::{test_utils::logged_in_client_with_server, Client};
-use matrix_sdk_base::{
-    sliding_sync::http::request::RoomSubscription, sync::UnreadNotificationsCount,
-};
+use matrix_sdk_base::sync::UnreadNotificationsCount;
 use matrix_sdk_test::{async_test, mocks::mock_encryption_state};
 use matrix_sdk_ui::{
     room_list_service::{
@@ -20,10 +18,8 @@ use matrix_sdk_ui::{
     RoomListService,
 };
 use ruma::{
-    api::client::room::create_room::v3::Request as CreateRoomRequest,
-    assign, event_id,
-    events::{room::message::RoomMessageEventContent, StateEventType},
-    mxc_uri, room_id, uint,
+    api::client::room::create_room::v3::Request as CreateRoomRequest, event_id,
+    events::room::message::RoomMessageEventContent, mxc_uri, room_id,
 };
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
@@ -334,7 +330,6 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.topic", ""],
                         ["m.room.canonical_alias", ""],
                         ["m.room.power_levels", ""],
-                        ["m.room.pinned_events", ""],
                         ["org.matrix.msc3401.call.member", ""],
                     ],
                     "include_heroes": true,
@@ -2083,18 +2078,7 @@ async fn test_room_subscription() -> Result<(), Error> {
 
     // Subscribe.
 
-    room_list.subscribe_to_rooms(
-        &[room_id_1],
-        Some(assign!(RoomSubscription::default(), {
-            required_state: vec![
-                (StateEventType::RoomName, "".to_owned()),
-                (StateEventType::RoomTopic, "".to_owned()),
-                (StateEventType::RoomAvatar, "".to_owned()),
-                (StateEventType::RoomCanonicalAlias, "".to_owned()),
-            ],
-            timeline_limit: uint!(30),
-        })),
-    );
+    room_list.subscribe_to_rooms(&[room_id_1]);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2109,12 +2093,17 @@ async fn test_room_subscription() -> Result<(), Error> {
                 room_id_1: {
                     "required_state": [
                         ["m.room.name", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
                         ["m.room.topic", ""],
-                        ["m.room.avatar", ""],
                         ["m.room.canonical_alias", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", ""],
                         ["m.room.create", ""],
+                        ["m.room.pinned_events", ""],
                     ],
-                    "timeline_limit": 30,
+                    "timeline_limit": 20,
                 },
             },
         },
@@ -2127,18 +2116,7 @@ async fn test_room_subscription() -> Result<(), Error> {
 
     // Subscribe to another room.
 
-    room_list.subscribe_to_rooms(
-        &[room_id_2],
-        Some(assign!(RoomSubscription::default(), {
-            required_state: vec![
-                (StateEventType::RoomName, "".to_owned()),
-                (StateEventType::RoomTopic, "".to_owned()),
-                (StateEventType::RoomAvatar, "".to_owned()),
-                (StateEventType::RoomCanonicalAlias, "".to_owned()),
-            ],
-            timeline_limit: uint!(30),
-        })),
-    );
+    room_list.subscribe_to_rooms(&[room_id_2]);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2153,12 +2131,17 @@ async fn test_room_subscription() -> Result<(), Error> {
                 room_id_2: {
                     "required_state": [
                         ["m.room.name", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
                         ["m.room.topic", ""],
-                        ["m.room.avatar", ""],
                         ["m.room.canonical_alias", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", ""],
                         ["m.room.create", ""],
+                        ["m.room.pinned_events", ""],
                     ],
-                    "timeline_limit": 30,
+                    "timeline_limit": 20,
                 },
             },
         },
@@ -2171,18 +2154,7 @@ async fn test_room_subscription() -> Result<(), Error> {
 
     // Subscribe to an already subscribed room. Nothing happens.
 
-    room_list.subscribe_to_rooms(
-        &[room_id_1],
-        Some(assign!(RoomSubscription::default(), {
-            required_state: vec![
-                (StateEventType::RoomName, "".to_owned()),
-                (StateEventType::RoomTopic, "".to_owned()),
-                (StateEventType::RoomAvatar, "".to_owned()),
-                (StateEventType::RoomCanonicalAlias, "".to_owned()),
-            ],
-            timeline_limit: uint!(30),
-        })),
-    );
+    room_list.subscribe_to_rooms(&[room_id_1]);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
