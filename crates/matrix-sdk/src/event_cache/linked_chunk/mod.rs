@@ -852,6 +852,12 @@ impl ChunkIdentifierGenerator {
 #[repr(transparent)]
 pub struct ChunkIdentifier(u64);
 
+impl PartialEq<u64> for ChunkIdentifier {
+    fn eq(&self, other: &u64) -> bool {
+        self.0 == *other
+    }
+}
+
 /// The position of something inside a [`Chunk`].
 ///
 /// It's a pair of a chunk position and an item index.
