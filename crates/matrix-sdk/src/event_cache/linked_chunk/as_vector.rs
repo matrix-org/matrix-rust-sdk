@@ -379,6 +379,10 @@ impl UpdateToVectorDiff {
                     }
                 }
 
+                Update::RemoveItem { at } => {
+                    todo!()
+                }
+
                 Update::DetachLastItems { at } => {
                     let expected_chunk_identifier = at.chunk_identifier();
                     let new_length = at.index();
