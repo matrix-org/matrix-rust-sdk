@@ -1009,7 +1009,7 @@ impl Client {
         };
 
         if let Some(room) = self.get_room(&room_id) {
-            return Ok(RoomPreview::from_known(&room));
+            return Ok(RoomPreview::from_known(&room).await);
         }
 
         RoomPreview::from_unknown(self, room_id, room_or_alias_id, via).await

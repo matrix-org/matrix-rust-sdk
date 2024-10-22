@@ -195,9 +195,7 @@ impl Room {
                 false
             });
 
-        let request = join_room_by_id::v3::Request::new(self.inner.room_id().to_owned());
-        let response = self.client.send(request, None).await?;
-        self.client.base_client().room_joined(&response.room_id).await?;
+        self.client.join_room_by_id(self.room_id()).await?;
 
         if mark_as_direct {
             self.set_is_direct(true).await?;

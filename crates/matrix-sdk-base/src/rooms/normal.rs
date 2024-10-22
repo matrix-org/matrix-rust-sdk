@@ -186,6 +186,8 @@ impl RoomSummary {
 /// Enum keeping track in which state the room is, e.g. if our own user is
 /// joined, RoomState::Invited, or has left the room.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Enum)]
 pub enum RoomState {
     /// The room is in a joined state.
     Joined,

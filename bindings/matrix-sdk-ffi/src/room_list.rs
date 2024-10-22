@@ -16,12 +16,16 @@ use matrix_sdk_ui::{
     timeline::default_event_filter,
     unable_to_decrypt_hook::UtdHookManager,
 };
+use ruma::{
+    IdParseError, OwnedRoomOrAliasId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
+};
 use tokio::sync::RwLock;
 
 use crate::{
     error::ClientError,
     room::{Membership, Room},
     room_info::RoomInfo,
+    room_preview::RoomPreview,
     timeline::{EventTimelineItem, Timeline},
     timeline_event_filter::TimelineEventTypeFilter,
     TaskHandle, RUNTIME,
@@ -580,31 +584,47 @@ impl RoomListItem {
     ///
     /// ⚠️ Holding on to this room instance after it has been joined is not
     /// safe. Use `full_room` instead.
-    #[deprecated(note = "Please use `room_without_timeline` instead.")]
+    #[deprecated(note = "Please use `preview_room` instead.")]
     fn invited_room(&self) -> Result<Arc<Room>, RoomListError> {
-        self.room_without_timeline()
-    }
-
-    /// Builds a `Room` FFI from a room without initializing its internal
-    /// timeline.
-    ///
-    /// An error will be returned if the room is a state other than invited
-    /// or knocked, the 2 states that would match this use case.
-    ///
-    /// ⚠️ Holding on to this room instance after it has been joined is not
-    /// safe. Use `full_room` instead.
-    fn room_without_timeline(&self) -> Result<Arc<Room>, RoomListError> {
-        let membership = self.membership();
-        if !matches!(membership, Membership::Invited)
-            && !matches!(self.membership(), Membership::Knocked)
-        {
+        if !matches!(self.membership(), Membership::Invited) {
             return Err(RoomListError::IncorrectRoomMembership {
-                expected: vec![Membership::Invited, Membership::Knocked],
+                expected: vec![Membership::Invited],
                 actual: self.membership(),
             });
         }
-
         Ok(Arc::new(Room::new(self.inner.inner_room().clone())))
+    }
+
+    /// Builds a `RoomPreview` from a room list item. This is intended for rooms
+    /// with [`Membership::Invite`] or [`Membership::Knocked`],
+    ///
+    /// An error will be returned if the room is a state other than invited
+    /// or knocked.
+    async fn preview_room(&self, via: Vec<String>) -> Result<Arc<RoomPreview>, ClientError> {
+        let membership = self.membership();
+        if !matches!(membership, Membership::Invited | Membership::Knocked) {
+            return Err(RoomListError::IncorrectRoomMembership {
+                expected: vec![Membership::Invited, Membership::Knocked],
+                actual: membership,
+            }
+            .into());
+        }
+
+        let client = self.inner.client();
+        let (room_or_alias_id, server_names) = if let Some(alias) = self.inner.canonical_alias() {
+            let room_or_alias_id: OwnedRoomOrAliasId = alias.into();
+            (room_or_alias_id, Vec::new())
+        } else {
+            let room_or_alias_id: OwnedRoomOrAliasId = self.inner.id().to_owned().into();
+            let server_names: Vec<OwnedServerName> = via
+                .into_iter()
+                .map(|server| ServerName::parse(server).map_err(ClientError::from))
+                .collect::<Result<_, ClientError>>()?;
+            (room_or_alias_id, server_names)
+        };
+
+        let room_preview = client.get_room_preview(&room_or_alias_id, server_names).await?;
+        Ok(Arc::new(RoomPreview::try_from_sdk(room_preview, client)))
     }
 
     /// Build a full `Room` FFI object, filling its associated timeline.
