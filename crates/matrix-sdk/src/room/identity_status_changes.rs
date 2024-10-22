@@ -580,7 +580,7 @@ mod tests {
         changes
             .next()
             .await
-            .expect("Should new reach end of changes stream")
+            .expect("Should not reach end of changes stream")
             .expect("Should not time out waiting for a change")
     }
 
