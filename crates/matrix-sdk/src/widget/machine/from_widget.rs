@@ -17,6 +17,7 @@ use ruma::{
     api::client::{
         delayed_events::{delayed_message_event, delayed_state_event, update_delayed_event},
         error::{ErrorBody, StandardErrorBody},
+        to_device::send_event_to_device,
     },
     events::{AnyTimelineEvent, MessageLikeEventType, StateEventType},
     serde::Raw,
@@ -24,7 +25,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{SendEventRequest, UpdateDelayedEventRequest};
+use super::{driver_req::SendToDeviceRequest, SendEventRequest, UpdateDelayedEventRequest};
 use crate::{widget::StateKeySelector, Error, HttpError, RumaApiError};
 
 #[derive(Deserialize, Debug)]
@@ -37,6 +38,8 @@ pub(super) enum FromWidgetRequest {
     #[serde(rename = "org.matrix.msc2876.read_events")]
     ReadEvent(ReadEventRequest),
     SendEvent(SendEventRequest),
+    #[serde(rename = "org.matrix.msc3819.send_to_device")]
+    SendToDevice(SendToDeviceRequest),
     #[serde(rename = "org.matrix.msc4157.update_delayed_event")]
     DelayedEventUpdate(UpdateDelayedEventRequest),
 }
@@ -234,6 +237,19 @@ impl From<delayed_state_event::unstable::Response> for SendEventResponse {
 pub(crate) struct UpdateDelayedEventResponse {}
 impl From<update_delayed_event::unstable::Response> for UpdateDelayedEventResponse {
     fn from(_: update_delayed_event::unstable::Response) -> Self {
+        Self {}
+    }
+}
+
+/// A wrapper type for the empty okay response from
+/// [`update_delayed_event`](update_delayed_event::unstable::Response)
+/// which derives Serialize. (The response struct from Ruma does not derive
+/// serialize)
+#[derive(Serialize, Debug)]
+pub(crate) struct SendToDeviceEventResponse {}
+
+impl From<send_event_to_device::v3::Response> for SendToDeviceEventResponse {
+    fn from(_: send_event_to_device::v3::Response) -> Self {
         Self {}
     }
 }
