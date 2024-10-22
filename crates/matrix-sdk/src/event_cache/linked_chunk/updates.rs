@@ -76,6 +76,12 @@ pub enum Update<Item, Gap> {
         items: Vec<Item>,
     },
 
+    /// An item has been removed inside a chunk of kind Items.
+    RemoveItem {
+        /// The [`Position`] of the item.
+        at: Position,
+    },
+
     /// The last items of a chunk have been detached, i.e. the chunk has been
     /// truncated.
     DetachLastItems {

@@ -406,6 +406,79 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         Ok(())
     }
 
+    /// Remove item at a specified position in the [`LinkedChunk`].
+    ///
+    /// Because the `position` can be invalid, this method returns a
+    /// `Result`.
+    pub fn remove_item_at(&mut self, position: Position) -> Result<Item, Error> {
+        let chunk_identifier = position.chunk_identifier();
+        let item_index = position.index();
+
+        let mut chunk_ptr = None;
+        let removed_item;
+
+        {
+            let chunk = self
+                .links
+                .chunk_mut(chunk_identifier)
+                .ok_or(Error::InvalidChunkIdentifier { identifier: chunk_identifier })?;
+
+            let can_unlink_chunk = match &mut chunk.content {
+                ChunkContent::Gap(..) => {
+                    return Err(Error::ChunkIsAGap { identifier: chunk_identifier })
+                }
+
+                ChunkContent::Items(current_items) => {
+                    let current_items_length = current_items.len();
+
+                    if item_index > current_items_length {
+                        return Err(Error::InvalidItemIndex { index: item_index });
+                    }
+
+                    removed_item = current_items.remove(item_index);
+
+                    if let Some(updates) = self.updates.as_mut() {
+                        updates
+                            .push(Update::RemoveItem { at: Position(chunk_identifier, item_index) })
+                    }
+
+                    current_items.is_empty()
+                }
+            };
+
+            // If the `chunk` can be unlinked, and if the `chunk` is not the first one, we
+            // can remove it.
+            if can_unlink_chunk && chunk.is_first_chunk().not() {
+                // Unlink `chunk`.
+                chunk.unlink(&mut self.updates);
+
+                chunk_ptr = Some(chunk.as_ptr());
+
+                // We need to update `self.last` if and only if `chunk` _is_ the last chunk. The
+                // new last chunk is the chunk before `chunk`.
+                if chunk.is_last_chunk() {
+                    self.links.last = chunk.previous;
+                }
+            }
+
+            self.length -= 1;
+
+            // Stop borrowing `chunk`.
+        }
+
+        if let Some(chunk_ptr) = chunk_ptr {
+            // `chunk` has been unlinked.
+
+            // Re-box the chunk, and let Rust does its job.
+            //
+            // SAFETY: `chunk` is unlinked and not borrowed anymore. `LinkedChunk` doesn't
+            // use it anymore, it's a leak. It is time to re-`Box` it and drop it.
+            let _chunk_boxed = unsafe { Box::from_raw(chunk_ptr.as_ptr()) };
+        }
+
+        Ok(removed_item)
+    }
+
     /// Insert a gap at a specified position in the [`LinkedChunk`].
     ///
     /// Because the `position` can be invalid, this method returns a
@@ -1847,6 +1920,206 @@ mod tests {
         }
 
         assert_eq!(linked_chunk.len(), 18);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_remove_item_at() -> Result<(), Error> {
+        use super::Update::*;
+
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+        linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k']);
+        assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f'] ['g', 'h', 'i'] ['j', 'k']);
+        assert_eq!(linked_chunk.len(), 11);
+
+        // Ignore previous updates.
+        let _ = linked_chunk.updates().unwrap().take();
+
+        // Remove the last item of the middle chunk, 3 times. The chunk is empty after
+        // that. The chunk is removed.
+        {
+            let position_of_f = linked_chunk.item_position(|item| *item == 'f').unwrap();
+            let removed_item = linked_chunk.remove_item_at(position_of_f)?;
+
+            assert_eq!(removed_item, 'f');
+            assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e'] ['g', 'h', 'i'] ['j', 'k']);
+            assert_eq!(linked_chunk.len(), 10);
+
+            let position_of_e = linked_chunk.item_position(|item| *item == 'e').unwrap();
+            let removed_item = linked_chunk.remove_item_at(position_of_e)?;
+
+            assert_eq!(removed_item, 'e');
+            assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d'] ['g', 'h', 'i'] ['j', 'k']);
+            assert_eq!(linked_chunk.len(), 9);
+
+            let position_of_d = linked_chunk.item_position(|item| *item == 'd').unwrap();
+            let removed_item = linked_chunk.remove_item_at(position_of_d)?;
+
+            assert_eq!(removed_item, 'd');
+            assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['g', 'h', 'i'] ['j', 'k']);
+            assert_eq!(linked_chunk.len(), 8);
+
+            assert_eq!(
+                linked_chunk.updates().unwrap().take(),
+                &[
+                    RemoveItem { at: Position(ChunkIdentifier(1), 2) },
+                    RemoveItem { at: Position(ChunkIdentifier(1), 1) },
+                    RemoveItem { at: Position(ChunkIdentifier(1), 0) },
+                    RemoveChunk(ChunkIdentifier(1)),
+                ]
+            );
+        }
+
+        // Remove the first item of the first chunk, 3 times. The chunk is empty after
+        // that. The chunk is NOT removed because it's the first chunk.
+        {
+            let first_position = linked_chunk.item_position(|item| *item == 'a').unwrap();
+            let removed_item = linked_chunk.remove_item_at(first_position)?;
+
+            assert_eq!(removed_item, 'a');
+            assert_items_eq!(linked_chunk, ['b', 'c'] ['g', 'h', 'i'] ['j', 'k']);
+            assert_eq!(linked_chunk.len(), 7);
+
+            let removed_item = linked_chunk.remove_item_at(first_position)?;
+
+            assert_eq!(removed_item, 'b');
+            assert_items_eq!(linked_chunk, ['c'] ['g', 'h', 'i'] ['j', 'k']);
+            assert_eq!(linked_chunk.len(), 6);
+
+            let removed_item = linked_chunk.remove_item_at(first_position)?;
+
+            assert_eq!(removed_item, 'c');
+            assert_items_eq!(linked_chunk, [] ['g', 'h', 'i'] ['j', 'k']);
+            assert_eq!(linked_chunk.len(), 5);
+
+            assert_eq!(
+                linked_chunk.updates().unwrap().take(),
+                &[
+                    RemoveItem { at: Position(ChunkIdentifier(0), 0) },
+                    RemoveItem { at: Position(ChunkIdentifier(0), 0) },
+                    RemoveItem { at: Position(ChunkIdentifier(0), 0) },
+                ]
+            );
+        }
+
+        // Remove the first item of the middle chunk, 3 times. The chunk is empty after
+        // that. The chunk is removed.
+        {
+            let first_position = linked_chunk.item_position(|item| *item == 'g').unwrap();
+            let removed_item = linked_chunk.remove_item_at(first_position)?;
+
+            assert_eq!(removed_item, 'g');
+            assert_items_eq!(linked_chunk, [] ['h', 'i'] ['j', 'k']);
+            assert_eq!(linked_chunk.len(), 4);
+
+            let removed_item = linked_chunk.remove_item_at(first_position)?;
+
+            assert_eq!(removed_item, 'h');
+            assert_items_eq!(linked_chunk, [] ['i'] ['j', 'k']);
+            assert_eq!(linked_chunk.len(), 3);
+
+            let removed_item = linked_chunk.remove_item_at(first_position)?;
+
+            assert_eq!(removed_item, 'i');
+            assert_items_eq!(linked_chunk, [] ['j', 'k']);
+            assert_eq!(linked_chunk.len(), 2);
+
+            assert_eq!(
+                linked_chunk.updates().unwrap().take(),
+                &[
+                    RemoveItem { at: Position(ChunkIdentifier(2), 0) },
+                    RemoveItem { at: Position(ChunkIdentifier(2), 0) },
+                    RemoveItem { at: Position(ChunkIdentifier(2), 0) },
+                    RemoveChunk(ChunkIdentifier(2)),
+                ]
+            );
+        }
+
+        // Remove the last item of the last chunk, twice. The chunk is empty after that.
+        // The chunk is removed.
+        {
+            let position_of_k = linked_chunk.item_position(|item| *item == 'k').unwrap();
+            let removed_item = linked_chunk.remove_item_at(position_of_k)?;
+
+            assert_eq!(removed_item, 'k');
+            #[rustfmt::skip]
+            assert_items_eq!(linked_chunk, [] ['j']);
+            assert_eq!(linked_chunk.len(), 1);
+
+            let position_of_j = linked_chunk.item_position(|item| *item == 'j').unwrap();
+            let removed_item = linked_chunk.remove_item_at(position_of_j)?;
+
+            assert_eq!(removed_item, 'j');
+            assert_items_eq!(linked_chunk, []);
+            assert_eq!(linked_chunk.len(), 0);
+
+            assert_eq!(
+                linked_chunk.updates().unwrap().take(),
+                &[
+                    RemoveItem { at: Position(ChunkIdentifier(3), 1) },
+                    RemoveItem { at: Position(ChunkIdentifier(3), 0) },
+                    RemoveChunk(ChunkIdentifier(3)),
+                ]
+            );
+        }
+
+        // Add a couple more items, delete one, add a gap, and delete more items.
+        {
+            linked_chunk.push_items_back(['a', 'b', 'c', 'd']);
+
+            #[rustfmt::skip]
+            assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d']);
+            assert_eq!(linked_chunk.len(), 4);
+
+            let position_of_c = linked_chunk.item_position(|item| *item == 'c').unwrap();
+            linked_chunk.insert_gap_at((), position_of_c)?;
+
+            assert_items_eq!(linked_chunk, ['a', 'b'] [-] ['c'] ['d']);
+            assert_eq!(linked_chunk.len(), 4);
+
+            // Ignore updates.
+            let _ = linked_chunk.updates().unwrap().take();
+
+            let position_of_c = linked_chunk.item_position(|item| *item == 'c').unwrap();
+            let removed_item = linked_chunk.remove_item_at(position_of_c)?;
+
+            assert_eq!(removed_item, 'c');
+            assert_items_eq!(linked_chunk, ['a', 'b'] [-] ['d']);
+            assert_eq!(linked_chunk.len(), 3);
+
+            let position_of_d = linked_chunk.item_position(|item| *item == 'd').unwrap();
+            let removed_item = linked_chunk.remove_item_at(position_of_d)?;
+
+            assert_eq!(removed_item, 'd');
+            assert_items_eq!(linked_chunk, ['a', 'b'] [-]);
+            assert_eq!(linked_chunk.len(), 2);
+
+            let first_position = linked_chunk.item_position(|item| *item == 'a').unwrap();
+            let removed_item = linked_chunk.remove_item_at(first_position)?;
+
+            assert_eq!(removed_item, 'a');
+            assert_items_eq!(linked_chunk, ['b'] [-]);
+            assert_eq!(linked_chunk.len(), 1);
+
+            let removed_item = linked_chunk.remove_item_at(first_position)?;
+
+            assert_eq!(removed_item, 'b');
+            assert_items_eq!(linked_chunk, [] [-]);
+            assert_eq!(linked_chunk.len(), 0);
+
+            assert_eq!(
+                linked_chunk.updates().unwrap().take(),
+                &[
+                    RemoveItem { at: Position(ChunkIdentifier(6), 0) },
+                    RemoveChunk(ChunkIdentifier(6)),
+                    RemoveItem { at: Position(ChunkIdentifier(4), 0) },
+                    RemoveChunk(ChunkIdentifier(4)),
+                    RemoveItem { at: Position(ChunkIdentifier(0), 0) },
+                    RemoveItem { at: Position(ChunkIdentifier(0), 0) },
+                ]
+            );
+        }
 
         Ok(())
     }
