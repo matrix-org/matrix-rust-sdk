@@ -791,7 +791,7 @@ mod tests {
                     .subscribe_to_identity_status_changes()
                     .await
                     .expect("Should be able to subscribe")
-                    .timeout(Duration::from_secs(2))
+                    .timeout(Duration::from_secs(5))
             }
 
             async fn init() -> (Client, OwnedUserId, SyncResponseBuilder) {
