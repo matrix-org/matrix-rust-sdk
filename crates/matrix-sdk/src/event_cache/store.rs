@@ -34,8 +34,12 @@ pub struct Gap {
 
 const DEFAULT_CHUNK_CAPACITY: usize = 128;
 
+/// This type represents all events of a single room.
 pub struct RoomEvents {
+    /// The real in-memory storage for all the events.
     chunks: LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>,
+
+    /// The events deduplicator instance to help finding duplicates.
     deduplicator: Deduplicator,
 }
 
@@ -46,6 +50,7 @@ impl Default for RoomEvents {
 }
 
 impl RoomEvents {
+    /// Build a new `Self` with zero events.
     pub fn new() -> Self {
         Self { chunks: LinkedChunk::new(), deduplicator: Deduplicator::new() }
     }
