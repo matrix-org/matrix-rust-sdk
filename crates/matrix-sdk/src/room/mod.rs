@@ -26,6 +26,7 @@ use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState, TimelineEvent,
     },
+    media::{MediaThumbnailSettings, MediaThumbnailSize},
     store::StateStoreExt,
     ComposerDraft, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges, StateStoreDataKey,
     StateStoreDataValue,
@@ -1915,6 +1916,7 @@ impl Room {
     ///
     /// * `store_in_cache` - A boolean defining whether the uploaded media will
     ///   be stored in the cache immediately after a successful upload.
+    #[instrument(skip_all)]
     pub(super) async fn prepare_and_send_attachment<'a>(
         &'a self,
         filename: &'a str,
@@ -1931,6 +1933,20 @@ impl Room {
 
         let thumbnail = config.thumbnail.take();
 
+        // If necessary, store caching data for the thumbnail ahead of time.
+        let thumbnail_cache_info = if store_in_cache {
+            // Use a small closure returning Option to avoid an unnecessary complicated
+            // chain of map/and_then.
+            let get_info = || {
+                let thumbnail = thumbnail.as_ref()?;
+                let info = thumbnail.info.as_ref()?;
+                Some((thumbnail.data.clone(), info.height?, info.width?))
+            };
+            get_info()
+        } else {
+            None
+        };
+
         #[cfg(feature = "e2e-encryption")]
         let (media_source, thumbnail_source, thumbnail_info) = if self.is_encrypted().await? {
             self.client
@@ -1941,6 +1957,8 @@ impl Room {
                 .media()
                 .upload_plain_media_and_thumbnail(
                     content_type,
+                    // TODO: get rid of this clone; wait for Ruma to use `Bytes` or something
+                    // similar.
                     data.clone(),
                     thumbnail,
                     send_progress,
@@ -1958,10 +1976,37 @@ impl Room {
         if store_in_cache {
             let cache_store = self.client.event_cache_store();
 
+            // A failure to cache shouldn't prevent the whole upload from finishing
+            // properly, so only log errors during caching.
+
+            debug!("caching the media");
             let request = MediaRequest { source: media_source.clone(), format: MediaFormat::File };
-            // This shouldn't prevent the whole process from finishing properly.
             if let Err(err) = cache_store.add_media_content(&request, data).await {
                 warn!("unable to cache the media after uploading it: {err}");
+            }
+
+            if let Some(((data, height, width), source)) =
+                thumbnail_cache_info.zip(thumbnail_source.as_ref())
+            {
+                debug!("caching the thumbnail");
+
+                // Do a best guess at figuring the media request: not animated, cropped
+                // thumbnail of the original size.
+                let request = MediaRequest {
+                    source: source.clone(),
+                    format: MediaFormat::Thumbnail(MediaThumbnailSettings {
+                        size: MediaThumbnailSize {
+                            method: ruma::media::Method::Crop,
+                            width,
+                            height,
+                        },
+                        animated: false,
+                    }),
+                };
+
+                if let Err(err) = cache_store.add_media_content(&request, data).await {
+                    warn!("unable to cache the media after uploading it: {err}");
+                }
             }
         }
 
