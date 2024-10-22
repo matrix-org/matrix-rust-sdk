@@ -22,6 +22,9 @@ use super::{
     linked_chunk::{Chunk, ChunkIdentifier, Error, Iter, LinkedChunk, Position},
 };
 
+/// An alias for the real event type.
+pub type Event = SyncTimelineEvent;
+
 #[derive(Clone, Debug)]
 pub struct Gap {
     /// The token to use in the query, extracted from a previous "from" /
@@ -32,7 +35,7 @@ pub struct Gap {
 const DEFAULT_CHUNK_CAPACITY: usize = 128;
 
 pub struct RoomEvents {
-    chunks: LinkedChunk<DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap>,
+    chunks: LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>,
     deduplicator: Deduplicator,
 }
 
@@ -53,9 +56,9 @@ impl RoomEvents {
     }
 
     /// Deduplicate `events` considering all events in `Self::chunks`.
-    fn deduplicate<'a, I>(&'a self, events: I) -> impl Iterator<Item = SyncTimelineEvent> + 'a
+    fn deduplicate<'a, I>(&'a self, events: I) -> impl Iterator<Item = Event> + 'a
     where
-        I: Iterator<Item = SyncTimelineEvent> + 'a,
+        I: Iterator<Item = Event> + 'a,
     {
         self.deduplicator.scan_and_learn(events, self).map(
             |decorated_event| match decorated_event {
@@ -79,7 +82,7 @@ impl RoomEvents {
     /// The last event in `events` is the most recent one.
     pub fn push_events<I>(&mut self, events: I)
     where
-        I: IntoIterator<Item = SyncTimelineEvent>,
+        I: IntoIterator<Item = Event>,
     {
         let events = self.deduplicate(events.into_iter()).collect::<Vec<_>>();
 
@@ -94,7 +97,7 @@ impl RoomEvents {
     /// Insert events at a specified position.
     pub fn insert_events_at<I>(&mut self, events: I, position: Position) -> Result<(), Error>
     where
-        I: IntoIterator<Item = SyncTimelineEvent>,
+        I: IntoIterator<Item = Event>,
     {
         let events = self.deduplicate(events.into_iter()).collect::<Vec<_>>();
 
@@ -117,9 +120,9 @@ impl RoomEvents {
         &mut self,
         events: I,
         gap_identifier: ChunkIdentifier,
-    ) -> Result<&Chunk<DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap>, Error>
+    ) -> Result<&Chunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>, Error>
     where
-        I: IntoIterator<Item = SyncTimelineEvent>,
+        I: IntoIterator<Item = Event>,
     {
         let events = self.deduplicate(events.into_iter()).collect::<Vec<_>>();
 
@@ -129,7 +132,7 @@ impl RoomEvents {
     /// Search for a chunk, and return its identifier.
     pub fn chunk_identifier<'a, P>(&'a self, predicate: P) -> Option<ChunkIdentifier>
     where
-        P: FnMut(&'a Chunk<DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap>) -> bool,
+        P: FnMut(&'a Chunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>) -> bool,
     {
         self.chunks.chunk_identifier(predicate)
     }
@@ -137,21 +140,21 @@ impl RoomEvents {
     /// Iterate over the chunks, forward.
     ///
     /// The oldest chunk comes first.
-    pub fn chunks(&self) -> Iter<'_, DEFAULT_CHUNK_CAPACITY, SyncTimelineEvent, Gap> {
+    pub fn chunks(&self) -> Iter<'_, DEFAULT_CHUNK_CAPACITY, Event, Gap> {
         self.chunks.chunks()
     }
 
     /// Iterate over the events, backward.
     ///
     /// The most recent event comes first.
-    pub fn revents(&self) -> impl Iterator<Item = (Position, &SyncTimelineEvent)> {
+    pub fn revents(&self) -> impl Iterator<Item = (Position, &Event)> {
         self.chunks.ritems()
     }
 
     /// Iterate over the events, forward.
     ///
     /// The oldest event comes first.
-    pub fn events(&self) -> impl Iterator<Item = (Position, &SyncTimelineEvent)> {
+    pub fn events(&self) -> impl Iterator<Item = (Position, &Event)> {
         self.chunks.items()
     }
 }

@@ -15,11 +15,18 @@
 use std::{collections::BTreeSet, sync::Mutex};
 
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
-use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
 
-use super::store::RoomEvents;
+use super::store::{Event, RoomEvents};
 
-pub struct Deduplicator {
+/// Use `Deduplicator` to find duplicates.
+///
+/// This type uses a [bloom filter] to efficiently detect duplicates. Every time
+/// [`Self::scan_and_learn`] is called, the bloom filter is updated (hence the
+/// _learn_ part). Because a bloom filter has (rare) false positives, it is
+/// still necessary to provide all existing events to apply a linear search.
+///
+/// [bloom filter]: https://en.wikipedia.org/wiki/Bloom_filter
+pub(super) struct Deduplicator {
     bloom_filter: Mutex<GrowableBloom>,
 }
 
@@ -55,7 +62,7 @@ impl Deduplicator {
         existing_events: &'a RoomEvents,
     ) -> impl Iterator<Item = Decoration<I::Item>> + 'a
     where
-        I: Iterator<Item = SyncTimelineEvent> + 'a,
+        I: Iterator<Item = Event> + 'a,
     {
         let mut already_seen = BTreeSet::new();
 
@@ -104,7 +111,7 @@ impl Deduplicator {
 
 /// Information about the scanned collection of events.
 #[derive(Debug)]
-pub enum Decoration<I> {
+pub(super) enum Decoration<I> {
     /// This event is not duplicated.
     Unique(I),
 
@@ -118,6 +125,7 @@ pub enum Decoration<I> {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
+    use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::{EventBuilder, ALICE};
     use ruma::{events::room::message::RoomMessageEventContent, owned_event_id, EventId};
 
