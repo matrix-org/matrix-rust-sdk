@@ -2,12 +2,9 @@ use std::{fmt::Debug, mem::MaybeUninit, ptr::addr_of_mut, sync::Arc, time::Durat
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt, TryFutureExt};
-use matrix_sdk::{
-    ruma::{
-        api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
-        assign, RoomId,
-    },
-    sliding_sync::http,
+use matrix_sdk::ruma::{
+    api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
+    RoomId,
 };
 use matrix_sdk_ui::{
     room_list_service::filters::{
@@ -135,11 +132,7 @@ impl RoomListService {
         })))
     }
 
-    fn subscribe_to_rooms(
-        &self,
-        room_ids: Vec<String>,
-        settings: Option<RoomSubscription>,
-    ) -> Result<(), RoomListError> {
+    fn subscribe_to_rooms(&self, room_ids: Vec<String>) -> Result<(), RoomListError> {
         let room_ids = room_ids
             .into_iter()
             .map(|room_id| {
@@ -147,10 +140,7 @@ impl RoomListService {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        self.inner.subscribe_to_rooms(
-            &room_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>(),
-            settings.map(Into::into),
-        );
+        self.inner.subscribe_to_rooms(&room_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>());
 
         Ok(())
     }
@@ -677,31 +667,6 @@ impl RoomListItem {
 
     async fn latest_event(&self) -> Option<EventTimelineItem> {
         self.inner.latest_event().await.map(Into::into)
-    }
-}
-
-#[derive(uniffi::Record)]
-pub struct RequiredState {
-    pub key: String,
-    pub value: String,
-}
-
-#[derive(uniffi::Record)]
-pub struct RoomSubscription {
-    pub required_state: Option<Vec<RequiredState>>,
-    pub timeline_limit: u32,
-    pub include_heroes: Option<bool>,
-}
-
-impl From<RoomSubscription> for http::request::RoomSubscription {
-    fn from(val: RoomSubscription) -> Self {
-        assign!(http::request::RoomSubscription::default(), {
-            required_state: val.required_state.map(|r|
-                r.into_iter().map(|s| (s.key.into(), s.value)).collect()
-            ).unwrap_or_default(),
-            timeline_limit: val.timeline_limit.into(),
-            include_heroes: val.include_heroes,
-        })
     }
 }
 

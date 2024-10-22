@@ -57,7 +57,7 @@ mod room_list;
 pub mod sorters;
 mod state;
 
-use std::{sync::Arc, time::Duration};
+use std::{iter::once, sync::Arc, time::Duration};
 
 use async_stream::stream;
 use eyeball::Subscriber;
@@ -69,13 +69,29 @@ use matrix_sdk::{
 use matrix_sdk_base::sliding_sync::http;
 pub use room::*;
 pub use room_list::*;
-use ruma::{assign, directory::RoomTypeFilter, events::StateEventType, OwnedRoomId, RoomId};
+use ruma::{assign, directory::RoomTypeFilter, events::StateEventType, OwnedRoomId, RoomId, UInt};
 pub use state::*;
 use thiserror::Error;
 use tokio::time::timeout;
 use tracing::debug;
 
 use crate::timeline;
+
+/// The default `required_state` constant value for sliding sync lists and
+/// sliding sync room subscriptions.
+const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
+    (StateEventType::RoomName, ""),
+    (StateEventType::RoomEncryption, ""),
+    (StateEventType::RoomMember, "$LAZY"),
+    (StateEventType::RoomMember, "$ME"),
+    (StateEventType::RoomTopic, ""),
+    (StateEventType::RoomCanonicalAlias, ""),
+    (StateEventType::RoomPowerLevels, ""),
+    (StateEventType::CallMember, ""),
+];
+
+/// The default `timeline_limit` value when used with room subscriptions.
+const DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT: u32 = 20;
 
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
@@ -145,17 +161,12 @@ impl RoomListService {
                             .add_range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
                     )
                     .timeline_limit(1)
-                    .required_state(vec![
-                        (StateEventType::RoomName, "".to_owned()),
-                        (StateEventType::RoomEncryption, "".to_owned()),
-                        (StateEventType::RoomMember, "$LAZY".to_owned()),
-                        (StateEventType::RoomMember, "$ME".to_owned()),
-                        (StateEventType::RoomTopic, "".to_owned()),
-                        (StateEventType::RoomCanonicalAlias, "".to_owned()),
-                        (StateEventType::RoomPowerLevels, "".to_owned()),
-                        (StateEventType::RoomPinnedEvents, "".to_owned()),
-                        (StateEventType::CallMember, "".to_owned()),
-                    ])
+                    .required_state(
+                        DEFAULT_REQUIRED_STATE
+                            .iter()
+                            .map(|(state_event, value)| (state_event.clone(), (*value).to_owned()))
+                            .collect(),
+                    )
                     .include_heroes(Some(true))
                     .filters(Some(assign!(http::request::ListFilters::default(), {
                         // As defined in the [SlidingSync MSC](https://github.com/matrix-org/matrix-spec-proposals/blob/9450ced7fb9cf5ea9077d029b3adf36aebfa8709/proposals/3575-sync.md?plain=1#L444)
@@ -382,22 +393,16 @@ impl RoomListService {
     ///
     /// It means that all events from these rooms will be received every time,
     /// no matter how the `RoomList` is configured.
-    pub fn subscribe_to_rooms(
-        &self,
-        room_ids: &[&RoomId],
-        settings: Option<http::request::RoomSubscription>,
-    ) {
-        let mut settings = settings.unwrap_or_default();
-
-        // Make sure to always include the room creation event in the required state
-        // events, to know what the room version is.
-        if !settings
-            .required_state
-            .iter()
-            .any(|(event_type, _state_key)| *event_type == StateEventType::RoomCreate)
-        {
-            settings.required_state.push((StateEventType::RoomCreate, "".to_owned()));
-        }
+    pub fn subscribe_to_rooms(&self, room_ids: &[&RoomId]) {
+        let settings = assign!(http::request::RoomSubscription::default(), {
+            required_state: DEFAULT_REQUIRED_STATE.iter().map(|(state_event, value)| {
+                (state_event.clone(), (*value).to_owned())
+            })
+            .chain(once((StateEventType::RoomCreate, "".to_owned())))
+            .chain(once((StateEventType::RoomPinnedEvents, "".to_owned())))
+            .collect(),
+            timeline_limit: UInt::from(DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT),
+        });
 
         let cancel_in_flight_request = match self.state_machine.get() {
             State::Init | State::Recovering | State::Error { .. } | State::Terminated { .. } => {

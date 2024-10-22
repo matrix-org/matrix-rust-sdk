@@ -23,9 +23,8 @@ use matrix_sdk::{
     ruma::{
         api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::{MessageType, RoomMessageEventContent},
-        uint, MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
+        MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
     },
-    sliding_sync::http::request::RoomSubscription,
     AuthSession, Client, ServerName, SqliteCryptoStore, SqliteStateStore,
 };
 use matrix_sdk_ui::{
@@ -445,10 +444,7 @@ impl App {
             .get_selected_room_id(Some(selected))
             .and_then(|room_id| self.ui_rooms.lock().unwrap().get(&room_id).cloned())
         {
-            let mut sub = RoomSubscription::default();
-            sub.timeline_limit = uint!(30);
-
-            self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()], Some(sub));
+            self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()]);
             self.current_room_subscription = Some(room);
         }
     }
