@@ -1996,7 +1996,7 @@ impl Room {
                     source: source.clone(),
                     format: MediaFormat::Thumbnail(MediaThumbnailSettings {
                         size: MediaThumbnailSize {
-                            method: ruma::media::Method::Crop,
+                            method: ruma::media::Method::Scale,
                             width,
                             height,
                         },

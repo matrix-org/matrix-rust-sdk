@@ -250,7 +250,7 @@ async fn test_room_attachment_send_info_thumbnail() {
         source: MediaSource::Plain(thumbnail_mxc.clone()),
         format: MediaFormat::Thumbnail(MediaThumbnailSettings {
             size: MediaThumbnailSize {
-                method: ruma::media::Method::Crop,
+                method: ruma::media::Method::Scale,
                 width: uint!(480),
                 height: uint!(360),
             },
@@ -284,7 +284,7 @@ async fn test_room_attachment_send_info_thumbnail() {
         .unwrap();
 
     // The event was sent.
-    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
+    assert_eq!(response.event_id, event_id!("$h29iv0s8:example.com"));
 
     // The media is immediately cached in the cache store, so we don't need to set
     // up another mock endpoint for getting the media.
@@ -313,7 +313,7 @@ async fn test_room_attachment_send_info_thumbnail() {
         source: MediaSource::Plain(thumbnail_mxc),
         format: MediaFormat::Thumbnail(MediaThumbnailSettings {
             size: MediaThumbnailSize {
-                method: ruma::media::Method::Crop,
+                method: ruma::media::Method::Scale,
                 width: uint!(42),
                 height: uint!(1337),
             },
