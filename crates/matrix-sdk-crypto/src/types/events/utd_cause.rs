@@ -117,7 +117,7 @@ mod tests {
     use crate::types::events::UtdCause;
 
     #[test]
-    fn a_missing_raw_event_means_we_guess_unknown() {
+    fn test_a_missing_raw_event_means_we_guess_unknown() {
         // When we don't provide any JSON to check for membership, then we guess the UTD
         // is unknown.
         assert_eq!(
@@ -133,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn if_there_is_no_membership_info_we_guess_unknown() {
+    fn test_if_there_is_no_membership_info_we_guess_unknown() {
         // If our JSON contains no membership info, then we guess the UTD is unknown.
         assert_eq!(
             UtdCause::determine(
@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn if_membership_info_cant_be_parsed_we_guess_unknown() {
+    fn test_if_membership_info_cant_be_parsed_we_guess_unknown() {
         // If our JSON contains a membership property but not the JSON we expected, then
         // we guess the UTD is unknown.
         assert_eq!(
@@ -164,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn if_membership_is_invite_we_guess_unknown() {
+    fn test_if_membership_is_invite_we_guess_unknown() {
         // If membership=invite then we expected to be sent the keys so the cause of the
         // UTD is unknown.
         assert_eq!(
@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn if_membership_is_join_we_guess_unknown() {
+    fn test_if_membership_is_join_we_guess_unknown() {
         // If membership=join then we expected to be sent the keys so the cause of the
         // UTD is unknown.
         assert_eq!(
@@ -196,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn if_membership_is_leave_we_guess_membership() {
+    fn test_if_membership_is_leave_we_guess_membership() {
         // If membership=leave then we have an explanation for why we can't decrypt,
         // until we have MSC3061.
         assert_eq!(
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn if_reason_is_not_missing_key_we_guess_unknown_even_if_membership_is_leave() {
+    fn test_if_reason_is_not_missing_key_we_guess_unknown_even_if_membership_is_leave() {
         // If the UnableToDecryptReason is other than MissingMegolmSession or
         // UnknownMegolmMessageIndex, we do not know the reason for the failure
         // even if membership=leave.
@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn if_unstable_prefix_membership_is_leave_we_guess_membership() {
+    fn test_if_unstable_prefix_membership_is_leave_we_guess_membership() {
         // Before MSC4115 is merged, we support the unstable prefix too.
         assert_eq!(
             UtdCause::determine(
@@ -246,7 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn verification_violation_is_passed_through() {
+    fn test_verification_violation_is_passed_through() {
         assert_eq!(
             UtdCause::determine(
                 Some(&raw_event(json!({}))),
@@ -262,7 +262,7 @@ mod tests {
     }
 
     #[test]
-    fn unsigned_device_is_passed_through() {
+    fn test_unsigned_device_is_passed_through() {
         assert_eq!(
             UtdCause::determine(
                 Some(&raw_event(json!({}))),
@@ -278,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_device_is_passed_through() {
+    fn test_unknown_device_is_passed_through() {
         assert_eq!(
             UtdCause::determine(
                 Some(&raw_event(json!({}))),
