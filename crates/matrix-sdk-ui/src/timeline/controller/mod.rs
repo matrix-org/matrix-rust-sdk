@@ -1259,7 +1259,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 if let Some(send_error) = send_error {
                     self.update_event_send_state(
                         &echo.transaction_id,
-                        EventSendState::SendingFailed { error: send_error, is_recoverable: false },
+                        EventSendState::SendingFailed {
+                            error: Arc::new(matrix_sdk::Error::SendQueueWedgeError(send_error)),
+                            is_recoverable: false,
+                        },
                     )
                     .await;
                 }
@@ -1345,7 +1348,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             RoomSendQueueUpdate::SendError { transaction_id, error, is_recoverable } => {
                 self.update_event_send_state(
                     &transaction_id,
-                    EventSendState::SendingFailed { error: error.as_ref().into(), is_recoverable },
+                    EventSendState::SendingFailed { error, is_recoverable },
                 )
                 .await;
             }

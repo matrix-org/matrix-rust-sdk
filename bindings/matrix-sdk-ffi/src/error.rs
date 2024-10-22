@@ -163,6 +163,7 @@ pub enum QueueWedgeError {
         /// The insecure devices as a Map of userID to deviceID.
         user_device_map: HashMap<String, Vec<String>>,
     },
+
     /// This error occurs when a previously verified user is not anymore, and
     /// the current encryption setting prohibit sharing when it happens.
     #[error("Some users that were previously verified are not anymore")]
@@ -170,10 +171,12 @@ pub enum QueueWedgeError {
         /// The users that are expected to be verified but are not.
         users: Vec<String>,
     },
+
     /// It is required to set up cross-signing and properly erify the current
     /// session before sending.
     #[error("Own verification is required")]
     CrossVerificationRequired,
+
     /// Other errors.
     #[error("Other unrecoverable error: {msg}")]
     GenericApiError { msg: String },

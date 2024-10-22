@@ -1163,7 +1163,7 @@ pub struct QueuedEvent {
 
 impl QueuedEvent {
     /// True if the event couldn't be sent because of an unrecoverable API
-    /// error. See `error` for more details on the reason.
+    /// error. See [`Self::error`] for more details on the reason.
     pub fn is_wedged(&self) -> bool {
         self.error.is_some()
     }
@@ -1185,6 +1185,7 @@ pub enum QueueWedgeError {
         /// The insecure devices as a Map of userID to deviceID.
         user_device_map: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
     },
+
     /// This error occurs when a previously verified user is not anymore, and
     /// the current encryption setting prohibits sharing when it happens.
     #[error("Some users that were previously verified are not anymore")]
@@ -1192,10 +1193,12 @@ pub enum QueueWedgeError {
         /// The users that are expected to be verified but are not.
         users: Vec<OwnedUserId>,
     },
+
     /// It is required to set up cross-signing and properly verify the current
     /// session before sending.
     #[error("Own verification is required")]
     CrossVerificationRequired,
+
     /// Other errors.
     #[error("Other unrecoverable error: {msg}")]
     GenericApiError {

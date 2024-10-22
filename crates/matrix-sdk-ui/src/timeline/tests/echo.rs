@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
@@ -65,12 +67,15 @@ async fn test_remote_echo_full_trip() {
     // Scenario 2: The local event has not been sent to the server successfully, it
     // has failed. In this case, there is no event ID.
     {
-        let some_error = QueueWedgeError::GenericApiError { msg: "this is a test".to_owned() };
+        let error =
+            Arc::new(matrix_sdk::Error::SendQueueWedgeError(QueueWedgeError::GenericApiError {
+                msg: "this is a test".to_owned(),
+            }));
         timeline
             .controller
             .update_event_send_state(
                 &txn_id,
-                EventSendState::SendingFailed { error: some_error, is_recoverable: true },
+                EventSendState::SendingFailed { error, is_recoverable: true },
             )
             .await;
 

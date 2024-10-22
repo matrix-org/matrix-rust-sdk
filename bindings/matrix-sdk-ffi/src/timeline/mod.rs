@@ -915,6 +915,7 @@ pub enum EventSendState {
     SendingFailed {
         /// The error reason, with information for the user.
         error: QueueWedgeError,
+
         /// Whether the error is considered recoverable or not.
         ///
         /// An error that's recoverable will disable the room's send queue,
@@ -922,6 +923,7 @@ pub enum EventSendState {
         /// decides to cancel sending it.
         is_recoverable: bool,
     },
+
     /// The local event has been sent successfully to the server.
     Sent { event_id: String },
 }
@@ -933,7 +935,11 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
         match value {
             NotSentYet => Self::NotSentYet,
             SendingFailed { error, is_recoverable } => {
-                Self::SendingFailed { is_recoverable: *is_recoverable, error: error.clone().into() }
+                let as_queue_wedge_error: matrix_sdk::QueueWedgeError = (&**error).into();
+                Self::SendingFailed {
+                    is_recoverable: *is_recoverable,
+                    error: as_queue_wedge_error.into(),
+                }
             }
             Sent { event_id } => Self::Sent { event_id: event_id.to_string() },
         }
