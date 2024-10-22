@@ -57,7 +57,7 @@ mod room_list;
 pub mod sorters;
 mod state;
 
-use std::{iter::once, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use async_stream::stream;
 use eyeball::Subscriber;
@@ -89,6 +89,11 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::RoomPowerLevels, ""),
     (StateEventType::CallMember, ""),
 ];
+
+/// The default `required_state` constant value for sliding sync room
+/// subscriptions that must be added to `DEFAULT_REQUIRED_STATE`.
+const DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE: &[(StateEventType, &str)] =
+    &[(StateEventType::RoomCreate, ""), (StateEventType::RoomPinnedEvents, "")];
 
 /// The default `timeline_limit` value when used with room subscriptions.
 const DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT: u32 = 20;
@@ -398,8 +403,11 @@ impl RoomListService {
             required_state: DEFAULT_REQUIRED_STATE.iter().map(|(state_event, value)| {
                 (state_event.clone(), (*value).to_owned())
             })
-            .chain(once((StateEventType::RoomCreate, "".to_owned())))
-            .chain(once((StateEventType::RoomPinnedEvents, "".to_owned())))
+            .chain(
+                DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE.iter().map(|(state_event, value)| {
+                    (state_event.clone(), (*value).to_owned())
+                })
+            )
             .collect(),
             timeline_limit: UInt::from(DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT),
         });
