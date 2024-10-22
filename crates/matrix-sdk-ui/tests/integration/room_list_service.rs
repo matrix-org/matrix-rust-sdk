@@ -334,6 +334,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.canonical_alias", ""],
                         ["m.room.avatar", ""],
                         ["m.room.power_levels", ""],
+                        ["m.call.member", ""],
                     ],
                     "include_heroes": true,
                     "filters": {
