@@ -199,9 +199,8 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
         use IdentityState::*;
 
         let old_state = self.known_states.get(user_id);
-        let change = self.set_state(user_id, new_state.clone());
 
-        let send_update = match (old_state, new_state) {
+        let send_update = match (old_state, &new_state) {
             // good -> bad - report so we can add a message
             (Pinned, PinViolation) => true,
             (Pinned, VerificationViolation) => true,
@@ -230,7 +229,7 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
         };
 
         if send_update {
-            Some(change)
+            Some(self.set_state(user_id, new_state))
         } else {
             None
         }
