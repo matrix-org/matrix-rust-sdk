@@ -35,7 +35,7 @@ use ruma::{
     user_id, OwnedRoomId,
 };
 use serde::Serialize;
-use serde_json::{json, Value as JsonValue};
+use serde_json::{json, Map, Value as JsonValue};
 use tracing::error;
 use wiremock::{
     matchers::{method, path_regex},
@@ -95,15 +95,15 @@ async fn send_request(
     action: &str,
     data: impl Serialize,
 ) {
-    let sent = driver_handle
-        .send(json_string!({
-            "api": "fromWidget",
-            "widgetId": WIDGET_ID,
-            "requestId": request_id,
-            "action": action,
-            "data": data,
-        }))
-        .await;
+    let json_string = json_string!({
+        "api": "fromWidget",
+        "widgetId": WIDGET_ID,
+        "requestId": request_id,
+        "action": action,
+        "data": data,
+    });
+    println!("Json string sent from the widget {}", json_string);
+    let sent = driver_handle.send(json_string).await;
     assert!(sent);
 }
 
@@ -417,6 +417,8 @@ async fn test_receive_live_events() {
                     // set room name - matches filter #3
                     .add_timeline_event(f.room_name("New Room Name").sender(&BOB)),
             );
+
+            sync_builder.add_to_device_event(json!({"some":"Event"}));
         })
         .await;
 
@@ -816,7 +818,6 @@ async fn test_send_redaction() {
         ]),
     )
     .await;
-
     mock_server.mock_room_redact().ok(event_id!("$redact_event_id")).mock_once().mount().await;
 
     send_request(
@@ -841,6 +842,100 @@ async fn test_send_redaction() {
 
     assert_eq!(redact_event_id, "$redact_event_id");
     assert_eq!(redact_room_id, "!a98sd12bjh:example.org");
+}
+
+async fn send_to_device_test_helper(
+    event_type: &str,
+    data: JsonValue,
+    expected_response: JsonValue,
+) -> JsonValue {
+    let (_, mock_server, driver_handle) = run_test_driver(false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!([
+            "org.matrix.msc3819.send.to_device:my.custom.to_device_type",
+            "org.matrix.msc3819.send.to_device:my.other_type"
+        ]),
+    )
+    .await;
+
+    mock_server.mock_send_to_device().ok().mock_once().mount().await;
+
+    send_request(&driver_handle, event_type, "org.matrix.msc3819.send_to_device", data).await;
+
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "org.matrix.msc3819.send_to_device");
+    let response = msg["response"].clone();
+    assert_eq!(&response, &expected_response);
+
+    response
+}
+
+#[async_test]
+async fn test_send_to_device_event() {
+    let r = send_to_device_test_helper(
+        "my.custom.to_device_type",
+        json!({
+            "type": "my.custom.to_device_type",
+            "encrypted": false,
+            "messages":{
+                "@username:test.org": {
+                    "DEVICEID": {
+                        "param1":"test",
+                    },
+                },
+            }
+        }),
+        json! {{}},
+    )
+    .await;
+    assert_eq!(r.as_object(), Some(Map::new()).as_ref());
+}
+
+#[async_test]
+async fn test_error_to_device_event_no_permission() {
+    let r = send_to_device_test_helper(
+        "my.custom.to_device_type",
+        json!({
+            "type": "my.unallowed_type",
+            "encrypted": false,
+            "messages":{
+                "@username:test.org": {
+                    "DEVICEID": {
+                        "param1":"test",
+                    },
+                },
+            }
+        }),
+        // this means the server did not get the correct event type
+        json! {{"error": {"message": "Not allowed to send to-device message of type: my.unallowed_type"}}},
+    )
+    .await;
+    assert_eq!(r.as_object(), Some(Map::new()).as_ref());
+}
+
+#[async_test]
+async fn test_send_encrypted_to_device_event() {
+    let r = send_to_device_test_helper(
+        "my.custom.to_device_type",
+        json!({
+            "type": "my.custom.to_device_type",
+            "encrypted": true,
+            "messages":{
+                "@username:test.org": {
+                    "DEVICEID": {
+                        "param1":"test",
+                    },
+                },
+            }
+        }),
+        json! {{}},
+    )
+    .await;
+    assert_eq!(r.as_object(), Some(Map::new()).as_ref());
 }
 
 async fn negotiate_capabilities(driver_handle: &WidgetDriverHandle, caps: JsonValue) {
