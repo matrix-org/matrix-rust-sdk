@@ -146,12 +146,14 @@ impl RoomListService {
                     )
                     .timeline_limit(1)
                     .required_state(vec![
+                        (StateEventType::RoomName, "".to_owned()),
                         (StateEventType::RoomEncryption, "".to_owned()),
                         (StateEventType::RoomMember, "$LAZY".to_owned()),
                         (StateEventType::RoomMember, "$ME".to_owned()),
-                        (StateEventType::RoomName, "".to_owned()),
+                        (StateEventType::RoomTopic, "".to_owned()),
                         (StateEventType::RoomCanonicalAlias, "".to_owned()),
                         (StateEventType::RoomPowerLevels, "".to_owned()),
+                        (StateEventType::RoomPinnedEvents, "".to_owned()),
                         (StateEventType::CallMember, "".to_owned()),
                     ])
                     .include_heroes(Some(true))

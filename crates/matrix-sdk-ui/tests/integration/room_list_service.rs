@@ -327,14 +327,15 @@ async fn test_sync_all_states() -> Result<(), Error> {
                 ALL_ROOMS: {
                     "ranges": [[0, 19]],
                     "required_state": [
+                        ["m.room.name", ""],
                         ["m.room.encryption", ""],
                         ["m.room.member", "$LAZY"],
                         ["m.room.member", "$ME"],
-                        ["m.room.name", ""],
+                        ["m.room.topic", ""],
                         ["m.room.canonical_alias", ""],
-                        ["m.room.avatar", ""],
                         ["m.room.power_levels", ""],
-                        ["m.call.member", ""],
+                        ["m.room.pinned_events", ""],
+                        ["org.matrix.msc3401.call.member", ""],
                     ],
                     "include_heroes": true,
                     "filters": {
