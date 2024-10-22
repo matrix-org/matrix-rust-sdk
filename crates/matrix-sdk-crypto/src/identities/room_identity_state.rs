@@ -202,29 +202,29 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
 
         let send_update = match (old_state, &new_state) {
             // good -> bad - report so we can add a message
-            (Pinned, PinViolation) => true,
-            (Pinned, VerificationViolation) => true,
-            (Verified, PinViolation) => true,
-            (Verified, VerificationViolation) => true,
+            (Pinned, PinViolation) |
+            (Pinned, VerificationViolation) |
+            (Verified, PinViolation) |
+            (Verified, VerificationViolation) |
 
             // bad -> good - report so we can remove a message
-            (PinViolation, Pinned) => true,
-            (PinViolation, Verified) => true,
-            (VerificationViolation, Pinned) => true,
-            (VerificationViolation, Verified) => true,
+            (PinViolation, Pinned) |
+            (PinViolation, Verified) |
+            (VerificationViolation, Pinned) |
+            (VerificationViolation, Verified) |
 
             // Changed the type of bad - report so can change the message
-            (PinViolation, VerificationViolation) => true,
+            (PinViolation, VerificationViolation) |
             (VerificationViolation, PinViolation) => true,
 
             // good -> good - don't report - no message needed in either case
-            (Pinned, Verified) => false,
-            (Verified, Pinned) => false,
+            (Pinned, Verified) |
+            (Verified, Pinned) |
 
             // State didn't change - don't report - nothing changed
-            (Pinned, Pinned) => false,
-            (Verified, Verified) => false,
-            (PinViolation, PinViolation) => false,
+            (Pinned, Pinned) |
+            (Verified, Verified) |
+            (PinViolation, PinViolation) |
             (VerificationViolation, VerificationViolation) => false,
         };
 
