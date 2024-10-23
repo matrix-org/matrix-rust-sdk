@@ -20,6 +20,7 @@ mod media;
 mod notification;
 mod refresh_token;
 mod room;
+mod room_preview;
 mod send_queue;
 #[cfg(feature = "experimental-widgets")]
 mod widget;

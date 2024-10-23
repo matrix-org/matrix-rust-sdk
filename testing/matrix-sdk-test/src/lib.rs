@@ -122,8 +122,8 @@ pub use self::{
     event_builder::EventBuilder,
     sync_builder::{
         bulk_room_members, EphemeralTestEvent, GlobalAccountDataTestEvent, InvitedRoomBuilder,
-        JoinedRoomBuilder, LeftRoomBuilder, PresenceTestEvent, RoomAccountDataTestEvent,
-        StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
+        JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder, PresenceTestEvent,
+        RoomAccountDataTestEvent, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
     },
 };
 

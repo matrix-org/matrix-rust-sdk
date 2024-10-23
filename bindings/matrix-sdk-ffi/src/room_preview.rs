@@ -1,80 +1,71 @@
+use std::sync::Arc;
+
 use matrix_sdk::{
-    room_preview::{
-        JoinRoomPreviewAction as SdkJoinRoomPreviewAction, LeaveRoomPreviewAction as SdkLeaveRoomPreviewAction, RoomPreview as SdkRoomPreview,
-        RoomPreviewActions,
-    },
-    Client, RoomState,
+    room_preview::{RoomPreview as SdkRoomPreview, RoomPreviewActions as SdkRoomPreviewActions},
+    Client,
 };
-use ruma::space::SpaceRoomJoinRule;
+use ruma::{space::SpaceRoomJoinRule, ServerName};
 
 use crate::{client::JoinRule, error::ClientError, room::Membership};
 
+/// A room preview for a room. It's intended to be used to represent rooms that
+/// aren't joined yet.
 #[derive(uniffi::Record)]
 pub struct RoomPreview {
     pub info: RoomPreviewInfo,
-    pub room_preview_actions: RoomPreviewActions,
-    pub(crate) sdk_info: matrix_sdk::room_preview::RoomPreview,
+    pub room_preview_actions: Arc<RoomPreviewActions>,
 }
 
-#[derive(uniffi::Enum)]
-pub enum RoomPreviewAction {
-    Invited { join: JoinRoomPreviewAction, leave: LeaveRoomPreviewAction },
-    Knocked { leave: LeaveRoomPreviewAction },
-}
-
+/// Actions to perform in a room preview, such as join/leave.
 #[derive(uniffi::Object)]
-pub struct JoinRoomPreviewAction {
-    inner: SdkJoinRoomPreviewAction,
+pub struct RoomPreviewActions {
+    inner: SdkRoomPreviewActions,
 }
 
 #[matrix_sdk_ffi_macros::export]
-impl JoinRoomPreviewAction {
-    async fn run(&self) {
-        self.inner.run().unwrap()
+impl RoomPreviewActions {
+    /// Join the room.
+    async fn join(&self) -> Result<(), ClientError> {
+        Ok(self.inner.join.run().await?)
+    }
+
+    /// Leave the room.
+    async fn leave(&self) -> Result<(), ClientError> {
+        Ok(self.inner.leave.run().await?)
+    }
+
+    /// Knock on the room.
+    async fn knock(&self, reason: Option<String>, via: Vec<String>) -> Result<(), ClientError> {
+        let via = via.iter().map(ServerName::parse).collect::<Result<Vec<_>, _>>()?;
+        Ok(self.inner.knock.run(reason, via).await?)
     }
 }
-
-impl From<matrix_sdk::room_preview::RoomPreviewActions> for RoomPreviewAction {
-    fn from(actions: RoomPreviewActions) -> Self {
-        match actions {
-            RoomPreviewActions::Invited { join, leave } => Self::Invited { join, leave },
-            RoomPreviewActions::Knocked { leave } => Self::Knocked { leave },
-        }
-    }
-}
-
-struct
 
 impl RoomPreview {
-    pub(crate) fn try_from_sdk(info: SdkRoomPreview, client: Client) -> Result<Self, ClientError> {
+    pub(crate) fn try_from_sdk(
+        room_preview: SdkRoomPreview,
+        client: Client,
+    ) -> Result<Self, ClientError> {
+        let room_preview_actions = Arc::new(RoomPreviewActions {
+            inner: SdkRoomPreviewActions::new(client, room_preview.clone()),
+        });
+
         let info = RoomPreviewInfo {
-            room_id: info.room_id.to_string(),
-            canonical_alias: info.canonical_alias.map(|alias| alias.to_string()),
-            name: info.name,
-            topic: info.topic,
-            avatar_url: info.avatar_url.map(|url| url.to_string()),
-            num_joined_members: info.num_joined_members,
-            room_type: info.room_type.map(|room_type| room_type.to_string()),
-            is_history_world_readable: info.is_world_readable,
-            membership: info.state.map(|state| state.into()).unwrap_or_else(|| Membership::Left),
-            join_rule: info.join_rule.into(),
+            room_id: room_preview.room_id.to_string(),
+            canonical_alias: room_preview.canonical_alias.map(|alias| alias.to_string()),
+            name: room_preview.name,
+            topic: room_preview.topic,
+            avatar_url: room_preview.avatar_url.map(|url| url.to_string()),
+            num_joined_members: room_preview.num_joined_members,
+            room_type: room_preview.room_type.map(|room_type| room_type.to_string()),
+            is_history_world_readable: room_preview.is_world_readable,
+            membership: room_preview
+                .state
+                .map(|state| state.into())
+                .unwrap_or_else(|| Membership::Left),
+            join_rule: room_preview.join_rule.into(),
         };
 
-        let room_preview_actions = match info.membership {
-            Membership::Invited => RoomPreviewActions::Invited {
-                join: JoinRoomPreviewAction::new(client.clone()),
-                leave: LeaveRoomPreviewAction::new(client.clone()),
-            },
-            Membership::Knocked => {
-                RoomPreviewActions::Knocked { leave: LeaveRoomPreviewAction::new(client.clone()) }
-            }
-            _ => {
-                return Err(ClientError::new(format!(
-                    "The room preview had membership {:?} instead of Invited or Knocked.",
-                    info.membership
-                )))
-            }
-        };
         Ok(Self { info, room_preview_actions })
     }
 }

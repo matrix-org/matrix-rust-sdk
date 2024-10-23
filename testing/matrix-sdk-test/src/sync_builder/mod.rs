@@ -4,7 +4,7 @@ use http::Response;
 use ruma::{
     api::{
         client::sync::sync_events::v3::{
-            InvitedRoom, JoinedRoom, LeftRoom, Response as SyncResponse,
+            InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom, Response as SyncResponse,
         },
         IncomingResponse,
     },
@@ -19,12 +19,14 @@ use super::test_json;
 mod bulk;
 mod invited_room;
 mod joined_room;
+mod knocked_room;
 mod left_room;
 mod test_event;
 
 pub use bulk::bulk_room_members;
 pub use invited_room::InvitedRoomBuilder;
 pub use joined_room::JoinedRoomBuilder;
+pub use knocked_room::KnockedRoomBuilder;
 pub use left_room::LeftRoomBuilder;
 pub use test_event::{
     EphemeralTestEvent, GlobalAccountDataTestEvent, PresenceTestEvent, RoomAccountDataTestEvent,
@@ -45,6 +47,8 @@ pub struct SyncResponseBuilder {
     invited_rooms: HashMap<OwnedRoomId, InvitedRoom>,
     /// Updates to left `Room`s.
     left_rooms: HashMap<OwnedRoomId, LeftRoom>,
+    /// Updates to knocked `Room`s.
+    knocked_rooms: HashMap<OwnedRoomId, KnockedRoom>,
     /// Events that determine the presence state of a user.
     presence: Vec<Raw<PresenceEvent>>,
     /// Global account data events.
@@ -68,6 +72,7 @@ impl SyncResponseBuilder {
     pub fn add_joined_room(&mut self, room: JoinedRoomBuilder) -> &mut Self {
         self.invited_rooms.remove(&room.room_id);
         self.left_rooms.remove(&room.room_id);
+        self.knocked_rooms.remove(&room.room_id);
         self.joined_rooms.insert(room.room_id, room.inner);
         self
     }
@@ -79,6 +84,7 @@ impl SyncResponseBuilder {
     pub fn add_invited_room(&mut self, room: InvitedRoomBuilder) -> &mut Self {
         self.joined_rooms.remove(&room.room_id);
         self.left_rooms.remove(&room.room_id);
+        self.knocked_rooms.remove(&room.room_id);
         self.invited_rooms.insert(room.room_id, room.inner);
         self
     }
@@ -90,7 +96,20 @@ impl SyncResponseBuilder {
     pub fn add_left_room(&mut self, room: LeftRoomBuilder) -> &mut Self {
         self.joined_rooms.remove(&room.room_id);
         self.invited_rooms.remove(&room.room_id);
+        self.knocked_rooms.remove(&room.room_id);
         self.left_rooms.insert(room.room_id, room.inner);
+        self
+    }
+
+    /// Add a knocked room to the next sync response.
+    ///
+    /// If a room with the same room ID already exists, it is replaced by this
+    /// one.
+    pub fn add_knocked_room(&mut self, room: KnockedRoomBuilder) -> &mut Self {
+        self.joined_rooms.remove(&room.room_id);
+        self.invited_rooms.remove(&room.room_id);
+        self.left_rooms.remove(&room.room_id);
+        self.knocked_rooms.insert(room.room_id, room.inner);
         self
     }
 
@@ -169,6 +188,7 @@ impl SyncResponseBuilder {
                     "invite": self.invited_rooms,
                     "join": self.joined_rooms,
                     "leave": self.left_rooms,
+                    "knock": self.knocked_rooms,
                 },
                 "to_device": {
                     "events": []
@@ -215,6 +235,7 @@ impl SyncResponseBuilder {
         self.invited_rooms.clear();
         self.joined_rooms.clear();
         self.left_rooms.clear();
+        self.knocked_rooms.clear();
         self.presence.clear();
     }
 }

@@ -18,8 +18,6 @@
 //! This offers a few capabilities for previewing the content of the room as
 //! well.
 
-use anyhow::anyhow;
-use mas_oidc_client::types::errors::ClientError;
 use matrix_sdk_base::{RoomInfo, RoomState};
 use ruma::{
     api::client::{
@@ -29,15 +27,13 @@ use ruma::{
     events::room::{history_visibility::HistoryVisibility, join_rules::JoinRule},
     room::RoomType,
     space::SpaceRoomJoinRule,
-    OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedServerName, RoomId, RoomOrAliasId,
+    OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName, RoomId,
+    RoomOrAliasId,
 };
 use tokio::try_join;
 use tracing::{instrument, warn};
 
-use crate::{
-    error::WrongRoomState,
-    Client, Error, Room,
-};
+use crate::{Client, Room};
 
 /// The preview of a room, be it invited/joined/left, or not.
 #[derive(Debug, Clone)]
@@ -254,101 +250,181 @@ impl RoomPreview {
     }
 }
 
-pub enum RoomPreviewActions {
-    Invited { join: JoinRoomPreviewAction, leave: LeaveRoomPreviewAction },
-    Knocked { leave: LeaveRoomPreviewAction },
+/// A set of actions that can be performed in a [`RoomPreview`].
+#[derive(Debug)]
+pub struct RoomPreviewActions {
+    /// Action used to join a room.
+    pub join: JoinRoomAction,
+    /// Action used to leave a room.
+    pub leave: LeaveRoomAction,
+    /// Action used to knock on a room.
+    pub knock: KnockRoomAction,
 }
 
-pub struct JoinRoomPreviewAction {
+/// A helper to join a room and perform any needed post-processing if it
+/// succeeds.
+#[derive(Debug)]
+pub struct JoinRoomAction {
     client: Client,
+    room_id: OwnedRoomId,
+    room_state: Option<RoomState>,
+    is_direct: bool,
 }
 
-impl JoinRoomPreviewAction {
-    pub fn new(client: Client) -> Self {
-        Self { client }
+impl RoomPreviewActions {
+    /// Create a new instance given a [`Client`] to perform the actions and a
+    /// [`RoomPreview`] to get the needed data.
+    pub fn new(client: Client, room_preview: RoomPreview) -> Self {
+        let room_id = room_preview.room_id;
+        let room_state = room_preview.state;
+        let is_direct = room_preview.is_direct.unwrap_or_default();
+        let join = JoinRoomAction {
+            client: client.clone(),
+            room_id: room_id.clone(),
+            room_state,
+            is_direct,
+        };
+        let room_or_alias_id: OwnedRoomOrAliasId =
+            if let Some(alias) = &room_preview.canonical_alias {
+                alias.to_owned().into()
+            } else {
+                room_id.clone().into()
+            };
+        let leave = LeaveRoomAction {
+            client: client.clone(),
+            room_id,
+            room_state,
+        };
+        let knock = KnockRoomAction { client, room_or_alias_id, room_state };
+        Self { join, leave, knock }
     }
+}
 
-    pub async fn run(&self, room_preview: &RoomPreview) -> Result<(), RoomPreviewError> {
-        if room_preview.state.is_none() || matches!(room_preview.state, Some(RoomState::Invited)) {
-            match self.client.join_room_by_id(&room_preview.room_id).await {
+impl JoinRoomAction {
+    /// Join a room.
+    pub async fn run(&self) -> Result<(), RoomStateActionError> {
+        if matches!(self.room_state, Some(RoomState::Invited) | None) {
+            match self.client.join_room_by_id(&self.room_id).await {
                 Ok(room) => {
-                    if room_preview.is_direct.unwrap_or(false) {
+                    if self.is_direct {
                         if let Some(e) = room.set_is_direct(true).await.err() {
                             warn!("error when setting room as direct: {e}");
                         }
                     }
                     Ok(())
                 }
-                Err(e) => Err(e.into()),
+                Err(e) => Err(RoomStateActionError::from_generic(e)),
             }
         } else {
-            Err(RoomPreviewError::WrongRoomPreviewState(WrongRoomPreviewState::new(
+            Err(RoomStateActionError::WrongRoomState(WrongRoomState::new(
                 "None or Invited",
-                room_preview.state,
+                self.room_state,
             )))
         }
     }
 }
 
-pub struct LeaveRoomPreviewAction {
+/// A helper to leave a room and perform any post-processing needed.
+#[derive(Debug)]
+pub struct LeaveRoomAction {
     client: Client,
+    room_id: OwnedRoomId,
+    room_state: Option<RoomState>,
 }
 
-impl LeaveRoomPreviewAction {
-    pub fn new(client: Client) -> Self {
-        Self { client }
-    }
-
-    pub async fn run(&self, room_preview: &RoomPreview) -> Result<(), RoomPreviewError> {
-        let Some(state) = room_preview.state else {
-            return Err(RoomPreviewError::WrongRoomPreviewState(WrongRoomPreviewState::new(
+impl LeaveRoomAction {
+    /// Leave a room.
+    pub async fn run(&self) -> Result<(), RoomStateActionError> {
+        let Some(state) = self.room_state else {
+            return Err(RoomStateActionError::WrongRoomState(WrongRoomState::new(
                 "Known room state (not None).",
                 None,
             )));
         };
 
         match state {
-            RoomState::Left => Err(RoomPreviewError::WrongRoomPreviewState(WrongRoomPreviewState::new(
+            RoomState::Left => Err(RoomStateActionError::WrongRoomState(WrongRoomState::new(
                 "Joined, Invited or Knocked",
                 Some(state),
             ))),
             _ => {
-                let request = leave_room::v3::Request::new(room_preview.room_id.to_owned());
-                self.client.send(request, None).await.map_err(Into::into)?;
-                self.client.base_client().room_left(&room_preview.room_id).await.map_err(Into::into)?;
-                Ok(())
+                let request = leave_room::v3::Request::new(self.room_id.to_owned());
+                self.client
+                    .send(request, None)
+                    .await
+                    .map_err(RoomStateActionError::from_generic)?;
+                self.client
+                    .base_client()
+                    .room_left(&self.room_id)
+                    .await
+                    .map_err(RoomStateActionError::from_generic)
             }
         }
     }
 }
 
+/// A helper to leave a room and perform any post-processing needed.
+#[derive(Debug)]
+pub struct KnockRoomAction {
+    client: Client,
+    room_or_alias_id: OwnedRoomOrAliasId,
+    room_state: Option<RoomState>,
+}
+
+impl KnockRoomAction {
+    /// Knock on a room.
+    pub async fn run(
+        &self,
+        reason: Option<String>,
+        via: Vec<OwnedServerName>,
+    ) -> Result<(), RoomStateActionError> {
+        let id = self.room_or_alias_id.clone();
+        match self.room_state {
+            Some(RoomState::Left) | None => {
+                self.client
+                    .knock(id, reason, via)
+                    .await
+                    .map_err(RoomStateActionError::from_generic)?;
+                Ok(())
+            }
+            _ => Err(RoomStateActionError::WrongRoomState(WrongRoomState::new(
+                "Left or None",
+                self.room_state,
+            ))),
+        }
+    }
+}
+
+/// Errors to be returned when join/leave room actions fail.
 #[derive(thiserror::Error, Debug)]
-pub enum RoomPreviewError {
-    /// Attempted to call a method on a room preview that requires the user to
+pub enum RoomStateActionError {
+    /// Attempted to call a method on a room that requires the user to
     /// have a specific membership state, but the membership state is
     /// different.
     #[error("wrong room state: {0}")]
-    WrongRoomPreviewState(WrongRoomPreviewState),
+    WrongRoomState(WrongRoomState),
 
+    /// An error type happened in an underlying layer, we wrap it.
     #[error(transparent)]
-    Generic(#[from] Box<dyn std::error::Error + Send + Sync>)
+    Generic(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
 
+impl RoomStateActionError {
+    fn from_generic<E: std::error::Error + Send + Sync + 'static>(err: E) -> Self {
+        Self::Generic(Box::new(err))
+    }
+}
+
+/// An unexpected room preview state was found.
 #[derive(Debug, thiserror::Error)]
 #[error("expected: {expected}, got: {got:?}")]
-pub struct WrongRoomPreviewState {
+pub struct WrongRoomState {
     expected: &'static str,
     got: Option<RoomState>,
 }
 
-impl WrongRoomPreviewState {
+impl WrongRoomState {
     pub(crate) fn new(expected: &'static str, got: Option<RoomState>) -> Self {
         Self { expected, got }
-    }
-}
-
-impl From<Error> for RoomPreviewError {
-    fn from(e: Error) -> Self {
-        Self::Generic(Box::new(e))
     }
 }

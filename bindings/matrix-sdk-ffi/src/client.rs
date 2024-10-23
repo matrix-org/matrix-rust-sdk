@@ -1807,7 +1807,7 @@ impl From<OidcPrompt> for SdkOidcPrompt {
 }
 
 /// The rule used for users wishing to join this room.
-#[derive(uniffi::Enum)]
+#[derive(Debug, Clone, uniffi::Enum)]
 pub enum JoinRule {
     /// Anyone can join the room without any prior action.
     Public,
@@ -1836,7 +1836,7 @@ pub enum JoinRule {
 }
 
 /// An allow rule which defines a condition that allows joining a room.
-#[derive(uniffi::Enum)]
+#[derive(Debug, Clone, uniffi::Enum)]
 pub enum AllowRule {
     /// Only a member of the `room_id` Room can join the one this rule is used
     /// in.
