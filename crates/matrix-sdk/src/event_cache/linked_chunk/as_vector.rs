@@ -22,7 +22,7 @@ use eyeball_im::VectorDiff;
 
 use super::{
     updates::{ReaderToken, Update, UpdatesInner},
-    ChunkContent, ChunkIdentifier, Iter,
+    ChunkContent, ChunkIdentifier, Iter, Position,
 };
 
 /// A type alias to represent a chunk's length. This is purely for commodity.
@@ -329,37 +329,9 @@ impl UpdateToVectorDiff {
                 }
 
                 Update::PushItems { at: position, items } => {
-                    let expected_chunk_identifier = position.chunk_identifier();
+                    let (offset, (chunk_index, chunk_length)) = self.map_to_offset(position);
 
-                    let (chunk_index, offset, chunk_length) = {
-                        let control_flow = self.chunks.iter_mut().enumerate().try_fold(
-                            position.index(),
-                            |offset, (chunk_index, (chunk_identifier, chunk_length))| {
-                                if chunk_identifier == &expected_chunk_identifier {
-                                    ControlFlow::Break((chunk_index, offset, chunk_length))
-                                } else {
-                                    ControlFlow::Continue(offset + *chunk_length)
-                                }
-                            },
-                        );
-
-                        match control_flow {
-                            // Chunk has been found, and all values have been calculated as
-                            // expected.
-                            ControlFlow::Break(values) => values,
-
-                            // Chunk has not been found.
-                            ControlFlow::Continue(..) => {
-                                // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not
-                                // buggy, and assuming `Self::chunks` is correctly initialized, it
-                                // is not possible to push items on a chunk that does not exist. If
-                                // this predicate fails, it means `LinkedChunk` or
-                                // `ObservableUpdates` contain a bug.
-                                panic!("Pushing items: The chunk is not found");
-                            }
-                        }
-                    };
-
+                    // Update the length of the chunk in `self.chunks`.
                     *chunk_length += items.len();
 
                     // See `mute_push_items` to learn more.
@@ -415,6 +387,43 @@ impl UpdateToVectorDiff {
         }
 
         diffs
+    }
+
+    fn map_to_offset(&mut self, position: &Position) -> (usize, (usize, &mut usize)) {
+        let expected_chunk_identifier = position.chunk_identifier();
+
+        let (offset, (chunk_index, chunk_length)) = {
+            let control_flow = self.chunks.iter_mut().enumerate().try_fold(
+                position.index(),
+                |offset, (chunk_index, (chunk_identifier, chunk_length))| {
+                    if chunk_identifier == &expected_chunk_identifier {
+                        ControlFlow::Break((offset, (chunk_index, chunk_length)))
+                    } else {
+                        ControlFlow::Continue(offset + *chunk_length)
+                    }
+                },
+            );
+
+            match control_flow {
+                // Chunk has been found, and all values have been calculated as
+                // expected.
+                ControlFlow::Break(values) => values,
+
+                // Chunk has not been found.
+                ControlFlow::Continue(..) => {
+                    // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are
+                    // not buggy, and assuming
+                    // `Self::chunks` is correctly initialized, it
+                    // is not possible to push items on a chunk that does not exist.
+                    // If this predicate fails,
+                    // it means `LinkedChunk` or
+                    // `ObservableUpdates` contain a bug.
+                    panic!("Pushing items: The chunk is not found");
+                }
+            }
+        };
+
+        (offset, (chunk_index, chunk_length))
     }
 }
 
