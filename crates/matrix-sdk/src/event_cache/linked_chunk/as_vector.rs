@@ -359,15 +359,15 @@ impl UpdateToVectorDiff {
                     todo!()
                 }
 
-                Update::DetachLastItems { at } => {
-                    let expected_chunk_identifier = at.chunk_identifier();
-                    let new_length = at.index();
+                Update::DetachLastItems { at: position } => {
+                    let expected_chunk_identifier = position.chunk_identifier();
+                    let new_length = position.index();
 
-                    let length = self
+                    let chunk_length = self
                         .chunks
                         .iter_mut()
-                        .find_map(|(chunk_identifier, length)| {
-                            (*chunk_identifier == expected_chunk_identifier).then_some(length)
+                        .find_map(|(chunk_identifier, chunk_length)| {
+                            (*chunk_identifier == expected_chunk_identifier).then_some(chunk_length)
                         })
                         // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not buggy, and
                         // assuming `Self::chunks` is correctly initialized, it is not possible to
@@ -375,7 +375,7 @@ impl UpdateToVectorDiff {
                         // it means `LinkedChunk` or `ObservableUpdates` contain a bug.
                         .expect("Detach last items: The chunk is not found");
 
-                    *length = new_length;
+                    *chunk_length = new_length;
                 }
 
                 Update::StartReattachItems => {
