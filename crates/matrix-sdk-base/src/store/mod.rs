@@ -227,6 +227,7 @@ impl Store {
                 );
                 let new_room_id = new_room.room_id().to_owned();
 
+                tracing::warn!(room_id = %new_room_id, "BNJBVR: restoring room");
                 rooms.insert(new_room_id, new_room);
             }
         }
@@ -294,6 +295,7 @@ impl Store {
             .write()
             .unwrap()
             .get_or_create(room_id, || {
+                tracing::warn!(%room_id, "BNJBVR: creating a new room in store");
                 Room::new(
                     user_id,
                     self.inner.clone(),
@@ -312,6 +314,7 @@ impl Store {
     /// * `room_id` - The id of the room that should be forgotten.
     pub(crate) async fn forget_room(&self, room_id: &RoomId) -> Result<()> {
         self.inner.remove_room(room_id).await?;
+        tracing::warn!(%room_id, "BNJBVR: removing room");
         self.rooms.write().unwrap().remove(room_id);
         Ok(())
     }

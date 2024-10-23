@@ -564,6 +564,7 @@ impl Room {
 
                 // Persist the event and the fact that we requested it from the server in
                 // `RoomInfo`.
+                tracing::warn!("BNJBVR: done request_encryption_state: {response:?}");
                 let mut room_info = self.clone_info();
                 room_info.mark_encryption_state_synced();
                 room_info.set_encryption_event(response.clone());

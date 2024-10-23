@@ -1238,6 +1238,7 @@ impl RoomInfo {
 
     /// Set the encryption event content in this room.
     pub fn set_encryption_event(&mut self, event: Option<RoomEncryptionEventContent>) {
+        tracing::warn!("BNJBVR: set_encryption_event: {event:?}");
         self.base_info.encryption = event;
     }
 

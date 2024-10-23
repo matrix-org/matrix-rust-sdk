@@ -1371,10 +1371,12 @@ impl BaseClient {
     pub async fn share_room_key(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
         match self.olm_machine().await.as_ref() {
             Some(o) => {
-                let (history_visibility, settings) = self
-                    .get_room(room_id)
+                let room = self.get_room(room_id);
+                tracing::warn!("BNJBVR: room found? {:?}", room.is_some());
+                let (history_visibility, settings) = room
                     .map(|r| (r.history_visibility(), r.encryption_settings()))
                     .unwrap_or((HistoryVisibility::Joined, None));
+                tracing::warn!("BNJBVR: encryption settings: {settings:?}");
 
                 // Don't share the group session with members that are invited
                 // if the history visibility is set to `Joined`
