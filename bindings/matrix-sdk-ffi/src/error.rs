@@ -1,13 +1,13 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt, fmt::Display};
 
 use matrix_sdk::{
     encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, reqwest,
     room::edit::EditError, send_queue::RoomSendQueueError, HttpError, IdParseError,
-    NotificationSettingsError as SdkNotificationSettingsError, StoreError,
+    NotificationSettingsError as SdkNotificationSettingsError,
+    QueueWedgeError as SdkQueueWedgeError, StoreError,
 };
 use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
 use uniffi::UnexpectedUniFFICallbackError;
-
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     #[error("client error: {msg}")]
@@ -143,6 +143,79 @@ impl From<EditError> for ClientError {
 impl From<RoomSendQueueError> for ClientError {
     fn from(e: RoomSendQueueError) -> Self {
         Self::new(e)
+    }
+}
+
+/// Bindings version of the sdk type replacing OwnedUserId/DeviceIds with simple
+/// String.
+///
+/// Represent a failed to send unrecoverable error of an event sent via the
+/// send_queue. It is a serializable representation of a client error, see
+/// `From` implementation for more details. These errors can not be
+/// automatically retried, but yet some manual action can be taken before retry
+/// sending. If not the only solution is to delete the local event.
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum QueueWedgeError {
+    /// This error occurs when there are some insecure devices in the room, and
+    /// the current encryption setting prohibit sharing with them.
+    InsecureDevices {
+        /// The insecure devices as a Map of userID to deviceID.
+        user_device_map: HashMap<String, Vec<String>>,
+    },
+
+    /// This error occurs when a previously verified user is not anymore, and
+    /// the current encryption setting prohibit sharing when it happens.
+    IdentityViolations {
+        /// The users that are expected to be verified but are not.
+        users: Vec<String>,
+    },
+
+    /// It is required to set up cross-signing and properly erify the current
+    /// session before sending.
+    CrossVerificationRequired,
+
+    /// Other errors.
+    GenericApiError { msg: String },
+}
+
+/// Simple display implementation that strips out userIds/DeviceIds to avoid
+/// accidental logging.
+impl Display for QueueWedgeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            QueueWedgeError::InsecureDevices { .. } => {
+                f.write_str("There are insecure devices in the room")
+            }
+            QueueWedgeError::IdentityViolations { .. } => {
+                f.write_str("Some users that were previously verified are not anymore")
+            }
+            QueueWedgeError::CrossVerificationRequired => {
+                f.write_str("Own verification is required")
+            }
+            QueueWedgeError::GenericApiError { msg } => f.write_str(msg),
+        }
+    }
+}
+impl From<SdkQueueWedgeError> for QueueWedgeError {
+    fn from(value: SdkQueueWedgeError) -> Self {
+        match value {
+            SdkQueueWedgeError::InsecureDevices { user_device_map } => Self::InsecureDevices {
+                user_device_map: user_device_map
+                    .iter()
+                    .map(|(user_id, devices)| {
+                        (
+                            user_id.to_string(),
+                            devices.iter().map(|device_id| device_id.to_string()).collect(),
+                        )
+                    })
+                    .collect(),
+            },
+            SdkQueueWedgeError::IdentityViolations { users } => Self::IdentityViolations {
+                users: users.iter().map(ruma::OwnedUserId::to_string).collect(),
+            },
+            SdkQueueWedgeError::CrossVerificationRequired => Self::CrossVerificationRequired,
+            SdkQueueWedgeError::GenericApiError { msg } => Self::GenericApiError { msg },
+        }
     }
 }
 

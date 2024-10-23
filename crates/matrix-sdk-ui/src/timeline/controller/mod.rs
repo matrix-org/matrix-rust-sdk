@@ -1238,7 +1238,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     /// Handle a room send update that's a new local echo.
     pub(crate) async fn handle_local_echo(&self, echo: LocalEcho) {
         match echo.content {
-            LocalEchoContent::Event { serialized_event, send_handle, is_wedged } => {
+            LocalEchoContent::Event { serialized_event, send_handle, send_error } => {
                 let content = match serialized_event.deserialize() {
                     Ok(d) => d,
                     Err(err) => {
@@ -1254,15 +1254,11 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 )
                 .await;
 
-                if is_wedged {
+                if let Some(send_error) = send_error {
                     self.update_event_send_state(
                         &echo.transaction_id,
                         EventSendState::SendingFailed {
-                            // Put a dummy error in this case, since we're not persisting the errors
-                            // that occurred in previous sessions.
-                            error: Arc::new(matrix_sdk::Error::UnknownError(Box::new(
-                                MissingLocalEchoFailError,
-                            ))),
+                            error: Arc::new(matrix_sdk::Error::SendQueueWedgeError(send_error)),
                             is_recoverable: false,
                         },
                     )
@@ -1518,10 +1514,6 @@ impl TimelineController {
         state.meta.all_events.back().map(|event_meta| &event_meta.event_id).cloned()
     }
 }
-
-#[derive(Debug, Error)]
-#[error("local echo failed to send in a previous session")]
-struct MissingLocalEchoFailError;
 
 #[derive(Debug, Default)]
 pub(super) struct HandleManyEventsResult {

@@ -61,7 +61,7 @@ pub use rooms::{
     RoomStateFilter,
 };
 pub use store::{
-    ComposerDraft, ComposerDraftType, StateChanges, StateStore, StateStoreDataKey,
+    ComposerDraft, ComposerDraftType, QueueWedgeError, StateChanges, StateStore, StateStoreDataKey,
     StateStoreDataValue, StoreError,
 };
 pub use utils::{

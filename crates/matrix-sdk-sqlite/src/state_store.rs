@@ -12,7 +12,7 @@ use matrix_sdk_base::{
     deserialized_responses::{RawAnySyncOrStrippedState, SyncOrStrippedState},
     store::{
         migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedEvent,
-        DependentQueuedEventKind, QueuedEvent, SerializableEventContent,
+        DependentQueuedEventKind, QueueWedgeError, QueuedEvent, SerializableEventContent,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue,
@@ -68,7 +68,7 @@ mod keys {
 /// This is used to figure whether the sqlite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`SqliteStateStore::run_migrations`] function..
-const DATABASE_VERSION: u8 = 7;
+const DATABASE_VERSION: u8 = 8;
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -261,6 +261,41 @@ impl SqliteStateStore {
             .await?;
         }
 
+        if from < 8 && to >= 8 {
+            // Replace all existing wedged events with a generic error.
+            let error = QueueWedgeError::GenericApiError {
+                msg: "local echo failed to send in a previous session".into(),
+            };
+            let default_err = self.serialize_value(&error)?;
+
+            conn.with_transaction(move |txn| {
+                // Update send queue table to persist the wedge reason if any.
+                txn.execute_batch(include_str!("../migrations/state_store/007_a_send_queue_wedge_reason.sql"))?;
+
+                // Migrate the data, add a generic error for currently wedged events
+
+                for wedged_entries in txn
+                    .prepare("SELECT room_id, transaction_id FROM send_queue_events WHERE wedged = 1")?
+                    .query_map((), |row| {
+                        Ok(
+                            (row.get::<_, Vec<u8>>(0)?,row.get::<_, String>(1)?)
+                        )
+                    })? {
+
+                    let (room_id, transaction_id) = wedged_entries?;
+
+                    txn.prepare_cached("UPDATE send_queue_events SET wedge_reason = ? WHERE room_id = ? AND transaction_id = ?")?
+                        .execute((default_err.clone(), room_id, transaction_id))?;
+                }
+
+
+                // Clean up the table now that data is migrated
+                txn.execute_batch(include_str!("../migrations/state_store/007_b_send_queue_clean.sql"))?;
+
+                txn.set_db_version(8)
+            })
+                .await?;
+        }
         Ok(())
     }
 
@@ -1653,7 +1688,7 @@ impl StateStore for SqliteStateStore {
         self.acquire()
             .await?
             .with_transaction(move |txn| {
-                txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content, wedged) VALUES (?, ?, ?, ?, false)")?.execute((room_id_key, room_id_value, transaction_id.to_string(), content))?;
+                txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content) VALUES (?, ?, ?, ?)")?.execute((room_id_key, room_id_value, transaction_id.to_string(), content))?;
                 Ok(())
             })
             .await
@@ -1675,7 +1710,7 @@ impl StateStore for SqliteStateStore {
         let num_updated = self.acquire()
             .await?
             .with_transaction(move |txn| {
-                txn.prepare_cached("UPDATE send_queue_events SET wedged = false, content = ? WHERE room_id = ? AND transaction_id = ?")?.execute((content, room_id, transaction_id))
+                txn.prepare_cached("UPDATE send_queue_events SET wedge_reason = NULL, content = ? WHERE room_id = ? AND transaction_id = ?")?.execute((content, room_id, transaction_id))
             })
             .await?;
 
@@ -1715,11 +1750,11 @@ impl StateStore for SqliteStateStore {
         // Note: ROWID is always present and is an auto-incremented integer counter. We
         // want to maintain the insertion order, so we can sort using it.
         // Note 2: transaction_id is not encoded, see why in `save_send_queue_event`.
-        let res: Vec<(String, Vec<u8>, bool)> = self
+        let res: Vec<(String, Vec<u8>, Option<Vec<u8>>)> = self
             .acquire()
             .await?
             .prepare(
-                "SELECT transaction_id, content, wedged FROM send_queue_events WHERE room_id = ? ORDER BY ROWID",
+                "SELECT transaction_id, content, wedge_reason FROM send_queue_events WHERE room_id = ? ORDER BY ROWID",
                 |mut stmt| {
                     stmt.query((room_id,))?
                         .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
@@ -1733,7 +1768,7 @@ impl StateStore for SqliteStateStore {
             queued_events.push(QueuedEvent {
                 transaction_id: entry.0.into(),
                 event: self.deserialize_json(&entry.1)?,
-                is_wedged: entry.2,
+                error: entry.2.map(|v| self.deserialize_value(&v)).transpose()?,
             });
         }
 
@@ -1744,17 +1779,20 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-        wedged: bool,
+        error: Option<QueueWedgeError>,
     ) -> Result<(), Self::Error> {
         let room_id = self.encode_key(keys::SEND_QUEUE, room_id);
 
         // See comment in `save_send_queue_event`.
         let transaction_id = transaction_id.to_string();
 
+        // Serialize the error to json bytes (encrypted if option is enabled) if set.
+        let error_value = error.map(|e| self.serialize_value(&e)).transpose()?;
+
         self.acquire()
             .await?
             .with_transaction(move |txn| {
-                txn.prepare_cached("UPDATE send_queue_events SET wedged = ? WHERE room_id = ? AND transaction_id = ?")?.execute((wedged, room_id, transaction_id))?;
+                txn.prepare_cached("UPDATE send_queue_events SET wedge_reason = ? WHERE room_id = ? AND transaction_id = ?")?.execute((error_value, room_id, transaction_id))?;
                 Ok(())
             })
             .await
@@ -1961,12 +1999,21 @@ mod migration_tests {
         },
     };
 
-    use matrix_sdk_base::{sync::UnreadNotificationsCount, RoomState, StateStore};
+    use assert_matches::assert_matches;
+    use matrix_sdk_base::{
+        store::{QueueWedgeError, SerializableEventContent},
+        sync::UnreadNotificationsCount,
+        RoomState, StateStore,
+    };
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
     use ruma::{
-        events::{room::create::RoomCreateEventContent, StateEventType},
-        room_id, server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+        events::{
+            room::{create::RoomCreateEventContent, message::RoomMessageEventContent},
+            StateEventType,
+        },
+        room_id, server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId,
+        UserId,
     };
     use rusqlite::Transaction;
     use serde_json::json;
@@ -2212,5 +2259,76 @@ mod migration_tests {
         let room_c = room_infos.iter().find(|r| r.room_id() == room_c_id).unwrap();
         assert_eq!(room_c.name(), None);
         assert_eq!(room_c.creator(), Some(room_c_create_sender));
+    }
+
+    #[async_test]
+    pub async fn test_migrating_v7_to_v8() {
+        let path = new_path();
+
+        let room_a_id = room_id!("!room_a:dummy.local");
+        let wedged_event_transaction_id = TransactionId::new();
+        let local_event_transaction_id = TransactionId::new();
+
+        // Create and populate db.
+        {
+            let db = create_fake_db(&path, 7).await.unwrap();
+            let conn = db.pool.get().await.unwrap();
+
+            let wedge_tx = wedged_event_transaction_id.clone();
+            let local_tx = local_event_transaction_id.clone();
+
+            conn.with_transaction(move |txn| {
+                add_send_queue_event_v7(&db, txn, &wedge_tx, room_a_id, true)?;
+                add_send_queue_event_v7(&db, txn, &local_tx, room_a_id, false)?;
+
+                Result::<_, Error>::Ok(())
+            })
+            .await
+            .unwrap();
+        }
+
+        // This transparently migrates to the latest version.
+        let store = SqliteStateStore::open(path, Some(SECRET)).await.unwrap();
+        let queued_event = store.load_send_queue_events(room_a_id).await.unwrap();
+
+        assert_eq!(queued_event.len(), 2);
+
+        let migrated_wedged =
+            queued_event.iter().find(|e| e.transaction_id == wedged_event_transaction_id).unwrap();
+
+        assert!(migrated_wedged.is_wedged());
+        assert_matches!(
+            migrated_wedged.error.clone(),
+            Some(QueueWedgeError::GenericApiError { .. })
+        );
+
+        let migrated_ok = queued_event
+            .iter()
+            .find(|e| e.transaction_id == local_event_transaction_id.clone())
+            .unwrap();
+
+        assert!(!migrated_ok.is_wedged());
+        assert!(migrated_ok.error.is_none());
+    }
+
+    fn add_send_queue_event_v7(
+        this: &SqliteStateStore,
+        txn: &Transaction<'_>,
+        transaction_id: &TransactionId,
+        room_id: &RoomId,
+        is_wedged: bool,
+    ) -> Result<(), Error> {
+        let content =
+            SerializableEventContent::new(&RoomMessageEventContent::text_plain("Hello").into())?;
+
+        let room_id_key = this.encode_key(keys::SEND_QUEUE, room_id);
+        let room_id_value = this.serialize_value(&room_id.to_owned())?;
+
+        let content = this.serialize_json(&content)?;
+
+        txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content, wedged) VALUES (?, ?, ?, ?, ?)")?
+            .execute((room_id_key, room_id_value, transaction_id.to_string(), content, is_wedged))?;
+
+        Ok(())
     }
 }

@@ -44,8 +44,8 @@ use super::{
     StoreError,
 };
 use crate::{
-    deserialized_responses::RawAnySyncOrStrippedState, MinimalRoomMemberEvent, RoomMemberships,
-    StateStoreDataKey, StateStoreDataValue,
+    deserialized_responses::RawAnySyncOrStrippedState, store::QueueWedgeError,
+    MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
 };
 
 /// In-memory, non-persistent implementation of the `StateStore`.
@@ -815,7 +815,7 @@ impl StateStore for MemoryStore {
             .unwrap()
             .entry(room_id.to_owned())
             .or_default()
-            .push(QueuedEvent { event, transaction_id, is_wedged: false });
+            .push(QueuedEvent { event, transaction_id, error: None });
         Ok(())
     }
 
@@ -835,7 +835,7 @@ impl StateStore for MemoryStore {
             .find(|item| item.transaction_id == transaction_id)
         {
             entry.event = content;
-            entry.is_wedged = false;
+            entry.error = None;
             Ok(true)
         } else {
             Ok(false)
@@ -876,7 +876,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-        wedged: bool,
+        error: Option<QueueWedgeError>,
     ) -> Result<(), Self::Error> {
         if let Some(entry) = self
             .send_queue_events
@@ -887,7 +887,7 @@ impl StateStore for MemoryStore {
             .iter_mut()
             .find(|item| item.transaction_id == transaction_id)
         {
-            entry.is_wedged = wedged;
+            entry.error = error;
         }
         Ok(())
     }

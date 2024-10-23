@@ -82,6 +82,8 @@ mod content;
 
 pub use content::MessageContent;
 
+use crate::error::QueueWedgeError;
+
 #[derive(uniffi::Object)]
 #[repr(transparent)]
 pub struct Timeline {
@@ -951,42 +953,12 @@ pub enum EventSendState {
     /// The local event has not been sent yet.
     NotSentYet,
 
-    /// One or more verified users in the room has an unsigned device.
-    ///
-    /// Happens only when the room key recipient strategy (as set by
-    /// [`ClientBuilder::room_key_recipient_strategy`]) has
-    /// [`error_on_verified_user_problem`](CollectStrategy::DeviceBasedStrategy::error_on_verified_user_problem) set.
-    VerifiedUserHasUnsignedDevice {
-        /// The unsigned devices belonging to verified users. A map from user ID
-        /// to a list of device IDs.
-        devices: HashMap<String, Vec<String>>,
-    },
-
-    /// One or more verified users in the room has changed identity since they
-    /// were verified.
-    ///
-    /// Happens only when the room key recipient strategy (as set by
-    /// [`ClientBuilder::room_key_recipient_strategy`]) has
-    /// [`error_on_verified_user_problem`](CollectStrategy::DeviceBasedStrategy::error_on_verified_user_problem)
-    /// set, or when using [`CollectStrategy::IdentityBasedStrategy`].
-    VerifiedUserChangedIdentity {
-        /// The users that were previously verified, but are no longer
-        users: Vec<String>,
-    },
-
-    /// The user does not have cross-signing set up, but
-    /// [`CollectStrategy::IdentityBasedStrategy`] was used.
-    CrossSigningNotSetup,
-
-    /// The current device is not verified, but
-    /// [`CollectStrategy::IdentityBasedStrategy`] was used.
-    SendingFromUnverifiedDevice,
-
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
     SendingFailed {
-        /// Stringified error message.
-        error: String,
+        /// The error reason, with information for the user.
+        error: QueueWedgeError,
+
         /// Whether the error is considered recoverable or not.
         ///
         /// An error that's recoverable will disable the room's send queue,
@@ -994,6 +966,7 @@ pub enum EventSendState {
         /// decides to cancel sending it.
         is_recoverable: bool,
     },
+
     /// The local event has been sent successfully to the server.
     Sent { event_id: String },
 }
@@ -1005,43 +978,14 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
         match value {
             NotSentYet => Self::NotSentYet,
             SendingFailed { error, is_recoverable } => {
-                event_send_state_from_sending_failed(error, *is_recoverable)
+                let as_queue_wedge_error: matrix_sdk::QueueWedgeError = (&**error).into();
+                Self::SendingFailed {
+                    is_recoverable: *is_recoverable,
+                    error: as_queue_wedge_error.into(),
+                }
             }
             Sent { event_id } => Self::Sent { event_id: event_id.to_string() },
         }
-    }
-}
-
-fn event_send_state_from_sending_failed(error: &Error, is_recoverable: bool) -> EventSendState {
-    use matrix_sdk::crypto::{OlmError, SessionRecipientCollectionError::*};
-
-    match error {
-        // Special-case the SessionRecipientCollectionErrors, to pass the information they contain
-        // back to the application.
-        Error::OlmError(OlmError::SessionRecipientCollectionError(error)) => match error {
-            VerifiedUserHasUnsignedDevice(devices) => {
-                let devices = devices
-                    .iter()
-                    .map(|(user_id, devices)| {
-                        (
-                            user_id.to_string(),
-                            devices.iter().map(|device_id| device_id.to_string()).collect(),
-                        )
-                    })
-                    .collect();
-                EventSendState::VerifiedUserHasUnsignedDevice { devices }
-            }
-
-            VerifiedUserChangedIdentity(bad_users) => EventSendState::VerifiedUserChangedIdentity {
-                users: bad_users.iter().map(|user_id| user_id.to_string()).collect(),
-            },
-
-            CrossSigningNotSetup => EventSendState::CrossSigningNotSetup,
-
-            SendingFromUnverifiedDevice => EventSendState::SendingFromUnverifiedDevice,
-        },
-
-        _ => EventSendState::SendingFailed { error: error.to_string(), is_recoverable },
     }
 }
 

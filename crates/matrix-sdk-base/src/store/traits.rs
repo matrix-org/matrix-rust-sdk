@@ -37,8 +37,8 @@ use ruma::{
     },
     serde::Raw,
     time::SystemTime,
-    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId,
-    TransactionId, UserId,
+    EventId, OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedTransactionId,
+    OwnedUserId, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -392,12 +392,15 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
     ) -> Result<Vec<QueuedEvent>, Self::Error>;
 
-    /// Updates the send queue wedged status for a given send queue event.
+    /// Updates the send queue error status (wedge) for a given send queue
+    /// event.
+    /// Set `error` to None if the problem has been resolved and the event was
+    /// finally sent.
     async fn update_send_queue_event_status(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-        wedged: bool,
+        error: Option<QueueWedgeError>,
     ) -> Result<(), Self::Error>;
 
     /// Loads all the rooms which have any pending events in their send queue.
@@ -662,10 +665,10 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-        wedged: bool,
+        error: Option<QueueWedgeError>,
     ) -> Result<(), Self::Error> {
         self.0
-            .update_send_queue_event_status(room_id, transaction_id, wedged)
+            .update_send_queue_event_status(room_id, transaction_id, error)
             .await
             .map_err(Into::into)
     }
@@ -1153,10 +1156,55 @@ pub struct QueuedEvent {
     /// Unique transaction id for the queued event, acting as a key.
     pub transaction_id: OwnedTransactionId,
 
-    /// If the event couldn't be sent because of an API error, it's marked as
-    /// wedged, and won't ever be peeked for sending. The only option is to
-    /// remove it.
-    pub is_wedged: bool,
+    /// Set when the event couldn't be sent because of an unrecoverable API
+    /// error. `None` if the event is in queue for being sent.
+    pub error: Option<QueueWedgeError>,
+}
+
+impl QueuedEvent {
+    /// True if the event couldn't be sent because of an unrecoverable API
+    /// error. See [`Self::error`] for more details on the reason.
+    pub fn is_wedged(&self) -> bool {
+        self.error.is_some()
+    }
+}
+
+/// Represents a failed to send unrecoverable error of an event sent via the
+/// send_queue.
+///
+/// It is a serializable representation of a client error, see
+/// `From` implementation for more details. These errors can not be
+/// automatically retried, but yet some manual action can be taken before retry
+/// sending. If not the only solution is to delete the local event.
+#[derive(Clone, Debug, Serialize, Deserialize, thiserror::Error)]
+pub enum QueueWedgeError {
+    /// This error occurs when there are some insecure devices in the room, and
+    /// the current encryption setting prohibits sharing with them.
+    #[error("There are insecure devices in the room")]
+    InsecureDevices {
+        /// The insecure devices as a Map of userID to deviceID.
+        user_device_map: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+    },
+
+    /// This error occurs when a previously verified user is not anymore, and
+    /// the current encryption setting prohibits sharing when it happens.
+    #[error("Some users that were previously verified are not anymore")]
+    IdentityViolations {
+        /// The users that are expected to be verified but are not.
+        users: Vec<OwnedUserId>,
+    },
+
+    /// It is required to set up cross-signing and properly verify the current
+    /// session before sending.
+    #[error("Own verification is required")]
+    CrossVerificationRequired,
+
+    /// Other errors.
+    #[error("Other unrecoverable error: {msg}")]
+    GenericApiError {
+        /// Description of the error.
+        msg: String,
+    },
 }
 
 /// The specific user intent that characterizes a [`DependentQueuedEvent`].
@@ -1254,7 +1302,7 @@ impl fmt::Debug for QueuedEvent {
         // Hide the content from the debug log.
         f.debug_struct("QueuedEvent")
             .field("transaction_id", &self.transaction_id)
-            .field("is_wedged", &self.is_wedged)
+            .field("is_wedged", &self.is_wedged())
             .finish_non_exhaustive()
     }
 }

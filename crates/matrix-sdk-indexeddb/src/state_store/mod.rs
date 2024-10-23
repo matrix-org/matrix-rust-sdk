@@ -147,6 +147,7 @@ mod keys {
 }
 
 pub use keys::ALL_STORES;
+use matrix_sdk_base::store::QueueWedgeError;
 
 /// Encrypt (if needs be) then JSON-serialize a value.
 fn serialize_value(store_cipher: Option<&StoreCipher>, event: &impl Serialize) -> Result<JsValue> {
@@ -432,7 +433,12 @@ struct PersistedQueuedEvent {
     // All these fields are the same as in [`QueuedEvent`].
     event: SerializableEventContent,
     transaction_id: OwnedTransactionId,
-    is_wedged: bool,
+
+    // Deprecated (from old format), now replaced with error field.
+    // Kept here for migration
+    is_wedged: Option<bool>,
+
+    pub error: Option<QueueWedgeError>,
 }
 
 // Small hack to have the following macro invocation act as the appropriate
@@ -1325,7 +1331,8 @@ impl_state_store!({
             room_id: room_id.to_owned(),
             event: content,
             transaction_id,
-            is_wedged: false,
+            is_wedged: None,
+            error: None,
         });
 
         // Save the new vector into db.
@@ -1363,7 +1370,8 @@ impl_state_store!({
         // Modify the one event.
         if let Some(entry) = prev.iter_mut().find(|entry| entry.transaction_id == transaction_id) {
             entry.event = content;
-            entry.is_wedged = false;
+            entry.is_wedged = None;
+            entry.error = None;
 
             // Save the new vector into db.
             obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
@@ -1432,7 +1440,15 @@ impl_state_store!({
             .map(|item| QueuedEvent {
                 event: item.event,
                 transaction_id: item.transaction_id,
-                is_wedged: item.is_wedged,
+                error: match item.is_wedged {
+                    Some(true) => {
+                        // migrate a generic error
+                        Some(QueueWedgeError::GenericApiError {
+                            msg: "local echo failed to send in a previous session".into(),
+                        })
+                    }
+                    _ => item.error,
+                },
             })
             .collect())
     }
@@ -1441,7 +1457,7 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-        wedged: bool,
+        error: Option<QueueWedgeError>,
     ) -> Result<()> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
@@ -1456,7 +1472,8 @@ impl_state_store!({
             if let Some(queued_event) =
                 prev.iter_mut().find(|item| item.transaction_id == transaction_id)
             {
-                queued_event.is_wedged = wedged;
+                queued_event.is_wedged = None;
+                queued_event.error = error;
                 obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
             }
         }
@@ -1641,6 +1658,58 @@ impl From<&SyncStateEvent<RoomMemberEventContent>> for RoomMember {
 impl From<&StrippedRoomMemberEvent> for RoomMember {
     fn from(event: &StrippedRoomMemberEvent) -> Self {
         Self { user_id: event.state_key.clone(), membership: event.content.membership.clone() }
+    }
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use matrix_sdk_base::store::SerializableEventContent;
+    use ruma::{
+        events::room::message::RoomMessageEventContent, room_id, OwnedRoomId, OwnedTransactionId,
+        TransactionId,
+    };
+    use serde::{Deserialize, Serialize};
+
+    use crate::state_store::PersistedQueuedEvent;
+
+    #[derive(Serialize, Deserialize)]
+    struct OldPersistedQueuedEvent {
+        /// In which room is this event going to be sent.
+        pub room_id: OwnedRoomId,
+
+        // All these fields are the same as in [`QueuedEvent`].
+        event: SerializableEventContent,
+        transaction_id: OwnedTransactionId,
+
+        is_wedged: bool,
+    }
+
+    // We now persist an error when an event failed to send instead of just a
+    // boolean. To support that, `PersistedQueueEvent` changed a bool to
+    // Option<bool>, ensures that this work properly.
+    #[test]
+    fn test_migrating_persisted_queue_event_serialization() {
+        let room_a_id = room_id!("!room_a:dummy.local");
+        let transaction_id = TransactionId::new();
+        let content =
+            SerializableEventContent::new(&RoomMessageEventContent::text_plain("Hello").into())
+                .unwrap();
+
+        let old_persisted_queue_event = OldPersistedQueuedEvent {
+            room_id: room_a_id.to_owned(),
+            event: content,
+            transaction_id,
+            is_wedged: true,
+        };
+
+        let serialized_persisted_event = serde_json::to_vec(&old_persisted_queue_event).unwrap();
+
+        // Load it with the new version.
+        let new_persisted: PersistedQueuedEvent =
+            serde_json::from_slice(&serialized_persisted_event).unwrap();
+
+        assert_eq!(new_persisted.is_wedged, Some(true));
+        assert!(new_persisted.error.is_none());
     }
 }
 

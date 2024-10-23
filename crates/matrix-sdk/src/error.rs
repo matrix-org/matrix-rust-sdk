@@ -25,7 +25,8 @@ use matrix_sdk_base::crypto::{
     CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
 };
 use matrix_sdk_base::{
-    event_cache_store::EventCacheStoreError, Error as SdkBaseError, RoomState, StoreError,
+    event_cache_store::EventCacheStoreError, Error as SdkBaseError, QueueWedgeError, RoomState,
+    StoreError,
 };
 use reqwest::Error as ReqwestError;
 use ruma::{
@@ -370,6 +371,10 @@ pub enum Error {
     /// An error coming from the event cache subsystem.
     #[error(transparent)]
     EventCache(#[from] EventCacheError),
+
+    /// An item has been wedged in the send queue.
+    #[error(transparent)]
+    SendQueueWedgeError(#[from] QueueWedgeError),
 
     /// Backups are not enabled
     #[error("backups are not enabled")]
