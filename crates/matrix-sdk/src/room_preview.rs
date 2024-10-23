@@ -290,11 +290,7 @@ impl RoomPreviewActions {
             } else {
                 room_id.clone().into()
             };
-        let leave = LeaveRoomAction {
-            client: client.clone(),
-            room_id,
-            room_state,
-        };
+        let leave = LeaveRoomAction { client: client.clone(), room_id, room_state };
         let knock = KnockRoomAction { client, room_or_alias_id, room_state };
         Self { join, leave, knock }
     }
