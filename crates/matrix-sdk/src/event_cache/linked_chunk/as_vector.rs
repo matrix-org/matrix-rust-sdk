@@ -253,7 +253,7 @@ impl UpdateToVectorDiff {
         //
         // From the `VectorDiff` “point of view”, this optimisation aims at avoiding
         // removing items to push them again later.
-        let mut mute_push_items = false;
+        let mut reattaching = false;
 
         for update in updates {
             match update {
@@ -329,18 +329,22 @@ impl UpdateToVectorDiff {
                 }
 
                 Update::PushItems { at: position, items } => {
+                    let number_of_chunks = self.chunks.len();
                     let (offset, (chunk_index, chunk_length)) = self.map_to_offset(position);
 
-                    // Update the length of the chunk in `self.chunks`.
+                    let is_pushing_back =
+                        chunk_index + 1 == number_of_chunks && position.index() >= *chunk_length;
+
+                    // Add the number of items to the chunk in `self.chunks`.
                     *chunk_length += items.len();
 
-                    // See `mute_push_items` to learn more.
-                    if mute_push_items {
+                    // See `reattaching` to learn more.
+                    if reattaching {
                         continue;
                     }
 
                     // Optimisation: we can emit a `VectorDiff::Append` in this particular case.
-                    if chunk_index + 1 == self.chunks.len() {
+                    if is_pushing_back {
                         diffs.push(VectorDiff::Append { values: items.into() });
                     }
                     // No optimisation: let's emit `VectorDiff::Insert`.
@@ -375,13 +379,13 @@ impl UpdateToVectorDiff {
                 }
 
                 Update::StartReattachItems => {
-                    // Entering the `reattaching` mode.
-                    mute_push_items = true;
+                    // Entering the _reattaching_ mode.
+                    reattaching = true;
                 }
 
                 Update::EndReattachItems => {
-                    // Exiting the `reattaching` mode.
-                    mute_push_items = false;
+                    // Exiting the _reattaching_ mode.
+                    reattaching = false;
                 }
             }
         }
@@ -411,14 +415,11 @@ impl UpdateToVectorDiff {
 
                 // Chunk has not been found.
                 ControlFlow::Continue(..) => {
-                    // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are
-                    // not buggy, and assuming
-                    // `Self::chunks` is correctly initialized, it
-                    // is not possible to push items on a chunk that does not exist.
-                    // If this predicate fails,
-                    // it means `LinkedChunk` or
-                    // `ObservableUpdates` contain a bug.
-                    panic!("Pushing items: The chunk is not found");
+                    // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not buggy, and
+                    // assuming `Self::chunks` is correctly initialized, it is not possible to work
+                    // on a chunk that does not exist. If this predicate fails, it means
+                    // `LinkedChunk` or `ObservableUpdates` contain a bug.
+                    panic!("The chunk is not found");
                 }
             }
         };
