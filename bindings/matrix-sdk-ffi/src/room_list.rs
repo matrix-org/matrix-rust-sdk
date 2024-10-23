@@ -16,9 +16,7 @@ use matrix_sdk_ui::{
     timeline::default_event_filter,
     unable_to_decrypt_hook::UtdHookManager,
 };
-use ruma::{
-    IdParseError, OwnedRoomOrAliasId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
-};
+use ruma::{OwnedRoomOrAliasId, OwnedServerName, ServerName};
 use tokio::sync::RwLock;
 
 use crate::{
@@ -595,10 +593,10 @@ impl RoomListItem {
         Ok(Arc::new(Room::new(self.inner.inner_room().clone())))
     }
 
-    /// Builds a `RoomPreview` from a room list item. This is intended for rooms
-    /// with [`Membership::Invite`] or [`Membership::Knocked`],
+    /// Builds a `RoomPreview` from a room list item. This is intended for
+    /// invited or knocked rooms.
     ///
-    /// An error will be returned if the room is a state other than invited
+    /// An error will be returned if the room is in a state other than invited
     /// or knocked.
     async fn preview_room(&self, via: Vec<String>) -> Result<Arc<RoomPreview>, ClientError> {
         let membership = self.membership();
@@ -624,7 +622,7 @@ impl RoomListItem {
         };
 
         let room_preview = client.get_room_preview(&room_or_alias_id, server_names).await?;
-        Ok(Arc::new(RoomPreview::try_from_sdk(room_preview, client)))
+        Ok(Arc::new(RoomPreview::from_sdk(room_preview)))
     }
 
     /// Build a full `Room` FFI object, filling its associated timeline.

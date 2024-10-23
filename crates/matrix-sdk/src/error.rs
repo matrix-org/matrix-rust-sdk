@@ -45,7 +45,9 @@ use serde_json::Error as JsonError;
 use thiserror::Error;
 use url::ParseError as UrlParseError;
 
-use crate::{event_cache::EventCacheError, store_locks::LockStoreError};
+use crate::{
+    event_cache::EventCacheError, room_preview::WrongRoomPreviewState, store_locks::LockStoreError,
+};
 
 /// Result type of the matrix-sdk.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -347,6 +349,12 @@ pub enum Error {
     /// different.
     #[error("wrong room state: {0}")]
     WrongRoomState(WrongRoomState),
+
+    /// Attempted to call a method on a room preview that requires the user to
+    /// have a specific membership state in the room, but the membership
+    /// state is different or none.
+    #[error("wrong room state: {0}")]
+    WrongRoomPreviewState(WrongRoomPreviewState),
 
     /// Session callbacks have been set multiple times.
     #[error("session callbacks have been set multiple times")]

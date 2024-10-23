@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     mem::ManuallyDrop,
-    ops::Deref,
     path::Path,
     sync::{Arc, RwLock},
 };
@@ -1028,7 +1027,7 @@ impl Client {
         &self,
         room_id: String,
         via_servers: Vec<String>,
-    ) -> Result<RoomPreview, ClientError> {
+    ) -> Result<Arc<RoomPreview>, ClientError> {
         let room_id = RoomId::parse(&room_id).context("room_id is not a valid room id")?;
 
         let via_servers = via_servers
@@ -1042,16 +1041,15 @@ impl Client {
         let room_id: &RoomId = &room_id;
 
         let sdk_room_preview = self.inner.get_room_preview(room_id.into(), via_servers).await?;
-        let client = (*self.inner.deref()).clone();
 
-        RoomPreview::try_from_sdk(sdk_room_preview, client)
+        Ok(Arc::new(RoomPreview::from_sdk(sdk_room_preview)))
     }
 
     /// Given a room alias, get the preview of a room, to interact with it.
     pub async fn get_room_preview_from_room_alias(
         &self,
         room_alias: String,
-    ) -> Result<RoomPreview, ClientError> {
+    ) -> Result<Arc<RoomPreview>, ClientError> {
         let room_alias =
             RoomAliasId::parse(&room_alias).context("room_alias is not a valid room alias")?;
 
@@ -1060,9 +1058,8 @@ impl Client {
         let room_alias: &RoomAliasId = &room_alias;
 
         let sdk_room_preview = self.inner.get_room_preview(room_alias.into(), Vec::new()).await?;
-        let client = (*self.inner.deref()).clone();
 
-        RoomPreview::try_from_sdk(sdk_room_preview, client)
+        Ok(Arc::new(RoomPreview::from_sdk(sdk_room_preview)))
     }
 
     /// Waits until an at least partially synced room is received, and returns
@@ -1807,7 +1804,7 @@ impl From<OidcPrompt> for SdkOidcPrompt {
 }
 
 /// The rule used for users wishing to join this room.
-#[derive(uniffi::Enum)]
+#[derive(Debug, Clone, uniffi::Enum)]
 pub enum JoinRule {
     /// Anyone can join the room without any prior action.
     Public,
@@ -1836,7 +1833,7 @@ pub enum JoinRule {
 }
 
 /// An allow rule which defines a condition that allows joining a room.
-#[derive(uniffi::Enum)]
+#[derive(Debug, Clone, uniffi::Enum)]
 pub enum AllowRule {
     /// Only a member of the `room_id` Room can join the one this rule is used
     /// in.

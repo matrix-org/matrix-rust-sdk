@@ -2,13 +2,13 @@ use std::{collections::HashMap, fmt, fmt::Display};
 
 use matrix_sdk::{
     encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, reqwest,
-    room::edit::EditError, send_queue::RoomSendQueueError, HttpError, IdParseError,
-    NotificationSettingsError as SdkNotificationSettingsError,
+    room::edit::EditError, room_preview::WrongRoomPreviewState, send_queue::RoomSendQueueError,
+    HttpError, IdParseError, NotificationSettingsError as SdkNotificationSettingsError,
     QueueWedgeError as SdkQueueWedgeError, StoreError,
 };
 use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
 use uniffi::UnexpectedUniFFICallbackError;
-use matrix_sdk::room_preview::RoomPreviewError;
+
 use crate::room_list::RoomListError;
 
 #[derive(Debug, thiserror::Error)]
@@ -155,8 +155,8 @@ impl From<RoomSendQueueError> for ClientError {
     }
 }
 
-impl From<RoomPreviewError> for ClientError {
-    fn from(e: RoomSendQueueError) -> Self {
+impl From<WrongRoomPreviewState> for ClientError {
+    fn from(e: WrongRoomPreviewState) -> Self {
         Self::new(e)
     }
 }
