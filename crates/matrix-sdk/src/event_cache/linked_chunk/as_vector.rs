@@ -356,8 +356,19 @@ impl UpdateToVectorDiff {
                     }
                 }
 
-                Update::RemoveItem { at } => {
-                    todo!()
+                Update::RemoveItem { at: position } => {
+                    let (offset, (_chunk_index, chunk_length)) = self.map_to_offset(position);
+
+                    // Remove one item to the chunk in `self.chunks`.
+                    *chunk_length -= 1;
+
+                    // See `reattaching` to learn more.
+                    if reattaching {
+                        continue;
+                    }
+
+                    // Let's emit a `VectorDiff::Remove`.
+                    diffs.push(VectorDiff::Remove { index: offset });
                 }
 
                 Update::DetachLastItems { at: position } => {
@@ -456,6 +467,9 @@ mod tests {
             match diff {
                 VectorDiff::Insert { index, value } => accumulator.insert(index, value),
                 VectorDiff::Append { values } => accumulator.append(values),
+                VectorDiff::Remove { index } => {
+                    accumulator.remove(index);
+                }
                 diff => unimplemented!("{diff:?}"),
             }
         }
@@ -599,15 +613,77 @@ mod tests {
             &[VectorDiff::Insert { index: 0, value: 'm' }],
         );
 
+        let removed_item = linked_chunk
+            .remove_item_at(linked_chunk.item_position(|item| *item == 'c').unwrap())
+            .unwrap();
+        assert_eq!(removed_item, 'c');
+        assert_items_eq!(
+            linked_chunk,
+            ['m', 'a', 'w'] ['x'] ['y', 'z', 'b'] ['d'] ['i', 'j', 'k'] ['l'] ['e', 'f', 'g'] ['h']
+        );
+
+        // From an `ObservableVector` point of view, it would look like:
+        //
+        // 0   1   2   3   4   5   6   7   8   9   10  11  12  13  14  15  16
+        // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+        // | m | a | w | x | y | z | b | d | i | j | k | l | e | f | g | h |
+        // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+        //                             ^
+        //                             |
+        //                             `c` has been removed
+        apply_and_assert_eq(&mut accumulator, as_vector.take(), &[VectorDiff::Remove { index: 7 }]);
+
+        let removed_item = linked_chunk
+            .remove_item_at(linked_chunk.item_position(|item| *item == 'z').unwrap())
+            .unwrap();
+        assert_eq!(removed_item, 'z');
+        assert_items_eq!(
+            linked_chunk,
+            ['m', 'a', 'w'] ['x'] ['y', 'b'] ['d'] ['i', 'j', 'k'] ['l'] ['e', 'f', 'g'] ['h']
+        );
+
+        // From an `ObservableVector` point of view, it would look like:
+        //
+        // 0   1   2   3   4   5   6   7   8   9   10  11  12  13  14  15
+        // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+        // | m | a | w | x | y | b | d | i | j | k | l | e | f | g | h |
+        // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+        //                     ^
+        //                     |
+        //                     `z` has been removed
+        apply_and_assert_eq(&mut accumulator, as_vector.take(), &[VectorDiff::Remove { index: 5 }]);
+
+        linked_chunk
+            .insert_items_at(['z'], linked_chunk.item_position(|item| *item == 'h').unwrap())
+            .unwrap();
+
+        assert_items_eq!(
+            linked_chunk,
+            ['m', 'a', 'w'] ['x'] ['y', 'b'] ['d'] ['i', 'j', 'k'] ['l'] ['e', 'f', 'g'] ['z', 'h']
+        );
+
+        // From an `ObservableVector` point of view, it would look like:
+        //
+        // 0   1   2   3   4   5   6   7   8   9   10  11  12  13  14  15  16
+        // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+        // | m | a | w | x | y | b | d | i | j | k | l | e | f | g | z | h |
+        // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+        //                                                         ^^^^
+        //                                                         |
+        //                                                         new!
+        apply_and_assert_eq(
+            &mut accumulator,
+            as_vector.take(),
+            &[VectorDiff::Insert { index: 14, value: 'z' }],
+        );
+
         drop(linked_chunk);
         assert!(as_vector.take().is_empty());
 
         // Finally, ensure the “reconstitued” vector is the one expected.
         assert_eq!(
             accumulator,
-            vector![
-                'm', 'a', 'w', 'x', 'y', 'z', 'b', 'c', 'd', 'i', 'j', 'k', 'l', 'e', 'f', 'g', 'h'
-            ]
+            vector!['m', 'a', 'w', 'x', 'y', 'b', 'd', 'i', 'j', 'k', 'l', 'e', 'f', 'g', 'z', 'h']
         );
     }
 
@@ -643,6 +719,7 @@ mod tests {
             PushItems { items: Vec<char> },
             PushGap,
             ReplaceLastGap { items: Vec<char> },
+            RemoveItem { item: char },
         }
 
         fn as_vector_operation_strategy() -> impl Strategy<Value = AsVectorOperation> {
@@ -654,13 +731,16 @@ mod tests {
 
                 1 => prop::collection::vec(prop::char::ranges(vec!['a'..='z', 'A'..='Z'].into()), 0..=25)
                     .prop_map(|items| AsVectorOperation::ReplaceLastGap { items }),
+
+                1 => prop::char::ranges(vec!['a'..='z', 'A'..='Z'].into())
+                    .prop_map(|item| AsVectorOperation::RemoveItem { item }),
             ]
         }
 
         proptest! {
             #[test]
             fn as_vector_is_correct(
-                operations in prop::collection::vec(as_vector_operation_strategy(), 10..=50)
+                operations in prop::collection::vec(as_vector_operation_strategy(), 50..=200)
             ) {
                 let mut linked_chunk = LinkedChunk::<10, char, ()>::new_with_update_history();
                 let mut as_vector = linked_chunk.as_vector().unwrap();
@@ -683,7 +763,17 @@ mod tests {
                                 continue;
                             };
 
-                            linked_chunk.replace_gap_at(items, gap_identifier).unwrap();
+                            linked_chunk.replace_gap_at(items, gap_identifier).expect("Failed to replace a gap");
+                        }
+
+                        AsVectorOperation::RemoveItem { item: expected_item } => {
+                            let Some(position) = linked_chunk
+                                .items().find_map(|(position, item)| (*item == expected_item).then_some(position))
+                            else {
+                                continue;
+                            };
+
+                            linked_chunk.remove_item_at(position).expect("Failed to remove an item");
                         }
                     }
                 }
@@ -698,6 +788,9 @@ mod tests {
                             let mut values = values.iter().copied().collect();
 
                             vector_from_diffs.append(&mut values);
+                        }
+                        VectorDiff::Remove { index } => {
+                            vector_from_diffs.remove(index);
                         }
                         _ => unreachable!(),
                     }
