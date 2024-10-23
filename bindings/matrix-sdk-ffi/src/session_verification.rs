@@ -110,7 +110,8 @@ impl SessionVerificationController {
         let verification_request = self.verification_request.read().unwrap().clone();
 
         if let Some(verification_request) = verification_request {
-            verification_request.accept().await?;
+            let methods = vec![VerificationMethod::SasV1];
+            verification_request.accept_with_methods(methods).await?;
         }
 
         Ok(())
