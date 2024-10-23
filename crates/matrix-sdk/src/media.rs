@@ -27,19 +27,21 @@ pub use matrix_sdk_base::media::*;
 use mime::Mime;
 use ruma::{
     api::{
-        client::{authenticated_media, media},
+        client::{authenticated_media, error::ErrorKind, media},
         MatrixVersion,
     },
     assign,
     events::room::{MediaSource, ThumbnailInfo},
-    MxcUri,
+    MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
-use crate::{attachment::Thumbnail, futures::SendRequest, Client, Result, TransmissionProgress};
+use crate::{
+    attachment::Thumbnail, futures::SendRequest, Client, Error, Result, TransmissionProgress,
+};
 
 /// A conservative upload speed of 1Mbps
 const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
@@ -105,6 +107,28 @@ impl fmt::Display for PersistError {
     }
 }
 
+/// A preallocated MXC URI created by [`Media::create_content_uri()`], and
+/// to be used with [`Media::upload_preallocated()`].
+#[derive(Debug)]
+pub struct PreallocatedMxcUri {
+    /// The URI for the media URI.
+    pub uri: OwnedMxcUri,
+    /// The expiration date for the media URI.
+    expire_date: Option<MilliSecondsSinceUnixEpoch>,
+}
+
+/// An error that happened in the realm of media.
+#[derive(Debug, thiserror::Error)]
+pub enum MediaError {
+    /// A preallocated MXC URI has expired.
+    #[error("a preallocated MXC URI has expired")]
+    ExpiredPreallocatedMxcUri,
+
+    /// Preallocated media already had content, cannot overwrite.
+    #[error("preallocated media already had content, cannot overwrite")]
+    CannotOverwriteMedia,
+}
+
 /// `IntoFuture` returned by [`Media::upload`].
 pub type SendUploadRequest = SendRequest<media::create_content::v3::Request>;
 
@@ -152,6 +176,96 @@ impl Media {
 
         let request_config = self.client.request_config().timeout(timeout);
         self.client.send(request, Some(request_config))
+    }
+
+    /// Preallocates an MXC URI for a media that will be uploaded soon.
+    ///
+    /// This preallocates an URI *before* any content is uploaded to the server.
+    /// The resulting preallocated MXC URI can then be consumed with
+    /// [`Media::upload_preallocated`].
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::fs;
+    /// # use matrix_sdk::{Client, ruma::room_id};
+    /// # use url::Url;
+    /// # use mime;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver).await?;
+    ///
+    /// let preallocated = client.media().create_content_uri().await?;
+    /// println!("Cat URI: {}", preallocated.uri);
+    ///
+    /// let image = fs::read("/home/example/my-cat.jpg")?;
+    /// client
+    ///     .media()
+    ///     .upload_preallocated(preallocated, &mime::IMAGE_JPEG, image)
+    ///     .await?;
+    ///
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn create_content_uri(&self) -> Result<PreallocatedMxcUri> {
+        // Note: this request doesn't have any parameters.
+        let request = media::create_mxc_uri::v1::Request::default();
+
+        let response = self.client.send(request, None).await?;
+
+        Ok(PreallocatedMxcUri {
+            uri: response.content_uri,
+            expire_date: response.unused_expires_at,
+        })
+    }
+
+    /// Fills the content of a preallocated MXC URI with the given content type
+    /// and data.
+    ///
+    /// The URI must have been preallocated with [`Self::create_content_uri`].
+    /// See this method's documentation for a full example.
+    pub async fn upload_preallocated(
+        &self,
+        uri: PreallocatedMxcUri,
+        content_type: &Mime,
+        data: Vec<u8>,
+    ) -> Result<()> {
+        // Do a best-effort at reporting an expired MXC URI here; otherwise the server
+        // may complain about it later.
+        if let Some(expire_date) = uri.expire_date {
+            if MilliSecondsSinceUnixEpoch::now() >= expire_date {
+                return Err(Error::Media(MediaError::ExpiredPreallocatedMxcUri));
+            }
+        }
+
+        let timeout = std::cmp::max(
+            Duration::from_secs(data.len() as u64 / DEFAULT_UPLOAD_SPEED),
+            MIN_UPLOAD_REQUEST_TIMEOUT,
+        );
+
+        let request = assign!(media::create_content_async::v3::Request::from_url(&uri.uri, data)?, {
+            content_type: Some(content_type.as_ref().to_owned()),
+        });
+
+        let request_config = self.client.request_config().timeout(timeout);
+
+        if let Err(err) = self.client.send(request, Some(request_config)).await {
+            match err.client_api_error_kind() {
+                Some(ErrorKind::CannotOverwriteMedia) => {
+                    Err(Error::Media(MediaError::CannotOverwriteMedia))
+                }
+
+                // Unfortunately, the spec says a server will return 404 for either an expired MXC
+                // ID or a non-existing MXC ID. Do a best-effort guess to recognize an expired MXC
+                // ID based on the error string, which will work with Synapse (as of 2024-10-23).
+                Some(ErrorKind::Unknown) if err.to_string().contains("expired") => {
+                    Err(Error::Media(MediaError::ExpiredPreallocatedMxcUri))
+                }
+
+                _ => Err(err.into()),
+            }
+        } else {
+            Ok(())
+        }
     }
 
     /// Gets a media file by copying it to a temporary location on disk.
@@ -506,7 +620,7 @@ impl Media {
             self.upload(content_type, data)
                 .with_send_progress_observable(send_progress)
                 .await
-                .map_err(crate::Error::from)
+                .map_err(Error::from)
         };
 
         let ((thumbnail_source, thumbnail_info), response) =
