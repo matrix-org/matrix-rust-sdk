@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt, fmt::Display};
 
 use matrix_sdk::{
     encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, reqwest,
@@ -154,11 +154,10 @@ impl From<RoomSendQueueError> for ClientError {
 /// `From` implementation for more details. These errors can not be
 /// automatically retried, but yet some manual action can be taken before retry
 /// sending. If not the only solution is to delete the local event.
-#[derive(Debug, Clone, thiserror::Error, uniffi::Error)]
+#[derive(Debug, Clone, uniffi::Enum)]
 pub enum QueueWedgeError {
     /// This error occurs when there are some insecure devices in the room, and
     /// the current encryption setting prohibit sharing with them.
-    #[error("There are insecure devices in the room")]
     InsecureDevices {
         /// The insecure devices as a Map of userID to deviceID.
         user_device_map: HashMap<String, Vec<String>>,
@@ -166,7 +165,6 @@ pub enum QueueWedgeError {
 
     /// This error occurs when a previously verified user is not anymore, and
     /// the current encryption setting prohibit sharing when it happens.
-    #[error("Some users that were previously verified are not anymore")]
     IdentityViolations {
         /// The users that are expected to be verified but are not.
         users: Vec<String>,
@@ -174,14 +172,30 @@ pub enum QueueWedgeError {
 
     /// It is required to set up cross-signing and properly erify the current
     /// session before sending.
-    #[error("Own verification is required")]
     CrossVerificationRequired,
 
     /// Other errors.
-    #[error("Other unrecoverable error: {msg}")]
     GenericApiError { msg: String },
 }
 
+/// Simple display implementation that strips out userIds/DeviceIds to avoid
+/// accidental logging.
+impl Display for QueueWedgeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            QueueWedgeError::InsecureDevices { .. } => {
+                f.write_str("There are insecure devices in the room")
+            }
+            QueueWedgeError::IdentityViolations { .. } => {
+                f.write_str("Some users that were previously verified are not anymore")
+            }
+            QueueWedgeError::CrossVerificationRequired => {
+                f.write_str("Own verification is required")
+            }
+            QueueWedgeError::GenericApiError { msg } => f.write_str(msg),
+        }
+    }
+}
 impl From<SdkQueueWedgeError> for QueueWedgeError {
     fn from(value: SdkQueueWedgeError) -> Self {
         match value {
