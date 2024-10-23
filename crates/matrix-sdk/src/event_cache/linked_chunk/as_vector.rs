@@ -14,7 +14,7 @@
 
 use std::{
     collections::VecDeque,
-    ops::ControlFlow,
+    ops::{ControlFlow, Not},
     sync::{Arc, RwLock},
 };
 
@@ -254,6 +254,7 @@ impl UpdateToVectorDiff {
         // From the `VectorDiff` “point of view”, this optimisation aims at avoiding
         // removing items to push them again later.
         let mut reattaching = false;
+        let mut detaching = false;
 
         for update in updates {
             match update {
@@ -344,7 +345,7 @@ impl UpdateToVectorDiff {
                     }
 
                     // Optimisation: we can emit a `VectorDiff::Append` in this particular case.
-                    if is_pushing_back {
+                    if is_pushing_back && detaching.not() {
                         diffs.push(VectorDiff::Append { values: items.into() });
                     }
                     // No optimisation: let's emit `VectorDiff::Insert`.
@@ -376,6 +377,9 @@ impl UpdateToVectorDiff {
                         .expect("Detach last items: The chunk is not found");
 
                     *chunk_length = new_length;
+
+                    // Entering the _detaching_ mode.
+                    detaching = true;
                 }
 
                 Update::StartReattachItems => {
@@ -386,6 +390,9 @@ impl UpdateToVectorDiff {
                 Update::EndReattachItems => {
                     // Exiting the _reattaching_ mode.
                     reattaching = false;
+
+                    // Exiting the _detaching_ mode.
+                    detaching = false;
                 }
             }
         }
