@@ -10,7 +10,7 @@ use ruma::{
     api::client::media::get_content_thumbnail::v3::Method,
     assign, device_id,
     events::room::{message::ImageMessageEventContent, ImageInfo, MediaSource},
-    mxc_uri, uint, user_id,
+    mxc_uri, owned_mxc_uri, uint, user_id,
 };
 use serde_json::json;
 use wiremock::{
@@ -410,4 +410,52 @@ async fn test_get_media_file_with_auth_matrix_stable_feature() {
         animated: true,
     };
     client.media().get_thumbnail(&event_content, settings, true).await.unwrap();
+}
+
+#[async_test]
+async fn test_async_media_upload() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    client.reset_server_capabilities().await.unwrap();
+
+    // Declare Matrix version v1.7.
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/versions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "versions": [
+                "v1.7"
+            ],
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/media/v1/create"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+          "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path("/_matrix/media/v3/upload/example.com/AQwafuaFswefuhsfAFAgsw"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(header("content-type", "image/jpeg"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mxc_uri = client.media().create_content_uri().await.unwrap();
+
+    assert_eq!(mxc_uri.uri, owned_mxc_uri!("mxc://example.com/AQwafuaFswefuhsfAFAgsw"));
+
+    client
+        .media()
+        .upload_preallocated(mxc_uri, &mime::IMAGE_JPEG, b"hello world".to_vec())
+        .await
+        .unwrap();
 }
