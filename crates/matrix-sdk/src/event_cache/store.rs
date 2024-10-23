@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
+use std::{cmp::Ordering, fmt};
 
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+use ruma::OwnedEventId;
 use tracing::error;
 
 use super::{
@@ -64,25 +65,34 @@ impl RoomEvents {
     ///
     /// For the moment, duplicated events will be logged but not removed from
     /// the resulting iterator.
-    fn deduplicate<'a, I>(&'a self, events: I) -> impl Iterator<Item = Event> + 'a
+    fn deduplicate<'a, I>(&'a mut self, events: I) -> (Vec<Event>, Vec<OwnedEventId>)
     where
         I: Iterator<Item = Event> + 'a,
     {
-        self.deduplicator.scan_and_learn(events, self).map(
-            |decorated_event| match decorated_event {
-                Decoration::Ok(event) => event,
-                Decoration::Duplicated(event) => {
-                    error!(?event, "Found a duplicated event");
+        let mut duplicated_event_ids = Vec::new();
 
-                    event
+        let deduplicated_events = self
+            .deduplicator
+            .scan_and_learn(events, self)
+            .filter_map(|decorated_event| match decorated_event {
+                Decoration::Ok(event) => Some(event),
+                Decoration::Duplicated(event) => {
+                    error!(event_id = ?event.event_id(), "Found a duplicated event");
+
+                    duplicated_event_ids.push(event.event_id().expect("The event has no ID"));
+
+                    // Keep the new event!
+                    Some(event)
                 }
                 Decoration::Invalid(event) => {
                     error!(?event, "Found an invalid event");
 
-                    event
+                    None
                 }
-            },
-        )
+            })
+            .collect();
+
+        (deduplicated_events, duplicated_event_ids)
     }
 
     /// Push events after all events or gaps.
@@ -92,9 +102,35 @@ impl RoomEvents {
     where
         I: IntoIterator<Item = Event>,
     {
-        let events = self.deduplicate(events.into_iter()).collect::<Vec<_>>();
+        let (events, duplicated_event_ids) = self.deduplicate(events.into_iter());
 
-        self.chunks.push_items_back(events)
+        // Remove the _old_ duplicated events!
+        {
+            // We don't have to worry the removals can change the position of the existing
+            // events, because we are pushing all _new_ `events` at the back.
+            for duplicated_event_id in duplicated_event_ids {
+                let Some(duplicated_event_position) =
+                    self.revents().find_map(|(position, event)| {
+                        (event.event_id().as_ref() == Some(&duplicated_event_id))
+                            .then_some(position)
+                    })
+                else {
+                    error!(
+                        ?duplicated_event_id,
+                        "A duplicated event has been detected, but it's position seems unknown"
+                    );
+
+                    continue;
+                };
+
+                self.chunks
+                    .remove_item_at(duplicated_event_position)
+                    .expect("Failed to remove an event we have just found");
+            }
+        }
+
+        // Push new `events`.
+        self.chunks.push_items_back(events);
     }
 
     /// Push a gap after all events or gaps.
@@ -103,11 +139,67 @@ impl RoomEvents {
     }
 
     /// Insert events at a specified position.
-    pub fn insert_events_at<I>(&mut self, events: I, position: Position) -> Result<(), Error>
+    pub fn insert_events_at<I>(&mut self, events: I, mut position: Position) -> Result<(), Error>
     where
         I: IntoIterator<Item = Event>,
     {
-        let events = self.deduplicate(events.into_iter()).collect::<Vec<_>>();
+        let (events, duplicated_event_ids) = self.deduplicate(events.into_iter());
+
+        // Remove the _old_ duplicated events!
+        {
+            // We **have to worry* the removals can change the position of the existing
+            // events. We **have** to update the `position` argument value for each removal.
+            for duplicated_event_id in duplicated_event_ids {
+                let Some(duplicated_event_position) =
+                    self.revents().find_map(|(position, event)| {
+                        (event.event_id().as_ref() == Some(&duplicated_event_id))
+                            .then_some(position)
+                    })
+                else {
+                    error!(
+                        ?duplicated_event_id,
+                        "A duplicated event has been detected, but it's position seems unknown"
+                    );
+
+                    continue;
+                };
+
+                self.chunks
+                    .remove_item_at(duplicated_event_position)
+                    .expect("Failed to remove an event we have just found");
+
+                // A `Position` is composed of a `ChunkIdentifier` and an index.
+                // The `ChunkIdentifier` is stable, i.e. it won't change if an
+                // event is removed in another chunk. It means we only need to
+                // update `position` if the removal happened in **the same
+                // chunk**.
+                if duplicated_event_position.chunk_identifier() == position.chunk_identifier() {
+                    // Now we can compare the the position indices.
+                    match duplicated_event_position.index().cmp(&position.index()) {
+                        // `duplicated_event_position`'s index < `position`'s index
+                        Ordering::Less => {
+                            // An event has been removed _before_ the new
+                            // events: `position` needs to be shifted to the
+                            // left by 1.
+                            position.move_index_to_the_left();
+                        }
+
+                        // `duplicated_event_position`'s index == `position`'s index
+                        Ordering::Equal => {
+                            // An event has been removed at the same position of
+                            // the new events: `position` does _NOT_ need tp be
+                            // modified.
+                        }
+
+                        // `duplicated_event_position`'s index > `position`'s index
+                        Ordering::Greater => {
+                            // An event has been removed _after_ the new events:
+                            // `position` does _NOT_ need to be modified.
+                        }
+                    }
+                }
+            }
+        }
 
         self.chunks.insert_items_at(events, position)
     }
@@ -132,7 +224,33 @@ impl RoomEvents {
     where
         I: IntoIterator<Item = Event>,
     {
-        let events = self.deduplicate(events.into_iter()).collect::<Vec<_>>();
+        let (events, duplicated_event_ids) = self.deduplicate(events.into_iter());
+
+        // Remove the _old_ duplicated events!
+        {
+            // We don't have to worry the removals can change the position of the existing
+            // events, because we are replacing a gap: its identifier will not change
+            // because of the removals.
+            for duplicated_event_id in duplicated_event_ids {
+                let Some(duplicated_event_position) =
+                    self.revents().find_map(|(position, event)| {
+                        (event.event_id().as_ref() == Some(&duplicated_event_id))
+                            .then_some(position)
+                    })
+                else {
+                    error!(
+                        ?duplicated_event_id,
+                        "A duplicated event has been detected, but it's position seems unknown"
+                    );
+
+                    continue;
+                };
+
+                self.chunks
+                    .remove_item_at(duplicated_event_position)
+                    .expect("Failed to remove an event we have just found");
+            }
+        }
 
         self.chunks.replace_gap_at(events, gap_identifier)
     }
@@ -240,11 +358,11 @@ mod tests {
         let event_builder = EventBuilder::new();
 
         let (event_id_0, event_0) = new_event(&event_builder, "$ev0");
+        let (event_id_1, event_1) = new_event(&event_builder, "$ev1");
 
         let mut room_events = RoomEvents::new();
 
-        room_events.push_events([event_0.clone()]);
-        room_events.push_events([event_0]);
+        room_events.push_events([event_0.clone(), event_1]);
 
         {
             let mut events = room_events.events();
@@ -253,6 +371,26 @@ mod tests {
             assert_eq!(position.chunk_identifier(), 0);
             assert_eq!(position.index(), 0);
             assert_eq!(event.event_id().unwrap(), event_id_0);
+
+            assert_let!(Some((position, event)) = events.next());
+            assert_eq!(position.chunk_identifier(), 0);
+            assert_eq!(position.index(), 1);
+            assert_eq!(event.event_id().unwrap(), event_id_1);
+
+            assert!(events.next().is_none());
+        }
+
+        // Everything is alright. Now let's push a duplicated event.
+        room_events.push_events([event_0]);
+
+        {
+            let mut events = room_events.events();
+
+            // The first `event_id_0` has been removed.
+            assert_let!(Some((position, event)) = events.next());
+            assert_eq!(position.chunk_identifier(), 0);
+            assert_eq!(position.index(), 0);
+            assert_eq!(event.event_id().unwrap(), event_id_1);
 
             assert_let!(Some((position, event)) = events.next());
             assert_eq!(position.chunk_identifier(), 0);
@@ -352,24 +490,24 @@ mod tests {
     }
 
     #[test]
-    fn test_insert_events_at_with_dupicates() {
+    fn test_insert_events_at_with_duplicates() {
         let event_builder = EventBuilder::new();
 
         let (event_id_0, event_0) = new_event(&event_builder, "$ev0");
         let (event_id_1, event_1) = new_event(&event_builder, "$ev1");
+        let (event_id_2, event_2) = new_event(&event_builder, "$ev2");
+        let (event_id_3, event_3) = new_event(&event_builder, "$ev3");
 
         let mut room_events = RoomEvents::new();
 
-        room_events.push_events([event_0, event_1.clone()]);
+        room_events.push_events([event_0.clone(), event_1, event_2]);
 
-        let position_of_event_1 = room_events
+        let position_of_event_2 = room_events
             .events()
             .find_map(|(position, event)| {
-                (event.event_id().unwrap() == event_id_1).then_some(position)
+                (event.event_id().unwrap() == event_id_2).then_some(position)
             })
             .unwrap();
-
-        room_events.insert_events_at([event_1], position_of_event_1).unwrap();
 
         {
             let mut events = room_events.events();
@@ -387,7 +525,37 @@ mod tests {
             assert_let!(Some((position, event)) = events.next());
             assert_eq!(position.chunk_identifier(), 0);
             assert_eq!(position.index(), 2);
+            assert_eq!(event.event_id().unwrap(), event_id_2);
+
+            assert!(events.next().is_none());
+        }
+
+        // Everything is alright. Now let's insert a duplicated events!
+        room_events.insert_events_at([event_0, event_3], position_of_event_2).unwrap();
+
+        {
+            let mut events = room_events.events();
+
+            // The first `event_id_0` has been removed.
+            assert_let!(Some((position, event)) = events.next());
+            assert_eq!(position.chunk_identifier(), 0);
+            assert_eq!(position.index(), 0);
             assert_eq!(event.event_id().unwrap(), event_id_1);
+
+            assert_let!(Some((position, event)) = events.next());
+            assert_eq!(position.chunk_identifier(), 0);
+            assert_eq!(position.index(), 1);
+            assert_eq!(event.event_id().unwrap(), event_id_0);
+
+            assert_let!(Some((position, event)) = events.next());
+            assert_eq!(position.chunk_identifier(), 0);
+            assert_eq!(position.index(), 2);
+            assert_eq!(event.event_id().unwrap(), event_id_3);
+
+            assert_let!(Some((position, event)) = events.next());
+            assert_eq!(position.chunk_identifier(), 0);
+            assert_eq!(position.index(), 3);
+            assert_eq!(event.event_id().unwrap(), event_id_2);
 
             assert!(events.next().is_none());
         }
@@ -507,10 +675,11 @@ mod tests {
 
         let (event_id_0, event_0) = new_event(&event_builder, "$ev0");
         let (event_id_1, event_1) = new_event(&event_builder, "$ev1");
+        let (event_id_2, event_2) = new_event(&event_builder, "$ev2");
 
         let mut room_events = RoomEvents::new();
 
-        room_events.push_events([event_0.clone()]);
+        room_events.push_events([event_0.clone(), event_1]);
         room_events.push_gap(Gap { prev_token: "hello".to_owned() });
 
         let chunk_identifier_of_gap = room_events
@@ -518,8 +687,6 @@ mod tests {
             .find_map(|chunk| chunk.is_gap().then_some(chunk.first_position()))
             .unwrap()
             .chunk_identifier();
-
-        room_events.replace_gap_at([event_0, event_1], chunk_identifier_of_gap).unwrap();
 
         {
             let mut events = room_events.events();
@@ -530,6 +697,26 @@ mod tests {
             assert_eq!(event.event_id().unwrap(), event_id_0);
 
             assert_let!(Some((position, event)) = events.next());
+            assert_eq!(position.chunk_identifier(), 0);
+            assert_eq!(position.index(), 1);
+            assert_eq!(event.event_id().unwrap(), event_id_1);
+
+            assert!(events.next().is_none());
+        }
+
+        // Everything is alright. Now let's replace a gap with a duplicated event.
+        room_events.replace_gap_at([event_0, event_2], chunk_identifier_of_gap).unwrap();
+
+        {
+            let mut events = room_events.events();
+
+            // The first `event_id_0` has been removed.
+            assert_let!(Some((position, event)) = events.next());
+            assert_eq!(position.chunk_identifier(), 0);
+            assert_eq!(position.index(), 0);
+            assert_eq!(event.event_id().unwrap(), event_id_1);
+
+            assert_let!(Some((position, event)) = events.next());
             assert_eq!(position.chunk_identifier(), 2);
             assert_eq!(position.index(), 0);
             assert_eq!(event.event_id().unwrap(), event_id_0);
@@ -537,7 +724,7 @@ mod tests {
             assert_let!(Some((position, event)) = events.next());
             assert_eq!(position.chunk_identifier(), 2);
             assert_eq!(position.index(), 1);
-            assert_eq!(event.event_id().unwrap(), event_id_1);
+            assert_eq!(event.event_id().unwrap(), event_id_2);
 
             assert!(events.next().is_none());
         }
