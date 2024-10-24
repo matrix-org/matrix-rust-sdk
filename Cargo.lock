@@ -2898,6 +2898,7 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "gloo-timers",
+ "growable-bloom-filter",
  "http",
  "imbl",
  "indexmap 2.6.0",

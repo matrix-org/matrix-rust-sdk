@@ -14,7 +14,7 @@
 
 use std::{
     collections::VecDeque,
-    ops::ControlFlow,
+    ops::{ControlFlow, Not},
     sync::{Arc, RwLock},
 };
 
@@ -22,7 +22,7 @@ use eyeball_im::VectorDiff;
 
 use super::{
     updates::{ReaderToken, Update, UpdatesInner},
-    ChunkContent, ChunkIdentifier, Iter,
+    ChunkContent, ChunkIdentifier, Iter, Position,
 };
 
 /// A type alias to represent a chunk's length. This is purely for commodity.
@@ -253,7 +253,8 @@ impl UpdateToVectorDiff {
         //
         // From the `VectorDiff` “point of view”, this optimisation aims at avoiding
         // removing items to push them again later.
-        let mut mute_push_items = false;
+        let mut reattaching = false;
+        let mut detaching = false;
 
         for update in updates {
             match update {
@@ -329,46 +330,22 @@ impl UpdateToVectorDiff {
                 }
 
                 Update::PushItems { at: position, items } => {
-                    let expected_chunk_identifier = position.chunk_identifier();
+                    let number_of_chunks = self.chunks.len();
+                    let (offset, (chunk_index, chunk_length)) = self.map_to_offset(position);
 
-                    let (chunk_index, offset, chunk_length) = {
-                        let control_flow = self.chunks.iter_mut().enumerate().try_fold(
-                            position.index(),
-                            |offset, (chunk_index, (chunk_identifier, chunk_length))| {
-                                if chunk_identifier == &expected_chunk_identifier {
-                                    ControlFlow::Break((chunk_index, offset, chunk_length))
-                                } else {
-                                    ControlFlow::Continue(offset + *chunk_length)
-                                }
-                            },
-                        );
+                    let is_pushing_back =
+                        chunk_index + 1 == number_of_chunks && position.index() >= *chunk_length;
 
-                        match control_flow {
-                            // Chunk has been found, and all values have been calculated as
-                            // expected.
-                            ControlFlow::Break(values) => values,
-
-                            // Chunk has not been found.
-                            ControlFlow::Continue(..) => {
-                                // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not
-                                // buggy, and assuming `Self::chunks` is correctly initialized, it
-                                // is not possible to push items on a chunk that does not exist. If
-                                // this predicate fails, it means `LinkedChunk` or
-                                // `ObservableUpdates` contain a bug.
-                                panic!("Pushing items: The chunk is not found");
-                            }
-                        }
-                    };
-
+                    // Add the number of items to the chunk in `self.chunks`.
                     *chunk_length += items.len();
 
-                    // See `mute_push_items` to learn more.
-                    if mute_push_items {
+                    // See `reattaching` to learn more.
+                    if reattaching {
                         continue;
                     }
 
                     // Optimisation: we can emit a `VectorDiff::Append` in this particular case.
-                    if chunk_index + 1 == self.chunks.len() {
+                    if is_pushing_back && detaching.not() {
                         diffs.push(VectorDiff::Append { values: items.into() });
                     }
                     // No optimisation: let's emit `VectorDiff::Insert`.
@@ -379,15 +356,30 @@ impl UpdateToVectorDiff {
                     }
                 }
 
-                Update::DetachLastItems { at } => {
-                    let expected_chunk_identifier = at.chunk_identifier();
-                    let new_length = at.index();
+                Update::RemoveItem { at: position } => {
+                    let (offset, (_chunk_index, chunk_length)) = self.map_to_offset(position);
 
-                    let length = self
+                    // Remove one item to the chunk in `self.chunks`.
+                    *chunk_length -= 1;
+
+                    // See `reattaching` to learn more.
+                    if reattaching {
+                        continue;
+                    }
+
+                    // Let's emit a `VectorDiff::Remove`.
+                    diffs.push(VectorDiff::Remove { index: offset });
+                }
+
+                Update::DetachLastItems { at: position } => {
+                    let expected_chunk_identifier = position.chunk_identifier();
+                    let new_length = position.index();
+
+                    let chunk_length = self
                         .chunks
                         .iter_mut()
-                        .find_map(|(chunk_identifier, length)| {
-                            (*chunk_identifier == expected_chunk_identifier).then_some(length)
+                        .find_map(|(chunk_identifier, chunk_length)| {
+                            (*chunk_identifier == expected_chunk_identifier).then_some(chunk_length)
                         })
                         // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not buggy, and
                         // assuming `Self::chunks` is correctly initialized, it is not possible to
@@ -395,22 +387,62 @@ impl UpdateToVectorDiff {
                         // it means `LinkedChunk` or `ObservableUpdates` contain a bug.
                         .expect("Detach last items: The chunk is not found");
 
-                    *length = new_length;
+                    *chunk_length = new_length;
+
+                    // Entering the _detaching_ mode.
+                    detaching = true;
                 }
 
                 Update::StartReattachItems => {
-                    // Entering the `reattaching` mode.
-                    mute_push_items = true;
+                    // Entering the _reattaching_ mode.
+                    reattaching = true;
                 }
 
                 Update::EndReattachItems => {
-                    // Exiting the `reattaching` mode.
-                    mute_push_items = false;
+                    // Exiting the _reattaching_ mode.
+                    reattaching = false;
+
+                    // Exiting the _detaching_ mode.
+                    detaching = false;
                 }
             }
         }
 
         diffs
+    }
+
+    fn map_to_offset(&mut self, position: &Position) -> (usize, (usize, &mut usize)) {
+        let expected_chunk_identifier = position.chunk_identifier();
+
+        let (offset, (chunk_index, chunk_length)) = {
+            let control_flow = self.chunks.iter_mut().enumerate().try_fold(
+                position.index(),
+                |offset, (chunk_index, (chunk_identifier, chunk_length))| {
+                    if chunk_identifier == &expected_chunk_identifier {
+                        ControlFlow::Break((offset, (chunk_index, chunk_length)))
+                    } else {
+                        ControlFlow::Continue(offset + *chunk_length)
+                    }
+                },
+            );
+
+            match control_flow {
+                // Chunk has been found, and all values have been calculated as
+                // expected.
+                ControlFlow::Break(values) => values,
+
+                // Chunk has not been found.
+                ControlFlow::Continue(..) => {
+                    // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not buggy, and
+                    // assuming `Self::chunks` is correctly initialized, it is not possible to work
+                    // on a chunk that does not exist. If this predicate fails, it means
+                    // `LinkedChunk` or `ObservableUpdates` contain a bug.
+                    panic!("The chunk is not found");
+                }
+            }
+        };
+
+        (offset, (chunk_index, chunk_length))
     }
 }
 
@@ -435,6 +467,9 @@ mod tests {
             match diff {
                 VectorDiff::Insert { index, value } => accumulator.insert(index, value),
                 VectorDiff::Append { values } => accumulator.append(values),
+                VectorDiff::Remove { index } => {
+                    accumulator.remove(index);
+                }
                 diff => unimplemented!("{diff:?}"),
             }
         }
@@ -578,15 +613,77 @@ mod tests {
             &[VectorDiff::Insert { index: 0, value: 'm' }],
         );
 
+        let removed_item = linked_chunk
+            .remove_item_at(linked_chunk.item_position(|item| *item == 'c').unwrap())
+            .unwrap();
+        assert_eq!(removed_item, 'c');
+        assert_items_eq!(
+            linked_chunk,
+            ['m', 'a', 'w'] ['x'] ['y', 'z', 'b'] ['d'] ['i', 'j', 'k'] ['l'] ['e', 'f', 'g'] ['h']
+        );
+
+        // From an `ObservableVector` point of view, it would look like:
+        //
+        // 0   1   2   3   4   5   6   7   8   9   10  11  12  13  14  15  16
+        // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+        // | m | a | w | x | y | z | b | d | i | j | k | l | e | f | g | h |
+        // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+        //                             ^
+        //                             |
+        //                             `c` has been removed
+        apply_and_assert_eq(&mut accumulator, as_vector.take(), &[VectorDiff::Remove { index: 7 }]);
+
+        let removed_item = linked_chunk
+            .remove_item_at(linked_chunk.item_position(|item| *item == 'z').unwrap())
+            .unwrap();
+        assert_eq!(removed_item, 'z');
+        assert_items_eq!(
+            linked_chunk,
+            ['m', 'a', 'w'] ['x'] ['y', 'b'] ['d'] ['i', 'j', 'k'] ['l'] ['e', 'f', 'g'] ['h']
+        );
+
+        // From an `ObservableVector` point of view, it would look like:
+        //
+        // 0   1   2   3   4   5   6   7   8   9   10  11  12  13  14  15
+        // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+        // | m | a | w | x | y | b | d | i | j | k | l | e | f | g | h |
+        // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+        //                     ^
+        //                     |
+        //                     `z` has been removed
+        apply_and_assert_eq(&mut accumulator, as_vector.take(), &[VectorDiff::Remove { index: 5 }]);
+
+        linked_chunk
+            .insert_items_at(['z'], linked_chunk.item_position(|item| *item == 'h').unwrap())
+            .unwrap();
+
+        assert_items_eq!(
+            linked_chunk,
+            ['m', 'a', 'w'] ['x'] ['y', 'b'] ['d'] ['i', 'j', 'k'] ['l'] ['e', 'f', 'g'] ['z', 'h']
+        );
+
+        // From an `ObservableVector` point of view, it would look like:
+        //
+        // 0   1   2   3   4   5   6   7   8   9   10  11  12  13  14  15  16
+        // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+        // | m | a | w | x | y | b | d | i | j | k | l | e | f | g | z | h |
+        // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+        //                                                         ^^^^
+        //                                                         |
+        //                                                         new!
+        apply_and_assert_eq(
+            &mut accumulator,
+            as_vector.take(),
+            &[VectorDiff::Insert { index: 14, value: 'z' }],
+        );
+
         drop(linked_chunk);
         assert!(as_vector.take().is_empty());
 
         // Finally, ensure the “reconstitued” vector is the one expected.
         assert_eq!(
             accumulator,
-            vector![
-                'm', 'a', 'w', 'x', 'y', 'z', 'b', 'c', 'd', 'i', 'j', 'k', 'l', 'e', 'f', 'g', 'h'
-            ]
+            vector!['m', 'a', 'w', 'x', 'y', 'b', 'd', 'i', 'j', 'k', 'l', 'e', 'f', 'g', 'z', 'h']
         );
     }
 
@@ -622,6 +719,7 @@ mod tests {
             PushItems { items: Vec<char> },
             PushGap,
             ReplaceLastGap { items: Vec<char> },
+            RemoveItem { item: char },
         }
 
         fn as_vector_operation_strategy() -> impl Strategy<Value = AsVectorOperation> {
@@ -633,13 +731,16 @@ mod tests {
 
                 1 => prop::collection::vec(prop::char::ranges(vec!['a'..='z', 'A'..='Z'].into()), 0..=25)
                     .prop_map(|items| AsVectorOperation::ReplaceLastGap { items }),
+
+                1 => prop::char::ranges(vec!['a'..='z', 'A'..='Z'].into())
+                    .prop_map(|item| AsVectorOperation::RemoveItem { item }),
             ]
         }
 
         proptest! {
             #[test]
             fn as_vector_is_correct(
-                operations in prop::collection::vec(as_vector_operation_strategy(), 10..=50)
+                operations in prop::collection::vec(as_vector_operation_strategy(), 50..=200)
             ) {
                 let mut linked_chunk = LinkedChunk::<10, char, ()>::new_with_update_history();
                 let mut as_vector = linked_chunk.as_vector().unwrap();
@@ -662,7 +763,17 @@ mod tests {
                                 continue;
                             };
 
-                            linked_chunk.replace_gap_at(items, gap_identifier).unwrap();
+                            linked_chunk.replace_gap_at(items, gap_identifier).expect("Failed to replace a gap");
+                        }
+
+                        AsVectorOperation::RemoveItem { item: expected_item } => {
+                            let Some(position) = linked_chunk
+                                .items().find_map(|(position, item)| (*item == expected_item).then_some(position))
+                            else {
+                                continue;
+                            };
+
+                            linked_chunk.remove_item_at(position).expect("Failed to remove an item");
                         }
                     }
                 }
@@ -677,6 +788,9 @@ mod tests {
                             let mut values = values.iter().copied().collect();
 
                             vector_from_diffs.append(&mut values);
+                        }
+                        VectorDiff::Remove { index } => {
+                            vector_from_diffs.remove(index);
                         }
                         _ => unreachable!(),
                     }
