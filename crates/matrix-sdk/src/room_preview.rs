@@ -29,10 +29,10 @@ use ruma::{
 use tokio::try_join;
 use tracing::{instrument, warn};
 
-use crate::{Client, Room};
+use crate::{Client, Error, Room};
 
 /// The preview of a room, be it invited/joined/left, or not.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RoomPreview {
     /// The actual room id for this room.
     ///
@@ -69,19 +69,46 @@ pub struct RoomPreview {
     ///
     /// Set to `None` if the room is unknown to the user.
     pub state: Option<RoomState>,
+
+    /// The `m.room.direct` state of the room, if known.
+    pub is_direct: Option<bool>,
+
+    /// The [`Client`] that can be used to perform actions given the room
+    /// preview.
+    pub(crate) client: Client,
 }
 
 impl RoomPreview {
+    /// Leave a room using its [`RoomPreview`].
+    pub async fn leave(&self) -> Result<(), Error> {
+        match self.state {
+            Some(RoomState::Left) | None => {
+                Err(Error::WrongRoomPreviewState(WrongRoomPreviewState {
+                    expected: "Invited, Knocked or Joined",
+                    got: self.state,
+                }))
+            }
+            Some(_) => self.client.leave_room(&self.room_id).await.map_err(Into::into),
+        }
+    }
+
     /// Constructs a [`RoomPreview`] from the associated room info.
     ///
     /// Note: not using the room info's state/count of joined members, because
     /// we can do better than that.
-    fn from_room_info(
+    async fn from_room_info(
+        client: &Client,
         room_info: RoomInfo,
         num_joined_members: u64,
         state: Option<RoomState>,
     ) -> Self {
+        let is_direct = if let Some(room) = client.get_room(room_info.room_id()) {
+            room.is_direct().await.ok()
+        } else {
+            None
+        };
         RoomPreview {
+            client: client.clone(),
             room_id: room_info.room_id().to_owned(),
             canonical_alias: room_info.canonical_alias().map(ToOwned::to_owned),
             name: room_info.name().map(ToOwned::to_owned),
@@ -102,16 +129,22 @@ impl RoomPreview {
                 }
             },
             is_world_readable: *room_info.history_visibility() == HistoryVisibility::WorldReadable,
-
             num_joined_members,
             state,
+            is_direct,
         }
     }
 
     /// Create a room preview from a known room (i.e. one we've been invited to,
     /// we've joined or we've left).
-    pub(crate) fn from_known(room: &Room) -> Self {
-        Self::from_room_info(room.clone_info(), room.joined_members_count(), Some(room.state()))
+    pub(crate) async fn from_known(room: &Room) -> Self {
+        Self::from_room_info(
+            &room.client,
+            room.clone_info(),
+            room.joined_members_count(),
+            Some(room.state()),
+        )
+        .await
     }
 
     #[instrument(skip(client))]
@@ -160,13 +193,21 @@ impl RoomPreview {
         // The server returns a `Left` room state for rooms the user has not joined. Be
         // more precise than that, and set it to `None` if we haven't joined
         // that room.
-        let state = if client.get_room(&room_id).is_none() {
+        let cached_room = client.get_room(&room_id);
+        let state = if cached_room.is_none() {
             None
         } else {
             response.membership.map(|membership| RoomState::from(&membership))
         };
 
+        let is_direct = if let Some(cached_room) = cached_room {
+            cached_room.is_direct().await.ok()
+        } else {
+            None
+        };
+
         Ok(RoomPreview {
+            client: client.clone(),
             room_id,
             canonical_alias: response.canonical_alias,
             name: response.name,
@@ -177,6 +218,7 @@ impl RoomPreview {
             join_rule: response.join_rule,
             is_world_readable: response.world_readable,
             state,
+            is_direct,
         })
     }
 
@@ -219,6 +261,21 @@ impl RoomPreview {
 
         let state = client.get_room(room_id).map(|room| room.state());
 
-        Ok(Self::from_room_info(room_info, num_joined_members, state))
+        Ok(Self::from_room_info(client, room_info, num_joined_members, state).await)
+    }
+}
+
+/// An unexpected room preview state was found.
+#[derive(Debug, thiserror::Error)]
+#[error("expected: {expected}, got: {got:?}")]
+pub struct WrongRoomPreviewState {
+    expected: &'static str,
+    got: Option<RoomState>,
+}
+
+impl WrongRoomPreviewState {
+    /// Instantiate a new
+    pub fn new(expected: &'static str, got: Option<RoomState>) -> Self {
+        Self { expected, got }
     }
 }
