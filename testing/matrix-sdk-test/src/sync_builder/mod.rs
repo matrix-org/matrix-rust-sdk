@@ -8,7 +8,7 @@ use ruma::{
         },
         IncomingResponse,
     },
-    events::{presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyToDeviceEvent, ToDeviceEvent},
+    events::{presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyToDeviceEvent},
     serde::Raw,
     OwnedRoomId, OwnedUserId, UserId,
 };
