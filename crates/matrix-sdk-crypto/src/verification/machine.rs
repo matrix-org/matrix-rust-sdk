@@ -412,7 +412,13 @@ impl VerificationMachine {
                 };
 
                 if request.flow_id() == &flow_id {
-                    request.receive_ready(event.sender(), c);
+                    if let Some(device_data) =
+                        self.store.get_device(event.sender(), c.from_device()).await?
+                    {
+                        request.receive_ready(event.sender(), c, device_data);
+                    } else {
+                        warn!("Could not retrieve the data for the accepting device, ignoring it");
+                    }
                 } else {
                     flow_id_mismatch();
                 }

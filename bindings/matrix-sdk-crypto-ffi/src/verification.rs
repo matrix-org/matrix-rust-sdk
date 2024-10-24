@@ -752,7 +752,7 @@ impl VerificationRequest {
             RustVerificationRequestState::Ready {
                 their_methods,
                 our_methods,
-                other_device_id: _,
+                other_device_data: _,
             } => VerificationRequestState::Ready {
                 their_methods: their_methods.iter().map(|m| m.to_string()).collect(),
                 our_methods: our_methods.iter().map(|m| m.to_string()).collect(),
