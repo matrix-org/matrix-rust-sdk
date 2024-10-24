@@ -226,7 +226,7 @@ impl VerificationRequest {
             Ready { their_methods, our_methods, other_device_data } => {
                 VerificationRequestState::Ready { their_methods, our_methods, other_device_data }
             }
-            Transitioned { verification } => VerificationRequestState::Transitioned {
+            Transitioned { verification, .. } => VerificationRequestState::Transitioned {
                 verification: match verification {
                     matrix_sdk_base::crypto::Verification::SasV1(s) => {
                         Verification::SasV1(SasVerification { inner: s, client })
