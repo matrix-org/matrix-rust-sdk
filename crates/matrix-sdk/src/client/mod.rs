@@ -54,7 +54,7 @@ use ruma::{
             },
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             knock::knock_room,
-            membership::{join_room_by_id, join_room_by_id_or_alias},
+            membership::{join_room_by_id, join_room_by_id_or_alias, leave_room},
             room::create_room,
             session::login::v3::DiscoveryInfo,
             sync::sync_events,
@@ -1206,6 +1206,13 @@ impl Client {
         let response = self.send(request, None).await?;
         let base_room = self.base_client().room_joined(&response.room_id).await?;
         Ok(Room::new(self.clone(), base_room))
+    }
+
+    /// Leave a room given its `RoomId`.
+    pub async fn leave_room(&self, room_id: &RoomId) -> Result<()> {
+        let request = leave_room::v3::Request::new(room_id.to_owned());
+        self.send(request, None).await?;
+        self.base_client().room_left(room_id).await.map_err(Into::into)
     }
 
     /// Search the homeserver's directory of public rooms.

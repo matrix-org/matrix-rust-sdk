@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     mem::ManuallyDrop,
-    ops::Deref,
     path::Path,
     sync::{Arc, RwLock},
 };
@@ -1042,9 +1041,8 @@ impl Client {
         let room_id: &RoomId = &room_id;
 
         let sdk_room_preview = self.inner.get_room_preview(room_id.into(), via_servers).await?;
-        let client = (*self.inner.deref()).clone();
 
-        RoomPreview::try_from_sdk(sdk_room_preview, client)
+        Ok(RoomPreview::from_sdk(sdk_room_preview))
     }
 
     /// Given a room alias, get the preview of a room, to interact with it.
@@ -1060,9 +1058,8 @@ impl Client {
         let room_alias: &RoomAliasId = &room_alias;
 
         let sdk_room_preview = self.inner.get_room_preview(room_alias.into(), Vec::new()).await?;
-        let client = (*self.inner.deref()).clone();
 
-        RoomPreview::try_from_sdk(sdk_room_preview, client)
+        Ok(RoomPreview::from_sdk(sdk_room_preview))
     }
 
     /// Waits until an at least partially synced room is received, and returns

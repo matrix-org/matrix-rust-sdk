@@ -622,7 +622,7 @@ impl RoomListItem {
         };
 
         let room_preview = client.get_room_preview(&room_or_alias_id, server_names).await?;
-        RoomPreview::try_from_sdk(room_preview, client)
+        Ok(RoomPreview::from_sdk(room_preview))
     }
 
     /// Build a full `Room` FFI object, filling its associated timeline.

@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt, fmt::Display};
 
 use matrix_sdk::{
     encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, reqwest,
-    room::edit::EditError, room_preview::RoomStateActionError, send_queue::RoomSendQueueError,
+    room::edit::EditError, room_preview::WrongRoomPreviewState, send_queue::RoomSendQueueError,
     HttpError, IdParseError, NotificationSettingsError as SdkNotificationSettingsError,
     QueueWedgeError as SdkQueueWedgeError, StoreError,
 };
@@ -155,8 +155,8 @@ impl From<RoomSendQueueError> for ClientError {
     }
 }
 
-impl From<RoomStateActionError> for ClientError {
-    fn from(e: RoomStateActionError) -> Self {
+impl From<WrongRoomPreviewState> for ClientError {
+    fn from(e: WrongRoomPreviewState) -> Self {
         Self::new(e)
     }
 }

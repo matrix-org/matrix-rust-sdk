@@ -29,7 +29,7 @@ use ruma::{
 use tokio::try_join;
 use tracing::{instrument, warn};
 
-use crate::{Client, Room};
+use crate::{Client, Error, Room};
 
 /// The preview of a room, be it invited/joined/left, or not.
 #[derive(Debug, Clone)]
@@ -72,9 +72,26 @@ pub struct RoomPreview {
 
     /// The `m.room.direct` state of the room, if known.
     pub is_direct: Option<bool>,
+
+    /// The [`Client`] that can be used to perform actions given the room
+    /// preview.
+    pub(crate) client: Client,
 }
 
 impl RoomPreview {
+    /// Leave a room using its [`RoomPreview`].
+    pub async fn leave(&self) -> Result<(), Error> {
+        match self.state {
+            Some(RoomState::Left) | None => {
+                Err(Error::WrongRoomPreviewState(WrongRoomPreviewState {
+                    expected: "Invited, Knocked or Joined",
+                    got: self.state,
+                }))
+            }
+            Some(_) => self.client.leave_room(&self.room_id).await.map_err(Into::into),
+        }
+    }
+
     /// Constructs a [`RoomPreview`] from the associated room info.
     ///
     /// Note: not using the room info's state/count of joined members, because
@@ -91,6 +108,7 @@ impl RoomPreview {
             None
         };
         RoomPreview {
+            client: client.clone(),
             room_id: room_info.room_id().to_owned(),
             canonical_alias: room_info.canonical_alias().map(ToOwned::to_owned),
             name: room_info.name().map(ToOwned::to_owned),
@@ -189,6 +207,7 @@ impl RoomPreview {
         };
 
         Ok(RoomPreview {
+            client: client.clone(),
             room_id,
             canonical_alias: response.canonical_alias,
             name: response.name,
@@ -243,5 +262,20 @@ impl RoomPreview {
         let state = client.get_room(room_id).map(|room| room.state());
 
         Ok(Self::from_room_info(client, room_info, num_joined_members, state).await)
+    }
+}
+
+/// An unexpected room preview state was found.
+#[derive(Debug, thiserror::Error)]
+#[error("expected: {expected}, got: {got:?}")]
+pub struct WrongRoomPreviewState {
+    expected: &'static str,
+    got: Option<RoomState>,
+}
+
+impl WrongRoomPreviewState {
+    /// Instantiate a new
+    pub fn new(expected: &'static str, got: Option<RoomState>) -> Self {
+        Self { expected, got }
     }
 }

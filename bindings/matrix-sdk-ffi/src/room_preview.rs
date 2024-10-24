@@ -5,30 +5,42 @@ use crate::{client::JoinRule, error::ClientError, room::Membership};
 
 /// A room preview for a room. It's intended to be used to represent rooms that
 /// aren't joined yet.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Object)]
 pub struct RoomPreview {
-    pub info: RoomPreviewInfo,
+    inner: SdkRoomPreview,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl RoomPreview {
+    /// Returns the room info the preview contains.
+    pub fn info(&self) -> RoomPreviewInfo {
+        let info = self.inner.clone();
+        RoomPreviewInfo {
+            room_id: info.room_id.to_string(),
+            canonical_alias: info.canonical_alias.map(|alias| alias.to_string()),
+            name: info.name,
+            topic: info.topic,
+            avatar_url: info.avatar_url.map(|url| url.to_string()),
+            num_joined_members: info.num_joined_members,
+            room_type: info.room_type.map(|room_type| room_type.to_string()),
+            is_history_world_readable: info.is_world_readable,
+            membership: info.state.map(|state| state.into()),
+            join_rule: info.join_rule.into(),
+        }
+    }
+
+    /// Leave the room if the room preview state is either joined, invited or
+    /// knocked.
+    ///
+    /// Will return an error otherwise.
+    pub async fn leave(&self) -> Result<(), ClientError> {
+        self.inner.leave().await.map_err(Into::into)
+    }
 }
 
 impl RoomPreview {
-    pub(crate) fn try_from_sdk(room_preview: SdkRoomPreview) -> Result<Self, ClientError> {
-        let info = RoomPreviewInfo {
-            room_id: room_preview.room_id.to_string(),
-            canonical_alias: room_preview.canonical_alias.map(|alias| alias.to_string()),
-            name: room_preview.name,
-            topic: room_preview.topic,
-            avatar_url: room_preview.avatar_url.map(|url| url.to_string()),
-            num_joined_members: room_preview.num_joined_members,
-            room_type: room_preview.room_type.map(|room_type| room_type.to_string()),
-            is_history_world_readable: room_preview.is_world_readable,
-            membership: room_preview
-                .state
-                .map(|state| state.into())
-                .unwrap_or_else(|| Membership::Left),
-            join_rule: room_preview.join_rule.into(),
-        };
-
-        Ok(Self { info })
+    pub(crate) fn from_sdk(room_preview: SdkRoomPreview) -> Self {
+        Self { inner: room_preview }
     }
 }
 
@@ -51,9 +63,9 @@ pub struct RoomPreviewInfo {
     pub room_type: Option<String>,
     /// Is the history world-readable for this room?
     pub is_history_world_readable: bool,
-    /// Is the room joined by the current user?
-    pub membership: Membership,
-    /// is the join rule public for this room?
+    /// The membership state for the current user, if known.
+    pub membership: Option<Membership>,
+    /// The join rule for this room (private, public, knock, etc.).
     pub join_rule: JoinRule,
 }
 
