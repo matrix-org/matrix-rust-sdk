@@ -56,11 +56,17 @@ pub struct IdentityStatusChanges {
 }
 
 impl IdentityStatusChanges {
-    /// Create a new stream of changes to the identity status of members of a
-    /// room.
+    /// Create a new stream of significant changes to the identity status of
+    /// members of a room.
     ///
     /// The "status" of an identity changes when our level of trust in it
     /// changes.
+    ///
+    /// A "significant" change means a warning should either be added or removed
+    /// (e.g. the user changed from pinned to unpinned (show a warning) or
+    /// from verification violation to pinned (remove a warning). An
+    /// insignificant change would be from pinned to verified - no warning
+    /// is needed in this case.
     ///
     /// For example, if an identity is "pinned" i.e. not manually verified, but
     /// known, and it becomes a "unpinned" i.e. unknown, because the
@@ -196,56 +202,161 @@ mod tests {
     use futures_core::Stream;
     use futures_util::FutureExt;
     use matrix_sdk_base::crypto::{IdentityState, IdentityStatusChange};
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, test_json::keys_query_sets::IdentityChangeDataSet};
     use test_setup::TestSetup;
     use tokio_stream::{StreamExt, Timeout};
 
     #[async_test]
     async fn test_when_user_becomes_unpinned_we_report_it() {
         // Given a room containing us and Bob
-        let t = TestSetup::new_room_with_other_member().await;
+        let t = TestSetup::new_room_with_other_bob().await;
 
         // And Bob's identity is pinned
-        t.pin().await;
+        t.pin_bob().await;
 
         // And we are listening for identity changes
         let changes = t.subscribe_to_identity_status_changes().await;
 
         // When Bob becomes unpinned
-        t.unpin().await;
+        t.unpin_bob().await;
 
         // Then we were notified about it
         let change = next_change(&mut pin!(changes)).await;
-        assert_eq!(change[0].user_id, t.user_id());
+        assert_eq!(change[0].user_id, t.bob_user_id());
         assert_eq!(change[0].changed_to, IdentityState::PinViolation);
+        assert_eq!(change.len(), 1);
+    }
+
+    #[async_test]
+    async fn test_when_user_becomes_verification_violation_we_report_it() {
+        // Given a room containing us and Bob
+        let t = TestSetup::new_room_with_other_bob().await;
+
+        // And Bob's identity is verified
+        t.verify_bob().await;
+
+        // And we are listening for identity changes
+        let changes = t.subscribe_to_identity_status_changes().await;
+
+        // When Bob's identity changes
+        t.unpin_bob().await;
+
+        // Then we were notified about a verification violation
+        let change = next_change(&mut pin!(changes)).await;
+        assert_eq!(change[0].user_id, t.bob_user_id());
+        assert_eq!(change[0].changed_to, IdentityState::VerificationViolation);
         assert_eq!(change.len(), 1);
     }
 
     #[async_test]
     async fn test_when_user_becomes_pinned_we_report_it() {
         // Given a room containing us and Bob
-        let t = TestSetup::new_room_with_other_member().await;
+        let t = TestSetup::new_room_with_other_bob().await;
 
         // And Bob's identity is unpinned
-        t.unpin().await;
+        t.unpin_bob().await;
 
         // And we are listening for identity changes
         let changes = t.subscribe_to_identity_status_changes().await;
         let mut changes = pin!(changes);
 
         // When Bob becomes pinned
-        t.pin().await;
+        t.pin_bob().await;
 
         // Then we were notified about the initial state of the room
         let change1 = next_change(&mut changes).await;
-        assert_eq!(change1[0].user_id, t.user_id());
+        assert_eq!(change1[0].user_id, t.bob_user_id());
         assert_eq!(change1[0].changed_to, IdentityState::PinViolation);
         assert_eq!(change1.len(), 1);
 
         // And the change when Bob became pinned
         let change2 = next_change(&mut changes).await;
-        assert_eq!(change2[0].user_id, t.user_id());
+        assert_eq!(change2[0].user_id, t.bob_user_id());
         assert_eq!(change2[0].changed_to, IdentityState::Pinned);
+        assert_eq!(change2.len(), 1);
+    }
+
+    #[async_test]
+    async fn test_when_user_becomes_verified_we_dont_report_it() {
+        // Given a room containing us and Bob
+        let t = TestSetup::new_room_with_other_bob().await;
+
+        // And we are listening for identity changes
+        let changes = t.subscribe_to_identity_status_changes().await;
+        let mut changes = pin!(changes);
+
+        // When Bob becomes verified
+        t.verify_bob().await;
+
+        // (And then unpinned, so we have something to come through the stream)
+        t.unpin_bob().await;
+
+        // Then we are only notified about the unpinning part
+        let change2 = next_change(&mut changes).await;
+        assert_eq!(change2[0].user_id, t.bob_user_id());
+        assert_eq!(change2[0].changed_to, IdentityState::VerificationViolation);
+        assert_eq!(change2.len(), 1);
+    }
+
+    #[async_test]
+    async fn test_when_an_unpinned_user_becomes_verified_we_report_it() {
+        // Given a room containing us and Bob
+        let t = TestSetup::new_room_with_other_bob().await;
+
+        // And Bob's identity is unpinned
+        t.unpin_bob_with(IdentityChangeDataSet::key_query_with_identity_a()).await;
+
+        // And we are listening for identity changes
+        let changes = t.subscribe_to_identity_status_changes().await;
+        let mut changes = pin!(changes);
+
+        // When Bob becomes verified
+        t.verify_bob().await;
+
+        // Then we were notified about the initial state of the room
+        let change1 = next_change(&mut changes).await;
+        assert_eq!(change1[0].user_id, t.bob_user_id());
+        assert_eq!(change1[0].changed_to, IdentityState::PinViolation);
+        assert_eq!(change1.len(), 1);
+
+        // And the change when Bob became verified
+        let change2 = next_change(&mut changes).await;
+        assert_eq!(change2[0].user_id, t.bob_user_id());
+        assert_eq!(change2[0].changed_to, IdentityState::Verified);
+        assert_eq!(change2.len(), 1);
+    }
+
+    #[async_test]
+    async fn test_when_user_in_verification_violation_becomes_verified_we_report_it() {
+        // Given a room containing us and Bob
+        let t = TestSetup::new_room_with_other_bob().await;
+
+        // And Bob is in verification violation
+        t.verify_bob_with(
+            IdentityChangeDataSet::key_query_with_identity_b(),
+            IdentityChangeDataSet::msk_b(),
+            IdentityChangeDataSet::ssk_b(),
+        )
+        .await;
+        t.unpin_bob().await;
+
+        // And we are listening for identity changes
+        let changes = t.subscribe_to_identity_status_changes().await;
+        let mut changes = pin!(changes);
+
+        // When Bob becomes verified
+        t.verify_bob().await;
+
+        // Then we were notified about the initial state of the room
+        let change1 = next_change(&mut changes).await;
+        assert_eq!(change1[0].user_id, t.bob_user_id());
+        assert_eq!(change1[0].changed_to, IdentityState::VerificationViolation);
+        assert_eq!(change1.len(), 1);
+
+        // And the change when Bob became verified
+        let change2 = next_change(&mut changes).await;
+        assert_eq!(change2[0].user_id, t.bob_user_id());
+        assert_eq!(change2[0].changed_to, IdentityState::Verified);
         assert_eq!(change2.len(), 1);
     }
 
@@ -255,18 +366,65 @@ mod tests {
         let mut t = TestSetup::new_just_me_room().await;
 
         // And Bob's identity is unpinned
-        t.unpin().await;
+        t.unpin_bob().await;
 
         // And we are listening for identity changes
         let changes = t.subscribe_to_identity_status_changes().await;
 
         // When Bob joins the room
-        t.join().await;
+        t.bob_joins().await;
 
         // Then we were notified about it
         let change = next_change(&mut pin!(changes)).await;
-        assert_eq!(change[0].user_id, t.user_id());
+        assert_eq!(change[0].user_id, t.bob_user_id());
         assert_eq!(change[0].changed_to, IdentityState::PinViolation);
+        assert_eq!(change.len(), 1);
+    }
+
+    #[async_test]
+    async fn test_when_an_verification_violating_user_joins_we_report_it() {
+        // Given a room containing just us
+        let mut t = TestSetup::new_just_me_room().await;
+
+        // And Bob's identity is in verification violation
+        t.verify_bob().await;
+        t.unpin_bob().await;
+
+        // And we are listening for identity changes
+        let changes = t.subscribe_to_identity_status_changes().await;
+
+        // When Bob joins the room
+        t.bob_joins().await;
+
+        // Then we were notified about it
+        let change = next_change(&mut pin!(changes)).await;
+        assert_eq!(change[0].user_id, t.bob_user_id());
+        assert_eq!(change[0].changed_to, IdentityState::VerificationViolation);
+        assert_eq!(change.len(), 1);
+    }
+
+    #[async_test]
+    async fn test_when_a_verified_user_joins_we_dont_report_it() {
+        // Given a room containing just us
+        let mut t = TestSetup::new_just_me_room().await;
+
+        // And Bob's identity is verified
+        t.verify_bob().await;
+
+        // And we are listening for identity changes
+        let changes = t.subscribe_to_identity_status_changes().await;
+
+        // When Bob joins the room
+        t.bob_joins().await;
+
+        // (Then becomes unpinned so we have something to report)
+        t.unpin_bob().await;
+
+        //// Then we were only notified about the unpin
+        let mut changes = pin!(changes);
+        let change = next_change(&mut changes).await;
+        assert_eq!(change[0].user_id, t.bob_user_id());
+        assert_eq!(change[0].changed_to, IdentityState::VerificationViolation);
         assert_eq!(change.len(), 1);
     }
 
@@ -276,14 +434,14 @@ mod tests {
         let mut t = TestSetup::new_just_me_room().await;
 
         // And Bob's identity is unpinned
-        t.pin().await;
+        t.pin_bob().await;
 
         // And we are listening for identity changes
         let changes = t.subscribe_to_identity_status_changes().await;
         let mut changes = pin!(changes);
 
         // When Bob joins the room
-        t.join().await;
+        t.bob_joins().await;
 
         // Then there is no notification
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -294,21 +452,21 @@ mod tests {
     #[async_test]
     async fn test_when_an_unpinned_user_leaves_we_report_it() {
         // Given a room containing us and Bob
-        let mut t = TestSetup::new_room_with_other_member().await;
+        let mut t = TestSetup::new_room_with_other_bob().await;
 
         // And Bob's identity is unpinned
-        t.unpin().await;
+        t.unpin_bob().await;
 
         // And we are listening for identity changes
         let changes = t.subscribe_to_identity_status_changes().await;
         let mut changes = pin!(changes);
 
         // When Bob leaves the room
-        t.leave().await;
+        t.bob_leaves().await;
 
         // Then we were notified about the initial state of the room
         let change1 = next_change(&mut changes).await;
-        assert_eq!(change1[0].user_id, t.user_id());
+        assert_eq!(change1[0].user_id, t.bob_user_id());
         assert_eq!(change1[0].changed_to, IdentityState::PinViolation);
         assert_eq!(change1.len(), 1);
 
@@ -316,7 +474,7 @@ mod tests {
         let change2 = next_change(&mut changes).await;
         // Note: the user left the room, but we see that as them "becoming pinned" i.e.
         // "you no longer need to notify about this user".
-        assert_eq!(change2[0].user_id, t.user_id());
+        assert_eq!(change2[0].user_id, t.bob_user_id());
         assert_eq!(change2[0].changed_to, IdentityState::Pinned);
         assert_eq!(change2.len(), 1);
     }
@@ -327,7 +485,7 @@ mod tests {
         let mut t = TestSetup::new_just_me_room().await;
 
         // And Bob's identity is unpinned
-        t.unpin().await;
+        t.unpin_bob().await;
 
         // And we are listening for identity changes
         let changes = t.subscribe_to_identity_status_changes().await;
@@ -342,29 +500,29 @@ mod tests {
         // have fully completed.
 
         // When Bob joins the room ...
-        t.join().await;
+        t.bob_joins().await;
         let change1 = next_change(&mut changes).await;
 
         // ... becomes pinned ...
-        t.pin().await;
+        t.pin_bob().await;
         let change2 = next_change(&mut changes).await;
 
         // ... leaves and joins again (ignored since they stay pinned) ...
-        t.leave().await;
-        t.join().await;
+        t.bob_leaves().await;
+        t.bob_joins().await;
 
         // ... becomes unpinned ...
-        t.unpin().await;
+        t.unpin_bob().await;
         let change3 = next_change(&mut changes).await;
 
         // ... and leaves.
-        t.leave().await;
+        t.bob_leaves().await;
         let change4 = next_change(&mut changes).await;
 
-        assert_eq!(change1[0].user_id, t.user_id());
-        assert_eq!(change2[0].user_id, t.user_id());
-        assert_eq!(change3[0].user_id, t.user_id());
-        assert_eq!(change4[0].user_id, t.user_id());
+        assert_eq!(change1[0].user_id, t.bob_user_id());
+        assert_eq!(change2[0].user_id, t.bob_user_id());
+        assert_eq!(change3[0].user_id, t.bob_user_id());
+        assert_eq!(change4[0].user_id, t.bob_user_id());
 
         assert_eq!(change1[0].changed_to, IdentityState::PinViolation);
         assert_eq!(change2[0].changed_to, IdentityState::Pinned);
@@ -380,15 +538,15 @@ mod tests {
     #[async_test]
     async fn test_when_an_unpinned_user_is_already_present_we_report_it_immediately() {
         // Given a room containing Bob, who is unpinned
-        let t = TestSetup::new_room_with_other_member().await;
-        t.unpin().await;
+        let t = TestSetup::new_room_with_other_bob().await;
+        t.unpin_bob().await;
 
         // When we start listening for identity changes
         let changes = t.subscribe_to_identity_status_changes().await;
 
         // Then we were immediately notified about Bob being unpinned
         let change = next_change(&mut pin!(changes)).await;
-        assert_eq!(change[0].user_id, t.user_id());
+        assert_eq!(change[0].user_id, t.bob_user_id());
         assert_eq!(change[0].changed_to, IdentityState::PinViolation);
         assert_eq!(change.len(), 1);
     }
@@ -396,18 +554,18 @@ mod tests {
     #[async_test]
     async fn test_when_a_verified_user_is_already_present_we_dont_report_it() {
         // Given a room containing Bob, who is unpinned
-        let t = TestSetup::new_room_with_other_member().await;
-        t.verify().await;
+        let t = TestSetup::new_room_with_other_bob().await;
+        t.verify_bob().await;
 
         // When we start listening for identity changes
         let changes = t.subscribe_to_identity_status_changes().await;
 
         // (And we unpin so that something is available in the changes stream)
-        t.unpin().await;
+        t.unpin_bob().await;
 
         // Then we were only notified about the unpin, not being verified
         let change = next_change(&mut pin!(changes)).await;
-        assert_eq!(change[0].user_id, t.user_id());
+        assert_eq!(change[0].user_id, t.bob_user_id());
         assert_eq!(change[0].changed_to, IdentityState::VerificationViolation);
         assert_eq!(change.len(), 1);
     }
@@ -422,8 +580,8 @@ mod tests {
         changes
             .next()
             .await
-            .expect("There should be an identity update")
-            .expect("Should not time out")
+            .expect("Should not reach end of changes stream")
+            .expect("Should not time out waiting for a change")
     }
 
     mod test_setup {
@@ -442,8 +600,9 @@ mod tests {
             StateTestEvent, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
         };
         use ruma::{
-            api::client::keys::get_keys, events::room::member::MembershipState, owned_user_id,
-            OwnedUserId, TransactionId, UserId,
+            api::client::keys::{get_keys, get_keys::v3::Response as KeyQueryResponse},
+            events::room::member::MembershipState,
+            owned_user_id, OwnedUserId, TransactionId, UserId,
         };
         use serde_json::json;
         use tokio_stream::{StreamExt as _, Timeout};
@@ -457,12 +616,17 @@ mod tests {
         };
 
         /// Sets up a client and a room and allows changing user identities and
-        /// room memberships. Note: most methods e.g. [`TestSetup::user_id`] are
-        /// talking about the OTHER user, not our own user. Only methods
-        /// starting with `self_` are talking about this user.
+        /// room memberships. Note: most methods e.g. [`TestSetup::bob_user_id`]
+        /// are talking about the OTHER user, not our own user. Only
+        /// methods starting with `self_` are talking about this user.
+        ///
+        /// This user is called `@example:localhost` but is rarely used
+        /// mentioned.
+        ///
+        /// The other user is called `@bob:localhost`.
         pub(super) struct TestSetup {
             client: Client,
-            user_id: OwnedUserId,
+            bob_user_id: OwnedUserId,
             sync_response_builder: SyncResponseBuilder,
             room: Room,
         }
@@ -471,30 +635,33 @@ mod tests {
             pub(super) async fn new_just_me_room() -> Self {
                 let (client, user_id, mut sync_response_builder) = Self::init().await;
                 let room = create_just_me_room(&client, &mut sync_response_builder).await;
-                Self { client, user_id, sync_response_builder, room }
+                Self { client, bob_user_id: user_id, sync_response_builder, room }
             }
 
-            pub(super) async fn new_room_with_other_member() -> Self {
-                let (client, user_id, mut sync_response_builder) = Self::init().await;
-                let room =
-                    create_room_with_other_member(&mut sync_response_builder, &client, &user_id)
-                        .await;
-                Self { client, user_id, sync_response_builder, room }
+            pub(super) async fn new_room_with_other_bob() -> Self {
+                let (client, bob_user_id, mut sync_response_builder) = Self::init().await;
+                let room = create_room_with_other_member(
+                    &mut sync_response_builder,
+                    &client,
+                    &bob_user_id,
+                )
+                .await;
+                Self { client, bob_user_id, sync_response_builder, room }
             }
 
-            pub(super) fn user_id(&self) -> &UserId {
-                &self.user_id
+            pub(super) fn bob_user_id(&self) -> &UserId {
+                &self.bob_user_id
             }
 
-            pub(super) async fn pin(&self) {
-                if self.user_identity().await.is_some() {
+            pub(super) async fn pin_bob(&self) {
+                if self.bob_user_identity().await.is_some() {
                     assert!(
-                        !self.is_pinned().await,
-                        "pin() called when the identity is already pinned!"
+                        !self.bob_is_pinned().await,
+                        "pin_bob() called when the identity is already pinned!"
                     );
 
                     // Pin it
-                    self.user_identity()
+                    self.bob_user_identity()
                         .await
                         .expect("User should exist")
                         .pin()
@@ -502,32 +669,73 @@ mod tests {
                         .expect("Should not fail to pin");
                 } else {
                     // There was no existing identity. Set one. It will be pinned by default.
-                    self.change_identity(IdentityChangeDataSet::key_query_with_identity_a()).await;
+                    self.change_bob_identity(IdentityChangeDataSet::key_query_with_identity_a())
+                        .await;
                 }
 
                 // Sanity check: they are pinned
-                assert!(self.is_pinned().await);
+                assert!(self.bob_is_pinned().await);
             }
 
-            pub(super) async fn unpin(&self) {
-                // Change/set their identity - this will unpin if they already had one.
-                // If this was the first time we'd done this, they are now pinned.
-                self.change_identity(IdentityChangeDataSet::key_query_with_identity_a()).await;
+            pub(super) async fn unpin_bob(&self) {
+                self.unpin_bob_with(IdentityChangeDataSet::key_query_with_identity_b()).await;
+            }
 
-                if self.is_pinned().await {
-                    // Change their identity. Now they are definitely unpinned
-                    self.change_identity(IdentityChangeDataSet::key_query_with_identity_b()).await;
+            pub(super) async fn unpin_bob_with(&self, requested: KeyQueryResponse) {
+                fn master_key_json(key_query_response: &KeyQueryResponse) -> String {
+                    serde_json::to_string(
+                        key_query_response
+                            .master_keys
+                            .first_key_value()
+                            .expect("Master key should have a value")
+                            .1,
+                    )
+                    .expect("Should be able to serialise master key")
+                }
+
+                let a = IdentityChangeDataSet::key_query_with_identity_a();
+                let b = IdentityChangeDataSet::key_query_with_identity_b();
+                let requested_master_key = master_key_json(&requested);
+                let a_master_key = master_key_json(&a);
+
+                // Change/set their identity pin it, then change it again - this will definitely
+                // unpin, even if the first identity we supply is their very first, making them
+                // initially pinned.
+                if requested_master_key == a_master_key {
+                    self.change_bob_identity(b).await;
+                    if !self.bob_is_pinned().await {
+                        self.pin_bob().await;
+                    }
+                    self.change_bob_identity(a).await;
+                } else {
+                    self.change_bob_identity(a).await;
+                    if !self.bob_is_pinned().await {
+                        self.pin_bob().await;
+                    }
+                    self.change_bob_identity(b).await;
                 }
 
                 // Sanity: they are unpinned
-                assert!(!self.is_pinned().await);
+                assert!(!self.bob_is_pinned().await);
             }
 
-            pub(super) async fn verify(&self) {
-                // If they don't have an identity yet, set one up
-                if self.user_identity().await.is_none() {
-                    self.change_identity(IdentityChangeDataSet::key_query_with_identity_a()).await;
-                }
+            pub(super) async fn verify_bob(&self) {
+                self.verify_bob_with(
+                    IdentityChangeDataSet::key_query_with_identity_a(),
+                    IdentityChangeDataSet::msk_a(),
+                    IdentityChangeDataSet::ssk_a(),
+                )
+                .await;
+            }
+
+            pub(super) async fn verify_bob_with(
+                &self,
+                key_query: KeyQueryResponse,
+                master_signing_key: serde_json::Value,
+                self_signing_key: serde_json::Value,
+            ) {
+                // Make sure the requested identity is set
+                self.change_bob_identity(key_query).await;
 
                 let my_user_id = self.client.user_id().expect("I should have a user id");
                 let my_identity = self
@@ -543,7 +751,7 @@ mod tests {
 
                 // Get the request
                 let signature_upload_request = self
-                    .crypto_other_identity()
+                    .bob_crypto_other_identity()
                     .await
                     .verify()
                     .await
@@ -553,9 +761,9 @@ mod tests {
                     signature_upload_request,
                     my_identity,
                     my_user_id,
-                    self.user_id(),
-                    IdentityChangeDataSet::msk_a(),
-                    IdentityChangeDataSet::ssk_a(),
+                    self.bob_user_id(),
+                    master_signing_key,
+                    self_signing_key,
                 );
 
                 // Receive the response into our client
@@ -565,15 +773,15 @@ mod tests {
                     .unwrap();
 
                 // Sanity: they are verified
-                assert!(self.is_verified().await);
+                assert!(self.bob_is_verified().await);
             }
 
-            pub(super) async fn join(&mut self) {
-                self.membership_change(MembershipState::Join).await;
+            pub(super) async fn bob_joins(&mut self) {
+                self.bob_membership_change(MembershipState::Join).await;
             }
 
-            pub(super) async fn leave(&mut self) {
-                self.membership_change(MembershipState::Leave).await;
+            pub(super) async fn bob_leaves(&mut self) {
+                self.bob_membership_change(MembershipState::Leave).await;
             }
 
             pub(super) async fn subscribe_to_identity_status_changes(
@@ -601,14 +809,14 @@ mod tests {
 
                 // Note: if you change the user_id, you will need to change lots of hard-coded
                 // stuff inside IdentityChangeDataSet
-                let user_id = owned_user_id!("@bob:localhost");
+                let bob_user_id = owned_user_id!("@bob:localhost");
 
                 let sync_response_builder = SyncResponseBuilder::default();
 
-                (client, user_id, sync_response_builder)
+                (client, bob_user_id, sync_response_builder)
             }
 
-            async fn change_identity(
+            async fn change_bob_identity(
                 &self,
                 key_query_response: get_keys::v3::Response,
             ) -> OtherUserIdentity {
@@ -617,15 +825,15 @@ mod tests {
                     .await
                     .expect("Should not fail to send identity changes");
 
-                self.crypto_other_identity().await
+                self.bob_crypto_other_identity().await
             }
 
-            async fn membership_change(&mut self, new_state: MembershipState) {
+            async fn bob_membership_change(&mut self, new_state: MembershipState) {
                 let sync_response = self
                     .sync_response_builder
                     .add_joined_room(JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_event(
                         StateTestEvent::Custom(sync_response_member(
-                            &self.user_id,
+                            &self.bob_user_id,
                             new_state.clone(),
                         )),
                     ))
@@ -635,7 +843,7 @@ mod tests {
                 // Make sure the membership stuck as expected
                 let m = self
                     .room
-                    .get_member_no_sync(&self.user_id)
+                    .get_member_no_sync(&self.bob_user_id)
                     .await
                     .expect("Should not fail to get member");
 
@@ -650,16 +858,16 @@ mod tests {
                 };
             }
 
-            async fn is_pinned(&self) -> bool {
-                !self.crypto_other_identity().await.identity_needs_user_approval()
+            async fn bob_is_pinned(&self) -> bool {
+                !self.bob_crypto_other_identity().await.identity_needs_user_approval()
             }
 
-            async fn is_verified(&self) -> bool {
-                self.crypto_other_identity().await.is_verified()
+            async fn bob_is_verified(&self) -> bool {
+                self.bob_crypto_other_identity().await.is_verified()
             }
 
-            async fn crypto_other_identity(&self) -> OtherUserIdentity {
-                self.user_identity()
+            async fn bob_crypto_other_identity(&self) -> OtherUserIdentity {
+                self.bob_user_identity()
                     .await
                     .expect("User identity should exist")
                     .underlying_identity()
@@ -667,10 +875,10 @@ mod tests {
                     .expect("Identity should be Other, not Own")
             }
 
-            async fn user_identity(&self) -> Option<UserIdentity> {
+            async fn bob_user_identity(&self) -> Option<UserIdentity> {
                 self.client
                     .encryption()
-                    .get_user_identity(&self.user_id)
+                    .get_user_identity(&self.bob_user_id)
                     .await
                     .expect("Should not fail to get user identity")
             }
