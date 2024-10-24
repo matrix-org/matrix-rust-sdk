@@ -1,10 +1,5 @@
-use std::sync::Arc;
-
-use matrix_sdk::{
-    room_preview::{RoomPreview as SdkRoomPreview, RoomPreviewActions as SdkRoomPreviewActions},
-    Client,
-};
-use ruma::{space::SpaceRoomJoinRule, ServerName};
+use matrix_sdk::room_preview::RoomPreview as SdkRoomPreview;
+use ruma::space::SpaceRoomJoinRule;
 
 use crate::{client::JoinRule, error::ClientError, room::Membership};
 
@@ -13,43 +8,10 @@ use crate::{client::JoinRule, error::ClientError, room::Membership};
 #[derive(uniffi::Record)]
 pub struct RoomPreview {
     pub info: RoomPreviewInfo,
-    pub room_preview_actions: Arc<RoomPreviewActions>,
-}
-
-/// Actions to perform in a room preview, such as join/leave.
-#[derive(uniffi::Object)]
-pub struct RoomPreviewActions {
-    inner: SdkRoomPreviewActions,
-}
-
-#[matrix_sdk_ffi_macros::export]
-impl RoomPreviewActions {
-    /// Join the room.
-    async fn join(&self) -> Result<(), ClientError> {
-        Ok(self.inner.join.run().await?)
-    }
-
-    /// Leave the room.
-    async fn leave(&self) -> Result<(), ClientError> {
-        Ok(self.inner.leave.run().await?)
-    }
-
-    /// Knock on the room.
-    async fn knock(&self, reason: Option<String>, via: Vec<String>) -> Result<(), ClientError> {
-        let via = via.iter().map(ServerName::parse).collect::<Result<Vec<_>, _>>()?;
-        Ok(self.inner.knock.run(reason, via).await?)
-    }
 }
 
 impl RoomPreview {
-    pub(crate) fn try_from_sdk(
-        room_preview: SdkRoomPreview,
-        client: Client,
-    ) -> Result<Self, ClientError> {
-        let room_preview_actions = Arc::new(RoomPreviewActions {
-            inner: SdkRoomPreviewActions::new(client, room_preview.clone()),
-        });
-
+    pub(crate) fn try_from_sdk(room_preview: SdkRoomPreview) -> Result<Self, ClientError> {
         let info = RoomPreviewInfo {
             room_id: room_preview.room_id.to_string(),
             canonical_alias: room_preview.canonical_alias.map(|alias| alias.to_string()),
@@ -66,7 +28,7 @@ impl RoomPreview {
             join_rule: room_preview.join_rule.into(),
         };
 
-        Ok(Self { info, room_preview_actions })
+        Ok(Self { info })
     }
 }
 
