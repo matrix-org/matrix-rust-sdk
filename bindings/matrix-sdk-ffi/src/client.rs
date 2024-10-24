@@ -213,10 +213,10 @@ impl Client {
         let session_verification_controller: Arc<
             tokio::sync::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
-        let ctrl = session_verification_controller.clone();
+        let controller = session_verification_controller.clone();
 
         sdk_client.add_event_handler(move |ev: AnyToDeviceEvent| async move {
-            if let Some(session_verification_controller) = &*ctrl.clone().read().await {
+            if let Some(session_verification_controller) = &*controller.clone().read().await {
                 session_verification_controller.process_to_device_message(ev).await;
             } else {
                 debug!("received to-device message, but verification controller isn't ready");

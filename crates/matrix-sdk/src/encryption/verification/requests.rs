@@ -13,8 +13,10 @@
 // limitations under the License.
 
 use futures_util::{Stream, StreamExt};
-use matrix_sdk_base::crypto::{CancelInfo, VerificationRequest as BaseVerificationRequest};
-use ruma::{events::key::verification::VerificationMethod, OwnedDeviceId, RoomId};
+use matrix_sdk_base::crypto::{
+    CancelInfo, DeviceData, VerificationRequest as BaseVerificationRequest,
+};
+use ruma::{events::key::verification::VerificationMethod, RoomId};
 
 #[cfg(feature = "qrcode")]
 use super::{QrVerification, QrVerificationData};
@@ -41,9 +43,9 @@ pub enum VerificationRequestState {
         /// The verification methods supported by the sender.
         their_methods: Vec<VerificationMethod>,
 
-        /// The device ID of the device that responded to the verification
+        /// The device data of the device that responded to the verification
         /// request.
-        other_device_id: OwnedDeviceId,
+        other_device_data: DeviceData,
     },
     /// The verification request is ready to start a verification flow.
     Ready {
@@ -53,9 +55,9 @@ pub enum VerificationRequestState {
         /// The verification methods supported by the us.
         our_methods: Vec<VerificationMethod>,
 
-        /// The device ID of the device that responded to the verification
+        /// The device data of the device that responded to the verification
         /// request.
-        other_device_id: OwnedDeviceId,
+        other_device_data: DeviceData,
     },
     /// The verification request has transitioned into a concrete verification
     /// flow. For example it transitioned into the emoji based SAS
@@ -218,13 +220,13 @@ impl VerificationRequest {
 
         match state {
             Created { our_methods } => VerificationRequestState::Created { our_methods },
-            Requested { their_methods, other_device_id } => {
-                VerificationRequestState::Requested { their_methods, other_device_id }
+            Requested { their_methods, other_device_data } => {
+                VerificationRequestState::Requested { their_methods, other_device_data }
             }
-            Ready { their_methods, our_methods, other_device_id } => {
-                VerificationRequestState::Ready { their_methods, our_methods, other_device_id }
+            Ready { their_methods, our_methods, other_device_data } => {
+                VerificationRequestState::Ready { their_methods, our_methods, other_device_data }
             }
-            Transitioned { verification } => VerificationRequestState::Transitioned {
+            Transitioned { verification, .. } => VerificationRequestState::Transitioned {
                 verification: match verification {
                     matrix_sdk_base::crypto::Verification::SasV1(s) => {
                         Verification::SasV1(SasVerification { inner: s, client })

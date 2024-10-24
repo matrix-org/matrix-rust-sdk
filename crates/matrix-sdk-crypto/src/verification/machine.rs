@@ -341,6 +341,7 @@ impl VerificationMachine {
         match &content {
             AnyVerificationContent::Request(r) => {
                 info!(
+                    sender = ?event.sender(),
                     from_device = r.from_device().as_str(),
                     "Received a new verification request",
                 );
@@ -370,12 +371,20 @@ impl VerificationMachine {
                     return Ok(());
                 }
 
+                let Some(device_data) =
+                    self.store.get_device(event.sender(), r.from_device()).await?
+                else {
+                    warn!("Could not retrieve the device data for the incoming verification request, ignoring it");
+                    return Ok(());
+                };
+
                 let request = VerificationRequest::from_request(
                     self.verifications.clone(),
                     self.store.clone(),
                     event.sender(),
                     flow_id,
                     r,
+                    device_data,
                 );
 
                 self.insert_request(request);
@@ -403,7 +412,13 @@ impl VerificationMachine {
                 };
 
                 if request.flow_id() == &flow_id {
-                    request.receive_ready(event.sender(), c);
+                    if let Some(device_data) =
+                        self.store.get_device(event.sender(), c.from_device()).await?
+                    {
+                        request.receive_ready(event.sender(), c, device_data);
+                    } else {
+                        warn!("Could not retrieve the data for the accepting device, ignoring it");
+                    }
                 } else {
                     flow_id_mismatch();
                 }
@@ -725,12 +740,12 @@ mod tests {
         let content: OutgoingContent = request.try_into().unwrap();
 
         machine
-            .receive_any_event(&wrap_any_to_device_content(bob_request.other_user(), content))
+            .receive_any_event(&wrap_any_to_device_content(bob_request.own_user_id(), content))
             .await
             .unwrap();
 
         let alice_request =
-            machine.get_request(bob_request.other_user(), bob_request.flow_id().as_str()).unwrap();
+            machine.get_request(bob_request.own_user_id(), bob_request.flow_id().as_str()).unwrap();
 
         // We're not yet cancelled.
         assert!(!alice_request.is_cancelled());
@@ -749,12 +764,12 @@ mod tests {
         let content: OutgoingContent = request.try_into().unwrap();
 
         machine
-            .receive_any_event(&wrap_any_to_device_content(bob_request.other_user(), content))
+            .receive_any_event(&wrap_any_to_device_content(bob_request.own_user_id(), content))
             .await
             .unwrap();
 
         let second_request =
-            machine.get_request(bob_request.other_user(), bob_request.flow_id().as_str()).unwrap();
+            machine.get_request(bob_request.own_user_id(), bob_request.flow_id().as_str()).unwrap();
 
         // Make sure we fetched the new one.
         assert_eq!(second_request.flow_id().as_str(), second_transaction_id);
@@ -787,12 +802,12 @@ mod tests {
         let content: OutgoingContent = request.try_into().unwrap();
 
         machine
-            .receive_any_event(&wrap_any_to_device_content(bob_request.other_user(), content))
+            .receive_any_event(&wrap_any_to_device_content(bob_request.own_user_id(), content))
             .await
             .unwrap();
 
         let first_request =
-            machine.get_request(bob_request.other_user(), bob_request.flow_id().as_str()).unwrap();
+            machine.get_request(bob_request.own_user_id(), bob_request.flow_id().as_str()).unwrap();
 
         // We're not yet cancelled.
         assert!(!first_request.is_cancelled());
@@ -811,12 +826,12 @@ mod tests {
         let content: OutgoingContent = request.try_into().unwrap();
 
         machine
-            .receive_any_event(&wrap_any_to_device_content(bob_request.other_user(), content))
+            .receive_any_event(&wrap_any_to_device_content(bob_request.own_user_id(), content))
             .await
             .unwrap();
 
         let second_request =
-            machine.get_request(bob_request.other_user(), bob_request.flow_id().as_str()).unwrap();
+            machine.get_request(bob_request.own_user_id(), bob_request.flow_id().as_str()).unwrap();
 
         // None of the requests are cancelled
         assert!(!first_request.is_cancelled());

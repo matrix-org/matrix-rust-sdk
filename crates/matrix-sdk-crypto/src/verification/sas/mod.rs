@@ -899,7 +899,7 @@ mod tests {
     }
 
     fn bob_device_id() -> &'static DeviceId {
-        device_id!("BOBDEVCIE")
+        device_id!("BOBDEVICE")
     }
 
     fn machine_pair_test_helper() -> (VerificationStore, DeviceData, VerificationStore, DeviceData)
