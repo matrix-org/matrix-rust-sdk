@@ -18,6 +18,8 @@ pub enum UserIdentity {
         user_signing_key: String,
         /// The public self-signing key of our identity.
         self_signing_key: String,
+        /// True if this identity was verified at some point but is not anymore.
+        has_verification_violation: bool,
     },
     /// The user identity of other users.
     Other {
@@ -27,6 +29,8 @@ pub enum UserIdentity {
         master_key: String,
         /// The public self-signing key of our identity.
         self_signing_key: String,
+        /// True if this identity was verified at some point but is not anymore.
+        has_verification_violation: bool,
     },
 }
 
@@ -44,6 +48,7 @@ impl UserIdentity {
                     master_key: serde_json::to_string(&master)?,
                     user_signing_key: serde_json::to_string(&user_signing)?,
                     self_signing_key: serde_json::to_string(&self_signing)?,
+                    has_verification_violation: i.has_verification_violation(),
                 }
             }
             SdkUserIdentity::Other(i) => {
@@ -54,6 +59,7 @@ impl UserIdentity {
                     user_id: i.user_id().to_string(),
                     master_key: serde_json::to_string(&master)?,
                     self_signing_key: serde_json::to_string(&self_signing)?,
+                    has_verification_violation: i.has_verification_violation(),
                 }
             }
         })
