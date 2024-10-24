@@ -593,10 +593,10 @@ impl RoomListItem {
         Ok(Arc::new(Room::new(self.inner.inner_room().clone())))
     }
 
-    /// Builds a `RoomPreview` from a room list item. This is intended for rooms
-    /// with [`Membership::Invite`] or [`Membership::Knocked`],
+    /// Builds a `RoomPreview` from a room list item. This is intended for
+    /// invited or knocked rooms.
     ///
-    /// An error will be returned if the room is a state other than invited
+    /// An error will be returned if the room is in a state other than invited
     /// or knocked.
     async fn preview_room(&self, via: Vec<String>) -> Result<RoomPreview, ClientError> {
         let membership = self.membership();
