@@ -72,14 +72,19 @@ pub struct RoomPreviewInfo {
 impl From<SpaceRoomJoinRule> for JoinRule {
     fn from(join_rule: SpaceRoomJoinRule) -> Self {
         match join_rule {
-            SpaceRoomJoinRule::Public => JoinRule::Public,
-            SpaceRoomJoinRule::Private => JoinRule::Private,
             SpaceRoomJoinRule::Invite => JoinRule::Invite,
             SpaceRoomJoinRule::Knock => JoinRule::Knock,
-            SpaceRoomJoinRule::KnockRestricted => JoinRule::KnockRestricted { rules: Vec::new() },
+            SpaceRoomJoinRule::Private => JoinRule::Private,
             SpaceRoomJoinRule::Restricted => JoinRule::Restricted { rules: Vec::new() },
-            // For the `_Custom` case, assume it's private
-            _ => JoinRule::Private,
+            SpaceRoomJoinRule::KnockRestricted => JoinRule::KnockRestricted { rules: Vec::new() },
+            SpaceRoomJoinRule::Public => JoinRule::Public,
+            _ => {
+                // Since we have no way to get the _Custom contents, assume it's private.
+                // Warning! If new join rules are introduced we may be mapping wrong values
+                // here, but there's no way to match
+                // `SpaceRoomJoinRule::_Custom(_)` and have an exhaustive match.
+                JoinRule::Private
+            }
         }
     }
 }
