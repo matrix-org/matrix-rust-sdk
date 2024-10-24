@@ -1,4 +1,5 @@
 use std::sync::Arc;
+
 use matrix_sdk::room_preview::RoomPreview as SdkRoomPreview;
 use ruma::space::SpaceRoomJoinRule;
 
