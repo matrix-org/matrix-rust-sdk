@@ -1027,7 +1027,7 @@ impl Client {
         &self,
         room_id: String,
         via_servers: Vec<String>,
-    ) -> Result<RoomPreview, ClientError> {
+    ) -> Result<Arc<RoomPreview>, ClientError> {
         let room_id = RoomId::parse(&room_id).context("room_id is not a valid room id")?;
 
         let via_servers = via_servers
@@ -1042,14 +1042,14 @@ impl Client {
 
         let sdk_room_preview = self.inner.get_room_preview(room_id.into(), via_servers).await?;
 
-        Ok(RoomPreview::from_sdk(sdk_room_preview))
+        Ok(Arc::new(RoomPreview::from_sdk(sdk_room_preview)))
     }
 
     /// Given a room alias, get the preview of a room, to interact with it.
     pub async fn get_room_preview_from_room_alias(
         &self,
         room_alias: String,
-    ) -> Result<RoomPreview, ClientError> {
+    ) -> Result<Arc<RoomPreview>, ClientError> {
         let room_alias =
             RoomAliasId::parse(&room_alias).context("room_alias is not a valid room alias")?;
 
@@ -1059,7 +1059,7 @@ impl Client {
 
         let sdk_room_preview = self.inner.get_room_preview(room_alias.into(), Vec::new()).await?;
 
-        Ok(RoomPreview::from_sdk(sdk_room_preview))
+        Ok(Arc::new(RoomPreview::from_sdk(sdk_room_preview)))
     }
 
     /// Waits until an at least partially synced room is received, and returns

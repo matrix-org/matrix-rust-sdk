@@ -598,7 +598,7 @@ impl RoomListItem {
     ///
     /// An error will be returned if the room is in a state other than invited
     /// or knocked.
-    async fn preview_room(&self, via: Vec<String>) -> Result<RoomPreview, ClientError> {
+    async fn preview_room(&self, via: Vec<String>) -> Result<Arc<RoomPreview>, ClientError> {
         let membership = self.membership();
         if !matches!(membership, Membership::Invited | Membership::Knocked) {
             return Err(RoomListError::IncorrectRoomMembership {
@@ -622,7 +622,7 @@ impl RoomListItem {
         };
 
         let room_preview = client.get_room_preview(&room_or_alias_id, server_names).await?;
-        Ok(RoomPreview::from_sdk(room_preview))
+        Ok(Arc::new(RoomPreview::from_sdk(room_preview)))
     }
 
     /// Build a full `Room` FFI object, filling its associated timeline.

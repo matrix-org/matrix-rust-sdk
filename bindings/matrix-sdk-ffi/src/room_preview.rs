@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use matrix_sdk::room_preview::RoomPreview as SdkRoomPreview;
 use ruma::space::SpaceRoomJoinRule;
 
@@ -7,25 +8,25 @@ use crate::{client::JoinRule, error::ClientError, room::Membership};
 /// aren't joined yet.
 #[derive(uniffi::Object)]
 pub struct RoomPreview {
-    inner: SdkRoomPreview,
+    inner: Arc<SdkRoomPreview>,
 }
 
 #[matrix_sdk_ffi_macros::export]
 impl RoomPreview {
     /// Returns the room info the preview contains.
     pub fn info(&self) -> RoomPreviewInfo {
-        let info = self.inner.clone();
+        let info = &self.inner;
         RoomPreviewInfo {
             room_id: info.room_id.to_string(),
-            canonical_alias: info.canonical_alias.map(|alias| alias.to_string()),
-            name: info.name,
-            topic: info.topic,
-            avatar_url: info.avatar_url.map(|url| url.to_string()),
+            canonical_alias: info.canonical_alias.as_ref().map(|alias| alias.to_string()),
+            name: info.name.clone(),
+            topic: info.topic.clone(),
+            avatar_url: info.avatar_url.as_ref().map(|url| url.to_string()),
             num_joined_members: info.num_joined_members,
-            room_type: info.room_type.map(|room_type| room_type.to_string()),
+            room_type: info.room_type.as_ref().map(|room_type| room_type.to_string()),
             is_history_world_readable: info.is_world_readable,
             membership: info.state.map(|state| state.into()),
-            join_rule: info.join_rule.into(),
+            join_rule: info.join_rule.clone().into(),
         }
     }
 
@@ -40,7 +41,7 @@ impl RoomPreview {
 
 impl RoomPreview {
     pub(crate) fn from_sdk(room_preview: SdkRoomPreview) -> Self {
-        Self { inner: room_preview }
+        Self { inner: Arc::new(room_preview) }
     }
 }
 
