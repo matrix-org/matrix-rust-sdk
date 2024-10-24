@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use ruma::{
-    api::client::{account::request_openid_token, delayed_events},
-    events::AnyTimelineEvent,
+    api::client::{account::request_openid_token, delayed_events, to_device::send_event_to_device},
+    events::{AnyTimelineEvent, AnyToDeviceEvent},
     serde::Raw,
 };
 use serde::{de, Deserialize, Deserializer};
@@ -45,7 +45,13 @@ pub(crate) enum IncomingMessage {
     ///
     /// This means that the machine previously subscribed to some events
     /// (`Action::Subscribe` request).
-    MatrixEventReceived(Raw<AnyTimelineEvent>),
+    MatrixEventReceived(MatrixEvent),
+}
+
+#[derive(Debug)]
+pub enum MatrixEvent {
+    Timeline(Raw<AnyTimelineEvent>),
+    ToDevice(Raw<AnyToDeviceEvent>),
 }
 
 pub(crate) enum MatrixDriverResponse {
@@ -62,6 +68,7 @@ pub(crate) enum MatrixDriverResponse {
     /// Client sent some matrix event. The response contains the event ID.
     /// A response to an `Action::SendMatrixEvent` command.
     MatrixEventSent(SendEventResponse),
+    MatrixToDeviceSent(send_event_to_device::v3::Response),
     MatrixDelayedEventUpdate(delayed_events::update_delayed_event::unstable::Response),
 }
 
