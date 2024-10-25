@@ -1,12 +1,6 @@
 #![allow(deprecated)]
 
-use std::{
-    fmt::Debug,
-    mem::{ManuallyDrop, MaybeUninit},
-    ptr::addr_of_mut,
-    sync::Arc,
-    time::Duration,
-};
+use std::{fmt::Debug, mem::MaybeUninit, ptr::addr_of_mut, sync::Arc, time::Duration};
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt, TryFutureExt};
@@ -34,6 +28,7 @@ use crate::{
     room_preview::RoomPreview,
     timeline::{EventTimelineItem, Timeline},
     timeline_event_filter::TimelineEventTypeFilter,
+    utils::AsyncRuntimeDropped,
     TaskHandle, RUNTIME,
 };
 
@@ -635,7 +630,7 @@ impl RoomListItem {
 
         let room_preview = client.get_room_preview(&room_or_alias_id, server_names).await?;
 
-        Ok(Arc::new(RoomPreview::new(ManuallyDrop::new(client), room_preview)))
+        Ok(Arc::new(RoomPreview::new(AsyncRuntimeDropped::new(client), room_preview)))
     }
 
     /// Build a full `Room` FFI object, filling its associated timeline.

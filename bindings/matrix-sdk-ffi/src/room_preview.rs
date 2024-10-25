@@ -1,33 +1,16 @@
-use std::mem::ManuallyDrop;
-
 use anyhow::Context as _;
-use async_compat::TOKIO1 as RUNTIME;
 use matrix_sdk::{room_preview::RoomPreview as SdkRoomPreview, Client};
 use ruma::space::SpaceRoomJoinRule;
 use tracing::warn;
 
-use crate::{client::JoinRule, error::ClientError, room::Membership};
+use crate::{client::JoinRule, error::ClientError, room::Membership, utils::AsyncRuntimeDropped};
 
 /// A room preview for a room. It's intended to be used to represent rooms that
 /// aren't joined yet.
 #[derive(uniffi::Object)]
 pub struct RoomPreview {
     inner: SdkRoomPreview,
-    client: ManuallyDrop<Client>,
-}
-
-impl Drop for RoomPreview {
-    fn drop(&mut self) {
-        // Dropping the inner OlmMachine must happen within a tokio context
-        // because deadpool drops sqlite connections in the DB pool on tokio's
-        // blocking threadpool to avoid blocking async worker threads.
-        let _guard = RUNTIME.enter();
-        // SAFETY: self.client is never used again, which is the only requirement
-        //         for ManuallyDrop::drop to be used safely.
-        unsafe {
-            ManuallyDrop::drop(&mut self.client);
-        }
-    }
+    client: AsyncRuntimeDropped<Client>,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -65,7 +48,7 @@ impl RoomPreview {
 }
 
 impl RoomPreview {
-    pub(crate) fn new(client: ManuallyDrop<Client>, inner: SdkRoomPreview) -> Self {
+    pub(crate) fn new(client: AsyncRuntimeDropped<Client>, inner: SdkRoomPreview) -> Self {
         Self { client, inner }
     }
 }
