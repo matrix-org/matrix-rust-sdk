@@ -36,10 +36,7 @@ use serde_json::{json, value::Value as JsonValue};
 use super::{DependentQueuedEventKind, DynStateStore, ServerCapabilities};
 use crate::{
     deserialized_responses::MemberEvent,
-    store::{
-        traits::ChildTransactionId, QueueWedgeError, Result, SerializableEventContent,
-        StateStoreExt,
-    },
+    store::{ChildTransactionId, QueueWedgeError, Result, SerializableEventContent, StateStoreExt},
     RoomInfo, RoomMemberships, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
 
