@@ -36,10 +36,8 @@ use ruma::{
 use tracing::{debug, instrument, trace, warn};
 
 use super::{
-    traits::{
-        ChildTransactionId, ComposerDraft, QueuedEvent, SerializableEventContent,
-        ServerCapabilities,
-    },
+    send_queue::{ChildTransactionId, QueuedEvent, SerializableEventContent},
+    traits::{ComposerDraft, ServerCapabilities},
     DependentQueuedEvent, DependentQueuedEventKind, Result, RoomInfo, StateChanges, StateStore,
     StoreError,
 };

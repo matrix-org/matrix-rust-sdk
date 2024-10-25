@@ -68,16 +68,19 @@ use crate::{
 pub(crate) mod ambiguity_map;
 mod memory_store;
 pub mod migration_helpers;
+mod send_queue;
 
 #[cfg(any(test, feature = "testing"))]
 pub use self::integration_tests::StateStoreIntegrationTests;
 pub use self::{
     memory_store::MemoryStore,
+    send_queue::{
+        ChildTransactionId, DependentQueuedEvent, DependentQueuedEventKind, QueueWedgeError,
+        QueuedEvent, SerializableEventContent,
+    },
     traits::{
-        ChildTransactionId, ComposerDraft, ComposerDraftType, DependentQueuedEvent,
-        DependentQueuedEventKind, DynStateStore, IntoStateStore, QueueWedgeError, QueuedEvent,
-        SerializableEventContent, ServerCapabilities, StateStore, StateStoreDataKey,
-        StateStoreDataValue, StateStoreExt,
+        ComposerDraft, ComposerDraftType, DynStateStore, IntoStateStore, ServerCapabilities,
+        StateStore, StateStoreDataKey, StateStoreDataValue, StateStoreExt,
     },
 };
 
