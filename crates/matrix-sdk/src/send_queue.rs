@@ -893,7 +893,7 @@ impl QueueStorage {
             });
 
         let local_reactions = store
-            .list_dependent_send_queue_events(&self.room_id)
+            .load_dependent_send_queue_events(&self.room_id)
             .await?
             .into_iter()
             .filter_map(|dep| match dep.kind {
@@ -1078,7 +1078,7 @@ impl QueueStorage {
         let store = client.store();
 
         let dependent_events = store
-            .list_dependent_send_queue_events(&self.room_id)
+            .load_dependent_send_queue_events(&self.room_id)
             .await
             .map_err(RoomSendQueueStorageError::StorageError)?;
 

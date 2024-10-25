@@ -439,7 +439,7 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// This returns absolutely all the dependent send queue events, whether
     /// they have an event id or not. They must be returned in insertion order.
-    async fn list_dependent_send_queue_events(
+    async fn load_dependent_send_queue_events(
         &self,
         room: &RoomId,
     ) -> Result<Vec<DependentQueuedEvent>, Self::Error>;
@@ -710,11 +710,11 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         self.0.remove_dependent_send_queue_event(room_id, own_txn_id).await.map_err(Into::into)
     }
 
-    async fn list_dependent_send_queue_events(
+    async fn load_dependent_send_queue_events(
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<DependentQueuedEvent>, Self::Error> {
-        self.0.list_dependent_send_queue_events(room_id).await.map_err(Into::into)
+        self.0.load_dependent_send_queue_events(room_id).await.map_err(Into::into)
     }
 }
 

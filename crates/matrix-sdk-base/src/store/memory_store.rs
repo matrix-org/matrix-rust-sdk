@@ -949,7 +949,7 @@ impl StateStore for MemoryStore {
     ///
     /// This returns absolutely all the dependent send queue events, whether
     /// they have an event id or not.
-    async fn list_dependent_send_queue_events(
+    async fn load_dependent_send_queue_events(
         &self,
         room: &RoomId,
     ) -> Result<Vec<DependentQueuedEvent>, Self::Error> {
