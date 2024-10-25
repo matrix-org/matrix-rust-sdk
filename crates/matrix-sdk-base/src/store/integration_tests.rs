@@ -1369,7 +1369,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         self.save_send_queue_event(room_id, txn0.clone(), event0).await.unwrap();
 
         // No dependents, to start with.
-        assert!(self.list_dependent_send_queue_events(room_id).await.unwrap().is_empty());
+        assert!(self.load_dependent_send_queue_events(room_id).await.unwrap().is_empty());
 
         // Save a redaction for that event.
         let child_txn = ChildTransactionId::new();
@@ -1383,7 +1383,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         .unwrap();
 
         // It worked.
-        let dependents = self.list_dependent_send_queue_events(room_id).await.unwrap();
+        let dependents = self.load_dependent_send_queue_events(room_id).await.unwrap();
         assert_eq!(dependents.len(), 1);
         assert_eq!(dependents[0].parent_transaction_id, txn0);
         assert_eq!(dependents[0].own_transaction_id, child_txn);
@@ -1397,7 +1397,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(num_updated, 1);
 
         // It worked.
-        let dependents = self.list_dependent_send_queue_events(room_id).await.unwrap();
+        let dependents = self.load_dependent_send_queue_events(room_id).await.unwrap();
         assert_eq!(dependents.len(), 1);
         assert_eq!(dependents[0].parent_transaction_id, txn0);
         assert_eq!(dependents[0].own_transaction_id, child_txn);
@@ -1412,7 +1412,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert!(removed);
 
         // It worked.
-        assert!(self.list_dependent_send_queue_events(room_id).await.unwrap().is_empty());
+        assert!(self.load_dependent_send_queue_events(room_id).await.unwrap().is_empty());
 
         // Now, inserting a dependent event and removing the original send queue event
         // will NOT remove the dependent event.
@@ -1430,7 +1430,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         )
         .await
         .unwrap();
-        assert_eq!(self.list_dependent_send_queue_events(room_id).await.unwrap().len(), 1);
+        assert_eq!(self.load_dependent_send_queue_events(room_id).await.unwrap().len(), 1);
 
         self.save_dependent_send_queue_event(
             room_id,
@@ -1445,14 +1445,14 @@ impl StateStoreIntegrationTests for DynStateStore {
         )
         .await
         .unwrap();
-        assert_eq!(self.list_dependent_send_queue_events(room_id).await.unwrap().len(), 2);
+        assert_eq!(self.load_dependent_send_queue_events(room_id).await.unwrap().len(), 2);
 
         // Remove event0 / txn0.
         let removed = self.remove_send_queue_event(room_id, &txn0).await.unwrap();
         assert!(removed);
 
         // This has removed none of the dependent events.
-        let dependents = self.list_dependent_send_queue_events(room_id).await.unwrap();
+        let dependents = self.load_dependent_send_queue_events(room_id).await.unwrap();
         assert_eq!(dependents.len(), 2);
     }
 }

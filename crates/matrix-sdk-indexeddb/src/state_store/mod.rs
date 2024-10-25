@@ -1618,7 +1618,7 @@ impl_state_store!({
         Ok(false)
     }
 
-    async fn list_dependent_send_queue_events(
+    async fn load_dependent_send_queue_events(
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<DependentQueuedEvent>> {
