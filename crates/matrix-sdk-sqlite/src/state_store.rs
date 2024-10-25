@@ -12,7 +12,8 @@ use matrix_sdk_base::{
     deserialized_responses::{RawAnySyncOrStrippedState, SyncOrStrippedState},
     store::{
         migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedEvent,
-        DependentQueuedEventKind, QueueWedgeError, QueuedEvent, SerializableEventContent,
+        DependentQueuedEventKind, QueueWedgeError, QueuedEvent, QueuedRequestKind,
+        SerializableEventContent,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue,
@@ -1767,7 +1768,7 @@ impl StateStore for SqliteStateStore {
         for entry in res {
             queued_events.push(QueuedEvent {
                 transaction_id: entry.0.into(),
-                event: self.deserialize_json(&entry.1)?,
+                kind: QueuedRequestKind::Event { content: self.deserialize_json(&entry.1)? },
                 error: entry.2.map(|v| self.deserialize_value(&v)).transpose()?,
             });
         }

@@ -38,8 +38,8 @@ use tracing::{debug, instrument, trace, warn};
 use super::{
     send_queue::{ChildTransactionId, QueuedEvent, SerializableEventContent},
     traits::{ComposerDraft, ServerCapabilities},
-    DependentQueuedEvent, DependentQueuedEventKind, Result, RoomInfo, StateChanges, StateStore,
-    StoreError,
+    DependentQueuedEvent, DependentQueuedEventKind, QueuedRequestKind, Result, RoomInfo,
+    StateChanges, StateStore, StoreError,
 };
 use crate::{
     deserialized_responses::RawAnySyncOrStrippedState, store::QueueWedgeError,
@@ -806,14 +806,11 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
-        event: SerializableEventContent,
+        content: SerializableEventContent,
     ) -> Result<(), Self::Error> {
-        self.send_queue_events
-            .write()
-            .unwrap()
-            .entry(room_id.to_owned())
-            .or_default()
-            .push(QueuedEvent { event, transaction_id, error: None });
+        self.send_queue_events.write().unwrap().entry(room_id.to_owned()).or_default().push(
+            QueuedEvent { kind: QueuedRequestKind::Event { content }, transaction_id, error: None },
+        );
         Ok(())
     }
 
@@ -832,7 +829,7 @@ impl StateStore for MemoryStore {
             .iter_mut()
             .find(|item| item.transaction_id == transaction_id)
         {
-            entry.event = content;
+            entry.kind = QueuedRequestKind::Event { content };
             entry.error = None;
             Ok(true)
         } else {
