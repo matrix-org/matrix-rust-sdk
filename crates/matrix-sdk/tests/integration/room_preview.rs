@@ -1,5 +1,4 @@
-use assert_matches2::assert_matches;
-use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server, Error};
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
     async_test, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, SyncResponseBuilder,
@@ -30,7 +29,7 @@ async fn test_room_preview_leave_invited() {
     let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
     assert_eq!(room_preview.state.unwrap(), RoomState::Invited);
 
-    room_preview.leave().await.unwrap();
+    client.get_room(room_id).unwrap().leave().await.unwrap();
 
     assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
 }
@@ -52,7 +51,8 @@ async fn test_room_preview_leave_knocked() {
     let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
     assert_eq!(room_preview.state.unwrap(), RoomState::Knocked);
 
-    room_preview.leave().await.unwrap();
+    let room = client.get_room(room_id).unwrap();
+    room.leave().await.unwrap();
 
     assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
 }
@@ -74,9 +74,10 @@ async fn test_room_preview_leave_joined() {
     let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
     assert_eq!(room_preview.state.unwrap(), RoomState::Joined);
 
-    room_preview.leave().await.unwrap();
+    let room = client.get_room(room_id).unwrap();
+    room.leave().await.unwrap();
 
-    assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
+    assert_eq!(room.state(), RoomState::Left);
 }
 
 #[async_test]
@@ -85,14 +86,11 @@ async fn test_room_preview_leave_unknown_room_fails() {
     let room_id = room_id!("!room:localhost");
 
     mock_unknown_summary(room_id, None, SpaceRoomJoinRule::Knock, &server).await;
-    mock_leave(room_id, &server).await;
 
     let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
     assert!(room_preview.state.is_none());
 
-    let error = room_preview.leave().await.err();
-
-    assert_matches!(error, Some(Error::WrongRoomPreviewState(_)));
+    assert!(client.get_room(room_id).is_none());
 }
 
 async fn mock_leave(room_id: &RoomId, server: &MockServer) {

@@ -1040,9 +1040,9 @@ impl Client {
         // rustc win that one fight.
         let room_id: &RoomId = &room_id;
 
-        let sdk_room_preview = self.inner.get_room_preview(room_id.into(), via_servers).await?;
+        let room_preview = self.inner.get_room_preview(room_id.into(), via_servers).await?;
 
-        Ok(Arc::new(RoomPreview::from_sdk(sdk_room_preview)))
+        Ok(Arc::new(RoomPreview::new(self.inner.clone(), room_preview)))
     }
 
     /// Given a room alias, get the preview of a room, to interact with it.
@@ -1057,9 +1057,9 @@ impl Client {
         // rustc win that one fight.
         let room_alias: &RoomAliasId = &room_alias;
 
-        let sdk_room_preview = self.inner.get_room_preview(room_alias.into(), Vec::new()).await?;
+        let room_preview = self.inner.get_room_preview(room_alias.into(), Vec::new()).await?;
 
-        Ok(Arc::new(RoomPreview::from_sdk(sdk_room_preview)))
+        Ok(Arc::new(RoomPreview::new(self.inner.clone(), room_preview)))
     }
 
     /// Waits until an at least partially synced room is received, and returns
@@ -1830,6 +1830,12 @@ pub enum JoinRule {
     /// conditions described in a set of [`AllowRule`]s, or they can request
     /// an invite to the room.
     KnockRestricted { rules: Vec<AllowRule> },
+
+    /// A custom join rule, up for interpretation by the consumer.
+    Custom {
+        /// The string representation for this custom rule.
+        repr: String,
+    },
 }
 
 /// An allow rule which defines a condition that allows joining a room.
@@ -1857,6 +1863,7 @@ impl TryFrom<JoinRule> for ruma::events::room::join_rules::JoinRule {
                 let rules = allow_rules_from(rules)?;
                 Ok(Self::KnockRestricted(ruma::events::room::join_rules::Restricted::new(rules)))
             }
+            JoinRule::Custom { repr } => Ok(serde_json::from_str(&repr)?),
         }
     }
 }

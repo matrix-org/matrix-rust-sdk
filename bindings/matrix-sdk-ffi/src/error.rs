@@ -2,8 +2,8 @@ use std::{collections::HashMap, fmt, fmt::Display};
 
 use matrix_sdk::{
     encryption::CryptoStoreError, event_cache::EventCacheError, oidc::OidcError, reqwest,
-    room::edit::EditError, room_preview::WrongRoomPreviewState, send_queue::RoomSendQueueError,
-    HttpError, IdParseError, NotificationSettingsError as SdkNotificationSettingsError,
+    room::edit::EditError, send_queue::RoomSendQueueError, HttpError, IdParseError,
+    NotificationSettingsError as SdkNotificationSettingsError,
     QueueWedgeError as SdkQueueWedgeError, StoreError,
 };
 use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
@@ -151,12 +151,6 @@ impl From<EditError> for ClientError {
 
 impl From<RoomSendQueueError> for ClientError {
     fn from(e: RoomSendQueueError) -> Self {
-        Self::new(e)
-    }
-}
-
-impl From<WrongRoomPreviewState> for ClientError {
-    fn from(e: WrongRoomPreviewState) -> Self {
         Self::new(e)
     }
 }

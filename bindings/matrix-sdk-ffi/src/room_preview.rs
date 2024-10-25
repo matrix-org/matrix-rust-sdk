@@ -1,7 +1,10 @@
-use std::sync::Arc;
+use std::mem::ManuallyDrop;
 
-use matrix_sdk::room_preview::RoomPreview as SdkRoomPreview;
+use anyhow::Context as _;
+use async_compat::TOKIO1 as RUNTIME;
+use matrix_sdk::{room_preview::RoomPreview as SdkRoomPreview, Client};
 use ruma::space::SpaceRoomJoinRule;
+use tracing::warn;
 
 use crate::{client::JoinRule, error::ClientError, room::Membership};
 
@@ -9,15 +12,30 @@ use crate::{client::JoinRule, error::ClientError, room::Membership};
 /// aren't joined yet.
 #[derive(uniffi::Object)]
 pub struct RoomPreview {
-    inner: Arc<SdkRoomPreview>,
+    inner: SdkRoomPreview,
+    client: ManuallyDrop<Client>,
+}
+
+impl Drop for RoomPreview {
+    fn drop(&mut self) {
+        // Dropping the inner OlmMachine must happen within a tokio context
+        // because deadpool drops sqlite connections in the DB pool on tokio's
+        // blocking threadpool to avoid blocking async worker threads.
+        let _guard = RUNTIME.enter();
+        // SAFETY: self.client is never used again, which is the only requirement
+        //         for ManuallyDrop::drop to be used safely.
+        unsafe {
+            ManuallyDrop::drop(&mut self.client);
+        }
+    }
 }
 
 #[matrix_sdk_ffi_macros::export]
 impl RoomPreview {
     /// Returns the room info the preview contains.
-    pub fn info(&self) -> RoomPreviewInfo {
+    pub fn info(&self) -> Result<RoomPreviewInfo, ClientError> {
         let info = &self.inner;
-        RoomPreviewInfo {
+        Ok(RoomPreviewInfo {
             room_id: info.room_id.to_string(),
             canonical_alias: info.canonical_alias.as_ref().map(|alias| alias.to_string()),
             name: info.name.clone(),
@@ -27,8 +45,12 @@ impl RoomPreview {
             room_type: info.room_type.as_ref().map(|room_type| room_type.to_string()),
             is_history_world_readable: info.is_world_readable,
             membership: info.state.map(|state| state.into()),
-            join_rule: info.join_rule.clone().into(),
-        }
+            join_rule: info
+                .join_rule
+                .clone()
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("unhandled SpaceRoomJoinRule kind"))?,
+        })
     }
 
     /// Leave the room if the room preview state is either joined, invited or
@@ -36,13 +58,15 @@ impl RoomPreview {
     ///
     /// Will return an error otherwise.
     pub async fn leave(&self) -> Result<(), ClientError> {
-        self.inner.leave().await.map_err(Into::into)
+        let room =
+            self.client.get_room(&self.inner.room_id).context("missing room for a room preview")?;
+        room.leave().await.map_err(Into::into)
     }
 }
 
 impl RoomPreview {
-    pub(crate) fn from_sdk(room_preview: SdkRoomPreview) -> Self {
-        Self { inner: Arc::new(room_preview) }
+    pub(crate) fn new(client: ManuallyDrop<Client>, inner: SdkRoomPreview) -> Self {
+        Self { client, inner }
     }
 }
 
@@ -71,22 +95,22 @@ pub struct RoomPreviewInfo {
     pub join_rule: JoinRule,
 }
 
-impl From<SpaceRoomJoinRule> for JoinRule {
-    fn from(join_rule: SpaceRoomJoinRule) -> Self {
-        match join_rule {
+impl TryFrom<SpaceRoomJoinRule> for JoinRule {
+    type Error = ();
+
+    fn try_from(join_rule: SpaceRoomJoinRule) -> Result<Self, ()> {
+        Ok(match join_rule {
             SpaceRoomJoinRule::Invite => JoinRule::Invite,
             SpaceRoomJoinRule::Knock => JoinRule::Knock,
             SpaceRoomJoinRule::Private => JoinRule::Private,
             SpaceRoomJoinRule::Restricted => JoinRule::Restricted { rules: Vec::new() },
             SpaceRoomJoinRule::KnockRestricted => JoinRule::KnockRestricted { rules: Vec::new() },
             SpaceRoomJoinRule::Public => JoinRule::Public,
+            SpaceRoomJoinRule::_Custom(_) => JoinRule::Custom { repr: join_rule.to_string() },
             _ => {
-                // Since we have no way to get the _Custom contents, assume it's private.
-                // Warning! If new join rules are introduced we may be mapping wrong values
-                // here, but there's no way to match
-                // `SpaceRoomJoinRule::_Custom(_)` and have an exhaustive match.
-                JoinRule::Private
+                warn!("unhandled SpaceRoomJoinRule: {join_rule}");
+                return Err(());
             }
-        }
+        })
     }
 }

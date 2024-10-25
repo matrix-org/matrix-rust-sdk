@@ -1,4 +1,12 @@
-use std::{fmt::Debug, mem::MaybeUninit, ptr::addr_of_mut, sync::Arc, time::Duration};
+#![allow(deprecated)]
+
+use std::{
+    fmt::Debug,
+    mem::{ManuallyDrop, MaybeUninit},
+    ptr::addr_of_mut,
+    sync::Arc,
+    time::Duration,
+};
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt, TryFutureExt};
@@ -599,6 +607,13 @@ impl RoomListItem {
     /// An error will be returned if the room is in a state other than invited
     /// or knocked.
     async fn preview_room(&self, via: Vec<String>) -> Result<Arc<RoomPreview>, ClientError> {
+        // Validate parameters first.
+        let server_names: Vec<OwnedServerName> = via
+            .into_iter()
+            .map(|server| ServerName::parse(server).map_err(ClientError::from))
+            .collect::<Result<_, ClientError>>()?;
+
+        // Validate internal room state.
         let membership = self.membership();
         if !matches!(membership, Membership::Invited | Membership::Knocked) {
             return Err(RoomListError::IncorrectRoomMembership {
@@ -608,21 +623,19 @@ impl RoomListItem {
             .into());
         }
 
+        // Do the thing.
         let client = self.inner.client();
         let (room_or_alias_id, server_names) = if let Some(alias) = self.inner.canonical_alias() {
             let room_or_alias_id: OwnedRoomOrAliasId = alias.into();
             (room_or_alias_id, Vec::new())
         } else {
             let room_or_alias_id: OwnedRoomOrAliasId = self.inner.id().to_owned().into();
-            let server_names: Vec<OwnedServerName> = via
-                .into_iter()
-                .map(|server| ServerName::parse(server).map_err(ClientError::from))
-                .collect::<Result<_, ClientError>>()?;
             (room_or_alias_id, server_names)
         };
 
         let room_preview = client.get_room_preview(&room_or_alias_id, server_names).await?;
-        Ok(Arc::new(RoomPreview::from_sdk(room_preview)))
+
+        Ok(Arc::new(RoomPreview::new(ManuallyDrop::new(client), room_preview)))
     }
 
     /// Build a full `Room` FFI object, filling its associated timeline.
