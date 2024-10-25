@@ -705,7 +705,8 @@ async fn cache_latest_events(
                 | PossibleLatestEvent::YesPoll(_)
                 | PossibleLatestEvent::YesCallInvite(_)
                 | PossibleLatestEvent::YesCallNotify(_)
-                | PossibleLatestEvent::YesSticker(_) => {
+                | PossibleLatestEvent::YesSticker(_)
+                | PossibleLatestEvent::YesKnockedStateEvent(_) => {
                     // We found a suitable latest event. Store it.
 
                     // In order to make the latest event fast to read, we want to keep the
@@ -1736,6 +1737,63 @@ mod tests {
             ev_id(client_room.latest_event().map(|latest_event| latest_event.event().clone())),
             "$idb"
         );
+    }
+
+    #[async_test]
+    async fn test_last_knock_member_state_event_from_sliding_sync_is_cached() {
+        // Given a logged-in client
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+        // And a knock member state event
+        let knock_event = json!({
+            "sender":"@alice:example.com",
+            "state_key":"@alice:example.com",
+            "type":"m.room.member",
+            "event_id": "$ida",
+            "origin_server_ts": 12344446,
+            "content":{"membership": "knock"},
+            "room_id": room_id,
+        });
+
+        // When the sliding sync response contains a timeline
+        let events = &[knock_event];
+        let room = room_with_timeline(events);
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
+
+        // Then the room holds the latest knock state event
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert_eq!(
+            ev_id(client_room.latest_event().map(|latest_event| latest_event.event().clone())),
+            "$ida"
+        );
+    }
+
+    #[async_test]
+    async fn test_last_member_state_event_from_sliding_sync_is_not_cached() {
+        // Given a logged-in client
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+        // And a join member state event
+        let join_event = json!({
+            "sender":"@alice:example.com",
+            "state_key":"@alice:example.com",
+            "type":"m.room.member",
+            "event_id": "$ida",
+            "origin_server_ts": 12344446,
+            "content":{"membership": "join"},
+            "room_id": room_id,
+        });
+
+        // When the sliding sync response contains a timeline
+        let events = &[join_event];
+        let room = room_with_timeline(events);
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
+
+        // Then the room doesn't hold the join state event as the latest event
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert!(client_room.latest_event().is_none());
     }
 
     #[async_test]

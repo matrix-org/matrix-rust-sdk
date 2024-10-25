@@ -39,7 +39,7 @@ use ruma::{
             guest_access::RoomGuestAccessEventContent,
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
-            member::{Change, RoomMemberEventContent},
+            member::{Change, RoomMemberEventContent, SyncRoomMemberEvent},
             message::{
                 Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
                 SyncRoomMessageEvent,
@@ -173,6 +173,9 @@ impl TimelineItemContent {
                 );
                 None
             }
+            PossibleLatestEvent::YesKnockedStateEvent(member) => {
+                Some(Self::from_suitable_latest_knock_state_event_content(member))
+            }
             PossibleLatestEvent::NoEncrypted => {
                 warn!("Found an encrypted event cached as latest_event! ID={}", event.event_id());
                 None
@@ -217,6 +220,23 @@ impl TimelineItemContent {
             }
 
             SyncRoomMessageEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
+        }
+    }
+
+    fn from_suitable_latest_knock_state_event_content(
+        event: &SyncRoomMemberEvent,
+    ) -> TimelineItemContent {
+        match event {
+            SyncRoomMemberEvent::Original(event) => {
+                let content = event.content.clone();
+                let prev_content = event.prev_content().cloned();
+                TimelineItemContent::room_member(
+                    event.state_key.to_owned(),
+                    FullStateEventContent::Original { content, prev_content },
+                    event.sender.to_owned(),
+                )
+            }
+            SyncRoomMemberEvent::Redacted(_) => TimelineItemContent::RedactedMessage,
         }
     }
 

@@ -12,7 +12,14 @@ use ruma::events::{
     room::message::SyncRoomMessageEvent,
     AnySyncMessageLikeEvent, AnySyncTimelineEvent,
 };
-use ruma::{events::sticker::SyncStickerEvent, MxcUri, OwnedEventId};
+use ruma::{
+    events::{
+        room::member::{MembershipState, SyncRoomMemberEvent},
+        sticker::SyncStickerEvent,
+        AnySyncStateEvent,
+    },
+    MxcUri, OwnedEventId,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::MinimalRoomMemberEvent;
@@ -36,6 +43,9 @@ pub enum PossibleLatestEvent<'a> {
 
     /// This message is suitable - it's a call notification
     YesCallNotify(&'a SyncCallNotifyEvent),
+
+    /// This state event is suitable - it's a knock membership change
+    YesKnockedStateEvent(&'a SyncRoomMemberEvent),
 
     // Later: YesState(),
     // Later: YesReaction(),
@@ -102,8 +112,16 @@ pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLat
         // suitable
         AnySyncTimelineEvent::MessageLike(_) => PossibleLatestEvent::NoUnsupportedMessageLikeType,
 
-        // We don't currently support state events
-        AnySyncTimelineEvent::State(_) => PossibleLatestEvent::NoUnsupportedEventType,
+        // We don't currently support most state events
+        AnySyncTimelineEvent::State(state) => {
+            // But we make an exception for knocked state events
+            if let AnySyncStateEvent::RoomMember(member) = state {
+                if matches!(member.membership(), MembershipState::Knock) {
+                    return PossibleLatestEvent::YesKnockedStateEvent(member);
+                }
+            }
+            PossibleLatestEvent::NoUnsupportedEventType
+        }
     }
 }
 
