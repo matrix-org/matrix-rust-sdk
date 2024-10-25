@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{mem::ManuallyDrop, ops::Deref};
+
+use async_compat::TOKIO1 as RUNTIME;
 use ruma::UInt;
 use tracing::warn;
 
@@ -20,4 +23,46 @@ pub(crate) fn u64_to_uint(u: u64) -> UInt {
         warn!("u64 -> UInt conversion overflowed, falling back to UInt::MAX");
         UInt::MAX
     })
+}
+
+/// Tiny wrappers for data types that must be dropped in the context of an async
+/// runtime.
+///
+/// This is useful whenever such a data type may transitively call some
+/// runtime's `block_on` function in their `Drop` impl (since we lack async drop
+/// at the moment), like done in some `deadpool` drop impls.
+pub(crate) struct AsyncRuntimeDropped<T>(ManuallyDrop<T>);
+
+impl<T> AsyncRuntimeDropped<T> {
+    /// Create a new wrapper for this type that will be dropped under an async
+    /// runtime.
+    pub fn new(val: T) -> Self {
+        Self(ManuallyDrop::new(val))
+    }
+}
+
+impl<T> Drop for AsyncRuntimeDropped<T> {
+    fn drop(&mut self) {
+        let _guard = RUNTIME.enter();
+        // SAFETY: self.inner is never used again, which is the only requirement
+        //         for ManuallyDrop::drop to be used safely.
+        unsafe {
+            ManuallyDrop::drop(&mut self.0);
+        }
+    }
+}
+
+// What is an `AsyncRuntimeDropped<T>`, if not a `T` in disguise?
+impl<T> Deref for AsyncRuntimeDropped<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: Clone> Clone for AsyncRuntimeDropped<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
 }

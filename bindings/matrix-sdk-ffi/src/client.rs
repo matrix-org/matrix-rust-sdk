@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    mem::ManuallyDrop,
     path::Path,
     sync::{Arc, RwLock},
 };
@@ -79,6 +78,7 @@ use crate::{
     ruma::AuthData,
     sync_service::{SyncService, SyncServiceBuilder},
     task_handle::TaskHandle,
+    utils::AsyncRuntimeDropped,
     ClientError,
 };
 
@@ -184,24 +184,10 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 
 #[derive(uniffi::Object)]
 pub struct Client {
-    pub(crate) inner: ManuallyDrop<MatrixClient>,
+    pub(crate) inner: AsyncRuntimeDropped<MatrixClient>,
     delegate: RwLock<Option<Arc<dyn ClientDelegate>>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
-}
-
-impl Drop for Client {
-    fn drop(&mut self) {
-        // Dropping the inner OlmMachine must happen within a tokio context
-        // because deadpool drops sqlite connections in the DB pool on tokio's
-        // blocking threadpool to avoid blocking async worker threads.
-        let _guard = RUNTIME.enter();
-        // SAFETY: self.inner is never used again, which is the only requirement
-        //         for ManuallyDrop::drop to be used safely.
-        unsafe {
-            ManuallyDrop::drop(&mut self.inner);
-        }
-    }
 }
 
 impl Client {
@@ -224,7 +210,7 @@ impl Client {
         });
 
         let client = Client {
-            inner: ManuallyDrop::new(sdk_client),
+            inner: AsyncRuntimeDropped::new(sdk_client),
             delegate: RwLock::new(None),
             session_verification_controller,
         };
