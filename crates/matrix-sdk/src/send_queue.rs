@@ -54,7 +54,7 @@ use std::{
 use matrix_sdk_base::{
     store::{
         ChildTransactionId, DependentQueuedEvent, DependentQueuedEventKind, QueueWedgeError,
-        QueuedEvent, SerializableEventContent,
+        QueuedEvent, QueuedRequestKind, SerializableEventContent,
     },
     RoomState, StoreError,
 };
@@ -452,7 +452,7 @@ impl RoomSendQueue {
                 continue;
             };
 
-            let (event, event_type) = queued_event.event.raw();
+            let (event, event_type) = queued_event.as_event().unwrap().raw();
             match room
                 .send_raw(&event_type.to_string(), event)
                 .with_transaction_id(&queued_event.transaction_id)
@@ -881,13 +881,15 @@ impl QueueStorage {
             store.load_send_queue_events(&self.room_id).await?.into_iter().map(|queued| {
                 LocalEcho {
                     transaction_id: queued.transaction_id.clone(),
-                    content: LocalEchoContent::Event {
-                        serialized_event: queued.event,
-                        send_handle: SendHandle {
-                            room: room.clone(),
-                            transaction_id: queued.transaction_id,
+                    content: match queued.kind {
+                        QueuedRequestKind::Event { content } => LocalEchoContent::Event {
+                            serialized_event: content,
+                            send_handle: SendHandle {
+                                room: room.clone(),
+                                transaction_id: queued.transaction_id,
+                            },
+                            send_error: queued.error,
                         },
-                        send_error: queued.error,
                     },
                 }
             });

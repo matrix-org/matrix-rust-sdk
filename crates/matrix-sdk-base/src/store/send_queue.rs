@@ -16,6 +16,7 @@
 
 use std::{collections::BTreeMap, fmt, ops::Deref};
 
+use as_variant::as_variant;
 use ruma::{
     events::{AnyMessageLikeEventContent, EventContent as _, RawExt as _},
     serde::Raw,
@@ -62,26 +63,43 @@ impl SerializableEventContent {
     /// Returns the raw event content along with its type.
     ///
     /// Useful for callers manipulating custom events.
-    pub fn raw(self) -> (Raw<AnyMessageLikeEventContent>, String) {
-        (self.event, self.event_type)
+    pub fn raw(&self) -> (&Raw<AnyMessageLikeEventContent>, &str) {
+        (&self.event, &self.event_type)
     }
 }
 
-/// An event to be sent with a send queue.
+/// The kind of a send queue request.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum QueuedRequestKind {
+    /// An event to be sent via the send queue.
+    Event {
+        /// The content of the message-like event we'd like to send.
+        content: SerializableEventContent,
+    },
+}
+
+/// A request to be sent with a send queue.
 #[derive(Clone)]
 pub struct QueuedEvent {
-    /// The content of the message-like event we'd like to send.
-    pub event: SerializableEventContent,
+    /// The kind of queued request we're going to send.
+    pub kind: QueuedRequestKind,
 
-    /// Unique transaction id for the queued event, acting as a key.
+    /// Unique transaction id for the queued request, acting as a key.
     pub transaction_id: OwnedTransactionId,
 
-    /// Set when the event couldn't be sent because of an unrecoverable API
-    /// error. `None` if the event is in queue for being sent.
+    /// Error returned when the request couldn't be sent and is stuck in the
+    /// unrecoverable state.
+    ///
+    /// `None` if the request is in the queue, waiting to be sent.
     pub error: Option<QueueWedgeError>,
 }
 
 impl QueuedEvent {
+    /// Returns `Some` if the queued request is about sending an event.
+    pub fn as_event(&self) -> Option<&SerializableEventContent> {
+        as_variant!(&self.kind, QueuedRequestKind::Event { content } => content)
+    }
+
     /// True if the event couldn't be sent because of an unrecoverable API
     /// error. See [`Self::error`] for more details on the reason.
     pub fn is_wedged(&self) -> bool {

@@ -26,8 +26,8 @@ use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     store::{
         ChildTransactionId, ComposerDraft, DependentQueuedEvent, DependentQueuedEventKind,
-        QueuedEvent, SerializableEventContent, ServerCapabilities, StateChanges, StateStore,
-        StoreError,
+        QueuedEvent, QueuedRequestKind, SerializableEventContent, ServerCapabilities, StateChanges,
+        StateStore, StoreError,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
 };
@@ -431,14 +431,36 @@ struct PersistedQueuedEvent {
     pub room_id: OwnedRoomId,
 
     // All these fields are the same as in [`QueuedEvent`].
-    event: SerializableEventContent,
+    /// Kind. Optional because it might be missing from previous formats.
+    kind: Option<QueuedRequestKind>,
     transaction_id: OwnedTransactionId,
 
-    // Deprecated (from old format), now replaced with error field.
-    // Kept here for migration
+    pub error: Option<QueueWedgeError>,
+
+    // Migrated fields: keep these private, they're not used anymore elsewhere in the code base.
+    /// Deprecated (from old format), now replaced with error field.
     is_wedged: Option<bool>,
 
-    pub error: Option<QueueWedgeError>,
+    event: Option<SerializableEventContent>,
+}
+
+impl PersistedQueuedEvent {
+    fn into_queued_event(self) -> Option<QueuedEvent> {
+        let kind =
+            self.kind.or_else(|| self.event.map(|content| QueuedRequestKind::Event { content }))?;
+
+        let error = match self.is_wedged {
+            Some(true) => {
+                // Migrate to a generic error.
+                Some(QueueWedgeError::GenericApiError {
+                    msg: "local echo failed to send in a previous session".into(),
+                })
+            }
+            _ => self.error,
+        };
+
+        Some(QueuedEvent { kind, transaction_id: self.transaction_id, error })
+    }
 }
 
 // Small hack to have the following macro invocation act as the appropriate
@@ -1329,10 +1351,11 @@ impl_state_store!({
         // Push the new event.
         prev.push(PersistedQueuedEvent {
             room_id: room_id.to_owned(),
-            event: content,
+            kind: Some(QueuedRequestKind::Event { content }),
             transaction_id,
-            is_wedged: None,
             error: None,
+            is_wedged: None,
+            event: None,
         });
 
         // Save the new vector into db.
@@ -1369,9 +1392,12 @@ impl_state_store!({
 
         // Modify the one event.
         if let Some(entry) = prev.iter_mut().find(|entry| entry.transaction_id == transaction_id) {
-            entry.event = content;
-            entry.is_wedged = None;
+            entry.kind = Some(QueuedRequestKind::Event { content });
+            // Reset the error state.
             entry.error = None;
+            // Remove migrated fields.
+            entry.is_wedged = None;
+            entry.event = None;
 
             // Save the new vector into db.
             obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
@@ -1435,22 +1461,7 @@ impl_state_store!({
             |val| self.deserialize_value::<Vec<PersistedQueuedEvent>>(&val),
         )?;
 
-        Ok(prev
-            .into_iter()
-            .map(|item| QueuedEvent {
-                event: item.event,
-                transaction_id: item.transaction_id,
-                error: match item.is_wedged {
-                    Some(true) => {
-                        // migrate a generic error
-                        Some(QueueWedgeError::GenericApiError {
-                            msg: "local echo failed to send in a previous session".into(),
-                        })
-                    }
-                    _ => item.error,
-                },
-            })
-            .collect())
+        Ok(prev.into_iter().filter_map(PersistedQueuedEvent::into_queued_event).collect())
     }
 
     async fn update_send_queue_event_status(
@@ -1663,7 +1674,8 @@ impl From<&StrippedRoomMemberEvent> for RoomMember {
 
 #[cfg(test)]
 mod migration_tests {
-    use matrix_sdk_base::store::SerializableEventContent;
+    use assert_matches2::assert_matches;
+    use matrix_sdk_base::store::{QueuedRequestKind, SerializableEventContent};
     use ruma::{
         events::room::message::RoomMessageEventContent, room_id, OwnedRoomId, OwnedTransactionId,
         TransactionId,
@@ -1698,7 +1710,7 @@ mod migration_tests {
         let old_persisted_queue_event = OldPersistedQueuedEvent {
             room_id: room_a_id.to_owned(),
             event: content,
-            transaction_id,
+            transaction_id: transaction_id.clone(),
             is_wedged: true,
         };
 
@@ -1710,6 +1722,14 @@ mod migration_tests {
 
         assert_eq!(new_persisted.is_wedged, Some(true));
         assert!(new_persisted.error.is_none());
+
+        assert!(new_persisted.event.is_some());
+        assert!(new_persisted.kind.is_none());
+
+        let queued = new_persisted.into_queued_event().unwrap();
+        assert_matches!(queued.kind, QueuedRequestKind::Event { .. });
+        assert_eq!(queued.transaction_id, transaction_id);
+        assert!(queued.error.is_some());
     }
 }
 
