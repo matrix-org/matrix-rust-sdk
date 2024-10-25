@@ -266,7 +266,31 @@ impl Client {
 impl Client {
     /// Information about login options for the client's homeserver.
     pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
-        let supports_oidc_login = self.inner.oidc().fetch_authentication_issuer().await.is_ok();
+        let oidc = self.inner.oidc();
+        let (supports_oidc_login, supported_oidc_prompts) = match oidc
+            .fetch_authentication_issuer()
+            .await
+        {
+            Ok(issuer) => match &oidc.given_provider_metadata(&issuer).await {
+                Ok(metadata) => {
+                    let prompts = metadata
+                        .prompt_values_supported
+                        .as_ref()
+                        .map_or_else(Vec::new, |prompts| prompts.iter().map(Into::into).collect());
+
+                    (true, prompts)
+                }
+                Err(error) => {
+                    error!("Failed to fetch OIDC provider metadata: {error}");
+                    (true, Default::default())
+                }
+            },
+            Err(error) => {
+                error!("Failed to fetch authentication issuer: {error}");
+                (false, Default::default())
+            }
+        };
+
         let supports_password_login = self.supports_password_login().await.ok().unwrap_or(false);
         let sliding_sync_version = self.sliding_sync_version();
 
@@ -274,6 +298,7 @@ impl Client {
             url: self.homeserver(),
             sliding_sync_version,
             supports_oidc_login,
+            supported_oidc_prompts,
             supports_password_login,
         })
     }
@@ -1758,7 +1783,7 @@ impl TryFrom<SlidingSyncVersion> for SdkSlidingSyncVersion {
     }
 }
 
-#[derive(uniffi::Enum)]
+#[derive(Clone, uniffi::Enum)]
 pub enum OidcPrompt {
     /// The Authorization Server must not display any authentication or consent
     /// user interface pages.
@@ -1788,6 +1813,20 @@ pub enum OidcPrompt {
 
     /// An unknown value.
     Unknown { value: String },
+}
+
+impl From<&SdkOidcPrompt> for OidcPrompt {
+    fn from(value: &SdkOidcPrompt) -> Self {
+        match value {
+            SdkOidcPrompt::None => Self::None,
+            SdkOidcPrompt::Login => Self::Login,
+            SdkOidcPrompt::Consent => Self::Consent,
+            SdkOidcPrompt::SelectAccount => Self::SelectAccount,
+            SdkOidcPrompt::Create => Self::Create,
+            SdkOidcPrompt::Unknown(value) => Self::Unknown { value: value.to_owned() },
+            _ => Self::Unknown { value: value.to_string() },
+        }
+    }
 }
 
 impl From<OidcPrompt> for SdkOidcPrompt {

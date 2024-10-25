@@ -19,13 +19,14 @@ use matrix_sdk::{
 };
 use url::Url;
 
-use crate::client::{Client, SlidingSyncVersion};
+use crate::client::{Client, OidcPrompt, SlidingSyncVersion};
 
 #[derive(uniffi::Object)]
 pub struct HomeserverLoginDetails {
     pub(crate) url: String,
     pub(crate) sliding_sync_version: SlidingSyncVersion,
     pub(crate) supports_oidc_login: bool,
+    pub(crate) supported_oidc_prompts: Vec<OidcPrompt>,
     pub(crate) supports_password_login: bool,
 }
 
@@ -44,6 +45,12 @@ impl HomeserverLoginDetails {
     /// Whether the current homeserver supports login using OIDC.
     pub fn supports_oidc_login(&self) -> bool {
         self.supports_oidc_login
+    }
+
+    /// The prompts advertised by the authentication issuer for use in the login
+    /// URL.
+    pub fn supported_oidc_prompts(&self) -> Vec<OidcPrompt> {
+        self.supported_oidc_prompts.clone()
     }
 
     /// Whether the current homeserver supports the password login flow.
