@@ -19,7 +19,7 @@ use std::{collections::BTreeMap, fmt};
 use matrix_sdk_common::{debug::DebugRawEvent, deserialized_responses::SyncTimelineEvent};
 use ruma::{
     api::client::sync::sync_events::{
-        v3::{InvitedRoom as InvitedRoomUpdate, KnockedRoom},
+        v3::{InvitedRoom as InvitedRoomUpdate, KnockedRoom as KnockedRoomUpdate},
         UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
     events::{
@@ -78,7 +78,7 @@ pub struct RoomUpdates {
     /// The rooms that the user has been invited to.
     pub invite: BTreeMap<OwnedRoomId, InvitedRoomUpdate>,
     /// The rooms that the user has knocked on.
-    pub knocked: BTreeMap<OwnedRoomId, KnockedRoom>,
+    pub knocked: BTreeMap<OwnedRoomId, KnockedRoomUpdate>,
 }
 
 impl RoomUpdates {
@@ -254,7 +254,7 @@ impl<'a> fmt::Debug for DebugInvitedRoomUpdates<'a> {
     }
 }
 
-struct DebugKnockedRoomUpdates<'a>(&'a BTreeMap<OwnedRoomId, KnockedRoom>);
+struct DebugKnockedRoomUpdates<'a>(&'a BTreeMap<OwnedRoomId, KnockedRoomUpdate>);
 
 #[cfg(not(tarpaulin_include))]
 impl<'a> fmt::Debug for DebugKnockedRoomUpdates<'a> {

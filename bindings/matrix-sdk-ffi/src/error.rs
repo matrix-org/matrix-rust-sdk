@@ -8,6 +8,9 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
 use uniffi::UnexpectedUniFFICallbackError;
+
+use crate::room_list::RoomListError;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     #[error("client error: {msg}")]
@@ -124,6 +127,12 @@ impl From<OidcError> for ClientError {
 
 impl From<RoomError> for ClientError {
     fn from(e: RoomError) -> Self {
+        Self::new(e)
+    }
+}
+
+impl From<RoomListError> for ClientError {
+    fn from(e: RoomListError) -> Self {
         Self::new(e)
     }
 }

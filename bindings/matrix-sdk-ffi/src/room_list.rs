@@ -1,4 +1,12 @@
-use std::{fmt::Debug, mem::MaybeUninit, ptr::addr_of_mut, sync::Arc, time::Duration};
+#![allow(deprecated)]
+
+use std::{
+    fmt::Debug,
+    mem::{ManuallyDrop, MaybeUninit},
+    ptr::addr_of_mut,
+    sync::Arc,
+    time::Duration,
+};
 
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt, TryFutureExt};
@@ -16,12 +24,14 @@ use matrix_sdk_ui::{
     timeline::default_event_filter,
     unable_to_decrypt_hook::UtdHookManager,
 };
+use ruma::{OwnedRoomOrAliasId, OwnedServerName, ServerName};
 use tokio::sync::RwLock;
 
 use crate::{
     error::ClientError,
     room::{Membership, Room},
     room_info::RoomInfo,
+    room_preview::RoomPreview,
     timeline::{EventTimelineItem, Timeline},
     timeline_event_filter::TimelineEventTypeFilter,
     TaskHandle, RUNTIME,
@@ -48,7 +58,7 @@ pub enum RoomListError {
     #[error("Event cache ran into an error: {error}")]
     EventCache { error: String },
     #[error("The requested room doesn't match the membership requirements {expected:?}, observed {actual:?}")]
-    IncorrectRoomMembership { expected: Membership, actual: Membership },
+    IncorrectRoomMembership { expected: Vec<Membership>, actual: Membership },
 }
 
 impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
@@ -574,21 +584,58 @@ impl RoomListItem {
     }
 
     /// Builds a `Room` FFI from an invited room without initializing its
-    /// internal timeline
+    /// internal timeline.
     ///
-    /// An error will be returned if the room is a state different than invited
+    /// An error will be returned if the room is a state different than invited.
     ///
     /// ⚠️ Holding on to this room instance after it has been joined is not
-    /// safe. Use `full_room` instead
+    /// safe. Use `full_room` instead.
+    #[deprecated(note = "Please use `preview_room` instead.")]
     fn invited_room(&self) -> Result<Arc<Room>, RoomListError> {
         if !matches!(self.membership(), Membership::Invited) {
             return Err(RoomListError::IncorrectRoomMembership {
-                expected: Membership::Invited,
+                expected: vec![Membership::Invited],
                 actual: self.membership(),
             });
         }
-
         Ok(Arc::new(Room::new(self.inner.inner_room().clone())))
+    }
+
+    /// Builds a `RoomPreview` from a room list item. This is intended for
+    /// invited or knocked rooms.
+    ///
+    /// An error will be returned if the room is in a state other than invited
+    /// or knocked.
+    async fn preview_room(&self, via: Vec<String>) -> Result<Arc<RoomPreview>, ClientError> {
+        // Validate parameters first.
+        let server_names: Vec<OwnedServerName> = via
+            .into_iter()
+            .map(|server| ServerName::parse(server).map_err(ClientError::from))
+            .collect::<Result<_, ClientError>>()?;
+
+        // Validate internal room state.
+        let membership = self.membership();
+        if !matches!(membership, Membership::Invited | Membership::Knocked) {
+            return Err(RoomListError::IncorrectRoomMembership {
+                expected: vec![Membership::Invited, Membership::Knocked],
+                actual: membership,
+            }
+            .into());
+        }
+
+        // Do the thing.
+        let client = self.inner.client();
+        let (room_or_alias_id, server_names) = if let Some(alias) = self.inner.canonical_alias() {
+            let room_or_alias_id: OwnedRoomOrAliasId = alias.into();
+            (room_or_alias_id, Vec::new())
+        } else {
+            let room_or_alias_id: OwnedRoomOrAliasId = self.inner.id().to_owned().into();
+            (room_or_alias_id, server_names)
+        };
+
+        let room_preview = client.get_room_preview(&room_or_alias_id, server_names).await?;
+
+        Ok(Arc::new(RoomPreview::new(ManuallyDrop::new(client), room_preview)))
     }
 
     /// Build a full `Room` FFI object, filling its associated timeline.
@@ -598,7 +645,7 @@ impl RoomListItem {
     fn full_room(&self) -> Result<Arc<Room>, RoomListError> {
         if !matches!(self.membership(), Membership::Joined) {
             return Err(RoomListError::IncorrectRoomMembership {
-                expected: Membership::Joined,
+                expected: vec![Membership::Joined],
                 actual: self.membership(),
             });
         }

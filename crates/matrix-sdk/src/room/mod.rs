@@ -61,7 +61,7 @@ use ruma::{
         membership::{
             ban_user, forget_room, get_member_events,
             invite_user::{self, v3::InvitationRecipient},
-            join_room_by_id, kick_user, leave_room, unban_user, Invite3pid,
+            kick_user, leave_room, unban_user, Invite3pid,
         },
         message::send_message_event,
         read_marker::set_read_marker,
@@ -209,9 +209,7 @@ impl Room {
                 false
             });
 
-        let request = join_room_by_id::v3::Request::new(self.inner.room_id().to_owned());
-        let response = self.client.send(request, None).await?;
-        self.client.base_client().room_joined(&response.room_id).await?;
+        self.client.join_room_by_id(self.room_id()).await?;
 
         if mark_as_direct {
             self.set_is_direct(true).await?;
