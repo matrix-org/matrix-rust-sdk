@@ -192,9 +192,10 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
         }
     }
 
-    // If the supplied `new_state` represents an actual change, updates our internal
-    // state for this user, and returns the change information we will surface to
-    // the UI.
+    /// Updates our internal state for this user to the supplied `new_state`. If
+    /// the change of state is significant (it requires something to change
+    /// in the UI, like a warning being added or removed), returns the
+    /// change information we will surface to the UI.
     fn update_user_state_to(
         &mut self,
         user_id: &UserId,
