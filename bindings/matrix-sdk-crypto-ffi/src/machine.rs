@@ -42,7 +42,8 @@ use ruma::{
     },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    DeviceKeyAlgorithm, EventId, OwnedTransactionId, OwnedUserId, RoomId, UserId,
+    DeviceKeyAlgorithm, EventId, OneTimeKeyAlgorithm, OwnedTransactionId, OwnedUserId, RoomId,
+    UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
@@ -528,11 +529,11 @@ impl OlmMachine {
     ) -> Result<SyncChangesResult, CryptoStoreError> {
         let to_device: ToDevice = serde_json::from_str(&events)?;
         let device_changes: RumaDeviceLists = device_changes.into();
-        let key_counts: BTreeMap<DeviceKeyAlgorithm, UInt> = key_counts
+        let key_counts: BTreeMap<OneTimeKeyAlgorithm, UInt> = key_counts
             .into_iter()
             .map(|(k, v)| {
                 (
-                    DeviceKeyAlgorithm::from(k),
+                    OneTimeKeyAlgorithm::from(k),
                     v.clamp(0, i32::MAX)
                         .try_into()
                         .expect("Couldn't convert key counts into an UInt"),
@@ -540,8 +541,8 @@ impl OlmMachine {
             })
             .collect();
 
-        let unused_fallback_keys: Option<Vec<DeviceKeyAlgorithm>> =
-            unused_fallback_keys.map(|u| u.into_iter().map(DeviceKeyAlgorithm::from).collect());
+        let unused_fallback_keys: Option<Vec<OneTimeKeyAlgorithm>> =
+            unused_fallback_keys.map(|u| u.into_iter().map(OneTimeKeyAlgorithm::from).collect());
 
         let (to_device_events, room_key_infos) = self.runtime.block_on(
             self.inner.receive_sync_changes(matrix_sdk_crypto::EncryptionSyncChanges {

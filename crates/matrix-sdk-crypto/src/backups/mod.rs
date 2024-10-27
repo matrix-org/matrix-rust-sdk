@@ -224,19 +224,19 @@ impl BackupMachine {
                 if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
                     // No need to check our own device here, we're doing that using
                     // the check_own_device_signature().
-                    if device_key_id.device_id() == self.store.static_account().device_id {
+                    if device_key_id.key_name() == self.store.static_account().device_id {
                         continue;
                     }
 
                     let state = self
                         .test_ed25519_device_signature(
-                            device_key_id.device_id(),
+                            device_key_id.key_name(),
                             signatures,
                             auth_data,
                         )
                         .await?;
 
-                    result.insert(device_key_id.device_id().to_owned(), state);
+                    result.insert(device_key_id.key_name().to_owned(), state);
 
                     // Abort the loop if we found a trusted and valid signature,
                     // unless we should check all of them.

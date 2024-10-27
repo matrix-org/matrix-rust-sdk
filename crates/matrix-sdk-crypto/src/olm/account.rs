@@ -31,8 +31,9 @@ use ruma::{
     },
     events::AnyToDeviceEvent,
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
-    OwnedDeviceKeyId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
+    OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, UInt, UserId,
 };
 use serde::{de::Error, Deserialize, Serialize};
 use serde_json::{
@@ -403,7 +404,7 @@ impl fmt::Debug for Account {
     }
 }
 
-pub type OneTimeKeys = BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>;
+pub type OneTimeKeys = BTreeMap<OwnedOneTimeKeyId, Raw<ruma::encryption::OneTimeKey>>;
 pub type FallbackKeys = OneTimeKeys;
 
 impl Account {
@@ -521,10 +522,10 @@ impl Account {
 
     pub(crate) fn update_key_counts(
         &mut self,
-        one_time_key_counts: &BTreeMap<DeviceKeyAlgorithm, UInt>,
-        unused_fallback_keys: Option<&[DeviceKeyAlgorithm]>,
+        one_time_key_counts: &BTreeMap<OneTimeKeyAlgorithm, UInt>,
+        unused_fallback_keys: Option<&[OneTimeKeyAlgorithm]>,
     ) {
-        if let Some(count) = one_time_key_counts.get(&DeviceKeyAlgorithm::SignedCurve25519) {
+        if let Some(count) = one_time_key_counts.get(&OneTimeKeyAlgorithm::SignedCurve25519) {
             let count: u64 = (*count).into();
             let old_count = self.uploaded_key_count();
 
@@ -827,9 +828,7 @@ impl Account {
     /// Sign and prepare one-time keys to be uploaded.
     ///
     /// If no one-time keys need to be uploaded, returns an empty `BTreeMap`.
-    pub fn signed_one_time_keys(
-        &self,
-    ) -> BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>> {
+    pub fn signed_one_time_keys(&self) -> OneTimeKeys {
         let one_time_keys = self.one_time_keys();
 
         if one_time_keys.is_empty() {
@@ -842,9 +841,7 @@ impl Account {
     /// Sign and prepare fallback keys to be uploaded.
     ///
     /// If no fallback keys need to be uploaded returns an empty BTreeMap.
-    pub fn signed_fallback_keys(
-        &self,
-    ) -> BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>> {
+    pub fn signed_fallback_keys(&self) -> FallbackKeys {
         let fallback_key = self.fallback_key();
 
         if fallback_key.is_empty() {
@@ -858,15 +855,15 @@ impl Account {
         &self,
         keys: HashMap<KeyId, Curve25519PublicKey>,
         fallback: bool,
-    ) -> BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>> {
+    ) -> OneTimeKeys {
         let mut keys_map = BTreeMap::new();
 
         for (key_id, key) in keys {
             let signed_key = self.sign_key(key, fallback);
 
             keys_map.insert(
-                DeviceKeyId::from_parts(
-                    DeviceKeyAlgorithm::SignedCurve25519,
+                OneTimeKeyId::from_parts(
+                    OneTimeKeyAlgorithm::SignedCurve25519,
                     key_id.to_base64().as_str().into(),
                 ),
                 signed_key.into_raw(),
@@ -949,7 +946,7 @@ impl Account {
     )]
     fn find_pre_key_bundle(
         device: &DeviceData,
-        key_map: &BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>,
+        key_map: &OneTimeKeys,
     ) -> Result<PrekeyBundle, SessionCreationError> {
         let mut keys = key_map.iter();
 
@@ -994,7 +991,7 @@ impl Account {
     pub fn create_outbound_session(
         &self,
         device: &DeviceData,
-        key_map: &BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>,
+        key_map: &OneTimeKeys,
         our_device_keys: DeviceKeys,
     ) -> Result<Session, SessionCreationError> {
         let pre_key_bundle = Self::find_pre_key_bundle(device, key_map)?;
@@ -1502,8 +1499,8 @@ mod tests {
     use anyhow::Result;
     use matrix_sdk_test::async_test;
     use ruma::{
-        device_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-        UserId,
+        device_id, user_id, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
+        OneTimeKeyId, UserId,
     };
     use serde_json::json;
 
@@ -1532,12 +1529,12 @@ mod tests {
         let (_, second_one_time_keys, _) = account.keys_for_upload();
         assert!(!second_one_time_keys.is_empty());
 
-        let device_key_ids: BTreeSet<&DeviceKeyId> =
+        let one_time_key_ids: BTreeSet<&OneTimeKeyId> =
             one_time_keys.keys().map(Deref::deref).collect();
-        let second_device_key_ids: BTreeSet<&DeviceKeyId> =
+        let second_one_time_key_ids: BTreeSet<&OneTimeKeyId> =
             second_one_time_keys.keys().map(Deref::deref).collect();
 
-        assert_eq!(device_key_ids, second_device_key_ids);
+        assert_eq!(one_time_key_ids, second_one_time_key_ids);
 
         account.mark_keys_as_published();
         account.update_uploaded_key_count(50);
@@ -1552,10 +1549,10 @@ mod tests {
         let (_, fourth_one_time_keys, _) = account.keys_for_upload();
         assert!(!fourth_one_time_keys.is_empty());
 
-        let fourth_device_key_ids: BTreeSet<&DeviceKeyId> =
+        let fourth_one_time_key_ids: BTreeSet<&OneTimeKeyId> =
             fourth_one_time_keys.keys().map(Deref::deref).collect();
 
-        assert_ne!(device_key_ids, fourth_device_key_ids);
+        assert_ne!(one_time_key_ids, fourth_one_time_key_ids);
         Ok(())
     }
 
@@ -1573,7 +1570,7 @@ mod tests {
             "We should not upload fallback keys until we know if the server supports them."
         );
 
-        let one_time_keys = BTreeMap::from([(DeviceKeyAlgorithm::SignedCurve25519, 50u8.into())]);
+        let one_time_keys = BTreeMap::from([(OneTimeKeyAlgorithm::SignedCurve25519, 50u8.into())]);
 
         // A `None` here means that the server doesn't support fallback keys, no
         // fallback key gets uploaded.

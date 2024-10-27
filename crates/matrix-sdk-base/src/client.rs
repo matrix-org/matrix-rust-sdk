@@ -43,6 +43,7 @@ use ruma::{
     api::client as api,
     events::{
         ignored_user_list::IgnoredUserListEvent,
+        marked_unread::MarkedUnreadEventContent,
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::{
             member::{MembershipState, RoomMemberEventContent, SyncRoomMemberEvent},
@@ -683,6 +684,25 @@ impl BaseClient {
             }
         }
 
+        // Helper to update the unread marker for stable and unstable prefixes.
+        fn on_unread_marker(
+            room_id: &RoomId,
+            content: &MarkedUnreadEventContent,
+            room_info: &mut RoomInfo,
+            room_info_notable_updates: &mut BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons>,
+        ) {
+            if room_info.base_info.is_marked_unread != content.unread {
+                // Notify the room list about a manual read marker change if the
+                // value's changed.
+                room_info_notable_updates
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .insert(RoomInfoNotableUpdateReasons::UNREAD_MARKER);
+            }
+
+            room_info.base_info.is_marked_unread = content.unread;
+        }
+
         // Handle new events.
         for raw_event in events {
             match raw_event.deserialize() {
@@ -692,19 +712,24 @@ impl BaseClient {
                     match event {
                         AnyRoomAccountDataEvent::MarkedUnread(event) => {
                             on_room_info(room_id, changes, self, |room_info| {
-                                if room_info.base_info.is_marked_unread != event.content.unread {
-                                    // Notify the room list about a manual read marker change if the
-                                    // value's changed.
-                                    room_info_notable_updates
-                                        .entry(room_id.to_owned())
-                                        .or_default()
-                                        .insert(RoomInfoNotableUpdateReasons::UNREAD_MARKER);
-                                }
-
-                                room_info.base_info.is_marked_unread = event.content.unread;
+                                on_unread_marker(
+                                    room_id,
+                                    &event.content,
+                                    room_info,
+                                    room_info_notable_updates,
+                                );
                             });
                         }
-
+                        AnyRoomAccountDataEvent::UnstableMarkedUnread(event) => {
+                            on_room_info(room_id, changes, self, |room_info| {
+                                on_unread_marker(
+                                    room_id,
+                                    &event.content.0,
+                                    room_info,
+                                    room_info_notable_updates,
+                                );
+                            });
+                        }
                         AnyRoomAccountDataEvent::Tag(event) => {
                             on_room_info(room_id, changes, self, |room_info| {
                                 room_info.base_info.handle_notable_tags(&event.content.tags);

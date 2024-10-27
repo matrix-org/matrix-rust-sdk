@@ -25,7 +25,7 @@ use ruma::{
     },
     assign,
     events::dummy::ToDeviceDummyEventContent,
-    DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, OwnedServerName,
+    DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedOneTimeKeyId, OwnedServerName,
     OwnedTransactionId, OwnedUserId, SecondsSinceUnixEpoch, ServerName, TransactionId, UserId,
 };
 use tracing::{debug, error, info, instrument, warn};
@@ -261,7 +261,7 @@ impl SessionManager {
                         missing_session_devices_by_user
                             .entry(user_id.to_owned())
                             .or_default()
-                            .insert(device_id, DeviceKeyAlgorithm::SignedCurve25519);
+                            .insert(device_id, OneTimeKeyAlgorithm::SignedCurve25519);
                     }
                 } else {
                     failed_devices_by_user
@@ -279,7 +279,7 @@ impl SessionManager {
             missing_session_devices_by_user.entry(user.to_owned()).or_default().extend(
                 device_ids
                     .iter()
-                    .map(|device_id| (device_id.clone(), DeviceKeyAlgorithm::SignedCurve25519)),
+                    .map(|device_id| (device_id.clone(), OneTimeKeyAlgorithm::SignedCurve25519)),
             );
         }
 
@@ -346,7 +346,7 @@ impl SessionManager {
         failed_servers: &BTreeSet<OwnedServerName>,
         one_time_keys: &BTreeMap<
             &OwnedUserId,
-            BTreeMap<&OwnedDeviceId, BTreeSet<&OwnedDeviceKeyId>>,
+            BTreeMap<&OwnedDeviceId, BTreeSet<&OwnedOneTimeKeyId>>,
         >,
     ) {
         // First check that the response is for the request we were expecting.
