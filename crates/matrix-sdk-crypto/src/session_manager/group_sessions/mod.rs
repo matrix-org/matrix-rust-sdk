@@ -789,7 +789,7 @@ mod tests {
         events::room::history_visibility::HistoryVisibility,
         room_id,
         to_device::DeviceIdOrAllDevices,
-        user_id, DeviceId, DeviceKeyAlgorithm, TransactionId, UInt, UserId,
+        user_id, DeviceId, OneTimeKeyAlgorithm, TransactionId, UInt, UserId,
     };
     use serde_json::{json, Value};
 
@@ -1347,7 +1347,7 @@ mod tests {
         let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
         assert_let!(Ok(Some((txn_id, device_keys_request))) = machine.upload_device_keys().await);
         let device_keys_response = upload_keys::v3::Response::new(BTreeMap::from([(
-            DeviceKeyAlgorithm::SignedCurve25519,
+            OneTimeKeyAlgorithm::SignedCurve25519,
             UInt::new(device_keys_request.one_time_keys.len() as u64).unwrap(),
         )]));
         machine.mark_request_as_sent(&txn_id, &device_keys_response).await.unwrap();

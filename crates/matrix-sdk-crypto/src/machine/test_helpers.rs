@@ -21,13 +21,15 @@ use as_variant::as_variant;
 use matrix_sdk_test::{ruma_response_from_json, test_json};
 use ruma::{
     api::client::keys::{
-        claim_keys, get_keys, get_keys::v3::Response as KeysQueryResponse, upload_keys,
+        claim_keys,
+        get_keys::{self, v3::Response as KeysQueryResponse},
+        upload_keys,
     },
     device_id,
     encryption::OneTimeKey,
     events::dummy::ToDeviceDummyEventContent,
     serde::Raw,
-    user_id, DeviceId, OwnedDeviceKeyId, TransactionId, UserId,
+    user_id, DeviceId, OwnedOneTimeKeyId, TransactionId, UserId,
 };
 use serde_json::json;
 
@@ -37,7 +39,7 @@ use crate::{
 };
 
 /// These keys need to be periodically uploaded to the server.
-type OneTimeKeys = BTreeMap<OwnedDeviceKeyId, Raw<OneTimeKey>>;
+type OneTimeKeys = BTreeMap<OwnedOneTimeKeyId, Raw<OneTimeKey>>;
 
 fn alice_device_id() -> &'static DeviceId {
     device_id!("JLAFKJWSCS")
@@ -178,7 +180,7 @@ pub async fn create_session(
     machine: &OlmMachine,
     user_id: &UserId,
     device_id: &DeviceId,
-    key_id: OwnedDeviceKeyId,
+    key_id: OwnedOneTimeKeyId,
     one_time_key: Raw<OneTimeKey>,
 ) {
     let one_time_keys = BTreeMap::from([(

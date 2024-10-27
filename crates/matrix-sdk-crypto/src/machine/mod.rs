@@ -44,7 +44,7 @@ use ruma::{
         AnyToDeviceEvent, MessageLikeEventContent,
     },
     serde::{JsonObject, Raw},
-    DeviceId, DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedDeviceKeyId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::{value::to_raw_value, Value};
@@ -2557,9 +2557,9 @@ pub struct EncryptionSyncChanges<'a> {
     /// sync response.
     pub changed_devices: &'a DeviceLists,
     /// The number of one time keys, as returned in the sync response.
-    pub one_time_keys_counts: &'a BTreeMap<DeviceKeyAlgorithm, UInt>,
+    pub one_time_keys_counts: &'a BTreeMap<OneTimeKeyAlgorithm, UInt>,
     /// An optional list of fallback keys.
-    pub unused_fallback_keys: Option<&'a [DeviceKeyAlgorithm]>,
+    pub unused_fallback_keys: Option<&'a [OneTimeKeyAlgorithm]>,
     /// A next-batch token obtained from a to-device sync query.
     pub next_batch_token: Option<String>,
 }

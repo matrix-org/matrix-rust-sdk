@@ -1106,7 +1106,7 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::error::ErrorKind, assign, owned_room_id, room_id, serde::Raw, uint,
-        DeviceKeyAlgorithm, OwnedRoomId, TransactionId,
+        OwnedRoomId, TransactionId,
     };
     use serde::Deserialize;
     use serde_json::json;
@@ -2689,6 +2689,8 @@ mod tests {
     #[async_test]
     #[cfg(feature = "e2e-encryption")]
     async fn test_process_only_encryption_events() -> Result<()> {
+        use ruma::OneTimeKeyAlgorithm;
+
         let room = owned_room_id!("!croissant:example.org");
 
         let server = MockServer::start().await;
@@ -2705,7 +2707,7 @@ mod tests {
 
             extensions: assign!(http::response::Extensions::default(), {
                 e2ee: assign!(http::response::E2EE::default(), {
-                    device_one_time_keys_count: BTreeMap::from([(DeviceKeyAlgorithm::SignedCurve25519, uint!(42))])
+                    device_one_time_keys_count: BTreeMap::from([(OneTimeKeyAlgorithm::SignedCurve25519, uint!(42))])
                 }),
                 to_device: Some(assign!(http::response::ToDevice::default(), {
                     next_batch: "to-device-token".to_owned(),

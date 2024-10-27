@@ -37,7 +37,7 @@ use ruma::{
     room_id,
     serde::Raw,
     uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-    TransactionId, UserId,
+    OneTimeKeyAlgorithm, TransactionId, UserId,
 };
 use serde_json::json;
 use vodozemac::{
@@ -174,7 +174,7 @@ async fn test_generate_one_time_keys() {
         .await
         .unwrap();
 
-    response.one_time_key_counts.insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(50));
+    response.one_time_key_counts.insert(OneTimeKeyAlgorithm::SignedCurve25519, uint!(50));
 
     machine.receive_keys_upload_response(&response).await.unwrap();
 
@@ -275,7 +275,7 @@ fn test_one_time_key_signing() {
 async fn test_keys_for_upload() {
     let machine = OlmMachine::new(user_id(), alice_device_id()).await;
 
-    let key_counts = BTreeMap::from([(DeviceKeyAlgorithm::SignedCurve25519, 49u8.into())]);
+    let key_counts = BTreeMap::from([(OneTimeKeyAlgorithm::SignedCurve25519, 49u8.into())]);
     machine
         .receive_sync_changes(EncryptionSyncChanges {
             to_device_events: Vec::new(),
@@ -327,7 +327,7 @@ async fn test_keys_for_upload() {
 
         let mut response = keys_upload_response();
         response.one_time_key_counts.insert(
-            DeviceKeyAlgorithm::SignedCurve25519,
+            OneTimeKeyAlgorithm::SignedCurve25519,
             account.max_one_time_keys().try_into().unwrap(),
         );
 

@@ -253,7 +253,7 @@ impl Rules {
     pub(crate) fn apply(&mut self, commands: RuleCommands) {
         for command in commands.commands {
             match command {
-                Command::DeletePushRule { scope: _, kind, rule_id } => {
+                Command::DeletePushRule { kind, rule_id } => {
                     _ = self.ruleset.remove(kind, rule_id);
                 }
                 Command::SetRoomPushRule { .. }
@@ -263,10 +263,10 @@ impl Rules {
                         _ = self.ruleset.insert(push_rule, None, None);
                     }
                 }
-                Command::SetPushRuleEnabled { scope: _, kind, rule_id, enabled } => {
+                Command::SetPushRuleEnabled { kind, rule_id, enabled } => {
                     _ = self.ruleset.set_enabled(kind, rule_id, enabled);
                 }
-                Command::SetPushRuleActions { scope: _, kind, rule_id, actions } => {
+                Command::SetPushRuleActions { kind, rule_id, actions } => {
                     _ = self.ruleset.set_actions(kind, rule_id, actions);
                 }
             }
