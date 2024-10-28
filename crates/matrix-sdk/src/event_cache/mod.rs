@@ -53,6 +53,7 @@ use tracing::{error, info_span, instrument, trace, warn, Instrument as _, Span};
 use self::paginator::PaginatorError;
 use crate::{client::WeakClient, Client};
 
+mod deduplicator;
 mod linked_chunk;
 mod pagination;
 mod room;
