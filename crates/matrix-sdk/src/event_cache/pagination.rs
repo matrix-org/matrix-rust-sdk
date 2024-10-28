@@ -22,11 +22,11 @@ use tokio::time::timeout;
 use tracing::{debug, instrument, trace};
 
 use super::{
+    linked_chunk::ChunkContent,
     paginator::{PaginationResult, PaginatorState},
-    store::Gap,
+    room::events::{Gap, RoomEvents},
     BackPaginationOutcome, Result, RoomEventCacheInner,
 };
-use crate::event_cache::{linked_chunk::ChunkContent, store::RoomEvents};
 
 /// An API object to run pagination queries on a [`super::RoomEventCache`].
 ///
@@ -321,7 +321,7 @@ mod tests {
         use tokio::{spawn, time::sleep};
 
         use crate::{
-            deserialized_responses::SyncTimelineEvent, event_cache::store::Gap,
+            deserialized_responses::SyncTimelineEvent, event_cache::room::events::Gap,
             test_utils::logged_in_client,
         };
 

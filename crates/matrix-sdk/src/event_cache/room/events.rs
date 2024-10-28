@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
-
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 
-use super::linked_chunk::{Chunk, ChunkIdentifier, Error, Iter, LinkedChunk, Position};
+use super::super::linked_chunk::{Chunk, ChunkIdentifier, Error, Iter, LinkedChunk, Position};
 
 /// An alias for the real event type.
 pub(crate) type Event = SyncTimelineEvent;
@@ -31,6 +29,7 @@ pub struct Gap {
 const DEFAULT_CHUNK_CAPACITY: usize = 128;
 
 /// This type represents all events of a single room.
+#[derive(Debug)]
 pub struct RoomEvents {
     /// The real in-memory storage for all the events.
     chunks: LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>,
@@ -129,12 +128,6 @@ impl RoomEvents {
     /// The oldest event comes first.
     pub fn events(&self) -> impl Iterator<Item = (Position, &Event)> {
         self.chunks.items()
-    }
-}
-
-impl fmt::Debug for RoomEvents {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        formatter.debug_struct("RoomEvents").field("chunk", &self.chunks).finish()
     }
 }
 
