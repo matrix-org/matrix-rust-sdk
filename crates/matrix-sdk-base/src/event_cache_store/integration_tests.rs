@@ -31,6 +31,9 @@ use crate::media::{MediaFormat, MediaRequest, MediaThumbnailSettings};
 pub trait EventCacheStoreIntegrationTests {
     /// Test media content storage.
     async fn test_media_content(&self);
+
+    /// Test replacing a MXID.
+    async fn test_replace_media_key(&self);
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -139,6 +142,42 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             "other media was removed"
         );
     }
+
+    async fn test_replace_media_key(&self) {
+        let uri = mxc_uri!("mxc://sendqueue.local/tr4n-s4ct-10n1-d");
+        let req =
+            MediaRequest { source: MediaSource::Plain(uri.to_owned()), format: MediaFormat::File };
+
+        let content = "hello".as_bytes().to_owned();
+
+        // Media isn't present in the cache.
+        assert!(self.get_media_content(&req).await.unwrap().is_none(), "unexpected media found");
+
+        // Add the media.
+        self.add_media_content(&req, content.clone()).await.expect("adding media failed");
+
+        // Sanity-check: media is found after adding it.
+        assert_eq!(self.get_media_content(&req).await.unwrap().unwrap(), b"hello");
+
+        // Replacing a media request works.
+        let new_uri = mxc_uri!("mxc://matrix.org/tr4n-s4ct-10n1-d");
+        let new_req = MediaRequest {
+            source: MediaSource::Plain(new_uri.to_owned()),
+            format: MediaFormat::File,
+        };
+        self.replace_media_key(&req, &new_req)
+            .await
+            .expect("replacing the media request key failed");
+
+        // Finding with the previous request doesn't work anymore.
+        assert!(
+            self.get_media_content(&req).await.unwrap().is_none(),
+            "unexpected media found with the old key"
+        );
+
+        // Finding with the new request does work.
+        assert_eq!(self.get_media_content(&new_req).await.unwrap().unwrap(), b"hello");
+    }
 }
 
 /// Macro building to allow your `EventCacheStore` implementation to run the
@@ -183,6 +222,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_media_content().await;
+            }
+
+            #[async_test]
+            async fn test_replace_media_key() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_replace_media_key().await;
             }
         }
     };

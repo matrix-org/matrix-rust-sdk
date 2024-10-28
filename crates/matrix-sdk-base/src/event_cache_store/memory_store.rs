@@ -60,18 +60,35 @@ impl EventCacheStore for MemoryStore {
         Ok(())
     }
 
+    async fn replace_media_key(
+        &self,
+        from: &MediaRequest,
+        to: &MediaRequest,
+    ) -> Result<(), Self::Error> {
+        let expected_key = from.unique_key();
+
+        let mut medias = self.media.write().unwrap();
+        if let Some((mxc, key, _)) = medias.iter_mut().find(|(_, key, _)| *key == expected_key) {
+            *mxc = to.uri().to_owned();
+            *key = to.unique_key();
+        }
+
+        Ok(())
+    }
+
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        let media = self.media.read().unwrap();
         let expected_key = request.unique_key();
 
+        let media = self.media.read().unwrap();
         Ok(media.iter().find_map(|(_media_uri, media_key, media_content)| {
             (media_key == &expected_key).then(|| media_content.to_owned())
         }))
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        let mut media = self.media.write().unwrap();
         let expected_key = request.unique_key();
+
+        let mut media = self.media.write().unwrap();
         let Some(index) = media
             .iter()
             .position(|(_media_uri, media_key, _media_content)| media_key == &expected_key)

@@ -42,6 +42,28 @@ pub trait EventCacheStore: AsyncTraitDeps {
         content: Vec<u8>,
     ) -> Result<(), Self::Error>;
 
+    /// Replaces the given media's content key with another one.
+    ///
+    /// This should be used whenever a temporary (local) MXID has been used, and
+    /// it must now be replaced with its actual remote counterpart (after
+    /// uploading some content, or creating an empty MXC URI).
+    ///
+    /// ⚠ No check is performed to ensure that the media formats are consistent,
+    /// i.e. it's possible to update with a thumbnail key a media that was
+    /// keyed as a file before. The caller is responsible of ensuring that
+    /// the replacement makes sense, according to their use case.
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - The previous `MediaRequest` of the file.
+    ///
+    /// * `to` - The new `MediaRequest` of the file.
+    async fn replace_media_key(
+        &self,
+        from: &MediaRequest,
+        to: &MediaRequest,
+    ) -> Result<(), Self::Error>;
+
     /// Get a media file's content out of the media store.
     ///
     /// # Arguments
@@ -89,6 +111,14 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         content: Vec<u8>,
     ) -> Result<(), Self::Error> {
         self.0.add_media_content(request, content).await.map_err(Into::into)
+    }
+
+    async fn replace_media_key(
+        &self,
+        from: &MediaRequest,
+        to: &MediaRequest,
+    ) -> Result<(), Self::Error> {
+        self.0.replace_media_key(from, to).await.map_err(Into::into)
     }
 
     async fn get_media_content(
