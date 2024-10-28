@@ -268,14 +268,14 @@ mod tests {
     }
 
     #[test]
-    fn clear_on_empty_buffer_is_a_noop() {
+    fn test_clear_on_empty_buffer_is_a_noop() {
         let mut ring_buffer: RingBuffer<u8> = RingBuffer::new(NonZeroUsize::new(3).unwrap());
         ring_buffer.clear();
         assert_eq!(ring_buffer.len(), 0);
     }
 
     #[test]
-    fn clear_removes_all_items() {
+    fn test_clear_removes_all_items() {
         // Given a RingBuffer that has been used
         let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(3).unwrap());
         ring_buffer.push(4);
@@ -295,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn clear_does_not_affect_capacity() {
+    fn test_clear_does_not_affect_capacity() {
         // Given a RingBuffer that has been used
         let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(3).unwrap());
         ring_buffer.push(4);
@@ -313,7 +313,7 @@ mod tests {
     }
 
     #[test]
-    fn capacity_is_what_we_passed_to_new() {
+    fn test_capacity_is_what_we_passed_to_new() {
         // Given a RingBuffer
         let ring_buffer = RingBuffer::<i32>::new(NonZeroUsize::new(13).unwrap());
         // When I ask for its capacity I get what I provided at the start
@@ -321,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn capacity_is_not_affected_by_overflowing() {
+    fn test_capacity_is_not_affected_by_overflowing() {
         // Given a RingBuffer that has been used
         let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(3).unwrap());
         ring_buffer.push(4);
@@ -343,7 +343,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_serialization() {
+    fn test_roundtrip_serialization() {
         // Given a RingBuffer
         let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(3).unwrap());
         ring_buffer.push("1".to_owned());
@@ -363,7 +363,7 @@ mod tests {
     }
 
     #[test]
-    fn extending_an_empty_ringbuffer_adds_the_items() {
+    fn test_extending_an_empty_ringbuffer_adds_the_items() {
         // Given a RingBuffer
         let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(5).unwrap());
 
@@ -375,7 +375,7 @@ mod tests {
     }
 
     #[test]
-    fn extend_adds_items_to_the_end() {
+    fn test_extend_adds_items_to_the_end() {
         // Given a RingBuffer with something in it
         let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(5).unwrap());
         ring_buffer.push("1".to_owned());
@@ -392,7 +392,7 @@ mod tests {
     }
 
     #[test]
-    fn extend_does_not_overflow_max_length() {
+    fn test_extend_does_not_overflow_max_length() {
         // Given a RingBuffer with something in it
         let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(5).unwrap());
         ring_buffer.push("1".to_owned());
@@ -415,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn extending_a_full_ringbuffer_preserves_max_length() {
+    fn test_extending_a_full_ringbuffer_preserves_max_length() {
         // Given a full RingBuffer with something in it
         let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(2).unwrap());
         ring_buffer.push("1".to_owned());
