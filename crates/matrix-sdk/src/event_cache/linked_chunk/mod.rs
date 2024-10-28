@@ -948,6 +948,15 @@ impl Position {
     pub fn index(&self) -> usize {
         self.1
     }
+
+    /// Decrement the index part (see [`Self::index`]), i.e. subtract 1.
+    ///
+    /// # Panic
+    ///
+    /// This method will panic if it will underflow, i.e. if the index is 0.
+    pub(super) fn decrement_index(&mut self) {
+        self.1 = self.1.checked_sub(1).expect("Cannot decrement the index because it's already 0");
+    }
 }
 
 /// An iterator over a [`LinkedChunk`] that traverses the chunk in backward

@@ -15,11 +15,11 @@
 //! Simple but efficient types to find duplicated events. See [`Deduplicator`]
 //! to learn more.
 
-use std::{collections::BTreeSet, sync::Mutex};
+use std::{collections::BTreeSet, fmt, sync::Mutex};
 
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 
-use super::store::{Event, RoomEvents};
+use super::room::events::{Event, RoomEvents};
 
 /// `Deduplicator` is an efficient type to find duplicated events.
 ///
@@ -32,6 +32,12 @@ use super::store::{Event, RoomEvents};
 /// [bloom filter]: https://en.wikipedia.org/wiki/Bloom_filter
 pub struct Deduplicator {
     bloom_filter: Mutex<GrowableBloom>,
+}
+
+impl fmt::Debug for Deduplicator {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("Deduplicator").finish_non_exhaustive()
+    }
 }
 
 impl Deduplicator {
