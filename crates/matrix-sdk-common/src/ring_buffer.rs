@@ -14,7 +14,7 @@
 
 use std::{
     collections::{
-        vec_deque::{Drain, Iter},
+        vec_deque::{Drain, Iter, IterMut},
         VecDeque,
     },
     num::NonZeroUsize,
@@ -86,6 +86,13 @@ impl<T> RingBuffer<T> {
     /// the same order you would get if you repeatedly called pop().
     pub fn iter(&self) -> Iter<'_, T> {
         self.inner.iter()
+    }
+
+    /// Returns a mutable iterator that provides elements in front-to-back
+    /// order, i.e. the same order you would get if you repeatedly called
+    /// pop().
+    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+        self.inner.iter_mut()
     }
 
     /// Returns an iterator that drains its items.
@@ -219,6 +226,24 @@ mod tests {
 
         assert_eq!(ring_buffer.remove(1), None);
         assert_eq!(ring_buffer.remove(10), None);
+    }
+
+    #[test]
+    fn test_iter() {
+        let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(5).unwrap());
+
+        ring_buffer.push(1);
+        ring_buffer.push(2);
+        ring_buffer.push(3);
+
+        let as_vec = ring_buffer.iter().copied().collect::<Vec<_>>();
+        assert_eq!(as_vec, [1, 2, 3]);
+
+        let first_entry = ring_buffer.iter_mut().next().unwrap();
+        *first_entry = 42;
+
+        let as_vec = ring_buffer.iter().copied().collect::<Vec<_>>();
+        assert_eq!(as_vec, [42, 2, 3]);
     }
 
     #[test]
