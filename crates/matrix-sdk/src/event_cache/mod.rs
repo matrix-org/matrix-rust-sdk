@@ -58,13 +58,13 @@ use tracing::{error, info_span, instrument, trace, warn, Instrument as _, Span};
 
 use self::{
     paginator::PaginatorError,
-    store::{Gap, RoomEvents},
+    room::events::{Gap, RoomEvents},
 };
 use crate::{client::WeakClient, room::WeakRoom, Client};
 
 mod linked_chunk;
 mod pagination;
-mod store;
+mod room;
 
 pub mod paginator;
 pub use pagination::{RoomPagination, TimelineHasBeenResetWhilePaginating};
