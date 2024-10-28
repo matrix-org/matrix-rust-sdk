@@ -155,6 +155,28 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(())
     }
 
+    async fn replace_media_key(
+        &self,
+        from: &MediaRequest,
+        to: &MediaRequest,
+    ) -> Result<(), Self::Error> {
+        let prev_uri = self.encode_key(keys::MEDIA, from.source.unique_key());
+        let prev_format = self.encode_key(keys::MEDIA, from.format.unique_key());
+
+        let new_uri = self.encode_key(keys::MEDIA, to.source.unique_key());
+        let new_format = self.encode_key(keys::MEDIA, to.format.unique_key());
+
+        let conn = self.acquire().await?;
+        conn.execute(
+            r#"UPDATE media SET uri = ?, format = ?, last_access = CAST(strftime('%s') as INT)
+               WHERE uri = ? AND format = ?"#,
+            (new_uri, new_format, prev_uri, prev_format),
+        )
+        .await?;
+
+        Ok(())
+    }
+
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
         let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
         let format = self.encode_key(keys::MEDIA, request.format.unique_key());
