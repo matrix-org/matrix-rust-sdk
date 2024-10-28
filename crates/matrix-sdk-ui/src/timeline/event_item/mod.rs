@@ -158,9 +158,18 @@ impl EventTimelineItem {
         let event_id = event.event_id().to_owned();
         let is_own = client.user_id().map(|uid| uid == sender).unwrap_or(false);
 
+        // Get the room's power levels for calculating the latest event
+        let power_levels = if let Some(room) = client.get_room(room_id) {
+            room.power_levels().await.ok()
+        } else {
+            None
+        };
+        let room_power_levels_info = client.user_id().zip(power_levels.as_ref());
+
         // If we don't (yet) know how to handle this type of message, return `None`
         // here. If we do, convert it into a `TimelineItemContent`.
-        let content = TimelineItemContent::from_latest_event_content(event)?;
+        let content =
+            TimelineItemContent::from_latest_event_content(event, room_power_levels_info)?;
 
         // We don't currently bundle any reactions with the main event. This could
         // conceivably be wanted in the message preview in future.
@@ -780,6 +789,27 @@ mod tests {
         );
         let client = logged_in_client(None).await;
 
+        // Add power levels state event, otherwise the knock state event can't be used
+        // as the latest event
+        let power_level_event = sync_state_event!({
+            "type": "m.room.power_levels",
+            "content": {},
+            "event_id": "$143278582443PhrSn:example.org",
+            "origin_server_ts": 143273581,
+            "room_id": room_id,
+            "sender": user_id,
+            "state_key": "",
+            "unsigned": {
+              "age": 1234
+            }
+        });
+        let mut room = http::response::Room::new();
+        room.required_state.push(power_level_event);
+
+        // And the room is stored in the client so it can be extracted when needed
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync_test_helper(&response).await.unwrap();
+
         // When we construct a timeline event from it
         let event = SyncTimelineEvent::new(raw_event.cast());
         let timeline_item =
@@ -1040,7 +1070,6 @@ mod tests {
             "room_id": room_id,
             "sender": user_id,
             "state_key": user_id,
-            "type": "m.room.member",
             "unsigned": {
               "age": 1234
             }

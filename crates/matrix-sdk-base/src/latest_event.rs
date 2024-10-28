@@ -14,11 +14,14 @@ use ruma::events::{
 };
 use ruma::{
     events::{
-        room::member::{MembershipState, SyncRoomMemberEvent},
+        room::{
+            member::{MembershipState, SyncRoomMemberEvent},
+            power_levels::RoomPowerLevels,
+        },
         sticker::SyncStickerEvent,
         AnySyncStateEvent,
     },
-    MxcUri, OwnedEventId,
+    MxcUri, OwnedEventId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -45,6 +48,7 @@ pub enum PossibleLatestEvent<'a> {
     YesCallNotify(&'a SyncCallNotifyEvent),
 
     /// This state event is suitable - it's a knock membership change
+    /// that can be handled by the current user.
     YesKnockedStateEvent(&'a SyncRoomMemberEvent),
 
     // Later: YesState(),
@@ -60,7 +64,10 @@ pub enum PossibleLatestEvent<'a> {
 /// Decide whether an event could be stored as the latest event in a room.
 /// Returns a LatestEvent representing our decision.
 #[cfg(feature = "e2e-encryption")]
-pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLatestEvent<'_> {
+pub fn is_suitable_for_latest_event<'a>(
+    event: &'a AnySyncTimelineEvent,
+    power_levels_info: Option<(&'a UserId, &'a RoomPowerLevels)>,
+) -> PossibleLatestEvent<'a> {
     match event {
         // Suitable - we have an m.room.message that was not redacted or edited
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(message)) => {
@@ -114,10 +121,23 @@ pub fn is_suitable_for_latest_event(event: &AnySyncTimelineEvent) -> PossibleLat
 
         // We don't currently support most state events
         AnySyncTimelineEvent::State(state) => {
-            // But we make an exception for knocked state events
+            // But we make an exception for knocked state events *if* the current user
+            // can either accept or decline them
             if let AnySyncStateEvent::RoomMember(member) = state {
                 if matches!(member.membership(), MembershipState::Knock) {
-                    return PossibleLatestEvent::YesKnockedStateEvent(member);
+                    let can_accept_or_decline_knocks = match power_levels_info {
+                        Some((own_user_id, room_power_levels)) => {
+                            room_power_levels.user_can_invite(own_user_id)
+                                || room_power_levels.user_can_kick(own_user_id)
+                        }
+                        _ => false,
+                    };
+
+                    // The current user can act on the knock changes, so they should be
+                    // displayed
+                    if can_accept_or_decline_knocks {
+                        return PossibleLatestEvent::YesKnockedStateEvent(member);
+                    }
                 }
             }
             PossibleLatestEvent::NoUnsupportedEventType
@@ -345,7 +365,7 @@ mod tests {
         ));
         assert_let!(
             PossibleLatestEvent::YesRoomMessage(SyncMessageLikeEvent::Original(m)) =
-                is_suitable_for_latest_event(&event)
+                is_suitable_for_latest_event(&event, None)
         );
 
         assert_eq!(m.content.msgtype.msgtype(), "m.image");
@@ -368,7 +388,7 @@ mod tests {
         ));
         assert_let!(
             PossibleLatestEvent::YesPoll(SyncMessageLikeEvent::Original(m)) =
-                is_suitable_for_latest_event(&event)
+                is_suitable_for_latest_event(&event, None)
         );
 
         assert_eq!(m.content.poll_start().question.text, "do you like rust?");
@@ -392,7 +412,7 @@ mod tests {
         ));
         assert_let!(
             PossibleLatestEvent::YesCallInvite(SyncMessageLikeEvent::Original(_)) =
-                is_suitable_for_latest_event(&event)
+                is_suitable_for_latest_event(&event, None)
         );
     }
 
@@ -414,7 +434,7 @@ mod tests {
         ));
         assert_let!(
             PossibleLatestEvent::YesCallNotify(SyncMessageLikeEvent::Original(_)) =
-                is_suitable_for_latest_event(&event)
+                is_suitable_for_latest_event(&event, None)
         );
     }
 
@@ -435,7 +455,7 @@ mod tests {
         ));
 
         assert_matches!(
-            is_suitable_for_latest_event(&event),
+            is_suitable_for_latest_event(&event, None),
             PossibleLatestEvent::YesSticker(SyncStickerEvent::Original(_))
         );
     }
@@ -457,7 +477,7 @@ mod tests {
             ));
 
         assert_matches!(
-            is_suitable_for_latest_event(&event),
+            is_suitable_for_latest_event(&event, None),
             PossibleLatestEvent::NoUnsupportedMessageLikeType
         );
     }
@@ -485,7 +505,7 @@ mod tests {
         ));
 
         assert_matches!(
-            is_suitable_for_latest_event(&event),
+            is_suitable_for_latest_event(&event, None),
             PossibleLatestEvent::YesRoomMessage(SyncMessageLikeEvent::Redacted(_))
         );
     }
@@ -507,7 +527,10 @@ mod tests {
             }),
         ));
 
-        assert_matches!(is_suitable_for_latest_event(&event), PossibleLatestEvent::NoEncrypted);
+        assert_matches!(
+            is_suitable_for_latest_event(&event, None),
+            PossibleLatestEvent::NoEncrypted
+        );
     }
 
     #[test]
@@ -524,7 +547,7 @@ mod tests {
         ));
 
         assert_matches!(
-            is_suitable_for_latest_event(&event),
+            is_suitable_for_latest_event(&event, None),
             PossibleLatestEvent::NoUnsupportedEventType
         );
     }
@@ -548,7 +571,7 @@ mod tests {
         ));
 
         assert_matches!(
-            is_suitable_for_latest_event(&event),
+            is_suitable_for_latest_event(&event, None),
             PossibleLatestEvent::NoUnsupportedMessageLikeType
         );
     }

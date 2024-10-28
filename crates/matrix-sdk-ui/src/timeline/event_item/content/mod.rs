@@ -46,7 +46,7 @@ use ruma::{
             },
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
-            power_levels::RoomPowerLevelsEventContent,
+            power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
             server_acl::RoomServerAclEventContent,
             third_party_invite::RoomThirdPartyInviteEventContent,
             tombstone::RoomTombstoneEventContent,
@@ -141,8 +141,9 @@ impl TimelineItemContent {
     /// `TimelineItemContent`.
     pub(crate) fn from_latest_event_content(
         event: AnySyncTimelineEvent,
+        power_levels_info: Option<(&UserId, &RoomPowerLevels)>,
     ) -> Option<TimelineItemContent> {
-        match is_suitable_for_latest_event(&event) {
+        match is_suitable_for_latest_event(&event, power_levels_info) {
             PossibleLatestEvent::YesRoomMessage(m) => {
                 Some(Self::from_suitable_latest_event_content(m))
             }

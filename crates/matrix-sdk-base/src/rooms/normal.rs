@@ -43,6 +43,7 @@ use ruma::{
             join_rules::JoinRule,
             member::{MembershipState, RoomMemberEventContent},
             pinned_events::RoomPinnedEventsEventContent,
+            power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
             redaction::SyncRoomRedactionEvent,
             tombstone::RoomTombstoneEventContent,
         },
@@ -71,7 +72,7 @@ use crate::{
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
-    MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
+    Error, MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
 };
 
 /// Indicates that a notable update of `RoomInfo` has been applied, and why.
@@ -506,6 +507,17 @@ impl Room {
     /// 0-100 where 100 would be the max power level.
     pub fn max_power_level(&self) -> i64 {
         self.inner.read().base_info.max_power_level
+    }
+
+    /// Get the current power levels of this room.
+    pub async fn power_levels(&self) -> Result<RoomPowerLevels, Error> {
+        Ok(self
+            .store
+            .get_state_event_static::<RoomPowerLevelsEventContent>(self.room_id())
+            .await?
+            .ok_or(Error::InsufficientData)?
+            .deserialize()?
+            .power_levels())
     }
 
     /// Get the `m.room.name` of this room.

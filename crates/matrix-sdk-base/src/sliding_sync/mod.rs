@@ -30,7 +30,7 @@ use ruma::{
     api::client::sync::sync_events::v3::{self, InvitedRoom, KnockedRoom},
     events::{
         room::member::MembershipState, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent,
+        AnySyncStateEvent, StateEventType,
     },
     serde::Raw,
     JsOption, OwnedRoomId, RoomId, UInt, UserId,
@@ -698,9 +698,28 @@ async fn cache_latest_events(
     let mut encrypted_events =
         Vec::with_capacity(room.latest_encrypted_events.read().unwrap().capacity());
 
+    // Try to get room power levels from the current changes
+    let power_levels_from_changes = || {
+        let state_changes = changes?.state.get(room_info.room_id())?;
+        let room_power_levels_state =
+            state_changes.get(&StateEventType::RoomPowerLevels)?.values().next()?;
+        match room_power_levels_state.deserialize().ok()? {
+            AnySyncStateEvent::RoomPowerLevels(ev) => Some(ev.power_levels()),
+            _ => None,
+        }
+    };
+
+    // If we didn't get any info, try getting it from local data
+    let power_levels = match power_levels_from_changes() {
+        Some(power_levels) => Some(power_levels),
+        None => room.power_levels().await.ok(),
+    };
+
+    let power_levels_info = Some(room.own_user_id()).zip(power_levels.as_ref());
+
     for event in events.iter().rev() {
         if let Ok(timeline_event) = event.raw().deserialize() {
-            match is_suitable_for_latest_event(&timeline_event) {
+            match is_suitable_for_latest_event(&timeline_event, power_levels_info) {
                 PossibleLatestEvent::YesRoomMessage(_)
                 | PossibleLatestEvent::YesPoll(_)
                 | PossibleLatestEvent::YesCallInvite(_)
@@ -1740,10 +1759,23 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_last_knock_member_state_event_from_sliding_sync_is_cached() {
+    async fn test_last_knock_event_from_sliding_sync_is_cached_if_user_has_permissions() {
+        let own_user_id = user_id!("@me:e.uk");
         // Given a logged-in client
-        let client = logged_in_base_client(None).await;
+        let client = logged_in_base_client(Some(own_user_id)).await;
         let room_id = room_id!("!r:e.uk");
+
+        // Give the current user invite or kick permissions in this room
+        let power_levels = json!({
+            "sender":"@alice:example.com",
+            "state_key":"",
+            "type":"m.room.power_levels",
+            "event_id": "$idb",
+            "origin_server_ts": 12344445,
+            "content":{ "invite": 100, "kick": 100, "users": { own_user_id: 100 } },
+            "room_id": room_id,
+        });
+
         // And a knock member state event
         let knock_event = json!({
             "sender":"@alice:example.com",
@@ -1757,7 +1789,8 @@ mod tests {
 
         // When the sliding sync response contains a timeline
         let events = &[knock_event];
-        let room = room_with_timeline(events);
+        let mut room = room_with_timeline(events);
+        room.required_state.push(Raw::new(&power_levels).unwrap().cast());
         let response = response_with_room(room_id, room);
         client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
 
@@ -1770,7 +1803,49 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_last_member_state_event_from_sliding_sync_is_not_cached() {
+    async fn test_last_knock_event_from_sliding_sync_is_not_cached_without_permissions() {
+        let own_user_id = user_id!("@me:e.uk");
+        // Given a logged-in client
+        let client = logged_in_base_client(Some(own_user_id)).await;
+        let room_id = room_id!("!r:e.uk");
+
+        // Set the user as a user with no permission to invite or kick other users in
+        // this room
+        let power_levels = json!({
+            "sender":"@alice:example.com",
+            "state_key":"",
+            "type":"m.room.power_levels",
+            "event_id": "$idb",
+            "origin_server_ts": 12344445,
+            "content":{ "invite": 50, "kick": 50, "users": { own_user_id: 0 } },
+            "room_id": room_id,
+        });
+
+        // And a knock member state event
+        let knock_event = json!({
+            "sender":"@alice:example.com",
+            "state_key":"@alice:example.com",
+            "type":"m.room.member",
+            "event_id": "$ida",
+            "origin_server_ts": 12344446,
+            "content":{"membership": "knock"},
+            "room_id": room_id,
+        });
+
+        // When the sliding sync response contains a timeline
+        let events = &[knock_event];
+        let mut room = room_with_timeline(events);
+        room.required_state.push(Raw::new(&power_levels).unwrap().cast());
+        let response = response_with_room(room_id, room);
+        client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
+
+        // Then the room doesn't hold the knock state event as the latest event
+        let client_room = client.get_room(room_id).expect("No room found");
+        assert!(client_room.latest_event().is_none());
+    }
+
+    #[async_test]
+    async fn test_last_non_knock_member_state_event_from_sliding_sync_is_not_cached() {
         // Given a logged-in client
         let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");

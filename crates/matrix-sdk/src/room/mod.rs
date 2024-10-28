@@ -2139,7 +2139,7 @@ impl Room {
         &self,
         updates: Vec<(&UserId, Int)>,
     ) -> Result<send_state_event::v3::Response> {
-        let mut power_levels = self.room_power_levels().await?;
+        let mut power_levels = self.power_levels().await?;
 
         for (user_id, new_level) in updates {
             if new_level == power_levels.users_default {
@@ -2157,7 +2157,7 @@ impl Room {
     /// Any values that are `None` in the given `RoomPowerLevelChanges` will
     /// remain unchanged.
     pub async fn apply_power_level_changes(&self, changes: RoomPowerLevelChanges) -> Result<()> {
-        let mut power_levels = self.room_power_levels().await?;
+        let mut power_levels = self.power_levels().await?;
         power_levels.apply(changes)?;
         self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await?;
         Ok(())
@@ -2180,7 +2180,7 @@ impl Room {
         let default_power_levels = RoomPowerLevels::from(RoomPowerLevelsEventContent::new());
         let changes = RoomPowerLevelChanges::from(default_power_levels);
         self.apply_power_level_changes(changes).await?;
-        self.room_power_levels().await
+        Ok(self.power_levels().await?)
     }
 
     /// Gets the suggested role for the user with the provided `user_id`.
@@ -2197,14 +2197,14 @@ impl Room {
     /// This method checks the `RoomPowerLevels` events instead of loading the
     /// member list and looking for the member.
     pub async fn get_user_power_level(&self, user_id: &UserId) -> Result<i64> {
-        let event = self.room_power_levels().await?;
+        let event = self.power_levels().await?;
         Ok(event.for_user(user_id).into())
     }
 
     /// Gets a map with the `UserId` of users with power levels other than `0`
     /// and this power level.
     pub async fn users_with_power_levels(&self) -> HashMap<OwnedUserId, i64> {
-        let power_levels = self.room_power_levels().await.ok();
+        let power_levels = self.power_levels().await.ok();
         let mut user_power_levels = HashMap::<OwnedUserId, i64>::new();
         if let Some(power_levels) = power_levels {
             for (id, level) in power_levels.users.into_iter() {
@@ -2487,7 +2487,7 @@ impl Room {
     ///
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_redact_own(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.room_power_levels().await?.user_can_redact_own_event(user_id))
+        Ok(self.power_levels().await?.user_can_redact_own_event(user_id))
     }
 
     /// Returns true if the user with the given user_id is able to redact
@@ -2495,7 +2495,7 @@ impl Room {
     ///
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_redact_other(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.room_power_levels().await?.user_can_redact_event_of_other(user_id))
+        Ok(self.power_levels().await?.user_can_redact_event_of_other(user_id))
     }
 
     /// Returns true if the user with the given user_id is able to ban in the
@@ -2503,7 +2503,7 @@ impl Room {
     ///
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_ban(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.room_power_levels().await?.user_can_ban(user_id))
+        Ok(self.power_levels().await?.user_can_ban(user_id))
     }
 
     /// Returns true if the user with the given user_id is able to kick in the
@@ -2511,7 +2511,7 @@ impl Room {
     ///
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_invite(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.room_power_levels().await?.user_can_invite(user_id))
+        Ok(self.power_levels().await?.user_can_invite(user_id))
     }
 
     /// Returns true if the user with the given user_id is able to kick in the
@@ -2519,7 +2519,7 @@ impl Room {
     ///
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_kick(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.room_power_levels().await?.user_can_kick(user_id))
+        Ok(self.power_levels().await?.user_can_kick(user_id))
     }
 
     /// Returns true if the user with the given user_id is able to send a
@@ -2531,7 +2531,7 @@ impl Room {
         user_id: &UserId,
         state_event: StateEventType,
     ) -> Result<bool> {
-        Ok(self.room_power_levels().await?.user_can_send_state(user_id, state_event))
+        Ok(self.power_levels().await?.user_can_send_state(user_id, state_event))
     }
 
     /// Returns true if the user with the given user_id is able to send a
@@ -2543,7 +2543,7 @@ impl Room {
         user_id: &UserId,
         message: MessageLikeEventType,
     ) -> Result<bool> {
-        Ok(self.room_power_levels().await?.user_can_send_message(user_id, message))
+        Ok(self.power_levels().await?.user_can_send_message(user_id, message))
     }
 
     /// Returns true if the user with the given user_id is able to pin or unpin
@@ -2552,7 +2552,7 @@ impl Room {
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_pin_unpin(&self, user_id: &UserId) -> Result<bool> {
         Ok(self
-            .room_power_levels()
+            .power_levels()
             .await?
             .user_can_send_state(user_id, StateEventType::RoomPinnedEvents))
     }
@@ -2562,7 +2562,7 @@ impl Room {
     ///
     /// The call may fail if there is an error in getting the power levels.
     pub async fn can_user_trigger_room_notification(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.room_power_levels().await?.user_can_trigger_room_notification(user_id))
+        Ok(self.power_levels().await?.user_can_trigger_room_notification(user_id))
     }
 
     /// Get a list of servers that should know this room.
