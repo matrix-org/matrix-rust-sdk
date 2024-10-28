@@ -24,8 +24,11 @@ use tracing::{debug, instrument, trace};
 use super::{
     linked_chunk::ChunkContent,
     paginator::{PaginationResult, PaginatorState},
-    room::events::{Gap, RoomEvents},
-    BackPaginationOutcome, Result, RoomEventCacheInner,
+    room::{
+        events::{Gap, RoomEvents},
+        RoomEventCacheInner,
+    },
+    BackPaginationOutcome, Result,
 };
 
 /// An API object to run pagination queries on a [`super::RoomEventCache`].
