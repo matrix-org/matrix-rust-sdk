@@ -1799,7 +1799,7 @@ async fn test_reloading_rooms_with_unsent_events() {
         .unwrap();
     set_client_session(&client).await;
 
-    client.send_queue().respawn_tasks_for_rooms_with_unsent_events().await;
+    client.send_queue().respawn_tasks_for_rooms_with_unsent_requests().await;
 
     // Let the sending queues process events.
     sleep(Duration::from_secs(1)).await;

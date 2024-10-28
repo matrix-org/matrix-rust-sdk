@@ -41,8 +41,8 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ChildTransactionId, DependentQueuedEvent, DependentQueuedEventKind, QueueWedgeError,
-    QueuedEvent, SerializableEventContent, StateChanges, StoreError,
+    ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError,
+    QueuedRequest, SerializableEventContent, StateChanges, StoreError,
 };
 use crate::{
     deserialized_responses::{RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState},
@@ -343,7 +343,7 @@ pub trait StateStore: AsyncTraitDeps {
     /// * `room_id` - The `RoomId` of the room to delete.
     async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error>;
 
-    /// Save an event to be sent by a send queue later.
+    /// Save a request to be sent by a send queue later (e.g. sending an event).
     ///
     /// # Arguments
     ///
@@ -352,98 +352,100 @@ pub trait StateStore: AsyncTraitDeps {
     ///   (and its transaction). Note: this is expected to be randomly generated
     ///   and thus unique.
     /// * `content` - Serializable event content to be sent.
-    async fn save_send_queue_event(
+    async fn save_send_queue_request(
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
         content: SerializableEventContent,
     ) -> Result<(), Self::Error>;
 
-    /// Updates a send queue event with the given content, and resets its wedged
-    /// status to false.
+    /// Updates a send queue request with the given content, and resets its
+    /// error status.
     ///
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the send queue's room.
-    /// * `transaction_id` - The unique key identifying the event to be sent
+    /// * `transaction_id` - The unique key identifying the request to be sent
     ///   (and its transaction).
     /// * `content` - Serializable event content to replace the original one.
     ///
-    /// Returns true if an event has been updated, or false otherwise.
-    async fn update_send_queue_event(
+    /// Returns true if a request has been updated, or false otherwise.
+    async fn update_send_queue_request(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
         content: SerializableEventContent,
     ) -> Result<bool, Self::Error>;
 
-    /// Remove an event previously inserted with [`Self::save_send_queue_event`]
-    /// from the database, based on its transaction id.
+    /// Remove a request previously inserted with
+    /// [`Self::save_send_queue_request`] from the database, based on its
+    /// transaction id.
     ///
-    /// Returns true if an event has been removed, or false otherwise.
-    async fn remove_send_queue_event(
+    /// Returns true if something has been removed, or false otherwise.
+    async fn remove_send_queue_request(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
     ) -> Result<bool, Self::Error>;
 
-    /// Loads all the send queue events for the given room.
-    async fn load_send_queue_events(
+    /// Loads all the send queue requests for the given room.
+    async fn load_send_queue_requests(
         &self,
         room_id: &RoomId,
-    ) -> Result<Vec<QueuedEvent>, Self::Error>;
+    ) -> Result<Vec<QueuedRequest>, Self::Error>;
 
     /// Updates the send queue error status (wedge) for a given send queue
-    /// event.
-    /// Set `error` to None if the problem has been resolved and the event was
-    /// finally sent.
-    async fn update_send_queue_event_status(
+    /// request.
+    async fn update_send_queue_request_status(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
         error: Option<QueueWedgeError>,
     ) -> Result<(), Self::Error>;
 
-    /// Loads all the rooms which have any pending events in their send queue.
-    async fn load_rooms_with_unsent_events(&self) -> Result<Vec<OwnedRoomId>, Self::Error>;
+    /// Loads all the rooms which have any pending requests in their send queue.
+    async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<OwnedRoomId>, Self::Error>;
 
-    /// Add a new entry to the list of dependent send queue event for an event.
-    async fn save_dependent_send_queue_event(
+    /// Add a new entry to the list of dependent send queue requests for a
+    /// parent request.
+    async fn save_dependent_queued_request(
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         own_txn_id: ChildTransactionId,
-        content: DependentQueuedEventKind,
+        content: DependentQueuedRequestKind,
     ) -> Result<(), Self::Error>;
 
-    /// Update a set of dependent send queue events with an event id,
+    /// Update a set of dependent send queue requests with an event id,
     /// effectively marking them as ready.
     ///
-    /// Returns the number of updated events.
-    async fn update_dependent_send_queue_event(
+    /// Returns the number of updated requests.
+    async fn update_dependent_queued_request(
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         event_id: OwnedEventId,
     ) -> Result<usize, Self::Error>;
 
-    /// Remove a specific dependent send queue event by id.
+    /// Remove a specific dependent send queue request by id.
     ///
-    /// Returns true if the dependent send queue event has been indeed removed.
-    async fn remove_dependent_send_queue_event(
+    /// Returns true if the dependent send queue request has been indeed
+    /// removed.
+    async fn remove_dependent_queued_request(
         &self,
         room: &RoomId,
         own_txn_id: &ChildTransactionId,
     ) -> Result<bool, Self::Error>;
 
-    /// List all the dependent send queue events.
+    /// List all the dependent send queue requests.
     ///
-    /// This returns absolutely all the dependent send queue events, whether
-    /// they have an event id or not. They must be returned in insertion order.
-    async fn load_dependent_send_queue_events(
+    /// This returns absolutely all the dependent send queue requests, whether
+    /// they have a parent event id or not. As a contract for implementors, they
+    /// must be returned in insertion order.
+    async fn load_dependent_queued_requests(
         &self,
         room: &RoomId,
-    ) -> Result<Vec<DependentQueuedEvent>, Self::Error>;
+    ) -> Result<Vec<DependentQueuedRequest>, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -629,93 +631,93 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         self.0.remove_room(room_id).await.map_err(Into::into)
     }
 
-    async fn save_send_queue_event(
+    async fn save_send_queue_request(
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
         content: SerializableEventContent,
     ) -> Result<(), Self::Error> {
-        self.0.save_send_queue_event(room_id, transaction_id, content).await.map_err(Into::into)
+        self.0.save_send_queue_request(room_id, transaction_id, content).await.map_err(Into::into)
     }
 
-    async fn update_send_queue_event(
+    async fn update_send_queue_request(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
         content: SerializableEventContent,
     ) -> Result<bool, Self::Error> {
-        self.0.update_send_queue_event(room_id, transaction_id, content).await.map_err(Into::into)
+        self.0.update_send_queue_request(room_id, transaction_id, content).await.map_err(Into::into)
     }
 
-    async fn remove_send_queue_event(
+    async fn remove_send_queue_request(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
     ) -> Result<bool, Self::Error> {
-        self.0.remove_send_queue_event(room_id, transaction_id).await.map_err(Into::into)
+        self.0.remove_send_queue_request(room_id, transaction_id).await.map_err(Into::into)
     }
 
-    async fn load_send_queue_events(
+    async fn load_send_queue_requests(
         &self,
         room_id: &RoomId,
-    ) -> Result<Vec<QueuedEvent>, Self::Error> {
-        self.0.load_send_queue_events(room_id).await.map_err(Into::into)
+    ) -> Result<Vec<QueuedRequest>, Self::Error> {
+        self.0.load_send_queue_requests(room_id).await.map_err(Into::into)
     }
 
-    async fn update_send_queue_event_status(
+    async fn update_send_queue_request_status(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
         error: Option<QueueWedgeError>,
     ) -> Result<(), Self::Error> {
         self.0
-            .update_send_queue_event_status(room_id, transaction_id, error)
+            .update_send_queue_request_status(room_id, transaction_id, error)
             .await
             .map_err(Into::into)
     }
 
-    async fn load_rooms_with_unsent_events(&self) -> Result<Vec<OwnedRoomId>, Self::Error> {
-        self.0.load_rooms_with_unsent_events().await.map_err(Into::into)
+    async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<OwnedRoomId>, Self::Error> {
+        self.0.load_rooms_with_unsent_requests().await.map_err(Into::into)
     }
 
-    async fn save_dependent_send_queue_event(
+    async fn save_dependent_queued_request(
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         own_txn_id: ChildTransactionId,
-        content: DependentQueuedEventKind,
+        content: DependentQueuedRequestKind,
     ) -> Result<(), Self::Error> {
         self.0
-            .save_dependent_send_queue_event(room_id, parent_txn_id, own_txn_id, content)
+            .save_dependent_queued_request(room_id, parent_txn_id, own_txn_id, content)
             .await
             .map_err(Into::into)
     }
 
-    async fn update_dependent_send_queue_event(
+    async fn update_dependent_queued_request(
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         event_id: OwnedEventId,
     ) -> Result<usize, Self::Error> {
         self.0
-            .update_dependent_send_queue_event(room_id, parent_txn_id, event_id)
+            .update_dependent_queued_request(room_id, parent_txn_id, event_id)
             .await
             .map_err(Into::into)
     }
 
-    async fn remove_dependent_send_queue_event(
+    async fn remove_dependent_queued_request(
         &self,
         room_id: &RoomId,
         own_txn_id: &ChildTransactionId,
     ) -> Result<bool, Self::Error> {
-        self.0.remove_dependent_send_queue_event(room_id, own_txn_id).await.map_err(Into::into)
+        self.0.remove_dependent_queued_request(room_id, own_txn_id).await.map_err(Into::into)
     }
 
-    async fn load_dependent_send_queue_events(
+    async fn load_dependent_queued_requests(
         &self,
         room_id: &RoomId,
-    ) -> Result<Vec<DependentQueuedEvent>, Self::Error> {
-        self.0.load_dependent_send_queue_events(room_id).await.map_err(Into::into)
+    ) -> Result<Vec<DependentQueuedRequest>, Self::Error> {
+        self.0.load_dependent_queued_requests(room_id).await.map_err(Into::into)
     }
 }
 

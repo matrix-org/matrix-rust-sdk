@@ -503,7 +503,7 @@ impl Client {
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             // Respawn tasks for rooms that had unsent events. At this point we've just
             // created the subscriber, so it'll be notified about errors.
-            q.respawn_tasks_for_rooms_with_unsent_events().await;
+            q.respawn_tasks_for_rooms_with_unsent_requests().await;
 
             loop {
                 match subscriber.recv().await {
