@@ -89,14 +89,14 @@ impl Deduplicator {
                 if duplicated {
                     Decoration::Duplicated(event)
                 } else {
-                    Decoration::Ok(event)
+                    Decoration::Unique(event)
                 }
             } else {
                 already_seen.insert(event_id);
 
                 // Bloom filter has no false negatives. We are sure the event is NOT present: we
                 // can keep it in the iterator.
-                Decoration::Ok(event)
+                Decoration::Unique(event)
             }
         })
     }
@@ -106,7 +106,7 @@ impl Deduplicator {
 #[derive(Debug)]
 pub enum Decoration<I> {
     /// This event is not duplicated.
-    Ok(I),
+    Unique(I),
 
     /// This event is duplicated.
     Duplicated(I),
@@ -149,13 +149,13 @@ mod tests {
         let mut events =
             deduplicator.scan_and_learn([event_0, event_1, event_2].into_iter(), &existing_events);
 
-        assert_let!(Some(Decoration::Ok(event)) = events.next());
+        assert_let!(Some(Decoration::Unique(event)) = events.next());
         assert_eq!(event.event_id(), Some(event_id_0));
 
-        assert_let!(Some(Decoration::Ok(event)) = events.next());
+        assert_let!(Some(Decoration::Unique(event)) = events.next());
         assert_eq!(event.event_id(), Some(event_id_1));
 
-        assert_let!(Some(Decoration::Ok(event)) = events.next());
+        assert_let!(Some(Decoration::Unique(event)) = events.next());
         assert_eq!(event.event_id(), Some(event_id_2));
 
         assert!(events.next().is_none());
@@ -184,13 +184,13 @@ mod tests {
             &existing_events,
         );
 
-        assert_let!(Some(Decoration::Ok(event)) = events.next());
+        assert_let!(Some(Decoration::Unique(event)) = events.next());
         assert_eq!(event.event_id(), Some(event_id_0.clone()));
 
         assert_let!(Some(Decoration::Duplicated(event)) = events.next());
         assert_eq!(event.event_id(), Some(event_id_0));
 
-        assert_let!(Some(Decoration::Ok(event)) = events.next());
+        assert_let!(Some(Decoration::Unique(event)) = events.next());
         assert_eq!(event.event_id(), Some(event_id_1));
 
         assert!(events.next().is_none());
@@ -216,7 +216,7 @@ mod tests {
             let mut events =
                 deduplicator.scan_and_learn([event_1.clone()].into_iter(), &existing_events);
 
-            assert_let!(Some(Decoration::Ok(event_1)) = events.next());
+            assert_let!(Some(Decoration::Unique(event_1)) = events.next());
             assert_eq!(event_1.event_id(), Some(event_id_1.clone()));
 
             assert!(events.next().is_none());
@@ -239,13 +239,13 @@ mod tests {
                 &existing_events,
             );
 
-            assert_let!(Some(Decoration::Ok(event)) = events.next());
+            assert_let!(Some(Decoration::Unique(event)) = events.next());
             assert_eq!(event.event_id(), Some(event_id_0));
 
             assert_let!(Some(Decoration::Duplicated(event)) = events.next());
             assert_eq!(event.event_id(), Some(event_id_1));
 
-            assert_let!(Some(Decoration::Ok(event)) = events.next());
+            assert_let!(Some(Decoration::Unique(event)) = events.next());
             assert_eq!(event.event_id(), Some(event_id_2));
 
             assert!(events.next().is_none());
