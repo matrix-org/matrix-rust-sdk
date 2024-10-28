@@ -948,6 +948,11 @@ impl Position {
         self.1
     }
 
+    /// Move the index part (see [`Self::index`]) to the left, i.e. subtract 1.
+    ///
+    /// # Panic
+    ///
+    /// This method will panic if it will overflow, i.e. if the index is 0.
     pub(super) fn move_index_to_the_left(&mut self) {
         self.1 = self
             .1
