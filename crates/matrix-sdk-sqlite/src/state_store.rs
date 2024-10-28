@@ -11,8 +11,8 @@ use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     deserialized_responses::{RawAnySyncOrStrippedState, SyncOrStrippedState},
     store::{
-        migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedEvent,
-        DependentQueuedEventKind, QueueWedgeError, QueuedEvent, QueuedRequestKind,
+        migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedRequest,
+        DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind,
         SerializableEventContent,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
@@ -1670,7 +1670,7 @@ impl StateStore for SqliteStateStore {
             .await
     }
 
-    async fn save_send_queue_event(
+    async fn save_send_queue_request(
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
@@ -1695,7 +1695,7 @@ impl StateStore for SqliteStateStore {
             .await
     }
 
-    async fn update_send_queue_event(
+    async fn update_send_queue_request(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
@@ -1718,7 +1718,7 @@ impl StateStore for SqliteStateStore {
         Ok(num_updated > 0)
     }
 
-    async fn remove_send_queue_event(
+    async fn remove_send_queue_request(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
@@ -1742,10 +1742,10 @@ impl StateStore for SqliteStateStore {
         Ok(num_deleted > 0)
     }
 
-    async fn load_send_queue_events(
+    async fn load_send_queue_requests(
         &self,
         room_id: &RoomId,
-    ) -> Result<Vec<QueuedEvent>, Self::Error> {
+    ) -> Result<Vec<QueuedRequest>, Self::Error> {
         let room_id = self.encode_key(keys::SEND_QUEUE, room_id);
 
         // Note: ROWID is always present and is an auto-incremented integer counter. We
@@ -1764,19 +1764,19 @@ impl StateStore for SqliteStateStore {
             )
             .await?;
 
-        let mut queued_events = Vec::with_capacity(res.len());
+        let mut requests = Vec::with_capacity(res.len());
         for entry in res {
-            queued_events.push(QueuedEvent {
+            requests.push(QueuedRequest {
                 transaction_id: entry.0.into(),
                 kind: QueuedRequestKind::Event { content: self.deserialize_json(&entry.1)? },
                 error: entry.2.map(|v| self.deserialize_value(&v)).transpose()?,
             });
         }
 
-        Ok(queued_events)
+        Ok(requests)
     }
 
-    async fn update_send_queue_event_status(
+    async fn update_send_queue_request_status(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
@@ -1799,7 +1799,7 @@ impl StateStore for SqliteStateStore {
             .await
     }
 
-    async fn load_rooms_with_unsent_events(&self) -> Result<Vec<OwnedRoomId>, Self::Error> {
+    async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<OwnedRoomId>, Self::Error> {
         // If the values were not encrypted, we could use `SELECT DISTINCT` here, but we
         // have to manually do the deduplication: indeed, for all X, encrypt(X)
         // != encrypted(X), since we use a nonce in the encryption process.
@@ -1822,12 +1822,12 @@ impl StateStore for SqliteStateStore {
             .collect())
     }
 
-    async fn save_dependent_send_queue_event(
+    async fn save_dependent_queued_request(
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         own_txn_id: ChildTransactionId,
-        content: DependentQueuedEventKind,
+        content: DependentQueuedRequestKind,
     ) -> Result<()> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
         let content = self.serialize_json(&content)?;
@@ -1850,7 +1850,7 @@ impl StateStore for SqliteStateStore {
             .await
     }
 
-    async fn update_dependent_send_queue_event(
+    async fn update_dependent_queued_request(
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
@@ -1873,7 +1873,7 @@ impl StateStore for SqliteStateStore {
             .await
     }
 
-    async fn remove_dependent_send_queue_event(
+    async fn remove_dependent_queued_request(
         &self,
         room_id: &RoomId,
         txn_id: &ChildTransactionId,
@@ -1897,10 +1897,10 @@ impl StateStore for SqliteStateStore {
         Ok(num_deleted > 0)
     }
 
-    async fn load_dependent_send_queue_events(
+    async fn load_dependent_queued_requests(
         &self,
         room_id: &RoomId,
-    ) -> Result<Vec<DependentQueuedEvent>> {
+    ) -> Result<Vec<DependentQueuedRequest>> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
 
         // Note: transaction_id is not encoded, see why in `save_send_queue_event`.
@@ -1919,7 +1919,7 @@ impl StateStore for SqliteStateStore {
 
         let mut dependent_events = Vec::with_capacity(res.len());
         for entry in res {
-            dependent_events.push(DependentQueuedEvent {
+            dependent_events.push(DependentQueuedRequest {
                 own_transaction_id: entry.0.into(),
                 parent_transaction_id: entry.1.into(),
                 event_id: entry.2.map(|bytes| self.deserialize_value(&bytes)).transpose()?,
@@ -2290,12 +2290,12 @@ mod migration_tests {
 
         // This transparently migrates to the latest version.
         let store = SqliteStateStore::open(path, Some(SECRET)).await.unwrap();
-        let queued_event = store.load_send_queue_events(room_a_id).await.unwrap();
+        let requests = store.load_send_queue_requests(room_a_id).await.unwrap();
 
-        assert_eq!(queued_event.len(), 2);
+        assert_eq!(requests.len(), 2);
 
         let migrated_wedged =
-            queued_event.iter().find(|e| e.transaction_id == wedged_event_transaction_id).unwrap();
+            requests.iter().find(|e| e.transaction_id == wedged_event_transaction_id).unwrap();
 
         assert!(migrated_wedged.is_wedged());
         assert_matches!(
@@ -2303,7 +2303,7 @@ mod migration_tests {
             Some(QueueWedgeError::GenericApiError { .. })
         );
 
-        let migrated_ok = queued_event
+        let migrated_ok = requests
             .iter()
             .find(|e| e.transaction_id == local_event_transaction_id.clone())
             .unwrap();

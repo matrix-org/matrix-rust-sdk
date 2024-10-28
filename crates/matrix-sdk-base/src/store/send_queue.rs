@@ -80,7 +80,7 @@ pub enum QueuedRequestKind {
 
 /// A request to be sent with a send queue.
 #[derive(Clone)]
-pub struct QueuedEvent {
+pub struct QueuedRequest {
     /// The kind of queued request we're going to send.
     pub kind: QueuedRequestKind,
 
@@ -94,13 +94,13 @@ pub struct QueuedEvent {
     pub error: Option<QueueWedgeError>,
 }
 
-impl QueuedEvent {
+impl QueuedRequest {
     /// Returns `Some` if the queued request is about sending an event.
     pub fn as_event(&self) -> Option<&SerializableEventContent> {
         as_variant!(&self.kind, QueuedRequestKind::Event { content } => content)
     }
 
-    /// True if the event couldn't be sent because of an unrecoverable API
+    /// True if the request couldn't be sent because of an unrecoverable API
     /// error. See [`Self::error`] for more details on the reason.
     pub fn is_wedged(&self) -> bool {
         self.error.is_some()
@@ -145,27 +145,31 @@ pub enum QueueWedgeError {
     },
 }
 
-/// The specific user intent that characterizes a [`DependentQueuedEvent`].
+/// The specific user intent that characterizes a
+/// [`DependentQueuedRequestKind`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum DependentQueuedEventKind {
+pub enum DependentQueuedRequestKind {
     /// The event should be edited.
-    Edit {
+    #[serde(rename = "Edit")]
+    EditEvent {
         /// The new event for the content.
         new_content: SerializableEventContent,
     },
 
     /// The event should be redacted/aborted/removed.
-    Redact,
+    #[serde(rename = "Redact")]
+    RedactEvent,
 
     /// The event should be reacted to, with the given key.
-    React {
+    #[serde(rename = "React")]
+    ReactEvent {
         /// Key used for the reaction.
         key: String,
     },
 }
 
-/// A transaction id identifying a [`DependentQueuedEvent`] rather than its
-/// parent [`QueuedEvent`].
+/// A transaction id identifying a [`DependentQueuedRequest`] rather than its
+/// parent [`QueuedRequest`].
 ///
 /// This thin wrapper adds some safety to some APIs, making it possible to
 /// distinguish between the parent's `TransactionId` and the dependent event's
@@ -203,42 +207,42 @@ impl From<ChildTransactionId> for OwnedTransactionId {
     }
 }
 
-/// An event to be sent, depending on a [`QueuedEvent`] to be sent first.
+/// A request to be sent, depending on a [`QueuedRequest`] to be sent first.
 ///
-/// Depending on whether the event has been sent or not, this will either update
-/// the local echo in the storage, or send an event equivalent to the user
-/// intent to the homeserver.
+/// Depending on whether the parent request has been sent or not, this will
+/// either update the local echo in the storage, or materialize an equivalent
+/// request implementing the user intent to the homeserver.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DependentQueuedEvent {
-    /// Unique identifier for this dependent queued event.
+pub struct DependentQueuedRequest {
+    /// Unique identifier for this dependent queued request.
     ///
     /// Useful for deletion.
     pub own_transaction_id: ChildTransactionId,
 
     /// The kind of user intent.
-    pub kind: DependentQueuedEventKind,
+    pub kind: DependentQueuedRequestKind,
 
     /// Transaction id for the parent's local echo / used in the server request.
     ///
-    /// Note: this is the transaction id used for the depended-on event, i.e.
+    /// Note: this is the transaction id used for the depended-on request, i.e.
     /// the one that was originally sent and that's being modified with this
-    /// dependent event.
+    /// dependent request.
     pub parent_transaction_id: OwnedTransactionId,
 
-    /// If the parent event has been sent, the parent's event identifier
+    /// If the parent request has been sent, the parent's request identifier
     /// returned by the server once the local echo has been sent out.
     ///
     /// Note: this is the event id used for the depended-on event after it's
     /// been sent, not for a possible event that could have been sent
-    /// because of this [`DependentQueuedEvent`].
+    /// because of this [`DependentQueuedRequest`].
     pub event_id: Option<OwnedEventId>,
 }
 
 #[cfg(not(tarpaulin_include))]
-impl fmt::Debug for QueuedEvent {
+impl fmt::Debug for QueuedRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Hide the content from the debug log.
-        f.debug_struct("QueuedEvent")
+        f.debug_struct("QueuedRequest")
             .field("transaction_id", &self.transaction_id)
             .field("is_wedged", &self.is_wedged())
             .finish_non_exhaustive()

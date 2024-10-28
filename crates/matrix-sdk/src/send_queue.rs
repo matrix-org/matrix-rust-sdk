@@ -38,7 +38,7 @@
 //! - enable/disable them all at once with [`SendQueue::set_enabled()`].
 //! - get notifications about send errors with [`SendQueue::subscribe_errors`].
 //! - reload all unsent events that had been persisted in storage using
-//!   [`SendQueue::respawn_tasks_for_rooms_with_unsent_events()`]. It is
+//!   [`SendQueue::respawn_tasks_for_rooms_with_unsent_requests()`]. It is
 //!   recommended to call this method during initialization of a client,
 //!   otherwise persisted unsent events will only be re-sent after the send
 //!   queue for the given room has been reopened for the first time.
@@ -53,8 +53,8 @@ use std::{
 
 use matrix_sdk_base::{
     store::{
-        ChildTransactionId, DependentQueuedEvent, DependentQueuedEventKind, QueueWedgeError,
-        QueuedEvent, QueuedRequestKind, SerializableEventContent,
+        ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError,
+        QueuedRequest, QueuedRequestKind, SerializableEventContent,
     },
     RoomState, StoreError,
 };
@@ -97,16 +97,16 @@ impl SendQueue {
         Self { client }
     }
 
-    /// Reload all the rooms which had unsent events, and respawn tasks for
+    /// Reload all the rooms which had unsent requests, and respawn tasks for
     /// those rooms.
-    pub async fn respawn_tasks_for_rooms_with_unsent_events(&self) {
+    pub async fn respawn_tasks_for_rooms_with_unsent_requests(&self) {
         if !self.is_enabled() {
             return;
         }
 
         let room_ids =
-            self.client.store().load_rooms_with_unsent_events().await.unwrap_or_else(|err| {
-                warn!("error when loading rooms with unsent events: {err}");
+            self.client.store().load_rooms_with_unsent_requests().await.unwrap_or_else(|err| {
+                warn!("error when loading rooms with unsent requests: {err}");
                 Vec::new()
             });
 
@@ -118,11 +118,14 @@ impl SendQueue {
         }
     }
 
+    /// Tiny helper to get the send queue's global context from the [`Client`].
     #[inline(always)]
     fn data(&self) -> &SendQueueData {
         &self.client.inner.send_queue_data
     }
 
+    /// Get or create a new send queue for a given room, and insert it into our
+    /// memoized rooms mapping.
     fn for_room(&self, room: Room) -> RoomSendQueue {
         let data = self.data();
 
@@ -141,7 +144,9 @@ impl SendQueue {
             &self.client,
             owned_room_id.clone(),
         );
+
         map.insert(owned_room_id, room_q.clone());
+
         room_q
     }
 
@@ -150,9 +155,9 @@ impl SendQueue {
     /// If we're disabling the queue, and requests were being sent, they're not
     /// aborted, and will continue until a status resolves (error responses
     /// will keep the events in the buffer of events to send later). The
-    /// disablement will happen before the next event is sent.
+    /// disablement will happen before the next request is sent.
     ///
-    /// This may wake up background tasks and resume sending of events in the
+    /// This may wake up background tasks and resume sending of requests in the
     /// background.
     pub async fn set_enabled(&self, enabled: bool) {
         debug!(?enabled, "setting global send queue enablement");
@@ -165,8 +170,8 @@ impl SendQueue {
         }
 
         // Reload some extra rooms that might not have been awaken yet, but could have
-        // events from previous sessions.
-        self.respawn_tasks_for_rooms_with_unsent_events().await;
+        // requests from previous sessions.
+        self.respawn_tasks_for_rooms_with_unsent_requests().await;
     }
 
     /// Returns whether the send queue is enabled, at a client-wide
@@ -176,32 +181,32 @@ impl SendQueue {
     }
 
     /// A subscriber to the enablement status (enabled or disabled) of the
-    /// send queue.
+    /// send queue, along with useful errors.
     pub fn subscribe_errors(&self) -> broadcast::Receiver<SendQueueRoomError> {
         self.data().error_reporter.subscribe()
     }
 }
 
-/// A specific room ran into an error, and has disabled itself.
+/// A specific room's send queue ran into an error, and it has disabled itself.
 #[derive(Clone, Debug)]
 pub struct SendQueueRoomError {
-    /// Which room is failing?
+    /// For which room is the send queue failing?
     pub room_id: OwnedRoomId,
 
-    /// The error the room has ran into, when trying to send an event.
+    /// The error the room has ran into, when trying to send a request.
     pub error: Arc<crate::Error>,
 
     /// Whether the error is considered recoverable or not.
     ///
     /// An error that's recoverable will disable the room's send queue, while an
-    /// unrecoverable error will be parked, until the user decides to cancel
-    /// sending it.
+    /// unrecoverable error will be parked, until the user decides to do
+    /// something about it.
     pub is_recoverable: bool,
 }
 
 impl Client {
     /// Returns a [`SendQueue`] that handles sending, retrying and not
-    /// forgetting about messages that are to be sent.
+    /// forgetting about requests that are to be sent.
     pub fn send_queue(&self) -> SendQueue {
         SendQueue::new(self.clone())
     }
@@ -321,10 +326,11 @@ impl RoomSendQueue {
     /// the [`Self::subscribe()`] method to get updates about the sending of
     /// that event.
     ///
-    /// By default, if sending the event fails on the first attempt, it will be
-    /// retried a few times. If sending failed, the entire client's sending
-    /// queue will be disabled, and it will need to be manually re-enabled
-    /// by the caller.
+    /// By default, if sending failed on the first attempt, it will be retried a
+    /// few times. If sending failed after those retries, the entire
+    /// client's sending queue will be disabled, and it will need to be
+    /// manually re-enabled by the caller (e.g. after network is back, or when
+    /// something has been done about the faulty requests).
     pub async fn send_raw(
         &self,
         content: Raw<AnyMessageLikeEventContent>,
@@ -368,10 +374,11 @@ impl RoomSendQueue {
     /// the [`Self::subscribe()`] method to get updates about the sending of
     /// that event.
     ///
-    /// By default, if sending the event fails on the first attempt, it will be
-    /// retried a few times. If sending failed, the entire client's sending
-    /// queue will be disabled, and it will need to be manually re-enabled
-    /// by the caller.
+    /// By default, if sending failed on the first attempt, it will be retried a
+    /// few times. If sending failed after those retries, the entire
+    /// client's sending queue will be disabled, and it will need to be
+    /// manually re-enabled by the caller (e.g. after network is back, or when
+    /// something has been done about the faulty requests).
     pub async fn send(
         &self,
         content: AnyMessageLikeEventContent,
@@ -383,8 +390,8 @@ impl RoomSendQueue {
         .await
     }
 
-    /// Returns the current local events as well as a receiver to listen to the
-    /// send queue updates, as defined in [`RoomSendQueueUpdate`].
+    /// Returns the current local requests as well as a receiver to listen to
+    /// the send queue updates, as defined in [`RoomSendQueueUpdate`].
     pub async fn subscribe(
         &self,
     ) -> Result<(Vec<LocalEcho>, broadcast::Receiver<RoomSendQueueUpdate>), RoomSendQueueError>
@@ -394,6 +401,11 @@ impl RoomSendQueue {
         Ok((local_echoes, self.inner.updates.subscribe()))
     }
 
+    /// A task that must be spawned in the async runtime, running in the
+    /// background for each room that has a send queue.
+    ///
+    /// It only progresses forward: nothing can be cancelled at any point, which
+    /// makes the implementation not overly complicated to follow.
     #[instrument(skip_all, fields(room_id = %room.room_id()))]
     async fn sending_task(
         room: WeakRoom,
@@ -413,10 +425,10 @@ impl RoomSendQueue {
                 break;
             }
 
-            // Try to apply dependent events now; those applying to previously failed
+            // Try to apply dependent requests now; those applying to previously failed
             // attempts (local echoes) would succeed now.
-            if let Err(err) = queue.apply_dependent_events().await {
-                warn!("errors when applying dependent events: {err}");
+            if let Err(err) = queue.apply_dependent_requests().await {
+                warn!("errors when applying dependent requests: {err}");
             }
 
             if !locally_enabled.load(Ordering::SeqCst) {
@@ -426,8 +438,8 @@ impl RoomSendQueue {
                 continue;
             }
 
-            let queued_event = match queue.peek_next_to_send().await {
-                Ok(Some(event)) => event,
+            let queued_request = match queue.peek_next_to_send().await {
+                Ok(Some(request)) => request,
 
                 Ok(None) => {
                     trace!("queue is empty, sleeping");
@@ -437,12 +449,12 @@ impl RoomSendQueue {
                 }
 
                 Err(err) => {
-                    warn!("error when loading next event to send: {err}");
+                    warn!("error when loading next request to send: {err}");
                     continue;
                 }
             };
 
-            trace!(txn_id = %queued_event.transaction_id, "received an event to send!");
+            trace!(txn_id = %queued_request.transaction_id, "received a request to send!");
 
             let Some(room) = room.get() else {
                 if is_dropping.load(Ordering::SeqCst) {
@@ -452,20 +464,23 @@ impl RoomSendQueue {
                 continue;
             };
 
-            let (event, event_type) = queued_event.as_event().unwrap().raw();
+            let (event, event_type) = match &queued_request.kind {
+                QueuedRequestKind::Event { content } => content.raw(),
+            };
+
             match room
-                .send_raw(&event_type.to_string(), event)
-                .with_transaction_id(&queued_event.transaction_id)
+                .send_raw(event_type, event)
+                .with_transaction_id(&queued_request.transaction_id)
                 .with_request_config(RequestConfig::short_retry())
                 .await
             {
                 Ok(res) => {
-                    trace!(txn_id = %queued_event.transaction_id, event_id = %res.event_id, "successfully sent");
+                    trace!(txn_id = %queued_request.transaction_id, event_id = %res.event_id, "successfully sent");
 
-                    match queue.mark_as_sent(&queued_event.transaction_id, &res.event_id).await {
+                    match queue.mark_as_sent(&queued_request.transaction_id, &res.event_id).await {
                         Ok(()) => {
                             let _ = updates.send(RoomSendQueueUpdate::SentEvent {
-                                transaction_id: queued_event.transaction_id,
+                                transaction_id: queued_request.transaction_id,
                                 event_id: res.event_id,
                             });
                         }
@@ -497,35 +512,34 @@ impl RoomSendQueue {
                     };
 
                     if is_recoverable {
-                        warn!(txn_id = %queued_event.transaction_id, error = ?err, "Recoverable error when sending event: {err}, disabling send queue");
+                        warn!(txn_id = %queued_request.transaction_id, error = ?err, "Recoverable error when sending request: {err}, disabling send queue");
 
-                        // In this case, we intentionally keep the event in the queue, but mark it
+                        // In this case, we intentionally keep the request in the queue, but mark it
                         // as not being sent anymore.
-                        queue.mark_as_not_being_sent(&queued_event.transaction_id).await;
+                        queue.mark_as_not_being_sent(&queued_request.transaction_id).await;
 
                         // Let observers know about a failure *after* we've marked the item as not
                         // being sent anymore. Otherwise, there's a possible race where a caller
-                        // might try to remove an item, while it's still
-                        // marked as being sent, resulting in a cancellation
-                        // failure.
+                        // might try to remove an item, while it's still marked as being sent,
+                        // resulting in a cancellation failure.
 
                         // Disable the queue for this room after a recoverable error happened. This
                         // should be the sign that this error is temporary (maybe network
                         // disconnected, maybe the server had a hiccup).
                         locally_enabled.store(false, Ordering::SeqCst);
                     } else {
-                        warn!(txn_id = %queued_event.transaction_id, error = ?err, "Unrecoverable error when sending event: {err}");
+                        warn!(txn_id = %queued_request.transaction_id, error = ?err, "Unrecoverable error when sending request: {err}");
 
-                        // Mark the event as wedged, so it's not picked at any future point.
+                        // Mark the request as wedged, so it's not picked at any future point.
 
                         if let Err(storage_error) = queue
                             .mark_as_wedged(
-                                &queued_event.transaction_id,
+                                &queued_request.transaction_id,
                                 QueueWedgeError::from(&err),
                             )
                             .await
                         {
-                            warn!("unable to mark event as wedged: {storage_error}");
+                            warn!("unable to mark request as wedged: {storage_error}");
                         }
                     }
 
@@ -538,7 +552,7 @@ impl RoomSendQueue {
                     });
 
                     let _ = updates.send(RoomSendQueueUpdate::SendError {
-                        transaction_id: queued_event.transaction_id,
+                        transaction_id: queued_request.transaction_id,
                         error,
                         is_recoverable,
                     });
@@ -574,7 +588,7 @@ impl RoomSendQueue {
             .await
             .map_err(RoomSendQueueError::StorageError)?;
 
-        // Wake up the queue, in case the room was asleep before unwedging the event.
+        // Wake up the queue, in case the room was asleep before unwedging the request.
         self.inner.notifier.notify_one();
 
         let _ = self
@@ -595,14 +609,17 @@ impl From<&crate::Error> for QueueWedgeError {
                 SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(user_map) => {
                     QueueWedgeError::InsecureDevices { user_device_map: user_map.clone() }
                 }
+
                 SessionRecipientCollectionError::VerifiedUserChangedIdentity(users) => {
                     QueueWedgeError::IdentityViolations { users: users.clone() }
                 }
+
                 SessionRecipientCollectionError::CrossSigningNotSetup
                 | SessionRecipientCollectionError::SendingFromUnverifiedDevice => {
                     QueueWedgeError::CrossVerificationRequired
                 }
             },
+
             _ => QueueWedgeError::GenericApiError { msg: value.to_string() },
         }
     }
@@ -612,23 +629,24 @@ struct RoomSendQueueInner {
     /// The room which this send queue relates to.
     room: WeakRoom,
 
-    /// Broadcaster for notifications about the statuses of events to be sent.
+    /// Broadcaster for notifications about the statuses of requests to be sent.
     ///
     /// Can be subscribed to from the outside.
     updates: broadcast::Sender<RoomSendQueueUpdate>,
 
-    /// Queue of events that are either to be sent, or being sent.
+    /// Queue of requests that are either to be sent, or being sent.
     ///
-    /// When an event has been sent to the server, it is removed from that queue
-    /// *after* being sent. That way, we will retry sending upon failure, in
-    /// the same order events have been inserted in the first place.
+    /// When a request has been sent to the server, it is removed from that
+    /// queue *after* being sent. That way, we will retry sending upon
+    /// failure, in the same order requests have been inserted in the first
+    /// place.
     queue: QueueStorage,
 
     /// A notifier that's updated any time common data is touched (stopped or
     /// enabled statuses), or the associated room [`QueueStorage`].
     notifier: Arc<Notify>,
 
-    /// Should the room process new events or not (because e.g. it might be
+    /// Should the room process new requests or not (because e.g. it might be
     /// running off the network)?
     locally_enabled: Arc<AtomicBool>,
 
@@ -645,14 +663,14 @@ struct QueueStorage {
     /// To which room is this storage related.
     room_id: OwnedRoomId,
 
-    /// All the queued events that are being sent at the moment.
+    /// All the queued requests that are being sent at the moment.
     ///
     /// It also serves as an internal lock on the storage backend.
     being_sent: Arc<RwLock<BTreeSet<OwnedTransactionId>>>,
 }
 
 impl QueueStorage {
-    /// Create a new synchronized queue for queuing events to be sent later.
+    /// Create a new queue for queuing requests to be sent later.
     fn new(client: WeakClient, room: OwnedRoomId) -> Self {
         Self { room_id: room, being_sent: Default::default(), client }
     }
@@ -673,39 +691,40 @@ impl QueueStorage {
 
         self.client()?
             .store()
-            .save_send_queue_event(&self.room_id, transaction_id.clone(), serializable)
+            .save_send_queue_request(&self.room_id, transaction_id.clone(), serializable)
             .await?;
 
         Ok(transaction_id)
     }
 
-    /// Peeks the next event to be sent, marking it as being sent.
+    /// Peeks the next request to be sent, marking it as being sent.
     ///
     /// It is required to call [`Self::mark_as_sent`] after it's been
     /// effectively sent.
-    async fn peek_next_to_send(&self) -> Result<Option<QueuedEvent>, RoomSendQueueStorageError> {
+    async fn peek_next_to_send(&self) -> Result<Option<QueuedRequest>, RoomSendQueueStorageError> {
         // Keep the lock until we're done touching the storage.
         let mut being_sent = self.being_sent.write().await;
 
-        let queued_events = self.client()?.store().load_send_queue_events(&self.room_id).await?;
+        let queued_requests =
+            self.client()?.store().load_send_queue_requests(&self.room_id).await?;
 
-        if let Some(event) = queued_events.iter().find(|queued| !queued.is_wedged()) {
-            being_sent.insert(event.transaction_id.clone());
+        if let Some(request) = queued_requests.iter().find(|queued| !queued.is_wedged()) {
+            being_sent.insert(request.transaction_id.clone());
 
-            Ok(Some(event.clone()))
+            Ok(Some(request.clone()))
         } else {
             Ok(None)
         }
     }
 
-    /// Marks an event popped with [`Self::peek_next_to_send`] and identified
+    /// Marks a request popped with [`Self::peek_next_to_send`] and identified
     /// with the given transaction id as not being sent anymore, so it can
     /// be removed from the queue later.
     async fn mark_as_not_being_sent(&self, transaction_id: &TransactionId) {
         self.being_sent.write().await.remove(transaction_id);
     }
 
-    /// Marks an event popped with [`Self::peek_next_to_send`] and identified
+    /// Marks a request popped with [`Self::peek_next_to_send`] and identified
     /// with the given transaction id as being wedged (and not being sent
     /// anymore), so it can be removed from the queue later.
     async fn mark_as_wedged(
@@ -720,11 +739,11 @@ impl QueueStorage {
         Ok(self
             .client()?
             .store()
-            .update_send_queue_event_status(&self.room_id, transaction_id, Some(reason))
+            .update_send_queue_request_status(&self.room_id, transaction_id, Some(reason))
             .await?)
     }
 
-    /// Marks an event identified with the given transaction id as being now
+    /// Marks a request identified with the given transaction id as being now
     /// unwedged and adds it back to the queue.
     async fn mark_as_unwedged(
         &self,
@@ -733,12 +752,12 @@ impl QueueStorage {
         Ok(self
             .client()?
             .store()
-            .update_send_queue_event_status(&self.room_id, transaction_id, None)
+            .update_send_queue_request_status(&self.room_id, transaction_id, None)
             .await?)
     }
 
-    /// Marks an event pushed with [`Self::push`] and identified with the given
-    /// transaction id as sent by removing it from the local queue.
+    /// Marks a request pushed with [`Self::push`] and identified with the given
+    /// transaction id as sent, by removing it from the local queue.
     async fn mark_as_sent(
         &self,
         transaction_id: &TransactionId,
@@ -751,15 +770,15 @@ impl QueueStorage {
         let client = self.client()?;
         let store = client.store();
 
-        // Update all dependent events.
+        // Update all dependent requests.
         store
-            .update_dependent_send_queue_event(&self.room_id, transaction_id, event_id.to_owned())
+            .update_dependent_queued_request(&self.room_id, transaction_id, event_id.to_owned())
             .await?;
 
-        let removed = store.remove_send_queue_event(&self.room_id, transaction_id).await?;
+        let removed = store.remove_send_queue_request(&self.room_id, transaction_id).await?;
 
         if !removed {
-            warn!(txn_id = %transaction_id, "event marked as sent was missing from storage");
+            warn!(txn_id = %transaction_id, "request marked as sent was missing from storage");
         }
 
         Ok(())
@@ -770,8 +789,8 @@ impl QueueStorage {
     ///
     /// Returns whether the given transaction has been effectively removed. If
     /// false, this either means that the transaction id was unrelated to
-    /// this queue, or that the event was sent before we cancelled it.
-    async fn cancel(
+    /// this queue, or that the request was sent before we cancelled it.
+    async fn cancel_event(
         &self,
         transaction_id: &TransactionId,
     ) -> Result<bool, RoomSendQueueStorageError> {
@@ -782,11 +801,11 @@ impl QueueStorage {
             // Save the intent to redact the event.
             self.client()?
                 .store()
-                .save_dependent_send_queue_event(
+                .save_dependent_queued_request(
                     &self.room_id,
                     transaction_id,
                     ChildTransactionId::new(),
-                    DependentQueuedEventKind::Redact,
+                    DependentQueuedRequestKind::RedactEvent,
                 )
                 .await?;
 
@@ -794,19 +813,18 @@ impl QueueStorage {
         }
 
         let removed =
-            self.client()?.store().remove_send_queue_event(&self.room_id, transaction_id).await?;
+            self.client()?.store().remove_send_queue_request(&self.room_id, transaction_id).await?;
 
         Ok(removed)
     }
 
-    /// Replace an event that has been sent with
-    /// [`Self::push`] with the given transaction id, before it's been actually
-    /// sent.
+    /// Replace an event that has been sent with [`Self::push`] with the given
+    /// transaction id, before it's been actually sent.
     ///
     /// Returns whether the given transaction has been effectively edited. If
     /// false, this either means that the transaction id was unrelated to
-    /// this queue, or that the event was sent before we edited it.
-    async fn replace(
+    /// this queue, or that the request was sent before we edited it.
+    async fn replace_event(
         &self,
         transaction_id: &TransactionId,
         serializable: SerializableEventContent,
@@ -815,14 +833,14 @@ impl QueueStorage {
         let being_sent = self.being_sent.read().await;
 
         if being_sent.contains(transaction_id) {
-            // Save the intent to redact the event.
+            // Save the intent to edit the associated event.
             self.client()?
                 .store()
-                .save_dependent_send_queue_event(
+                .save_dependent_queued_request(
                     &self.room_id,
                     transaction_id,
                     ChildTransactionId::new(),
-                    DependentQueuedEventKind::Edit { new_content: serializable },
+                    DependentQueuedRequestKind::EditEvent { new_content: serializable },
                 )
                 .await?;
 
@@ -832,12 +850,13 @@ impl QueueStorage {
         let edited = self
             .client()?
             .store()
-            .update_send_queue_event(&self.room_id, transaction_id, serializable)
+            .update_send_queue_request(&self.room_id, transaction_id, serializable)
             .await?;
 
         Ok(edited)
     }
 
+    /// Reacts to the given local echo of an event.
     #[instrument(skip(self))]
     async fn react(
         &self,
@@ -847,28 +866,28 @@ impl QueueStorage {
         let client = self.client()?;
         let store = client.store();
 
-        let queued_events = store.load_send_queue_events(&self.room_id).await?;
+        let requests = store.load_send_queue_requests(&self.room_id).await?;
 
-        // If the event has been already sent, abort immediately.
-        if !queued_events.iter().any(|item| item.transaction_id == transaction_id) {
+        // If the target event has been already sent, abort immediately.
+        if !requests.iter().any(|item| item.transaction_id == transaction_id) {
             return Ok(None);
         }
 
-        // Record the dependent event.
+        // Record the dependent request.
         let reaction_txn_id = ChildTransactionId::new();
         store
-            .save_dependent_send_queue_event(
+            .save_dependent_queued_request(
                 &self.room_id,
                 transaction_id,
                 reaction_txn_id.clone(),
-                DependentQueuedEventKind::React { key },
+                DependentQueuedRequestKind::ReactEvent { key },
             )
             .await?;
 
         Ok(Some(reaction_txn_id))
     }
 
-    /// Returns a list of the local echoes, that is, all the events that we're
+    /// Returns a list of the local echoes, that is, all the requests that we're
     /// about to send but that haven't been sent yet (or are being sent).
     async fn local_echoes(
         &self,
@@ -877,8 +896,8 @@ impl QueueStorage {
         let client = self.client()?;
         let store = client.store();
 
-        let local_events =
-            store.load_send_queue_events(&self.room_id).await?.into_iter().map(|queued| {
+        let local_requests =
+            store.load_send_queue_requests(&self.room_id).await?.into_iter().map(|queued| {
                 LocalEcho {
                     transaction_id: queued.transaction_id.clone(),
                     content: match queued.kind {
@@ -894,45 +913,48 @@ impl QueueStorage {
                 }
             });
 
-        let local_reactions = store
-            .load_dependent_send_queue_events(&self.room_id)
-            .await?
-            .into_iter()
-            .filter_map(|dep| match dep.kind {
-                DependentQueuedEventKind::Edit { .. } | DependentQueuedEventKind::Redact => None,
-                DependentQueuedEventKind::React { key } => Some(LocalEcho {
-                    transaction_id: dep.own_transaction_id.clone().into(),
-                    content: LocalEchoContent::React {
-                        key,
-                        send_handle: SendReactionHandle {
-                            room: room.clone(),
-                            transaction_id: dep.own_transaction_id,
+        let local_reactions =
+            store.load_dependent_queued_requests(&self.room_id).await?.into_iter().filter_map(
+                |dep| match dep.kind {
+                    DependentQueuedRequestKind::EditEvent { .. }
+                    | DependentQueuedRequestKind::RedactEvent => {
+                        // TODO: reflect local edits/redacts too?
+                        None
+                    }
+                    DependentQueuedRequestKind::ReactEvent { key } => Some(LocalEcho {
+                        transaction_id: dep.own_transaction_id.clone().into(),
+                        content: LocalEchoContent::React {
+                            key,
+                            send_handle: SendReactionHandle {
+                                room: room.clone(),
+                                transaction_id: dep.own_transaction_id,
+                            },
+                            applies_to: dep.parent_transaction_id,
                         },
-                        applies_to: dep.parent_transaction_id,
-                    },
-                }),
-            });
+                    }),
+                },
+            );
 
-        Ok(local_events.chain(local_reactions).collect())
+        Ok(local_requests.chain(local_reactions).collect())
     }
 
-    /// Try to apply a single dependent event, whether it's local or remote.
+    /// Try to apply a single dependent request, whether it's local or remote.
     ///
     /// This swallows errors that would retrigger every time if we retried
-    /// applying the dependent event: invalid edit content, etc.
+    /// applying the dependent request: invalid edit content, etc.
     ///
-    /// Returns true if the dependent event has been sent (or should not be
+    /// Returns true if the dependent request has been sent (or should not be
     /// retried later).
     #[instrument(skip_all)]
-    async fn try_apply_single_dependent_event(
+    async fn try_apply_single_dependent_request(
         &self,
         client: &Client,
-        de: DependentQueuedEvent,
+        de: DependentQueuedRequest,
     ) -> Result<bool, RoomSendQueueError> {
         let store = client.store();
 
         match de.kind {
-            DependentQueuedEventKind::Edit { new_content } => {
+            DependentQueuedRequestKind::EditEvent { new_content } => {
                 if let Some(event_id) = de.event_id {
                     // The parent event has been sent, so send an edit event.
                     let room = client
@@ -983,7 +1005,7 @@ impl QueueStorage {
                     );
 
                     store
-                        .save_send_queue_event(
+                        .save_send_queue_request(
                             &self.room_id,
                             de.own_transaction_id.into(),
                             serializable,
@@ -991,10 +1013,9 @@ impl QueueStorage {
                         .await
                         .map_err(RoomSendQueueStorageError::StorageError)?;
                 } else {
-                    // The parent event is still local (sending must have failed); update the local
-                    // echo.
+                    // The parent event is still local; update the local echo.
                     let edited = store
-                        .update_send_queue_event(
+                        .update_send_queue_request(
                             &self.room_id,
                             &de.parent_transaction_id,
                             new_content,
@@ -1008,7 +1029,7 @@ impl QueueStorage {
                 }
             }
 
-            DependentQueuedEventKind::Redact => {
+            DependentQueuedRequestKind::RedactEvent => {
                 if let Some(event_id) = de.event_id {
                     // The parent event has been sent; send a redaction.
                     let room = client
@@ -1032,7 +1053,7 @@ impl QueueStorage {
                     // The parent event is still local (sending must have failed); redact the local
                     // echo.
                     let removed = store
-                        .remove_send_queue_event(&self.room_id, &de.parent_transaction_id)
+                        .remove_send_queue_request(&self.room_id, &de.parent_transaction_id)
                         .await
                         .map_err(RoomSendQueueStorageError::StorageError)?;
 
@@ -1042,7 +1063,7 @@ impl QueueStorage {
                 }
             }
 
-            DependentQueuedEventKind::React { key } => {
+            DependentQueuedRequestKind::ReactEvent { key } => {
                 if let Some(event_id) = de.event_id {
                     // Queue the reaction event in the send queue 🧠.
                     let react_event =
@@ -1054,7 +1075,7 @@ impl QueueStorage {
                     );
 
                     store
-                        .save_send_queue_event(
+                        .save_send_queue_request(
                             &self.room_id,
                             de.own_transaction_id.into(),
                             serializable,
@@ -1072,78 +1093,78 @@ impl QueueStorage {
     }
 
     #[instrument(skip(self))]
-    async fn apply_dependent_events(&self) -> Result<(), RoomSendQueueError> {
+    async fn apply_dependent_requests(&self) -> Result<(), RoomSendQueueError> {
         // Keep the lock until we're done touching the storage.
         let _being_sent = self.being_sent.read().await;
 
         let client = self.client()?;
         let store = client.store();
 
-        let dependent_events = store
-            .load_dependent_send_queue_events(&self.room_id)
+        let dependent_requests = store
+            .load_dependent_queued_requests(&self.room_id)
             .await
             .map_err(RoomSendQueueStorageError::StorageError)?;
 
-        let num_initial_dependent_events = dependent_events.len();
-        if num_initial_dependent_events == 0 {
+        let num_initial_dependent_requests = dependent_requests.len();
+        if num_initial_dependent_requests == 0 {
             // Returning early here avoids a bit of useless logging.
             return Ok(());
         }
 
-        let canonicalized_dependent_events = canonicalize_dependent_events(&dependent_events);
+        let canonicalized_dependent_requests = canonicalize_dependent_requests(&dependent_requests);
 
         // Get rid of the all non-canonical dependent events.
-        for original in &dependent_events {
-            if !canonicalized_dependent_events
+        for original in &dependent_requests {
+            if !canonicalized_dependent_requests
                 .iter()
                 .any(|canonical| canonical.own_transaction_id == original.own_transaction_id)
             {
                 store
-                    .remove_dependent_send_queue_event(&self.room_id, &original.own_transaction_id)
+                    .remove_dependent_queued_request(&self.room_id, &original.own_transaction_id)
                     .await
                     .map_err(RoomSendQueueStorageError::StorageError)?;
             }
         }
 
-        let mut num_dependent_events = canonicalized_dependent_events.len();
+        let mut num_dependent_requests = canonicalized_dependent_requests.len();
 
         debug!(
-            num_dependent_events,
-            num_initial_dependent_events, "starting handling of dependent events"
+            num_dependent_requests,
+            num_initial_dependent_requests, "starting handling of dependent requests"
         );
 
-        for dependent in canonicalized_dependent_events {
+        for dependent in canonicalized_dependent_requests {
             let dependent_id = dependent.own_transaction_id.clone();
 
-            match self.try_apply_single_dependent_event(&client, dependent).await {
+            match self.try_apply_single_dependent_request(&client, dependent).await {
                 Ok(should_remove) => {
                     if should_remove {
-                        // The dependent event has been successfully applied, forget about it.
+                        // The dependent request has been successfully applied, forget about it.
                         store
-                            .remove_dependent_send_queue_event(&self.room_id, &dependent_id)
+                            .remove_dependent_queued_request(&self.room_id, &dependent_id)
                             .await
                             .map_err(RoomSendQueueStorageError::StorageError)?;
 
-                        num_dependent_events -= 1;
+                        num_dependent_requests -= 1;
                     }
                 }
 
                 Err(err) => {
-                    warn!("error when applying single dependent event: {err}");
+                    warn!("error when applying single dependent request: {err}");
                 }
             }
         }
 
         debug!(
-            leftover_dependent_events = num_dependent_events,
-            "stopped handling dependent events"
+            leftover_dependent_requests = num_dependent_requests,
+            "stopped handling dependent request"
         );
 
         Ok(())
     }
 
-    /// Remove a single dependent event from storage.
-    async fn remove_dependent_send_queue_event(
+    /// Remove a single dependent request from storage.
+    async fn remove_dependent_send_queue_request(
         &self,
         dependent_event_id: &ChildTransactionId,
     ) -> Result<bool, RoomSendQueueStorageError> {
@@ -1153,7 +1174,7 @@ impl QueueStorage {
         Ok(self
             .client()?
             .store()
-            .remove_dependent_send_queue_event(&self.room_id, dependent_event_id)
+            .remove_dependent_queued_request(&self.room_id, dependent_event_id)
             .await?)
     }
 }
@@ -1184,10 +1205,11 @@ pub enum LocalEchoContent {
     },
 }
 
-/// An event that has been locally queued for sending, but hasn't been sent yet.
+/// A local representation for a request that hasn't been sent yet to the user's
+/// homeserver.
 #[derive(Clone, Debug)]
 pub struct LocalEcho {
-    /// Transaction id used to identify this event.
+    /// Transaction id used to identify the associated request.
     pub transaction_id: OwnedTransactionId,
     /// The content for the local echo.
     pub content: LocalEchoContent,
@@ -1259,8 +1281,9 @@ pub enum RoomSendQueueError {
     #[error("the room isn't in the joined state")]
     RoomNotJoined,
 
-    /// The room is missing from the client. This could happen if the client is
-    /// shutting down.
+    /// The room is missing from the client.
+    ///
+    /// This happens only whenever the client is shutting down.
     #[error("the room is now missing from the client")]
     RoomDisappeared,
 
@@ -1286,6 +1309,7 @@ pub enum RoomSendQueueStorageError {
 }
 
 /// A handle to manipulate an event that was scheduled to be sent to a room.
+// TODO (bnjbvr): consider renaming `SendEventHandle`, unless we can reuse it for medias too.
 #[derive(Clone, Debug)]
 pub struct SendHandle {
     room: RoomSendQueue,
@@ -1301,7 +1325,7 @@ impl SendHandle {
     pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
         trace!("received an abort request");
 
-        if self.room.inner.queue.cancel(&self.transaction_id).await? {
+        if self.room.inner.queue.cancel_event(&self.transaction_id).await? {
             trace!("successful abort");
 
             // Propagate a cancelled update too.
@@ -1330,7 +1354,7 @@ impl SendHandle {
 
         let serializable = SerializableEventContent::from_raw(new_content, event_type);
 
-        if self.room.inner.queue.replace(&self.transaction_id, serializable.clone()).await? {
+        if self.room.inner.queue.replace_event(&self.transaction_id, serializable.clone()).await? {
             trace!("successful edit");
 
             // Wake up the queue, in case the room was asleep before the edit.
@@ -1423,7 +1447,7 @@ impl SendReactionHandle {
     /// Will return true if the reaction could be aborted, false if it's been
     /// sent (and there's no matching local echo anymore).
     pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
-        if self.room.inner.queue.remove_dependent_send_queue_event(&self.transaction_id).await? {
+        if self.room.inner.queue.remove_dependent_send_queue_request(&self.transaction_id).await? {
             // Simple case: the reaction was found in the dependent event list.
 
             // Propagate a cancelled update too.
@@ -1450,27 +1474,29 @@ impl SendReactionHandle {
     }
 }
 
-/// From a given source of [`DependentQueuedEvent`], return only the most
+/// From a given source of [`DependentQueuedRequest`], return only the most
 /// meaningful, i.e. the ones that wouldn't be overridden after applying the
 /// others.
-fn canonicalize_dependent_events(dependent: &[DependentQueuedEvent]) -> Vec<DependentQueuedEvent> {
-    let mut by_event_id = HashMap::<OwnedTransactionId, Vec<&DependentQueuedEvent>>::new();
+fn canonicalize_dependent_requests(
+    dependent: &[DependentQueuedRequest],
+) -> Vec<DependentQueuedRequest> {
+    let mut by_event_id = HashMap::<OwnedTransactionId, Vec<&DependentQueuedRequest>>::new();
 
     for d in dependent {
         let prevs = by_event_id.entry(d.parent_transaction_id.clone()).or_default();
 
-        if prevs.iter().any(|prev| matches!(prev.kind, DependentQueuedEventKind::Redact)) {
-            // The event has already been flagged for redaction, don't consider the other
-            // dependent events.
+        if prevs.iter().any(|prev| matches!(prev.kind, DependentQueuedRequestKind::RedactEvent)) {
+            // The parent event has already been flagged for redaction, don't consider the
+            // other dependent events.
             continue;
         }
 
         match &d.kind {
-            DependentQueuedEventKind::Edit { .. } => {
+            DependentQueuedRequestKind::EditEvent { .. } => {
                 // Replace any previous edit with this one.
                 if let Some(prev_edit) = prevs
                     .iter_mut()
-                    .find(|prev| matches!(prev.kind, DependentQueuedEventKind::Edit { .. }))
+                    .find(|prev| matches!(prev.kind, DependentQueuedRequestKind::EditEvent { .. }))
                 {
                     *prev_edit = d;
                 } else {
@@ -1478,11 +1504,11 @@ fn canonicalize_dependent_events(dependent: &[DependentQueuedEvent]) -> Vec<Depe
                 }
             }
 
-            DependentQueuedEventKind::React { .. } => {
+            DependentQueuedRequestKind::ReactEvent { .. } => {
                 prevs.push(d);
             }
 
-            DependentQueuedEventKind::Redact => {
+            DependentQueuedRequestKind::RedactEvent => {
                 // Remove every other dependent action.
                 prevs.clear();
                 prevs.push(d);
@@ -1502,7 +1528,7 @@ mod tests {
 
     use assert_matches2::{assert_let, assert_matches};
     use matrix_sdk_base::store::{
-        ChildTransactionId, DependentQueuedEvent, DependentQueuedEventKind,
+        ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
         SerializableEventContent,
     };
     use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
@@ -1511,7 +1537,7 @@ mod tests {
         room_id, TransactionId,
     };
 
-    use super::canonicalize_dependent_events;
+    use super::canonicalize_dependent_requests;
     use crate::{client::WeakClient, test_utils::logged_in_client};
 
     #[async_test]
@@ -1564,10 +1590,10 @@ mod tests {
         // Smoke test: canonicalizing a single dependent event returns it.
         let txn = TransactionId::new();
 
-        let edit = DependentQueuedEvent {
+        let edit = DependentQueuedRequest {
             own_transaction_id: ChildTransactionId::new(),
             parent_transaction_id: txn.clone(),
-            kind: DependentQueuedEventKind::Edit {
+            kind: DependentQueuedRequestKind::EditEvent {
                 new_content: SerializableEventContent::new(
                     &RoomMessageEventContent::text_plain("edit").into(),
                 )
@@ -1575,10 +1601,10 @@ mod tests {
             },
             event_id: None,
         };
-        let res = canonicalize_dependent_events(&[edit]);
+        let res = canonicalize_dependent_requests(&[edit]);
 
         assert_eq!(res.len(), 1);
-        assert_matches!(&res[0].kind, DependentQueuedEventKind::Edit { .. });
+        assert_matches!(&res[0].kind, DependentQueuedRequestKind::EditEvent { .. });
         assert_eq!(res[0].parent_transaction_id, txn);
         assert!(res[0].event_id.is_none());
     }
@@ -1589,17 +1615,17 @@ mod tests {
         let txn = TransactionId::new();
 
         let mut inputs = Vec::with_capacity(100);
-        let redact = DependentQueuedEvent {
+        let redact = DependentQueuedRequest {
             own_transaction_id: ChildTransactionId::new(),
             parent_transaction_id: txn.clone(),
-            kind: DependentQueuedEventKind::Redact,
+            kind: DependentQueuedRequestKind::RedactEvent,
             event_id: None,
         };
 
-        let edit = DependentQueuedEvent {
+        let edit = DependentQueuedRequest {
             own_transaction_id: ChildTransactionId::new(),
             parent_transaction_id: txn.clone(),
-            kind: DependentQueuedEventKind::Edit {
+            kind: DependentQueuedRequestKind::EditEvent {
                 new_content: SerializableEventContent::new(
                     &RoomMessageEventContent::text_plain("edit").into(),
                 )
@@ -1622,10 +1648,10 @@ mod tests {
             inputs.push(edit);
         }
 
-        let res = canonicalize_dependent_events(&inputs);
+        let res = canonicalize_dependent_requests(&inputs);
 
         assert_eq!(res.len(), 1);
-        assert_matches!(&res[0].kind, DependentQueuedEventKind::Redact);
+        assert_matches!(&res[0].kind, DependentQueuedRequestKind::RedactEvent);
         assert_eq!(res[0].parent_transaction_id, txn);
     }
 
@@ -1635,10 +1661,10 @@ mod tests {
 
         // The latest edit of a list is always preferred.
         let inputs = (0..10)
-            .map(|i| DependentQueuedEvent {
+            .map(|i| DependentQueuedRequest {
                 own_transaction_id: ChildTransactionId::new(),
                 parent_transaction_id: parent_txn.clone(),
-                kind: DependentQueuedEventKind::Edit {
+                kind: DependentQueuedRequestKind::EditEvent {
                     new_content: SerializableEventContent::new(
                         &RoomMessageEventContent::text_plain(format!("edit{i}")).into(),
                     )
@@ -1650,10 +1676,10 @@ mod tests {
 
         let txn = inputs[9].parent_transaction_id.clone();
 
-        let res = canonicalize_dependent_events(&inputs);
+        let res = canonicalize_dependent_requests(&inputs);
 
         assert_eq!(res.len(), 1);
-        assert_let!(DependentQueuedEventKind::Edit { new_content } = &res[0].kind);
+        assert_let!(DependentQueuedRequestKind::EditEvent { new_content } = &res[0].kind);
         assert_let!(
             AnyMessageLikeEventContent::RoomMessage(msg) = new_content.deserialize().unwrap()
         );
@@ -1671,16 +1697,16 @@ mod tests {
 
         let inputs = vec![
             // This one pertains to txn1.
-            DependentQueuedEvent {
+            DependentQueuedRequest {
                 own_transaction_id: child1.clone(),
-                kind: DependentQueuedEventKind::Redact,
+                kind: DependentQueuedRequestKind::RedactEvent,
                 parent_transaction_id: txn1.clone(),
                 event_id: None,
             },
             // This one pertains to txn2.
-            DependentQueuedEvent {
+            DependentQueuedRequest {
                 own_transaction_id: child2,
-                kind: DependentQueuedEventKind::Edit {
+                kind: DependentQueuedRequestKind::EditEvent {
                     new_content: SerializableEventContent::new(
                         &RoomMessageEventContent::text_plain("edit").into(),
                     )
@@ -1691,7 +1717,7 @@ mod tests {
             },
         ];
 
-        let res = canonicalize_dependent_events(&inputs);
+        let res = canonicalize_dependent_requests(&inputs);
 
         // The canonicalization shouldn't depend per event id.
         assert_eq!(res.len(), 2);
@@ -1699,10 +1725,10 @@ mod tests {
         for dependent in res {
             if dependent.own_transaction_id == child1 {
                 assert_eq!(dependent.parent_transaction_id, txn1);
-                assert_matches!(dependent.kind, DependentQueuedEventKind::Redact);
+                assert_matches!(dependent.kind, DependentQueuedRequestKind::RedactEvent);
             } else {
                 assert_eq!(dependent.parent_transaction_id, txn2);
-                assert_matches!(dependent.kind, DependentQueuedEventKind::Edit { .. });
+                assert_matches!(dependent.kind, DependentQueuedRequestKind::EditEvent { .. });
             }
         }
     }
@@ -1713,17 +1739,17 @@ mod tests {
         let txn = TransactionId::new();
 
         let react_id = ChildTransactionId::new();
-        let react = DependentQueuedEvent {
+        let react = DependentQueuedRequest {
             own_transaction_id: react_id.clone(),
-            kind: DependentQueuedEventKind::React { key: "🧠".to_owned() },
+            kind: DependentQueuedRequestKind::ReactEvent { key: "🧠".to_owned() },
             parent_transaction_id: txn.clone(),
             event_id: None,
         };
 
         let edit_id = ChildTransactionId::new();
-        let edit = DependentQueuedEvent {
+        let edit = DependentQueuedRequest {
             own_transaction_id: edit_id.clone(),
-            kind: DependentQueuedEventKind::Edit {
+            kind: DependentQueuedRequestKind::EditEvent {
                 new_content: SerializableEventContent::new(
                     &RoomMessageEventContent::text_plain("edit").into(),
                 )
@@ -1733,7 +1759,7 @@ mod tests {
             event_id: None,
         };
 
-        let res = canonicalize_dependent_events(&[react, edit]);
+        let res = canonicalize_dependent_requests(&[react, edit]);
 
         assert_eq!(res.len(), 2);
         assert_eq!(res[0].own_transaction_id, edit_id);

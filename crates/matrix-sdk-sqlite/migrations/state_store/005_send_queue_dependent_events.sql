@@ -14,6 +14,6 @@ CREATE TABLE "dependent_send_queue_events" (
     -- Used as a value (thus encrypted/decrypted), can be null.
     "event_id" BLOB NULL,
 
-    -- Serialized `DependentQueuedEventKind`, used as a value (thus encrypted/decrypted).
+    -- Serialized `DependentQueuedRequestKind`, used as a value (thus encrypted/decrypted).
     "content" BLOB NOT NULL
 );
