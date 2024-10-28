@@ -61,4 +61,12 @@ pub enum Error {
     /// function with invalid parameters
     #[error("receive_all_members function was called with invalid parameters")]
     InvalidReceiveMembersParameters,
+
+    /// This request failed because the local data wasn't sufficient.
+    #[error("Local cache doesn't contain all necessary data to perform the action.")]
+    InsufficientData,
+
+    /// There was a [`serde_json`] deserialization error.
+    #[error(transparent)]
+    DeserializationError(#[from] serde_json::error::Error),
 }

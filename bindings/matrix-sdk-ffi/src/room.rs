@@ -634,7 +634,7 @@ impl Room {
     }
 
     pub async fn get_power_levels(&self) -> Result<RoomPowerLevels, ClientError> {
-        let power_levels = self.inner.room_power_levels().await?;
+        let power_levels = self.inner.power_levels().await.map_err(matrix_sdk::Error::from)?;
         Ok(RoomPowerLevels::from(power_levels))
     }
 

@@ -624,7 +624,7 @@ async fn test_reset_power_levels() {
         .mount(&server)
         .await;
 
-    let initial_power_levels = room.room_power_levels().await.unwrap();
+    let initial_power_levels = room.power_levels().await.unwrap();
     assert_eq!(initial_power_levels.events[&TimelineEventType::RoomAvatar], int!(100));
 
     room.reset_power_levels().await.unwrap();

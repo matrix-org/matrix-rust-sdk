@@ -789,6 +789,8 @@ impl BaseClient {
         room: &Room,
     ) -> Option<(Box<LatestEvent>, usize)> {
         let enc_events = room.latest_encrypted_events();
+        let power_levels = room.power_levels().await.ok();
+        let power_levels_info = Some(room.own_user_id()).zip(power_levels.as_ref());
 
         // Walk backwards through the encrypted events, looking for one we can decrypt
         for (i, event) in enc_events.iter().enumerate().rev() {
@@ -802,14 +804,13 @@ impl BaseClient {
                 // We found an event we can decrypt
                 if let Ok(any_sync_event) = decrypted.raw().deserialize() {
                     // We can deserialize it to find its type
-                    match is_suitable_for_latest_event(&any_sync_event) {
+                    match is_suitable_for_latest_event(&any_sync_event, power_levels_info) {
                         PossibleLatestEvent::YesRoomMessage(_)
                         | PossibleLatestEvent::YesPoll(_)
                         | PossibleLatestEvent::YesCallInvite(_)
                         | PossibleLatestEvent::YesCallNotify(_)
                         | PossibleLatestEvent::YesSticker(_)
                         | PossibleLatestEvent::YesKnockedStateEvent(_) => {
-                            // The event is the right type for us to use as latest_event
                             return Some((Box::new(LatestEvent::new(decrypted)), i));
                         }
                         _ => (),
