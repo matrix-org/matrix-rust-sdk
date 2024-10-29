@@ -2163,16 +2163,6 @@ impl Room {
         Ok(())
     }
 
-    /// Get the current power levels of this room.
-    pub async fn room_power_levels(&self) -> Result<RoomPowerLevels> {
-        Ok(self
-            .get_state_event_static::<RoomPowerLevelsEventContent>()
-            .await?
-            .ok_or(Error::InsufficientData)?
-            .deserialize()?
-            .power_levels())
-    }
-
     /// Resets the room's power levels to the default values
     ///
     /// [spec]: https://spec.matrix.org/v1.9/client-server-api/#mroompower_levels
