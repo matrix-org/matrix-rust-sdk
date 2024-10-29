@@ -61,7 +61,7 @@ use tokio::sync::broadcast;
 use tracing::{debug, field::debug, info, instrument, warn};
 
 use super::{
-    members::MemberRoomInfo, BaseRoomInfo, DisplayName, RoomCreateWithCreatorEventContent,
+    members::MemberRoomInfo, BaseRoomInfo, RoomCreateWithCreatorEventContent, RoomDisplayName,
     RoomMember, RoomNotableTags,
 };
 #[cfg(feature = "experimental-sliding-sync")]
@@ -572,8 +572,8 @@ impl Room {
     /// [`Self::cached_display_name`].
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
-    pub async fn compute_display_name(&self) -> StoreResult<DisplayName> {
-        let update_cache = |new_val: DisplayName| {
+    pub async fn compute_display_name(&self) -> StoreResult<RoomDisplayName> {
+        let update_cache = |new_val: RoomDisplayName| {
             self.inner.update_if(|info| {
                 if info.cached_display_name.as_ref() != Some(&new_val) {
                     info.cached_display_name = Some(new_val.clone());
@@ -591,13 +591,13 @@ impl Room {
             if let Some(name) = inner.name() {
                 let name = name.trim().to_owned();
                 drop(inner); // drop the lock on `self.inner` to avoid deadlocking in `update_cache`.
-                return Ok(update_cache(DisplayName::Named(name)));
+                return Ok(update_cache(RoomDisplayName::Named(name)));
             }
 
             if let Some(alias) = inner.canonical_alias() {
                 let alias = alias.alias().trim().to_owned();
                 drop(inner); // See above comment.
-                return Ok(update_cache(DisplayName::Aliased(alias)));
+                return Ok(update_cache(RoomDisplayName::Aliased(alias)));
             }
 
             inner.summary.clone()
@@ -703,7 +703,7 @@ impl Room {
     ///
     /// This cache is refilled every time we call
     /// [`Self::compute_display_name`].
-    pub fn cached_display_name(&self) -> Option<DisplayName> {
+    pub fn cached_display_name(&self) -> Option<RoomDisplayName> {
         self.inner.read().cached_display_name.clone()
     }
 
@@ -1103,7 +1103,7 @@ pub struct RoomInfo {
     /// Filled by calling [`Room::compute_display_name`]. It's automatically
     /// filled at start when creating a room, or on every successful sync.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) cached_display_name: Option<DisplayName>,
+    pub(crate) cached_display_name: Option<RoomDisplayName>,
 
     /// Cached user defined notification mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1767,7 +1767,10 @@ impl RoomStateFilter {
 /// Calculate room name according to step 3 of the [naming algorithm].
 ///
 /// [naming algorithm]: https://spec.matrix.org/latest/client-server-api/#calculating-the-display-name-for-a-room
-fn compute_display_name_from_heroes(num_joined_invited: u64, mut heroes: Vec<&str>) -> DisplayName {
+fn compute_display_name_from_heroes(
+    num_joined_invited: u64,
+    mut heroes: Vec<&str>,
+) -> RoomDisplayName {
     let num_heroes = heroes.len() as u64;
     let num_joined_invited_except_self = num_joined_invited.saturating_sub(1);
 
@@ -1789,12 +1792,12 @@ fn compute_display_name_from_heroes(num_joined_invited: u64, mut heroes: Vec<&st
     // User is alone.
     if num_joined_invited <= 1 {
         if names.is_empty() {
-            DisplayName::Empty
+            RoomDisplayName::Empty
         } else {
-            DisplayName::EmptyWas(names)
+            RoomDisplayName::EmptyWas(names)
         }
     } else {
-        DisplayName::Calculated(names)
+        RoomDisplayName::Calculated(names)
     }
 }
 
@@ -1851,7 +1854,7 @@ mod tests {
     use crate::{
         rooms::RoomNotableTags,
         store::{IntoStateStore, MemoryStore, StateChanges, StateStore},
-        BaseClient, DisplayName, MinimalStateEvent, OriginalMinimalStateEvent,
+        BaseClient, MinimalStateEvent, OriginalMinimalStateEvent, RoomDisplayName,
         RoomInfoNotableUpdateReasons, SessionMeta,
     };
 
@@ -2126,7 +2129,7 @@ mod tests {
 
         assert_eq!(
             info.cached_display_name.as_ref(),
-            Some(&DisplayName::Calculated("lol".to_owned())),
+            Some(&RoomDisplayName::Calculated("lol".to_owned())),
         );
         assert_eq!(
             info.cached_user_defined_notification_mode.as_ref(),
@@ -2331,7 +2334,7 @@ mod tests {
     #[async_test]
     async fn test_display_name_for_joined_room_is_empty_if_no_info() {
         let (_, room) = make_room_test_helper(RoomState::Joined);
-        assert_eq!(room.compute_display_name().await.unwrap(), DisplayName::Empty);
+        assert_eq!(room.compute_display_name().await.unwrap(), RoomDisplayName::Empty);
     }
 
     #[async_test]
@@ -2341,7 +2344,7 @@ mod tests {
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
             room.compute_display_name().await.unwrap(),
-            DisplayName::Aliased("test".to_owned())
+            RoomDisplayName::Aliased("test".to_owned())
         );
     }
 
@@ -2352,20 +2355,20 @@ mod tests {
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
             room.compute_display_name().await.unwrap(),
-            DisplayName::Aliased("test".to_owned())
+            RoomDisplayName::Aliased("test".to_owned())
         );
         room.inner.update(|info| info.base_info.name = Some(make_name_event()));
         // Display name wasn't cached when we asked for it above, and name overrides
         assert_eq!(
             room.compute_display_name().await.unwrap(),
-            DisplayName::Named("Test Room".to_owned())
+            RoomDisplayName::Named("Test Room".to_owned())
         );
     }
 
     #[async_test]
     async fn test_display_name_for_invited_room_is_empty_if_no_info() {
         let (_, room) = make_room_test_helper(RoomState::Invited);
-        assert_eq!(room.compute_display_name().await.unwrap(), DisplayName::Empty);
+        assert_eq!(room.compute_display_name().await.unwrap(), RoomDisplayName::Empty);
     }
 
     #[async_test]
@@ -2378,7 +2381,7 @@ mod tests {
         });
         room.inner.update(|info| info.base_info.name = Some(room_name));
 
-        assert_eq!(room.compute_display_name().await.unwrap(), DisplayName::Empty);
+        assert_eq!(room.compute_display_name().await.unwrap(), RoomDisplayName::Empty);
     }
 
     #[async_test]
@@ -2388,7 +2391,7 @@ mod tests {
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
             room.compute_display_name().await.unwrap(),
-            DisplayName::Aliased("test".to_owned())
+            RoomDisplayName::Aliased("test".to_owned())
         );
     }
 
@@ -2399,13 +2402,13 @@ mod tests {
             .update(|info| info.base_info.canonical_alias = Some(make_canonical_alias_event()));
         assert_eq!(
             room.compute_display_name().await.unwrap(),
-            DisplayName::Aliased("test".to_owned())
+            RoomDisplayName::Aliased("test".to_owned())
         );
         room.inner.update(|info| info.base_info.name = Some(make_name_event()));
         // Display name wasn't cached when we asked for it above, and name overrides
         assert_eq!(
             room.compute_display_name().await.unwrap(),
-            DisplayName::Named("Test Room".to_owned())
+            RoomDisplayName::Named("Test Room".to_owned())
         );
     }
 
@@ -2447,7 +2450,7 @@ mod tests {
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
             room.compute_display_name().await.unwrap(),
-            DisplayName::Calculated("Matthew".to_owned())
+            RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
 
@@ -2469,7 +2472,7 @@ mod tests {
 
         assert_eq!(
             room.compute_display_name().await.unwrap(),
-            DisplayName::Calculated("Matthew".to_owned())
+            RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
 
@@ -2499,7 +2502,7 @@ mod tests {
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
             room.compute_display_name().await.unwrap(),
-            DisplayName::Calculated("Matthew".to_owned())
+            RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
 
@@ -2524,7 +2527,7 @@ mod tests {
 
         assert_eq!(
             room.compute_display_name().await.unwrap(),
-            DisplayName::Calculated("Matthew".to_owned())
+            RoomDisplayName::Calculated("Matthew".to_owned())
         );
     }
 
@@ -2579,7 +2582,7 @@ mod tests {
 
         assert_eq!(
             room.compute_display_name().await.unwrap(),
-            DisplayName::Calculated("Bob, Carol, Denis, Erica, and 3 others".to_owned())
+            RoomDisplayName::Calculated("Bob, Carol, Denis, Erica, and 3 others".to_owned())
         );
     }
 
@@ -2628,7 +2631,7 @@ mod tests {
 
         assert_eq!(
             room.compute_display_name().await.unwrap(),
-            DisplayName::Calculated("Alice, Bob, Carol, Denis, Erica, and 2 others".to_owned())
+            RoomDisplayName::Calculated("Alice, Bob, Carol, Denis, Erica, and 2 others".to_owned())
         );
     }
 
@@ -2658,7 +2661,7 @@ mod tests {
         room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
         assert_eq!(
             room.compute_display_name().await.unwrap(),
-            DisplayName::EmptyWas("Matthew".to_owned())
+            RoomDisplayName::EmptyWas("Matthew".to_owned())
         );
     }
 
@@ -3054,34 +3057,34 @@ mod tests {
     #[test]
     fn test_calculate_room_name() {
         let mut actual = compute_display_name_from_heroes(2, vec!["a"]);
-        assert_eq!(DisplayName::Calculated("a".to_owned()), actual);
+        assert_eq!(RoomDisplayName::Calculated("a".to_owned()), actual);
 
         actual = compute_display_name_from_heroes(3, vec!["a", "b"]);
-        assert_eq!(DisplayName::Calculated("a, b".to_owned()), actual);
+        assert_eq!(RoomDisplayName::Calculated("a, b".to_owned()), actual);
 
         actual = compute_display_name_from_heroes(4, vec!["a", "b", "c"]);
-        assert_eq!(DisplayName::Calculated("a, b, c".to_owned()), actual);
+        assert_eq!(RoomDisplayName::Calculated("a, b, c".to_owned()), actual);
 
         actual = compute_display_name_from_heroes(5, vec!["a", "b", "c"]);
-        assert_eq!(DisplayName::Calculated("a, b, c, and 2 others".to_owned()), actual);
+        assert_eq!(RoomDisplayName::Calculated("a, b, c, and 2 others".to_owned()), actual);
 
         actual = compute_display_name_from_heroes(5, vec![]);
-        assert_eq!(DisplayName::Calculated("5 people".to_owned()), actual);
+        assert_eq!(RoomDisplayName::Calculated("5 people".to_owned()), actual);
 
         actual = compute_display_name_from_heroes(0, vec![]);
-        assert_eq!(DisplayName::Empty, actual);
+        assert_eq!(RoomDisplayName::Empty, actual);
 
         actual = compute_display_name_from_heroes(1, vec![]);
-        assert_eq!(DisplayName::Empty, actual);
+        assert_eq!(RoomDisplayName::Empty, actual);
 
         actual = compute_display_name_from_heroes(1, vec!["a"]);
-        assert_eq!(DisplayName::EmptyWas("a".to_owned()), actual);
+        assert_eq!(RoomDisplayName::EmptyWas("a".to_owned()), actual);
 
         actual = compute_display_name_from_heroes(1, vec!["a", "b"]);
-        assert_eq!(DisplayName::EmptyWas("a, b".to_owned()), actual);
+        assert_eq!(RoomDisplayName::EmptyWas("a, b".to_owned()), actual);
 
         actual = compute_display_name_from_heroes(1, vec!["a", "b", "c"]);
-        assert_eq!(DisplayName::EmptyWas("a, b, c".to_owned()), actual);
+        assert_eq!(RoomDisplayName::EmptyWas("a, b, c".to_owned()), actual);
     }
 
     #[test]

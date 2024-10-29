@@ -3,7 +3,7 @@ use std::{iter, time::Duration};
 use assert_matches2::{assert_let, assert_matches};
 use js_int::uint;
 use matrix_sdk::{
-    config::SyncSettings, room::RoomMember, test_utils::events::EventFactory, DisplayName,
+    config::SyncSettings, room::RoomMember, test_utils::events::EventFactory, RoomDisplayName,
     RoomMemberships,
 };
 use matrix_sdk_test::{
@@ -66,7 +66,7 @@ async fn test_calculate_room_names_from_summary() {
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     assert_eq!(
-        DisplayName::Calculated("example2".to_owned()),
+        RoomDisplayName::Calculated("example2".to_owned()),
         room.compute_display_name().await.unwrap()
     );
 }
@@ -86,7 +86,7 @@ async fn test_room_names() {
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     assert_eq!(
-        DisplayName::Aliased("tutorial".to_owned()),
+        RoomDisplayName::Aliased("tutorial".to_owned()),
         room.compute_display_name().await.unwrap()
     );
 
@@ -100,7 +100,7 @@ async fn test_room_names() {
     let invited_room = client.get_room(room_id!("!696r7674:example.com")).unwrap();
 
     assert_eq!(
-        DisplayName::Named("My Room Name".to_owned()),
+        RoomDisplayName::Named("My Room Name".to_owned()),
         invited_room.compute_display_name().await.unwrap()
     );
 
@@ -136,7 +136,7 @@ async fn test_room_names() {
     let room = client.get_room(room_id).unwrap();
 
     assert_eq!(
-        DisplayName::Calculated(
+        RoomDisplayName::Calculated(
             "user_0, user_1, user_10, user_11, user_12, and 10 others".to_owned()
         ),
         room.compute_display_name().await.unwrap()
@@ -186,7 +186,7 @@ async fn test_room_names() {
     let room = client.get_room(room_id).unwrap();
 
     assert_eq!(
-        DisplayName::Calculated("Bob, example1".to_owned()),
+        RoomDisplayName::Calculated("Bob, example1".to_owned()),
         room.compute_display_name().await.unwrap()
     );
 
@@ -206,7 +206,7 @@ async fn test_room_names() {
     let room = client.get_room(room_id).unwrap();
 
     assert_eq!(
-        DisplayName::EmptyWas("user_0, user_1, user_2".to_owned()),
+        RoomDisplayName::EmptyWas("user_0, user_1, user_2".to_owned()),
         room.compute_display_name().await.unwrap()
     );
 }

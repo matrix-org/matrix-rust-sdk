@@ -25,9 +25,10 @@ pub use matrix_sdk_base::crypto;
 pub use matrix_sdk_base::{
     deserialized_responses,
     store::{DynStateStore, MemoryStore, StateStoreExt},
-    ComposerDraft, ComposerDraftType, DisplayName, QueueWedgeError, Room as BaseRoom,
-    RoomCreateWithCreatorEventContent, RoomHero, RoomInfo, RoomMember as BaseRoomMember,
-    RoomMemberships, RoomState, SessionMeta, StateChanges, StateStore, StoreError,
+    ComposerDraft, ComposerDraftType, QueueWedgeError, Room as BaseRoom,
+    RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo,
+    RoomMember as BaseRoomMember, RoomMemberships, RoomState, SessionMeta, StateChanges,
+    StateStore, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
