@@ -160,6 +160,7 @@ pub(crate) struct ClientLocks {
     /// Look at the [`Account::mark_as_dm()`] method for a more detailed
     /// explanation.
     pub(crate) mark_as_dm_lock: Mutex<()>,
+
     /// Lock ensuring that only a single secret store is getting opened at the
     /// same time.
     ///
@@ -167,6 +168,7 @@ pub(crate) struct ClientLocks {
     /// default secret storage keys.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) open_secret_store_lock: Mutex<()>,
+
     /// Lock ensuring that we're only storing a single secret at a time.
     ///
     /// Take a look at the [`SecretStore::put_secret`] method for a more
@@ -175,23 +177,29 @@ pub(crate) struct ClientLocks {
     /// [`SecretStore::put_secret`]: crate::encryption::secret_storage::SecretStore::put_secret
     #[cfg(feature = "e2e-encryption")]
     pub(crate) store_secret_lock: Mutex<()>,
+
     /// Lock ensuring that only one method at a time might modify our backup.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) backup_modify_lock: Mutex<()>,
+
     /// Lock ensuring that we're going to attempt to upload backups for a single
     /// requester.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) backup_upload_lock: Mutex<()>,
+
     /// Handler making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) group_session_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
+
     /// Lock making sure we're only doing one key claim request at a time.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) key_claim_lock: Mutex<()>,
+
     /// Handler to ensure that only one members request is running at a time,
     /// given a room.
     pub(crate) members_request_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
+
     /// Handler to ensure that only one encryption state request is running at a
     /// time, given a room.
     pub(crate) encryption_state_deduplicated_handler: DeduplicatingHandler<OwnedRoomId>,
@@ -203,6 +211,7 @@ pub(crate) struct ClientLocks {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) cross_process_crypto_store_lock:
         OnceCell<CrossProcessStoreLock<LockableCryptoStore>>,
+
     /// Latest "generation" of data known by the crypto store.
     ///
     /// This is a counter that only increments, set in the database (and can
