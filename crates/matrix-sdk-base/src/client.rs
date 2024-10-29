@@ -93,19 +93,23 @@ use crate::{
 pub struct BaseClient {
     /// Database
     pub(crate) store: Store,
+
     /// The store used by the event cache.
     event_cache_store: Arc<DynEventCacheStore>,
+
     /// The store used for encryption.
     ///
     /// This field is only meant to be used for `OlmMachine` initialization.
     /// All operations on it happen inside the `OlmMachine`.
     #[cfg(feature = "e2e-encryption")]
     crypto_store: Arc<DynCryptoStore>,
+
     /// The olm-machine that is created once the
     /// [`SessionMeta`][crate::session::SessionMeta] is set via
     /// [`BaseClient::set_session_meta`]
     #[cfg(feature = "e2e-encryption")]
     olm_machine: Arc<RwLock<Option<OlmMachine>>>,
+
     /// Observable of when a user is ignored/unignored.
     pub(crate) ignore_user_list_changes: SharedObservable<Vec<String>>,
 
