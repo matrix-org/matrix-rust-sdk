@@ -75,6 +75,8 @@ commit_parsers = [
     { message = "^test", skip = true },
     { message = "^ci", skip = true },
 ]
+# forbid parsers from skipping breaking changes
+protect_breaking_commits = true
 # filter out the commits that are not matched by commit parsers
 filter_commits = true
 # glob pattern for matching git tags
