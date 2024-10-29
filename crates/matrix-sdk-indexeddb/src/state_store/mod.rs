@@ -26,8 +26,8 @@ use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     store::{
         ChildTransactionId, ComposerDraft, DependentQueuedRequest, DependentQueuedRequestKind,
-        QueuedRequest, QueuedRequestKind, SerializableEventContent, ServerCapabilities,
-        StateChanges, StateStore, StoreError,
+        QueuedRequest, QueuedRequestKind, SentRequestKey, SerializableEventContent,
+        ServerCapabilities, StateChanges, StateStore, StoreError,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
 };
@@ -1548,7 +1548,7 @@ impl_state_store!({
             kind: content,
             parent_transaction_id: parent_txn_id.to_owned(),
             own_transaction_id: own_txn_id,
-            event_id: None,
+            parent_key: None,
         });
 
         // Save the new vector into db.
@@ -1563,7 +1563,7 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
-        event_id: OwnedEventId,
+        parent_key: SentRequestKey,
     ) -> Result<usize> {
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
 
@@ -1586,7 +1586,7 @@ impl_state_store!({
         // Modify all requests that match.
         let mut num_updated = 0;
         for entry in prev.iter_mut().filter(|entry| entry.parent_transaction_id == parent_txn_id) {
-            entry.event_id = Some(event_id.clone());
+            entry.parent_key = Some(parent_key.clone());
             num_updated += 1;
         }
 

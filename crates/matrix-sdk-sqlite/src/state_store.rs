@@ -13,7 +13,7 @@ use matrix_sdk_base::{
     store::{
         migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedRequest,
         DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-        SerializableEventContent,
+        SentRequestKey, SerializableEventContent,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue,
@@ -69,7 +69,7 @@ mod keys {
 /// This is used to figure whether the sqlite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`SqliteStateStore::run_migrations`] function..
-const DATABASE_VERSION: u8 = 8;
+const DATABASE_VERSION: u8 = 9;
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -297,6 +297,16 @@ impl SqliteStateStore {
             })
                 .await?;
         }
+
+        if from < 9 && to >= 9 {
+            conn.with_transaction(move |txn| {
+                // Run the migration.
+                txn.execute_batch(include_str!("../migrations/state_store/008_send_queue.sql"))?;
+                txn.set_db_version(9)
+            })
+            .await?;
+        }
+
         Ok(())
     }
 
@@ -1854,10 +1864,10 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
-        event_id: OwnedEventId,
+        parent_key: SentRequestKey,
     ) -> Result<usize> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
-        let event_id = self.serialize_value(&event_id)?;
+        let parent_key = self.serialize_value(&parent_key)?;
 
         // See comment in `save_send_queue_event`.
         let parent_txn_id = parent_txn_id.to_string();
@@ -1866,9 +1876,9 @@ impl StateStore for SqliteStateStore {
             .await?
             .with_transaction(move |txn| {
                 Ok(txn.prepare_cached(
-                    "UPDATE dependent_send_queue_events SET event_id = ? WHERE parent_transaction_id = ? and room_id = ?",
+                    "UPDATE dependent_send_queue_events SET parent_key = ? WHERE parent_transaction_id = ? and room_id = ?",
                 )?
-                .execute((event_id, parent_txn_id, room_id))?)
+                .execute((parent_key, parent_txn_id, room_id))?)
             })
             .await
     }
@@ -1908,7 +1918,7 @@ impl StateStore for SqliteStateStore {
             .acquire()
             .await?
             .prepare(
-                "SELECT own_transaction_id, parent_transaction_id, event_id, content FROM dependent_send_queue_events WHERE room_id = ? ORDER BY ROWID",
+                "SELECT own_transaction_id, parent_transaction_id, parent_key, content FROM dependent_send_queue_events WHERE room_id = ? ORDER BY ROWID",
                 |mut stmt| {
                     stmt.query((room_id,))?
                         .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
@@ -1922,7 +1932,7 @@ impl StateStore for SqliteStateStore {
             dependent_events.push(DependentQueuedRequest {
                 own_transaction_id: entry.0.into(),
                 parent_transaction_id: entry.1.into(),
-                event_id: entry.2.map(|bytes| self.deserialize_value(&bytes)).transpose()?,
+                parent_key: entry.2.map(|bytes| self.deserialize_value(&bytes)).transpose()?,
                 kind: self.deserialize_json(&entry.3)?,
             });
         }

@@ -36,7 +36,7 @@ use ruma::{
 use tracing::{debug, instrument, trace, warn};
 
 use super::{
-    send_queue::{ChildTransactionId, QueuedRequest, SerializableEventContent},
+    send_queue::{ChildTransactionId, QueuedRequest, SentRequestKey, SerializableEventContent},
     traits::{ComposerDraft, ServerCapabilities},
     DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequestKind, Result, RoomInfo,
     StateChanges, StateStore, StoreError,
@@ -907,7 +907,7 @@ impl StateStore for MemoryStore {
                 kind: content,
                 parent_transaction_id: parent_transaction_id.to_owned(),
                 own_transaction_id,
-                event_id: None,
+                parent_key: None,
             },
         );
         Ok(())
@@ -917,13 +917,13 @@ impl StateStore for MemoryStore {
         &self,
         room: &RoomId,
         parent_txn_id: &TransactionId,
-        event_id: OwnedEventId,
+        sent_parent_key: SentRequestKey,
     ) -> Result<usize, Self::Error> {
         let mut dependent_send_queue_events = self.dependent_send_queue_events.write().unwrap();
         let dependents = dependent_send_queue_events.entry(room.to_owned()).or_default();
         let mut num_updated = 0;
         for d in dependents.iter_mut().filter(|item| item.parent_transaction_id == parent_txn_id) {
-            d.event_id = Some(event_id.clone());
+            d.parent_key = Some(sent_parent_key.clone());
             num_updated += 1;
         }
         Ok(num_updated)

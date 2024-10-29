@@ -54,7 +54,7 @@ use std::{
 use matrix_sdk_base::{
     store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError,
-        QueuedRequest, QueuedRequestKind, SerializableEventContent,
+        QueuedRequest, QueuedRequestKind, SentRequestKey, SerializableEventContent,
     },
     RoomState, StoreError,
 };
@@ -772,7 +772,11 @@ impl QueueStorage {
 
         // Update all dependent requests.
         store
-            .update_dependent_queued_request(&self.room_id, transaction_id, event_id.to_owned())
+            .update_dependent_queued_request(
+                &self.room_id,
+                transaction_id,
+                SentRequestKey::Event(event_id.to_owned()),
+            )
             .await?;
 
         let removed = store.remove_send_queue_request(&self.room_id, transaction_id).await?;
@@ -953,9 +957,17 @@ impl QueueStorage {
     ) -> Result<bool, RoomSendQueueError> {
         let store = client.store();
 
+        let parent_key = de.parent_key;
+
         match de.kind {
             DependentQueuedRequestKind::EditEvent { new_content } => {
-                if let Some(event_id) = de.event_id {
+                if let Some(parent_key) = parent_key {
+                    let Some(event_id) = parent_key.into_event_id() else {
+                        return Err(RoomSendQueueError::StorageError(
+                            RoomSendQueueStorageError::InvalidParentKey,
+                        ));
+                    };
+
                     // The parent event has been sent, so send an edit event.
                     let room = client
                         .get_room(&self.room_id)
@@ -1030,7 +1042,13 @@ impl QueueStorage {
             }
 
             DependentQueuedRequestKind::RedactEvent => {
-                if let Some(event_id) = de.event_id {
+                if let Some(parent_key) = parent_key {
+                    let Some(event_id) = parent_key.into_event_id() else {
+                        return Err(RoomSendQueueError::StorageError(
+                            RoomSendQueueStorageError::InvalidParentKey,
+                        ));
+                    };
+
                     // The parent event has been sent; send a redaction.
                     let room = client
                         .get_room(&self.room_id)
@@ -1064,10 +1082,16 @@ impl QueueStorage {
             }
 
             DependentQueuedRequestKind::ReactEvent { key } => {
-                if let Some(event_id) = de.event_id {
+                if let Some(parent_key) = parent_key {
+                    let Some(parent_event_id) = parent_key.into_event_id() else {
+                        return Err(RoomSendQueueError::StorageError(
+                            RoomSendQueueStorageError::InvalidParentKey,
+                        ));
+                    };
+
                     // Queue the reaction event in the send queue 🧠.
                     let react_event =
-                        ReactionEventContent::new(Annotation::new(event_id, key)).into();
+                        ReactionEventContent::new(Annotation::new(parent_event_id, key)).into();
                     let serializable = SerializableEventContent::from_raw(
                         Raw::new(&react_event)
                             .map_err(RoomSendQueueStorageError::JsonSerialization)?,
@@ -1302,6 +1326,11 @@ pub enum RoomSendQueueStorageError {
     /// Error caused when (de)serializing into/from json.
     #[error(transparent)]
     JsonSerialization(#[from] serde_json::Error),
+
+    /// A parent key was expected to be of a certain type, and it was another
+    /// type instead.
+    #[error("a dependent event had an invalid parent key type")]
+    InvalidParentKey,
 
     /// The client is shutting down.
     #[error("The client is shutting down.")]
@@ -1599,14 +1628,14 @@ mod tests {
                 )
                 .unwrap(),
             },
-            event_id: None,
+            parent_key: None,
         };
         let res = canonicalize_dependent_requests(&[edit]);
 
         assert_eq!(res.len(), 1);
         assert_matches!(&res[0].kind, DependentQueuedRequestKind::EditEvent { .. });
         assert_eq!(res[0].parent_transaction_id, txn);
-        assert!(res[0].event_id.is_none());
+        assert!(res[0].parent_key.is_none());
     }
 
     #[test]
@@ -1619,7 +1648,7 @@ mod tests {
             own_transaction_id: ChildTransactionId::new(),
             parent_transaction_id: txn.clone(),
             kind: DependentQueuedRequestKind::RedactEvent,
-            event_id: None,
+            parent_key: None,
         };
 
         let edit = DependentQueuedRequest {
@@ -1631,7 +1660,7 @@ mod tests {
                 )
                 .unwrap(),
             },
-            event_id: None,
+            parent_key: None,
         };
 
         inputs.push({
@@ -1670,7 +1699,7 @@ mod tests {
                     )
                     .unwrap(),
                 },
-                event_id: None,
+                parent_key: None,
             })
             .collect::<Vec<_>>();
 
@@ -1701,7 +1730,7 @@ mod tests {
                 own_transaction_id: child1.clone(),
                 kind: DependentQueuedRequestKind::RedactEvent,
                 parent_transaction_id: txn1.clone(),
-                event_id: None,
+                parent_key: None,
             },
             // This one pertains to txn2.
             DependentQueuedRequest {
@@ -1713,7 +1742,7 @@ mod tests {
                     .unwrap(),
                 },
                 parent_transaction_id: txn2.clone(),
-                event_id: None,
+                parent_key: None,
             },
         ];
 
@@ -1743,7 +1772,7 @@ mod tests {
             own_transaction_id: react_id.clone(),
             kind: DependentQueuedRequestKind::ReactEvent { key: "🧠".to_owned() },
             parent_transaction_id: txn.clone(),
-            event_id: None,
+            parent_key: None,
         };
 
         let edit_id = ChildTransactionId::new();
@@ -1756,7 +1785,7 @@ mod tests {
                 .unwrap(),
             },
             parent_transaction_id: txn,
-            event_id: None,
+            parent_key: None,
         };
 
         let res = canonicalize_dependent_requests(&[react, edit]);

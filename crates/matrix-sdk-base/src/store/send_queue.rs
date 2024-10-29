@@ -150,18 +150,15 @@ pub enum QueueWedgeError {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DependentQueuedRequestKind {
     /// The event should be edited.
-    #[serde(rename = "Edit")]
     EditEvent {
         /// The new event for the content.
         new_content: SerializableEventContent,
     },
 
     /// The event should be redacted/aborted/removed.
-    #[serde(rename = "Redact")]
     RedactEvent,
 
     /// The event should be reacted to, with the given key.
-    #[serde(rename = "React")]
     ReactEvent {
         /// Key used for the reaction.
         key: String,
@@ -207,6 +204,23 @@ impl From<ChildTransactionId> for OwnedTransactionId {
     }
 }
 
+/// A unique key (identifier) indicating that a transaction has been
+/// successfully sent to the server.
+///
+/// The owning child transactions can now be resolved.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum SentRequestKey {
+    /// The parent transaction returned an event when it succeeded.
+    Event(OwnedEventId),
+}
+
+impl SentRequestKey {
+    /// Converts the current parent key into an event id, if possible.
+    pub fn into_event_id(self) -> Option<OwnedEventId> {
+        as_variant!(self, Self::Event)
+    }
+}
+
 /// A request to be sent, depending on a [`QueuedRequest`] to be sent first.
 ///
 /// Depending on whether the parent request has been sent or not, this will
@@ -231,11 +245,7 @@ pub struct DependentQueuedRequest {
 
     /// If the parent request has been sent, the parent's request identifier
     /// returned by the server once the local echo has been sent out.
-    ///
-    /// Note: this is the event id used for the depended-on event after it's
-    /// been sent, not for a possible event that could have been sent
-    /// because of this [`DependentQueuedRequest`].
-    pub event_id: Option<OwnedEventId>,
+    pub parent_key: Option<SentRequestKey>,
 }
 
 #[cfg(not(tarpaulin_include))]

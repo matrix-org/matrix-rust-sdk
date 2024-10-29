@@ -33,7 +33,9 @@ use ruma::{
 };
 use serde_json::{json, value::Value as JsonValue};
 
-use super::{DependentQueuedRequestKind, DynStateStore, ServerCapabilities};
+use super::{
+    send_queue::SentRequestKey, DependentQueuedRequestKind, DynStateStore, ServerCapabilities,
+};
 use crate::{
     deserialized_responses::MemberEvent,
     store::{ChildTransactionId, QueueWedgeError, Result, SerializableEventContent, StateStoreExt},
@@ -1384,13 +1386,19 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(dependents.len(), 1);
         assert_eq!(dependents[0].parent_transaction_id, txn0);
         assert_eq!(dependents[0].own_transaction_id, child_txn);
-        assert!(dependents[0].event_id.is_none());
+        assert!(dependents[0].parent_key.is_none());
         assert_matches!(dependents[0].kind, DependentQueuedRequestKind::RedactEvent);
 
         // Update the event id.
         let event_id = owned_event_id!("$1");
-        let num_updated =
-            self.update_dependent_queued_request(room_id, &txn0, event_id.clone()).await.unwrap();
+        let num_updated = self
+            .update_dependent_queued_request(
+                room_id,
+                &txn0,
+                SentRequestKey::Event(event_id.clone()),
+            )
+            .await
+            .unwrap();
         assert_eq!(num_updated, 1);
 
         // It worked.
@@ -1398,7 +1406,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(dependents.len(), 1);
         assert_eq!(dependents[0].parent_transaction_id, txn0);
         assert_eq!(dependents[0].own_transaction_id, child_txn);
-        assert_eq!(dependents[0].event_id.as_ref(), Some(&event_id));
+        assert_eq!(dependents[0].parent_key.as_ref(), Some(&SentRequestKey::Event(event_id)));
         assert_matches!(dependents[0].kind, DependentQueuedRequestKind::RedactEvent);
 
         // Now remove it.
