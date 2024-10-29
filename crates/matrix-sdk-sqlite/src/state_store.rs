@@ -2010,9 +2010,8 @@ mod migration_tests {
         },
     };
 
-    use assert_matches::assert_matches;
     use matrix_sdk_base::{
-        store::{QueueWedgeError, SerializableEventContent},
+        store::{ChildTransactionId, DependentQueuedRequestKind, SerializableEventContent},
         sync::UnreadNotificationsCount,
         RoomState, StateStore,
     };
@@ -2273,10 +2272,10 @@ mod migration_tests {
     }
 
     #[async_test]
-    pub async fn test_migrating_v7_to_v8() {
+    pub async fn test_migrating_v7_to_v9() {
         let path = new_path();
 
-        let room_a_id = room_id!("!room_a:dummy.local");
+        let room_id = room_id!("!room_a:dummy.local");
         let wedged_event_transaction_id = TransactionId::new();
         let local_event_transaction_id = TransactionId::new();
 
@@ -2288,38 +2287,33 @@ mod migration_tests {
             let wedge_tx = wedged_event_transaction_id.clone();
             let local_tx = local_event_transaction_id.clone();
 
-            conn.with_transaction(move |txn| {
-                add_send_queue_event_v7(&db, txn, &wedge_tx, room_a_id, true)?;
-                add_send_queue_event_v7(&db, txn, &local_tx, room_a_id, false)?;
+            db.save_dependent_queued_request(
+                room_id,
+                &local_tx,
+                ChildTransactionId::new(),
+                DependentQueuedRequestKind::RedactEvent,
+            )
+            .await
+            .unwrap();
 
+            conn.with_transaction(move |txn| {
+                add_send_queue_event_v7(&db, txn, &wedge_tx, room_id, true)?;
+                add_send_queue_event_v7(&db, txn, &local_tx, room_id, false)?;
                 Result::<_, Error>::Ok(())
             })
             .await
             .unwrap();
         }
 
-        // This transparently migrates to the latest version.
+        // This transparently migrates to the latest version, which clears up all
+        // requests and dependent requests.
         let store = SqliteStateStore::open(path, Some(SECRET)).await.unwrap();
-        let requests = store.load_send_queue_requests(room_a_id).await.unwrap();
 
-        assert_eq!(requests.len(), 2);
+        let requests = store.load_send_queue_requests(room_id).await.unwrap();
+        assert!(requests.is_empty());
 
-        let migrated_wedged =
-            requests.iter().find(|e| e.transaction_id == wedged_event_transaction_id).unwrap();
-
-        assert!(migrated_wedged.is_wedged());
-        assert_matches!(
-            migrated_wedged.error.clone(),
-            Some(QueueWedgeError::GenericApiError { .. })
-        );
-
-        let migrated_ok = requests
-            .iter()
-            .find(|e| e.transaction_id == local_event_transaction_id.clone())
-            .unwrap();
-
-        assert!(!migrated_ok.is_wedged());
-        assert!(migrated_ok.error.is_none());
+        let dependent_requests = store.load_dependent_queued_requests(room_id).await.unwrap();
+        assert!(dependent_requests.is_empty());
     }
 
     fn add_send_queue_event_v7(
