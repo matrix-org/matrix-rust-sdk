@@ -93,11 +93,13 @@ stringify Ed25519 and thus present them to users. It's also commonly used when
 Ed25519 keys need to be inserted into JSON.
 
 Changelog: Add the `Ed25519PublicKey::to_base64()` method which can be used to
-stringify the Ed25519 public key.
+  stringify the Ed25519 public key.
 ```
 
 In this commit message, the content specified in the `Changelog` trailer will be
 used for the changelog entry.
+
+Be careful to add two whitespaces after new lines to create a paragraph.
 
 ### Security fixes
 
