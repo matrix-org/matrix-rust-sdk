@@ -36,7 +36,7 @@ use ruma::{
 use tracing::{debug, instrument, trace, warn};
 
 use super::{
-    send_queue::{ChildTransactionId, QueuedRequest, SentRequestKey, SerializableEventContent},
+    send_queue::{ChildTransactionId, QueuedRequest, SentRequestKey},
     traits::{ComposerDraft, ServerCapabilities},
     DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequestKind, Result, RoomInfo,
     StateChanges, StateStore, StoreError,
@@ -806,15 +806,14 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
-        content: SerializableEventContent,
+        kind: QueuedRequestKind,
     ) -> Result<(), Self::Error> {
-        self.send_queue_events.write().unwrap().entry(room_id.to_owned()).or_default().push(
-            QueuedRequest {
-                kind: QueuedRequestKind::Event { content },
-                transaction_id,
-                error: None,
-            },
-        );
+        self.send_queue_events
+            .write()
+            .unwrap()
+            .entry(room_id.to_owned())
+            .or_default()
+            .push(QueuedRequest { kind, transaction_id, error: None });
         Ok(())
     }
 
@@ -822,7 +821,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-        content: SerializableEventContent,
+        kind: QueuedRequestKind,
     ) -> Result<bool, Self::Error> {
         if let Some(entry) = self
             .send_queue_events
@@ -833,7 +832,7 @@ impl StateStore for MemoryStore {
             .iter_mut()
             .find(|item| item.transaction_id == transaction_id)
         {
-            entry.kind = QueuedRequestKind::Event { content };
+            entry.kind = kind;
             entry.error = None;
             Ok(true)
         } else {

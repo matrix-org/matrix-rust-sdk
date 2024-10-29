@@ -13,7 +13,7 @@ use matrix_sdk_base::{
     store::{
         migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedRequest,
         DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-        SentRequestKey, SerializableEventContent,
+        SentRequestKey,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue,
@@ -1684,7 +1684,7 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
-        content: SerializableEventContent,
+        content: QueuedRequestKind,
     ) -> Result<(), Self::Error> {
         let room_id_key = self.encode_key(keys::SEND_QUEUE, room_id);
         let room_id_value = self.serialize_value(&room_id.to_owned())?;
@@ -1709,7 +1709,7 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-        content: SerializableEventContent,
+        content: QueuedRequestKind,
     ) -> Result<bool, Self::Error> {
         let room_id = self.encode_key(keys::SEND_QUEUE, room_id);
 
@@ -1778,7 +1778,7 @@ impl StateStore for SqliteStateStore {
         for entry in res {
             requests.push(QueuedRequest {
                 transaction_id: entry.0.into(),
-                kind: QueuedRequestKind::Event { content: self.deserialize_json(&entry.1)? },
+                kind: self.deserialize_json(&entry.1)?,
                 error: entry.2.map(|v| self.deserialize_value(&v)).transpose()?,
             });
         }

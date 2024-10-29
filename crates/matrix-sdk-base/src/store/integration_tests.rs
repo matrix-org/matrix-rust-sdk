@@ -1212,7 +1212,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let event0 =
             SerializableEventContent::new(&RoomMessageEventContent::text_plain("msg0").into())
                 .unwrap();
-        self.save_send_queue_request(room_id, txn0.clone(), event0).await.unwrap();
+        self.save_send_queue_request(room_id, txn0.clone(), event0.into()).await.unwrap();
 
         // Reading it will work.
         let pending = self.load_send_queue_requests(room_id).await.unwrap();
@@ -1236,7 +1236,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             )
             .unwrap();
 
-            self.save_send_queue_request(room_id, txn, event).await.unwrap();
+            self.save_send_queue_request(room_id, txn, event.into()).await.unwrap();
         }
 
         // Reading all the events should work.
@@ -1286,7 +1286,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             &RoomMessageEventContent::text_plain("wow that's a cool test").into(),
         )
         .unwrap();
-        self.update_send_queue_request(room_id, txn2, event0).await.unwrap();
+        self.update_send_queue_request(room_id, txn2, event0.into()).await.unwrap();
 
         // And it is reflected.
         let pending = self.load_send_queue_requests(room_id).await.unwrap();
@@ -1334,7 +1334,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             let event =
                 SerializableEventContent::new(&RoomMessageEventContent::text_plain("room2").into())
                     .unwrap();
-            self.save_send_queue_request(room_id2, txn.clone(), event).await.unwrap();
+            self.save_send_queue_request(room_id2, txn.clone(), event.into()).await.unwrap();
         }
 
         // Add and remove one event for room3.
@@ -1344,7 +1344,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             let event =
                 SerializableEventContent::new(&RoomMessageEventContent::text_plain("room3").into())
                     .unwrap();
-            self.save_send_queue_request(room_id3, txn.clone(), event).await.unwrap();
+            self.save_send_queue_request(room_id3, txn.clone(), event.into()).await.unwrap();
 
             self.remove_send_queue_request(room_id3, &txn).await.unwrap();
         }
@@ -1365,7 +1365,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let event0 =
             SerializableEventContent::new(&RoomMessageEventContent::text_plain("hey").into())
                 .unwrap();
-        self.save_send_queue_request(room_id, txn0.clone(), event0).await.unwrap();
+        self.save_send_queue_request(room_id, txn0.clone(), event0.into()).await.unwrap();
 
         // No dependents, to start with.
         assert!(self.load_dependent_queued_requests(room_id).await.unwrap().is_empty());
@@ -1425,7 +1425,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let event1 =
             SerializableEventContent::new(&RoomMessageEventContent::text_plain("hey2").into())
                 .unwrap();
-        self.save_send_queue_request(room_id, txn1.clone(), event1).await.unwrap();
+        self.save_send_queue_request(room_id, txn1.clone(), event1.into()).await.unwrap();
 
         self.save_dependent_queued_request(
             room_id,

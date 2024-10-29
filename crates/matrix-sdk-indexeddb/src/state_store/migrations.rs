@@ -774,13 +774,16 @@ async fn migrate_to_v11(db: IdbDatabase) -> Result<IdbDatabase> {
     apply_migration(db, 11, migration).await
 }
 
-/// Drop entries from the [`keys::DEPENDENT_SEND_QUEUE`] table.
+/// The format of data serialized into the send queue and dependent send queue
+/// tables have changed, clear both.
 async fn migrate_to_v12(db: IdbDatabase) -> Result<IdbDatabase> {
-    let tx =
-        db.transaction_on_one_with_mode(keys::DEPENDENT_SEND_QUEUE, IdbTransactionMode::Readwrite)?;
+    let store_keys = &[keys::DEPENDENT_SEND_QUEUE, keys::ROOM_SEND_QUEUE];
+    let tx = db.transaction_on_multi_with_mode(store_keys, IdbTransactionMode::Readwrite)?;
 
-    let store = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
-    store.clear()?;
+    for store_name in store_keys {
+        let store = tx.object_store(store_name)?;
+        store.clear()?;
+    }
 
     tx.await.into_result()?;
 

@@ -1328,7 +1328,7 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
-        content: SerializableEventContent,
+        kind: QueuedRequestKind,
     ) -> Result<()> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
@@ -1352,7 +1352,7 @@ impl_state_store!({
         // Push the new request.
         prev.push(PersistedQueuedRequest {
             room_id: room_id.to_owned(),
-            kind: Some(QueuedRequestKind::Event { content }),
+            kind: Some(kind),
             transaction_id,
             error: None,
             is_wedged: None,
@@ -1371,7 +1371,7 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-        content: SerializableEventContent,
+        kind: QueuedRequestKind,
     ) -> Result<bool> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
@@ -1394,7 +1394,7 @@ impl_state_store!({
 
         // Modify the one request.
         if let Some(entry) = prev.iter_mut().find(|entry| entry.transaction_id == transaction_id) {
-            entry.kind = Some(QueuedRequestKind::Event { content });
+            entry.kind = Some(kind);
             // Reset the error state.
             entry.error = None;
             // Remove migrated fields.

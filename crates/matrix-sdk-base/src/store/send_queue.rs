@@ -78,6 +78,12 @@ pub enum QueuedRequestKind {
     },
 }
 
+impl From<SerializableEventContent> for QueuedRequestKind {
+    fn from(content: SerializableEventContent) -> Self {
+        Self::Event { content }
+    }
+}
+
 /// A request to be sent with a send queue.
 #[derive(Clone)]
 pub struct QueuedRequest {

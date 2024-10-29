@@ -42,8 +42,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     send_queue::SentRequestKey, ChildTransactionId, DependentQueuedRequest,
-    DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, SerializableEventContent,
-    StateChanges, StoreError,
+    DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind, StateChanges,
+    StoreError,
 };
 use crate::{
     deserialized_responses::{RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState},
@@ -357,7 +357,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
-        content: SerializableEventContent,
+        request: QueuedRequestKind,
     ) -> Result<(), Self::Error>;
 
     /// Updates a send queue request with the given content, and resets its
@@ -375,7 +375,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-        content: SerializableEventContent,
+        content: QueuedRequestKind,
     ) -> Result<bool, Self::Error>;
 
     /// Remove a request previously inserted with
@@ -640,7 +640,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
-        content: SerializableEventContent,
+        content: QueuedRequestKind,
     ) -> Result<(), Self::Error> {
         self.0.save_send_queue_request(room_id, transaction_id, content).await.map_err(Into::into)
     }
@@ -649,7 +649,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
-        content: SerializableEventContent,
+        content: QueuedRequestKind,
     ) -> Result<bool, Self::Error> {
         self.0.update_send_queue_request(room_id, transaction_id, content).await.map_err(Into::into)
     }
