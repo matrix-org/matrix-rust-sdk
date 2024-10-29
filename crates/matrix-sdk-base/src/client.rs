@@ -1737,7 +1737,7 @@ mod tests {
 
     use super::BaseClient;
     use crate::{
-        store::StateStoreExt, test_utils::logged_in_base_client, DisplayName, RoomState,
+        store::StateStoreExt, test_utils::logged_in_base_client, RoomDisplayName, RoomState,
         SessionMeta,
     };
 
@@ -1869,7 +1869,7 @@ mod tests {
         assert_eq!(room.state(), RoomState::Invited);
         assert_eq!(
             room.compute_display_name().await.expect("fetching display name failed"),
-            DisplayName::Calculated("Kyra".to_owned())
+            RoomDisplayName::Calculated("Kyra".to_owned())
         );
     }
 
