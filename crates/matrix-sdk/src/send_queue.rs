@@ -345,7 +345,7 @@ impl RoomSendQueue {
 
         let content = SerializableEventContent::from_raw(content, event_type);
 
-        let transaction_id = self.inner.queue.push(content.clone()).await?;
+        let transaction_id = self.inner.queue.push(content.clone().into()).await?;
         trace!(%transaction_id, "manager sends a raw event to the background task");
 
         self.inner.notifier.notify_one();
@@ -698,13 +698,13 @@ impl QueueStorage {
     /// Returns the transaction id chosen to identify the request.
     async fn push(
         &self,
-        serializable: SerializableEventContent,
+        request: QueuedRequestKind,
     ) -> Result<OwnedTransactionId, RoomSendQueueStorageError> {
         let transaction_id = TransactionId::new();
 
         self.client()?
             .store()
-            .save_send_queue_request(&self.room_id, transaction_id.clone(), serializable)
+            .save_send_queue_request(&self.room_id, transaction_id.clone(), request)
             .await?;
 
         Ok(transaction_id)
@@ -861,7 +861,7 @@ impl QueueStorage {
         let edited = self
             .client()?
             .store()
-            .update_send_queue_request(&self.room_id, transaction_id, serializable)
+            .update_send_queue_request(&self.room_id, transaction_id, serializable.into())
             .await?;
 
         Ok(edited)
@@ -1027,7 +1027,7 @@ impl QueueStorage {
                         .save_send_queue_request(
                             &self.room_id,
                             de.own_transaction_id.into(),
-                            serializable,
+                            serializable.into(),
                         )
                         .await
                         .map_err(RoomSendQueueStorageError::StorageError)?;
@@ -1037,7 +1037,7 @@ impl QueueStorage {
                         .update_send_queue_request(
                             &self.room_id,
                             &de.parent_transaction_id,
-                            new_content,
+                            new_content.into(),
                         )
                         .await
                         .map_err(RoomSendQueueStorageError::StorageError)?;
@@ -1109,7 +1109,7 @@ impl QueueStorage {
                         .save_send_queue_request(
                             &self.room_id,
                             de.own_transaction_id.into(),
-                            serializable,
+                            serializable.into(),
                         )
                         .await
                         .map_err(RoomSendQueueStorageError::StorageError)?;

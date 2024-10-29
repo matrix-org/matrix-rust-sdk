@@ -5,3 +5,6 @@ DELETE FROM "dependent_send_queue_events";
 ALTER TABLE "dependent_send_queue_events"
     RENAME COLUMN "event_id"
     TO "parent_key";
+
+--- Delete all previous entries in the send queue, since the content's format has changed.
+DELETE FROM "send_queue_events";
