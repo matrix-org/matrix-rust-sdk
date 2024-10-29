@@ -65,7 +65,7 @@ use ruma::{
         EventContent as _,
     },
     serde::Raw,
-    EventId, OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
+    OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
 };
 use tokio::sync::{broadcast, Notify, RwLock};
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -464,32 +464,24 @@ impl RoomSendQueue {
                 continue;
             };
 
-            let (event, event_type) = match &queued_request.kind {
-                QueuedRequestKind::Event { content } => content.raw(),
-            };
-
-            match room
-                .send_raw(event_type, event)
-                .with_transaction_id(&queued_request.transaction_id)
-                .with_request_config(RequestConfig::short_retry())
-                .await
-            {
-                Ok(res) => {
-                    trace!(txn_id = %queued_request.transaction_id, event_id = %res.event_id, "successfully sent");
-
-                    match queue.mark_as_sent(&queued_request.transaction_id, &res.event_id).await {
-                        Ok(()) => {
+            match Self::handle_request(&room, &queued_request).await {
+                Ok(parent_key) => match queue
+                    .mark_as_sent(&queued_request.transaction_id, parent_key.clone())
+                    .await
+                {
+                    Ok(()) => match parent_key {
+                        SentRequestKey::Event(event_id) => {
                             let _ = updates.send(RoomSendQueueUpdate::SentEvent {
                                 transaction_id: queued_request.transaction_id,
-                                event_id: res.event_id,
+                                event_id,
                             });
                         }
+                    },
 
-                        Err(err) => {
-                            warn!("unable to mark queued event as sent: {err}");
-                        }
+                    Err(err) => {
+                        warn!("unable to mark queued request as sent: {err}");
                     }
-                }
+                },
 
                 Err(err) => {
                     let is_recoverable = match err {
@@ -561,6 +553,27 @@ impl RoomSendQueue {
         }
 
         info!("exited sending task");
+    }
+
+    /// Handles a single request and returns the [`SentRequestKey`] on success.
+    async fn handle_request(
+        room: &Room,
+        request: &QueuedRequest,
+    ) -> Result<SentRequestKey, crate::Error> {
+        match &request.kind {
+            QueuedRequestKind::Event { content } => {
+                let (event, event_type) = content.raw();
+
+                let res = room
+                    .send_raw(event_type, event)
+                    .with_transaction_id(&request.transaction_id)
+                    .with_request_config(RequestConfig::short_retry())
+                    .await?;
+
+                trace!(txn_id = %request.transaction_id, event_id = %res.event_id, "event successfully sent");
+                Ok(SentRequestKey::Event(res.event_id))
+            }
+        }
     }
 
     /// Returns whether the room is enabled, at the room level.
@@ -761,7 +774,7 @@ impl QueueStorage {
     async fn mark_as_sent(
         &self,
         transaction_id: &TransactionId,
-        event_id: &EventId,
+        parent_key: SentRequestKey,
     ) -> Result<(), RoomSendQueueStorageError> {
         // Keep the lock until we're done touching the storage.
         let mut being_sent = self.being_sent.write().await;
@@ -771,13 +784,7 @@ impl QueueStorage {
         let store = client.store();
 
         // Update all dependent requests.
-        store
-            .update_dependent_queued_request(
-                &self.room_id,
-                transaction_id,
-                SentRequestKey::Event(event_id.to_owned()),
-            )
-            .await?;
+        store.update_dependent_queued_request(&self.room_id, transaction_id, parent_key).await?;
 
         let removed = store.remove_send_queue_request(&self.room_id, transaction_id).await?;
 
