@@ -722,7 +722,6 @@ impl wiremock::Respond for &CustomResponder {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delayed_decryption_latest_event() -> Result<()> {
     let server = MockServer::start().await;
 
@@ -910,7 +909,6 @@ async fn test_delayed_invite_response_and_sent_message_decryption() -> Result<()
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_room_info_notable_update_deduplication() -> Result<()> {
     let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
