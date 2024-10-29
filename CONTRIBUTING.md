@@ -99,7 +99,7 @@ Changelog: Add the `Ed25519PublicKey::to_base64()` method which can be used to
 In this commit message, the content specified in the `Changelog` trailer will be
 used for the changelog entry.
 
-Be careful to add two whitespaces after new lines to create a paragraph.
+Be careful to add at least one whitespace after new lines to create a paragraph.
 
 ### Security fixes
 
