@@ -59,6 +59,10 @@ Changes:
 
 Breaking changes:
 
+- `VerificationRequestState::Transitioned` now includes a new field
+  `other_device_data` of type `DeviceData`.
+  ([#4153](https://github.com/matrix-org/matrix-rust-sdk/pull/4153))
+
 - `OlmMachine::decrypt_room_event` now returns a `DecryptedRoomEvent` type,
   instead of the more generic `TimelineEvent` type.
 
