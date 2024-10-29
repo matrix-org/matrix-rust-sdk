@@ -13,11 +13,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "e2e-encryption")]
-use std::ops::Deref;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, iter,
+    ops::Deref,
     sync::Arc,
 };
 
@@ -252,12 +251,12 @@ impl BaseClient {
     /// Get a reference to the store.
     #[allow(unknown_lints, clippy::explicit_auto_deref)]
     pub fn store(&self) -> &DynStateStore {
-        &*self.store
+        self.store.deref()
     }
 
     /// Get a reference to the event cache store.
     pub fn event_cache_store(&self) -> &DynEventCacheStore {
-        &*self.event_cache_store
+        self.event_cache_store.as_ref()
     }
 
     /// Is the client logged in.
