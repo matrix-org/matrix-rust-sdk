@@ -314,10 +314,10 @@ impl RoomEvents {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
-    use matrix_sdk_test::{EventBuilder, ALICE};
-    use ruma::{events::room::message::RoomMessageEventContent, EventId, OwnedEventId};
+    use ruma::{user_id, EventId, OwnedEventId};
 
     use super::*;
+    use crate::test_utils::events::EventFactory;
 
     macro_rules! assert_events_eq {
         ( $events_iterator:expr, [ $( ( $event_id:ident at ( $chunk_identifier:literal, $index:literal ) ) ),* $(,)? ] ) => {
@@ -336,14 +336,13 @@ mod tests {
         };
     }
 
-    fn new_event(event_builder: &EventBuilder, event_id: &str) -> (OwnedEventId, Event) {
+    fn new_event(event_id: &str) -> (OwnedEventId, Event) {
         let event_id = EventId::parse(event_id).unwrap();
-
-        let event = SyncTimelineEvent::new(event_builder.make_sync_message_event_with_id(
-            *ALICE,
-            &event_id,
-            RoomMessageEventContent::text_plain("foo"),
-        ));
+        let event = EventFactory::new()
+            .text_msg("")
+            .sender(user_id!("@mnt_io:matrix.org"))
+            .event_id(&event_id)
+            .into_sync();
 
         (event_id, event)
     }
@@ -357,11 +356,9 @@ mod tests {
 
     #[test]
     fn test_push_events() {
-        let event_builder = EventBuilder::new();
-
-        let (event_id_0, event_0) = new_event(&event_builder, "$ev0");
-        let (event_id_1, event_1) = new_event(&event_builder, "$ev1");
-        let (event_id_2, event_2) = new_event(&event_builder, "$ev2");
+        let (event_id_0, event_0) = new_event("$ev0");
+        let (event_id_1, event_1) = new_event("$ev1");
+        let (event_id_2, event_2) = new_event("$ev2");
 
         let mut room_events = RoomEvents::new();
 
@@ -380,10 +377,8 @@ mod tests {
 
     #[test]
     fn test_push_events_with_duplicates() {
-        let event_builder = EventBuilder::new();
-
-        let (event_id_0, event_0) = new_event(&event_builder, "$ev0");
-        let (event_id_1, event_1) = new_event(&event_builder, "$ev1");
+        let (event_id_0, event_0) = new_event("$ev0");
+        let (event_id_1, event_1) = new_event("$ev1");
 
         let mut room_events = RoomEvents::new();
 
@@ -412,10 +407,8 @@ mod tests {
 
     #[test]
     fn test_push_gap() {
-        let event_builder = EventBuilder::new();
-
-        let (event_id_0, event_0) = new_event(&event_builder, "$ev0");
-        let (event_id_1, event_1) = new_event(&event_builder, "$ev1");
+        let (event_id_0, event_0) = new_event("$ev0");
+        let (event_id_1, event_1) = new_event("$ev1");
 
         let mut room_events = RoomEvents::new();
 
@@ -449,11 +442,9 @@ mod tests {
 
     #[test]
     fn test_insert_events_at() {
-        let event_builder = EventBuilder::new();
-
-        let (event_id_0, event_0) = new_event(&event_builder, "$ev0");
-        let (event_id_1, event_1) = new_event(&event_builder, "$ev1");
-        let (event_id_2, event_2) = new_event(&event_builder, "$ev2");
+        let (event_id_0, event_0) = new_event("$ev0");
+        let (event_id_1, event_1) = new_event("$ev1");
+        let (event_id_2, event_2) = new_event("$ev2");
 
         let mut room_events = RoomEvents::new();
 
@@ -480,12 +471,10 @@ mod tests {
 
     #[test]
     fn test_insert_events_at_with_duplicates() {
-        let event_builder = EventBuilder::new();
-
-        let (event_id_0, event_0) = new_event(&event_builder, "$ev0");
-        let (event_id_1, event_1) = new_event(&event_builder, "$ev1");
-        let (event_id_2, event_2) = new_event(&event_builder, "$ev2");
-        let (event_id_3, event_3) = new_event(&event_builder, "$ev3");
+        let (event_id_0, event_0) = new_event("$ev0");
+        let (event_id_1, event_1) = new_event("$ev1");
+        let (event_id_2, event_2) = new_event("$ev2");
+        let (event_id_3, event_3) = new_event("$ev3");
 
         let mut room_events = RoomEvents::new();
 
@@ -524,10 +513,8 @@ mod tests {
 
     #[test]
     fn test_insert_gap_at() {
-        let event_builder = EventBuilder::new();
-
-        let (event_id_0, event_0) = new_event(&event_builder, "$ev0");
-        let (event_id_1, event_1) = new_event(&event_builder, "$ev1");
+        let (event_id_0, event_0) = new_event("$ev0");
+        let (event_id_1, event_1) = new_event("$ev1");
 
         let mut room_events = RoomEvents::new();
 
@@ -570,11 +557,9 @@ mod tests {
 
     #[test]
     fn test_replace_gap_at() {
-        let event_builder = EventBuilder::new();
-
-        let (event_id_0, event_0) = new_event(&event_builder, "$ev0");
-        let (event_id_1, event_1) = new_event(&event_builder, "$ev1");
-        let (event_id_2, event_2) = new_event(&event_builder, "$ev2");
+        let (event_id_0, event_0) = new_event("$ev0");
+        let (event_id_1, event_1) = new_event("$ev1");
+        let (event_id_2, event_2) = new_event("$ev2");
 
         let mut room_events = RoomEvents::new();
 
@@ -613,11 +598,9 @@ mod tests {
 
     #[test]
     fn test_replace_gap_at_with_duplicates() {
-        let event_builder = EventBuilder::new();
-
-        let (event_id_0, event_0) = new_event(&event_builder, "$ev0");
-        let (event_id_1, event_1) = new_event(&event_builder, "$ev1");
-        let (event_id_2, event_2) = new_event(&event_builder, "$ev2");
+        let (event_id_0, event_0) = new_event("$ev0");
+        let (event_id_1, event_1) = new_event("$ev1");
+        let (event_id_2, event_2) = new_event("$ev2");
 
         let mut room_events = RoomEvents::new();
 
@@ -666,12 +649,10 @@ mod tests {
 
     #[test]
     fn test_remove_events() {
-        let event_builder = EventBuilder::new();
-
-        let (event_id_0, event_0) = new_event(&event_builder, "$ev0");
-        let (event_id_1, event_1) = new_event(&event_builder, "$ev1");
-        let (event_id_2, event_2) = new_event(&event_builder, "$ev2");
-        let (event_id_3, event_3) = new_event(&event_builder, "$ev3");
+        let (event_id_0, event_0) = new_event("$ev0");
+        let (event_id_1, event_1) = new_event("$ev1");
+        let (event_id_2, event_2) = new_event("$ev2");
+        let (event_id_3, event_3) = new_event("$ev3");
 
         // Push some events.
         let mut room_events = RoomEvents::new();
@@ -701,9 +682,7 @@ mod tests {
 
     #[test]
     fn test_remove_events_unknown_event() {
-        let event_builder = EventBuilder::new();
-
-        let (event_id_0, _event_0) = new_event(&event_builder, "$ev0");
+        let (event_id_0, _event_0) = new_event("$ev0");
 
         // Push ZERO event.
         let mut room_events = RoomEvents::new();
@@ -722,17 +701,15 @@ mod tests {
 
     #[test]
     fn test_remove_events_and_update_insert_position() {
-        let event_builder = EventBuilder::new();
-
-        let (event_id_0, event_0) = new_event(&event_builder, "$ev0");
-        let (event_id_1, event_1) = new_event(&event_builder, "$ev1");
-        let (event_id_2, event_2) = new_event(&event_builder, "$ev2");
-        let (event_id_3, event_3) = new_event(&event_builder, "$ev3");
-        let (event_id_4, event_4) = new_event(&event_builder, "$ev4");
-        let (event_id_5, event_5) = new_event(&event_builder, "$ev5");
-        let (event_id_6, event_6) = new_event(&event_builder, "$ev6");
-        let (event_id_7, event_7) = new_event(&event_builder, "$ev7");
-        let (event_id_8, event_8) = new_event(&event_builder, "$ev8");
+        let (event_id_0, event_0) = new_event("$ev0");
+        let (event_id_1, event_1) = new_event("$ev1");
+        let (event_id_2, event_2) = new_event("$ev2");
+        let (event_id_3, event_3) = new_event("$ev3");
+        let (event_id_4, event_4) = new_event("$ev4");
+        let (event_id_5, event_5) = new_event("$ev5");
+        let (event_id_6, event_6) = new_event("$ev6");
+        let (event_id_7, event_7) = new_event("$ev7");
+        let (event_id_8, event_8) = new_event("$ev8");
 
         // Push some events.
         let mut room_events = RoomEvents::new();
