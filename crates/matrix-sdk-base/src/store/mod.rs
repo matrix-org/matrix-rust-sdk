@@ -76,7 +76,7 @@ pub use self::{
     memory_store::MemoryStore,
     send_queue::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError,
-        QueuedRequest, QueuedRequestKind, SerializableEventContent,
+        QueuedRequest, QueuedRequestKind, SentRequestKey, SerializableEventContent,
     },
     traits::{
         ComposerDraft, ComposerDraftType, DynStateStore, IntoStateStore, ServerCapabilities,

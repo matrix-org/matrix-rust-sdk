@@ -46,7 +46,7 @@ use super::{
 };
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: u32 = 11;
+const CURRENT_DB_VERSION: u32 = 12;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
@@ -234,6 +234,9 @@ pub async fn upgrade_inner_db(
             }
             if old_version < 11 {
                 db = migrate_to_v11(db).await?;
+            }
+            if old_version < 12 {
+                db = migrate_to_v12(db).await?;
             }
         }
 
@@ -769,6 +772,23 @@ async fn migrate_to_v11(db: IdbDatabase) -> Result<IdbDatabase> {
         data: Default::default(),
     };
     apply_migration(db, 11, migration).await
+}
+
+/// Drop entries from the [`keys::DEPENDENT_SEND_QUEUE`] table.
+async fn migrate_to_v12(db: IdbDatabase) -> Result<IdbDatabase> {
+    let tx =
+        db.transaction_on_one_with_mode(keys::DEPENDENT_SEND_QUEUE, IdbTransactionMode::Readwrite)?;
+
+    let store = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
+    store.clear()?;
+
+    tx.await.into_result()?;
+
+    let name = db.name();
+    db.close();
+
+    // Update the version of the database.
+    Ok(IdbDatabase::open_u32(&name, 12)?.await?)
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]

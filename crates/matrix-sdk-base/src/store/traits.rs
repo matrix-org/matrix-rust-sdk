@@ -41,8 +41,9 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError,
-    QueuedRequest, SerializableEventContent, StateChanges, StoreError,
+    send_queue::SentRequestKey, ChildTransactionId, DependentQueuedRequest,
+    DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, SerializableEventContent,
+    StateChanges, StoreError,
 };
 use crate::{
     deserialized_responses::{RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState},
@@ -416,15 +417,19 @@ pub trait StateStore: AsyncTraitDeps {
         content: DependentQueuedRequestKind,
     ) -> Result<(), Self::Error>;
 
-    /// Update a set of dependent send queue requests with an event id,
-    /// effectively marking them as ready.
+    /// Update a set of dependent send queue requests with a key identifying the
+    /// homeserver's response, effectively marking them as ready.
+    ///
+    /// ⚠ Beware! There's no verification applied that the parent key type is
+    /// compatible with the dependent event type. The invalid state may be
+    /// lazily filtered out in `load_dependent_queued_requests`.
     ///
     /// Returns the number of updated requests.
     async fn update_dependent_queued_request(
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
-        event_id: OwnedEventId,
+        sent_parent_key: SentRequestKey,
     ) -> Result<usize, Self::Error>;
 
     /// Remove a specific dependent send queue request by id.
@@ -697,10 +702,10 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
-        event_id: OwnedEventId,
+        sent_parent_key: SentRequestKey,
     ) -> Result<usize, Self::Error> {
         self.0
-            .update_dependent_queued_request(room_id, parent_txn_id, event_id)
+            .update_dependent_queued_request(room_id, parent_txn_id, sent_parent_key)
             .await
             .map_err(Into::into)
     }
