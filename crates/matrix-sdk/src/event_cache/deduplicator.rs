@@ -140,30 +140,28 @@ pub enum Decoration<I> {
 mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
-    use matrix_sdk_test::{EventBuilder, ALICE};
-    use ruma::{events::room::message::RoomMessageEventContent, owned_event_id, EventId};
+    use ruma::{owned_event_id, user_id, EventId};
 
     use super::*;
+    use crate::test_utils::events::EventFactory;
 
-    fn sync_timeline_event(event_builder: &EventBuilder, event_id: &EventId) -> SyncTimelineEvent {
-        SyncTimelineEvent::new(event_builder.make_sync_message_event_with_id(
-            *ALICE,
-            event_id,
-            RoomMessageEventContent::text_plain("foo"),
-        ))
+    fn sync_timeline_event(event_id: &EventId) -> SyncTimelineEvent {
+        EventFactory::new()
+            .text_msg("")
+            .sender(user_id!("@mnt_io:matrix.org"))
+            .event_id(event_id)
+            .into_sync()
     }
 
     #[test]
     fn test_filter_no_duplicate() {
-        let event_builder = EventBuilder::new();
-
         let event_id_0 = owned_event_id!("$ev0");
         let event_id_1 = owned_event_id!("$ev1");
         let event_id_2 = owned_event_id!("$ev2");
 
-        let event_0 = sync_timeline_event(&event_builder, &event_id_0);
-        let event_1 = sync_timeline_event(&event_builder, &event_id_1);
-        let event_2 = sync_timeline_event(&event_builder, &event_id_2);
+        let event_0 = sync_timeline_event(&event_id_0);
+        let event_1 = sync_timeline_event(&event_id_1);
+        let event_2 = sync_timeline_event(&event_id_2);
 
         let deduplicator = Deduplicator::new();
         let existing_events = RoomEvents::new();
@@ -185,13 +183,11 @@ mod tests {
 
     #[test]
     fn test_filter_duplicates_in_new_events() {
-        let event_builder = EventBuilder::new();
-
         let event_id_0 = owned_event_id!("$ev0");
         let event_id_1 = owned_event_id!("$ev1");
 
-        let event_0 = sync_timeline_event(&event_builder, &event_id_0);
-        let event_1 = sync_timeline_event(&event_builder, &event_id_1);
+        let event_0 = sync_timeline_event(&event_id_0);
+        let event_1 = sync_timeline_event(&event_id_1);
 
         let deduplicator = Deduplicator::new();
         let existing_events = RoomEvents::new();
@@ -220,15 +216,13 @@ mod tests {
 
     #[test]
     fn test_filter_duplicates_with_existing_events() {
-        let event_builder = EventBuilder::new();
-
         let event_id_0 = owned_event_id!("$ev0");
         let event_id_1 = owned_event_id!("$ev1");
         let event_id_2 = owned_event_id!("$ev2");
 
-        let event_0 = sync_timeline_event(&event_builder, &event_id_0);
-        let event_1 = sync_timeline_event(&event_builder, &event_id_1);
-        let event_2 = sync_timeline_event(&event_builder, &event_id_2);
+        let event_0 = sync_timeline_event(&event_id_0);
+        let event_1 = sync_timeline_event(&event_id_1);
+        let event_2 = sync_timeline_event(&event_id_2);
 
         let deduplicator = Deduplicator::new();
         let mut existing_events = RoomEvents::new();
