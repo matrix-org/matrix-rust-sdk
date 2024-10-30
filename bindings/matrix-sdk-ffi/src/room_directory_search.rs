@@ -18,6 +18,7 @@ use std::{fmt::Debug, sync::Arc};
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::room_directory_search::RoomDirectorySearch as SdkRoomDirectorySearch;
+use ruma::ServerName;
 use tokio::sync::RwLock;
 
 use super::RUNTIME;
@@ -68,6 +69,12 @@ impl From<matrix_sdk::room_directory_search::RoomDescription> for RoomDescriptio
     }
 }
 
+/// A helper for performing room searches in the room directory.
+/// The way this is intended to be used is:
+///
+/// 1. Register a callback using [`RoomDirectorySearch::results`].
+/// 2. Start the room search with [`RoomDirectorySearch::search`].
+/// 3. To get more results, use [`RoomDirectorySearch::next_page`].
 #[derive(uniffi::Object)]
 pub struct RoomDirectorySearch {
     pub(crate) inner: RwLock<SdkRoomDirectorySearch>,
@@ -81,28 +88,49 @@ impl RoomDirectorySearch {
 
 #[matrix_sdk_ffi_macros::export]
 impl RoomDirectorySearch {
+    /// Asks the server for the next page of the current search.
     pub async fn next_page(&self) -> Result<(), ClientError> {
         let mut inner = self.inner.write().await;
         inner.next_page().await?;
         Ok(())
     }
 
-    pub async fn search(&self, filter: Option<String>, batch_size: u32) -> Result<(), ClientError> {
+    /// Starts a filtered search for the server.
+    ///
+    /// If the `filter` is not provided it will search for all the rooms.
+    /// You can specify a `batch_size` to control the number of rooms to fetch
+    /// per request.
+    ///
+    /// If the `via_server` is not provided it will search in the current
+    /// homeserver by default.
+    ///
+    /// This method will clear the current search results and start a new one.
+    pub async fn search(
+        &self,
+        filter: Option<String>,
+        batch_size: u32,
+        via_server_name: Option<String>,
+    ) -> Result<(), ClientError> {
+        let server = via_server_name.map(ServerName::parse).transpose()?;
         let mut inner = self.inner.write().await;
-        inner.search(filter, batch_size).await?;
+        inner.search(filter, batch_size, server).await?;
         Ok(())
     }
 
+    /// Get the number of pages that have been loaded so far.
     pub async fn loaded_pages(&self) -> Result<u32, ClientError> {
         let inner = self.inner.read().await;
         Ok(inner.loaded_pages() as u32)
     }
 
+    /// Get whether the search is at the last page.
     pub async fn is_at_last_page(&self) -> Result<bool, ClientError> {
         let inner = self.inner.read().await;
         Ok(inner.is_at_last_page())
     }
 
+    /// Registers a callback to receive new search results when starting a
+    /// search or getting new paginated results.
     pub async fn results(
         &self,
         listener: Box<dyn RoomDirectorySearchEntriesListener>,

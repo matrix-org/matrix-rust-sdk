@@ -24,7 +24,7 @@ use ruma::{
     OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId,
 };
 
-use crate::{Client, Result};
+use crate::{Client, OwnedServerName, Result};
 
 /// This struct represents a single result of a room directory search.
 ///
@@ -108,7 +108,7 @@ impl SearchState {
 ///     let homeserver = Url::parse("http://localhost:8080")?;
 ///     let client = Client::new(homeserver).await?;
 ///     let mut room_directory_search = RoomDirectorySearch::new(client);
-///     room_directory_search.search(None, 10).await?;
+///     room_directory_search.search(None, 10, None).await?;
 ///     let (results, mut stream) = room_directory_search.results();
 ///     room_directory_search.next_page().await?;
 ///     anyhow::Ok(())
@@ -118,6 +118,7 @@ impl SearchState {
 pub struct RoomDirectorySearch {
     batch_size: u32,
     filter: Option<String>,
+    server: Option<OwnedServerName>,
     search_state: SearchState,
     client: Client,
     results: ObservableVector<RoomDescription>,
@@ -129,6 +130,7 @@ impl RoomDirectorySearch {
         Self {
             batch_size: 0,
             filter: None,
+            server: None,
             search_state: Default::default(),
             client,
             results: ObservableVector::new(),
@@ -138,17 +140,26 @@ impl RoomDirectorySearch {
     /// Starts a filtered search for the server.
     ///
     /// If the `filter` is not provided it will search for all the rooms.
-    /// You can specify a `batch_size`` to control the number of rooms to fetch
+    /// You can specify a `batch_size` to control the number of rooms to fetch
     /// per request.
+    ///
+    /// If the `via_server` is not provided it will search in the current
+    /// homeserver by default.
     ///
     /// This method will clear the current search results and start a new one.
     // Should never be used concurrently with another `next_page` or a
     // `search`.
-    pub async fn search(&mut self, filter: Option<String>, batch_size: u32) -> Result<()> {
+    pub async fn search(
+        &mut self,
+        filter: Option<String>,
+        batch_size: u32,
+        via_server: Option<OwnedServerName>,
+    ) -> Result<()> {
         self.filter = filter;
         self.batch_size = batch_size;
         self.search_state = Default::default();
         self.results.clear();
+        self.server = via_server;
         self.next_page().await
     }
 
@@ -165,6 +176,7 @@ impl RoomDirectorySearch {
 
         let mut request = PublicRoomsFilterRequest::new();
         request.filter = filter;
+        request.server = self.server.clone();
         request.limit = Some(self.batch_size.into());
         request.since = self.search_state.next_token().map(ToOwned::to_owned);
 
@@ -196,7 +208,7 @@ impl RoomDirectorySearch {
         (self.results.len() as f64 / self.batch_size as f64).ceil() as usize
     }
 
-    /// Get whether the search is at the last page
+    /// Get whether the search is at the last page.
     pub fn is_at_last_page(&self) -> bool {
         self.search_state.is_at_end()
     }
@@ -208,7 +220,7 @@ mod tests {
     use eyeball_im::VectorDiff;
     use futures_util::StreamExt;
     use matrix_sdk_test::{async_test, test_json};
-    use ruma::{directory::Filter, serde::Raw, RoomAliasId, RoomId};
+    use ruma::{directory::Filter, owned_server_name, serde::Raw, RoomAliasId, RoomId};
     use serde_json::Value as JsonValue;
     use stream_assert::assert_pending;
     use wiremock::{
@@ -302,7 +314,8 @@ mod tests {
             .mount(&server)
             .await;
 
-        room_directory_search.search(None, 1).await.unwrap();
+        let via_server = owned_server_name!("some.server.org");
+        room_directory_search.search(None, 1, Some(via_server)).await.unwrap();
         let (results, mut stream) = room_directory_search.results();
         assert_pending!(stream);
         assert_eq!(results.len(), 1);
@@ -321,7 +334,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        room_directory_search.search(None, 1).await.unwrap();
+        room_directory_search.search(None, 1, None).await.unwrap();
         let (initial_results, mut stream) = room_directory_search.results();
         assert_eq!(initial_results, vec![get_first_page_description()].into());
         assert!(!room_directory_search.is_at_last_page());
@@ -376,7 +389,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        room_directory_search.search(None, 1).await.unwrap();
+        room_directory_search.search(None, 1, None).await.unwrap();
 
         let (results, mut stream) = room_directory_search.results();
         assert_eq!(results, vec![get_first_page_description()].into());
@@ -414,7 +427,7 @@ mod tests {
         .mount(&server)
         .await;
 
-        room_directory_search.search(Some("bleecker.street".into()), 1).await.unwrap();
+        room_directory_search.search(Some("bleecker.street".into()), 1, None).await.unwrap();
         let (initial_results, mut stream) = room_directory_search.results();
         assert_eq!(initial_results, vec![get_first_page_description()].into());
         assert!(!room_directory_search.is_at_last_page());
@@ -450,7 +463,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        room_directory_search.search(None, 1).await.unwrap();
+        room_directory_search.search(None, 1, None).await.unwrap();
         let (initial_results, mut stream) = room_directory_search.results();
         assert_eq!(initial_results, vec![get_first_page_description()].into());
         assert!(!room_directory_search.is_at_last_page());
@@ -465,7 +478,7 @@ mod tests {
         .mount(&server)
         .await;
 
-        room_directory_search.search(Some("bleecker.street".into()), 1).await.unwrap();
+        room_directory_search.search(Some("bleecker.street".into()), 1, None).await.unwrap();
 
         let results_batch: Vec<VectorDiff<RoomDescription>> = stream.next().await.unwrap();
         assert_matches!(&results_batch[0], VectorDiff::Clear);
