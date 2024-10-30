@@ -613,7 +613,7 @@ impl Media {
         data: Vec<u8>,
         thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<(MediaSource, Option<MediaSource>, Option<Box<ThumbnailInfo>>)> {
+    ) -> Result<(MediaSource, Option<(MediaSource, Box<ThumbnailInfo>)>)> {
         let upload_thumbnail = self.upload_thumbnail(thumbnail, send_progress.clone());
 
         let upload_attachment = async move {
@@ -623,10 +623,9 @@ impl Media {
                 .map_err(Error::from)
         };
 
-        let ((thumbnail_source, thumbnail_info), response) =
-            try_join(upload_thumbnail, upload_attachment).await?;
+        let (thumbnail, response) = try_join(upload_thumbnail, upload_attachment).await?;
 
-        Ok((MediaSource::Plain(response.content_uri), thumbnail_source, thumbnail_info))
+        Ok((MediaSource::Plain(response.content_uri), thumbnail))
     }
 
     /// Uploads an unencrypted thumbnail to the media repository, and returns
@@ -635,9 +634,9 @@ impl Media {
         &self,
         thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<(Option<MediaSource>, Option<Box<ThumbnailInfo>>)> {
+    ) -> Result<Option<(MediaSource, Box<ThumbnailInfo>)>> {
         let Some(thumbnail) = thumbnail else {
-            return Ok((None, None));
+            return Ok(None);
         };
 
         let response = self
@@ -654,6 +653,6 @@ impl Media {
             { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
         );
 
-        Ok((Some(MediaSource::Plain(url)), Some(Box::new(thumbnail_info))))
+        Ok(Some((MediaSource::Plain(url), Box::new(thumbnail_info))))
     }
 }

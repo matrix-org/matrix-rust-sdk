@@ -459,7 +459,7 @@ impl Client {
         data: &[u8],
         thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<(MediaSource, Option<MediaSource>, Option<Box<ThumbnailInfo>>)> {
+    ) -> Result<(MediaSource, Option<(MediaSource, Box<ThumbnailInfo>)>)> {
         let upload_thumbnail =
             self.upload_encrypted_thumbnail(thumbnail, content_type, send_progress.clone());
 
@@ -470,10 +470,9 @@ impl Client {
                 .await
         };
 
-        let ((thumbnail_source, thumbnail_info), file) =
-            try_join(upload_thumbnail, upload_attachment).await?;
+        let (thumbnail, file) = try_join(upload_thumbnail, upload_attachment).await?;
 
-        Ok((MediaSource::Encrypted(Box::new(file)), thumbnail_source, thumbnail_info))
+        Ok((MediaSource::Encrypted(Box::new(file)), thumbnail))
     }
 
     /// Uploads an encrypted thumbnail to the media repository, and returns
@@ -483,9 +482,9 @@ impl Client {
         thumbnail: Option<Thumbnail>,
         content_type: &mime::Mime,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<(Option<MediaSource>, Option<Box<ThumbnailInfo>>)> {
+    ) -> Result<Option<(MediaSource, Box<ThumbnailInfo>)>> {
         let Some(thumbnail) = thumbnail else {
-            return Ok((None, None));
+            return Ok(None);
         };
 
         let mut cursor = Cursor::new(thumbnail.data);
@@ -501,7 +500,7 @@ impl Client {
                     mimetype: Some(thumbnail.content_type.as_ref().to_owned())
                 });
 
-        Ok((Some(MediaSource::Encrypted(Box::new(file))), Some(Box::new(thumbnail_info))))
+        Ok(Some((MediaSource::Encrypted(Box::new(file)), Box::new(thumbnail_info))))
     }
 
     /// Claim one-time keys creating new Olm sessions.
