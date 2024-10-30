@@ -19,7 +19,7 @@
 //! into the event cache for the actual storage. By default this brings an
 //! in-memory store.
 
-use std::str::Utf8Error;
+use std::{str::Utf8Error, sync::Arc};
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
@@ -27,6 +27,7 @@ pub mod integration_tests;
 mod memory_store;
 mod traits;
 
+use matrix_sdk_common::store_locks::BackingStore;
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 
 #[cfg(any(test, feature = "testing"))]
@@ -83,3 +84,23 @@ impl EventCacheStoreError {
 
 /// An `EventCacheStore` specific result type.
 pub type Result<T, E = EventCacheStoreError> = std::result::Result<T, E>;
+
+/// A type that wraps the [`EventCacheStore`] but implements [`BackingStore`] to
+/// make it usable inside the cross process lock.
+#[derive(Clone, Debug)]
+struct LockableEventCacheStore(Arc<DynEventCacheStore>);
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl BackingStore for LockableEventCacheStore {
+    type LockError = EventCacheStoreError;
+
+    async fn try_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> std::result::Result<bool, Self::LockError> {
+        self.0.try_take_leased_lock(lease_duration_ms, key, holder).await
+    }
+}

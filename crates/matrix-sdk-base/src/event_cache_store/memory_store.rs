@@ -51,6 +51,15 @@ impl MemoryStore {
 impl EventCacheStore for MemoryStore {
     type Error = EventCacheStoreError;
 
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool, Self::Error> {
+        todo!()
+    }
+
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
         // Avoid duplication. Let's try to remove it first.
         self.remove_media_content(request).await?;

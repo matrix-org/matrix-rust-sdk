@@ -140,6 +140,15 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 impl EventCacheStore for SqliteEventCacheStore {
     type Error = Error;
 
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool, Self::Error> {
+        todo!()
+    }
+
     async fn add_media_content(&self, request: &MediaRequest, content: Vec<u8>) -> Result<()> {
         let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
         let format = self.encode_key(keys::MEDIA, request.format.unique_key());
