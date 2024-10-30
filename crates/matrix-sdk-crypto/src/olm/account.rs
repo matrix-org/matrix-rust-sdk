@@ -962,10 +962,6 @@ impl Account {
 
         let result = match first_key {
             OneTimeKey::SignedKey(key) => Ok(PrekeyBundle::Olm3DH { key }),
-            _ => Err(SessionCreationError::OneTimeKeyUnknown(
-                device.user_id().to_owned(),
-                device.device_id().into(),
-            )),
         };
 
         trace!(?result, "Finished searching for a valid pre-key bundle");

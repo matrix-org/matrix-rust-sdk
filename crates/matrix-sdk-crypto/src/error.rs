@@ -305,13 +305,6 @@ pub enum SessionCreationError {
     )]
     OneTimeKeyMissing(OwnedUserId, OwnedDeviceId),
 
-    /// The one-time key algorithm is unsupported.
-    #[error(
-        "Tried to create a new Olm session for {0} {1}, but the one-time \
-        key algorithm is unsupported"
-    )]
-    OneTimeKeyUnknown(OwnedUserId, OwnedDeviceId),
-
     /// Failed to verify the one-time key signatures.
     #[error(
         "Failed to verify the signature of a one-time key, key: {one_time_key:?}, \
