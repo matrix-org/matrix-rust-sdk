@@ -1925,14 +1925,14 @@ pub struct LockableCryptoStore(Arc<dyn CryptoStore<Error = CryptoStoreError>>);
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl matrix_sdk_common::store_locks::BackingStore for LockableCryptoStore {
-    type Error = CryptoStoreError;
+    type LockError = CryptoStoreError;
 
     async fn try_lock(
         &self,
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> std::result::Result<bool, Self::Error> {
+    ) -> std::result::Result<bool, Self::LockError> {
         self.0.try_take_leased_lock(lease_duration_ms, key, holder).await
     }
 }
