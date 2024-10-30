@@ -29,6 +29,14 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// The error type used by this event cache store.
     type Error: fmt::Debug + Into<EventCacheStoreError>;
 
+    /// Try to take a lock using the given store.
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool, Self::Error>;
+
     /// Add a media file's content in the media store.
     ///
     /// # Arguments
@@ -104,6 +112,15 @@ impl<T: fmt::Debug> fmt::Debug for EraseEventCacheStoreError<T> {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
     type Error = EventCacheStoreError;
+
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool, Self::Error> {
+        self.0.try_take_leased_lock(lease_duration_ms, key, holder).await.map_err(Into::into)
+    }
 
     async fn add_media_content(
         &self,
