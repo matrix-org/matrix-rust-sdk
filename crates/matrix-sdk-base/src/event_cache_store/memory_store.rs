@@ -185,4 +185,5 @@ mod tests {
     }
 
     event_cache_store_integration_tests!();
+    event_cache_store_integration_tests_time!();
 }

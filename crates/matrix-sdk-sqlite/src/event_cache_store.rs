@@ -276,7 +276,7 @@ mod tests {
 
     use matrix_sdk_base::{
         event_cache_store::{EventCacheStore, EventCacheStoreError},
-        event_cache_store_integration_tests,
+        event_cache_store_integration_tests, event_cache_store_integration_tests_time,
         media::{MediaFormat, MediaRequest, MediaThumbnailSettings},
     };
     use matrix_sdk_test::async_test;
@@ -300,6 +300,7 @@ mod tests {
     }
 
     event_cache_store_integration_tests!();
+    event_cache_store_integration_tests_time!();
 
     async fn get_event_cache_store_content_sorted_by_last_access(
         event_cache_store: &SqliteEventCacheStore,
@@ -381,6 +382,7 @@ mod encrypted_tests {
 
     use matrix_sdk_base::{
         event_cache_store::EventCacheStoreError, event_cache_store_integration_tests,
+        event_cache_store_integration_tests_time,
     };
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
@@ -405,4 +407,5 @@ mod encrypted_tests {
     }
 
     event_cache_store_integration_tests!();
+    event_cache_store_integration_tests_time!();
 }
