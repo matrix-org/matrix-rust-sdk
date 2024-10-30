@@ -46,7 +46,7 @@ async fn test_room_directory_search_filter() -> Result<()> {
     let mut room_directory_search = RoomDirectorySearch::new(alice);
     let (values, mut stream) = room_directory_search.results();
     assert!(values.is_empty());
-    room_directory_search.search(Some(search_string), 10).await?;
+    room_directory_search.search(Some(search_string), 10, None).await?;
     let results_batch: Vec<VectorDiff<matrix_sdk::room_directory_search::RoomDescription>> =
         stream.next().await.unwrap();
     assert_eq!(results_batch.len(), 1);
@@ -63,7 +63,7 @@ async fn test_room_directory_search_filter() -> Result<()> {
     assert_pending!(stream);
 
     // This should reset the state completely
-    room_directory_search.search(None, 25).await?;
+    room_directory_search.search(None, 25, None).await?;
     let results_batch = stream.next().await.unwrap();
     assert_matches!(&results_batch[0], VectorDiff::Clear);
     assert_matches!(&results_batch[1], VectorDiff::Append { values } => { assert_eq!(values.len(), 25); });
