@@ -2047,7 +2047,7 @@ impl Room {
     /// Creates the inner [`MessageType`] for an already-uploaded media file
     /// provided by its source.
     #[allow(clippy::too_many_arguments)]
-    fn make_attachment_type(
+    pub(crate) fn make_attachment_type(
         &self,
         content_type: &Mime,
         filename: &str,
@@ -2133,7 +2133,7 @@ impl Room {
 
     /// Creates the [`RoomMessageEventContent`] based on the message type and
     /// mentions.
-    fn make_attachment_event(
+    pub(crate) fn make_attachment_event(
         msg_type: MessageType,
         mentions: Option<Mentions>,
     ) -> RoomMessageEventContent {

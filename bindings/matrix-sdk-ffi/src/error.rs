@@ -183,6 +183,12 @@ pub enum QueueWedgeError {
     /// session before sending.
     CrossVerificationRequired,
 
+    /// Some media content to be sent has disappeared from the cache.
+    MissingMediaContent,
+
+    /// Some mime type couldn't be parsed.
+    InvalidMimeType { mime_type: String },
+
     /// Other errors.
     GenericApiError { msg: String },
 }
@@ -201,10 +207,17 @@ impl Display for QueueWedgeError {
             QueueWedgeError::CrossVerificationRequired => {
                 f.write_str("Own verification is required")
             }
+            QueueWedgeError::MissingMediaContent => {
+                f.write_str("Media to be sent disappeared from local storage")
+            }
+            QueueWedgeError::InvalidMimeType { mime_type } => {
+                write!(f, "Invalid mime type '{mime_type}' for media upload")
+            }
             QueueWedgeError::GenericApiError { msg } => f.write_str(msg),
         }
     }
 }
+
 impl From<SdkQueueWedgeError> for QueueWedgeError {
     fn from(value: SdkQueueWedgeError) -> Self {
         match value {
@@ -223,6 +236,10 @@ impl From<SdkQueueWedgeError> for QueueWedgeError {
                 users: users.iter().map(ruma::OwnedUserId::to_string).collect(),
             },
             SdkQueueWedgeError::CrossVerificationRequired => Self::CrossVerificationRequired,
+            SdkQueueWedgeError::MissingMediaContent => Self::MissingMediaContent,
+            SdkQueueWedgeError::InvalidMimeType { mime_type } => {
+                Self::InvalidMimeType { mime_type }
+            }
             SdkQueueWedgeError::GenericApiError { msg } => Self::GenericApiError { msg },
         }
     }

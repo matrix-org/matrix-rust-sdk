@@ -18,11 +18,16 @@ use std::{collections::BTreeMap, fmt, ops::Deref};
 
 use as_variant::as_variant;
 use ruma::{
-    events::{AnyMessageLikeEventContent, EventContent as _, RawExt as _},
+    events::{
+        room::{message::RoomMessageEventContent, MediaSource},
+        AnyMessageLikeEventContent, EventContent as _, RawExt as _,
+    },
     serde::Raw,
-    OwnedDeviceId, OwnedEventId, OwnedTransactionId, OwnedUserId, TransactionId,
+    OwnedDeviceId, OwnedEventId, OwnedTransactionId, OwnedUserId, TransactionId, UInt,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::media::MediaRequest;
 
 /// A thin wrapper to serialize a `AnyMessageLikeEventContent`.
 #[derive(Clone, Serialize, Deserialize)]
@@ -75,6 +80,28 @@ pub enum QueuedRequestKind {
     Event {
         /// The content of the message-like event we'd like to send.
         content: SerializableEventContent,
+    },
+
+    /// Content to upload on the media server.
+    ///
+    /// The bytes must be stored in the media cache, and are identified by the
+    /// cache key.
+    Upload {
+        /// Content type of the media to be uploaded.
+        ///
+        /// Stored as a `String` because `Mime` which we'd really want to use
+        /// here, is not serializable. Oh well.
+        content_type: String,
+
+        /// The cache key used to retrieve the media's bytes in the event cache
+        /// store.
+        cache_key: MediaRequest,
+
+        /// An optional media source for a thumbnail already uploaded.
+        thumbnail_source: Option<MediaSource>,
+
+        /// To which media event transaction does this upload relate?
+        related_to: OwnedTransactionId,
     },
 }
 
@@ -143,6 +170,18 @@ pub enum QueueWedgeError {
     #[error("Own verification is required")]
     CrossVerificationRequired,
 
+    /// Media content was cached in the media store, but has disappeared before
+    /// we could upload it.
+    #[error("Media content disappeared")]
+    MissingMediaContent,
+
+    /// We tried to upload some media content with an unknown mime type.
+    #[error("Invalid mime type '{mime_type}' for media")]
+    InvalidMimeType {
+        /// The observed mime type that's expected to be invalid.
+        mime_type: String,
+    },
+
     /// Other errors.
     #[error("Other unrecoverable error: {msg}")]
     GenericApiError {
@@ -169,6 +208,43 @@ pub enum DependentQueuedRequestKind {
         /// Key used for the reaction.
         key: String,
     },
+
+    /// Upload a file that had a thumbnail.
+    UploadFileWithThumbnail {
+        /// Content type for the file itself (not the thumbnail).
+        content_type: String,
+
+        /// Media request necessary to retrieve the file itself (not the
+        /// thumbnail).
+        cache_key: MediaRequest,
+
+        /// To which media transaction id does this upload relate to?
+        related_to: OwnedTransactionId,
+    },
+
+    /// Finish an upload by updating references to the media cache and sending
+    /// the final media event with the remote MXC URIs.
+    FinishUpload {
+        /// Local echo for the event (containing the local MXC URIs).
+        local_echo: RoomMessageEventContent,
+
+        /// Transaction id for the file upload.
+        file_upload: OwnedTransactionId,
+
+        /// Information about the thumbnail, if present.
+        thumbnail_info: Option<FinishUploadThumbnailInfo>,
+    },
+}
+
+/// Detailed record about a thumbnail used when finishing a media upload.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FinishUploadThumbnailInfo {
+    /// Transaction id for the thumbnail upload.
+    pub txn: OwnedTransactionId,
+    /// Thumbnail's width.
+    pub width: UInt,
+    /// Thumbnail's height.
+    pub height: UInt,
 }
 
 /// A transaction id identifying a [`DependentQueuedRequest`] rather than its
@@ -210,14 +286,34 @@ impl From<ChildTransactionId> for OwnedTransactionId {
     }
 }
 
+impl From<OwnedTransactionId> for ChildTransactionId {
+    fn from(val: OwnedTransactionId) -> Self {
+        Self(val)
+    }
+}
+
 /// A unique key (identifier) indicating that a transaction has been
 /// successfully sent to the server.
 ///
 /// The owning child transactions can now be resolved.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SentRequestKey {
     /// The parent transaction returned an event when it succeeded.
     Event(OwnedEventId),
+
+    /// The parent transaction returned an uploaded resource URL.
+    Media {
+        /// File that was uploaded by this request.
+        ///
+        /// If the request related to a thumbnail upload, this contains the
+        /// thumbnail media source.
+        file: MediaSource,
+
+        /// Optional thumbnail previously uploaded, when uploading a file.
+        ///
+        /// When uploading a thumbnail, this is set to `None`.
+        thumbnail: Option<MediaSource>,
+    },
 }
 
 impl SentRequestKey {

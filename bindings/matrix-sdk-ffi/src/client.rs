@@ -717,6 +717,7 @@ impl Client {
     ) -> Result<Vec<u8>, ClientError> {
         let source = (*media_source).clone();
 
+        debug!(?source, "requesting media file");
         Ok(self
             .inner
             .media()
@@ -732,6 +733,7 @@ impl Client {
     ) -> Result<Vec<u8>, ClientError> {
         let source = (*media_source).clone();
 
+        debug!(source = ?media_source, width, height, "requesting media thumbnail");
         Ok(self
             .inner
             .media()
