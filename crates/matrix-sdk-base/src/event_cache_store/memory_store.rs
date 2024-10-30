@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{num::NonZeroUsize, sync::RwLock as StdRwLock};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    num::NonZeroUsize,
+    sync::RwLock as StdRwLock,
+    time::{Duration, Instant},
+};
 
 use async_trait::async_trait;
 use matrix_sdk_common::ring_buffer::RingBuffer;
@@ -28,6 +33,7 @@ use crate::media::{MediaRequest, UniqueKey as _};
 #[derive(Debug)]
 pub struct MemoryStore {
     media: StdRwLock<RingBuffer<(OwnedMxcUri, String /* unique key */, Vec<u8>)>>,
+    leases: StdRwLock<HashMap<String, (String, Instant)>>,
 }
 
 // SAFETY: `new_unchecked` is safe because 20 is not zero.
@@ -35,7 +41,10 @@ const NUMBER_OF_MEDIAS: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(20) 
 
 impl Default for MemoryStore {
     fn default() -> Self {
-        Self { media: StdRwLock::new(RingBuffer::new(NUMBER_OF_MEDIAS)) }
+        Self {
+            media: StdRwLock::new(RingBuffer::new(NUMBER_OF_MEDIAS)),
+            leases: Default::default(),
+        }
     }
 }
 
@@ -57,7 +66,44 @@ impl EventCacheStore for MemoryStore {
         key: &str,
         holder: &str,
     ) -> Result<bool, Self::Error> {
-        todo!()
+        let now = Instant::now();
+        let expiration = now + Duration::from_millis(lease_duration_ms.into());
+
+        match self.leases.write().unwrap().entry(key.to_owned()) {
+            // There is an existing holder.
+            Entry::Occupied(mut entry) => {
+                let (current_holder, current_expiration) = entry.get_mut();
+
+                if current_holder == holder {
+                    // We had the lease before, extend it.
+                    *current_expiration = expiration;
+
+                    Ok(true)
+                } else {
+                    // We didn't have it.
+                    if *current_expiration < now {
+                        // Steal it!
+                        *current_holder = holder.to_owned();
+                        *current_expiration = expiration;
+
+                        Ok(true)
+                    } else {
+                        // We tried our best.
+                        Ok(false)
+                    }
+                }
+            }
+
+            // There is no holder, easy.
+            Entry::Vacant(entry) => {
+                entry.insert((
+                    holder.to_owned(),
+                    Instant::now() + Duration::from_millis(lease_duration_ms.into()),
+                ));
+
+                Ok(true)
+            }
+        }
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
