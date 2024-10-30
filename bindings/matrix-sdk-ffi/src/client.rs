@@ -606,6 +606,10 @@ impl Client {
         &self,
         action: Option<AccountManagementAction>,
     ) -> Result<Option<String>, ClientError> {
+        if !matches!(self.inner.auth_api(), Some(AuthApi::Oidc(..))) {
+            return Ok(None);
+        }
+
         match self.inner.oidc().account_management_url(action.map(Into::into)).await {
             Ok(url) => Ok(url.map(|u| u.to_string())),
             Err(e) => {
