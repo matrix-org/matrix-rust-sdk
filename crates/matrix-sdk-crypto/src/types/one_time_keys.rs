@@ -103,10 +103,6 @@ impl SignedKey {
 pub enum OneTimeKey {
     /// A signed Curve25519 one-time key.
     SignedKey(SignedKey),
-
-    /// An unsigned Curve25519 one-time key.
-    #[serde(serialize_with = "serialize_curve_key")]
-    Key(Curve25519PublicKey),
 }
 
 impl OneTimeKey {
@@ -121,17 +117,7 @@ impl OneTimeKey {
                 let key: SignedKey = key.deserialize_as()?;
                 Ok(OneTimeKey::SignedKey(key))
             }
-            _ => match algorithm.as_str() {
-                "curve25519" => {
-                    let key: String = key.deserialize_as()?;
-                    Ok(OneTimeKey::Key(
-                        Curve25519PublicKey::from_base64(&key).map_err(serde::de::Error::custom)?,
-                    ))
-                }
-                _ => {
-                    Err(serde::de::Error::custom(format!("Unsupported key algorithm {algorithm}")))
-                }
-            },
+            _ => Err(serde::de::Error::custom(format!("Unsupported key algorithm {algorithm}"))),
         }
     }
 }
@@ -141,7 +127,6 @@ impl OneTimeKey {
     pub fn fallback(&self) -> bool {
         match self {
             OneTimeKey::SignedKey(s) => s.fallback(),
-            OneTimeKey::Key(_) => false,
         }
     }
 }
