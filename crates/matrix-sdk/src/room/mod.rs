@@ -87,7 +87,7 @@ use ruma::{
             history_visibility::HistoryVisibility,
             message::{
                 AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
-                ImageMessageEventContent, MessageType, RoomMessageEventContent,
+                FormattedBody, ImageMessageEventContent, MessageType, RoomMessageEventContent,
                 UnstableAudioDetailsContentBlock, UnstableVoiceContentBlock, VideoInfo,
                 VideoMessageEventContent,
             },
@@ -1962,7 +1962,7 @@ impl Room {
         };
 
         #[cfg(feature = "e2e-encryption")]
-        let (media_source, thumbnail_source, thumbnail_info) = if self.is_encrypted().await? {
+        let (media_source, thumbnail) = if self.is_encrypted().await? {
             self.client
                 .upload_encrypted_media_and_thumbnail(content_type, &data, thumbnail, send_progress)
                 .await?
@@ -1981,7 +1981,7 @@ impl Room {
         };
 
         #[cfg(not(feature = "e2e-encryption"))]
-        let (media_source, thumbnail_source, thumbnail_info) = self
+        let (media_source, thumbnail) = self
             .client
             .media()
             .upload_plain_media_and_thumbnail(content_type, data.clone(), thumbnail, send_progress)
@@ -2000,7 +2000,7 @@ impl Room {
             }
 
             if let Some(((data, height, width), source)) =
-                thumbnail_cache_info.zip(thumbnail_source.as_ref())
+                thumbnail_cache_info.zip(thumbnail.as_ref().map(|tuple| &tuple.0))
             {
                 debug!("caching the thumbnail");
 
@@ -2024,20 +2024,18 @@ impl Room {
             }
         }
 
-        let msg_type = self.make_attachment_message(
-            content_type,
-            media_source,
-            thumbnail_source,
-            thumbnail_info,
-            filename,
-            config,
+        let content = Self::make_attachment_event(
+            self.make_attachment_type(
+                content_type,
+                filename,
+                media_source,
+                config.caption,
+                config.formatted_caption,
+                config.info,
+                thumbnail,
+            ),
+            mentions,
         );
-
-        let mut content = RoomMessageEventContent::new(msg_type);
-
-        if let Some(mentions) = mentions {
-            content = content.add_mentions(mentions);
-        }
 
         let mut fut = self.send(content);
         if let Some(txn_id) = txn_id {
@@ -2048,33 +2046,37 @@ impl Room {
 
     /// Creates the inner [`MessageType`] for an already-uploaded media file
     /// provided by its source.
-    fn make_attachment_message(
+    #[allow(clippy::too_many_arguments)]
+    fn make_attachment_type(
         &self,
         content_type: &Mime,
-        source: MediaSource,
-        thumbnail_source: Option<MediaSource>,
-        thumbnail_info: Option<Box<ThumbnailInfo>>,
         filename: &str,
-        config: AttachmentConfig,
+        source: MediaSource,
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
+        info: Option<AttachmentInfo>,
+        thumbnail: Option<(MediaSource, Box<ThumbnailInfo>)>,
     ) -> MessageType {
-        // if config.caption is set, use it as body, and filename as the file name
-        // otherwise, body is the filename, and the filename is not set.
+        // If caption is set, use it as body, and filename as the file name; otherwise,
+        // body is the filename, and the filename is not set.
         // https://github.com/tulir/matrix-spec-proposals/blob/body-as-caption/proposals/2530-body-as-caption.md
-        let (body, filename) = match config.caption {
+        let (body, filename) = match caption {
             Some(caption) => (caption, Some(filename.to_owned())),
             None => (filename.to_owned(), None),
         };
 
+        let (thumbnail_source, thumbnail_info) = thumbnail.unzip();
+
         match content_type.type_() {
             mime::IMAGE => {
-                let info = assign!(config.info.map(ImageInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(ImageInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info
                 });
                 let content = assign!(ImageMessageEventContent::new(body, source), {
                     info: Some(Box::new(info)),
-                    formatted: config.formatted_caption,
+                    formatted: formatted_caption,
                     filename
                 });
                 MessageType::Image(content)
@@ -2084,7 +2086,7 @@ impl Room {
                 let mut content = AudioMessageEventContent::new(body, source);
 
                 if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) =
-                    &config.info
+                    &info
                 {
                     if let Some(duration) = audio_info.duration {
                         let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
@@ -2094,7 +2096,7 @@ impl Room {
                     content.voice = Some(UnstableVoiceContentBlock::new());
                 }
 
-                let mut audio_info = config.info.map(AudioInfo::from).unwrap_or_default();
+                let mut audio_info = info.map(AudioInfo::from).unwrap_or_default();
                 audio_info.mimetype = Some(content_type.as_ref().to_owned());
                 let content = content.info(Box::new(audio_info));
 
@@ -2102,21 +2104,21 @@ impl Room {
             }
 
             mime::VIDEO => {
-                let info = assign!(config.info.map(VideoInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info
                 });
                 let content = assign!(VideoMessageEventContent::new(body, source), {
                     info: Some(Box::new(info)),
-                    formatted: config.formatted_caption,
+                    formatted: formatted_caption,
                     filename
                 });
                 MessageType::Video(content)
             }
 
             _ => {
-                let info = assign!(config.info.map(FileInfo::from).unwrap_or_default(), {
+                let info = assign!(info.map(FileInfo::from).unwrap_or_default(), {
                     mimetype: Some(content_type.as_ref().to_owned()),
                     thumbnail_source,
                     thumbnail_info
@@ -2127,6 +2129,19 @@ impl Room {
                 MessageType::File(content)
             }
         }
+    }
+
+    /// Creates the [`RoomMessageEventContent`] based on the message type and
+    /// mentions.
+    fn make_attachment_event(
+        msg_type: MessageType,
+        mentions: Option<Mentions>,
+    ) -> RoomMessageEventContent {
+        let mut content = RoomMessageEventContent::new(msg_type);
+        if let Some(mentions) = mentions {
+            content = content.add_mentions(mentions);
+        }
+        content
     }
 
     /// Update the power levels of a select set of users of this room.
