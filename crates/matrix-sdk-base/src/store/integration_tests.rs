@@ -1406,7 +1406,9 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(dependents.len(), 1);
         assert_eq!(dependents[0].parent_transaction_id, txn0);
         assert_eq!(dependents[0].own_transaction_id, child_txn);
-        assert_eq!(dependents[0].parent_key.as_ref(), Some(&SentRequestKey::Event(event_id)));
+        assert_matches!(dependents[0].parent_key.as_ref(), Some(SentRequestKey::Event(eid)) => {
+            assert_eq!(*eid, event_id);
+        });
         assert_matches!(dependents[0].kind, DependentQueuedRequestKind::RedactEvent);
 
         // Now remove it.
