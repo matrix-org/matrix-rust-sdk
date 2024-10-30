@@ -22,6 +22,7 @@ use matrix_sdk::{
         },
         OidcAuthorizationData, OidcSession,
     },
+    reqwest::StatusCode,
     ruma::{
         api::client::{
             media::get_content_thumbnail::v3::Method,
@@ -40,7 +41,7 @@ use matrix_sdk::{
         EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
-    AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
+    AuthApi, AuthSession, Client as MatrixClient, HttpError, SessionChange, SessionTokens,
 };
 use matrix_sdk_ui::notification_client::{
     NotificationClient as MatrixNotificationClient,
@@ -1029,8 +1030,6 @@ impl Client {
         room_alias: String,
     ) -> Result<Option<ResolvedRoomAlias>, ClientError> {
         let room_alias = RoomAliasId::parse(&room_alias)?;
-        let response = self.inner.resolve_room_alias(&room_alias).await?;
-        Ok(response.into())
         match self.inner.resolve_room_alias(&room_alias).await {
             Ok(response) => Ok(Some(response.into())),
             Err(HttpError::Reqwest(http_error)) => match http_error.status() {
@@ -1039,6 +1038,11 @@ impl Client {
             },
             Err(error) => Err(error.into()),
         }
+    }
+
+    /// Checks if a room alias exists in the current homeserver.
+    pub async fn room_alias_exists(&self, room_alias: String) -> Result<bool, ClientError> {
+        self.resolve_room_alias(room_alias).await.map(|ret| ret.is_some())
     }
 
     /// Given a room id, get the preview of a room, to interact with it.
@@ -1123,6 +1127,23 @@ impl Client {
         }
 
         Ok(())
+    }
+
+    /// Checks if a room alias is available in the current homeserver.
+    pub async fn is_room_alias_available(&self, alias: String) -> Result<bool, ClientError> {
+        let alias = RoomAliasId::parse(alias)?;
+        match self.inner.resolve_room_alias(&alias).await {
+            // The room alias was resolved, so it's already in use.
+            Ok(_) => Ok(false),
+            Err(HttpError::Reqwest(error)) => {
+                match error.status() {
+                    // The room alias wasn't found, so it's available.
+                    Some(StatusCode::NOT_FOUND) => Ok(true),
+                    _ => Err(HttpError::Reqwest(error).into()),
+                }
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 }
 
