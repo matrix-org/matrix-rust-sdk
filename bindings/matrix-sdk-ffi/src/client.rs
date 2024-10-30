@@ -53,12 +53,14 @@ use ruma::{
         alias::get_alias, discovery::discover_homeserver::AuthenticationServerInfo,
         uiaa::UserIdentifier,
     },
+    directory::PublicRoomJoinRule,
     events::{
         ignored_user_list::IgnoredUserListEventContent,
         room::{join_rules::RoomJoinRulesEventContent, power_levels::RoomPowerLevelsEventContent},
         GlobalAccountDataEventType,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
+    space::SpaceRoomJoinRule,
     OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
@@ -1097,6 +1099,29 @@ impl Client {
         Ok(Arc::new(Room::new(self.inner.await_room_remote_echo(&room_id).await)))
     }
 
+    /// Search the homeserver's directory of public rooms.
+    ///
+    /// Returns a paginated list of room previews.
+    ///
+    /// # Arguments
+    ///
+    /// * `limit` - optional max amount of rooms to retrieve.
+    /// * `since_token` - optional token from a previous paginated result of
+    ///   this function.
+    /// * `server` - optional server used to list the public rooms, if `None` is
+    ///   passed, the current one will be used.
+    pub async fn public_rooms(
+        &self,
+        limit: Option<u32>,
+        since_token: Option<String>,
+        server: Option<String>,
+    ) -> Result<PublicRoomsChunk, ClientError> {
+        let server_name = server.map(ServerName::parse).transpose()?;
+        let since_token = since_token.as_deref();
+        let response = self.inner.public_rooms(limit, since_token, server_name.as_deref()).await?;
+        Ok(PublicRoomsChunk::from_response(response, self))
+    }
+
     /// Lets the user know whether this is an `m.login.password` based
     /// auth and if the account can actually be deactivated
     pub fn can_deactivate_account(&self) -> bool {
@@ -1125,6 +1150,55 @@ impl Client {
         }
 
         Ok(())
+    }
+}
+
+/// The result from a `/publicRooms` request.
+#[derive(uniffi::Record)]
+pub struct PublicRoomsChunk {
+    pub rooms_chunk: Vec<Arc<RoomPreview>>,
+    pub next_batch: Option<String>,
+    pub prev_batch: Option<String>,
+    pub total_rooms_estimate: Option<u64>,
+}
+
+impl PublicRoomsChunk {
+    pub fn from_response(
+        response: ruma::api::client::directory::get_public_rooms::v3::Response,
+        client: &Client,
+    ) -> PublicRoomsChunk {
+        let rooms = response
+            .chunk
+            .iter()
+            .map(|room_chunk| {
+                let preview = matrix_sdk::room_preview::RoomPreview {
+                    room_id: room_chunk.room_id.clone(),
+                    canonical_alias: room_chunk.canonical_alias.clone(),
+                    name: room_chunk.name.clone(),
+                    topic: room_chunk.topic.clone(),
+                    avatar_url: room_chunk.avatar_url.clone(),
+                    num_joined_members: room_chunk.num_joined_members.into(),
+                    room_type: room_chunk.room_type.clone(),
+                    join_rule: match &room_chunk.join_rule {
+                        PublicRoomJoinRule::Public => SpaceRoomJoinRule::Public,
+                        PublicRoomJoinRule::Knock => SpaceRoomJoinRule::Knock,
+                        PublicRoomJoinRule::_Custom(v) => SpaceRoomJoinRule::_Custom(v.clone()),
+                        _ => SpaceRoomJoinRule::Private,
+                    },
+                    is_world_readable: room_chunk.world_readable,
+                    state: None,
+                    is_direct: None,
+                };
+                Arc::new(RoomPreview::new(client.inner.clone(), preview))
+            })
+            .collect();
+
+        PublicRoomsChunk {
+            rooms_chunk: rooms,
+            next_batch: response.next_batch,
+            prev_batch: response.prev_batch,
+            total_rooms_estimate: response.total_room_count_estimate.map(|count| count.into()),
+        }
     }
 }
 
