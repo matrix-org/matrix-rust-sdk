@@ -1359,6 +1359,11 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 self.update_event_send_state(&transaction_id, EventSendState::Sent { event_id })
                     .await;
             }
+
+            RoomSendQueueUpdate::UploadedMedia { related_to, .. } => {
+                // TODO(bnjbvr): Do something else?
+                info!(txn_id = %related_to, "some media for a media event has been uploaded");
+            }
         }
     }
 }

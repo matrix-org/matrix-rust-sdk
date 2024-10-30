@@ -14,6 +14,7 @@ use ruma::{
     },
     MxcUri, UInt,
 };
+use serde::{Deserialize, Serialize};
 
 const UNIQUE_SEPARATOR: &str = "_";
 
@@ -25,7 +26,7 @@ pub trait UniqueKey {
 }
 
 /// The requested format of a media file.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum MediaFormat {
     /// The file that was uploaded.
     File,
@@ -44,7 +45,7 @@ impl UniqueKey for MediaFormat {
 }
 
 /// The requested size of a media thumbnail.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MediaThumbnailSize {
     /// The desired resizing method.
     pub method: Method,
@@ -65,7 +66,7 @@ impl UniqueKey for MediaThumbnailSize {
 }
 
 /// The desired settings of a media thumbnail.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MediaThumbnailSettings {
     /// The desired size of the thumbnail.
     pub size: MediaThumbnailSize,
@@ -110,7 +111,7 @@ impl UniqueKey for MediaSource {
 }
 
 /// A request for media data.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MediaRequest {
     /// The source of the media file.
     pub source: MediaSource,
