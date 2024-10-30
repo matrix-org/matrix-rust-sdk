@@ -58,7 +58,7 @@ use crate::{
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait BackingStore {
-    type Error: Error + Send + Sync;
+    type LockError: Error + Send + Sync;
 
     /// Try to take a lock using the given store.
     async fn try_lock(
@@ -66,7 +66,7 @@ pub trait BackingStore {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool, Self::Error>;
+    ) -> Result<bool, Self::LockError>;
 }
 
 /// Small state machine to handle wait times.
@@ -400,7 +400,7 @@ mod tests {
     #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
     #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl BackingStore for TestStore {
-        type Error = DummyError;
+        type LockError = DummyError;
 
         /// Try to take a lock using the given store.
         async fn try_lock(
@@ -408,7 +408,7 @@ mod tests {
             lease_duration_ms: u32,
             key: &str,
             holder: &str,
-        ) -> Result<bool, Self::Error> {
+        ) -> Result<bool, Self::LockError> {
             Ok(self.try_take_leased_lock(lease_duration_ms, key, holder))
         }
     }
