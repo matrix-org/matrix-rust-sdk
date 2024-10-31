@@ -15,7 +15,6 @@ pub struct SendAttachment<'a> {
     config: AttachmentConfig,
     tracing_span: Span,
     pub(crate) send_progress: SharedObservable<TransmissionProgress>,
-    store_in_cache: bool,
 }
 
 impl<'a> SendAttachment<'a> {
@@ -32,7 +31,6 @@ impl<'a> SendAttachment<'a> {
             config,
             tracing_span: Span::current(),
             send_progress: Default::default(),
-            store_in_cache: false,
         }
     }
 
@@ -42,14 +40,6 @@ impl<'a> SendAttachment<'a> {
     pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
         self.send_progress.subscribe()
     }
-
-    /// Whether the sent attachment should be stored in the cache or not.
-    ///
-    /// If set to true, then retrieving the data for the attachment will result
-    /// in a cache hit immediately after upload.
-    pub fn store_in_cache(&mut self) {
-        self.store_in_cache = true;
-    }
 }
 
 impl<'a> IntoFuture for SendAttachment<'a> {
@@ -57,8 +47,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { timeline, path, mime_type, config, tracing_span, send_progress, store_in_cache } =
-            self;
+        let Self { timeline, path, mime_type, config, tracing_span, send_progress: _ } = self;
 
         let fut = async move {
             let filename = path
@@ -68,15 +57,8 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                 .ok_or(Error::InvalidAttachmentFileName)?;
             let data = fs::read(&path).map_err(|_| Error::InvalidAttachmentData)?;
 
-            let mut fut = timeline
-                .room()
-                .send_attachment(filename, &mime_type, data, config)
-                .with_send_progress_observable(send_progress);
-
-            if store_in_cache {
-                fut = fut.store_in_cache();
-            }
-
+            let send_queue = timeline.room().send_queue();
+            let fut = send_queue.send_attachment(filename, mime_type, data, config);
             fut.await.map_err(|_| Error::FailedSendingAttachment)?;
 
             Ok(())
