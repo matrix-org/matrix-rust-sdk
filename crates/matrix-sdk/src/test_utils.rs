@@ -14,6 +14,9 @@ use url::Url;
 
 pub mod events;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mocks;
+
 use crate::{
     config::RequestConfig,
     matrix_auth::{MatrixSession, MatrixSessionTokens},

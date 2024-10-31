@@ -7,7 +7,7 @@ use futures_util::future::join_all;
 use matrix_sdk::{
     config::SyncSettings,
     room::{edit::EditedContent, Receipts, ReportedContentScore, RoomMemberRole},
-    test_utils::events::EventFactory,
+    test_utils::{events::EventFactory, mocks::MatrixMockServer},
 };
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
@@ -33,7 +33,7 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client_with_server, mock_sync, mock_sync_with_new_room, synced_client};
+use crate::{logged_in_client_with_server, mock_sync, synced_client};
 #[async_test]
 async fn test_invite_user_by_id() {
     let (client, server) = logged_in_client_with_server().await;
@@ -720,78 +720,43 @@ async fn test_make_reply_event_doesnt_require_event_cache() {
     // Even if we don't have enabled the event cache, we'll resort to using the
     // /event query to get details on an event.
 
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
+    let user_id = mock.client().user_id().unwrap().to_owned();
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let room = mock.sync_joined_room(room_id).await;
 
     let event_id = event_id!("$1");
-    let resp_event_id = event_id!("$resp");
-    let room_id = room_id!("!galette:saucisse.bzh");
-
     let f = EventFactory::new();
-
-    let raw_original_event = f
-        .text_msg("hi")
-        .event_id(event_id)
-        .sender(client.user_id().unwrap())
-        .room(room_id)
-        .into_raw_timeline();
-
-    mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
-
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(raw_original_event.json()))
+    mock.mock_room_event()
+        .ok(f.text_msg("hi").event_id(event_id).sender(&user_id).room(room_id).into_timeline())
         .expect(1)
         .named("/event")
-        .mount(&server)
+        .mount()
         .await;
 
     let new_content = RoomMessageEventContentWithoutRelation::text_plain("uh i mean bonjour");
 
-    let room = client.get_room(room_id).unwrap();
-
     // make_edit_event works, even if the event cache hasn't been enabled.
-    room.make_edit_event(resp_event_id, EditedContent::RoomMessage(new_content)).await.unwrap();
+    room.make_edit_event(event_id, EditedContent::RoomMessage(new_content)).await.unwrap();
 }
 
 #[async_test]
 async fn test_enable_encryption_doesnt_stay_unencrypted() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
-    mock_encryption_state(&server, false).await;
-
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.*room.*encryption.?"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$1"})))
-        .mount(&server)
-        .await;
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_set_room_state_encryption().ok(event_id!("$1")).mount().await;
 
     let room_id = room_id!("!a:b.c");
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     assert!(!room.is_encrypted().await.unwrap());
 
     room.enable_encryption().await.expect("enabling encryption should work");
 
-    server.reset().await;
-    mock_encryption_state(&server, true).await;
+    mock.verify_and_reset().await;
+    mock.mock_room_state_encryption().encrypted().mount().await;
 
     assert!(room.is_encrypted().await.unwrap());
 }
