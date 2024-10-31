@@ -9,8 +9,13 @@ use std::{
 
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
+    attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, Thumbnail},
     config::{RequestConfig, StoreConfig},
-    send_queue::{LocalEcho, LocalEchoContent, RoomSendQueueError, RoomSendQueueUpdate},
+    media::{MediaFormat, MediaRequest, MediaThumbnailSettings, MediaThumbnailSize},
+    send_queue::{
+        LocalEcho, LocalEchoContent, RoomSendQueueError, RoomSendQueueStorageError,
+        RoomSendQueueUpdate,
+    },
     test_utils::{
         events::EventFactory, logged_in_client, logged_in_client_with_server, set_client_session,
     },
@@ -29,12 +34,16 @@ use ruma::{
             NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollAnswers,
             UnstablePollStartContentBlock, UnstablePollStartEventContent,
         },
-        room::message::RoomMessageEventContent,
-        AnyMessageLikeEventContent, EventContent as _,
+        room::{
+            message::{MessageType, RoomMessageEventContent},
+            MediaSource,
+        },
+        AnyMessageLikeEventContent, EventContent as _, Mentions,
     },
-    room_id,
+    media::Method,
+    mxc_uri, owned_user_id, room_id,
     serde::Raw,
-    EventId, OwnedEventId,
+    uint, EventId, MxcUri, OwnedEventId, TransactionId,
 };
 use serde_json::json;
 use tokio::{
@@ -42,11 +51,34 @@ use tokio::{
     time::{sleep, timeout},
 };
 use wiremock::{
-    matchers::{header, method, path_regex},
+    matchers::{header, method, path, path_regex},
     Mock, Request, ResponseTemplate,
 };
 
 use crate::mock_sync_with_new_room;
+
+// TODO put into the MatrixMockServer
+fn mock_jpeg_upload(mxc: &MxcUri, lock: Arc<Mutex<()>>) -> Mock {
+    let mxc = mxc.to_owned();
+    Mock::given(method("POST"))
+        .and(path("/_matrix/media/r0/upload"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(header("content-type", "image/jpeg"))
+        .respond_with(move |_req: &Request| {
+            // Wait for the signal from the main task that we can process this query.
+            let mock_lock = lock.clone();
+            std::thread::spawn(move || {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    drop(mock_lock.lock().await);
+                });
+            })
+            .join()
+            .unwrap();
+            ResponseTemplate::new(200).set_body_json(json!({
+              "content_uri": mxc
+            }))
+        })
+}
 
 fn mock_send_event(returned_event_id: &EventId) -> Mock {
     Mock::given(method("PUT"))
@@ -68,9 +100,9 @@ fn mock_send_transient_failure() -> Mock {
 
 // A macro to assert on a stream of `RoomSendQueueUpdate`s.
 macro_rules! assert_update {
-    // Check the next stream event is a local echo for a message with the content $body.
-    // Returns a tuple of (transaction_id, send_handle).
-    ($watch:ident => local echo { body = $body:expr }) => {{
+    // Check the next stream event is a local echo for an uploaded media.
+    // Returns a tuple of (transaction_id, send_handle, room_message).
+    ($watch:ident => local echo event) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
                 content: LocalEchoContent::Event {
@@ -84,10 +116,32 @@ macro_rules! assert_update {
         );
 
         let content = serialized_event.deserialize().unwrap();
-        assert_let!(AnyMessageLikeEventContent::RoomMessage(_msg) = content);
-        assert_eq!(_msg.body(), $body);
+        assert_let!(AnyMessageLikeEventContent::RoomMessage(room_message) = content);
 
+        (txn, send_handle, room_message)
+    }};
+
+    // Check the next stream event is a local echo for a message with the content $body.
+    // Returns a tuple of (transaction_id, send_handle).
+    ($watch:ident => local echo { body = $body:expr }) => {{
+        let (txn, send_handle, room_message) = assert_update!($watch => local echo event);
+        assert_eq!(room_message.body(), $body);
         (txn, send_handle)
+    }};
+
+    // Check the next stream event is a notification about an uploaded media.
+    // Returns a tuple of (transaction_id, send_handle).
+    ($watch:ident => uploaded { related_to = $related_to:expr, mxc = $mxc:expr }) => {{
+        assert_let!(
+            Ok(Ok(RoomSendQueueUpdate::UploadedMedia {
+                related_to,
+                file,
+            })) = timeout(Duration::from_secs(1), $watch.recv()).await
+        );
+
+        assert_eq!(related_to, $related_to);
+        assert_let!(MediaSource::Plain(mxc) = file);
+        assert_eq!(mxc, $mxc);
     }};
 
     // Check the next stream event is a local echo for a reaction with the content $key which
@@ -110,9 +164,9 @@ macro_rules! assert_update {
         txn
     }};
 
-    // Check the next stream event is an edit for a local echo with the content $body, and that the
+    // Check the next stream event is an edit event, and that the
     // transaction id is the one we expect.
-    ($watch:ident => edit { body = $body:expr, txn = $transaction_id:expr }) => {{
+    ($watch:ident => edit local echo { txn = $transaction_id:expr }) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::ReplacedLocalEvent {
                 transaction_id: txn,
@@ -120,11 +174,19 @@ macro_rules! assert_update {
             })) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
 
+        assert_eq!(txn, $transaction_id);
+
         let content = serialized_event.deserialize().unwrap();
         assert_let!(AnyMessageLikeEventContent::RoomMessage(_msg) = content);
-        assert_eq!(_msg.body(), $body);
 
-        assert_eq!(txn, $transaction_id);
+        _msg
+    }};
+
+    // Check the next stream event is an edit for a local echo with the content $body, and that the
+    // transaction id is the one we expect.
+    ($watch:ident => edit { body = $body:expr, txn = $transaction_id:expr }) => {{
+        let msg = assert_update!($watch => edit local echo { txn = $transaction_id });
+        assert_eq!(msg.body(), $body);
     }};
 
     // Check the next stream event is a retry event, with optional checks on txn=$txn
@@ -1944,5 +2006,244 @@ async fn test_reactions() {
     // Cancelling sending of the third emoji fails because it's been sent already.
     assert!(emoji_handle3.abort().await.unwrap().not());
 
+    assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_media_uploads() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+
+    let room = mock_sync_with_new_room(
+        |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        },
+        &client,
+        &server,
+        room_id,
+    )
+    .await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    // ----------------------
+    // Create the media to send, with a thumbnail.
+    let filename = "surprise.jpeg.exe";
+    let content_type = mime::IMAGE_JPEG;
+    let data = b"hello world".to_vec();
+
+    let thumbnail = Thumbnail {
+        data: b"thumbnail".to_vec(),
+        content_type: content_type.clone(),
+        info: Some(BaseThumbnailInfo {
+            height: Some(uint!(13)),
+            width: Some(uint!(37)),
+            size: Some(uint!(42)),
+        }),
+    };
+
+    let attachment_info = AttachmentInfo::Image(BaseImageInfo {
+        height: Some(uint!(14)),
+        width: Some(uint!(38)),
+        size: Some(uint!(43)),
+        blurhash: None,
+    });
+
+    let transaction_id = TransactionId::new();
+    let mentions = Mentions::with_user_ids([owned_user_id!("@ivan:sdk.rs")]);
+    let config = AttachmentConfig::with_thumbnail(thumbnail)
+        .txn_id(&transaction_id)
+        .caption(Some("caption".to_owned()))
+        .mentions(Some(mentions.clone()))
+        .info(attachment_info);
+
+    // ----------------------
+    // Prepare endpoints.
+    mock_encryption_state(&server, false).await;
+    mock_send_event(event_id!("$1")).expect(1).mount(&server).await;
+
+    let allow_upload_lock = Arc::new(Mutex::new(()));
+    let block_upload = allow_upload_lock.lock().await;
+
+    mock_jpeg_upload(mxc_uri!("mxc://sdk.rs/thumbnail"), allow_upload_lock.clone())
+        .up_to_n_times(1)
+        .expect(1)
+        .mount(&server)
+        .await;
+    mock_jpeg_upload(mxc_uri!("mxc://sdk.rs/media"), allow_upload_lock.clone())
+        .up_to_n_times(1)
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // ----------------------
+    // Send the media.
+    assert!(watch.is_empty());
+    q.send_attachment(filename, content_type, data, config)
+        .await
+        .expect("queuing the attachment works");
+
+    // ----------------------
+    // Observe the local echo
+    let (txn, send_handle, content) = assert_update!(watch => local echo event);
+    assert_eq!(txn, transaction_id);
+
+    // Check mentions.
+    let mentions = content.mentions.unwrap();
+    assert!(!mentions.room);
+    assert_eq!(
+        mentions.user_ids.into_iter().collect::<Vec<_>>(),
+        vec![owned_user_id!("@ivan:sdk.rs")]
+    );
+
+    // Check metadata.
+    assert_let!(MessageType::Image(img_content) = content.msgtype);
+    assert_eq!(img_content.body, "caption");
+    assert!(img_content.formatted_caption().is_none());
+    assert_eq!(img_content.filename.as_deref().unwrap(), filename);
+
+    let info = img_content.info.unwrap();
+    assert_eq!(info.height, Some(uint!(14)));
+    assert_eq!(info.width, Some(uint!(38)));
+    assert_eq!(info.size, Some(uint!(43)));
+    assert_eq!(info.mimetype.as_deref(), Some("image/jpeg"));
+    assert!(info.blurhash.is_none());
+
+    // Check the data source: it should reference the send queue local storage.
+    let local_source = img_content.source;
+    assert_let!(MediaSource::Plain(mxc) = &local_source);
+    assert!(mxc.to_string().starts_with("mxc://send-queue.local/"), "{mxc}");
+
+    // The media is immediately available from the cache.
+    let file_media = client
+        .media()
+        .get_media_content(&MediaRequest { source: local_source, format: MediaFormat::File }, true)
+        .await
+        .expect("media should be found");
+    assert_eq!(file_media, b"hello world");
+
+    // ----------------------
+    // Thumbnail.
+
+    // Check metadata.
+    let tinfo = info.thumbnail_info.unwrap();
+    assert_eq!(tinfo.height, Some(uint!(13)));
+    assert_eq!(tinfo.width, Some(uint!(37)));
+    assert_eq!(tinfo.size, Some(uint!(42)));
+    assert_eq!(tinfo.mimetype.as_deref(), Some("image/jpeg"));
+
+    // Check the thumbnail source: it should reference the send queue local storage.
+    let local_thumbnail_source = info.thumbnail_source.unwrap();
+    assert_let!(MediaSource::Plain(mxc) = &local_thumbnail_source);
+    assert!(mxc.to_string().starts_with("mxc://send-queue.local/"), "{mxc}");
+
+    let thumbnail_media = client
+        .media()
+        .get_media_content(
+            &MediaRequest {
+                source: local_thumbnail_source,
+                // TODO: extract this reasonable query into a helper function shared across the
+                // codebase
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings {
+                    size: MediaThumbnailSize {
+                        height: tinfo.height.unwrap(),
+                        width: tinfo.width.unwrap(),
+                        method: Method::Scale,
+                    },
+                    animated: false,
+                }),
+            },
+            true,
+        )
+        .await
+        .expect("media should be found");
+    assert_eq!(thumbnail_media, b"thumbnail");
+
+    // ----------------------
+    // Send handle operations.
+
+    // Operations on the send handle haven't been implemented yet.
+    assert_matches!(
+        send_handle.abort().await,
+        Err(RoomSendQueueStorageError::OperationNotImplementedYet)
+    );
+    // (and this operation would be invalid, we shouldn't turn a media into a
+    // message).
+    assert_matches!(
+        send_handle.edit(RoomMessageEventContent::text_plain("hi").into()).await,
+        Err(RoomSendQueueStorageError::OperationNotImplementedYet)
+    );
+
+    // ----------------------
+    // Let the upload progress.
+    assert!(watch.is_empty());
+    drop(block_upload);
+
+    assert_update!(watch => uploaded {
+        related_to = transaction_id,
+        mxc = mxc_uri!("mxc://sdk.rs/thumbnail")
+    });
+
+    assert_update!(watch => uploaded {
+        related_to = transaction_id,
+        mxc = mxc_uri!("mxc://sdk.rs/media")
+    });
+
+    let edit_msg = assert_update!(watch => edit local echo {
+        txn = transaction_id
+    });
+    assert_let!(MessageType::Image(new_content) = edit_msg.msgtype);
+
+    assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
+    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
+
+    let file_media = client
+        .media()
+        .get_media_content(
+            &MediaRequest { source: new_content.source, format: MediaFormat::File },
+            true,
+        )
+        .await
+        .expect("media should be found with its final MXC uri in the cache");
+    assert_eq!(file_media, b"hello world");
+
+    let new_thumbnail_source = new_content.info.unwrap().thumbnail_source.unwrap();
+    assert_let!(MediaSource::Plain(new_uri) = &new_thumbnail_source);
+    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/thumbnail"));
+
+    let thumbnail_media = client
+        .media()
+        .get_media_content(
+            &MediaRequest {
+                source: new_thumbnail_source,
+                // TODO: extract this reasonable query into a helper function shared across the
+                // codebase
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings {
+                    size: MediaThumbnailSize {
+                        height: tinfo.height.unwrap(),
+                        width: tinfo.width.unwrap(),
+                        method: Method::Scale,
+                    },
+                    animated: false,
+                }),
+            },
+            true,
+        )
+        .await
+        .expect("media should be found");
+    assert_eq!(thumbnail_media, b"thumbnail");
+
+    // The event is sent, at some point.
+    assert_update!(watch => sent {
+        txn = transaction_id,
+        event_id = event_id!("$1")
+    });
+
+    // That's all, folks!
     assert!(watch.is_empty());
 }
