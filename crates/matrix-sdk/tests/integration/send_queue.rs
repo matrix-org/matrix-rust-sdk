@@ -1,11 +1,4 @@
-use std::{
-    ops::Not as _,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex as StdMutex,
-    },
-    time::Duration,
-};
+use std::{ops::Not as _, sync::Arc, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
@@ -17,15 +10,11 @@ use matrix_sdk::{
         RoomSendQueueUpdate,
     },
     test_utils::{
-        events::EventFactory, logged_in_client, logged_in_client_with_server, set_client_session,
+        events::EventFactory, logged_in_client, mocks::MatrixMockServer, set_client_session,
     },
     Client, MemoryStore,
 };
-use matrix_sdk_test::{
-    async_test,
-    mocks::{mock_encryption_state, mock_redaction},
-    InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder,
-};
+use matrix_sdk_test::{async_test, InvitedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder};
 use ruma::{
     api::MatrixVersion,
     event_id,
@@ -42,7 +31,7 @@ use ruma::{
     },
     mxc_uri, owned_user_id, room_id,
     serde::Raw,
-    uint, EventId, MxcUri, OwnedEventId, TransactionId,
+    uint, MxcUri, OwnedEventId, TransactionId,
 };
 use serde_json::json;
 use tokio::{
@@ -50,11 +39,9 @@ use tokio::{
     time::{sleep, timeout},
 };
 use wiremock::{
-    matchers::{header, method, path, path_regex},
+    matchers::{header, method, path},
     Mock, Request, ResponseTemplate,
 };
-
-use crate::mock_sync_with_new_room;
 
 // TODO put into the MatrixMockServer
 fn mock_jpeg_upload(mxc: &MxcUri, lock: Arc<Mutex<()>>) -> Mock {
@@ -77,24 +64,6 @@ fn mock_jpeg_upload(mxc: &MxcUri, lock: Arc<Mutex<()>>) -> Mock {
               "content_uri": mxc
             }))
         })
-}
-
-fn mock_send_event(returned_event_id: &EventId) -> Mock {
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "event_id": returned_event_id,
-        })))
-}
-
-/// Return a mock that will fail all requests to /rooms/ROOM_ID/send with a
-/// transient 500 error.
-fn mock_send_transient_failure() -> Mock {
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(500))
 }
 
 // A macro to assert on a stream of `RoomSendQueueUpdate`s.
@@ -238,20 +207,11 @@ macro_rules! assert_update {
 
 #[async_test]
 async fn test_cant_send_invited_room() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // When I'm invited to a room,
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_invited_room(InvitedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_room(room_id, InvitedRoomBuilder::new(room_id)).await;
 
     // I can't send message to it with the send queue.
     assert_matches!(
@@ -262,20 +222,28 @@ async fn test_cant_send_invited_room() {
 
 #[async_test]
 async fn test_cant_send_left_room() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // When I've left a room,
     let room_id = room_id!("!a:b.c");
+    let room = mock.sync_room(room_id, LeftRoomBuilder::new(room_id)).await;
 
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_left_room(LeftRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    // I can't send message to it with the send queue.
+    assert_matches!(
+        room.send_queue()
+            .send(RoomMessageEventContent::text_plain("Farewell, World!").into())
+            .await,
+        Err(RoomSendQueueError::RoomNotJoined)
+    );
+}
+
+#[async_test]
+async fn test_cant_send_knocked_room() {
+    let mock = MatrixMockServer::new().await;
+
+    // When I've knocked into a room,
+    let room_id = room_id!("!a:b.c");
+    let room = mock.sync_room(room_id, KnockedRoomBuilder::new(room_id)).await;
 
     // I can't send message to it with the send queue.
     assert_matches!(
@@ -288,26 +256,17 @@ async fn test_cant_send_left_room() {
 
 #[async_test]
 async fn test_nothing_sent_when_disabled() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     // When I disable the send queue,
     let event_id = event_id!("$1");
-    mock_send_event(event_id).expect(0).mount(&server).await;
+    mock.mock_room_send().ok(event_id).expect(0).mount().await;
 
-    client.send_queue().set_enabled(false).await;
+    mock.client().send_queue().set_enabled(false).await;
 
     // A message is queued, but never sent.
     room.send_queue()
@@ -316,11 +275,10 @@ async fn test_nothing_sent_when_disabled() {
         .unwrap();
 
     // But I can still send it with room.send().
-    server.verify().await;
-    server.reset().await;
+    mock.verify_and_reset().await;
 
-    mock_encryption_state(&server, false).await;
-    mock_send_event(event_id).expect(1).mount(&server).await;
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_room_send().ok(event_id).expect(1).mount().await;
 
     let response = room.send(RoomMessageEventContent::text_plain("Hello, World!")).await.unwrap();
     assert_eq!(response.event_id, event_id);
@@ -328,20 +286,11 @@ async fn test_nothing_sent_when_disabled() {
 
 #[async_test]
 async fn test_smoke() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     let q = room.send_queue();
 
@@ -357,11 +306,9 @@ async fn test_smoke() {
 
     let mock_lock = lock.clone();
 
-    mock_encryption_state(&server, false).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
+    mock.mock_room_send()
         .respond_with(move |_req: &Request| {
             // Wait for the signal from the main thread that we can process this query.
             let mock_lock = mock_lock.clone();
@@ -378,7 +325,7 @@ async fn test_smoke() {
             }))
         })
         .expect(1)
-        .mount(&server)
+        .mount()
         .await;
 
     room.send_queue().send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
@@ -403,20 +350,11 @@ async fn test_smoke() {
 
 #[async_test]
 async fn test_smoke_raw() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     let q = room.send_queue();
 
@@ -427,8 +365,8 @@ async fn test_smoke_raw() {
     // When the queue is enabled and I send message in some order, it does send it.
     let event_id = event_id!("$1");
 
-    mock_encryption_state(&server, false).await;
-    mock_send_event(event_id!("$1")).mount(&server).await;
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_room_send().ok(event_id).mount().await;
 
     let json_content = r#"{"baguette": 42}"#.to_owned();
     let event = Raw::from_json_string(json_content.clone()).unwrap();
@@ -456,8 +394,9 @@ async fn test_smoke_raw() {
 
 #[async_test]
 async fn test_error_then_locally_reenabling() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
+    let client = mock.client();
     let mut errors = client.send_queue().subscribe_errors();
 
     // Starting with a globally enabled queue.
@@ -466,16 +405,7 @@ async fn test_error_then_locally_reenabling() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     let q = room.send_queue();
 
@@ -488,11 +418,10 @@ async fn test_error_then_locally_reenabling() {
 
     let mock_lock = lock.clone();
 
-    mock_encryption_state(&server, false).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
+    let scoped_send = mock
+        .mock_room_send()
         .respond_with(move |_req: &Request| {
             // Wait for the signal from the main thread that we can process this query.
             let mock_lock = mock_lock.clone();
@@ -507,7 +436,7 @@ async fn test_error_then_locally_reenabling() {
             ResponseTemplate::new(500)
         })
         .expect(3)
-        .mount(&server)
+        .mount_as_scoped()
         .await;
 
     q.send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
@@ -548,8 +477,8 @@ async fn test_error_then_locally_reenabling() {
     // But the room send queue is disabled.
     assert!(!room.send_queue().is_enabled());
 
-    server.reset().await;
-    mock_send_event(event_id!("$42")).expect(1).mount(&server).await;
+    drop(scoped_send);
+    mock.mock_room_send().ok(event_id!("$42")).expect(1).mount().await;
 
     // Re-enabling the *room* queue will re-send the same message in that room.
     room.send_queue().set_enabled(true);
@@ -567,8 +496,9 @@ async fn test_error_then_locally_reenabling() {
 
 #[async_test]
 async fn test_error_then_globally_reenabling() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
+    let client = mock.client();
     let mut errors = client.send_queue().subscribe_errors();
 
     // Starting with a globally enabled queue.
@@ -577,16 +507,7 @@ async fn test_error_then_globally_reenabling() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     let q = room.send_queue();
 
@@ -594,9 +515,9 @@ async fn test_error_then_globally_reenabling() {
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
-    server.reset().await;
-    mock_encryption_state(&server, false).await;
-    mock_send_transient_failure().expect(3).mount(&server).await;
+    mock.verify_and_reset().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_room_send().error500().expect(3).mount().await;
 
     q.send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
 
@@ -622,9 +543,9 @@ async fn test_error_then_globally_reenabling() {
 
     assert!(watch.is_empty());
 
-    server.reset().await;
-    mock_encryption_state(&server, false).await;
-    mock_send_event(event_id!("$42")).expect(1).mount(&server).await;
+    mock.verify_and_reset().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_room_send().ok(event_id!("$42")).expect(1).mount().await;
 
     // Re-enabling the global queue will cause the event to be sent.
     client.send_queue().set_enabled(true).await;
@@ -640,21 +561,13 @@ async fn test_error_then_globally_reenabling() {
 
 #[async_test]
 async fn test_reenabling_queue() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
+    let room = mock.sync_joined_room(room_id).await;
 
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
-
+    let client = mock.client();
     let errors = client.send_queue().subscribe_errors();
 
     assert!(errors.is_empty());
@@ -694,25 +607,11 @@ async fn test_reenabling_queue() {
 
     assert!(watch.is_empty());
 
-    mock_encryption_state(&server, false).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
-    let num_request = std::sync::Mutex::new(1);
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(move |_req: &Request| {
-            let mut num_request = num_request.lock().unwrap();
-
-            let event_id = format!("${}", *num_request);
-            *num_request += 1;
-
-            ResponseTemplate::new(200).set_body_json(json!({
-                "event_id": event_id,
-            }))
-        })
-        .expect(3)
-        .mount(&server)
-        .await;
+    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+    mock.mock_room_send().ok(event_id!("$2")).mock_once().mount().await;
+    mock.mock_room_send().ok(event_id!("$3")).mock_once().mount().await;
 
     // But when reenabling the queue globally,
     client.send_queue().set_enabled(true).await;
@@ -733,23 +632,16 @@ async fn test_reenabling_queue() {
 
 #[async_test]
 async fn test_disjoint_enabled_status() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id1 = room_id!("!a:b.c");
     let room_id2 = room_id!("!b:b.c");
-    let room1 = mock_sync_with_new_room(
-        |builder| {
-            builder
-                .add_joined_room(JoinedRoomBuilder::new(room_id1))
-                .add_joined_room(JoinedRoomBuilder::new(room_id2));
-        },
-        &client,
-        &server,
-        room_id1,
-    )
-    .await;
-    let room2 = client.get_room(room_id2).unwrap();
+
+    let room1 = mock.sync_joined_room(room_id1).await;
+    let room2 = mock.sync_joined_room(room_id2).await;
+
+    let client = mock.client();
 
     // When I start with a disabled send queue,
     client.send_queue().set_enabled(false).await;
@@ -778,20 +670,11 @@ async fn test_disjoint_enabled_status() {
 
 #[async_test]
 async fn test_cancellation() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     let q = room.send_queue();
 
@@ -805,12 +688,10 @@ async fn test_cancellation() {
 
     let mock_lock = lock.clone();
 
-    mock_encryption_state(&server, false).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
     let num_request = std::sync::Mutex::new(1);
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
+    mock.mock_room_send()
         .respond_with(move |_req: &Request| {
             // Wait for the signal from the main thread that we can process this query.
             let mock_lock = mock_lock.clone();
@@ -832,11 +713,11 @@ async fn test_cancellation() {
             }))
         })
         .expect(2)
-        .mount(&server)
+        .mount()
         .await;
 
     // The redact of txn1 will happen because we asked for it previously.
-    mock_redaction(event_id!("$1")).expect(1).mount(&server).await;
+    mock.mock_room_redact().ok(event_id!("$1")).mount().await;
 
     let handle1 = q.send(RoomMessageEventContent::text_plain("msg1").into()).await.unwrap();
     let handle2 = q.send(RoomMessageEventContent::text_plain("msg2").into()).await.unwrap();
@@ -905,20 +786,11 @@ async fn test_edit() {
     // to edit a local echo, since if the cancellation test passes, all ways
     // would work here too similarly.
 
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     let q = room.send_queue();
 
@@ -932,12 +804,10 @@ async fn test_edit() {
 
     let mock_lock = lock.clone();
 
-    mock_encryption_state(&server, false).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
     let num_request = std::sync::Mutex::new(1);
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
+    mock.mock_room_send()
         .respond_with(move |_req: &Request| {
             // Wait for the signal from the main thread that we can process this query.
             let mock_lock = mock_lock.clone();
@@ -959,27 +829,22 @@ async fn test_edit() {
             }))
         })
         .expect(3)
-        .mount(&server)
+        .mount()
         .await;
 
     // The /event endpoint is used to retrieve the original event, during creation
     // of the edit event.
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(
-                EventFactory::new()
-                    .text_msg("msg1")
-                    .sender(client.user_id().unwrap())
-                    .room(room_id)
-                    .into_raw_timeline()
-                    .json(),
-            ),
-        )
+    let client = mock.client();
+    mock.mock_room_event()
+        .room(room_id)
+        .ok(EventFactory::new()
+            .text_msg("msg1")
+            .sender(client.user_id().unwrap())
+            .room(room_id)
+            .into_timeline())
         .expect(1)
-        .named("get_event")
-        .mount(&server)
+        .named("room_event")
+        .mount()
         .await;
 
     let handle1 = q.send(RoomMessageEventContent::text_plain("msg1").into()).await.unwrap();
@@ -1025,20 +890,11 @@ async fn test_edit() {
 
 #[async_test]
 async fn test_edit_with_poll_start() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     let q = room.send_queue();
 
@@ -1052,12 +908,10 @@ async fn test_edit_with_poll_start() {
 
     let mock_lock = lock.clone();
 
-    mock_encryption_state(&server, false).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
     let num_request = std::sync::Mutex::new(1);
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
+    mock.mock_room_send()
         .respond_with(move |_req: &Request| {
             // Wait for the signal from the main thread that we can process this query.
             let mock_lock = mock_lock.clone();
@@ -1080,27 +934,21 @@ async fn test_edit_with_poll_start() {
         })
         .named("send_event")
         .expect(2)
-        .mount(&server)
+        .mount()
         .await;
 
     // The /event endpoint is used to retrieve the original event, during creation
     // of the edit event.
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/event/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(
-                EventFactory::new()
-                    .poll_start("poll_start", "question", vec!["Answer A"])
-                    .sender(client.user_id().unwrap())
-                    .room(room_id)
-                    .into_raw_timeline()
-                    .json(),
-            ),
-        )
+    let client = mock.client();
+    mock.mock_room_event()
+        .ok(EventFactory::new()
+            .poll_start("poll_start", "question", vec!["Answer A"])
+            .sender(client.user_id().unwrap())
+            .room(room_id)
+            .into_timeline())
         .expect(1)
         .named("get_event")
-        .mount(&server)
+        .mount()
         .await;
 
     let poll_answers: UnstablePollAnswers =
@@ -1170,20 +1018,11 @@ async fn test_edit_with_poll_start() {
 
 #[async_test]
 async fn test_edit_while_being_sent_and_fails() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     let q = room.send_queue();
 
@@ -1197,11 +1036,9 @@ async fn test_edit_while_being_sent_and_fails() {
 
     let mock_lock = lock.clone();
 
-    mock_encryption_state(&server, false).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
+    mock.mock_room_send()
         .respond_with(move |_req: &Request| {
             // Wait for the signal from the main thread that we can process this query.
             let mock_lock = mock_lock.clone();
@@ -1216,7 +1053,7 @@ async fn test_edit_while_being_sent_and_fails() {
             ResponseTemplate::new(500)
         })
         .expect(3) // reattempts, because of short_retry()
-        .mount(&server)
+        .mount()
         .await;
 
     let handle = q.send(RoomMessageEventContent::text_plain("yo").into()).await.unwrap();
@@ -1261,20 +1098,11 @@ async fn test_edit_while_being_sent_and_fails() {
 
 #[async_test]
 async fn test_edit_wakes_the_sending_task() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     let q = room.send_queue();
 
@@ -1283,18 +1111,9 @@ async fn test_edit_wakes_the_sending_task() {
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
-    mock_encryption_state(&server, false).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
-    let send_mock_scope = Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(413).set_body_json(json!({
-            // From https://spec.matrix.org/v1.10/client-server-api/#standard-error-response
-            "errcode": "M_TOO_LARGE",
-        })))
-        .expect(1)
-        .mount_as_scoped(&server)
-        .await;
+    let send_mock_scope = mock.mock_room_send().error_too_large().expect(1).mount_as_scoped().await;
 
     let handle =
         q.send(RoomMessageEventContent::text_plain("welcome to my ted talk").into()).await.unwrap();
@@ -1311,7 +1130,7 @@ async fn test_edit_wakes_the_sending_task() {
 
     // Now edit the event's content (imagine we make it "shorter").
     drop(send_mock_scope);
-    mock_send_event(event_id!("$1")).mount(&server).await;
+    mock.mock_room_send().ok(event_id!("$1")).mount().await;
 
     let edited = handle
         .edit(RoomMessageEventContent::text_plain("here's the summary of my ted talk").into())
@@ -1328,21 +1147,13 @@ async fn test_edit_wakes_the_sending_task() {
 
 #[async_test]
 async fn test_abort_after_disable() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
+    let room = mock.sync_joined_room(room_id).await;
 
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
-
+    let client = mock.client();
     let mut errors = client.send_queue().subscribe_errors();
 
     assert!(errors.is_empty());
@@ -1359,12 +1170,12 @@ async fn test_abort_after_disable() {
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
-    server.reset().await;
+    mock.verify_and_reset().await;
 
-    mock_encryption_state(&server, false).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
     // Respond to /send with a transient 500 error.
-    mock_send_transient_failure().expect(3).mount(&server).await;
+    mock.mock_room_send().error500().expect(3).mount().await;
 
     // One message is queued.
     let handle = q.send(RoomMessageEventContent::text_plain("hey there").into()).await.unwrap();
@@ -1394,22 +1205,14 @@ async fn test_abort_after_disable() {
 
 #[async_test]
 async fn test_abort_or_edit_after_send() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     // Start with an enabled sending queue.
+    let client = mock.client();
     client.send_queue().set_enabled(true).await;
 
     let q = room.send_queue();
@@ -1418,9 +1221,9 @@ async fn test_abort_or_edit_after_send() {
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
-    server.reset().await;
-    mock_encryption_state(&server, false).await;
-    mock_send_event(event_id!("$1")).mount(&server).await;
+    mock.verify_and_reset().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_room_send().ok(event_id!("$1")).mount().await;
 
     let handle = q.send(RoomMessageEventContent::text_plain("hey there").into()).await.unwrap();
 
@@ -1445,20 +1248,11 @@ async fn test_abort_or_edit_after_send() {
 
 #[async_test]
 async fn test_abort_while_being_sent_and_fails() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     let q = room.send_queue();
 
@@ -1472,11 +1266,9 @@ async fn test_abort_while_being_sent_and_fails() {
 
     let mock_lock = lock.clone();
 
-    mock_encryption_state(&server, false).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
+    mock.mock_room_send()
         .respond_with(move |_req: &Request| {
             // Wait for the signal from the main thread that we can process this query.
             let mock_lock = mock_lock.clone();
@@ -1491,7 +1283,7 @@ async fn test_abort_while_being_sent_and_fails() {
             ResponseTemplate::new(500)
         })
         .expect(3) // reattempts, because of short_retry()
-        .mount(&server)
+        .mount()
         .await;
 
     let handle = q.send(RoomMessageEventContent::text_plain("yo").into()).await.unwrap();
@@ -1524,21 +1316,13 @@ async fn test_abort_while_being_sent_and_fails() {
 
 #[async_test]
 async fn test_unrecoverable_errors() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
+    let room = mock.sync_joined_room(room_id).await;
 
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
-
+    let client = mock.client();
     let mut errors = client.send_queue().subscribe_errors();
 
     assert!(errors.is_empty());
@@ -1555,33 +1339,14 @@ async fn test_unrecoverable_errors() {
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
-    server.reset().await;
+    mock.verify_and_reset().await;
 
-    mock_encryption_state(&server, false).await;
-
-    let respond_with_unrecoverable = AtomicBool::new(true);
+    mock.mock_room_state_encryption().plain().mount().await;
 
     // Respond to the first /send with an unrecoverable error.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(move |_req: &Request| {
-            // The first message gets M_TOO_LARGE, subsequent messages will encounter a
-            // great success.
-            if respond_with_unrecoverable.swap(false, Ordering::SeqCst) {
-                ResponseTemplate::new(413).set_body_json(json!({
-                    // From https://spec.matrix.org/v1.10/client-server-api/#standard-error-response
-                    "errcode": "M_TOO_LARGE",
-                }))
-            } else {
-                ResponseTemplate::new(200).set_body_json(json!({
-                    "event_id": "$42",
-                }))
-            }
-        })
-        .expect(2)
-        .mount(&server)
-        .await;
+    mock.mock_room_send().error_too_large().mock_once().mount().await;
+    // Respond to the second /send with an OK response.
+    mock.mock_room_send().ok(event_id!("$42")).mock_once().mount().await;
 
     // Queue two messages.
     q.send(RoomMessageEventContent::text_plain("i'm too big for ya").into()).await.unwrap();
@@ -1613,21 +1378,13 @@ async fn test_unrecoverable_errors() {
 
 #[async_test]
 async fn test_unwedge_unrecoverable_errors() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
+    let room = mock.sync_joined_room(room_id).await;
 
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
-
+    let client = mock.client();
     let mut errors = client.send_queue().subscribe_errors();
 
     assert!(errors.is_empty());
@@ -1644,33 +1401,14 @@ async fn test_unwedge_unrecoverable_errors() {
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
-    server.reset().await;
+    mock.verify_and_reset().await;
 
-    mock_encryption_state(&server, false).await;
-
-    let respond_with_unrecoverable = AtomicBool::new(true);
+    mock.mock_room_state_encryption().plain().mount().await;
 
     // Respond to the first /send with an unrecoverable error.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(move |_req: &Request| {
-            // The first message gets M_TOO_LARGE, subsequent messages will encounter a
-            // great success.
-            if respond_with_unrecoverable.swap(false, Ordering::SeqCst) {
-                ResponseTemplate::new(413).set_body_json(json!({
-                    // From https://spec.matrix.org/v1.10/client-server-api/#standard-error-response
-                    "errcode": "M_TOO_LARGE",
-                }))
-            } else {
-                ResponseTemplate::new(200).set_body_json(json!({
-                    "event_id": "$42",
-                }))
-            }
-        })
-        .expect(2)
-        .mount(&server)
-        .await;
+    mock.mock_room_send().error_too_large().mock_once().mount().await;
+    // Respond to the second /send with an OK response.
+    mock.mock_room_send().ok(event_id!("$42")).mock_once().mount().await;
 
     // Queue the unrecoverable message.
     q.send(RoomMessageEventContent::text_plain("i'm too big for ya").into()).await.unwrap();
@@ -1709,25 +1447,16 @@ async fn test_no_network_access_error_is_recoverable() {
     // server in a static. Using the line below will create a "bare" server,
     // which is effectively dropped upon `drop()`.
     let server = wiremock::MockServer::builder().start().await;
-
     let client = logged_in_client(Some(server.uri().to_string())).await;
+    let mock = MatrixMockServer::from_parts(server, client.clone());
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     // Dropping the server: any subsequent attempt to connect mimics an unreachable
     // server, which might be caused by missing network.
-    drop(server);
+    drop(mock);
 
     let mut errors = client.send_queue().subscribe_errors();
     assert!(errors.is_empty());
@@ -1783,20 +1512,11 @@ async fn test_reloading_rooms_with_unsent_events() {
         .unwrap();
     set_client_session(&client).await;
 
-    // Mark two rooms as joined.
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder
-                .add_joined_room(JoinedRoomBuilder::new(room_id))
-                .add_joined_room(JoinedRoomBuilder::new(room_id2));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let mock = MatrixMockServer::from_parts(server, client.clone());
 
-    let room2 = client.get_room(room_id2).unwrap();
+    // Mark two rooms as joined.
+    let room = mock.sync_joined_room(room_id).await;
+    let room2 = mock.sync_joined_room(room_id2).await;
 
     // Globally disable the send queue.
     let q = client.send_queue();
@@ -1819,7 +1539,7 @@ async fn test_reloading_rooms_with_unsent_events() {
     sleep(Duration::from_millis(300)).await;
     assert!(watch.is_empty());
 
-    server.reset().await;
+    mock.verify_and_reset().await;
 
     {
         // Kill the client, let it close background tasks.
@@ -1832,26 +1552,13 @@ async fn test_reloading_rooms_with_unsent_events() {
     // Create a new client with the same memory backend. As the send queues are
     // enabled by default, it will respawn tasks for sending events to those two
     // rooms in the background.
-    mock_encryption_state(&server, false).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
-    let event_id = StdMutex::new(0);
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(move |_req: &Request| {
-            let mut event_id_guard = event_id.lock().unwrap();
-            let event_id = *event_id_guard;
-            *event_id_guard += 1;
-            ResponseTemplate::new(200).set_body_json(json!({
-                "event_id": event_id
-            }))
-        })
-        .expect(2)
-        .mount(&server)
-        .await;
+    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+    mock.mock_room_send().ok(event_id!("$2")).mock_once().mount().await;
 
     let client = Client::builder()
-        .homeserver_url(server.uri())
+        .homeserver_url(mock.server().uri())
         .server_versions([MatrixVersion::V1_0])
         .store_config(StoreConfig::new().state_store(store))
         .request_config(RequestConfig::new().disable_retry())
@@ -1866,25 +1573,16 @@ async fn test_reloading_rooms_with_unsent_events() {
     sleep(Duration::from_secs(1)).await;
 
     // The real assertion is on the expect(2) on the above Mock.
-    server.verify().await;
+    mock.verify_and_reset().await;
 }
 
 #[async_test]
 async fn test_reactions() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     let q = room.send_queue();
 
@@ -1897,11 +1595,9 @@ async fn test_reactions() {
 
     let mock_lock = lock.clone();
 
-    mock_encryption_state(&server, false).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
+    mock.mock_room_send()
         .respond_with(move |_req: &Request| {
             // Wait for the signal from the main thread that we can process this query.
             let mock_lock = mock_lock.clone();
@@ -1921,18 +1617,12 @@ async fn test_reactions() {
             }))
         })
         .expect(3)
-        .mount(&server)
+        .mount()
         .await;
 
     // Sending of the second emoji has started; abort it, it will result in a redact
     // request.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"event_id": "$3"})))
-        .expect(1)
-        .mount(&server)
-        .await;
+    mock.mock_room_redact().ok(event_id!("$3")).expect(1).mount().await;
 
     // Send a message.
     let msg_handle =
@@ -2010,20 +1700,12 @@ async fn test_reactions() {
 
 #[async_test]
 async fn test_media_uploads() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
 
-    let room = mock_sync_with_new_room(
-        |builder| {
-            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        },
-        &client,
-        &server,
-        room_id,
-    )
-    .await;
+    let room = mock.sync_joined_room(room_id).await;
 
     let q = room.send_queue();
 
@@ -2063,12 +1745,13 @@ async fn test_media_uploads() {
 
     // ----------------------
     // Prepare endpoints.
-    mock_encryption_state(&server, false).await;
-    mock_send_event(event_id!("$1")).expect(1).mount(&server).await;
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
 
     let allow_upload_lock = Arc::new(Mutex::new(()));
     let block_upload = allow_upload_lock.lock().await;
 
+    let server = mock.server();
     mock_jpeg_upload(mxc_uri!("mxc://sdk.rs/thumbnail"), allow_upload_lock.clone())
         .up_to_n_times(1)
         .expect(1)
@@ -2119,6 +1802,7 @@ async fn test_media_uploads() {
     assert!(mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
 
     // The media is immediately available from the cache.
+    let client = mock.client();
     let file_media = client
         .media()
         .get_media_content(

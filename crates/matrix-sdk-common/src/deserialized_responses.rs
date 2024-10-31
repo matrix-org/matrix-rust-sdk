@@ -343,7 +343,7 @@ impl SyncTimelineEvent {
     /// Get the event id of this `SyncTimelineEvent` if the event has any valid
     /// id.
     pub fn event_id(&self) -> Option<OwnedEventId> {
-        self.kind.raw().get_field::<OwnedEventId>("event_id").ok().flatten()
+        self.kind.event_id()
     }
 
     /// Returns a reference to the (potentially decrypted) Matrix event inside
@@ -527,6 +527,12 @@ impl TimelineEventKind {
             TimelineEventKind::UnableToDecrypt { event, .. } => event.cast_ref(),
             TimelineEventKind::PlainText { event } => event,
         }
+    }
+
+    /// Get the event id of this `TimelineEventKind` if the event has any valid
+    /// id.
+    pub fn event_id(&self) -> Option<OwnedEventId> {
+        self.raw().get_field::<OwnedEventId>("event_id").ok().flatten()
     }
 
     /// If the event was a decrypted event that was successfully decrypted, get
