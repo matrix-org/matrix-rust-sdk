@@ -1027,10 +1027,18 @@ impl Client {
     pub async fn resolve_room_alias(
         &self,
         room_alias: String,
-    ) -> Result<ResolvedRoomAlias, ClientError> {
+    ) -> Result<Option<ResolvedRoomAlias>, ClientError> {
         let room_alias = RoomAliasId::parse(&room_alias)?;
         let response = self.inner.resolve_room_alias(&room_alias).await?;
         Ok(response.into())
+        match self.inner.resolve_room_alias(&room_alias).await {
+            Ok(response) => Ok(Some(response.into())),
+            Err(HttpError::Reqwest(http_error)) => match http_error.status() {
+                Some(StatusCode::NOT_FOUND) => Ok(None),
+                _ => Err(http_error.into()),
+            },
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// Given a room id, get the preview of a room, to interact with it.
