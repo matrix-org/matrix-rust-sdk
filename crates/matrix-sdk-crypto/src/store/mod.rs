@@ -215,7 +215,7 @@ impl KeyQueryManager {
             Err(_) => {
                 warn!(
                     user_id = ?user,
-                    "The user has a pending `/key/query` request which did \
+                    "The user has a pending `/keys/query` request which did \
                     not finish yet, some devices might be missing."
                 );
 
