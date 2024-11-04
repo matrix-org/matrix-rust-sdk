@@ -39,13 +39,13 @@ pub(crate) struct AmbiguityCache {
     pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
 }
 
-#[derive(Debug)]
-struct AmbiguityMap {
+#[derive(Debug, Clone)]
+struct DisplayNameUsers {
     display_name: String,
     users: BTreeSet<OwnedUserId>,
 }
 
-impl AmbiguityMap {
+impl DisplayNameUsers {
     fn remove(&mut self, user_id: &UserId) -> Option<OwnedUserId> {
         self.users.remove(user_id);
 
@@ -105,6 +105,8 @@ impl AmbiguityCache {
             _ => false,
         };
 
+        // If the user's display name didn't change, then there's nothing more to
+        // calculate here.
         if display_names_same {
             return Ok(());
         }
@@ -134,8 +136,8 @@ impl AmbiguityCache {
     fn update(
         &mut self,
         room_id: &RoomId,
-        old_map: Option<AmbiguityMap>,
-        new_map: Option<AmbiguityMap>,
+        old_map: Option<DisplayNameUsers>,
+        new_map: Option<DisplayNameUsers>,
     ) {
         let entry = self.cache.entry(room_id.to_owned()).or_default();
 
@@ -157,7 +159,7 @@ impl AmbiguityCache {
         changes: &StateChanges,
         room_id: &RoomId,
         member_event: &SyncRoomMemberEvent,
-    ) -> Result<(Option<AmbiguityMap>, Option<AmbiguityMap>)> {
+    ) -> Result<(Option<DisplayNameUsers>, Option<DisplayNameUsers>)> {
         use MembershipState::*;
 
         let old_event = if let Some(m) = changes.state.get(room_id).and_then(|events| {
@@ -202,7 +204,10 @@ impl AmbiguityCache {
                     self.store.get_users_with_display_name(room_id, old_name).await?
                 };
 
-            Some(AmbiguityMap { display_name: old_name.to_owned(), users: old_display_name_map })
+            Some(DisplayNameUsers {
+                display_name: old_name.to_owned(),
+                users: old_display_name_map,
+            })
         } else {
             None
         };
@@ -232,7 +237,7 @@ impl AmbiguityCache {
                 self.store.get_users_with_display_name(room_id, new_display_name).await?
             };
 
-            Some(AmbiguityMap {
+            Some(DisplayNameUsers {
                 display_name: new_display_name.to_owned(),
                 users: new_display_name_map,
             })
