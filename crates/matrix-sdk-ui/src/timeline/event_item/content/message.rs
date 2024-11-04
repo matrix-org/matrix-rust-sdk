@@ -35,7 +35,7 @@ use ruma::{
     },
     html::RemoveReplyFallback,
     serde::Raw,
-    OwnedEventId, OwnedUserId, RoomVersionId, UserId,
+    OwnedEventId, OwnedUserId, UserId,
 };
 use tracing::{error, trace};
 
@@ -334,14 +334,6 @@ impl RepliedToEvent {
             content: timeline_item.content.clone(),
             sender: timeline_item.sender.clone(),
             sender_profile: timeline_item.sender_profile.clone(),
-        }
-    }
-
-    pub(in crate::timeline) fn redact(&self, room_version: &RoomVersionId) -> Self {
-        Self {
-            content: self.content.redact(room_version),
-            sender: self.sender.clone(),
-            sender_profile: self.sender_profile.clone(),
         }
     }
 

@@ -547,25 +547,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let internal_id = item.internal_id.to_owned();
 
                 // Update all events that replied to this message with the edited content.
-                self.items.for_each(|mut entry| {
-                    let Some(event_item) = entry.as_event() else { return };
-                    let Some(message) = event_item.content.as_message() else { return };
-                    let Some(in_reply_to) = message.in_reply_to() else { return };
-                    if replacement.event_id == in_reply_to.event_id {
-                        trace!(reply_event_id = ?event_item.identifier(), "Updating response to edited event");
-                        let in_reply_to = InReplyToDetails {
-                            event_id: in_reply_to.event_id.clone(),
-                            event: TimelineDetails::Ready(Box::new(
-                                RepliedToEvent::from_timeline_item(&new_item),
-                            )),
-                        };
-                        let new_reply_content =
-                            TimelineItemContent::Message(message.with_in_reply_to(in_reply_to));
-                        let new_reply_item =
-                            entry.with_kind(event_item.with_content(new_reply_content, None));
-                        ObservableVectorTransactionEntry::set(&mut entry, new_reply_item);
-                    }
-                });
+                Self::maybe_update_responses(self.items, &replacement.event_id, &new_item);
 
                 // Update the event itself.
                 self.items.set(item_pos, TimelineItem::new(new_item, internal_id));
@@ -945,7 +927,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     debug!("event item is already redacted");
                 } else {
                     let new_item = item.redact(&self.meta.room_version);
-                    self.items.set(idx, TimelineItem::new(new_item, item.internal_id.to_owned()));
+                    let internal_id = item.internal_id.to_owned();
+
+                    // Look for any timeline event that's a reply to the redacted event, and redact
+                    // the replied-to event there as well.
+                    Self::maybe_update_responses(self.items, &redacted, &new_item);
+
+                    self.items.set(idx, TimelineItem::new(new_item, internal_id));
                     self.result.items_updated += 1;
                 }
             } else {
@@ -954,26 +942,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         } else {
             debug!("Timeline item not found, discarding redaction");
         };
-
-        // Look for any timeline event that's a reply to the redacted event, and redact
-        // the replied-to event there as well.
-        self.items.for_each(|mut entry| {
-            let Some(event_item) = entry.as_event() else { return };
-            let Some(message) = event_item.content.as_message() else { return };
-            let Some(in_reply_to) = message.in_reply_to() else { return };
-            let TimelineDetails::Ready(replied_to_event) = &in_reply_to.event else { return };
-            if redacted == in_reply_to.event_id {
-                let replied_to_event = replied_to_event.redact(&self.meta.room_version);
-                let in_reply_to = InReplyToDetails {
-                    event_id: in_reply_to.event_id.clone(),
-                    event: TimelineDetails::Ready(Box::new(replied_to_event)),
-                };
-                let content = TimelineItemContent::Message(message.with_in_reply_to(in_reply_to));
-                let new_item = entry.with_kind(event_item.with_content(content, None));
-
-                ObservableVectorTransactionEntry::set(&mut entry, new_item);
-            }
-        });
     }
 
     /// Attempts to redact a reaction, local or remote.
@@ -1198,25 +1166,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 trace!("Updating timeline item at position {idx}");
 
                 // Update all events that replied to this previously encrypted message.
-                self.items.for_each(|mut entry| {
-                    let Some(event_item) = entry.as_event() else { return };
-                    let Some(message) = event_item.content.as_message() else { return };
-                    let Some(in_reply_to) = message.in_reply_to() else { return };
-                    if *decrypted_event_id == in_reply_to.event_id {
-                        trace!(reply_event_id = ?event_item.identifier(), "Updating response to edited event");
-                        let in_reply_to = InReplyToDetails {
-                            event_id: in_reply_to.event_id.clone(),
-                            event: TimelineDetails::Ready(Box::new(
-                                RepliedToEvent::from_timeline_item(&item),
-                            )),
-                        };
-                        let new_reply_content =
-                            TimelineItemContent::Message(message.with_in_reply_to(in_reply_to));
-                        let new_reply_item =
-                            entry.with_kind(event_item.with_content(new_reply_content, None));
-                        ObservableVectorTransactionEntry::set(&mut entry, new_reply_item);
-                    }
-                });
+                Self::maybe_update_responses(self.items, decrypted_event_id, &item);
 
                 let internal_id = self.items[*idx].internal_id.clone();
                 self.items.set(*idx, TimelineItem::new(item, internal_id));
@@ -1227,6 +1177,34 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         if !self.meta.has_up_to_date_read_marker_item {
             self.meta.update_read_marker(self.items);
         }
+    }
+
+    /// After updating the timeline item `new_item` which id is
+    /// `target_event_id`, update other items that are responses to this item.
+    fn maybe_update_responses(
+        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
+        target_event_id: &EventId,
+        new_item: &EventTimelineItem,
+    ) {
+        items.for_each(|mut entry| {
+            let Some(event_item) = entry.as_event() else { return };
+            let Some(message) = event_item.content.as_message() else { return };
+            let Some(in_reply_to) = message.in_reply_to() else { return };
+            if target_event_id == in_reply_to.event_id {
+                trace!(reply_event_id = ?event_item.identifier(), "Updating response to edited event");
+                let in_reply_to = InReplyToDetails {
+                    event_id: in_reply_to.event_id.clone(),
+                    event: TimelineDetails::Ready(Box::new(
+                        RepliedToEvent::from_timeline_item(new_item),
+                    )),
+                };
+                let new_reply_content =
+                TimelineItemContent::Message(message.with_in_reply_to(in_reply_to));
+                let new_reply_item =
+                entry.with_kind(event_item.with_content(new_reply_content, None));
+                ObservableVectorTransactionEntry::set(&mut entry, new_reply_item);
+            }
+        });
     }
 
     fn pending_reactions(
