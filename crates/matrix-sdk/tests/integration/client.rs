@@ -1388,5 +1388,5 @@ async fn test_restore_room() {
 
     let room = client.get_room(room_id).unwrap();
     assert!(room.is_favourite());
-    assert!(!room.pinned_event_ids().is_empty());
+    assert!(!room.pinned_event_ids().unwrap().is_empty());
 }

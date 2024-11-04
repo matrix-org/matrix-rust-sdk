@@ -351,7 +351,7 @@ impl PinnedEventsRoom for TestRoomDataProvider {
         unimplemented!();
     }
 
-    fn pinned_event_ids(&self) -> Vec<OwnedEventId> {
+    fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
         unimplemented!();
     }
 

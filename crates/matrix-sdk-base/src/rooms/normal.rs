@@ -1019,7 +1019,7 @@ impl Room {
     }
 
     /// Returns the current pinned event ids for this room.
-    pub fn pinned_event_ids(&self) -> Vec<OwnedEventId> {
+    pub fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
         self.inner.read().pinned_event_ids()
     }
 }
@@ -1596,8 +1596,8 @@ impl RoomInfo {
     }
 
     /// Returns the current pinned event ids for this room.
-    pub fn pinned_event_ids(&self) -> Vec<OwnedEventId> {
-        self.base_info.pinned_events.clone().map(|c| c.pinned).unwrap_or_default()
+    pub fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
+        self.base_info.pinned_events.clone().map(|c| c.pinned)
     }
 
     /// Checks if an `EventId` is currently pinned.

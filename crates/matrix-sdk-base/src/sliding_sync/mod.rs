@@ -2509,7 +2509,7 @@ mod tests {
         // The newly created room has no pinned event ids
         let room = client.get_room(room_id).unwrap();
         let pinned_event_ids = room.pinned_event_ids();
-        assert!(pinned_event_ids.is_empty());
+        assert_matches!(pinned_event_ids, None);
 
         // Load new pinned event id
         let mut room_response = http::response::Room::new();
@@ -2522,7 +2522,7 @@ mod tests {
         let response = response_with_room(room_id, room_response);
         client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
 
-        let pinned_event_ids = room.pinned_event_ids();
+        let pinned_event_ids = room.pinned_event_ids().unwrap_or_default();
         assert_eq!(pinned_event_ids.len(), 1);
         assert_eq!(pinned_event_ids[0], pinned_event_id);
 
@@ -2536,7 +2536,7 @@ mod tests {
         ));
         let response = response_with_room(room_id, room_response);
         client.process_sliding_sync(&response, &(), true).await.expect("Failed to process sync");
-        let pinned_event_ids = room.pinned_event_ids();
+        let pinned_event_ids = room.pinned_event_ids().unwrap();
         assert!(pinned_event_ids.is_empty());
     }
 

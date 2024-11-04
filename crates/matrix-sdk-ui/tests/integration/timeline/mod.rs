@@ -628,7 +628,7 @@ async fn test_pin_event_is_sent_successfully() {
 
     // Pinning a remote event succeeds.
     setup
-        .mock_response(ResponseTemplate::new(200).set_body_json(json!({
+        .mock_pin_unpin_response(ResponseTemplate::new(200).set_body_json(json!({
             "event_id": "$42"
         })))
         .await;
@@ -662,7 +662,7 @@ async fn test_pin_event_is_returning_an_error() {
     assert!(!timeline.items().await.is_empty());
 
     // Pinning a remote event fails.
-    setup.mock_response(ResponseTemplate::new(400)).await;
+    setup.mock_pin_unpin_response(ResponseTemplate::new(400)).await;
 
     let event_id = setup.event_id();
     assert!(timeline.pin_event(event_id).await.is_err());
@@ -680,7 +680,7 @@ async fn test_unpin_event_is_sent_successfully() {
 
     // Unpinning a remote event succeeds.
     setup
-        .mock_response(ResponseTemplate::new(200).set_body_json(json!({
+        .mock_pin_unpin_response(ResponseTemplate::new(200).set_body_json(json!({
             "event_id": "$42"
         })))
         .await;
@@ -714,7 +714,7 @@ async fn test_unpin_event_is_returning_an_error() {
     assert!(!timeline.items().await.is_empty());
 
     // Unpinning a remote event fails.
-    setup.mock_response(ResponseTemplate::new(400)).await;
+    setup.mock_pin_unpin_response(ResponseTemplate::new(400)).await;
 
     let event_id = setup.event_id();
     assert!(timeline.unpin_event(event_id).await.is_err());
@@ -834,7 +834,13 @@ impl PinningTestSetup<'_> {
         let _response = client.sync_once(sync_settings.clone()).await.unwrap();
         server.reset().await;
 
-        Self { event_id, room_id, client, server, sync_settings, sync_builder }
+        let setup = Self { event_id, room_id, client, server, sync_settings, sync_builder };
+
+        // This is necessary to get an empty list of pinned events when there are no
+        // pinned events state event in the required state
+        setup.mock_get_empty_pinned_events_state_response().await;
+
+        setup
     }
 
     async fn timeline(&self) -> Timeline {
@@ -847,11 +853,20 @@ impl PinningTestSetup<'_> {
         self.server.reset().await;
     }
 
-    async fn mock_response(&self, response: ResponseTemplate) {
+    async fn mock_pin_unpin_response(&self, response: ResponseTemplate) {
         Mock::given(method("PUT"))
             .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.pinned_events/.*?"))
             .and(header("authorization", "Bearer 1234"))
             .respond_with(response)
+            .mount(&self.server)
+            .await;
+    }
+
+    async fn mock_get_empty_pinned_events_state_response(&self) {
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.pinned_events/.*"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(json!({})))
             .mount(&self.server)
             .await;
     }
