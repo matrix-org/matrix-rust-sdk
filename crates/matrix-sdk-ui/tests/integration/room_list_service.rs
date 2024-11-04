@@ -331,6 +331,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.canonical_alias", ""],
                         ["m.room.power_levels", ""],
                         ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.tombstone", ""],
                     ],
                     "include_heroes": true,
                     "filters": {
@@ -2100,6 +2101,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.canonical_alias", ""],
                         ["m.room.power_levels", ""],
                         ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.tombstone", ""],
                         ["m.room.create", ""],
                         ["m.room.pinned_events", ""],
                     ],
@@ -2138,6 +2140,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.canonical_alias", ""],
                         ["m.room.power_levels", ""],
                         ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.tombstone", ""],
                         ["m.room.create", ""],
                         ["m.room.pinned_events", ""],
                     ],

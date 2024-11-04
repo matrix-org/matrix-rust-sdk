@@ -88,6 +88,7 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::RoomCanonicalAlias, ""),
     (StateEventType::RoomPowerLevels, ""),
     (StateEventType::CallMember, "*"),
+    (StateEventType::RoomTombstone, ""),
 ];
 
 /// The default `required_state` constant value for sliding sync room
