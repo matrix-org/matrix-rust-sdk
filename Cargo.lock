@@ -1247,6 +1247,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "decancer"
+version = "3.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a41401dd84c9335e2f5aec7f64057e243585d62622260d41c245919a601ccc9"
+dependencies = [
+ "lazy_static",
+ "paste",
+ "regex",
+]
+
+[[package]]
 name = "delegate-display"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2955,6 +2966,7 @@ dependencies = [
  "assign",
  "async-trait",
  "bitflags 2.6.0",
+ "decancer",
  "eyeball",
  "eyeball-im",
  "futures-executor",
@@ -2970,10 +2982,12 @@ dependencies = [
  "ruma",
  "serde",
  "serde_json",
+ "similar-asserts",
  "stream_assert",
  "thiserror",
  "tokio",
  "tracing",
+ "unicode-normalization",
  "uniffi",
  "wasm-bindgen-test",
 ]
@@ -5907,9 +5921,9 @@ checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 
 [[package]]
 name = "unicode-normalization"
-version = "0.1.23"
+version = "0.1.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a56d1686db2308d901306f92a263857ef59ea39678a5458e7cb17f01415101f5"
+checksum = "5033c97c4262335cded6d6fc3e5c18ab755e1a3dc96376350f3d8e9f009ad956"
 dependencies = [
  "tinyvec",
 ]
