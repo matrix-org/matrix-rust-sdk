@@ -449,7 +449,7 @@ pub enum Error {
     #[error("An error occurred while initializing the timeline")]
     InitializingTimeline(#[source] timeline::Error),
 
-    #[error("The attached event cache ran into an error")]
+    #[error("The attached event cache ran into an error: {0}")]
     EventCache(#[from] EventCacheError),
 }
 
