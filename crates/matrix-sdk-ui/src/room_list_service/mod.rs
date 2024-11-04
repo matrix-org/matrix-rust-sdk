@@ -432,7 +432,7 @@ impl RoomListService {
 #[derive(Debug, Error)]
 pub enum Error {
     /// Error from [`matrix_sdk::SlidingSync`].
-    #[error("SlidingSync failed: {0}")]
+    #[error(transparent)]
     SlidingSync(SlidingSyncError),
 
     /// An operation has been requested on an unknown list.
@@ -446,10 +446,10 @@ pub enum Error {
     #[error("A timeline instance already exists for room {0}")]
     TimelineAlreadyExists(OwnedRoomId),
 
-    #[error("An error occurred while initializing the timeline")]
-    InitializingTimeline(#[source] timeline::Error),
+    #[error(transparent)]
+    InitializingTimeline(#[from] timeline::Error),
 
-    #[error("The attached event cache ran into an error")]
+    #[error(transparent)]
     EventCache(#[from] EventCacheError),
 }
 
