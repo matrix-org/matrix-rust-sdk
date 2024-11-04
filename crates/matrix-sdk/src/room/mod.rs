@@ -30,6 +30,7 @@ use futures_util::{
     future::{try_join, try_join_all},
     stream::FuturesUnordered,
 };
+use http::StatusCode;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 pub use identity_status_changes::IdentityStatusChanges;
 #[cfg(feature = "e2e-encryption")]
@@ -91,6 +92,7 @@ use ruma::{
                 VideoMessageEventContent,
             },
             name::RoomNameEventContent,
+            pinned_events::RoomPinnedEventsEventContent,
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
             server_acl::RoomServerAclEventContent,
             topic::RoomTopicEventContent,
@@ -3129,6 +3131,32 @@ impl Room {
             .remove_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
             .await?;
         Ok(())
+    }
+
+    /// Load pinned state events for a room from the `/state` endpoint in the
+    /// home server.
+    pub async fn load_pinned_events(&self) -> Result<Option<Vec<OwnedEventId>>> {
+        let response = self
+            .client
+            .send(
+                get_state_events_for_key::v3::Request::new(
+                    self.room_id().to_owned(),
+                    StateEventType::RoomPinnedEvents,
+                    "".to_owned(),
+                ),
+                None,
+            )
+            .await;
+
+        match response {
+            Ok(response) => {
+                Ok(Some(response.content.deserialize_as::<RoomPinnedEventsEventContent>()?.pinned))
+            }
+            Err(http_error) => match http_error.as_client_api_error() {
+                Some(error) if error.status_code == StatusCode::NOT_FOUND => Ok(None),
+                _ => Err(http_error.into()),
+            },
+        }
     }
 }
 

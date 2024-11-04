@@ -61,6 +61,7 @@ impl PinnedEventsLoader {
         let pinned_event_ids: Vec<OwnedEventId> = self
             .room
             .pinned_event_ids()
+            .unwrap_or_default()
             .into_iter()
             .rev()
             .take(self.max_events_to_load)
@@ -134,7 +135,7 @@ pub trait PinnedEventsRoom: SendOutsideWasm + SyncOutsideWasm {
     ) -> BoxFuture<'a, Result<(SyncTimelineEvent, Vec<SyncTimelineEvent>), PaginatorError>>;
 
     /// Get the pinned event ids for a room.
-    fn pinned_event_ids(&self) -> Vec<OwnedEventId>;
+    fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>>;
 
     /// Checks whether an event id is pinned in this room.
     ///
@@ -168,7 +169,7 @@ impl PinnedEventsRoom for Room {
         .boxed()
     }
 
-    fn pinned_event_ids(&self) -> Vec<OwnedEventId> {
+    fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
         self.clone_info().pinned_event_ids()
     }
 

@@ -171,8 +171,9 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
     );
 
     let room = client.get_room(&room_id).expect("Room not found");
-    assert!(!room.pinned_event_ids().is_empty());
-    assert_eq!(room.pinned_event_ids().len(), PINNED_EVENTS_COUNT);
+    let pinned_event_ids = room.pinned_event_ids().unwrap_or_default();
+    assert!(!pinned_event_ids.is_empty());
+    assert_eq!(pinned_event_ids.len(), PINNED_EVENTS_COUNT);
 
     let count = PINNED_EVENTS_COUNT;
     let name = format!("{count} pinned events");
@@ -191,8 +192,9 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
 
     group.bench_function(BenchmarkId::new("load_pinned_events", name), |b| {
         b.to_async(&runtime).iter(|| async {
-            assert!(!room.pinned_event_ids().is_empty());
-            assert_eq!(room.pinned_event_ids().len(), PINNED_EVENTS_COUNT);
+            let pinned_event_ids = room.pinned_event_ids().unwrap_or_default();
+            assert!(!pinned_event_ids.is_empty());
+            assert_eq!(pinned_event_ids.len(), PINNED_EVENTS_COUNT);
 
             // Reset cache so it always loads the events from the mocked endpoint
             client.event_cache().empty_immutable_cache().await;

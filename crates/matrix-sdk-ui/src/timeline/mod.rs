@@ -729,10 +729,18 @@ impl Timeline {
     /// Adds a new pinned event by sending an updated `m.room.pinned_events`
     /// event containing the new event id.
     ///
-    /// Returns `true` if we sent the request, `false` if the event was already
+    /// This method will first try to get the pinned events from the current
+    /// room's state and if it fails to do so it'll try to load them from the
+    /// homeserver.
+    ///
+    /// Returns `true` if we pinned the event, `false` if the event was already
     /// pinned.
     pub async fn pin_event(&self, event_id: &EventId) -> Result<bool> {
-        let mut pinned_event_ids = self.room().pinned_event_ids();
+        let mut pinned_event_ids = if let Some(event_ids) = self.room().pinned_event_ids() {
+            event_ids
+        } else {
+            self.room().load_pinned_events().await?.unwrap_or_default()
+        };
         let event_id = event_id.to_owned();
         if pinned_event_ids.contains(&event_id) {
             Ok(false)
@@ -744,13 +752,21 @@ impl Timeline {
         }
     }
 
-    /// Adds a new pinned event by sending an updated `m.room.pinned_events`
+    /// Removes a pinned event by sending an updated `m.room.pinned_events`
     /// event without the event id we want to remove.
     ///
-    /// Returns `true` if we sent the request, `false` if the event wasn't
-    /// pinned.
+    /// This method will first try to get the pinned events from the current
+    /// room's state and if it fails to do so it'll try to load them from the
+    /// homeserver.
+    ///
+    /// Returns `true` if we unpinned the event, `false` if the event wasn't
+    /// pinned before.
     pub async fn unpin_event(&self, event_id: &EventId) -> Result<bool> {
-        let mut pinned_event_ids = self.room().pinned_event_ids();
+        let mut pinned_event_ids = if let Some(event_ids) = self.room().pinned_event_ids() {
+            event_ids
+        } else {
+            self.room().load_pinned_events().await?.unwrap_or_default()
+        };
         let event_id = event_id.to_owned();
         if let Some(idx) = pinned_event_ids.iter().position(|e| *e == *event_id) {
             pinned_event_ids.remove(idx);
