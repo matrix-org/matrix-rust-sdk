@@ -128,7 +128,10 @@ impl AmbiguityCache {
 
         trace!(user_id = ?member_event.state_key(), "Handling display name ambiguity: {change:#?}");
 
-        self.add_change(room_id, member_event.event_id().to_owned(), change);
+        self.changes
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(member_event.event_id().to_owned(), change);
 
         Ok(())
     }
@@ -150,8 +153,68 @@ impl AmbiguityCache {
         }
     }
 
-    fn add_change(&mut self, room_id: &RoomId, event_id: OwnedEventId, change: AmbiguityChange) {
-        self.changes.entry(room_id.to_owned()).or_default().insert(event_id, change);
+    async fn get_old_display_name(
+        &self,
+        changes: &StateChanges,
+        room_id: &RoomId,
+        new_event: &SyncRoomMemberEvent,
+    ) -> Result<Option<String>> {
+        use MembershipState::*;
+
+        let user_id = new_event.state_key();
+
+        let old_event = if let Some(m) = changes
+            .state
+            .get(room_id)
+            .and_then(|events| events.get(&StateEventType::RoomMember)?.get(user_id.as_str()))
+        {
+            Some(RawMemberEvent::Sync(m.clone().cast()))
+        } else {
+            self.store.get_member_event(room_id, user_id).await?
+        };
+
+        let Some(Ok(old_event)) = old_event.map(|r| r.deserialize()) else { return Ok(None) };
+
+        if matches!(old_event.membership(), Join | Invite) {
+            let display_name = if let Some(d) = changes
+                .profiles
+                .get(room_id)
+                .and_then(|p| p.get(user_id)?.as_original()?.content.displayname.as_deref())
+            {
+                Some(d.to_owned())
+            } else if let Some(d) = self
+                .store
+                .get_profile(room_id, user_id)
+                .await?
+                .and_then(|p| p.into_original()?.content.displayname)
+            {
+                Some(d)
+            } else {
+                old_event.original_content().and_then(|c| c.displayname.clone())
+            };
+
+            Ok(Some(display_name.unwrap_or_else(|| user_id.localpart().to_owned())))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn get_users_with_display_name(
+        &mut self,
+        room_id: &RoomId,
+        display_name: &str,
+    ) -> Result<DisplayNameUsers> {
+        Ok(if let Some(u) = self.cache.entry(room_id.to_owned()).or_default().get(display_name) {
+            DisplayNameUsers { display_name: display_name.to_owned(), users: u.clone() }
+        } else {
+            let users_with_display_name =
+                self.store.get_users_with_display_name(room_id, display_name).await?;
+
+            DisplayNameUsers {
+                display_name: display_name.to_owned(),
+                users: users_with_display_name,
+            }
+        })
     }
 
     async fn get(
@@ -162,52 +225,10 @@ impl AmbiguityCache {
     ) -> Result<(Option<DisplayNameUsers>, Option<DisplayNameUsers>)> {
         use MembershipState::*;
 
-        let old_event = if let Some(m) = changes.state.get(room_id).and_then(|events| {
-            events.get(&StateEventType::RoomMember)?.get(member_event.state_key().as_str())
-        }) {
-            Some(RawMemberEvent::Sync(m.clone().cast()))
-        } else {
-            self.store.get_member_event(room_id, member_event.state_key()).await?
-        };
-
-        // FIXME: Use let chains once stable
-        let old_display_name = if let Some(Ok(event)) = old_event.map(|r| r.deserialize()) {
-            if matches!(event.membership(), Join | Invite) {
-                let display_name = if let Some(d) = changes.profiles.get(room_id).and_then(|p| {
-                    p.get(member_event.state_key())?.as_original()?.content.displayname.as_deref()
-                }) {
-                    Some(d.to_owned())
-                } else if let Some(d) = self
-                    .store
-                    .get_profile(room_id, member_event.state_key())
-                    .await?
-                    .and_then(|p| p.into_original()?.content.displayname)
-                {
-                    Some(d)
-                } else {
-                    event.original_content().and_then(|c| c.displayname.clone())
-                };
-
-                Some(display_name.unwrap_or_else(|| event.user_id().localpart().to_owned()))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let old_display_name = self.get_old_display_name(changes, room_id, member_event).await?;
 
         let old_map = if let Some(old_name) = old_display_name.as_deref() {
-            let old_display_name_map =
-                if let Some(u) = self.cache.entry(room_id.to_owned()).or_default().get(old_name) {
-                    u.clone()
-                } else {
-                    self.store.get_users_with_display_name(room_id, old_name).await?
-                };
-
-            Some(DisplayNameUsers {
-                display_name: old_name.to_owned(),
-                users: old_display_name_map,
-            })
+            Some(self.get_users_with_display_name(room_id, old_name).await?)
         } else {
             None
         };
@@ -218,9 +239,8 @@ impl AmbiguityCache {
                 .and_then(|ev| ev.content.displayname.as_deref())
                 .unwrap_or_else(|| member_event.state_key().localpart());
 
-            // We don't allow other users to set the display name, so if we
-            // have a more trusted version of the display
-            // name use that.
+            // We don't allow other users to set the display name, so if we have a more
+            // trusted version of the display name use that.
             let new_display_name = if member_event.sender().as_str() == member_event.state_key() {
                 new
             } else if let Some(old) = old_display_name.as_deref() {
@@ -229,18 +249,7 @@ impl AmbiguityCache {
                 new
             };
 
-            let new_display_name_map = if let Some(u) =
-                self.cache.entry(room_id.to_owned()).or_default().get(new_display_name)
-            {
-                u.clone()
-            } else {
-                self.store.get_users_with_display_name(room_id, new_display_name).await?
-            };
-
-            Some(DisplayNameUsers {
-                display_name: new_display_name.to_owned(),
-                users: new_display_name_map,
-            })
+            Some(self.get_users_with_display_name(room_id, new_display_name).await?)
         } else {
             None
         };
