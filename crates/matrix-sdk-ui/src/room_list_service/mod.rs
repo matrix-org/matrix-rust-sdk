@@ -90,6 +90,7 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::RoomPowerLevels, ""),
     (StateEventType::CallMember, "*"),
     (StateEventType::RoomJoinRules, ""),
+    (StateEventType::RoomTombstone, ""),
     // Those two events are required to properly compute room previews.
     (StateEventType::RoomCreate, ""),
     (StateEventType::RoomHistoryVisibility, ""),
