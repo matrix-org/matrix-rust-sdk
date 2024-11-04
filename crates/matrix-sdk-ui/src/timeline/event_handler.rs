@@ -1190,8 +1190,34 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
             }
 
-            Flow::Remote { position: TimelineItemPosition::Update(idx), .. } => {
+            Flow::Remote {
+                event_id: decrypted_event_id,
+                position: TimelineItemPosition::Update(idx),
+                ..
+            } => {
                 trace!("Updating timeline item at position {idx}");
+
+                // Update all events that replied to this previously encrypted message.
+                self.items.for_each(|mut entry| {
+                    let Some(event_item) = entry.as_event() else { return };
+                    let Some(message) = event_item.content.as_message() else { return };
+                    let Some(in_reply_to) = message.in_reply_to() else { return };
+                    if *decrypted_event_id == in_reply_to.event_id {
+                        trace!(reply_event_id = ?event_item.identifier(), "Updating response to edited event");
+                        let in_reply_to = InReplyToDetails {
+                            event_id: in_reply_to.event_id.clone(),
+                            event: TimelineDetails::Ready(Box::new(
+                                RepliedToEvent::from_timeline_item(&item),
+                            )),
+                        };
+                        let new_reply_content =
+                            TimelineItemContent::Message(message.with_in_reply_to(in_reply_to));
+                        let new_reply_item =
+                            entry.with_kind(event_item.with_content(new_reply_content, None));
+                        ObservableVectorTransactionEntry::set(&mut entry, new_reply_item);
+                    }
+                });
+
                 let internal_id = self.items[*idx].internal_id.clone();
                 self.items.set(*idx, TimelineItem::new(item, internal_id));
             }
