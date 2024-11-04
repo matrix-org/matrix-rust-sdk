@@ -120,21 +120,10 @@ impl RoomListService {
     /// already pre-configured.
     ///
     /// This won't start an encryption sync, and it's the user's responsibility
-    /// to create one in this case using `EncryptionSync`.
+    /// to create one in this case using
+    /// [`EncryptionSyncService`][crate::encryption_sync_service::EncryptionSyncService].
     pub async fn new(client: Client) -> Result<Self, Error> {
-        Self::new_internal(client, false).await
-    }
-
-    /// Create a new `RoomList` that enables encryption.
-    ///
-    /// This will include syncing the encryption information, so there must not
-    /// be any instance of `EncryptionSync` running in the background.
-    pub async fn new_with_encryption(client: Client) -> Result<Self, Error> {
-        Self::new_internal(client, true).await
-    }
-
-    async fn new_internal(client: Client, with_encryption: bool) -> Result<Self, Error> {
-        let mut builder = client
+        let builder = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
             .with_account_data_extension(
@@ -147,16 +136,6 @@ impl RoomListService {
             .with_typing_extension(assign!(http::request::Typing::default(), {
                 enabled: Some(true),
             }));
-
-        if with_encryption {
-            builder = builder
-                .with_e2ee_extension(
-                    assign!(http::request::E2EE::default(), { enabled: Some(true) }),
-                )
-                .with_to_device_extension(
-                    assign!(http::request::ToDevice::default(), { enabled: Some(true) }),
-                );
-        }
 
         let sliding_sync = builder
             .add_cached_list(
@@ -573,23 +552,6 @@ mod tests {
                 .await,
             Some(true)
         );
-
-        Ok(())
-    }
-
-    #[async_test]
-    async fn test_no_to_device_and_e2ee_if_not_explicitly_set() -> Result<(), Error> {
-        let (client, _) = new_client().await;
-
-        let no_encryption = RoomListService::new(client.clone()).await?;
-        let extensions = no_encryption.sliding_sync.extensions_config();
-        assert_eq!(extensions.e2ee.enabled, None);
-        assert_eq!(extensions.to_device.enabled, None);
-
-        let with_encryption = RoomListService::new_with_encryption(client).await?;
-        let extensions = with_encryption.sliding_sync.extensions_config();
-        assert_eq!(extensions.e2ee.enabled, Some(true));
-        assert_eq!(extensions.to_device.enabled, Some(true));
 
         Ok(())
     }
