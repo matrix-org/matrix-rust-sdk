@@ -14,7 +14,7 @@
 
 use std::{
     borrow::Borrow,
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     sync::Arc,
 };
@@ -46,7 +46,9 @@ use super::{
     StoreError,
 };
 use crate::{
-    deserialized_responses::{RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState},
+    deserialized_responses::{
+        DisplayName, RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState,
+    },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships,
 };
 
@@ -206,7 +208,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
-        display_name: &str,
+        display_name: &DisplayName,
     ) -> Result<BTreeSet<OwnedUserId>, Self::Error>;
 
     /// Get all the users that use the given display names in the given room.
@@ -219,8 +221,8 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_users_with_display_names<'a>(
         &self,
         room_id: &RoomId,
-        display_names: &'a [String],
-    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>, Self::Error>;
+        display_names: &'a [DisplayName],
+    ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>, Self::Error>;
 
     /// Get an event out of the account data store.
     ///
@@ -567,7 +569,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
-        display_name: &str,
+        display_name: &DisplayName,
     ) -> Result<BTreeSet<OwnedUserId>, Self::Error> {
         self.0.get_users_with_display_name(room_id, display_name).await.map_err(Into::into)
     }
@@ -575,8 +577,8 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
     async fn get_users_with_display_names<'a>(
         &self,
         room_id: &RoomId,
-        display_names: &'a [String],
-    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>, Self::Error> {
+        display_names: &'a [DisplayName],
+    ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>, Self::Error> {
         self.0.get_users_with_display_names(room_id, display_names).await.map_err(Into::into)
     }
 

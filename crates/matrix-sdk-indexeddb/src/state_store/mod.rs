@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -23,7 +23,7 @@ use gloo_utils::format::JsValueSerdeExt;
 use growable_bloom_filter::GrowableBloom;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
-    deserialized_responses::RawAnySyncOrStrippedState,
+    deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
     store::{
         ChildTransactionId, ComposerDraft, DependentQueuedRequest, DependentQueuedRequestKind,
         QueuedRequest, QueuedRequestKind, SentRequestKey, SerializableEventContent,
@@ -665,7 +665,15 @@ impl_state_store!({
             let store = tx.object_store(keys::DISPLAY_NAMES)?;
             for (room_id, ambiguity_maps) in &changes.ambiguity_maps {
                 for (display_name, map) in ambiguity_maps {
-                    let key = self.encode_key(keys::DISPLAY_NAMES, (room_id, display_name));
+                    let key = self.encode_key(
+                        keys::DISPLAY_NAMES,
+                        (
+                            room_id,
+                            display_name
+                                .as_normalized_str()
+                                .unwrap_or_else(|| display_name.as_raw_str()),
+                        ),
+                    );
 
                     store.put_key_val(&key, &self.serialize_value(&map)?)?;
                 }
@@ -1122,12 +1130,18 @@ impl_state_store!({
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
-        display_name: &str,
+        display_name: &DisplayName,
     ) -> Result<BTreeSet<OwnedUserId>> {
         self.inner
             .transaction_on_one_with_mode(keys::DISPLAY_NAMES, IdbTransactionMode::Readonly)?
             .object_store(keys::DISPLAY_NAMES)?
-            .get(&self.encode_key(keys::DISPLAY_NAMES, (room_id, display_name)))?
+            .get(&self.encode_key(
+                keys::DISPLAY_NAMES,
+                (
+                    room_id,
+                    display_name.as_normalized_str().unwrap_or_else(|| display_name.as_raw_str()),
+                ),
+            ))?
             .await?
             .map(|f| self.deserialize_value::<BTreeSet<OwnedUserId>>(&f))
             .unwrap_or_else(|| Ok(Default::default()))
@@ -1136,10 +1150,12 @@ impl_state_store!({
     async fn get_users_with_display_names<'a>(
         &self,
         room_id: &RoomId,
-        display_names: &'a [String],
-    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>> {
+        display_names: &'a [DisplayName],
+    ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>> {
+        let mut map = HashMap::new();
+
         if display_names.is_empty() {
-            return Ok(BTreeMap::new());
+            return Ok(map);
         }
 
         let txn = self
@@ -1147,15 +1163,24 @@ impl_state_store!({
             .transaction_on_one_with_mode(keys::DISPLAY_NAMES, IdbTransactionMode::Readonly)?;
         let store = txn.object_store(keys::DISPLAY_NAMES)?;
 
-        let mut map = BTreeMap::new();
         for display_name in display_names {
             if let Some(user_ids) = store
-                .get(&self.encode_key(keys::DISPLAY_NAMES, (room_id, display_name)))?
+                .get(
+                    &self.encode_key(
+                        keys::DISPLAY_NAMES,
+                        (
+                            room_id,
+                            display_name
+                                .as_normalized_str()
+                                .unwrap_or_else(|| display_name.as_raw_str()),
+                        ),
+                    ),
+                )?
                 .await?
                 .map(|f| self.deserialize_value::<BTreeSet<OwnedUserId>>(&f))
                 .transpose()?
             {
-                map.insert(display_name.as_ref(), user_ids);
+                map.insert(display_name, user_ids);
             }
         }
 

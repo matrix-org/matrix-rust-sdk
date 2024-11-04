@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt, iter,
     path::Path,
     sync::Arc,
@@ -9,7 +9,7 @@ use std::{
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
-    deserialized_responses::{RawAnySyncOrStrippedState, SyncOrStrippedState},
+    deserialized_responses::{DisplayName, RawAnySyncOrStrippedState, SyncOrStrippedState},
     store::{
         migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedRequest,
         DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind,
@@ -1305,13 +1305,34 @@ impl StateStore for SqliteStateStore {
                     let room_id = this.encode_key(keys::DISPLAY_NAME, room_id);
 
                     for (name, user_ids) in display_names {
-                        let name = this.encode_key(keys::DISPLAY_NAME, name);
+                        let encoded_name = this.encode_key(
+                            keys::DISPLAY_NAME,
+                            name.as_normalized_str().unwrap_or_else(|| name.as_raw_str()),
+                        );
                         let data = this.serialize_json(&user_ids)?;
 
                         if user_ids.is_empty() {
-                            txn.remove_display_name(&room_id, &name)?;
+                            txn.remove_display_name(&room_id, &encoded_name)?;
+
+                            // We can't do a migration to merge the previously distinct buckets of
+                            // user IDs since the display names themselves are hashed before they
+                            // are persisted in the store. So the store will always retain two
+                            // buckets: one for raw display names and one for normalised ones.
+                            //
+                            // We therefore do the next best thing, which is a sort of a soft
+                            // migration: we fetch both the raw and normalised buckets, then merge
+                            // the user IDs contained in them into a separate, temporary merged
+                            // bucket. The SDK then operates on the merged buckets exclusively. See
+                            // the comment in `get_users_with_display_names` for details.
+                            //
+                            // If the merged bucket is empty, that must mean that both the raw and
+                            // normalised buckets were also empty, so we can remove both from the
+                            // store.
+                            let raw_name = this.encode_key(keys::DISPLAY_NAME, name.as_raw_str());
+                            txn.remove_display_name(&room_id, &raw_name)?;
                         } else {
-                            txn.set_display_name(&room_id, &name, &data)?;
+                            // We only create new buckets with the normalized display name.
+                            txn.set_display_name(&room_id, &encoded_name, &data)?;
                         }
                     }
                 }
@@ -1500,10 +1521,13 @@ impl StateStore for SqliteStateStore {
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
-        display_name: &str,
+        display_name: &DisplayName,
     ) -> Result<BTreeSet<OwnedUserId>> {
         let room_id = self.encode_key(keys::DISPLAY_NAME, room_id);
-        let names = vec![self.encode_key(keys::DISPLAY_NAME, display_name)];
+        let names = vec![self.encode_key(
+            keys::DISPLAY_NAME,
+            display_name.as_normalized_str().unwrap_or_else(|| display_name.as_raw_str()),
+        )];
 
         Ok(self
             .acquire()
@@ -1520,33 +1544,49 @@ impl StateStore for SqliteStateStore {
     async fn get_users_with_display_names<'a>(
         &self,
         room_id: &RoomId,
-        display_names: &'a [String],
-    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>> {
+        display_names: &'a [DisplayName],
+    ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>> {
+        let mut result = HashMap::new();
+
         if display_names.is_empty() {
-            return Ok(BTreeMap::new());
+            return Ok(result);
         }
 
         let room_id = self.encode_key(keys::DISPLAY_NAME, room_id);
         let mut names_map = display_names
             .iter()
-            .map(|n| (self.encode_key(keys::DISPLAY_NAME, n), n.as_ref()))
+            .flat_map(|display_name| {
+                // We encode the display name as the `raw_str()` and the normalized string.
+                //
+                // This is for compatibility reasons since:
+                //  1. Previously "Alice" and "alice" were considered to be distinct display
+                //     names, while we now consider them to be the same so we need to merge the
+                //     previously distinct buckets of user IDs.
+                //  2. We can't do a migration to merge the previously distinct buckets of user
+                //     IDs since the display names itself are hashed before they are persisted
+                //     in the store.
+                let raw =
+                    (self.encode_key(keys::DISPLAY_NAME, display_name.as_raw_str()), display_name);
+                let normalized = display_name.as_normalized_str().map(|normalized| {
+                    (self.encode_key(keys::DISPLAY_NAME, normalized), display_name)
+                });
+
+                iter::once(raw).chain(normalized.into_iter())
+            })
             .collect::<BTreeMap<_, _>>();
         let names = names_map.keys().cloned().collect();
 
-        self.acquire()
-            .await?
-            .get_display_names(room_id, names)
-            .await?
-            .into_iter()
-            .map(|(name, data)| {
-                Ok((
-                    names_map
-                        .remove(name.as_slice())
-                        .expect("returned display names were requested"),
-                    self.deserialize_json(&data)?,
-                ))
-            })
-            .collect::<Result<BTreeMap<_, _>>>()
+        for (name, data) in
+            self.acquire().await?.get_display_names(room_id, names).await?.into_iter()
+        {
+            let display_name =
+                names_map.remove(name.as_slice()).expect("returned display names were requested");
+            let user_ids: BTreeSet<_> = self.deserialize_json(&data)?;
+
+            result.entry(display_name).or_insert_with(BTreeSet::new).extend(user_ids);
+        }
+
+        Ok(result)
     }
 
     async fn get_account_data_event(

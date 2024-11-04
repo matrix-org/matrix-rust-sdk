@@ -42,7 +42,8 @@ use super::{
     StateChanges, StateStore, StoreError,
 };
 use crate::{
-    deserialized_responses::RawAnySyncOrStrippedState, store::QueueWedgeError,
+    deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
+    store::QueueWedgeError,
     MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
 };
 
@@ -61,7 +62,7 @@ pub struct MemoryStore {
     utd_hook_manager_data: StdRwLock<Option<GrowableBloom>>,
     account_data: StdRwLock<HashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
     profiles: StdRwLock<HashMap<OwnedRoomId, HashMap<OwnedUserId, MinimalRoomMemberEvent>>>,
-    display_names: StdRwLock<HashMap<OwnedRoomId, HashMap<String, BTreeSet<OwnedUserId>>>>,
+    display_names: StdRwLock<HashMap<OwnedRoomId, HashMap<DisplayName, BTreeSet<OwnedUserId>>>>,
     members: StdRwLock<HashMap<OwnedRoomId, HashMap<OwnedUserId, MembershipState>>>,
     room_info: StdRwLock<HashMap<OwnedRoomId, RoomInfo>>,
     room_state: StdRwLock<
@@ -701,7 +702,7 @@ impl StateStore for MemoryStore {
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
-        display_name: &str,
+        display_name: &DisplayName,
     ) -> Result<BTreeSet<OwnedUserId>> {
         Ok(self
             .display_names
@@ -715,21 +716,18 @@ impl StateStore for MemoryStore {
     async fn get_users_with_display_names<'a>(
         &self,
         room_id: &RoomId,
-        display_names: &'a [String],
-    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>> {
+        display_names: &'a [DisplayName],
+    ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>> {
         if display_names.is_empty() {
-            return Ok(BTreeMap::new());
+            return Ok(HashMap::new());
         }
 
         let read_guard = &self.display_names.read().unwrap();
         let Some(room_names) = read_guard.get(room_id) else {
-            return Ok(BTreeMap::new());
+            return Ok(HashMap::new());
         };
 
-        Ok(display_names
-            .iter()
-            .filter_map(|n| room_names.get(n).map(|d| (n.as_str(), d.clone())))
-            .collect())
+        Ok(display_names.iter().filter_map(|n| room_names.get(n).map(|d| (n, d.clone()))).collect())
     }
 
     async fn get_account_data_event(
