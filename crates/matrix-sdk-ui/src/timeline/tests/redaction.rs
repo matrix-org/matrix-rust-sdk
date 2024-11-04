@@ -91,17 +91,17 @@ async fn test_redact_replied_to_event() {
 
     timeline.handle_live_event(f.redaction(first_item.event_id().unwrap()).sender(&ALICE)).await;
 
-    let first_item_again =
-        assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_matches!(first_item_again.content(), TimelineItemContent::RedactedMessage);
-    assert_matches!(first_item_again.original_json(), None);
-
     let second_item_again =
         assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let message = second_item_again.content().as_message().unwrap();
     let in_reply_to = message.in_reply_to().unwrap();
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert_matches!(replied_to_event.content(), TimelineItemContent::RedactedMessage);
+
+    let first_item_again =
+        assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    assert_matches!(first_item_again.content(), TimelineItemContent::RedactedMessage);
+    assert_matches!(first_item_again.original_json(), None);
 }
 
 #[async_test]
