@@ -1,6 +1,6 @@
 //! Trait and macro of integration tests for StateStore implementations.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
@@ -34,7 +34,8 @@ use ruma::{
 use serde_json::{json, value::Value as JsonValue};
 
 use super::{
-    send_queue::SentRequestKey, DependentQueuedRequestKind, DynStateStore, ServerCapabilities,
+    send_queue::SentRequestKey, DependentQueuedRequestKind, DisplayName, DynStateStore,
+    ServerCapabilities,
 };
 use crate::{
     deserialized_responses::MemberEvent,
@@ -141,13 +142,15 @@ impl StateStoreIntegrationTests for DynStateStore {
         room.handle_state_event(&topic_event);
         changes.add_state_event(room_id, topic_event, topic_raw);
 
-        let mut room_ambiguity_map = BTreeMap::new();
+        let mut room_ambiguity_map = HashMap::new();
         let mut room_profiles = BTreeMap::new();
 
         let member_json: &JsonValue = &test_json::MEMBER;
         let member_event: SyncRoomMemberEvent =
             serde_json::from_value(member_json.clone()).unwrap();
-        let displayname = member_event.as_original().unwrap().content.displayname.clone().unwrap();
+        let displayname = DisplayName::new(
+            member_event.as_original().unwrap().content.displayname.as_ref().unwrap(),
+        );
         room_ambiguity_map.insert(displayname.clone(), BTreeSet::from([user_id.to_owned()]));
         room_profiles.insert(user_id.to_owned(), (&member_event).into());
 
@@ -256,6 +259,8 @@ impl StateStoreIntegrationTests for DynStateStore {
     async fn test_populate_store(&self) -> Result<()> {
         let room_id = room_id();
         let user_id = user_id();
+        let display_name = DisplayName::new("example");
+
         self.populate().await?;
 
         assert!(self.get_kv_data(StateStoreDataKey::SyncToken).await?.is_some());
@@ -290,7 +295,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             "Expected to find 1 joined user ids"
         );
         assert_eq!(
-            self.get_users_with_display_name(room_id, "example").await?.len(),
+            self.get_users_with_display_name(room_id, &display_name).await?.len(),
             2,
             "Expected to find 2 display names for room"
         );
@@ -962,6 +967,7 @@ impl StateStoreIntegrationTests for DynStateStore {
     async fn test_room_removal(&self) -> Result<()> {
         let room_id = room_id();
         let user_id = user_id();
+        let display_name = DisplayName::new("example");
         let stripped_room_id = stripped_room_id();
 
         self.populate().await?;
@@ -990,7 +996,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             "still joined users found"
         );
         assert!(
-            self.get_users_with_display_name(room_id, "example").await?.is_empty(),
+            self.get_users_with_display_name(room_id, &display_name).await?.is_empty(),
             "still display names found"
         );
         assert!(self
@@ -1145,15 +1151,15 @@ impl StateStoreIntegrationTests for DynStateStore {
     async fn test_display_names_saving(&self) {
         let room_id = room_id!("!test_display_names_saving:localhost");
         let user_id = user_id();
-        let user_display_name = "User";
+        let user_display_name = DisplayName::new("User");
         let second_user_id = user_id!("@second:localhost");
         let third_user_id = user_id!("@third:localhost");
-        let other_display_name = "Raoul";
-        let unknown_display_name = "Unknown";
+        let other_display_name = DisplayName::new("Raoul");
+        let unknown_display_name = DisplayName::new("Unknown");
 
         // No event in store.
         let mut display_names = vec![user_display_name.to_owned()];
-        let users = self.get_users_with_display_name(room_id, user_display_name).await.unwrap();
+        let users = self.get_users_with_display_name(room_id, &user_display_name).await.unwrap();
         assert!(users.is_empty());
         let names = self.get_users_with_display_names(room_id, &display_names).await.unwrap();
         assert!(names.is_empty());
@@ -1167,7 +1173,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .insert(user_display_name.to_owned(), [user_id.to_owned()].into());
         self.save_changes(&changes).await.unwrap();
 
-        let users = self.get_users_with_display_name(room_id, user_display_name).await.unwrap();
+        let users = self.get_users_with_display_name(room_id, &user_display_name).await.unwrap();
         assert_eq!(users.len(), 1);
         let names = self.get_users_with_display_names(room_id, &display_names).await.unwrap();
         assert_eq!(names.len(), 1);
@@ -1182,9 +1188,9 @@ impl StateStoreIntegrationTests for DynStateStore {
         self.save_changes(&changes).await.unwrap();
 
         display_names.push(other_display_name.to_owned());
-        let users = self.get_users_with_display_name(room_id, user_display_name).await.unwrap();
+        let users = self.get_users_with_display_name(room_id, &user_display_name).await.unwrap();
         assert_eq!(users.len(), 1);
-        let users = self.get_users_with_display_name(room_id, other_display_name).await.unwrap();
+        let users = self.get_users_with_display_name(room_id, &other_display_name).await.unwrap();
         assert_eq!(users.len(), 2);
         let names = self.get_users_with_display_names(room_id, &display_names).await.unwrap();
         assert_eq!(names.len(), 2);

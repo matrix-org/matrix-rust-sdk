@@ -16,7 +16,7 @@
 #[cfg(feature = "e2e-encryption")]
 use std::sync::Arc;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt, iter,
     ops::Deref,
 };
@@ -68,7 +68,7 @@ use crate::latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLat
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
 use crate::{
-    deserialized_responses::{RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent},
+    deserialized_responses::{DisplayName, RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent},
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
     response_processors::AccountDataProcessor,
@@ -1332,7 +1332,7 @@ impl BaseClient {
         #[cfg(feature = "e2e-encryption")]
         let mut user_ids = BTreeSet::new();
 
-        let mut ambiguity_map: BTreeMap<String, BTreeSet<OwnedUserId>> = BTreeMap::new();
+        let mut ambiguity_map: HashMap<DisplayName, BTreeSet<OwnedUserId>> = Default::default();
 
         for raw_event in &response.chunk {
             let member = match raw_event.deserialize() {
@@ -1363,7 +1363,11 @@ impl BaseClient {
 
             if let StateEvent::Original(e) = &member {
                 if let Some(d) = &e.content.displayname {
-                    ambiguity_map.entry(d.clone()).or_default().insert(member.state_key().clone());
+                    let display_name = DisplayName::new(d);
+                    ambiguity_map
+                        .entry(display_name)
+                        .or_default()
+                        .insert(member.state_key().clone());
                 }
             }
 

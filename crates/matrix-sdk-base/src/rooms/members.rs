@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeSet, HashMap},
     sync::Arc,
 };
 
@@ -30,7 +30,8 @@ use ruma::{
 };
 
 use crate::{
-    deserialized_responses::{MemberEvent, SyncOrStrippedState},
+    deserialized_responses::{DisplayName, MemberEvent, SyncOrStrippedState},
+    store::ambiguity_map::is_display_name_ambiguous,
     MinimalRoomMemberEvent,
 };
 
@@ -67,8 +68,10 @@ impl RoomMember {
         } = room_info;
 
         let is_room_creator = room_creator.as_deref() == Some(event.user_id());
-        let display_name_ambiguous =
-            users_display_names.get(event.display_name()).is_some_and(|s| s.len() > 1);
+        let display_name = event.display_name();
+        let display_name_ambiguous = users_display_names
+            .get(&display_name)
+            .is_some_and(|s| is_display_name_ambiguous(&display_name, s));
         let is_ignored = ignored_users.as_ref().is_some_and(|s| s.contains(event.user_id()));
 
         Self {
@@ -245,6 +248,6 @@ pub(crate) struct MemberRoomInfo<'a> {
     pub(crate) power_levels: Arc<Option<SyncOrStrippedState<RoomPowerLevelsEventContent>>>,
     pub(crate) max_power_level: i64,
     pub(crate) room_creator: Option<OwnedUserId>,
-    pub(crate) users_display_names: BTreeMap<&'a str, BTreeSet<OwnedUserId>>,
+    pub(crate) users_display_names: HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>,
     pub(crate) ignored_users: Option<BTreeSet<OwnedUserId>>,
 }

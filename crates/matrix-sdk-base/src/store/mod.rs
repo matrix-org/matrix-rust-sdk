@@ -21,7 +21,7 @@
 //! store.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     ops::Deref,
     result::Result as StdResult,
@@ -58,6 +58,7 @@ use tokio::sync::{broadcast, Mutex, RwLock};
 use tracing::warn;
 
 use crate::{
+    deserialized_responses::DisplayName,
     event_cache::store as event_cache_store,
     rooms::{normal::RoomInfoNotableUpdate, RoomInfo, RoomState},
     MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
@@ -384,7 +385,7 @@ pub struct StateChanges {
 
     /// A map from room id to a map of a display name and a set of user ids that
     /// share that display name in the given room.
-    pub ambiguity_maps: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<OwnedUserId>>>,
+    pub ambiguity_maps: BTreeMap<OwnedRoomId, HashMap<DisplayName, BTreeSet<OwnedUserId>>>,
 }
 
 impl StateChanges {

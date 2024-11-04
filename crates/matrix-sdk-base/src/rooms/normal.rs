@@ -67,7 +67,7 @@ use super::{
 #[cfg(feature = "experimental-sliding-sync")]
 use crate::latest_event::LatestEvent;
 use crate::{
-    deserialized_responses::{MemberEvent, RawSyncOrStrippedState},
+    deserialized_responses::{DisplayName, MemberEvent, RawSyncOrStrippedState},
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
@@ -819,8 +819,7 @@ impl Room {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let display_names =
-            member_events.iter().map(|e| e.display_name().to_owned()).collect::<Vec<_>>();
+        let display_names = member_events.iter().map(|e| e.display_name()).collect::<Vec<_>>();
         let room_info = self.member_room_info(&display_names).await?;
 
         let mut members = Vec::new();
@@ -900,7 +899,7 @@ impl Room {
 
         let profile = self.store.get_profile(self.room_id(), user_id).await?;
 
-        let display_names = [event.display_name().to_owned()];
+        let display_names = [event.display_name()];
         let room_info = self.member_room_info(&display_names).await?;
 
         Ok(Some(RoomMember::from_parts(event, profile, presence, &room_info)))
@@ -911,7 +910,7 @@ impl Room {
     /// Async because it can read from storage.
     async fn member_room_info<'a>(
         &self,
-        display_names: &'a [String],
+        display_names: &'a [DisplayName],
     ) -> StoreResult<MemberRoomInfo<'a>> {
         let max_power_level = self.max_power_level();
         let room_creator = self.inner.read().creator().map(ToOwned::to_owned);
