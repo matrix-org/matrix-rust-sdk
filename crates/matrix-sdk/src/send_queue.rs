@@ -960,13 +960,13 @@ impl QueueStorage {
     async fn try_apply_single_dependent_request(
         &self,
         client: &Client,
-        de: DependentQueuedRequest,
+        dependent_request: DependentQueuedRequest,
     ) -> Result<bool, RoomSendQueueError> {
         let store = client.store();
 
-        let parent_key = de.parent_key;
+        let parent_key = dependent_request.parent_key;
 
-        match de.kind {
+        match dependent_request.kind {
             DependentQueuedRequestKind::EditEvent { new_content } => {
                 if let Some(parent_key) = parent_key {
                     let Some(event_id) = parent_key.into_event_id() else {
@@ -1026,7 +1026,7 @@ impl QueueStorage {
                     store
                         .save_send_queue_request(
                             &self.room_id,
-                            de.own_transaction_id.into(),
+                            dependent_request.own_transaction_id.into(),
                             serializable.into(),
                         )
                         .await
@@ -1036,7 +1036,7 @@ impl QueueStorage {
                     let edited = store
                         .update_send_queue_request(
                             &self.room_id,
-                            &de.parent_transaction_id,
+                            &dependent_request.parent_transaction_id,
                             new_content.into(),
                         )
                         .await
@@ -1068,8 +1068,9 @@ impl QueueStorage {
                     // Note: no reason is provided because we materialize the intent of "cancel
                     // sending the parent event".
 
-                    if let Err(err) =
-                        room.redact(&event_id, None, Some(de.own_transaction_id.into())).await
+                    if let Err(err) = room
+                        .redact(&event_id, None, Some(dependent_request.own_transaction_id.into()))
+                        .await
                     {
                         warn!("error when sending a redact for {event_id}: {err}");
                         return Ok(false);
@@ -1078,7 +1079,10 @@ impl QueueStorage {
                     // The parent event is still local (sending must have failed); redact the local
                     // echo.
                     let removed = store
-                        .remove_send_queue_request(&self.room_id, &de.parent_transaction_id)
+                        .remove_send_queue_request(
+                            &self.room_id,
+                            &dependent_request.parent_transaction_id,
+                        )
                         .await
                         .map_err(RoomSendQueueStorageError::StorageError)?;
 
@@ -1108,7 +1112,7 @@ impl QueueStorage {
                     store
                         .save_send_queue_request(
                             &self.room_id,
-                            de.own_transaction_id.into(),
+                            dependent_request.own_transaction_id.into(),
                             serializable.into(),
                         )
                         .await
