@@ -136,6 +136,9 @@ impl RoomList {
     /// entries, and that it's also possible to “paginate” over the entries by
     /// `page_size`. The rooms are also sorted.
     ///
+    /// The `room_info_notable_update_receiver` argument can be obtained from
+    /// [`Client::room_info_notable_update_receiver()`].
+    ///
     /// The returned stream will only start yielding diffs once a filter is set
     /// through the returned [`RoomListDynamicEntriesController`]. For every
     /// call to [`RoomListDynamicEntriesController::set_filter`], the stream
