@@ -77,7 +77,7 @@ pub use self::{
     send_queue::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
         FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-        SentRequestKey, SerializableEventContent,
+        SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
     traits::{
         ComposerDraft, ComposerDraftType, DynStateStore, IntoStateStore, ServerCapabilities,

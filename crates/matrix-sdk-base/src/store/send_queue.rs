@@ -292,6 +292,22 @@ impl From<OwnedTransactionId> for ChildTransactionId {
     }
 }
 
+/// Information about a media (and its thumbnail) that have been sent to an
+/// homeserver.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SentMediaInfo {
+    /// File that was uploaded by this request.
+    ///
+    /// If the request related to a thumbnail upload, this contains the
+    /// thumbnail media source.
+    pub file: MediaSource,
+
+    /// Optional thumbnail previously uploaded, when uploading a file.
+    ///
+    /// When uploading a thumbnail, this is set to `None`.
+    pub thumbnail: Option<MediaSource>,
+}
+
 /// A unique key (identifier) indicating that a transaction has been
 /// successfully sent to the server.
 ///
@@ -302,24 +318,19 @@ pub enum SentRequestKey {
     Event(OwnedEventId),
 
     /// The parent transaction returned an uploaded resource URL.
-    Media {
-        /// File that was uploaded by this request.
-        ///
-        /// If the request related to a thumbnail upload, this contains the
-        /// thumbnail media source.
-        file: MediaSource,
-
-        /// Optional thumbnail previously uploaded, when uploading a file.
-        ///
-        /// When uploading a thumbnail, this is set to `None`.
-        thumbnail: Option<MediaSource>,
-    },
+    Media(SentMediaInfo),
 }
 
 impl SentRequestKey {
     /// Converts the current parent key into an event id, if possible.
     pub fn into_event_id(self) -> Option<OwnedEventId> {
         as_variant!(self, Self::Event)
+    }
+
+    /// Converts the current parent key into information about a sent media, if
+    /// possible.
+    pub fn into_media(self) -> Option<SentMediaInfo> {
+        as_variant!(self, Self::Media)
     }
 }
 
