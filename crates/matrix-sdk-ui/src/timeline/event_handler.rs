@@ -275,10 +275,11 @@ pub(super) enum TimelineItemPosition {
     /// recent).
     End { origin: RemoteEventOrigin },
 
-    /// A single item is updated.
+    /// A single item is updated, after it's been successfully decrypted.
     ///
-    /// This only happens when a UTD must be replaced with the decrypted event.
-    Update(usize),
+    /// This happens when an item that was a UTD must be replaced with the
+    /// decrypted event.
+    UpdateDecrypted(usize),
 }
 
 /// The outcome of handling a single event with
@@ -480,7 +481,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         if !self.result.item_added {
             trace!("No new item added");
 
-            if let Flow::Remote { position: TimelineItemPosition::Update(idx), .. } = self.ctx.flow
+            if let Flow::Remote { position: TimelineItemPosition::UpdateDecrypted(idx), .. } =
+                self.ctx.flow
             {
                 // If add was not called, that means the UTD event is one that
                 // wouldn't normally be visible. Remove it.
@@ -574,7 +576,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         replacement: PendingEdit,
     ) {
         match position {
-            TimelineItemPosition::Start { .. } | TimelineItemPosition::Update(_) => {
+            TimelineItemPosition::Start { .. } | TimelineItemPosition::UpdateDecrypted(_) => {
                 // Only insert the edit if there wasn't any other edit
                 // before.
                 //
@@ -1010,7 +1012,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     | TimelineItemPosition::End { origin } => origin,
 
                     // For updates, reuse the origin of the encrypted event.
-                    TimelineItemPosition::Update(idx) => self.items[idx]
+                    TimelineItemPosition::UpdateDecrypted(idx) => self.items[idx]
                         .as_event()
                         .and_then(|ev| Some(ev.as_remote()?.origin))
                         .unwrap_or_else(|| {
@@ -1160,7 +1162,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             Flow::Remote {
                 event_id: decrypted_event_id,
-                position: TimelineItemPosition::Update(idx),
+                position: TimelineItemPosition::UpdateDecrypted(idx),
                 ..
             } => {
                 trace!("Updating timeline item at position {idx}");
