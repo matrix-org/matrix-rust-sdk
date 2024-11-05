@@ -154,7 +154,10 @@ use ruma::{
     events::{
         reaction::ReactionEventContent,
         relation::Annotation,
-        room::{message::MessageType, MediaSource, ThumbnailInfo},
+        room::{
+            message::{MessageType, RoomMessageEventContent},
+            MediaSource, ThumbnailInfo,
+        },
         AnyMessageLikeEventContent, EventContent as _,
     },
     media::Method,
@@ -517,31 +520,27 @@ impl RoomSendQueue {
             return Err(RoomSendQueueError::RoomNotJoined);
         }
 
-        let client = room.client();
-        let store = client.store();
-
-        debug!(filename, %content_type, "sending an attachment");
-
-        // Push the dependent requests first, to make sure we're not sending the parent
-        // (depended upon) while dependencies aren't known yet.
-
         let upload_file_txn = TransactionId::new();
         let send_event_txn = config.txn_id.map_or_else(ChildTransactionId::new, Into::into);
 
         Span::current().record("event_txn", tracing::field::display(&*send_event_txn));
+        debug!(filename, %content_type, %upload_file_txn, "sending an attachment");
 
-        // Cache medias.
-
-        // Prepare and cache the file.
+        // Cache the file itself in the cache store.
         let file_media_request = Self::make_local_file_media_request(&upload_file_txn);
-
         room.client()
             .event_cache_store()
             .add_media_content(&file_media_request, data.clone())
             .await
             .map_err(|err| RoomSendQueueError::StorageError(err.into()))?;
 
-        let (event_content, thumbnail_txn) = if let Some(thumbnail) = config.thumbnail.take() {
+        // Process the thumbnail, if it's been provided.
+        let (upload_thumbnail_txn, event_thumbnail_info, queue_thumbnail_info) = if let Some(
+            thumbnail,
+        ) =
+            config.thumbnail.take()
+        {
+            // Normalize information to retrieve the thumbnail in the cache store.
             let info = thumbnail.info.as_ref();
             let height = info.and_then(|info| info.height).unwrap_or_else(|| {
                 trace!("thumbnail height is unknown, using 0 for the cache entry");
@@ -552,156 +551,78 @@ impl RoomSendQueue {
                 uint!(0)
             });
 
-            let thumbnail_upload_txn = TransactionId::new();
-            trace!(
-                %upload_file_txn,
-                %thumbnail_upload_txn,
-                thumbnail_size = ?(height, width),
-                "attachment has a thumbnail"
-            );
+            let txn = TransactionId::new();
+            trace!(upload_thumbnail_txn = %txn, thumbnail_size = ?(height, width), "attachment has a thumbnail");
 
-            let media_request =
-                Self::make_local_thumbnail_media_request(&thumbnail_upload_txn, height, width);
-
+            // Cache thumbnail in the cache store.
+            let thumbnail_media_request =
+                Self::make_local_thumbnail_media_request(&txn, height, width);
             room.client()
                 .event_cache_store()
-                .add_media_content(&media_request, thumbnail.data.clone())
+                .add_media_content(&thumbnail_media_request, thumbnail.data.clone())
                 .await
                 .map_err(|err| RoomSendQueueError::StorageError(err.into()))?;
 
+            // Create the information required for filling the thumbnail section of the
+            // media event.
             let thumbnail_info =
                 Box::new(assign!(thumbnail.info.map(ThumbnailInfo::from).unwrap_or_default(), {
                     mimetype: Some(thumbnail.content_type.as_ref().to_owned())
                 }));
 
-            // Save the event sending request as a dependent request on the file upload.
-            let content = Room::make_attachment_event(
-                room.make_attachment_type(
-                    &content_type,
-                    filename,
-                    file_media_request.source.clone(),
-                    config.caption,
-                    config.formatted_caption,
-                    config.info,
-                    Some((media_request.source.clone(), thumbnail_info)),
-                ),
-                config.mentions,
-            );
-
-            store
-                .save_dependent_queued_request(
-                    room.room_id(),
-                    &upload_file_txn,
-                    send_event_txn.clone(),
-                    DependentQueuedRequestKind::FinishUpload {
-                        local_echo: content.clone(),
-                        file_upload: upload_file_txn.clone(),
-                        thumbnail_info: Some(FinishUploadThumbnailInfo {
-                            txn: thumbnail_upload_txn.clone(),
-                            height,
-                            width,
-                        }),
-                    },
-                )
-                .await
-                .map_err(|err| RoomSendQueueError::StorageError(err.into()))?;
-
-            // Save the file upload request as a dependent request of the thumbnail upload.
-            store
-                .save_dependent_queued_request(
-                    room.room_id(),
-                    &thumbnail_upload_txn,
-                    upload_file_txn.clone().into(),
-                    DependentQueuedRequestKind::UploadFileWithThumbnail {
-                        content_type: content_type.to_string(),
-                        cache_key: file_media_request,
-                        related_to: send_event_txn.clone().into(),
-                    },
-                )
-                .await
-                .map_err(|err| RoomSendQueueError::StorageError(err.into()))?;
-
-            // Save the thumbnail upload request.
-            store
-                .save_send_queue_request(
-                    room.room_id(),
-                    thumbnail_upload_txn.clone(),
-                    QueuedRequestKind::Upload {
-                        content_type: thumbnail.content_type.to_string(),
-                        cache_key: media_request,
-                        thumbnail_source: None,
-                        related_to: send_event_txn.clone().into(),
-                    },
-                )
-                .await
-                .map_err(|err| RoomSendQueueError::StorageError(err.into()))?;
-
-            (content, Some(thumbnail_upload_txn))
+            (
+                Some(txn.clone()),
+                Some((thumbnail_media_request.source.clone(), thumbnail_info)),
+                Some((
+                    FinishUploadThumbnailInfo { txn, width, height },
+                    thumbnail_media_request,
+                    thumbnail.content_type,
+                )),
+            )
         } else {
-            // No thumbnail: only save the file upload request and send the event as a
-            // dependency.
-
-            trace!(%upload_file_txn, "attachment has no thumbnails");
-
-            let content = Room::make_attachment_event(
-                room.make_attachment_type(
-                    &content_type,
-                    filename,
-                    file_media_request.source.clone(),
-                    config.caption,
-                    config.formatted_caption,
-                    config.info,
-                    None,
-                ),
-                config.mentions,
-            );
-
-            store
-                .save_dependent_queued_request(
-                    room.room_id(),
-                    &upload_file_txn,
-                    send_event_txn.clone(),
-                    DependentQueuedRequestKind::FinishUpload {
-                        local_echo: content.clone(),
-                        file_upload: upload_file_txn.clone(),
-                        thumbnail_info: None,
-                    },
-                )
-                .await
-                .map_err(|err| RoomSendQueueError::StorageError(err.into()))?;
-
-            store
-                .save_send_queue_request(
-                    room.room_id(),
-                    upload_file_txn.clone(),
-                    QueuedRequestKind::Upload {
-                        content_type: content_type.to_string(),
-                        cache_key: file_media_request,
-                        thumbnail_source: None,
-                        related_to: send_event_txn.clone().into(),
-                    },
-                )
-                .await
-                .map_err(|err| RoomSendQueueError::StorageError(err.into()))?;
-
-            // No thumbnail attachment.
-            (content, None)
+            Default::default()
         };
 
-        let send_event_txn = OwnedTransactionId::from(send_event_txn);
+        // Create the content for the media event.
+        let event_content = Room::make_attachment_event(
+            room.make_attachment_type(
+                &content_type,
+                filename,
+                file_media_request.source.clone(),
+                config.caption,
+                config.formatted_caption,
+                config.info,
+                event_thumbnail_info,
+            ),
+            config.mentions,
+        );
+
+        // Save requests in the queue storage.
+        self.inner
+            .queue
+            .push_media(
+                event_content.clone(),
+                content_type,
+                send_event_txn.clone().into(),
+                upload_file_txn.clone(),
+                file_media_request,
+                queue_thumbnail_info,
+            )
+            .await?;
+
         trace!("manager sends a media to the background task");
 
         self.inner.notifier.notify_one();
 
         let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
-            transaction_id: send_event_txn.clone(),
+            transaction_id: send_event_txn.clone().into(),
             content: LocalEchoContent::Event {
                 serialized_event: SerializableEventContent::new(&event_content.into())
                     .map_err(RoomSendQueueStorageError::JsonSerialization)?,
                 // TODO: this should be a `SendAttachmentHandle`!
                 send_handle: SendHandle {
                     room: self.clone(),
-                    transaction_id: send_event_txn.clone(),
+                    transaction_id: send_event_txn.clone().into(),
                     is_upload: true,
                 },
                 send_error: None,
@@ -710,9 +631,9 @@ impl RoomSendQueue {
 
         Ok(SendAttachmentHandle {
             _room: self.clone(),
-            _transaction_id: send_event_txn,
+            _transaction_id: send_event_txn.into(),
             _file_upload: upload_file_txn,
-            _thumbnail_transaction_id: thumbnail_txn,
+            _thumbnail_transaction_id: upload_thumbnail_txn,
         })
     }
 
@@ -1286,6 +1207,96 @@ impl QueueStorage {
             .await?;
 
         Ok(edited)
+    }
+
+    /// Push requests (and dependents) to upload a media.
+    ///
+    /// See the module-level description for details of the whole processus.
+    async fn push_media(
+        &self,
+        event: RoomMessageEventContent,
+        content_type: Mime,
+        send_event_txn: OwnedTransactionId,
+        upload_file_txn: OwnedTransactionId,
+        file_media_request: MediaRequest,
+        thumbnail: Option<(FinishUploadThumbnailInfo, MediaRequest, Mime)>,
+    ) -> Result<(), RoomSendQueueStorageError> {
+        // Keep the lock until we're done touching the storage.
+        // TODO refactor to make the relationship between being_sent and the store more
+        // obvious.
+        let _guard = self.being_sent.read().await;
+
+        let client = self.client()?;
+        let store = client.store();
+
+        let thumbnail_info =
+            if let Some((thumbnail_info, thumbnail_media_request, thumbnail_content_type)) =
+                thumbnail
+            {
+                let upload_thumbnail_txn = thumbnail_info.txn.clone();
+
+                // Save the thumbnail upload request.
+                store
+                    .save_send_queue_request(
+                        &self.room_id,
+                        upload_thumbnail_txn.clone(),
+                        QueuedRequestKind::Upload {
+                            content_type: thumbnail_content_type.to_string(),
+                            cache_key: thumbnail_media_request,
+                            thumbnail_source: None,
+                            related_to: send_event_txn.clone(),
+                        },
+                    )
+                    .await?;
+
+                // Save the file upload request as a dependent request of the thumbnail upload.
+                store
+                    .save_dependent_queued_request(
+                        &self.room_id,
+                        &upload_thumbnail_txn,
+                        upload_file_txn.clone().into(),
+                        DependentQueuedRequestKind::UploadFileWithThumbnail {
+                            content_type: content_type.to_string(),
+                            cache_key: file_media_request,
+                            related_to: send_event_txn.clone(),
+                        },
+                    )
+                    .await?;
+
+                Some(thumbnail_info)
+            } else {
+                // Save the file upload as its own request, not a dependent one.
+                store
+                    .save_send_queue_request(
+                        &self.room_id,
+                        upload_file_txn.clone(),
+                        QueuedRequestKind::Upload {
+                            content_type: content_type.to_string(),
+                            cache_key: file_media_request,
+                            thumbnail_source: None,
+                            related_to: send_event_txn.clone(),
+                        },
+                    )
+                    .await?;
+
+                None
+            };
+
+        // Push the dependent request for the event itself.
+        store
+            .save_dependent_queued_request(
+                &self.room_id,
+                &upload_file_txn,
+                send_event_txn.into(),
+                DependentQueuedRequestKind::FinishUpload {
+                    local_echo: event,
+                    file_upload: upload_file_txn.clone(),
+                    thumbnail_info,
+                },
+            )
+            .await?;
+
+        Ok(())
     }
 
     /// Reacts to the given local echo of an event.
