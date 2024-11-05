@@ -42,6 +42,90 @@
 //!   recommended to call this method during initialization of a client,
 //!   otherwise persisted unsent events will only be re-sent after the send
 //!   queue for the given room has been reopened for the first time.
+//!
+//! # Send handle
+//!
+//! Just after queuing a request to send something, a [`SendHandle`] is
+//! returned, allowing manipulating the inflight request.
+//!
+//! For a send handle for an event, it's possible to edit the event / abort
+//! sending it. If it was still in the queue (i.e. not sent yet, or not being
+//! sent), then such an action would happen locally (i.e. in the database).
+//! Otherwise, it is "too late": the background task may be sending
+//! the event already, or has sent it; in that case, the edit/aborting must
+//! happen as an actual event materializing this, on the server. To accomplish
+//! this, the send queue may send such an event, using the dependency system
+//! described below.
+//!
+//! # Dependency system
+//!
+//! The send queue includes a simple dependency system, where a
+//! [`QueuedRequest`] can have zero or more dependents in the form of
+//! [`DependentQueuedRequest`]. A dependent queued request can have at most one
+//! depended-upon (parent) queued request.
+//!
+//! This allows implementing deferred edits/redacts, as hinted to in the
+//! previous section.
+//!
+//! ## Media upload
+//!
+//! This dependency system also allows uploading medias, since the media's
+//! *content* must be uploaded before we send the media *event* that describes
+//! it.
+//!
+//! In the simplest case, that is, a media file and its event must be sent (i.e.
+//! no thumbnails):
+//!
+//! - The file's content is immediately cached in the
+//!   [`matrix_sdk_base::event_cache_store::EventCacheStore`], using an MXC ID
+//!   that is temporary and designates a local URI without any possible doubt.
+//! - An initial media event is created and uses this temporary MXC ID, and
+//!   propagated as a local echo for an event.
+//! - A [`QueuedRequest`] is pushed to upload the file's media
+//!   ([`QueuedRequestKind::Upload`]).
+//! - A [`DependentQueuedRequest`] is pushed to finish the upload
+//!   ([`DependentQueuedRequestKind::FinishUpload`]).
+//!
+//! What is expected to happen, if all goes well, is the following:
+//!
+//! - the media is uploaded to the media homeserver, which returns the final MXC
+//!   ID.
+//! - when marking the upload request as sent, the MXC ID is injected (as a
+//!   [`matrix_sdk_base::store::SentRequestKey`]) into the dependent request
+//!   [`DependentQueuedRequestKind::FinishUpload`] created in the last step
+//!   above.
+//! - next time the send queue handles dependent queries, it'll see this one is
+//!   ready to be sent, and it will transform it into an event queued request
+//!   ([`QueuedRequestKind::Event`]), with the event created in the local echo
+//!   before, updated with the MXC ID returned from the server.
+//! - this updated local echo is also propagated as an edit of the local echo to
+//!   observers, who get the final version with the final MXC IDs at this point
+//!   too.
+//! - then the event is sent normally, as any event sent with the send queue.
+//!
+//! When there is a thumbnail, things behave similarly, with some tweaks:
+//!
+//! - the thumbnail's content is also stored into the cache store immediately,
+//! - the thumbnail is sent first as an [`QueuedRequestKind::Upload`] request,
+//! - the file upload is pushed as a dependent request of kind
+//!   [`DependentQueuedRequestKind::UploadFileWithThumbnail`] (this variant
+//!   keeps the file's key used to look it up in the cache store).
+//! - the media event is then sent as a dependent request as described in the
+//!   previous section.
+//!
+//! What's expected to happen is thus the following:
+//!
+//! - After the thumbnail has been uploaded, the dependent query will retrieve
+//!   the final MXC ID returned by the homeserver for the thumbnail, and store
+//!   it into the [`QueuedRequestKind::Upload`]'s `thumbnail_source` field,
+//!   allowing to remember the thumbnail MXC ID when it's time to finish the
+//!   upload later.
+//! - The dependent request is morphed into another
+//!   [`QueuedRequestKind::Upload`], for the file itself.
+//!
+//! The rest of the process is then similar to that of uploading a file without
+//! a thumbnail. The only difference is that there's a thumbnail source (MXC ID)
+//! remembered and fixed up into the media event, just before sending it.
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
