@@ -13,11 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "e2e-encryption")]
+use std::sync::Arc;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, iter,
     ops::Deref,
-    sync::Arc,
 };
 
 use eyeball::{SharedObservable, Subscriber};
@@ -71,7 +72,7 @@ use crate::RoomMemberships;
 use crate::{
     deserialized_responses::{RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent},
     error::{Error, Result},
-    event_cache_store::DynEventCacheStore,
+    event_cache_store::EventCacheStoreLock,
     response_processors::AccountDataProcessor,
     rooms::{
         normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons},
@@ -95,7 +96,7 @@ pub struct BaseClient {
     pub(crate) store: Store,
 
     /// The store used by the event cache.
-    event_cache_store: Arc<DynEventCacheStore>,
+    event_cache_store: EventCacheStoreLock,
 
     /// The store used for encryption.
     ///
@@ -114,8 +115,7 @@ pub struct BaseClient {
     pub(crate) ignore_user_list_changes: SharedObservable<Vec<String>>,
 
     /// A sender that is used to communicate changes to room information. Each
-    /// event contains the room and a boolean whether this event should
-    /// trigger a room list update.
+    /// tick contains the room ID and the reasons that have generated this tick.
     pub(crate) room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
 
     /// The strategy to use for picking recipient devices, when sending an
@@ -249,14 +249,13 @@ impl BaseClient {
     }
 
     /// Get a reference to the store.
-    #[allow(unknown_lints, clippy::explicit_auto_deref)]
     pub fn store(&self) -> &DynStateStore {
         self.store.deref()
     }
 
     /// Get a reference to the event cache store.
-    pub fn event_cache_store(&self) -> &DynEventCacheStore {
-        self.event_cache_store.as_ref()
+    pub fn event_cache_store(&self) -> &EventCacheStoreLock {
+        &self.event_cache_store
     }
 
     /// Is the client logged in.

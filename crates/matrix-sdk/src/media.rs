@@ -377,7 +377,7 @@ impl Media {
         // Read from the cache.
         if use_cache {
             if let Some(content) =
-                self.client.event_cache_store().get_media_content(request).await?
+                self.client.event_cache_store().lock().await?.get_media_content(request).await?
             {
                 return Ok(content);
             }
@@ -477,7 +477,12 @@ impl Media {
         };
 
         if use_cache {
-            self.client.event_cache_store().add_media_content(request, content.clone()).await?;
+            self.client
+                .event_cache_store()
+                .lock()
+                .await?
+                .add_media_content(request, content.clone())
+                .await?;
         }
 
         Ok(content)
@@ -489,7 +494,7 @@ impl Media {
     ///
     /// * `request` - The `MediaRequest` of the content.
     pub async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        Ok(self.client.event_cache_store().remove_media_content(request).await?)
+        Ok(self.client.event_cache_store().lock().await?.remove_media_content(request).await?)
     }
 
     /// Delete all the media content corresponding to the given
@@ -499,7 +504,7 @@ impl Media {
     ///
     /// * `uri` - The `MxcUri` of the files.
     pub async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        Ok(self.client.event_cache_store().remove_media_content_for_uri(uri).await?)
+        Ok(self.client.event_cache_store().lock().await?.remove_media_content_for_uri(uri).await?)
     }
 
     /// Get the file of the given media event content.

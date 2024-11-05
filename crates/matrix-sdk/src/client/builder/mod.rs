@@ -208,6 +208,7 @@ impl ClientBuilder {
             path: path.as_ref().to_owned(),
             cache_path: None,
             passphrase: passphrase.map(ToOwned::to_owned),
+            event_cache_store_lock_holder: "matrix-sdk".to_owned(),
         };
         self
     }
@@ -225,6 +226,7 @@ impl ClientBuilder {
             path: path.as_ref().to_owned(),
             cache_path: Some(cache_path.as_ref().to_owned()),
             passphrase: passphrase.map(ToOwned::to_owned),
+            event_cache_store_lock_holder: "matrix-sdk".to_owned(),
         };
         self
     }
@@ -235,6 +237,7 @@ impl ClientBuilder {
         self.store_config = BuilderStoreConfig::IndexedDb {
             name: name.to_owned(),
             passphrase: passphrase.map(ToOwned::to_owned),
+            event_cache_store_lock_holder: "matrix-sdk".to_owned(),
         };
         self
     }
@@ -551,7 +554,12 @@ async fn build_store_config(
     #[allow(clippy::infallible_destructuring_match)]
     let store_config = match builder_config {
         #[cfg(feature = "sqlite")]
-        BuilderStoreConfig::Sqlite { path, cache_path, passphrase } => {
+        BuilderStoreConfig::Sqlite {
+            path,
+            cache_path,
+            passphrase,
+            event_cache_store_lock_holder,
+        } => {
             let store_config = StoreConfig::new()
                 .state_store(
                     matrix_sdk_sqlite::SqliteStateStore::open(&path, passphrase.as_deref()).await?,
@@ -562,6 +570,8 @@ async fn build_store_config(
                         passphrase.as_deref(),
                     )
                     .await?,
+                    "default-key".to_owned(),
+                    event_cache_store_lock_holder,
                 );
 
             #[cfg(feature = "e2e-encryption")]
@@ -573,8 +583,13 @@ async fn build_store_config(
         }
 
         #[cfg(feature = "indexeddb")]
-        BuilderStoreConfig::IndexedDb { name, passphrase } => {
-            build_indexeddb_store_config(&name, passphrase.as_deref()).await?
+        BuilderStoreConfig::IndexedDb { name, passphrase, event_cache_store_lock_holder } => {
+            build_indexeddb_store_config(
+                &name,
+                passphrase.as_deref(),
+                event_cache_store_lock_holder,
+            )
+            .await?
         }
 
         BuilderStoreConfig::Custom(config) => config,
@@ -588,6 +603,7 @@ async fn build_store_config(
 async fn build_indexeddb_store_config(
     name: &str,
     passphrase: Option<&str>,
+    event_cache_store_lock_holder: String,
 ) -> Result<StoreConfig, ClientBuildError> {
     #[cfg(feature = "e2e-encryption")]
     let store_config = {
@@ -604,7 +620,11 @@ async fn build_indexeddb_store_config(
 
     let store_config = {
         tracing::warn!("The IndexedDB backend does not implement an event cache store, falling back to the in-memory event cache store…");
-        store_config.event_cache_store(matrix_sdk_base::event_cache_store::MemoryStore::new())
+        store_config.event_cache_store(
+            matrix_sdk_base::event_cache_store::MemoryStore::new(),
+            "default-key".to_owned(),
+            event_cache_store_lock_holder,
+        )
     };
 
     Ok(store_config)
@@ -614,6 +634,7 @@ async fn build_indexeddb_store_config(
 async fn build_indexeddb_store_config(
     _name: &str,
     _passphrase: Option<&str>,
+    _event_cache_store_lock_holder: String,
 ) -> Result<StoreConfig, ClientBuildError> {
     panic!("the IndexedDB is only available on the 'wasm32' arch")
 }
@@ -658,11 +679,13 @@ enum BuilderStoreConfig {
         path: std::path::PathBuf,
         cache_path: Option<std::path::PathBuf>,
         passphrase: Option<String>,
+        event_cache_store_lock_holder: String,
     },
     #[cfg(feature = "indexeddb")]
     IndexedDb {
         name: String,
         passphrase: Option<String>,
+        event_cache_store_lock_holder: String,
     },
     Custom(StoreConfig),
 }
