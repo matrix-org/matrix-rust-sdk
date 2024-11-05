@@ -40,6 +40,7 @@ pub use self::{
 };
 
 /// The high-level public type to represent an `EventCacheStore` lock.
+#[derive(Clone)]
 pub struct EventCacheStoreLock {
     /// The inner cross process lock that is used to lock the `EventCacheStore`.
     cross_process_lock: CrossProcessStoreLock<LockableEventCacheStore>,
@@ -50,6 +51,7 @@ pub struct EventCacheStoreLock {
     store: Arc<DynEventCacheStore>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for EventCacheStoreLock {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_struct("EventCacheStoreLock").finish_non_exhaustive()
@@ -94,6 +96,7 @@ pub struct EventCacheStoreLockGuard<'a> {
     store: &'a DynEventCacheStore,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl<'a> fmt::Debug for EventCacheStoreLockGuard<'a> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_struct("EventCacheStoreLockGuard").finish_non_exhaustive()

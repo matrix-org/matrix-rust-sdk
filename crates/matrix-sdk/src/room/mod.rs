@@ -1988,14 +1988,15 @@ impl Room {
             .await?;
 
         if store_in_cache {
-            let cache_store = self.client.event_cache_store();
+            let cache_store_lock_guard = self.client.event_cache_store().lock().await?;
 
             // A failure to cache shouldn't prevent the whole upload from finishing
             // properly, so only log errors during caching.
 
             debug!("caching the media");
             let request = MediaRequest { source: media_source.clone(), format: MediaFormat::File };
-            if let Err(err) = cache_store.add_media_content(&request, data).await {
+
+            if let Err(err) = cache_store_lock_guard.add_media_content(&request, data).await {
                 warn!("unable to cache the media after uploading it: {err}");
             }
 
@@ -2018,7 +2019,7 @@ impl Room {
                     }),
                 };
 
-                if let Err(err) = cache_store.add_media_content(&request, data).await {
+                if let Err(err) = cache_store_lock_guard.add_media_content(&request, data).await {
                     warn!("unable to cache the media after uploading it: {err}");
                 }
             }
