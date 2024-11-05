@@ -182,7 +182,6 @@ impl App {
             Default::default();
         let timelines = Arc::new(Mutex::new(HashMap::new()));
 
-        let c = client.clone();
         let r = rooms.clone();
         let ri = room_infos.clone();
         let ur = ui_rooms.clone();
@@ -192,14 +191,12 @@ impl App {
         let all_rooms = room_list_service.all_rooms().await?;
 
         let listen_task = spawn(async move {
-            let client = c;
             let rooms = r;
             let room_infos = ri;
             let ui_rooms = ur;
             let timelines = t;
 
-            let (stream, entries_controller) = all_rooms
-                .entries_with_dynamic_adapters(50_000, client.room_info_notable_update_receiver());
+            let (stream, entries_controller) = all_rooms.entries_with_dynamic_adapters(50_000);
             entries_controller.set_filter(Box::new(new_filter_non_left()));
 
             pin_mut!(stream);

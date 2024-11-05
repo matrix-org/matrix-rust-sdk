@@ -183,7 +183,6 @@ impl RoomList {
         listener: Box<dyn RoomListEntriesListener>,
     ) -> Arc<RoomListEntriesWithDynamicAdaptersResult> {
         let this = self.clone();
-        let client = self.room_list_service.inner.client();
         let utd_hook = self.room_list_service.utd_hook.clone();
 
         // The following code deserves a bit of explanation.
@@ -231,10 +230,7 @@ impl RoomList {
         // borrowing `this`, which is going to live long enough since it will live as
         // long as `entries_stream` and `dynamic_entries_controller`.
         let (entries_stream, dynamic_entries_controller) =
-            this.inner.entries_with_dynamic_adapters(
-                page_size.try_into().unwrap(),
-                client.room_info_notable_update_receiver(),
-            );
+            this.inner.entries_with_dynamic_adapters(page_size.try_into().unwrap());
 
         // FFI dance to make those values consumable by foreign language, nothing fancy
         // here, that's the real code for this method.
