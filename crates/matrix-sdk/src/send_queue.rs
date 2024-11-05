@@ -143,7 +143,7 @@ use matrix_sdk_base::{
     store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
         FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-        SentRequestKey, SerializableEventContent,
+        SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
     RoomState, StoreError,
 };
@@ -672,6 +672,45 @@ impl RoomSendQueue {
         MediaRequest { source, format }
     }
 
+    /// Replace the source by the final ones in all the media types handled by
+    /// [`Room::make_attachment_type()`].
+    fn update_media_event_after_upload(echo: &mut RoomMessageEventContent, sent: SentMediaInfo) {
+        // Some variants look eerily similar below, but the `event` and `info` are all
+        // different types…
+        match &mut echo.msgtype {
+            MessageType::Audio(event) => {
+                event.source = sent.file;
+            }
+            MessageType::File(event) => {
+                event.source = sent.file;
+                if let Some(info) = event.info.as_mut() {
+                    info.thumbnail_source = sent.thumbnail;
+                }
+            }
+            MessageType::Image(event) => {
+                event.source = sent.file;
+                if let Some(info) = event.info.as_mut() {
+                    info.thumbnail_source = sent.thumbnail;
+                }
+            }
+            MessageType::Video(event) => {
+                event.source = sent.file;
+                if let Some(info) = event.info.as_mut() {
+                    info.thumbnail_source = sent.thumbnail;
+                }
+            }
+
+            _ => {
+                // All `MessageType` created by `Room::make_attachment_type` should be
+                // handled here. The only way to end up here is that a message type has
+                // been tampered with in the database.
+                error!("Invalid message type in database: {}", echo.msgtype());
+                // Only crash debug builds.
+                debug_assert!(false, "invalid message type in database");
+            }
+        }
+    }
+
     /// Returns the current local requests as well as a receiver to listen to
     /// the send queue updates, as defined in [`RoomSendQueueUpdate`].
     pub async fn subscribe(
@@ -764,10 +803,10 @@ impl RoomSendQueue {
                             });
                         }
 
-                        SentRequestKey::Media { file, .. } => {
+                        SentRequestKey::Media(media_info) => {
                             let _ = updates.send(RoomSendQueueUpdate::UploadedMedia {
                                 related_to: related_txn_id.as_ref().unwrap_or(&txn_id).clone(),
-                                file,
+                                file: media_info.file,
                             });
                         }
                     },
@@ -910,7 +949,10 @@ impl RoomSendQueue {
                 };
                 trace!(%relates_to, mxc_uri = %uri, "media successfully uploaded");
 
-                Ok(SentRequestKey::Media { file: media_source, thumbnail: thumbnail_source })
+                Ok(SentRequestKey::Media(SentMediaInfo {
+                    file: media_source,
+                    thumbnail: thumbnail_source,
+                }))
             }
         }
     }
@@ -1598,24 +1640,20 @@ impl QueueStorage {
                 related_to,
             } => {
                 let Some(parent_key) = parent_key else {
-                    // Not finished yet.
+                    // Not finished yet, we should retry later => false.
                     return Ok(false);
                 };
 
-                // Both uploads are ready: enqueue sending the file's media now.
-                let (file, thumbnail) = match parent_key {
-                    SentRequestKey::Media { file, thumbnail } => (file, thumbnail),
-                    _ => {
-                        return Err(RoomSendQueueError::StorageError(
-                            RoomSendQueueStorageError::InvalidParentKey,
-                        ));
-                    }
-                };
+                // The thumbnail has been sent, now transform the dependent file upload request
+                // into a ready one.
+                let sent_media = parent_key.into_media().ok_or(
+                    RoomSendQueueError::StorageError(RoomSendQueueStorageError::InvalidParentKey),
+                )?;
 
                 // The media we just uploaded was a thumbnail, so the thumbnail shouldn't have
                 // a thumbnail itself.
-                debug_assert!(thumbnail.is_none());
-                if thumbnail.is_some() {
+                debug_assert!(sent_media.thumbnail.is_none());
+                if sent_media.thumbnail.is_some() {
                     warn!("unexpected thumbnail for a thumbnail!");
                 }
 
@@ -1627,7 +1665,8 @@ impl QueueStorage {
                 let request = QueuedRequestKind::Upload {
                     content_type,
                     cache_key,
-                    thumbnail_source: Some(file),
+                    // The thumbnail for the next upload is the file we just uploaded here.
+                    thumbnail_source: Some(sent_media.file),
                     related_to,
                 };
 
@@ -1647,40 +1686,26 @@ impl QueueStorage {
                 thumbnail_info,
             } => {
                 let Some(parent_key) = parent_key else {
-                    // Not finished yet.
+                    // Not finished yet, we should retry later => false.
                     return Ok(false);
                 };
 
                 // Both uploads are ready: enqueue the event with its final data.
-                let (file_source, thumbnail_source) = match parent_key {
-                    SentRequestKey::Media { file, thumbnail } => (file, thumbnail),
-                    _ => {
-                        return Err(RoomSendQueueError::StorageError(
-                            RoomSendQueueStorageError::InvalidParentKey,
-                        ));
-                    }
-                };
+                let sent_media = parent_key.into_media().ok_or(
+                    RoomSendQueueError::StorageError(RoomSendQueueStorageError::InvalidParentKey),
+                )?;
 
+                // Update cache keys in the cache store.
                 {
-                    // Update cache keys in the media stores, from the local ones to the remote
-                    // ones.
-
-                    // Rename the original file.
-                    let original_request =
-                        RoomSendQueue::make_local_file_media_request(&file_upload);
-
-                    trace!(
-                        ?original_request.source,
-                        ?file_source,
-                        "renaming media file key in cache store"
-                    );
-
+                    // Do it for the file itself.
+                    let from_req = RoomSendQueue::make_local_file_media_request(&file_upload);
+                    trace!(from = ?from_req.source, to = ?sent_media.file, "renaming media file key in cache store");
                     client
                         .event_cache_store()
                         .replace_media_key(
-                            &original_request,
+                            &from_req,
                             &MediaRequest {
-                                source: file_source.clone(),
+                                source: sent_media.file.clone(),
                                 format: MediaFormat::File,
                             },
                         )
@@ -1689,75 +1714,31 @@ impl QueueStorage {
 
                     // Rename the thumbnail too, if needs be.
                     if let Some((info, new_source)) =
-                        thumbnail_info.as_ref().zip(thumbnail_source.clone())
+                        thumbnail_info.as_ref().zip(sent_media.thumbnail.clone())
                     {
-                        let original_thumbnail_request =
-                            RoomSendQueue::make_local_thumbnail_media_request(
-                                &info.txn,
-                                info.height,
-                                info.width,
-                            );
-
-                        trace!(
-                            ?original_thumbnail_request.source,
-                            ?new_source,
-                            "renaming thumbnail file key in cache store"
+                        let from_req = RoomSendQueue::make_local_thumbnail_media_request(
+                            &info.txn,
+                            info.height,
+                            info.width,
                         );
 
+                        trace!( from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
+
                         // Reuse the same format for the cached thumbnail with the final MXC ID.
-                        let new_format = original_thumbnail_request.format.clone();
+                        let new_format = from_req.format.clone();
 
                         client
                             .event_cache_store()
                             .replace_media_key(
-                                &original_thumbnail_request,
+                                &from_req,
                                 &MediaRequest { source: new_source, format: new_format },
                             )
                             .await
                             .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-                    } else {
-                        trace!("media had no thumbnail");
                     }
                 }
 
-                // Replace the source by the final ones in all the medias handled by
-                // `Room::make_attachment_type()`.
-                //
-                // Some variants look eerily similar below, but the `event` and `info` are all
-                // different types…
-
-                match &mut local_echo.msgtype {
-                    MessageType::Audio(event) => {
-                        event.source = file_source;
-                    }
-                    MessageType::File(event) => {
-                        event.source = file_source;
-                        if let Some(info) = event.info.as_mut() {
-                            info.thumbnail_source = thumbnail_source;
-                        }
-                    }
-                    MessageType::Image(event) => {
-                        event.source = file_source;
-                        if let Some(info) = event.info.as_mut() {
-                            info.thumbnail_source = thumbnail_source;
-                        }
-                    }
-                    MessageType::Video(event) => {
-                        event.source = file_source;
-                        if let Some(info) = event.info.as_mut() {
-                            info.thumbnail_source = thumbnail_source;
-                        }
-                    }
-
-                    _ => {
-                        // All `MessageType` created by `Room::make_attachment_type` should be
-                        // handled here. The only way to end up here is that a message type has
-                        // been tampered with in the database.
-                        error!("Invalid message type in database: {}", local_echo.msgtype());
-                        // Only crash debug builds.
-                        debug_assert!(false, "invalid message type in database");
-                    }
-                }
+                RoomSendQueue::update_media_event_after_upload(&mut local_echo, sent_media);
 
                 let new_content = SerializableEventContent::new(&local_echo.into())
                     .map_err(RoomSendQueueStorageError::JsonSerialization)?;
