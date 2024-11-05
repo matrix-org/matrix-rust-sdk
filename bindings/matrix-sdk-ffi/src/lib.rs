@@ -16,6 +16,7 @@ mod notification;
 mod notification_settings;
 mod platform;
 mod room;
+mod room_alias;
 mod room_directory_search;
 mod room_info;
 mod room_list;
@@ -30,7 +31,6 @@ mod timeline_event_filter;
 mod tracing;
 mod utils;
 mod widget;
-mod room_alias;
 
 use async_compat::TOKIO1 as RUNTIME;
 use matrix_sdk::ruma::events::room::{

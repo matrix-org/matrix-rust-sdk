@@ -15,6 +15,7 @@ pub use normal::{
     Room, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomState,
     RoomStateFilter,
 };
+use regex::Regex;
 use ruma::{
     assign,
     events::{
@@ -62,6 +63,38 @@ pub enum DisplayName {
     EmptyWas(String),
     /// No useful name could be calculated or ever found
     Empty,
+}
+
+const WHITESPACE_REGEX: &str = r"\s+";
+const INVALID_SYMBOLS_REGEX: &str = r"[#,:]+";
+
+impl DisplayName {
+    /// Transforms the current display name into the name part of a
+    /// `RoomAliasId`.
+    pub fn to_room_alias_name(&self) -> String {
+        let room_name = match self {
+            Self::Named(name) => name,
+            Self::Aliased(name) => name,
+            Self::Calculated(name) => name,
+            Self::EmptyWas(name) => name,
+            Self::Empty => "",
+        };
+
+        let whitespace_regex =
+            Regex::new(WHITESPACE_REGEX).expect("`WHITESPACE_REGEX` should be valid");
+        let symbol_regex =
+            Regex::new(INVALID_SYMBOLS_REGEX).expect("`INVALID_SYMBOLS_REGEX` should be valid");
+
+        // Replace whitespaces with `-`
+        let sanitised = whitespace_regex.replace_all(room_name, "-");
+        // Remove non-ASCII characters and ASCII control characters
+        let sanitised =
+            String::from_iter(sanitised.chars().filter(|c| c.is_ascii() && !c.is_ascii_control()));
+        // Remove other problematic ASCII symbols
+        let sanitised = symbol_regex.replace_all(&sanitised, "");
+        // Lowercased
+        sanitised.to_lowercase()
+    }
 }
 
 impl fmt::Display for DisplayName {
@@ -541,6 +574,7 @@ mod tests {
     use ruma::events::tag::{TagInfo, TagName, Tags};
 
     use super::{BaseRoomInfo, RoomNotableTags};
+    use crate::DisplayName;
 
     #[test]
     fn test_handle_notable_tags_favourite() {
@@ -570,5 +604,25 @@ mod tests {
         tags.clear();
         base_room_info.handle_notable_tags(&tags);
         assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY).not());
+    }
+
+    #[test]
+    fn test_room_alias_from_room_display_name_lowercases() {
+        assert_eq!("roomalias", DisplayName::Named("RoomAlias".to_owned()).to_room_alias_name());
+    }
+
+    #[test]
+    fn test_room_alias_from_room_display_name_removes_whitespace() {
+        assert_eq!("room-alias", DisplayName::Named("Room Alias".to_owned()).to_room_alias_name());
+    }
+
+    #[test]
+    fn test_room_alias_from_room_display_name_removes_non_ascii_symbols() {
+        assert_eq!("roomalias", DisplayName::Named("Room±Alias√".to_owned()).to_room_alias_name());
+    }
+
+    #[test]
+    fn test_room_alias_from_room_display_name_removes_invalid_ascii_symbols() {
+        assert_eq!("roomalias", DisplayName::Named("#Room,Alias:".to_owned()).to_room_alias_name());
     }
 }
