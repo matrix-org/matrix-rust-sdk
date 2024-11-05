@@ -39,6 +39,7 @@ pub(crate) struct AmbiguityCache {
     pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
 }
 
+/// A map of users that use a certain display name.
 #[derive(Debug, Clone)]
 struct DisplayNameUsers {
     display_name: String,
@@ -46,6 +47,8 @@ struct DisplayNameUsers {
 }
 
 impl DisplayNameUsers {
+    /// Remove the given [`UserId`] from the map, marking that the [`UserId`]
+    /// doesn't use the display name anymore.
     fn remove(&mut self, user_id: &UserId) -> Option<OwnedUserId> {
         self.users.remove(user_id);
 
@@ -56,6 +59,8 @@ impl DisplayNameUsers {
         }
     }
 
+    /// Add the given [`UserId`] from the map, marking that the [`UserId`]
+    /// is using the display name.
     fn add(&mut self, user_id: OwnedUserId) -> Option<OwnedUserId> {
         let ambiguous_user =
             if self.user_count() == 1 { self.users.iter().next().cloned() } else { None };
@@ -65,10 +70,12 @@ impl DisplayNameUsers {
         ambiguous_user
     }
 
+    /// How many users are using this display name.
     fn user_count(&self) -> usize {
         self.users.len()
     }
 
+    /// Is the display name considered to be ambiguous.
     fn is_ambiguous(&self) -> bool {
         self.user_count() > 1
     }
@@ -85,15 +92,14 @@ impl AmbiguityCache {
         room_id: &RoomId,
         member_event: &SyncRoomMemberEvent,
     ) -> Result<()> {
-        // Synapse seems to have a bug where it puts the same event into the
-        // state and the timeline sometimes.
+        // Synapse seems to have a bug where it puts the same event into the state and
+        // the timeline sometimes.
         //
-        // Since our state, e.g. the old display name, already ended up inside
-        // the state changes and we're pulling stuff out of the cache if it's
-        // there calculating this twice for the same event will result in an
-        // incorrect AmbiguityChange overwriting the correct one. In other
-        // words, this method is not idempotent so we make it by ignoring
-        // duplicate events.
+        // Since our state, e.g. the old display name, already ended up inside the state
+        // changes and we're pulling stuff out of the cache if it's there calculating
+        // this twice for the same event will result in an incorrect AmbiguityChange
+        // overwriting the correct one. In other words, this method is not idempotent so
+        // we make it by ignoring duplicate events.
         if self.changes.get(room_id).is_some_and(|c| c.contains_key(member_event.event_id())) {
             return Ok(());
         }
