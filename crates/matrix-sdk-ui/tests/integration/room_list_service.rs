@@ -1196,15 +1196,14 @@ async fn test_loading_states() -> Result<(), Error> {
 
 #[async_test]
 async fn test_dynamic_entries_stream() -> Result<(), Error> {
-    let (client, server, room_list) = new_room_list_service().await?;
+    let (_client, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
 
     let all_rooms = room_list.all_rooms().await?;
 
-    let (dynamic_entries_stream, dynamic_entries) =
-        all_rooms.entries_with_dynamic_adapters(5, client.room_info_notable_update_receiver());
+    let (dynamic_entries_stream, dynamic_entries) = all_rooms.entries_with_dynamic_adapters(5);
     pin_mut!(dynamic_entries_stream);
 
     sync_then_assert_request_and_fake_response! {
@@ -1599,15 +1598,14 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
 
 #[async_test]
 async fn test_room_sorting() -> Result<(), Error> {
-    let (client, server, room_list) = new_room_list_service().await?;
+    let (_client, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
     pin_mut!(sync);
 
     let all_rooms = room_list.all_rooms().await?;
 
-    let (stream, dynamic_entries) =
-        all_rooms.entries_with_dynamic_adapters(10, client.room_info_notable_update_receiver());
+    let (stream, dynamic_entries) = all_rooms.entries_with_dynamic_adapters(10);
     pin_mut!(stream);
 
     sync_then_assert_request_and_fake_response! {

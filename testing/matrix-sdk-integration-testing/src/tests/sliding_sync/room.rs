@@ -771,8 +771,7 @@ async fn test_delayed_decryption_latest_event() -> Result<()> {
 
     // Get the room list of Alice.
     let alice_all_rooms = alice_sync_service.room_list_service().all_rooms().await.unwrap();
-    let (alice_room_list_stream, entries) = alice_all_rooms
-        .entries_with_dynamic_adapters(10, alice.room_info_notable_update_receiver());
+    let (alice_room_list_stream, entries) = alice_all_rooms.entries_with_dynamic_adapters(10);
     entries.set_filter(Box::new(new_filter_all(vec![])));
     pin_mut!(alice_room_list_stream);
 
@@ -935,8 +934,7 @@ async fn test_room_info_notable_update_deduplication() -> Result<()> {
     alice_room.enable_encryption().await.unwrap();
 
     let alice_room_list = alice_sync_service.room_list_service().all_rooms().await.unwrap();
-    let (alice_rooms, alice_room_controller) = alice_room_list
-        .entries_with_dynamic_adapters(10, alice.room_info_notable_update_receiver());
+    let (alice_rooms, alice_room_controller) = alice_room_list.entries_with_dynamic_adapters(10);
 
     alice_room_controller.set_filter(Box::new(new_filter_all(vec![])));
 
