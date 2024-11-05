@@ -452,7 +452,10 @@ mod tests {
 
     use imbl::{vector, Vector};
 
-    use super::{super::LinkedChunk, VectorDiff};
+    use super::{
+        super::{EmptyChunk, LinkedChunk},
+        VectorDiff,
+    };
 
     fn apply_and_assert_eq<Item>(
         accumulator: &mut Vector<Item>,
@@ -614,7 +617,10 @@ mod tests {
         );
 
         let removed_item = linked_chunk
-            .remove_item_at(linked_chunk.item_position(|item| *item == 'c').unwrap())
+            .remove_item_at(
+                linked_chunk.item_position(|item| *item == 'c').unwrap(),
+                EmptyChunk::Remove,
+            )
             .unwrap();
         assert_eq!(removed_item, 'c');
         assert_items_eq!(
@@ -634,7 +640,10 @@ mod tests {
         apply_and_assert_eq(&mut accumulator, as_vector.take(), &[VectorDiff::Remove { index: 7 }]);
 
         let removed_item = linked_chunk
-            .remove_item_at(linked_chunk.item_position(|item| *item == 'z').unwrap())
+            .remove_item_at(
+                linked_chunk.item_position(|item| *item == 'z').unwrap(),
+                EmptyChunk::Remove,
+            )
             .unwrap();
         assert_eq!(removed_item, 'z');
         assert_items_eq!(
@@ -773,7 +782,7 @@ mod tests {
                                 continue;
                             };
 
-                            linked_chunk.remove_item_at(position).expect("Failed to remove an item");
+                            linked_chunk.remove_item_at(position, EmptyChunk::Remove).expect("Failed to remove an item");
                         }
                     }
                 }
