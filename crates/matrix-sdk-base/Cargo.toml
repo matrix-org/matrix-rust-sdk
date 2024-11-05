@@ -67,6 +67,7 @@ tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 uniffi = { workspace = true, optional = true }
+regex = "1.11.1"
 
 [dev-dependencies]
 assert_matches = { workspace = true }
