@@ -15,6 +15,7 @@ pub struct SendAttachment<'a> {
     config: AttachmentConfig,
     tracing_span: Span,
     pub(crate) send_progress: SharedObservable<TransmissionProgress>,
+    use_send_queue: bool,
 }
 
 impl<'a> SendAttachment<'a> {
@@ -31,7 +32,20 @@ impl<'a> SendAttachment<'a> {
             config,
             tracing_span: Span::current(),
             send_progress: Default::default(),
+            use_send_queue: false,
         }
+    }
+
+    /// (Experimental) Uses the send queue to upload this media.
+    ///
+    /// This uses the send queue to upload the medias, and as such it provides
+    /// local echoes for the uploaded media too, not blocking the sending
+    /// request.
+    ///
+    /// This will be the default in future versions, when the feature work will
+    /// be done there.
+    pub fn use_send_queue(self) -> Self {
+        Self { use_send_queue: true, ..self }
     }
 
     /// Get a subscriber to observe the progress of sending the request
@@ -47,7 +61,8 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { timeline, path, mime_type, config, tracing_span, send_progress: _ } = self;
+        let Self { timeline, path, mime_type, config, tracing_span, use_send_queue, send_progress } =
+            self;
 
         let fut = async move {
             let filename = path
@@ -57,9 +72,18 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                 .ok_or(Error::InvalidAttachmentFileName)?;
             let data = fs::read(&path).map_err(|_| Error::InvalidAttachmentData)?;
 
-            let send_queue = timeline.room().send_queue();
-            let fut = send_queue.send_attachment(filename, mime_type, data, config);
-            fut.await.map_err(|_| Error::FailedSendingAttachment)?;
+            if use_send_queue {
+                let send_queue = timeline.room().send_queue();
+                let fut = send_queue.send_attachment(filename, mime_type, data, config);
+                fut.await.map_err(|_| Error::FailedSendingAttachment)?;
+            } else {
+                let fut = timeline
+                    .room()
+                    .send_attachment(filename, &mime_type, data, config)
+                    .with_send_progress_observable(send_progress)
+                    .store_in_cache();
+                fut.await.map_err(|_| Error::FailedSendingAttachment)?;
+            }
 
             Ok(())
         };
