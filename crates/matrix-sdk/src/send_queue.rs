@@ -753,26 +753,6 @@ impl RoomSendQueue {
             self.inner.notifier.notify_one();
         }
     }
-
-    /// Unwedge a local echo identified by its transaction identifier and try to
-    /// resend it.
-    pub async fn unwedge(&self, transaction_id: &TransactionId) -> Result<(), RoomSendQueueError> {
-        self.inner
-            .queue
-            .mark_as_unwedged(transaction_id)
-            .await
-            .map_err(RoomSendQueueError::StorageError)?;
-
-        // Wake up the queue, in case the room was asleep before unwedging the request.
-        self.inner.notifier.notify_one();
-
-        let _ = self
-            .inner
-            .updates
-            .send(RoomSendQueueUpdate::RetryEvent { transaction_id: transaction_id.to_owned() });
-
-        Ok(())
-    }
 }
 
 impl From<&crate::Error> for QueueWedgeError {
@@ -1712,6 +1692,8 @@ pub enum RoomSendQueueStorageError {
 pub struct SendHandle {
     room: RoomSendQueue,
     transaction_id: OwnedTransactionId,
+    // TODO(bnjbvr): remove this, once we have settled the `SendHandle` vs `SendAttachmentHandle`
+    // situation.
     is_upload: bool,
 }
 
@@ -1795,6 +1777,25 @@ impl SendHandle {
             new_content.event_type().to_string(),
         )
         .await
+    }
+
+    /// Unwedge a local echo identified by its transaction identifier and try to
+    /// resend it.
+    pub async fn unwedge(&self) -> Result<(), RoomSendQueueError> {
+        let room = &self.room.inner;
+        room.queue
+            .mark_as_unwedged(&self.transaction_id)
+            .await
+            .map_err(RoomSendQueueError::StorageError)?;
+
+        // Wake up the queue, in case the room was asleep before unwedging the request.
+        room.notifier.notify_one();
+
+        let _ = room
+            .updates
+            .send(RoomSendQueueUpdate::RetryEvent { transaction_id: self.transaction_id.clone() });
+
+        Ok(())
     }
 
     /// Send a reaction to the event as soon as it's sent.

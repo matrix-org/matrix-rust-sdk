@@ -1420,7 +1420,8 @@ async fn test_unwedge_unrecoverable_errors() {
     mock.mock_room_send().ok(event_id!("$42")).mock_once().mount().await;
 
     // Queue the unrecoverable message.
-    q.send(RoomMessageEventContent::text_plain("i'm too big for ya").into()).await.unwrap();
+    let send_handle =
+        q.send(RoomMessageEventContent::text_plain("i'm too big for ya").into()).await.unwrap();
 
     // Message is seen as a local echo.
     let (txn1, _) = assert_update!(watch => local echo { body = "i'm too big for ya" });
@@ -1440,7 +1441,7 @@ async fn test_unwedge_unrecoverable_errors() {
     assert!(client.send_queue().is_enabled());
 
     // Unwedge the previously failed message and try sending it again
-    q.unwedge(&txn1).await.unwrap();
+    send_handle.unwedge().await.unwrap();
 
     // The message should be retried
     assert_update!(watch => retry { txn=txn1 });
