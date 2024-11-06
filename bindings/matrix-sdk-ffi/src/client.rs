@@ -741,7 +741,7 @@ impl Client {
             .get_media_content(
                 &MediaRequestParameters {
                     source,
-                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(
                         Method::Scale,
                         UInt::new(width).unwrap(),
                         UInt::new(height).unwrap(),
