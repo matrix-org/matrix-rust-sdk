@@ -44,9 +44,9 @@ impl UniqueKey for MediaFormat {
     }
 }
 
-/// The requested size of a media thumbnail.
+/// The desired settings of a media thumbnail.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MediaThumbnailSize {
+pub struct MediaThumbnailSettings {
     /// The desired resizing method.
     pub method: Method,
 
@@ -57,19 +57,6 @@ pub struct MediaThumbnailSize {
     /// The desired height of the thumbnail. The actual thumbnail may not match
     /// the size specified.
     pub height: UInt,
-}
-
-impl UniqueKey for MediaThumbnailSize {
-    fn unique_key(&self) -> String {
-        format!("{}{UNIQUE_SEPARATOR}{}x{}", self.method, self.width, self.height)
-    }
-}
-
-/// The desired settings of a media thumbnail.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MediaThumbnailSettings {
-    /// The desired size of the thumbnail.
-    pub size: MediaThumbnailSize,
 
     /// If we want to request an animated thumbnail from the homeserver.
     ///
@@ -84,13 +71,13 @@ impl MediaThumbnailSettings {
     /// Constructs a new `MediaThumbnailSettings` with the given method, width
     /// and height.
     pub fn new(method: Method, width: UInt, height: UInt) -> Self {
-        Self { size: MediaThumbnailSize { method, width, height }, animated: false }
+        Self { method, width, height, animated: false }
     }
 }
 
 impl UniqueKey for MediaThumbnailSettings {
     fn unique_key(&self) -> String {
-        let mut key = self.size.unique_key();
+        let mut key = format!("{}{UNIQUE_SEPARATOR}{}x{}", self.method, self.width, self.height);
 
         if self.animated {
             key.push_str(UNIQUE_SEPARATOR);
