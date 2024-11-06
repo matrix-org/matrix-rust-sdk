@@ -70,7 +70,7 @@ pub struct MediaThumbnailSettings {
 impl MediaThumbnailSettings {
     /// Constructs a new `MediaThumbnailSettings` with the given method, width
     /// and height.
-    pub fn new(method: Method, width: UInt, height: UInt) -> Self {
+    pub fn with_method(method: Method, width: UInt, height: UInt) -> Self {
         Self { method, width, height, animated: false }
     }
 }

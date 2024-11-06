@@ -328,7 +328,7 @@ mod tests {
         };
         let thumbnail_request = MediaRequestParameters {
             source: MediaSource::Plain(uri.to_owned()),
-            format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+            format: MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(
                 Method::Crop,
                 uint!(100),
                 uint!(100),

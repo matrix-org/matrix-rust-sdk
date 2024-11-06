@@ -161,7 +161,7 @@ async fn test_get_media_file_no_auth() {
         .media()
         .get_thumbnail(
             &event_content,
-            MediaThumbnailSettings::new(Method::Scale, uint!(100), uint!(100)),
+            MediaThumbnailSettings::with_method(Method::Scale, uint!(100), uint!(100)),
             true,
         )
         .await
@@ -272,7 +272,7 @@ async fn test_get_media_file_with_auth_matrix_1_11() {
         .media()
         .get_thumbnail(
             &event_content,
-            MediaThumbnailSettings::new(Method::Scale, uint!(100), uint!(100)),
+            MediaThumbnailSettings::with_method(Method::Scale, uint!(100), uint!(100)),
             true,
         )
         .await
@@ -387,7 +387,7 @@ async fn test_get_media_file_with_auth_matrix_stable_feature() {
         .media()
         .get_thumbnail(
             &event_content,
-            MediaThumbnailSettings::new(Method::Scale, uint!(100), uint!(100)),
+            MediaThumbnailSettings::with_method(Method::Scale, uint!(100), uint!(100)),
             true,
         )
         .await
