@@ -437,16 +437,17 @@ impl Media {
 
                 content
             }
+
             MediaSource::Plain(uri) => {
                 if let MediaFormat::Thumbnail(settings) = &request.format {
                     if use_auth {
                         let mut request =
                             authenticated_media::get_content_thumbnail::v1::Request::from_uri(
                                 uri,
-                                settings.size.width,
-                                settings.size.height,
+                                settings.width,
+                                settings.height,
                             )?;
-                        request.method = Some(settings.size.method.clone());
+                        request.method = Some(settings.method.clone());
                         request.animated = Some(settings.animated);
 
                         self.client.send(request, request_config).await?.file
@@ -455,10 +456,10 @@ impl Media {
                         let request = {
                             let mut request = media::get_content_thumbnail::v3::Request::from_url(
                                 uri,
-                                settings.size.width,
-                                settings.size.height,
+                                settings.width,
+                                settings.height,
                             )?;
-                            request.method = Some(settings.size.method.clone());
+                            request.method = Some(settings.method.clone());
                             request.animated = Some(settings.animated);
                             request
                         };
