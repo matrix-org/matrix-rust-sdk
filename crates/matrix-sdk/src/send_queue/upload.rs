@@ -29,7 +29,6 @@ use ruma::{
         message::{MessageType, RoomMessageEventContent},
         MediaSource, ThumbnailInfo,
     },
-    media::Method,
     uint, OwnedMxcUri, OwnedTransactionId, TransactionId, UInt,
 };
 use tracing::{debug, error, instrument, trace, warn, Span};
@@ -73,15 +72,12 @@ fn make_local_thumbnail_media_request(
     width: UInt,
 ) -> MediaRequestParameters {
     // See comment in [`make_local_file_media_request`].
-    let source =
-        MediaSource::Plain(OwnedMxcUri::from(format!("mxc://send-queue.localhost/{}", txn_id)));
-    let format = MediaFormat::Thumbnail(MediaThumbnailSettings {
-        method: Method::Scale,
-        width,
-        height,
-        animated: false,
-    });
-    MediaRequestParameters { source, format }
+    MediaRequestParameters {
+        source: MediaSource::Plain(OwnedMxcUri::from(format!(
+            "mxc://send-queue.localhost/{txn_id}"
+        ))),
+        format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(width, height)),
+    }
 }
 
 /// Replace the source by the final ones in all the media types handled by

@@ -40,7 +40,6 @@ use ruma::{
         },
         AnyMessageLikeEventContent, EventContent as _, Mentions,
     },
-    media::Method,
     mxc_uri, owned_user_id, room_id,
     serde::Raw,
     uint, EventId, MxcUri, OwnedEventId, TransactionId,
@@ -2150,14 +2149,10 @@ async fn test_media_uploads() {
         .get_media_content(
             &MediaRequestParameters {
                 source: local_thumbnail_source,
-                // TODO: extract this reasonable query into a helper function shared across the
-                // codebase
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings {
-                    height: tinfo.height.unwrap(),
-                    width: tinfo.width.unwrap(),
-                    method: Method::Scale,
-                    animated: false,
-                }),
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                    tinfo.width.unwrap(),
+                    tinfo.height.unwrap(),
+                )),
             },
             true,
         )
@@ -2222,14 +2217,10 @@ async fn test_media_uploads() {
         .get_media_content(
             &MediaRequestParameters {
                 source: new_thumbnail_source,
-                // TODO: extract this reasonable query into a helper function shared across the
-                // codebase
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings {
-                    height: tinfo.height.unwrap(),
-                    width: tinfo.width.unwrap(),
-                    method: Method::Scale,
-                    animated: false,
-                }),
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                    tinfo.width.unwrap(),
+                    tinfo.height.unwrap(),
+                )),
             },
             true,
         )
