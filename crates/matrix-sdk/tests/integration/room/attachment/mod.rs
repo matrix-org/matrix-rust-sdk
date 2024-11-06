@@ -6,7 +6,7 @@ use matrix_sdk::{
         Thumbnail,
     },
     config::SyncSettings,
-    media::{MediaFormat, MediaRequest, MediaThumbnailSettings},
+    media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     test_utils::logged_in_client_with_server,
 };
 use matrix_sdk_test::{async_test, mocks::mock_encryption_state, test_json, DEFAULT_TEST_ROOM_ID};
@@ -245,8 +245,8 @@ async fn test_room_attachment_send_info_thumbnail() {
 
     // Preconditions: nothing is found in the cache.
     let media_request =
-        MediaRequest { source: MediaSource::Plain(media_mxc), format: MediaFormat::File };
-    let thumbnail_request = MediaRequest {
+        MediaRequestParameters { source: MediaSource::Plain(media_mxc), format: MediaFormat::File };
+    let thumbnail_request = MediaRequestParameters {
         source: MediaSource::Plain(thumbnail_mxc.clone()),
         format: MediaFormat::Thumbnail(MediaThumbnailSettings {
             method: ruma::media::Method::Scale,
@@ -297,7 +297,7 @@ async fn test_room_attachment_send_info_thumbnail() {
     let _ = client
         .media()
         .get_media_content(
-            &MediaRequest {
+            &MediaRequestParameters {
                 source: MediaSource::Plain(thumbnail_mxc.clone()),
                 format: MediaFormat::File,
             },
@@ -307,7 +307,7 @@ async fn test_room_attachment_send_info_thumbnail() {
         .unwrap_err();
 
     // But it is not found when requesting it as a thumbnail with a different size.
-    let thumbnail_request = MediaRequest {
+    let thumbnail_request = MediaRequestParameters {
         source: MediaSource::Plain(thumbnail_mxc),
         format: MediaFormat::Thumbnail(MediaThumbnailSettings {
             method: ruma::media::Method::Scale,

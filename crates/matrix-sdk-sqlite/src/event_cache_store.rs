@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     event_cache_store::EventCacheStore,
-    media::{MediaRequest, UniqueKey},
+    media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use rusqlite::OptionalExtension;
@@ -140,7 +140,11 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 impl EventCacheStore for SqliteEventCacheStore {
     type Error = Error;
 
-    async fn add_media_content(&self, request: &MediaRequest, content: Vec<u8>) -> Result<()> {
+    async fn add_media_content(
+        &self,
+        request: &MediaRequestParameters,
+        content: Vec<u8>,
+    ) -> Result<()> {
         let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
         let format = self.encode_key(keys::MEDIA, request.format.unique_key());
         let data = self.encode_value(content)?;
@@ -157,8 +161,8 @@ impl EventCacheStore for SqliteEventCacheStore {
 
     async fn replace_media_key(
         &self,
-        from: &MediaRequest,
-        to: &MediaRequest,
+        from: &MediaRequestParameters,
+        to: &MediaRequestParameters,
     ) -> Result<(), Self::Error> {
         let prev_uri = self.encode_key(keys::MEDIA, from.source.unique_key());
         let prev_format = self.encode_key(keys::MEDIA, from.format.unique_key());
@@ -177,7 +181,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(())
     }
 
-    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+    async fn get_media_content(&self, request: &MediaRequestParameters) -> Result<Option<Vec<u8>>> {
         let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
         let format = self.encode_key(keys::MEDIA, request.format.unique_key());
 
@@ -205,7 +209,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         data.map(|v| self.decode_value(&v).map(Into::into)).transpose()
     }
 
-    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+    async fn remove_media_content(&self, request: &MediaRequestParameters) -> Result<()> {
         let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
         let format = self.encode_key(keys::MEDIA, request.format.unique_key());
 
@@ -235,7 +239,7 @@ mod tests {
     use matrix_sdk_base::{
         event_cache_store::{EventCacheStore, EventCacheStoreError},
         event_cache_store_integration_tests,
-        media::{MediaFormat, MediaRequest, MediaThumbnailSettings},
+        media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     };
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
@@ -275,9 +279,11 @@ mod tests {
     async fn test_last_access() {
         let event_cache_store = get_event_cache_store().await.expect("creating media cache failed");
         let uri = mxc_uri!("mxc://localhost/media");
-        let file_request =
-            MediaRequest { source: MediaSource::Plain(uri.to_owned()), format: MediaFormat::File };
-        let thumbnail_request = MediaRequest {
+        let file_request = MediaRequestParameters {
+            source: MediaSource::Plain(uri.to_owned()),
+            format: MediaFormat::File,
+        };
+        let thumbnail_request = MediaRequestParameters {
             source: MediaSource::Plain(uri.to_owned()),
             format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
                 Method::Crop,

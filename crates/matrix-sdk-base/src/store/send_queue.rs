@@ -27,7 +27,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::media::MediaRequest;
+use crate::media::MediaRequestParameters;
 
 /// A thin wrapper to serialize a `AnyMessageLikeEventContent`.
 #[derive(Clone, Serialize, Deserialize)]
@@ -95,7 +95,7 @@ pub enum QueuedRequestKind {
 
         /// The cache key used to retrieve the media's bytes in the event cache
         /// store.
-        cache_key: MediaRequest,
+        cache_key: MediaRequestParameters,
 
         /// An optional media source for a thumbnail already uploaded.
         thumbnail_source: Option<MediaSource>,
@@ -216,7 +216,7 @@ pub enum DependentQueuedRequestKind {
 
         /// Media request necessary to retrieve the file itself (not the
         /// thumbnail).
-        cache_key: MediaRequest,
+        cache_key: MediaRequestParameters,
 
         /// To which media transaction id does this upload relate to?
         related_to: OwnedTransactionId,

@@ -296,7 +296,7 @@ impl Media {
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn get_media_file(
         &self,
-        request: &MediaRequest,
+        request: &MediaRequestParameters,
         filename: Option<String>,
         content_type: &Mime,
         use_cache: bool,
@@ -371,7 +371,7 @@ impl Media {
     /// * `use_cache` - If we should use the media cache for this request.
     pub async fn get_media_content(
         &self,
-        request: &MediaRequest,
+        request: &MediaRequestParameters,
         use_cache: bool,
     ) -> Result<Vec<u8>> {
         // Read from the cache.
@@ -489,7 +489,7 @@ impl Media {
     /// # Arguments
     ///
     /// * `request` - The `MediaRequest` of the content.
-    pub async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+    pub async fn remove_media_content(&self, request: &MediaRequestParameters) -> Result<()> {
         Ok(self.client.event_cache_store().remove_media_content(request).await?)
     }
 
@@ -525,7 +525,10 @@ impl Media {
     ) -> Result<Option<Vec<u8>>> {
         let Some(source) = event_content.source() else { return Ok(None) };
         let file = self
-            .get_media_content(&MediaRequest { source, format: MediaFormat::File }, use_cache)
+            .get_media_content(
+                &MediaRequestParameters { source, format: MediaFormat::File },
+                use_cache,
+            )
             .await?;
         Ok(Some(file))
     }
@@ -540,7 +543,11 @@ impl Media {
     /// * `event_content` - The media event content.
     pub async fn remove_file(&self, event_content: &impl MediaEventContent) -> Result<()> {
         if let Some(source) = event_content.source() {
-            self.remove_media_content(&MediaRequest { source, format: MediaFormat::File }).await?;
+            self.remove_media_content(&MediaRequestParameters {
+                source,
+                format: MediaFormat::File,
+            })
+            .await?;
         }
 
         Ok(())
@@ -573,7 +580,7 @@ impl Media {
         let Some(source) = event_content.thumbnail_source() else { return Ok(None) };
         let thumbnail = self
             .get_media_content(
-                &MediaRequest { source, format: MediaFormat::Thumbnail(settings) },
+                &MediaRequestParameters { source, format: MediaFormat::Thumbnail(settings) },
                 use_cache,
             )
             .await?;
@@ -597,7 +604,7 @@ impl Media {
         settings: MediaThumbnailSettings,
     ) -> Result<()> {
         if let Some(source) = event_content.source() {
-            self.remove_media_content(&MediaRequest {
+            self.remove_media_content(&MediaRequestParameters {
                 source,
                 format: MediaFormat::Thumbnail(settings),
             })

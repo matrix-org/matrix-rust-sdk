@@ -15,7 +15,7 @@
 //! Private implementations of the media upload mechanism.
 
 use matrix_sdk_base::{
-    media::{MediaFormat, MediaRequest, MediaThumbnailSettings},
+    media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     store::{
         ChildTransactionId, FinishUploadThumbnailInfo, QueuedRequestKind, SentMediaInfo,
         SentRequestKey, SerializableEventContent,
@@ -47,7 +47,7 @@ use crate::{
 /// sending it.
 ///
 /// This uses a MXC ID that is only locally valid.
-fn make_local_file_media_request(txn_id: &TransactionId) -> MediaRequest {
+fn make_local_file_media_request(txn_id: &TransactionId) -> MediaRequestParameters {
     // This mustn't represent a potentially valid media server, otherwise it'd be
     // possible for an attacker to return malicious content under some
     // preconditions (e.g. the cache store has been cleared before the upload
@@ -55,7 +55,7 @@ fn make_local_file_media_request(txn_id: &TransactionId) -> MediaRequest {
     // which is guaranteed to be on the local machine. As a result, the only attack
     // possible would be coming from the user themselves, which we consider a
     // non-threat.
-    MediaRequest {
+    MediaRequestParameters {
         source: MediaSource::Plain(OwnedMxcUri::from(format!(
             "mxc://send-queue.localhost/{txn_id}"
         ))),
@@ -71,7 +71,7 @@ fn make_local_thumbnail_media_request(
     txn_id: &TransactionId,
     height: UInt,
     width: UInt,
-) -> MediaRequest {
+) -> MediaRequestParameters {
     // See comment in [`make_local_file_media_request`].
     let source =
         MediaSource::Plain(OwnedMxcUri::from(format!("mxc://send-queue.localhost/{}", txn_id)));
@@ -81,7 +81,7 @@ fn make_local_thumbnail_media_request(
         height,
         animated: false,
     });
-    MediaRequest { source, format }
+    MediaRequestParameters { source, format }
 }
 
 /// Replace the source by the final ones in all the media types handled by
@@ -300,7 +300,10 @@ impl QueueStorage {
                 .event_cache_store()
                 .replace_media_key(
                     &from_req,
-                    &MediaRequest { source: sent_media.file.clone(), format: MediaFormat::File },
+                    &MediaRequestParameters {
+                        source: sent_media.file.clone(),
+                        format: MediaFormat::File,
+                    },
                 )
                 .await
                 .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
@@ -321,7 +324,7 @@ impl QueueStorage {
                     .event_cache_store()
                     .replace_media_key(
                         &from_req,
-                        &MediaRequest { source: new_source, format: new_format },
+                        &MediaRequestParameters { source: new_source, format: new_format },
                     )
                     .await
                     .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
@@ -358,7 +361,7 @@ impl QueueStorage {
         next_upload_txn: OwnedTransactionId,
         parent_key: SentRequestKey,
         content_type: String,
-        cache_key: MediaRequest,
+        cache_key: MediaRequestParameters,
         event_txn: OwnedTransactionId,
     ) -> Result<(), RoomSendQueueError> {
         // The thumbnail has been sent, now transform the dependent file upload request

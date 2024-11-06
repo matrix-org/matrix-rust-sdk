@@ -19,7 +19,7 @@ use matrix_sdk_common::AsyncTraitDeps;
 use ruma::MxcUri;
 
 use super::EventCacheStoreError;
-use crate::media::MediaRequest;
+use crate::media::MediaRequestParameters;
 
 /// An abstract trait that can be used to implement different store backends
 /// for the event cache of the SDK.
@@ -38,7 +38,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// * `content` - The content of the file.
     async fn add_media_content(
         &self,
-        request: &MediaRequest,
+        request: &MediaRequestParameters,
         content: Vec<u8>,
     ) -> Result<(), Self::Error>;
 
@@ -63,8 +63,8 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// * `to` - The new `MediaRequest` of the file.
     async fn replace_media_key(
         &self,
-        from: &MediaRequest,
-        to: &MediaRequest,
+        from: &MediaRequestParameters,
+        to: &MediaRequestParameters,
     ) -> Result<(), Self::Error>;
 
     /// Get a media file's content out of the media store.
@@ -74,7 +74,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// * `request` - The `MediaRequest` of the file.
     async fn get_media_content(
         &self,
-        request: &MediaRequest,
+        request: &MediaRequestParameters,
     ) -> Result<Option<Vec<u8>>, Self::Error>;
 
     /// Remove a media file's content from the media store.
@@ -82,7 +82,10 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// # Arguments
     ///
     /// * `request` - The `MediaRequest` of the file.
-    async fn remove_media_content(&self, request: &MediaRequest) -> Result<(), Self::Error>;
+    async fn remove_media_content(
+        &self,
+        request: &MediaRequestParameters,
+    ) -> Result<(), Self::Error>;
 
     /// Remove all the media files' content associated to an `MxcUri` from the
     /// media store.
@@ -110,7 +113,7 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn add_media_content(
         &self,
-        request: &MediaRequest,
+        request: &MediaRequestParameters,
         content: Vec<u8>,
     ) -> Result<(), Self::Error> {
         self.0.add_media_content(request, content).await.map_err(Into::into)
@@ -118,20 +121,23 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn replace_media_key(
         &self,
-        from: &MediaRequest,
-        to: &MediaRequest,
+        from: &MediaRequestParameters,
+        to: &MediaRequestParameters,
     ) -> Result<(), Self::Error> {
         self.0.replace_media_key(from, to).await.map_err(Into::into)
     }
 
     async fn get_media_content(
         &self,
-        request: &MediaRequest,
+        request: &MediaRequestParameters,
     ) -> Result<Option<Vec<u8>>, Self::Error> {
         self.0.get_media_content(request).await.map_err(Into::into)
     }
 
-    async fn remove_media_content(&self, request: &MediaRequest) -> Result<(), Self::Error> {
+    async fn remove_media_content(
+        &self,
+        request: &MediaRequestParameters,
+    ) -> Result<(), Self::Error> {
         self.0.remove_media_content(request).await.map_err(Into::into)
     }
 

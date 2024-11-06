@@ -19,7 +19,7 @@ use matrix_sdk_common::ring_buffer::RingBuffer;
 use ruma::{MxcUri, OwnedMxcUri};
 
 use super::{EventCacheStore, EventCacheStoreError, Result};
-use crate::media::{MediaRequest, UniqueKey as _};
+use crate::media::{MediaRequestParameters, UniqueKey as _};
 
 /// In-memory, non-persistent implementation of the `EventCacheStore`.
 ///
@@ -51,7 +51,11 @@ impl MemoryStore {
 impl EventCacheStore for MemoryStore {
     type Error = EventCacheStoreError;
 
-    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
+    async fn add_media_content(
+        &self,
+        request: &MediaRequestParameters,
+        data: Vec<u8>,
+    ) -> Result<()> {
         // Avoid duplication. Let's try to remove it first.
         self.remove_media_content(request).await?;
         // Now, let's add it.
@@ -62,8 +66,8 @@ impl EventCacheStore for MemoryStore {
 
     async fn replace_media_key(
         &self,
-        from: &MediaRequest,
-        to: &MediaRequest,
+        from: &MediaRequestParameters,
+        to: &MediaRequestParameters,
     ) -> Result<(), Self::Error> {
         let expected_key = from.unique_key();
 
@@ -76,7 +80,7 @@ impl EventCacheStore for MemoryStore {
         Ok(())
     }
 
-    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+    async fn get_media_content(&self, request: &MediaRequestParameters) -> Result<Option<Vec<u8>>> {
         let expected_key = request.unique_key();
 
         let media = self.media.read().unwrap();
@@ -85,7 +89,7 @@ impl EventCacheStore for MemoryStore {
         }))
     }
 
-    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+    async fn remove_media_content(&self, request: &MediaRequestParameters) -> Result<()> {
         let expected_key = request.unique_key();
 
         let mut media = self.media.write().unwrap();
