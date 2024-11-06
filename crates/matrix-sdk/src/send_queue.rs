@@ -82,7 +82,7 @@
 //! - An initial media event is created and uses this temporary MXC ID, and
 //!   propagated as a local echo for an event.
 //! - A [`QueuedRequest`] is pushed to upload the file's media
-//!   ([`QueuedRequestKind::Upload`]).
+//!   ([`QueuedRequestKind::MediaUpload`]).
 //! - A [`DependentQueuedRequest`] is pushed to finish the upload
 //!   ([`DependentQueuedRequestKind::FinishUpload`]).
 //!
@@ -106,7 +106,8 @@
 //! When there is a thumbnail, things behave similarly, with some tweaks:
 //!
 //! - the thumbnail's content is also stored into the cache store immediately,
-//! - the thumbnail is sent first as an [`QueuedRequestKind::Upload`] request,
+//! - the thumbnail is sent first as an [`QueuedRequestKind::MediaUpload`]
+//!   request,
 //! - the file upload is pushed as a dependent request of kind
 //!   [`DependentQueuedRequestKind::UploadFileWithThumbnail`] (this variant
 //!   keeps the file's key used to look it up in the cache store).
@@ -117,11 +118,11 @@
 //!
 //! - After the thumbnail has been uploaded, the dependent query will retrieve
 //!   the final MXC ID returned by the homeserver for the thumbnail, and store
-//!   it into the [`QueuedRequestKind::Upload`]'s `thumbnail_source` field,
+//!   it into the [`QueuedRequestKind::MediaUpload`]'s `thumbnail_source` field,
 //!   allowing to remember the thumbnail MXC ID when it's time to finish the
 //!   upload later.
 //! - The dependent request is morphed into another
-//!   [`QueuedRequestKind::Upload`], for the file itself.
+//!   [`QueuedRequestKind::MediaUpload`], for the file itself.
 //!
 //! The rest of the process is then similar to that of uploading a file without
 //! a thumbnail. The only difference is that there's a thumbnail source (MXC ID)
@@ -559,7 +560,7 @@ impl RoomSendQueue {
             let txn_id = queued_request.transaction_id.clone();
             trace!(txn_id = %txn_id, "received a request to send!");
 
-            let related_txn_id = as_variant!(&queued_request.kind, QueuedRequestKind::Upload { related_to, .. } => related_to.clone());
+            let related_txn_id = as_variant!(&queued_request.kind, QueuedRequestKind::MediaUpload { related_to, .. } => related_to.clone());
 
             let Some(room) = room.get() else {
                 if is_dropping.load(Ordering::SeqCst) {
@@ -678,7 +679,7 @@ impl RoomSendQueue {
                 Ok(SentRequestKey::Event(res.event_id))
             }
 
-            QueuedRequestKind::Upload {
+            QueuedRequestKind::MediaUpload {
                 content_type,
                 cache_key,
                 thumbnail_source,
@@ -1055,10 +1056,10 @@ impl QueueStorage {
                     .save_send_queue_request(
                         &self.room_id,
                         upload_thumbnail_txn.clone(),
-                        QueuedRequestKind::Upload {
+                        QueuedRequestKind::MediaUpload {
                             content_type: thumbnail_content_type.to_string(),
                             cache_key: thumbnail_media_request,
-                            thumbnail_source: None,
+                            thumbnail_source: None, // the thumbnail has no thumbnails :)
                             related_to: send_event_txn.clone(),
                         },
                     )
@@ -1085,7 +1086,7 @@ impl QueueStorage {
                     .save_send_queue_request(
                         &self.room_id,
                         upload_file_txn.clone(),
-                        QueuedRequestKind::Upload {
+                        QueuedRequestKind::MediaUpload {
                             content_type: content_type.to_string(),
                             cache_key: file_media_request,
                             thumbnail_source: None,
@@ -1169,7 +1170,7 @@ impl QueueStorage {
                             send_error: queued.error,
                         },
 
-                        QueuedRequestKind::Upload { .. } => {
+                        QueuedRequestKind::MediaUpload { .. } => {
                             // Don't return uploaded medias as their own things; the accompanying
                             // event represented as a dependent request should be sufficient.
                             return None;

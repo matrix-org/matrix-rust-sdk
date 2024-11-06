@@ -2117,7 +2117,7 @@ async fn test_media_uploads() {
     // Check the data source: it should reference the send queue local storage.
     let local_source = img_content.source;
     assert_let!(MediaSource::Plain(mxc) = &local_source);
-    assert!(mxc.to_string().starts_with("mxc://send-queue.local/"), "{mxc}");
+    assert!(mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
 
     // The media is immediately available from the cache.
     let file_media = client
@@ -2140,7 +2140,7 @@ async fn test_media_uploads() {
     // Check the thumbnail source: it should reference the send queue local storage.
     let local_thumbnail_source = info.thumbnail_source.unwrap();
     assert_let!(MediaSource::Plain(mxc) = &local_thumbnail_source);
-    assert!(mxc.to_string().starts_with("mxc://send-queue.local/"), "{mxc}");
+    assert!(mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
 
     let thumbnail_media = client
         .media()
