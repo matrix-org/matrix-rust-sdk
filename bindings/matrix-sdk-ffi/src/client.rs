@@ -1130,21 +1130,16 @@ impl Client {
         Ok(())
     }
 
-    /// Checks if a room alias is available in the current homeserver.
+    /// Checks if a room alias is not in use yet.
+    ///
+    /// Returns:
+    /// - `Ok(true)` if the room alias is available.
+    /// - `Ok(false)` if it's not (the resolve alias request returned a `404`
+    ///   status code).
+    /// - An `Err` otherwise.
     pub async fn is_room_alias_available(&self, alias: String) -> Result<bool, ClientError> {
         let alias = RoomAliasId::parse(alias)?;
-        match self.inner.resolve_room_alias(&alias).await {
-            // The room alias was resolved, so it's already in use.
-            Ok(_) => Ok(false),
-            Err(HttpError::Reqwest(error)) => {
-                match error.status() {
-                    // The room alias wasn't found, so it's available.
-                    Some(StatusCode::NOT_FOUND) => Ok(true),
-                    _ => Err(HttpError::Reqwest(error).into()),
-                }
-            }
-            Err(error) => Err(error.into()),
-        }
+        self.inner.is_room_alias_available(&alias).await.map_err(Into::into)
     }
 }
 
