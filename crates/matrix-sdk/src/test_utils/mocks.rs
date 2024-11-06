@@ -201,6 +201,13 @@ impl MatrixMockServer {
             .and(header("authorization", "Bearer 1234"));
         MockUpload { mock, server: &self.server }
     }
+
+    /// Create a prebuilt mock for resolving room aliases.
+    pub fn mock_room_directory_resolve_alias(&self) -> MockResolveRoomAlias<'_> {
+        let mock =
+            Mock::given(method("GET")).and(path_regex(r"/_matrix/client/r0/directory/room/.*"));
+        MockResolveRoomAlias { mock, server: &self.server }
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -509,5 +516,37 @@ impl<'a> MockUpload<'a> {
     /// aren't sufficient.
     pub fn respond_with<R: Respond + 'static>(self, func: R) -> MatrixMock<'a> {
         MatrixMock { mock: self.mock.respond_with(func), server: self.server }
+    }
+}
+
+/// A prebuilt mock for resolving a room alias.
+pub struct MockResolveRoomAlias<'a> {
+    server: &'a MockServer,
+    mock: MockBuilder,
+}
+
+impl<'a> MockResolveRoomAlias<'a> {
+    /// Returns a data endpoint with a resolved room alias.
+    pub fn ok(self, room_id: &str, servers: Vec<String>) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "room_id": room_id,
+            "servers": servers,
+        })));
+        MatrixMock { server: self.server, mock }
+    }
+
+    /// Returns a data endpoint for a room alias that does not exit.
+    pub fn not_found(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(404).set_body_json(json!({
+          "errcode": "M_NOT_FOUND",
+          "error": "Room alias not found."
+        })));
+        MatrixMock { server: self.server, mock }
+    }
+
+    /// Returns a data endpoint with a server error.
+    pub fn error500(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(500));
+        MatrixMock { server: self.server, mock }
     }
 }

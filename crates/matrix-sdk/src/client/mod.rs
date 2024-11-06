@@ -52,6 +52,7 @@ use ruma::{
                 get_capabilities::{self, Capabilities},
                 get_supported_versions,
             },
+            error::ErrorKind,
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             knock::knock_room,
             membership::{join_room_by_id, join_room_by_id_or_alias},
@@ -1036,6 +1037,27 @@ impl Client {
     ) -> HttpResult<get_alias::v3::Response> {
         let request = get_alias::v3::Request::new(room_alias.to_owned());
         self.send(request, None).await
+    }
+
+    /// Checks if a room alias is not in use yet.
+    ///
+    /// Returns:
+    /// - `Ok(true)` if the room alias is available.
+    /// - `Ok(false)` if it's not (the resolve alias request returned a `404`
+    ///   status code).
+    /// - An `Err` otherwise.
+    pub async fn is_room_alias_available(&self, alias: &RoomAliasId) -> HttpResult<bool> {
+        match self.resolve_room_alias(alias).await {
+            // The room alias was resolved, so it's already in use.
+            Ok(_) => Ok(false),
+            Err(error) => {
+                match error.client_api_error_kind() {
+                    // The room alias wasn't found, so it's available.
+                    Some(ErrorKind::NotFound) => Ok(true),
+                    _ => Err(error),
+                }
+            }
+        }
     }
 
     /// Update the homeserver from the login response well-known if needed.
@@ -2328,7 +2350,7 @@ pub(crate) mod tests {
         api::{client::room::create_room::v3::Request as CreateRoomRequest, MatrixVersion},
         assign,
         events::ignored_user_list::IgnoredUserListEventContent,
-        owned_room_id, room_id, RoomId, ServerName, UserId,
+        owned_room_id, room_alias_id, room_id, RoomId, ServerName, UserId,
     };
     use serde_json::json;
     use tokio::{
@@ -2346,8 +2368,8 @@ pub(crate) mod tests {
         client::WeakClient,
         config::{RequestConfig, SyncSettings},
         test_utils::{
-            logged_in_client, no_retry_test_client, set_client_session, test_client_builder,
-            test_client_builder_with_server,
+            logged_in_client, mocks::MatrixMockServer, no_retry_test_client, set_client_session,
+            test_client_builder, test_client_builder_with_server,
         },
         Error,
     };
@@ -2914,5 +2936,43 @@ pub(crate) mod tests {
         timeout(Duration::from_secs(1), client.await_room_remote_echo(room.room_id()))
             .await
             .unwrap_err();
+    }
+
+    #[async_test]
+    async fn test_is_room_alias_available_if_alias_is_not_resolved() {
+        let server = MatrixMockServer::new().await;
+        let client = logged_in_client(Some(server.server().uri())).await;
+
+        server.mock_room_directory_resolve_alias().not_found().expect(1).mount().await;
+
+        let ret = client.is_room_alias_available(room_alias_id!("#some_alias:matrix.org")).await;
+        assert_matches!(ret, Ok(true));
+    }
+
+    #[async_test]
+    async fn test_is_room_alias_available_if_alias_is_resolved() {
+        let server = MatrixMockServer::new().await;
+        let client = logged_in_client(Some(server.server().uri())).await;
+
+        server
+            .mock_room_directory_resolve_alias()
+            .ok("!some_room_id:matrix.org", Vec::new())
+            .expect(1)
+            .mount()
+            .await;
+
+        let ret = client.is_room_alias_available(room_alias_id!("#some_alias:matrix.org")).await;
+        assert_matches!(ret, Ok(false));
+    }
+
+    #[async_test]
+    async fn test_is_room_alias_available_if_error_found() {
+        let server = MatrixMockServer::new().await;
+        let client = logged_in_client(Some(server.server().uri())).await;
+
+        server.mock_room_directory_resolve_alias().error500().expect(1).mount().await;
+
+        let ret = client.is_room_alias_available(room_alias_id!("#some_alias:matrix.org")).await;
+        assert_matches!(ret, Err(_));
     }
 }
