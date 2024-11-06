@@ -1458,6 +1458,8 @@ impl Encryption {
     /// caches.
     ///
     /// The provided `lock_value` must be a unique identifier for this process.
+    /// Check [`Client::cross_process_store_locks_holder_name`] to
+    /// get the global value.
     pub async fn enable_cross_process_store_lock(&self, lock_value: String) -> Result<(), Error> {
         // If the lock has already been created, don't recreate it from scratch.
         if let Some(prev_lock) = self.client.locks().cross_process_crypto_store_lock.get() {
