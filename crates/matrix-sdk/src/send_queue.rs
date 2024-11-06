@@ -146,6 +146,7 @@ use matrix_sdk_base::{
         FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
         SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
+    store_locks::LockStoreError,
     RoomState, StoreError,
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
@@ -693,10 +694,16 @@ impl RoomSendQueue {
                     })
                 })?;
 
-                let data =
-                    room.client().event_cache_store().get_media_content(&cache_key).await?.ok_or(
-                        crate::Error::SendQueueWedgeError(QueueWedgeError::MissingMediaContent),
-                    )?;
+                let data = room
+                    .client()
+                    .event_cache_store()
+                    .lock()
+                    .await?
+                    .get_media_content(&cache_key)
+                    .await?
+                    .ok_or(crate::Error::SendQueueWedgeError(
+                        QueueWedgeError::MissingMediaContent,
+                    ))?;
 
                 #[cfg(feature = "e2e-encryption")]
                 let media_source = if room.is_encrypted().await? {
@@ -1675,6 +1682,10 @@ pub enum RoomSendQueueStorageError {
     /// Error caused by the event cache store.
     #[error(transparent)]
     EventCacheStoreError(#[from] EventCacheStoreError),
+
+    /// Error caused when attempting to get a handle on the event cache store.
+    #[error(transparent)]
+    LockError(#[from] LockStoreError),
 
     /// Error caused when (de)serializing into/from json.
     #[error(transparent)]
