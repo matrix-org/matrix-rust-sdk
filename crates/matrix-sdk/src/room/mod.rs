@@ -41,7 +41,7 @@ use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState, TimelineEvent,
     },
-    media::{MediaThumbnailSettings, MediaThumbnailSize},
+    media::MediaThumbnailSettings,
     store::StateStoreExt,
     ComposerDraft, RoomInfoNotableUpdateReasons, RoomMemberships, StateChanges, StateStoreDataKey,
     StateStoreDataValue,
@@ -2009,11 +2009,9 @@ impl Room {
                 let request = MediaRequest {
                     source: source.clone(),
                     format: MediaFormat::Thumbnail(MediaThumbnailSettings {
-                        size: MediaThumbnailSize {
-                            method: ruma::media::Method::Scale,
-                            width,
-                            height,
-                        },
+                        method: ruma::media::Method::Scale,
+                        width,
+                        height,
                         animated: false,
                     }),
                 };

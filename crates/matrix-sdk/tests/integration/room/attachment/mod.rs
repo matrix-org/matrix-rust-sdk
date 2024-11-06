@@ -6,7 +6,7 @@ use matrix_sdk::{
         Thumbnail,
     },
     config::SyncSettings,
-    media::{MediaFormat, MediaRequest, MediaThumbnailSettings, MediaThumbnailSize},
+    media::{MediaFormat, MediaRequest, MediaThumbnailSettings},
     test_utils::logged_in_client_with_server,
 };
 use matrix_sdk_test::{async_test, mocks::mock_encryption_state, test_json, DEFAULT_TEST_ROOM_ID};
@@ -249,11 +249,9 @@ async fn test_room_attachment_send_info_thumbnail() {
     let thumbnail_request = MediaRequest {
         source: MediaSource::Plain(thumbnail_mxc.clone()),
         format: MediaFormat::Thumbnail(MediaThumbnailSettings {
-            size: MediaThumbnailSize {
-                method: ruma::media::Method::Scale,
-                width: uint!(480),
-                height: uint!(360),
-            },
+            method: ruma::media::Method::Scale,
+            width: uint!(480),
+            height: uint!(360),
             animated: false,
         }),
     };
@@ -312,11 +310,9 @@ async fn test_room_attachment_send_info_thumbnail() {
     let thumbnail_request = MediaRequest {
         source: MediaSource::Plain(thumbnail_mxc),
         format: MediaFormat::Thumbnail(MediaThumbnailSettings {
-            size: MediaThumbnailSize {
-                method: ruma::media::Method::Scale,
-                width: uint!(42),
-                height: uint!(1337),
-            },
+            method: ruma::media::Method::Scale,
+            width: uint!(42),
+            height: uint!(1337),
             animated: false,
         }),
     };

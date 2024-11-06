@@ -15,7 +15,7 @@
 //! Private implementations of the media upload mechanism.
 
 use matrix_sdk_base::{
-    media::{MediaFormat, MediaRequest, MediaThumbnailSettings, MediaThumbnailSize},
+    media::{MediaFormat, MediaRequest, MediaThumbnailSettings},
     store::{
         ChildTransactionId, FinishUploadThumbnailInfo, QueuedRequestKind, SentMediaInfo,
         SentRequestKey, SerializableEventContent,
@@ -76,7 +76,9 @@ fn make_local_thumbnail_media_request(
     let source =
         MediaSource::Plain(OwnedMxcUri::from(format!("mxc://send-queue.localhost/{}", txn_id)));
     let format = MediaFormat::Thumbnail(MediaThumbnailSettings {
-        size: MediaThumbnailSize { method: Method::Scale, width, height },
+        method: Method::Scale,
+        width,
+        height,
         animated: false,
     });
     MediaRequest { source, format }

@@ -11,7 +11,7 @@ use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
     attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, Thumbnail},
     config::{RequestConfig, StoreConfig},
-    media::{MediaFormat, MediaRequest, MediaThumbnailSettings, MediaThumbnailSize},
+    media::{MediaFormat, MediaRequest, MediaThumbnailSettings},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueError, RoomSendQueueStorageError,
         RoomSendQueueUpdate,
@@ -2150,11 +2150,9 @@ async fn test_media_uploads() {
                 // TODO: extract this reasonable query into a helper function shared across the
                 // codebase
                 format: MediaFormat::Thumbnail(MediaThumbnailSettings {
-                    size: MediaThumbnailSize {
-                        height: tinfo.height.unwrap(),
-                        width: tinfo.width.unwrap(),
-                        method: Method::Scale,
-                    },
+                    height: tinfo.height.unwrap(),
+                    width: tinfo.width.unwrap(),
+                    method: Method::Scale,
                     animated: false,
                 }),
             },
@@ -2224,11 +2222,9 @@ async fn test_media_uploads() {
                 // TODO: extract this reasonable query into a helper function shared across the
                 // codebase
                 format: MediaFormat::Thumbnail(MediaThumbnailSettings {
-                    size: MediaThumbnailSize {
-                        height: tinfo.height.unwrap(),
-                        width: tinfo.width.unwrap(),
-                        method: Method::Scale,
-                    },
+                    height: tinfo.height.unwrap(),
+                    width: tinfo.width.unwrap(),
+                    method: Method::Scale,
                     animated: false,
                 }),
             },
