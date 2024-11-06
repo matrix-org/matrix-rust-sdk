@@ -97,9 +97,11 @@ impl UniqueKey for MediaSource {
     }
 }
 
-/// A request for media data.
+/// Parameters for a request for retrieve media data.
+///
+/// This is used as a key in the media cache too.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MediaRequest {
+pub struct MediaRequestParameters {
     /// The source of the media file.
     pub source: MediaSource,
 
@@ -107,7 +109,7 @@ pub struct MediaRequest {
     pub format: MediaFormat,
 }
 
-impl MediaRequest {
+impl MediaRequestParameters {
     /// Get the [`MxcUri`] from `Self`.
     pub fn uri(&self) -> &MxcUri {
         match &self.source {
@@ -117,7 +119,7 @@ impl MediaRequest {
     }
 }
 
-impl UniqueKey for MediaRequest {
+impl UniqueKey for MediaRequestParameters {
     fn unique_key(&self) -> String {
         format!("{}{UNIQUE_SEPARATOR}{}", self.source.unique_key(), self.format.unique_key())
     }
@@ -213,14 +215,14 @@ mod tests {
     fn test_media_request_url() {
         let mxc_uri = mxc_uri!("mxc://homeserver/media");
 
-        let plain = MediaRequest {
+        let plain = MediaRequestParameters {
             source: MediaSource::Plain(mxc_uri.to_owned()),
             format: MediaFormat::File,
         };
 
         assert_eq!(plain.uri(), mxc_uri);
 
-        let file = MediaRequest {
+        let file = MediaRequestParameters {
             source: MediaSource::Encrypted(Box::new(
                 serde_json::from_value(json!({
                     "url": mxc_uri,

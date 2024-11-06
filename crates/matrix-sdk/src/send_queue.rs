@@ -140,7 +140,7 @@ use std::{
 use as_variant::as_variant;
 use matrix_sdk_base::{
     event_cache_store::EventCacheStoreError,
-    media::MediaRequest,
+    media::MediaRequestParameters,
     store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
         FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
@@ -1034,8 +1034,8 @@ impl QueueStorage {
         content_type: Mime,
         send_event_txn: OwnedTransactionId,
         upload_file_txn: OwnedTransactionId,
-        file_media_request: MediaRequest,
-        thumbnail: Option<(FinishUploadThumbnailInfo, MediaRequest, Mime)>,
+        file_media_request: MediaRequestParameters,
+        thumbnail: Option<(FinishUploadThumbnailInfo, MediaRequestParameters, Mime)>,
     ) -> Result<(), RoomSendQueueStorageError> {
         // Keep the lock until we're done touching the storage.
         // TODO refactor to make the relationship between being_sent and the store more

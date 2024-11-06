@@ -132,7 +132,7 @@ use crate::{
     error::{BeaconError, WrongRoomState},
     event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
-    media::{MediaFormat, MediaRequest},
+    media::{MediaFormat, MediaRequestParameters},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     room::power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
     sync::RoomUpdate,
@@ -264,7 +264,7 @@ impl Room {
     /// ```
     pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         let Some(url) = self.avatar_url() else { return Ok(None) };
-        let request = MediaRequest { source: MediaSource::Plain(url.to_owned()), format };
+        let request = MediaRequestParameters { source: MediaSource::Plain(url.to_owned()), format };
         Ok(Some(self.client.media().get_media_content(&request, true).await?))
     }
 
@@ -1994,7 +1994,8 @@ impl Room {
             // properly, so only log errors during caching.
 
             debug!("caching the media");
-            let request = MediaRequest { source: media_source.clone(), format: MediaFormat::File };
+            let request =
+                MediaRequestParameters { source: media_source.clone(), format: MediaFormat::File };
 
             if let Err(err) = cache_store_lock_guard.add_media_content(&request, data).await {
                 warn!("unable to cache the media after uploading it: {err}");
@@ -2007,7 +2008,7 @@ impl Room {
 
                 // Do a best guess at figuring the media request: not animated, cropped
                 // thumbnail of the original size.
-                let request = MediaRequest {
+                let request = MediaRequestParameters {
                     source: source.clone(),
                     format: MediaFormat::Thumbnail(MediaThumbnailSettings {
                         method: ruma::media::Method::Scale,

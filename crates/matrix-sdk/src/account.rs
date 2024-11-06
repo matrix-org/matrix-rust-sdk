@@ -15,7 +15,7 @@
 // limitations under the License.
 
 use matrix_sdk_base::{
-    media::{MediaFormat, MediaRequest},
+    media::{MediaFormat, MediaRequestParameters},
     store::StateStoreExt,
     StateStoreDataKey, StateStoreDataValue,
 };
@@ -217,7 +217,7 @@ impl Account {
     /// ```
     pub async fn get_avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         if let Some(url) = self.get_avatar_url().await? {
-            let request = MediaRequest { source: MediaSource::Plain(url), format };
+            let request = MediaRequestParameters { source: MediaSource::Plain(url), format };
             Ok(Some(self.client.media().get_media_content(&request, true).await?))
         } else {
             Ok(None)

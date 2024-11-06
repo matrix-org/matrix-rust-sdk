@@ -8,7 +8,8 @@ use std::{
 use anyhow::{anyhow, Context as _};
 use matrix_sdk::{
     media::{
-        MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequest, MediaThumbnailSettings,
+        MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequestParameters,
+        MediaThumbnailSettings,
     },
     oidc::{
         registrations::{ClientId, OidcRegistrations},
@@ -442,7 +443,7 @@ impl Client {
             .inner
             .media()
             .get_media_file(
-                &MediaRequest { source, format: MediaFormat::File },
+                &MediaRequestParameters { source, format: MediaFormat::File },
                 filename,
                 &mime_type,
                 use_cache,
@@ -721,7 +722,7 @@ impl Client {
         Ok(self
             .inner
             .media()
-            .get_media_content(&MediaRequest { source, format: MediaFormat::File }, true)
+            .get_media_content(&MediaRequestParameters { source, format: MediaFormat::File }, true)
             .await?)
     }
 
@@ -738,7 +739,7 @@ impl Client {
             .inner
             .media()
             .get_media_content(
-                &MediaRequest {
+                &MediaRequestParameters {
                     source,
                     format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
                         Method::Scale,
