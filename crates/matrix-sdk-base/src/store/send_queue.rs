@@ -86,7 +86,7 @@ pub enum QueuedRequestKind {
     ///
     /// The bytes must be stored in the media cache, and are identified by the
     /// cache key.
-    Upload {
+    MediaUpload {
         /// Content type of the media to be uploaded.
         ///
         /// Stored as a `String` because `Mime` which we'd really want to use

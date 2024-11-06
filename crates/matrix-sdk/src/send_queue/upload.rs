@@ -48,11 +48,17 @@ use crate::{
 ///
 /// This uses a MXC ID that is only locally valid.
 fn make_local_file_media_request(txn_id: &TransactionId) -> MediaRequest {
-    // .local is guaranteed to be on the local network. It would be a shame that
-    // `send-queue.local` resolves to an actual Synapse media server, we don't
-    // expect this to be likely though.
+    // This mustn't represent a potentially valid media server, otherwise it'd be
+    // possible for an attacker to return malicious content under some
+    // preconditions (e.g. the cache store has been cleared before the upload
+    // took place). To mitigate against this, we use the .localhost TLD,
+    // which is guaranteed to be on the local machine. As a result, the only attack
+    // possible would be coming from the user themselves, which we consider a
+    // non-threat.
     MediaRequest {
-        source: MediaSource::Plain(OwnedMxcUri::from(format!("mxc://send-queue.local/{txn_id}"))),
+        source: MediaSource::Plain(OwnedMxcUri::from(format!(
+            "mxc://send-queue.localhost/{txn_id}"
+        ))),
         format: MediaFormat::File,
     }
 }
@@ -66,9 +72,9 @@ fn make_local_thumbnail_media_request(
     height: UInt,
     width: UInt,
 ) -> MediaRequest {
-    // See comment in [`Self::make_local_file_media_request`].
+    // See comment in [`make_local_file_media_request`].
     let source =
-        MediaSource::Plain(OwnedMxcUri::from(format!("mxc://send-queue.local/{}", txn_id)));
+        MediaSource::Plain(OwnedMxcUri::from(format!("mxc://send-queue.localhost/{}", txn_id)));
     let format = MediaFormat::Thumbnail(MediaThumbnailSettings {
         size: MediaThumbnailSize { method: Method::Scale, width, height },
         animated: false,
@@ -79,7 +85,7 @@ fn make_local_thumbnail_media_request(
 /// Replace the source by the final ones in all the media types handled by
 /// [`Room::make_attachment_type()`].
 fn update_media_event_after_upload(echo: &mut RoomMessageEventContent, sent: SentMediaInfo) {
-    // Some variants look eerily similar below, but the `event` and `info` are all
+    // Some variants look really similar below, but the `event` and `info` are all
     // different types…
     match &mut echo.msgtype {
         MessageType::Audio(event) => {
@@ -141,6 +147,7 @@ impl RoomSendQueue {
         let Some(room) = self.inner.room.get() else {
             return Err(RoomSendQueueError::RoomDisappeared);
         };
+
         if room.state() != RoomState::Joined {
             return Err(RoomSendQueueError::RoomNotJoined);
         }
@@ -367,7 +374,7 @@ impl QueueStorage {
 
         trace!(related_to = %event_txn, "done uploading thumbnail, now queuing a request to send the media file itself");
 
-        let request = QueuedRequestKind::Upload {
+        let request = QueuedRequestKind::MediaUpload {
             content_type,
             cache_key,
             // The thumbnail for the next upload is the file we just uploaded here.
