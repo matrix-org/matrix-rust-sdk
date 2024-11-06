@@ -10,7 +10,10 @@ use matrix_sdk::{
         RoomSendQueueUpdate,
     },
     test_utils::{
-        events::EventFactory, logged_in_client, mocks::MatrixMockServer, set_client_session,
+        events::EventFactory,
+        logged_in_client,
+        mocks::{MatrixMock, MatrixMockServer},
+        set_client_session,
     },
     Client, MemoryStore,
 };
@@ -38,32 +41,28 @@ use tokio::{
     sync::Mutex,
     time::{sleep, timeout},
 };
-use wiremock::{
-    matchers::{header, method, path},
-    Mock, Request, ResponseTemplate,
-};
+use wiremock::{Request, ResponseTemplate};
 
-// TODO put into the MatrixMockServer
-fn mock_jpeg_upload(mxc: &MxcUri, lock: Arc<Mutex<()>>) -> Mock {
+fn mock_jpeg_upload<'a>(
+    mock: &'a MatrixMockServer,
+    mxc: &MxcUri,
+    lock: Arc<Mutex<()>>,
+) -> MatrixMock<'a> {
     let mxc = mxc.to_owned();
-    Mock::given(method("POST"))
-        .and(path("/_matrix/media/r0/upload"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(header("content-type", "image/jpeg"))
-        .respond_with(move |_req: &Request| {
-            // Wait for the signal from the main task that we can process this query.
-            let mock_lock = lock.clone();
-            std::thread::spawn(move || {
-                tokio::runtime::Runtime::new().unwrap().block_on(async {
-                    drop(mock_lock.lock().await);
-                });
-            })
-            .join()
-            .unwrap();
-            ResponseTemplate::new(200).set_body_json(json!({
-              "content_uri": mxc
-            }))
+    mock.mock_upload().expect_mime_type("image/jpeg").respond_with(move |_req: &Request| {
+        // Wait for the signal from the main task that we can process this query.
+        let mock_lock = lock.clone();
+        std::thread::spawn(move || {
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                drop(mock_lock.lock().await);
+            });
         })
+        .join()
+        .unwrap();
+        ResponseTemplate::new(200).set_body_json(json!({
+          "content_uri": mxc
+        }))
+    })
 }
 
 // A macro to assert on a stream of `RoomSendQueueUpdate`s.
@@ -1751,16 +1750,13 @@ async fn test_media_uploads() {
     let allow_upload_lock = Arc::new(Mutex::new(()));
     let block_upload = allow_upload_lock.lock().await;
 
-    let server = mock.server();
-    mock_jpeg_upload(mxc_uri!("mxc://sdk.rs/thumbnail"), allow_upload_lock.clone())
-        .up_to_n_times(1)
-        .expect(1)
-        .mount(&server)
+    mock_jpeg_upload(&mock, mxc_uri!("mxc://sdk.rs/thumbnail"), allow_upload_lock.clone())
+        .mock_once()
+        .mount()
         .await;
-    mock_jpeg_upload(mxc_uri!("mxc://sdk.rs/media"), allow_upload_lock.clone())
-        .up_to_n_times(1)
-        .expect(1)
-        .mount(&server)
+    mock_jpeg_upload(&mock, mxc_uri!("mxc://sdk.rs/media"), allow_upload_lock.clone())
+        .mock_once()
+        .mount()
         .await;
 
     // ----------------------

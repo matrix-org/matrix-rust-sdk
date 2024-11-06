@@ -24,10 +24,10 @@ use matrix_sdk_test::{
     test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
     SyncResponseBuilder,
 };
-use ruma::{OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{MxcUri, OwnedEventId, OwnedRoomId, RoomId};
 use serde_json::json;
 use wiremock::{
-    matchers::{header, method, path, path_regex},
+    matchers::{body_partial_json, header, method, path, path_regex},
     Mock, MockBuilder, MockGuard, MockServer, Respond, ResponseTemplate, Times,
 };
 
@@ -193,6 +193,14 @@ impl MatrixMockServer {
         let mock = Mock::given(method("GET")).and(header("authorization", "Bearer 1234"));
         MockRoomEvent { mock, server: &self.server, room: None, match_event_id: false }
     }
+
+    /// Create a prebuilt mock for uploading media.
+    pub fn mock_upload(&self) -> MockUpload<'_> {
+        let mock = Mock::given(method("POST"))
+            .and(path("/_matrix/media/r0/upload"))
+            .and(header("authorization", "Bearer 1234"));
+        MockUpload { mock, server: &self.server }
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -303,6 +311,12 @@ pub struct MockRoomSend<'a> {
 }
 
 impl<'a> MockRoomSend<'a> {
+    /// Ensures that the body of the request is a superset of the provided
+    /// `body` parameter.
+    pub fn body_matches_partial_json(self, body: serde_json::Value) -> Self {
+        Self { mock: self.mock.and(body_partial_json(body)), ..self }
+    }
+
     /// Returns a send endpoint that emulates success, i.e. the event has been
     /// sent with the given event id.
     pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
@@ -467,5 +481,34 @@ impl<'a> MockRoomEvent<'a> {
             .and(path_regex(format!("^/_matrix/client/r0/rooms/{room_path}/event/{event_path}")))
             .respond_with(ResponseTemplate::new(200).set_body_json(event.into_raw().json()));
         MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for uploading media.
+pub struct MockUpload<'a> {
+    server: &'a MockServer,
+    mock: MockBuilder,
+}
+
+impl<'a> MockUpload<'a> {
+    /// Expect that the content type matches what's given here.
+    pub fn expect_mime_type(self, content_type: &str) -> Self {
+        Self { mock: self.mock.and(header("content-type", content_type)), ..self }
+    }
+
+    /// Returns a redact endpoint that emulates success, i.e. the redaction
+    /// event has been sent with the given event id.
+    pub fn ok(self, mxc_id: &MxcUri) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content_uri": mxc_id
+        })));
+        MatrixMock { server: self.server, mock }
+    }
+
+    /// Specify how to respond to a query (viz., like
+    /// [`MockBuilder::respond_with`] does), when other predefined responses
+    /// aren't sufficient.
+    pub fn respond_with<R: Respond + 'static>(self, func: R) -> MatrixMock<'a> {
+        MatrixMock { mock: self.mock.respond_with(func), server: self.server }
     }
 }
