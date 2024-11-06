@@ -278,6 +278,7 @@ impl Timeline {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn send_image(
         self: Arc<Self>,
         url: String,
@@ -309,6 +310,7 @@ impl Timeline {
         }))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn send_video(
         self: Arc<Self>,
         url: String,
