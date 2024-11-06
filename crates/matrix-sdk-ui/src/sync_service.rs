@@ -435,15 +435,11 @@ pub struct SyncServiceBuilder {
 
     /// Is the cross-process lock for the crypto store enabled?
     with_cross_process_lock: bool,
-
-    /// Application identifier, used as the cross-process lock value, if
-    /// applicable.
-    identifier: String,
 }
 
 impl SyncServiceBuilder {
     fn new(client: Client) -> Self {
-        Self { client, with_cross_process_lock: false, identifier: "app".to_owned() }
+        Self { client, with_cross_process_lock: false }
     }
 
     /// Enables the cross-process lock, if the sync service is being built in a
@@ -454,14 +450,10 @@ impl SyncServiceBuilder {
     /// external process attempting to decrypt notifications. In general,
     /// `with_cross_process_lock` should not be called.
     ///
-    /// An app identifier can be provided too, to identify the current process;
-    /// if it's not provided, a default value of "app" is used as the
-    /// application identifier.
-    pub fn with_cross_process_lock(mut self, app_identifier: Option<String>) -> Self {
+    /// Be sure to have configured
+    /// [`Client::cross_process_store_locks_holder_name`] accordingly.
+    pub fn with_cross_process_lock(mut self) -> Self {
         self.with_cross_process_lock = true;
-        if let Some(app_identifier) = app_identifier {
-            self.identifier = app_identifier;
-        }
         self
     }
 
@@ -477,7 +469,6 @@ impl SyncServiceBuilder {
 
         let encryption_sync = Arc::new(
             EncryptionSyncService::new(
-                self.identifier,
                 self.client,
                 None,
                 WithLocking::from(self.with_cross_process_lock),

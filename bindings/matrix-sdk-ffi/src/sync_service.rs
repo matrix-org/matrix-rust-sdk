@@ -112,9 +112,9 @@ impl SyncServiceBuilder {
 
 #[matrix_sdk_ffi_macros::export]
 impl SyncServiceBuilder {
-    pub fn with_cross_process_lock(self: Arc<Self>, app_identifier: Option<String>) -> Arc<Self> {
+    pub fn with_cross_process_lock(self: Arc<Self>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
-        let builder = this.builder.with_cross_process_lock(app_identifier);
+        let builder = this.builder.with_cross_process_lock();
         Arc::new(Self { client: this.client, builder, utd_hook: this.utd_hook })
     }
 

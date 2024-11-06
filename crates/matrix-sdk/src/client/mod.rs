@@ -2253,7 +2253,15 @@ impl Client {
     }
 
     /// Create a new specialized `Client` that can process notifications.
-    pub async fn notification_client(&self) -> Result<Client> {
+    ///
+    /// See [`CrossProcessStoreLock::new`] to learn more about
+    /// `cross_process_store_locks_holder_name`.
+    ///
+    /// [`CrossProcessStoreLock::new`]: matrix_sdk_common::store_locks::CrossProcessStoreLock::new
+    pub async fn notification_client(
+        &self,
+        cross_process_store_locks_holder_name: String,
+    ) -> Result<Client> {
         let client = Client {
             inner: ClientInner::new(
                 self.inner.auth_ctx.clone(),
@@ -2264,9 +2272,7 @@ impl Client {
                 self.inner.http_client.clone(),
                 self.inner
                     .base_client
-                    .clone_with_in_memory_state_store(
-                        &self.inner.cross_process_store_locks_holder_name,
-                    )
+                    .clone_with_in_memory_state_store(&cross_process_store_locks_holder_name)
                     .await?,
                 self.inner.server_capabilities.read().await.clone(),
                 self.inner.respect_login_well_known,
@@ -2274,7 +2280,7 @@ impl Client {
                 self.inner.send_queue_data.clone(),
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.e2ee.encryption_settings,
-                self.inner.cross_process_store_locks_holder_name.clone(),
+                cross_process_store_locks_holder_name,
             )
             .await,
         };
