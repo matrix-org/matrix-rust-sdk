@@ -1853,7 +1853,7 @@ mod tests {
     use crate::latest_event::LatestEvent;
     use crate::{
         rooms::RoomNotableTags,
-        store::{IntoStateStore, MemoryStore, StateChanges, StateStore},
+        store::{IntoStateStore, MemoryStore, StateChanges, StateStore, StoreConfig},
         BaseClient, MinimalStateEvent, OriginalMinimalStateEvent, RoomDisplayName,
         RoomInfoNotableUpdateReasons, SessionMeta,
     };
@@ -2141,7 +2141,9 @@ mod tests {
     #[async_test]
     async fn test_is_favourite() {
         // Given a room,
-        let client = BaseClient::new();
+        let client = BaseClient::with_store_config(StoreConfig::new(
+            "cross-process-store-locks-holder-name".to_owned(),
+        ));
 
         client
             .set_session_meta(
@@ -2219,7 +2221,9 @@ mod tests {
     #[async_test]
     async fn test_is_low_priority() {
         // Given a room,
-        let client = BaseClient::new();
+        let client = BaseClient::with_store_config(StoreConfig::new(
+            "cross-process-store-locks-holder-name".to_owned(),
+        ));
 
         client
             .set_session_meta(
@@ -2675,7 +2679,9 @@ mod tests {
         use crate::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons};
 
         // Given a room,
-        let client = BaseClient::new();
+        let client = BaseClient::with_store_config(StoreConfig::new(
+            "cross-process-store-locks-holder-name".to_owned(),
+        ));
 
         client
             .set_session_meta(

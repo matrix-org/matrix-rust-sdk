@@ -483,7 +483,8 @@ impl StateChanges {
 /// ```
 /// # use matrix_sdk_base::store::StoreConfig;
 ///
-/// let store_config = StoreConfig::new();
+/// let store_config =
+///     StoreConfig::new("cross-process-store-locks-holder-name".to_owned());
 /// ```
 #[derive(Clone)]
 pub struct StoreConfig {
@@ -491,6 +492,7 @@ pub struct StoreConfig {
     pub(crate) crypto_store: Arc<DynCryptoStore>,
     pub(crate) state_store: Arc<DynStateStore>,
     pub(crate) event_cache_store: event_cache_store::EventCacheStoreLock,
+    cross_process_store_locks_holder_name: String,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -502,17 +504,20 @@ impl fmt::Debug for StoreConfig {
 
 impl StoreConfig {
     /// Create a new default `StoreConfig`.
+    ///
+    /// To learn more about `cross_process_store_locks_holder_name`, please read
+    /// [`CrossProcessStoreLock::new`](matrix_sdk_common::store_locks::CrossProcessStoreLock::new).
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(cross_process_store_locks_holder_name: String) -> Self {
         Self {
             #[cfg(feature = "e2e-encryption")]
             crypto_store: matrix_sdk_crypto::store::MemoryStore::new().into_crypto_store(),
             state_store: Arc::new(MemoryStore::new()),
             event_cache_store: event_cache_store::EventCacheStoreLock::new(
                 event_cache_store::MemoryStore::new(),
-                "default-key".to_owned(),
-                "matrix-sdk-base".to_owned(),
+                cross_process_store_locks_holder_name.clone(),
             ),
+            cross_process_store_locks_holder_name,
         }
     }
 
@@ -532,21 +537,14 @@ impl StoreConfig {
     }
 
     /// Set a custom implementation of an `EventCacheStore`.
-    ///
-    /// The `key` and `holder` arguments represent the key and holder inside the
-    /// [`CrossProcessStoreLock::new`][matrix_sdk_common::store_locks::CrossProcessStoreLock::new].
-    pub fn event_cache_store<S>(mut self, event_cache_store: S, key: String, holder: String) -> Self
+    pub fn event_cache_store<S>(mut self, event_cache_store: S) -> Self
     where
         S: event_cache_store::IntoEventCacheStore,
     {
-        self.event_cache_store =
-            event_cache_store::EventCacheStoreLock::new(event_cache_store, key, holder);
+        self.event_cache_store = event_cache_store::EventCacheStoreLock::new(
+            event_cache_store,
+            self.cross_process_store_locks_holder_name.clone(),
+        );
         self
-    }
-}
-
-impl Default for StoreConfig {
-    fn default() -> Self {
-        Self::new()
     }
 }

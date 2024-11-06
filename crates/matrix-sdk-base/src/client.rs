@@ -139,11 +139,6 @@ impl fmt::Debug for BaseClient {
 }
 
 impl BaseClient {
-    /// Create a new default client.
-    pub fn new() -> Self {
-        BaseClient::with_store_config(StoreConfig::default())
-    }
-
     /// Create a new client.
     ///
     /// # Arguments
@@ -173,8 +168,12 @@ impl BaseClient {
     /// Clones the current base client to use the same crypto store but a
     /// different, in-memory store config, and resets transient state.
     #[cfg(feature = "e2e-encryption")]
-    pub async fn clone_with_in_memory_state_store(&self) -> Result<Self> {
-        let config = StoreConfig::new().state_store(MemoryStore::new());
+    pub async fn clone_with_in_memory_state_store(
+        &self,
+        cross_process_store_locks_holder_name: &str,
+    ) -> Result<Self> {
+        let config = StoreConfig::new(cross_process_store_locks_holder_name.to_owned())
+            .state_store(MemoryStore::new());
         let config = config.crypto_store(self.crypto_store.clone());
 
         let copy = Self {
@@ -207,8 +206,12 @@ impl BaseClient {
     /// different, in-memory store config, and resets transient state.
     #[cfg(not(feature = "e2e-encryption"))]
     #[allow(clippy::unused_async)]
-    pub async fn clone_with_in_memory_state_store(&self) -> Result<Self> {
-        let config = StoreConfig::new().state_store(MemoryStore::new());
+    pub async fn clone_with_in_memory_state_store(
+        &self,
+        cross_process_store_locks_holder: &str,
+    ) -> Result<Self> {
+        let config = StoreConfig::new(cross_process_store_locks_holder.to_owned())
+            .state_store(MemoryStore::new());
         Ok(Self::with_store_config(config))
     }
 
@@ -1689,12 +1692,6 @@ impl BaseClient {
     }
 }
 
-impl Default for BaseClient {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 fn handle_room_member_event_for_profiles(
     room_id: &RoomId,
     event: &SyncStateEvent<RoomMemberEventContent>,
@@ -1737,8 +1734,9 @@ mod tests {
 
     use super::BaseClient;
     use crate::{
-        store::StateStoreExt, test_utils::logged_in_base_client, RoomDisplayName, RoomState,
-        SessionMeta,
+        store::{StateStoreExt, StoreConfig},
+        test_utils::logged_in_base_client,
+        RoomDisplayName, RoomState, SessionMeta,
     };
 
     #[async_test]
@@ -1945,7 +1943,9 @@ mod tests {
         let user_id = user_id!("@alice:example.org");
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
-        let client = BaseClient::new();
+        let client = BaseClient::with_store_config(StoreConfig::new(
+            "cross-process-store-locks-holder-name".to_owned(),
+        ));
         client
             .set_session_meta(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
@@ -2003,7 +2003,9 @@ mod tests {
         let inviter_user_id = user_id!("@bob:example.org");
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
-        let client = BaseClient::new();
+        let client = BaseClient::with_store_config(StoreConfig::new(
+            "cross-process-store-locks-holder-name".to_owned(),
+        ));
         client
             .set_session_meta(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
@@ -2063,7 +2065,9 @@ mod tests {
         let inviter_user_id = user_id!("@bob:example.org");
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
-        let client = BaseClient::new();
+        let client = BaseClient::with_store_config(StoreConfig::new(
+            "cross-process-store-locks-holder-name".to_owned(),
+        ));
         client
             .set_session_meta(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },

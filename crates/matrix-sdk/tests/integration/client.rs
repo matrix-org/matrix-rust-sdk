@@ -1366,7 +1366,8 @@ async fn test_restore_room() {
     store.save_changes(&changes).await.unwrap();
 
     // Build a client with that store.
-    let store_config = StoreConfig::new().state_store(store);
+    let store_config =
+        StoreConfig::new("cross-process-store-locks-holder-name".to_owned()).state_store(store);
     let client = Client::builder()
         .homeserver_url("http://localhost:1234")
         .request_config(RequestConfig::new().disable_retry())
