@@ -13,13 +13,14 @@
 // limitations under the License.
 
 use std::{
-    collections::{hash_map::Entry, BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     convert::Infallible,
     sync::RwLock as StdRwLock,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use async_trait::async_trait;
+use matrix_sdk_common::store_locks::memory_store_helper::try_take_leased_lock;
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId,
     OwnedUserId, RoomId, TransactionId, UserId,
@@ -631,36 +632,7 @@ impl CryptoStore for MemoryStore {
         key: &str,
         holder: &str,
     ) -> Result<bool> {
-        let now = Instant::now();
-        let expiration = now + Duration::from_millis(lease_duration_ms.into());
-        match self.leases.write().unwrap().entry(key.to_owned()) {
-            Entry::Occupied(mut o) => {
-                let prev = o.get_mut();
-                if prev.0 == holder {
-                    // We had the lease before, extend it.
-                    prev.1 = expiration;
-                    Ok(true)
-                } else {
-                    // We didn't have it.
-                    if prev.1 < now {
-                        // Steal it!
-                        prev.0 = holder.to_owned();
-                        prev.1 = expiration;
-                        Ok(true)
-                    } else {
-                        // We tried our best.
-                        Ok(false)
-                    }
-                }
-            }
-            Entry::Vacant(v) => {
-                v.insert((
-                    holder.to_owned(),
-                    Instant::now() + Duration::from_millis(lease_duration_ms.into()),
-                ));
-                Ok(true)
-            }
-        }
+        Ok(try_take_leased_lock(&self.leases, lease_duration_ms, key, holder))
     }
 }
 
