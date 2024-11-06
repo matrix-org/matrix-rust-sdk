@@ -5,6 +5,7 @@ use matrix_sdk::{
     async_trait,
     widget::{MessageLikeEventFilter, StateEventFilter},
 };
+use ruma::events::MessageLikeEventType;
 use tracing::error;
 
 use crate::{room::Room, RUNTIME};
@@ -268,6 +269,31 @@ pub fn get_element_call_required_permissions(
 ) -> WidgetCapabilities {
     use ruma::events::StateEventType;
 
+    let read_send = vec![
+        // To read and send rageshake requests from other room members
+        WidgetEventFilter::MessageLikeWithType {
+            event_type: "org.matrix.rageshake_request".to_owned(),
+        },
+        // To read and send encryption keys
+        // TODO change this to the appropriate to-device version once ready
+        WidgetEventFilter::MessageLikeWithType {
+            event_type: "io.element.call.encryption_keys".to_owned(),
+        },
+        // To read and send custom EC reactions. They are different to normal `m.reaction`
+        // because they can be send multiple times to the same event.
+        WidgetEventFilter::MessageLikeWithType {
+            event_type: "io.element.call.reaction".to_owned(),
+        },
+        // This allows send raise hand reactions.
+        WidgetEventFilter::MessageLikeWithType {
+            event_type: MessageLikeEventType::Reaction.to_string(),
+        },
+        // This allows to detect if someone does not raise their hand anymore.
+        WidgetEventFilter::MessageLikeWithType {
+            event_type: MessageLikeEventType::RoomRedaction.to_string(),
+        },
+    ];
+
     WidgetCapabilities {
         read: vec![
             // To compute the current state of the matrixRTC session.
@@ -278,19 +304,13 @@ pub fn get_element_call_required_permissions(
             WidgetEventFilter::StateWithType {
                 event_type: StateEventType::RoomEncryption.to_string(),
             },
-            // To read rageshake requests from other room members
-            WidgetEventFilter::MessageLikeWithType {
-                event_type: "org.matrix.rageshake_request".to_owned(),
-            },
-            // To read encryption keys
-            // TODO change this to the appropriate to-device version once ready
-            WidgetEventFilter::MessageLikeWithType {
-                event_type: "io.element.call.encryption_keys".to_owned(),
-            },
             // This allows the widget to check the room version, so it can know about
             // version-specific auth rules (namely MSC3779).
             WidgetEventFilter::StateWithType { event_type: StateEventType::RoomCreate.to_string() },
-        ],
+        ]
+        .into_iter()
+        .chain(read_send.clone())
+        .collect(),
         send: vec![
             // To send the call participation state event (main MatrixRTC event).
             // This is required for legacy state events (using only one event for all devices with
@@ -313,15 +333,10 @@ pub fn get_element_call_required_permissions(
                 event_type: StateEventType::CallMember.to_string(),
                 state_key: format!("_{own_user_id}_{own_device_id}"),
             },
-            // To request other room members to send rageshakes
-            WidgetEventFilter::MessageLikeWithType {
-                event_type: "org.matrix.rageshake_request".to_owned(),
-            },
-            // To send this user's encryption keys
-            WidgetEventFilter::MessageLikeWithType {
-                event_type: "io.element.call.encryption_keys".to_owned(),
-            },
-        ],
+        ]
+        .into_iter()
+        .chain(read_send)
+        .collect(),
         requires_client: true,
         update_delayed_event: true,
         send_delayed_event: true,
@@ -417,7 +432,7 @@ impl From<matrix_sdk::widget::Capabilities> for WidgetCapabilities {
 }
 
 /// Different kinds of filters that could be applied to the timeline events.
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, Clone)]
 pub enum WidgetEventFilter {
     /// Matches message-like events with the given `type`.
     MessageLikeWithType { event_type: String },
