@@ -2006,16 +2006,9 @@ impl Room {
             {
                 debug!("caching the thumbnail");
 
-                // Do a best guess at figuring the media request: not animated, cropped
-                // thumbnail of the original size.
                 let request = MediaRequestParameters {
                     source: source.clone(),
-                    format: MediaFormat::Thumbnail(MediaThumbnailSettings {
-                        method: ruma::media::Method::Scale,
-                        width,
-                        height,
-                        animated: false,
-                    }),
+                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(width, height)),
                 };
 
                 if let Err(err) = cache_store_lock_guard.add_media_content(&request, data).await {

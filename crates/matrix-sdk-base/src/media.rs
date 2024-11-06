@@ -70,8 +70,18 @@ pub struct MediaThumbnailSettings {
 impl MediaThumbnailSettings {
     /// Constructs a new `MediaThumbnailSettings` with the given method, width
     /// and height.
+    ///
+    /// Requests a non-animated thumbnail by default.
     pub fn with_method(method: Method, width: UInt, height: UInt) -> Self {
         Self { method, width, height, animated: false }
+    }
+
+    /// Constructs a new `MediaThumbnailSettings` with the given width and
+    /// height.
+    ///
+    /// Requests scaling, and a non-animated thumbnail.
+    pub fn new(width: UInt, height: UInt) -> Self {
+        Self { method: Method::Scale, width, height, animated: false }
     }
 }
 

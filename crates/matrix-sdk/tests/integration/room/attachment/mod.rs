@@ -248,12 +248,7 @@ async fn test_room_attachment_send_info_thumbnail() {
         MediaRequestParameters { source: MediaSource::Plain(media_mxc), format: MediaFormat::File };
     let thumbnail_request = MediaRequestParameters {
         source: MediaSource::Plain(thumbnail_mxc.clone()),
-        format: MediaFormat::Thumbnail(MediaThumbnailSettings {
-            method: ruma::media::Method::Scale,
-            width: uint!(480),
-            height: uint!(360),
-            animated: false,
-        }),
+        format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(uint!(480), uint!(360))),
     };
     let _ = client.media().get_media_content(&media_request, true).await.unwrap_err();
     let _ = client.media().get_media_content(&thumbnail_request, true).await.unwrap_err();
@@ -309,12 +304,7 @@ async fn test_room_attachment_send_info_thumbnail() {
     // But it is not found when requesting it as a thumbnail with a different size.
     let thumbnail_request = MediaRequestParameters {
         source: MediaSource::Plain(thumbnail_mxc),
-        format: MediaFormat::Thumbnail(MediaThumbnailSettings {
-            method: ruma::media::Method::Scale,
-            width: uint!(42),
-            height: uint!(1337),
-            animated: false,
-        }),
+        format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(uint!(42), uint!(1337))),
     };
     let _ = client.media().get_media_content(&thumbnail_request, true).await.unwrap_err();
 }

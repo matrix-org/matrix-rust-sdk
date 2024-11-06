@@ -26,7 +26,6 @@ use matrix_sdk::{
     reqwest::StatusCode,
     ruma::{
         api::client::{
-            media::get_content_thumbnail::v3::Method,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{create_room, Visibility},
             session::get_login_types,
@@ -741,8 +740,7 @@ impl Client {
             .get_media_content(
                 &MediaRequestParameters {
                     source,
-                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(
-                        Method::Scale,
+                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
                         UInt::new(width).unwrap(),
                         UInt::new(height).unwrap(),
                     )),
