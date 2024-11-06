@@ -2,7 +2,6 @@ use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criteri
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::test_utils::logged_in_client_with_server;
 use matrix_sdk_ui::{room_list_service::filters::new_filter_non_left, RoomListService};
-use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tokio::runtime::Builder;
 use wiremock::{http::Method, Match, Mock, Request, ResponseTemplate};
@@ -14,11 +13,6 @@ impl Match for SlidingSyncMatcher {
         request.url.path() == "/_matrix/client/unstable/org.matrix.msc3575/sync"
             && request.method == Method::POST
     }
-}
-
-#[derive(Deserialize)]
-pub(crate) struct PartialSlidingSyncRequest {
-    pub txn_id: Option<String>,
 }
 
 fn criterion() -> Criterion {
@@ -99,30 +93,25 @@ pub fn room_list(c: &mut Criterion) {
                             };
 
                             // Mock the response from the server.
-                            let _mock_guard = Mock::given(SlidingSyncMatcher)
-                                .respond_with(move |request: &Request| {
-                                    let partial_request: PartialSlidingSyncRequest =
-                                        request.body_json().unwrap();
-
-                                    ResponseTemplate::new(200).set_body_json(json!({
-                                        "txn_id": partial_request.txn_id,
-                                        "pos": "raclette",
-                                        "rooms": rooms,
-                                    }))
-                                })
+                            let mock_guard = Mock::given(SlidingSyncMatcher)
+                                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                                    "pos": "raclette",
+                                    "rooms": rooms,
+                                })))
                                 .mount_as_scoped(&server)
                                 .await;
 
-                            (&runtime, client, server, room_list_service)
+                            (&runtime, client, server, room_list_service, mock_guard)
                         })
                     },
-                    |(runtime, _client, _server, room_list_service)| {
-                        runtime.block_on(async {
+                    |(runtime, client, server, room_list_service, mock_guard)| {
+                        runtime.block_on(async move {
                             // Get the `RoomListService` sync stream.
                             let room_list_stream = room_list_service.sync();
                             pin_mut!(room_list_stream);
 
-                            // Get the `RoomList` itself with a default filter.
+                            // // Get the `RoomList` itself with a default
+                            // filter.
                             let room_list = room_list_service
                                 .all_rooms()
                                 .await
@@ -147,6 +136,10 @@ pub fn room_list(c: &mut Criterion) {
                                 room_list_entries.next().await.is_some(),
                                 "`room_list_entries` has stopped"
                             );
+
+                            let _ = mock_guard;
+                            let _ = client;
+                            let _ = server;
                         })
                     },
                     BatchSize::SmallInput,
