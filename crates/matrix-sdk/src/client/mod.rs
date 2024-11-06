@@ -275,6 +275,17 @@ pub(crate) struct ClientInner {
     /// deduplicate multiple calls to a method.
     pub(crate) locks: ClientLocks,
 
+    /// The cross-process store locks holder name.
+    ///
+    /// The SDK provides cross-process store locks (see
+    /// [`matrix_sdk_common::store_locks::CrossProcessStoreLock`]). The
+    /// `holder_name` is the value used for all cross-process store locks
+    /// used by this `Client`.
+    ///
+    /// If multiple `Client`s are running in different processes, this
+    /// value MUST be different for each `Client`.
+    cross_process_store_locks_holder_name: String,
+
     /// A mapping of the times at which the current user sent typing notices,
     /// keyed by room.
     pub(crate) typing_notice_times: StdRwLock<BTreeMap<OwnedRoomId, Instant>>,
@@ -341,6 +352,7 @@ impl ClientInner {
         event_cache: OnceCell<EventCache>,
         send_queue: Arc<SendQueueData>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
+        cross_process_store_locks_holder_name: String,
     ) -> Arc<Self> {
         let client = Self {
             server,
@@ -351,6 +363,7 @@ impl ClientInner {
             http_client,
             base_client,
             locks: Default::default(),
+            cross_process_store_locks_holder_name,
             server_capabilities: RwLock::new(server_capabilities),
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
@@ -423,6 +436,16 @@ impl Client {
 
     pub(crate) fn locks(&self) -> &ClientLocks {
         &self.inner.locks
+    }
+
+    /// The cross-process store locks holder name.
+    ///
+    /// The SDK provides cross-process store locks (see
+    /// [`matrix_sdk_common::store_locks::CrossProcessStoreLock`]). The
+    /// `holder_name` is the value used for all cross-process store locks
+    /// used by this `Client`.
+    pub fn cross_process_store_locks_holder_name(&self) -> &str {
+        &self.inner.cross_process_store_locks_holder_name
     }
 
     /// Change the homeserver URL used by this client.
@@ -2239,6 +2262,7 @@ impl Client {
                 self.inner.send_queue_data.clone(),
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.e2ee.encryption_settings,
+                self.inner.cross_process_store_locks_holder_name.clone(),
             )
             .await,
         };
