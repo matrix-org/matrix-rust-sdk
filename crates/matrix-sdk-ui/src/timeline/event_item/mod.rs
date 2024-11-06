@@ -570,6 +570,11 @@ impl EventTimelineItem {
             EventTimelineItemKind::Remote(remote) => TimelineItemHandle::Remote(&remote.event_id),
         }
     }
+
+    /// For local echoes, return the associated send handle.
+    pub fn local_echo_send_handle(&self) -> Option<SendHandle> {
+        as_variant!(self.handle(), TimelineItemHandle::Local(handle) => handle.clone())
+    }
 }
 
 impl From<LocalEventTimelineItem> for EventTimelineItemKind {
