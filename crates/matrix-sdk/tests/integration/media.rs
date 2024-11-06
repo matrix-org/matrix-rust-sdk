@@ -1,7 +1,7 @@
 use matrix_sdk::{
     config::RequestConfig,
     matrix_auth::{MatrixSession, MatrixSessionTokens},
-    media::{MediaFormat, MediaRequest, MediaThumbnailSettings},
+    media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     test_utils::logged_in_client_with_server,
     Client, SessionMeta,
 };
@@ -35,7 +35,7 @@ async fn test_get_media_content_no_auth() {
 
     let media = client.media();
 
-    let request = MediaRequest {
+    let request = MediaRequestParameters {
         source: MediaSource::Plain(mxc_uri!("mxc://localhost/textfile").to_owned()),
         format: MediaFormat::File,
     };

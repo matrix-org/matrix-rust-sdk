@@ -20,7 +20,7 @@ use ruma::{
 };
 
 use super::DynEventCacheStore;
-use crate::media::{MediaFormat, MediaRequest, MediaThumbnailSettings};
+use crate::media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings};
 
 /// `EventCacheStore` integration tests.
 ///
@@ -41,9 +41,11 @@ pub trait EventCacheStoreIntegrationTests {
 impl EventCacheStoreIntegrationTests for DynEventCacheStore {
     async fn test_media_content(&self) {
         let uri = mxc_uri!("mxc://localhost/media");
-        let request_file =
-            MediaRequest { source: MediaSource::Plain(uri.to_owned()), format: MediaFormat::File };
-        let request_thumbnail = MediaRequest {
+        let request_file = MediaRequestParameters {
+            source: MediaSource::Plain(uri.to_owned()),
+            format: MediaFormat::File,
+        };
+        let request_thumbnail = MediaRequestParameters {
             source: MediaSource::Plain(uri.to_owned()),
             format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
                 Method::Crop,
@@ -53,7 +55,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         };
 
         let other_uri = mxc_uri!("mxc://localhost/media-other");
-        let request_other_file = MediaRequest {
+        let request_other_file = MediaRequestParameters {
             source: MediaSource::Plain(other_uri.to_owned()),
             format: MediaFormat::File,
         };
@@ -145,8 +147,10 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
     async fn test_replace_media_key(&self) {
         let uri = mxc_uri!("mxc://sendqueue.local/tr4n-s4ct-10n1-d");
-        let req =
-            MediaRequest { source: MediaSource::Plain(uri.to_owned()), format: MediaFormat::File };
+        let req = MediaRequestParameters {
+            source: MediaSource::Plain(uri.to_owned()),
+            format: MediaFormat::File,
+        };
 
         let content = "hello".as_bytes().to_owned();
 
@@ -161,7 +165,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Replacing a media request works.
         let new_uri = mxc_uri!("mxc://matrix.org/tr4n-s4ct-10n1-d");
-        let new_req = MediaRequest {
+        let new_req = MediaRequestParameters {
             source: MediaSource::Plain(new_uri.to_owned()),
             format: MediaFormat::File,
         };

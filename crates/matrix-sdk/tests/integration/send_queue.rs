@@ -11,7 +11,7 @@ use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
     attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, Thumbnail},
     config::{RequestConfig, StoreConfig},
-    media::{MediaFormat, MediaRequest, MediaThumbnailSettings},
+    media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueError, RoomSendQueueStorageError,
         RoomSendQueueUpdate,
@@ -2122,7 +2122,10 @@ async fn test_media_uploads() {
     // The media is immediately available from the cache.
     let file_media = client
         .media()
-        .get_media_content(&MediaRequest { source: local_source, format: MediaFormat::File }, true)
+        .get_media_content(
+            &MediaRequestParameters { source: local_source, format: MediaFormat::File },
+            true,
+        )
         .await
         .expect("media should be found");
     assert_eq!(file_media, b"hello world");
@@ -2145,7 +2148,7 @@ async fn test_media_uploads() {
     let thumbnail_media = client
         .media()
         .get_media_content(
-            &MediaRequest {
+            &MediaRequestParameters {
                 source: local_thumbnail_source,
                 // TODO: extract this reasonable query into a helper function shared across the
                 // codebase
@@ -2203,7 +2206,7 @@ async fn test_media_uploads() {
     let file_media = client
         .media()
         .get_media_content(
-            &MediaRequest { source: new_content.source, format: MediaFormat::File },
+            &MediaRequestParameters { source: new_content.source, format: MediaFormat::File },
             true,
         )
         .await
@@ -2217,7 +2220,7 @@ async fn test_media_uploads() {
     let thumbnail_media = client
         .media()
         .get_media_content(
-            &MediaRequest {
+            &MediaRequestParameters {
                 source: new_thumbnail_source,
                 // TODO: extract this reasonable query into a helper function shared across the
                 // codebase
