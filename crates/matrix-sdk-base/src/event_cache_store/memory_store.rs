@@ -12,15 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    num::NonZeroUsize,
-    sync::RwLock as StdRwLock,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, num::NonZeroUsize, sync::RwLock as StdRwLock, time::Instant};
 
 use async_trait::async_trait;
-use matrix_sdk_common::ring_buffer::RingBuffer;
+use matrix_sdk_common::{
+    ring_buffer::RingBuffer, store_locks::memory_store_helper::try_take_leased_lock,
+};
 use ruma::{MxcUri, OwnedMxcUri};
 
 use super::{EventCacheStore, EventCacheStoreError, Result};
@@ -66,44 +63,7 @@ impl EventCacheStore for MemoryStore {
         key: &str,
         holder: &str,
     ) -> Result<bool, Self::Error> {
-        let now = Instant::now();
-        let expiration = now + Duration::from_millis(lease_duration_ms.into());
-
-        match self.leases.write().unwrap().entry(key.to_owned()) {
-            // There is an existing holder.
-            Entry::Occupied(mut entry) => {
-                let (current_holder, current_expiration) = entry.get_mut();
-
-                if current_holder == holder {
-                    // We had the lease before, extend it.
-                    *current_expiration = expiration;
-
-                    Ok(true)
-                } else {
-                    // We didn't have it.
-                    if *current_expiration < now {
-                        // Steal it!
-                        *current_holder = holder.to_owned();
-                        *current_expiration = expiration;
-
-                        Ok(true)
-                    } else {
-                        // We tried our best.
-                        Ok(false)
-                    }
-                }
-            }
-
-            // There is no holder, easy.
-            Entry::Vacant(entry) => {
-                entry.insert((
-                    holder.to_owned(),
-                    Instant::now() + Duration::from_millis(lease_duration_ms.into()),
-                ));
-
-                Ok(true)
-            }
-        }
+        Ok(try_take_leased_lock(&self.leases, lease_duration_ms, key, holder))
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
