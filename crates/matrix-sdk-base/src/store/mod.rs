@@ -531,6 +531,9 @@ impl StoreConfig {
     }
 
     /// Set a custom implementation of an `EventCacheStore`.
+    ///
+    /// The `key` and `holder` arguments represent the key and holder inside the
+    /// [`CrossProcessStoreLock::new`][matrix_sdk_common::store_locks::CrossProcessStoreLock::new].
     pub fn event_cache_store<S>(mut self, event_cache_store: S, key: String, holder: String) -> Self
     where
         S: event_cache_store::IntoEventCacheStore,
