@@ -53,6 +53,9 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// keyed as a file before. The caller is responsible of ensuring that
     /// the replacement makes sense, according to their use case.
     ///
+    /// This should not raise an error when the `from` parameter points to an
+    /// unknown media, and it should silently continue in this case.
+    ///
     /// # Arguments
     ///
     /// * `from` - The previous `MediaRequest` of the file.
