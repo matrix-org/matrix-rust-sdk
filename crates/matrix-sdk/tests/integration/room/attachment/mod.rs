@@ -1,62 +1,47 @@
-use std::{sync::Mutex, time::Duration};
+use std::time::Duration;
 
 use matrix_sdk::{
     attachment::{
         AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo,
         Thumbnail,
     },
-    config::SyncSettings,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
-    test_utils::logged_in_client_with_server,
+    test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{async_test, mocks::mock_encryption_state, test_json, DEFAULT_TEST_ROOM_ID};
+use matrix_sdk_test::{async_test, DEFAULT_TEST_ROOM_ID};
 use ruma::{
     event_id,
     events::{room::MediaSource, Mentions},
-    owned_mxc_uri, owned_user_id, uint,
+    mxc_uri, owned_mxc_uri, owned_user_id, uint,
 };
 use serde_json::json;
-use wiremock::{
-    matchers::{body_partial_json, header, method, path, path_regex},
-    Mock, ResponseTemplate,
-};
-
-use crate::mock_sync;
 
 #[async_test]
 async fn test_room_attachment_send() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_partial_json(json!({
+    let expected_event_id = event_id!("$h29iv0s8:example.com");
+
+    mock.mock_room_send()
+        .body_matches_partial_json(json!({
             "info": {
                 "mimetype": "image/jpeg",
             }
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
-        .mount(&server)
+        }))
+        .ok(expected_event_id)
+        .mock_once()
+        .mount()
         .await;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/media/r0/upload"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(header("content-type", "image/jpeg"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-          "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
-        })))
-        .mount(&server)
+    mock.mock_upload()
+        .expect_mime_type("image/jpeg")
+        .ok(mxc_uri!("mxc://example.com/AQwafuaFswefuhsfAFAgsw"))
+        .mock_once()
+        .mount()
         .await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-    mock_encryption_state(&server, false).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = mock.sync_joined_room(&DEFAULT_TEST_ROOM_ID).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
         .send_attachment(
@@ -68,45 +53,36 @@ async fn test_room_attachment_send() {
         .await
         .unwrap();
 
-    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
+    assert_eq!(expected_event_id, response.event_id);
 }
 
 #[async_test]
 async fn test_room_attachment_send_info() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_partial_json(json!({
+    let expected_event_id = event_id!("$h29iv0s8:example.com");
+    mock.mock_room_send()
+        .body_matches_partial_json(json!({
             "info": {
                 "mimetype": "image/jpeg",
                 "h": 600,
                 "w": 800,
             }
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
-        .mount(&server)
+        }))
+        .ok(expected_event_id)
+        .mock_once()
+        .mount()
         .await;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/media/r0/upload"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(header("content-type", "image/jpeg"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-          "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
-        })))
-        .mount(&server)
+    mock.mock_upload()
+        .expect_mime_type("image/jpeg")
+        .ok(mxc_uri!("mxc://example.com/AQwafuaFswefuhsfAFAgsw"))
+        .mock_once()
+        .mount()
         .await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-    mock_encryption_state(&server, false).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = mock.sync_joined_room(&DEFAULT_TEST_ROOM_ID).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
     let config = AttachmentConfig::new()
         .info(AttachmentInfo::Image(BaseImageInfo {
@@ -122,46 +98,42 @@ async fn test_room_attachment_send_info() {
         .await
         .unwrap();
 
-    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
+    assert_eq!(expected_event_id, response.event_id)
 }
 
 #[async_test]
 async fn test_room_attachment_send_wrong_info() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_partial_json(json!({
+    // Note: this mock is NOT called because the height and width are lost, because
+    // we're trying to send the attachment as an image, while we provide a
+    // `VideoInfo`.
+    //
+    // So long for static typing.
+
+    mock.mock_room_send()
+        .body_matches_partial_json(json!({
             "info": {
                 "mimetype": "image/jpeg",
                 "h": 600,
                 "w": 800,
             }
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
-        .mount(&server)
+        }))
+        .ok(event_id!("$unused"))
+        .mount()
         .await;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/media/r0/upload"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(header("content-type", "image/jpeg"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-          "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
-        })))
-        .mount(&server)
+    mock.mock_upload()
+        .expect_mime_type("image/jpeg")
+        .ok(mxc_uri!("mxc://example.com/yo"))
+        .mock_once()
+        .mount()
         .await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-    mock_encryption_state(&server, false).await;
+    let room = mock.sync_joined_room(&DEFAULT_TEST_ROOM_ID).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
+    // Here, using `AttachmentInfo::Video`…
     let config = AttachmentConfig::new()
         .info(AttachmentInfo::Video(BaseVideoInfo {
             height: Some(uint!(600)),
@@ -172,23 +144,26 @@ async fn test_room_attachment_send_wrong_info() {
         }))
         .caption(Some("image caption".to_owned()));
 
+    // But here, using `image/jpeg`.
     let response =
         room.send_attachment("image.jpg", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config).await;
 
+    // In the real-world, this would lead to the size information getting lost,
+    // instead of an error during upload. …Is this test any useful?
     response.unwrap_err();
 }
 
 #[async_test]
 async fn test_room_attachment_send_info_thumbnail() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
     let media_mxc = owned_mxc_uri!("mxc://example.com/media");
     let thumbnail_mxc = owned_mxc_uri!("mxc://example.com/thumbnail");
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_partial_json(json!({
+    let expected_event_id = event_id!("$h29iv0s8:example.com");
+
+    mock.mock_room_send()
+        .body_matches_partial_json(json!({
             "info": {
                 "mimetype": "image/jpeg",
                 "h": 600,
@@ -201,47 +176,20 @@ async fn test_room_attachment_send_info_thumbnail() {
                 },
                 "thumbnail_url": thumbnail_mxc,
             }
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
-        .mount(&server)
+        }))
+        .ok(expected_event_id)
+        .mock_once()
+        .mount()
         .await;
 
-    let counter = Mutex::new(0);
-    Mock::given(method("POST"))
-        .and(path("/_matrix/media/r0/upload"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(header("content-type", "image/jpeg"))
-        .respond_with({
-            // First request: return the thumbnail MXC;
-            // Second request: return the media MXC.
-            let media_mxc = media_mxc.clone();
-            let thumbnail_mxc = thumbnail_mxc.clone();
-            move |_: &wiremock::Request| {
-                let mut counter = counter.lock().unwrap();
-                if *counter == 0 {
-                    *counter += 1;
-                    ResponseTemplate::new(200).set_body_json(json!({
-                      "content_uri": &thumbnail_mxc
-                    }))
-                } else {
-                    ResponseTemplate::new(200).set_body_json(json!({
-                      "content_uri": &media_mxc
-                    }))
-                }
-            }
-        })
-        .expect(2)
-        .mount(&server)
-        .await;
+    // First request to /upload: return the thumbnail MXC.
+    mock.mock_upload().expect_mime_type("image/jpeg").ok(&thumbnail_mxc).mock_once().mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-    mock_encryption_state(&server, false).await;
+    // Second request: return the media MXC.
+    mock.mock_upload().expect_mime_type("image/jpeg").ok(&media_mxc).mock_once().mount().await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = mock.sync_joined_room(&DEFAULT_TEST_ROOM_ID).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
     // Preconditions: nothing is found in the cache.
     let media_request =
@@ -250,6 +198,8 @@ async fn test_room_attachment_send_info_thumbnail() {
         source: MediaSource::Plain(thumbnail_mxc.clone()),
         format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(uint!(480), uint!(360))),
     };
+
+    let client = mock.client();
     let _ = client.media().get_media_content(&media_request, true).await.unwrap_err();
     let _ = client.media().get_media_content(&thumbnail_request, true).await.unwrap_err();
 
@@ -277,7 +227,7 @@ async fn test_room_attachment_send_info_thumbnail() {
         .unwrap();
 
     // The event was sent.
-    assert_eq!(response.event_id, event_id!("$h29iv0s8:example.com"));
+    assert_eq!(response.event_id, expected_event_id);
 
     // The media is immediately cached in the cache store, so we don't need to set
     // up another mock endpoint for getting the media.
@@ -311,38 +261,30 @@ async fn test_room_attachment_send_info_thumbnail() {
 
 #[async_test]
 async fn test_room_attachment_send_mentions() {
-    let (client, server) = logged_in_client_with_server().await;
+    let mock = MatrixMockServer::new().await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_partial_json(json!({
+    let expected_event_id = event_id!("$h29iv0s8:example.com");
+
+    mock.mock_room_send()
+        .body_matches_partial_json(json!({
             "m.mentions": {
                 "user_ids": ["@user:localhost"],
             }
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
-        .mount(&server)
+        }))
+        .ok(expected_event_id)
+        .mock_once()
+        .mount()
         .await;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/media/r0/upload"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(header("content-type", "image/jpeg"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-          "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
-        })))
-        .mount(&server)
+    mock.mock_upload()
+        .expect_mime_type("image/jpeg")
+        .ok(mxc_uri!("mxc://example.com/AQwafuaFswefuhsfAFAgsw"))
+        .mock_once()
+        .mount()
         .await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-    mock_encryption_state(&server, false).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = mock.sync_joined_room(&DEFAULT_TEST_ROOM_ID).await;
+    mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
         .send_attachment(
@@ -355,5 +297,5 @@ async fn test_room_attachment_send_mentions() {
         .await
         .unwrap();
 
-    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
+    assert_eq!(expected_event_id, response.event_id);
 }
