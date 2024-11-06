@@ -105,13 +105,17 @@ pub struct ClientBuilder {
 }
 
 impl ClientBuilder {
+    const DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME: &str = "main";
+
     pub(crate) fn new() -> Self {
         Self {
             homeserver_cfg: None,
             #[cfg(feature = "experimental-sliding-sync")]
             sliding_sync_version_builder: SlidingSyncVersionBuilder::Native,
             http_cfg: None,
-            store_config: BuilderStoreConfig::Custom(StoreConfig::default()),
+            store_config: BuilderStoreConfig::Custom(StoreConfig::new(
+                Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
+            )),
             request_config: Default::default(),
             respect_login_well_known: true,
             server_versions: None,
@@ -123,7 +127,8 @@ impl ClientBuilder {
             room_key_recipient_strategy: Default::default(),
             #[cfg(feature = "e2e-encryption")]
             decryption_trust_requirement: TrustRequirement::Untrusted,
-            cross_process_store_locks_holder_name: "main".to_owned(),
+            cross_process_store_locks_holder_name:
+                Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
         }
     }
 
@@ -210,7 +215,6 @@ impl ClientBuilder {
             path: path.as_ref().to_owned(),
             cache_path: None,
             passphrase: passphrase.map(ToOwned::to_owned),
-            event_cache_store_lock_holder: "matrix-sdk".to_owned(),
         };
         self
     }
@@ -228,7 +232,6 @@ impl ClientBuilder {
             path: path.as_ref().to_owned(),
             cache_path: Some(cache_path.as_ref().to_owned()),
             passphrase: passphrase.map(ToOwned::to_owned),
-            event_cache_store_lock_holder: "matrix-sdk".to_owned(),
         };
         self
     }
@@ -239,7 +242,6 @@ impl ClientBuilder {
         self.store_config = BuilderStoreConfig::IndexedDb {
             name: name.to_owned(),
             passphrase: passphrase.map(ToOwned::to_owned),
-            event_cache_store_lock_holder: "matrix-sdk".to_owned(),
         };
         self
     }
@@ -260,7 +262,9 @@ impl ClientBuilder {
     /// # let custom_state_store = MemoryStore::new();
     /// use matrix_sdk::{config::StoreConfig, Client};
     ///
-    /// let store_config = StoreConfig::new().state_store(custom_state_store);
+    /// let store_config =
+    ///     StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+    ///         .state_store(custom_state_store);
     /// let client_builder = Client::builder().store_config(store_config);
     /// ```
     pub fn store_config(mut self, store_config: StoreConfig) -> Self {
@@ -473,13 +477,17 @@ impl ClientBuilder {
             base_client
         } else {
             #[allow(unused_mut)]
-            let mut client =
-                BaseClient::with_store_config(build_store_config(self.store_config).await?);
+            let mut client = BaseClient::with_store_config(
+                build_store_config(self.store_config, &self.cross_process_store_locks_holder_name)
+                    .await?,
+            );
+
             #[cfg(feature = "e2e-encryption")]
             {
                 client.room_key_recipient_strategy = self.room_key_recipient_strategy;
                 client.decryption_trust_requirement = self.decryption_trust_requirement;
             }
+
             client
         };
 
@@ -564,20 +572,16 @@ pub fn sanitize_server_name(s: &str) -> crate::Result<OwnedServerName, IdParseEr
     )
 }
 
-#[allow(clippy::unused_async)] // False positive when building with !sqlite & !indexeddb
+#[allow(clippy::unused_async, unused)] // False positive when building with !sqlite & !indexeddb
 async fn build_store_config(
     builder_config: BuilderStoreConfig,
+    cross_process_store_locks_holder_name: &str,
 ) -> Result<StoreConfig, ClientBuildError> {
     #[allow(clippy::infallible_destructuring_match)]
     let store_config = match builder_config {
         #[cfg(feature = "sqlite")]
-        BuilderStoreConfig::Sqlite {
-            path,
-            cache_path,
-            passphrase,
-            event_cache_store_lock_holder,
-        } => {
-            let store_config = StoreConfig::new()
+        BuilderStoreConfig::Sqlite { path, cache_path, passphrase } => {
+            let store_config = StoreConfig::new(cross_process_store_locks_holder_name.to_owned())
                 .state_store(
                     matrix_sdk_sqlite::SqliteStateStore::open(&path, passphrase.as_deref()).await?,
                 )
@@ -587,8 +591,6 @@ async fn build_store_config(
                         passphrase.as_deref(),
                     )
                     .await?,
-                    "default-key".to_owned(),
-                    event_cache_store_lock_holder,
                 );
 
             #[cfg(feature = "e2e-encryption")]
@@ -600,11 +602,11 @@ async fn build_store_config(
         }
 
         #[cfg(feature = "indexeddb")]
-        BuilderStoreConfig::IndexedDb { name, passphrase, event_cache_store_lock_holder } => {
+        BuilderStoreConfig::IndexedDb { name, passphrase } => {
             build_indexeddb_store_config(
                 &name,
                 passphrase.as_deref(),
-                event_cache_store_lock_holder,
+                cross_process_store_locks_holder_name,
             )
             .await?
         }
@@ -620,28 +622,28 @@ async fn build_store_config(
 async fn build_indexeddb_store_config(
     name: &str,
     passphrase: Option<&str>,
-    event_cache_store_lock_holder: String,
+    cross_process_store_locks_holder_name: &str,
 ) -> Result<StoreConfig, ClientBuildError> {
+    let cross_process_store_locks_holder_name = cross_process_store_locks_holder_name.to_owned();
+
     #[cfg(feature = "e2e-encryption")]
     let store_config = {
         let (state_store, crypto_store) =
             matrix_sdk_indexeddb::open_stores_with_name(name, passphrase).await?;
-        StoreConfig::new().state_store(state_store).crypto_store(crypto_store)
+        StoreConfig::new(cross_process_store_locks_holder_name)
+            .state_store(state_store)
+            .crypto_store(crypto_store)
     };
 
     #[cfg(not(feature = "e2e-encryption"))]
     let store_config = {
         let state_store = matrix_sdk_indexeddb::open_state_store(name, passphrase).await?;
-        StoreConfig::new().state_store(state_store)
+        StoreConfig::new(cross_process_store_locks_holder_name).state_store(state_store)
     };
 
     let store_config = {
         tracing::warn!("The IndexedDB backend does not implement an event cache store, falling back to the in-memory event cache store…");
-        store_config.event_cache_store(
-            matrix_sdk_base::event_cache_store::MemoryStore::new(),
-            "default-key".to_owned(),
-            event_cache_store_lock_holder,
-        )
+        store_config.event_cache_store(matrix_sdk_base::event_cache_store::MemoryStore::new())
     };
 
     Ok(store_config)
@@ -651,7 +653,7 @@ async fn build_indexeddb_store_config(
 async fn build_indexeddb_store_config(
     _name: &str,
     _passphrase: Option<&str>,
-    _event_cache_store_lock_holder: String,
+    _event_cache_store_lock_holder_name: &str,
 ) -> Result<StoreConfig, ClientBuildError> {
     panic!("the IndexedDB is only available on the 'wasm32' arch")
 }
@@ -696,13 +698,11 @@ enum BuilderStoreConfig {
         path: std::path::PathBuf,
         cache_path: Option<std::path::PathBuf>,
         passphrase: Option<String>,
-        event_cache_store_lock_holder: String,
     },
     #[cfg(feature = "indexeddb")]
     IndexedDb {
         name: String,
         passphrase: Option<String>,
-        event_cache_store_lock_holder: String,
     },
     Custom(StoreConfig),
 }
@@ -770,6 +770,7 @@ pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
     use serde_json::{json_internal, Value as JsonValue};
+    #[cfg(feature = "experimental-sliding-sync")]
     use url::Url;
     use wiremock::{
         matchers::{method, path},
@@ -1148,13 +1149,13 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_cross_process_lock_stores_holder_name() {
+    async fn test_cross_process_store_locks_holder_name() {
         {
             let homeserver = make_mock_homeserver().await;
             let client =
                 ClientBuilder::new().homeserver_url(homeserver.uri()).build().await.unwrap();
 
-            assert_eq!(client.cross_process_lock_stores_holder_name(), "main");
+            assert_eq!(client.cross_process_store_locks_holder_name(), "main");
         }
 
         {
@@ -1166,7 +1167,7 @@ pub(crate) mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(client.cross_process_lock_stores_holder_name(), "foo");
+            assert_eq!(client.cross_process_store_locks_holder_name(), "foo");
         }
     }
 }

@@ -2255,7 +2255,12 @@ impl Client {
                 #[cfg(feature = "experimental-sliding-sync")]
                 self.sliding_sync_version(),
                 self.inner.http_client.clone(),
-                self.inner.base_client.clone_with_in_memory_state_store().await?,
+                self.inner
+                    .base_client
+                    .clone_with_in_memory_state_store(
+                        &self.inner.cross_process_store_locks_holder_name,
+                    )
+                    .await?,
                 self.inner.server_capabilities.read().await.clone(),
                 self.inner.respect_login_well_known,
                 self.inner.event_cache.clone(),
@@ -2785,7 +2790,10 @@ pub(crate) mod tests {
         let memory_store = Arc::new(MemoryStore::new());
         let client = Client::builder()
             .insecure_server_name_no_tls(server_name)
-            .store_config(StoreConfig::new().state_store(memory_store.clone()))
+            .store_config(
+                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    .state_store(memory_store.clone()),
+            )
             .build()
             .await
             .unwrap();
@@ -2804,7 +2812,10 @@ pub(crate) mod tests {
 
         let client = Client::builder()
             .insecure_server_name_no_tls(server_name)
-            .store_config(StoreConfig::new().state_store(memory_store.clone()))
+            .store_config(
+                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    .state_store(memory_store.clone()),
+            )
             .build()
             .await
             .unwrap();

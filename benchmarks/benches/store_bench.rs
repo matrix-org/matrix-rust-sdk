@@ -69,7 +69,10 @@ pub fn restore_session(c: &mut Criterion) {
         b.to_async(&runtime).iter(|| async {
             let client = Client::builder()
                 .homeserver_url("https://matrix.example.com")
-                .store_config(StoreConfig::new().state_store(store.clone()))
+                .store_config(
+                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                        .state_store(store.clone()),
+                )
                 .build()
                 .await
                 .expect("Can't build client");
@@ -96,7 +99,10 @@ pub fn restore_session(c: &mut Criterion) {
                 b.to_async(&runtime).iter(|| async {
                     let client = Client::builder()
                         .homeserver_url("https://matrix.example.com")
-                        .store_config(StoreConfig::new().state_store(store.clone()))
+                        .store_config(
+                            StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                                .state_store(store.clone()),
+                        )
                         .build()
                         .await
                         .expect("Can't build client");

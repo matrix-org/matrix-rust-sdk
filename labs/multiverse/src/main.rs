@@ -948,7 +948,7 @@ async fn configure_client(server_name: String, config_path: String) -> anyhow::R
     let config_path = PathBuf::from(config_path);
     let mut client_builder = Client::builder()
         .store_config(
-            StoreConfig::default()
+            StoreConfig::new("multiverse".to_owned())
                 .crypto_store(
                     SqliteCryptoStore::open(config_path.join("crypto.sqlite"), None).await?,
                 )

@@ -1514,7 +1514,10 @@ async fn test_reloading_rooms_with_unsent_events() {
     let client = Client::builder()
         .homeserver_url(server.uri())
         .server_versions([MatrixVersion::V1_0])
-        .store_config(StoreConfig::new().state_store(store.clone()))
+        .store_config(
+            StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                .state_store(store.clone()),
+        )
         .request_config(RequestConfig::new().disable_retry())
         .build()
         .await
@@ -1569,7 +1572,9 @@ async fn test_reloading_rooms_with_unsent_events() {
     let client = Client::builder()
         .homeserver_url(mock.server().uri())
         .server_versions([MatrixVersion::V1_0])
-        .store_config(StoreConfig::new().state_store(store))
+        .store_config(
+            StoreConfig::new("cross-process-store-locks-holder-name".to_owned()).state_store(store),
+        )
         .request_config(RequestConfig::new().disable_retry())
         .build()
         .await
