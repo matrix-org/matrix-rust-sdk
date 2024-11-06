@@ -101,6 +101,7 @@ pub struct ClientBuilder {
     room_key_recipient_strategy: CollectStrategy,
     #[cfg(feature = "e2e-encryption")]
     decryption_trust_requirement: TrustRequirement,
+    cross_process_store_locks_holder_name: String,
 }
 
 impl ClientBuilder {
@@ -122,6 +123,7 @@ impl ClientBuilder {
             room_key_recipient_strategy: Default::default(),
             #[cfg(feature = "e2e-encryption")]
             decryption_trust_requirement: TrustRequirement::Untrusted,
+            cross_process_store_locks_holder_name: "main".to_owned(),
         }
     }
 
@@ -424,6 +426,20 @@ impl ClientBuilder {
         self
     }
 
+    /// Set the cross-process store locks holder name.
+    ///
+    /// The SDK provides cross-process store locks (see
+    /// [`matrix_sdk_common::store_locks::CrossProcessStoreLock`]). The
+    /// `holder_name` will be the value used for all cross-process store locks
+    /// used by the `Client` being built.
+    ///
+    /// If 2 concurrent `Client`s are running in 2 different process, this
+    /// method must be called with different `hold_name` values.
+    pub fn cross_process_store_locks_holder_name(mut self, holder_name: String) -> Self {
+        self.cross_process_store_locks_holder_name = holder_name;
+        self
+    }
+
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -529,6 +545,7 @@ impl ClientBuilder {
             send_queue,
             #[cfg(feature = "e2e-encryption")]
             self.encryption_settings,
+            self.cross_process_store_locks_holder_name,
         )
         .await;
 
@@ -1128,5 +1145,28 @@ pub(crate) mod tests {
 
             object
         })
+    }
+
+    #[async_test]
+    async fn test_cross_process_lock_stores_holder_name() {
+        {
+            let homeserver = make_mock_homeserver().await;
+            let client =
+                ClientBuilder::new().homeserver_url(homeserver.uri()).build().await.unwrap();
+
+            assert_eq!(client.cross_process_lock_stores_holder_name(), "main");
+        }
+
+        {
+            let homeserver = make_mock_homeserver().await;
+            let client = ClientBuilder::new()
+                .homeserver_url(homeserver.uri())
+                .cross_process_store_locks_holder_name("foo".to_owned())
+                .build()
+                .await
+                .unwrap();
+
+            assert_eq!(client.cross_process_lock_stores_holder_name(), "foo");
+        }
     }
 }
