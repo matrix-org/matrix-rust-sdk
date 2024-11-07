@@ -721,10 +721,11 @@ async fn test_make_reply_event_doesnt_require_event_cache() {
     // /event query to get details on an event.
 
     let mock = MatrixMockServer::new().await;
-    let user_id = mock.client().user_id().unwrap().to_owned();
+    let client = mock.make_client().await;
+    let user_id = client.user_id().unwrap().to_owned();
 
     let room_id = room_id!("!galette:saucisse.bzh");
-    let room = mock.sync_joined_room(room_id).await;
+    let room = mock.sync_joined_room(&client, room_id).await;
 
     let event_id = event_id!("$1");
     let f = EventFactory::new();
@@ -744,12 +745,13 @@ async fn test_make_reply_event_doesnt_require_event_cache() {
 #[async_test]
 async fn test_enable_encryption_doesnt_stay_unencrypted() {
     let mock = MatrixMockServer::new().await;
+    let client = mock.make_client().await;
 
     mock.mock_room_state_encryption().plain().mount().await;
     mock.mock_set_room_state_encryption().ok(event_id!("$1")).mount().await;
 
     let room_id = room_id!("!a:b.c");
-    let room = mock.sync_joined_room(room_id).await;
+    let room = mock.sync_joined_room(&client, room_id).await;
 
     assert!(!room.is_encrypted().await.unwrap());
 
