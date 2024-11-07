@@ -19,20 +19,23 @@
 
 use std::sync::{Arc, Mutex};
 
-use matrix_sdk_base::deserialized_responses::TimelineEvent;
+use matrix_sdk_base::{deserialized_responses::TimelineEvent, store::StoreConfig, SessionMeta};
 use matrix_sdk_test::{
     test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
     SyncResponseBuilder,
 };
-use ruma::{MxcUri, OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{api::MatrixVersion, device_id, user_id, MxcUri, OwnedEventId, OwnedRoomId, RoomId};
 use serde_json::json;
 use wiremock::{
     matchers::{body_partial_json, header, method, path, path_regex},
     Mock, MockBuilder, MockGuard, MockServer, Respond, ResponseTemplate, Times,
 };
 
-use super::logged_in_client;
-use crate::{Client, Room};
+use crate::{
+    config::RequestConfig,
+    matrix_auth::{MatrixSession, MatrixSessionTokens},
+    Client, ClientBuilder, Room,
+};
 
 /// A `wiremock` [`MockServer`] along with useful methods to help mocking Matrix
 /// client-server API endpoints easily.
@@ -80,10 +83,10 @@ impl MatrixMockServer {
         Self { server, sync_response_builder: Default::default() }
     }
 
-    /// Creates a new [`Client`] configured to use this server, preconfigured
-    /// with a session expected by the server endpoints.
-    pub async fn make_client(&self) -> Client {
-        logged_in_client(Some(self.server.uri().to_string())).await
+    /// Creates a new [`MockClientBuilder`] configured to use this server,
+    /// preconfigured with a session expected by the server endpoints.
+    pub fn client_builder(&self) -> MockClientBuilder {
+        MockClientBuilder::new(self.server.uri())
     }
 
     /// Return the underlying server.
@@ -548,5 +551,60 @@ impl<'a> MockEndpoint<'a, CreateRoomAliasEndpoint> {
     pub fn ok(self) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
         MatrixMock { server: self.server, mock }
+    }
+}
+
+/// An augmented [`ClientBuilder`] that also allows for handling session login.
+pub struct MockClientBuilder {
+    builder: ClientBuilder,
+    logged_in: bool,
+}
+
+impl MockClientBuilder {
+    fn new(homeserver: String) -> Self {
+        let default_builder = Client::builder()
+            .homeserver_url(homeserver)
+            .server_versions([MatrixVersion::V1_0])
+            .request_config(RequestConfig::new().disable_retry());
+
+        Self { builder: default_builder, logged_in: true }
+    }
+
+    /// Doesn't log-in a user.
+    ///
+    /// Authenticated requests will fail if this is called.
+    pub fn unlogged(mut self) -> Self {
+        self.logged_in = false;
+        self
+    }
+
+    /// Provides another [`StoreConfig`] for the underlying [`ClientBuilder`].
+    pub fn store_config(mut self, store_config: StoreConfig) -> Self {
+        self.builder = self.builder.store_config(store_config);
+        self
+    }
+
+    /// Finish building the client into the final [`Client`] instance.
+    pub async fn build(self) -> Client {
+        let client = self.builder.build().await.expect("building client failed");
+
+        if self.logged_in {
+            client
+                .matrix_auth()
+                .restore_session(MatrixSession {
+                    meta: SessionMeta {
+                        user_id: user_id!("@example:localhost").to_owned(),
+                        device_id: device_id!("DEVICEID").to_owned(),
+                    },
+                    tokens: MatrixSessionTokens {
+                        access_token: "1234".to_owned(),
+                        refresh_token: None,
+                    },
+                })
+                .await
+                .unwrap();
+        }
+
+        client
     }
 }

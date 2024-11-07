@@ -2989,7 +2989,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_is_room_alias_available_if_alias_is_not_resolved() {
         let server = MatrixMockServer::new().await;
-        let client = logged_in_client(Some(server.server().uri())).await;
+        let client = server.client_builder().build().await;
 
         server.mock_room_directory_resolve_alias().not_found().expect(1).mount().await;
 
@@ -3000,7 +3000,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_is_room_alias_available_if_alias_is_resolved() {
         let server = MatrixMockServer::new().await;
-        let client = logged_in_client(Some(server.server().uri())).await;
+        let client = server.client_builder().build().await;
 
         server
             .mock_room_directory_resolve_alias()
@@ -3016,7 +3016,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_is_room_alias_available_if_error_found() {
         let server = MatrixMockServer::new().await;
-        let client = logged_in_client(Some(server.server().uri())).await;
+        let client = server.client_builder().build().await;
 
         server.mock_room_directory_resolve_alias().error500().expect(1).mount().await;
 
@@ -3027,7 +3027,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_create_room_alias() {
         let server = MatrixMockServer::new().await;
-        let client = logged_in_client(Some(server.server().uri())).await;
+        let client = server.client_builder().build().await;
 
         server.mock_create_room_alias().ok().expect(1).mount().await;
 

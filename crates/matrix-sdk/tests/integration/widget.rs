@@ -74,7 +74,7 @@ async fn run_test_driver(
         }
     }
     let mock_server = MatrixMockServer::new().await;
-    let client = mock_server.make_client().await;
+    let client = mock_server.client_builder().build().await;
 
     let room = mock_server.sync_joined_room(&client, &ROOM_ID).await;
     mock_server.mock_room_state_encryption().plain().mount().await;
