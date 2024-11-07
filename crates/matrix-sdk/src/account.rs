@@ -252,7 +252,7 @@ impl Account {
     ///
     /// [`Media::upload()`]: crate::Media::upload
     pub async fn upload_avatar(&self, content_type: &Mime, data: Vec<u8>) -> Result<OwnedMxcUri> {
-        let upload_response = self.client.media().upload(content_type, data).await?;
+        let upload_response = self.client.media().upload(content_type, data, None).await?;
         self.set_avatar_url(Some(&upload_response.content_uri)).await?;
         Ok(upload_response.content_uri)
     }
