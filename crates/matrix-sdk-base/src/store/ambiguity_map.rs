@@ -82,10 +82,12 @@ impl DisplayNameUsers {
 }
 
 impl AmbiguityCache {
+    /// Create a new [`AmbiguityCache`] backed by the given state store.
     pub fn new(store: Arc<DynStateStore>) -> Self {
         Self { store, cache: BTreeMap::new(), changes: BTreeMap::new() }
     }
 
+    /// Handle a newly received [`SyncRoomMemberEvent`] for the given room.
     pub async fn handle_event(
         &mut self,
         changes: &StateChanges,
@@ -104,7 +106,8 @@ impl AmbiguityCache {
             return Ok(());
         }
 
-        let (mut old_map, mut new_map) = self.get(changes, room_id, member_event).await?;
+        let (mut old_map, mut new_map) =
+            self.calculate_changes(changes, room_id, member_event).await?;
 
         let display_names_same = match (&old_map, &new_map) {
             (Some(a), Some(b)) => a.display_name == b.display_name,
@@ -142,6 +145,8 @@ impl AmbiguityCache {
         Ok(())
     }
 
+    /// Update the [`AmbiguityCache`] state for the given room with a pair of
+    /// [`DisplayNameUsers`] that got created by a new [`SyncRoomMemberEvent`].
     fn update(
         &mut self,
         room_id: &RoomId,
@@ -159,6 +164,8 @@ impl AmbiguityCache {
         }
     }
 
+    /// Get the previously used display name, if any, of the member described in
+    /// the given new [`SyncRoomMemberEvent`].
     async fn get_old_display_name(
         &self,
         changes: &StateChanges,
@@ -205,6 +212,12 @@ impl AmbiguityCache {
         }
     }
 
+    /// Get the [`DisplayNameUsers`] for the given display name in the given
+    /// room.
+    ///
+    /// This method will get the [`DisplayNameUsers`] from the cache, if the
+    /// cache doesn't contain such an entry, it falls back to the state
+    /// store.
     async fn get_users_with_display_name(
         &mut self,
         room_id: &RoomId,
@@ -223,7 +236,13 @@ impl AmbiguityCache {
         })
     }
 
-    async fn get(
+    /// Calculate the change in the users that use a display name a
+    /// [`SyncRoomMemberEvent`] will cause for a given room.
+    ///
+    /// Returns the [`DisplayNameUsers`] before the member event is applied and
+    /// the [`DisplayNameUsers`] after the member event is applied to the
+    /// room state.
+    async fn calculate_changes(
         &mut self,
         changes: &StateChanges,
         room_id: &RoomId,
