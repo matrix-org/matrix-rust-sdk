@@ -397,14 +397,8 @@ impl Encryption {
     pub fn verification_state_listener(
         self: Arc<Self>,
         listener: Box<dyn VerificationStateListener>,
-        emit_current_value: bool,
     ) -> Arc<TaskHandle> {
         let mut subscriber = self.inner.verification_state();
-
-        if emit_current_value {
-            // Emit current value first
-            listener.on_update(subscriber.get().into());
-        }
 
         Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
             while let Some(verification_state) = subscriber.next().await {
