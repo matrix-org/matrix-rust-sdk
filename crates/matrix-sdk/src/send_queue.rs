@@ -171,7 +171,7 @@ use crate::{
     config::RequestConfig,
     error::RetryKind,
     room::{edit::EditedContent, WeakRoom},
-    Client, Room,
+    Client, Media, Room,
 };
 
 mod upload;
@@ -709,18 +709,27 @@ impl RoomSendQueue {
                 let media_source = if room.is_encrypted().await? {
                     trace!("upload will be encrypted (encrypted room)");
                     let mut cursor = std::io::Cursor::new(data);
-                    let encrypted_file =
-                        room.client().upload_encrypted_file(&mime, &mut cursor).await?;
+                    let encrypted_file = room
+                        .client()
+                        .upload_encrypted_file(&mime, &mut cursor)
+                        .with_request_config(RequestConfig::short_retry())
+                        .await?;
                     MediaSource::Encrypted(Box::new(encrypted_file))
                 } else {
                     trace!("upload will be in clear text (room without encryption)");
-                    let res = room.client().media().upload(&mime, data).await?;
+                    let request_config = RequestConfig::short_retry()
+                        .timeout(Media::reasonable_upload_timeout(&data));
+                    let res =
+                        room.client().media().upload(&mime, data, Some(request_config)).await?;
                     MediaSource::Plain(res.content_uri)
                 };
 
                 #[cfg(not(feature = "e2e-encryption"))]
                 let media_source = {
-                    let res = room.client().media().upload(&mime, data).await?;
+                    let request_config = RequestConfig::short_retry()
+                        .timeout(Media::reasonable_upload_timeout(&data));
+                    let res =
+                        room.client().media().upload(&mime, data, Some(request_config)).await?;
                     MediaSource::Plain(res.content_uri)
                 };
 
