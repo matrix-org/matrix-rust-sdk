@@ -10,7 +10,6 @@ exclude = [
 version = 2
 ignore = [
     { id = "RUSTSEC-2023-0071", reason = "We are not using RSA directly, nor do we depend on the RSA crate directly" },
-    { id = "RUSTSEC-2024-0370", reason = "Waiting for a Aquamarine release" },
 ]
 
 [licenses]
