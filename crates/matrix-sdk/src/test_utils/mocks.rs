@@ -293,6 +293,13 @@ impl<'a> MatrixMock<'a> {
         Self { mock: self.mock.up_to_n_times(1).expect(1), ..self }
     }
 
+    /// Specify an upper limit to the number of times you would like this
+    /// [`MatrixMock`] to respond to incoming requests that satisfy the
+    /// conditions imposed by your matchers.
+    pub fn up_to_n_times(self, num: u64) -> Self {
+        Self { mock: self.mock.up_to_n_times(num), ..self }
+    }
+
     /// Mount a [`MatrixMock`] on the attached server.
     ///
     /// The [`MatrixMock`] will remain active until the [`MatrixMockServer`] is
@@ -515,6 +522,13 @@ impl<'a> MockUpload<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "content_uri": mxc_id
         })));
+        MatrixMock { server: self.server, mock }
+    }
+
+    /// Returns a send endpoint that emulates a transient failure, i.e responds
+    /// with error 500.
+    pub fn error500(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(500));
         MatrixMock { server: self.server, mock }
     }
 

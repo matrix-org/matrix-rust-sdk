@@ -1933,3 +1933,91 @@ async fn test_media_uploads() {
     // That's all, folks!
     assert!(watch.is_empty());
 }
+
+#[async_test]
+async fn test_media_upload_retry() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.make_client().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    // Create the media to send (no thumbnails).
+    let filename = "surprise.jpeg.exe";
+    let content_type = mime::IMAGE_JPEG;
+    let data = b"hello world".to_vec();
+
+    let config = AttachmentConfig::new().info(AttachmentInfo::Image(BaseImageInfo {
+        height: Some(uint!(13)),
+        width: Some(uint!(37)),
+        size: Some(uint!(42)),
+        blurhash: None,
+    }));
+
+    // Prepare endpoints.
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // Fail for the first three attempts.
+    mock.mock_upload()
+        .expect_mime_type("image/jpeg")
+        .error500()
+        .up_to_n_times(3)
+        .expect(3)
+        .mount()
+        .await;
+
+    // Send the media.
+    assert!(watch.is_empty());
+    q.send_attachment(filename, content_type, data, config)
+        .await
+        .expect("queuing the attachment works");
+
+    // Observe the local echo.
+    let (event_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    assert_let!(MessageType::Image(img_content) = content.msgtype);
+    assert_eq!(img_content.body, filename);
+
+    // Let the upload stumble and the queue disable itself.
+    let error = assert_update!(watch => error { recoverable=true, txn=event_txn });
+    let error = error.as_client_api_error().unwrap();
+    assert_eq!(error.status_code, 500);
+    assert!(q.is_enabled().not());
+
+    // Mount the mock for the upload and sending the event.
+    mock.mock_upload()
+        .expect_mime_type("image/jpeg")
+        .ok(mxc_uri!("mxc://sdk.rs/media"))
+        .mock_once()
+        .mount()
+        .await;
+    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+
+    // Restart the send queue.
+    q.set_enabled(true);
+
+    assert_update!(watch => uploaded {
+        related_to = event_txn,
+        mxc = mxc_uri!("mxc://sdk.rs/media")
+    });
+
+    let edit_msg = assert_update!(watch => edit local echo {
+        txn = event_txn
+    });
+    assert_let!(MessageType::Image(new_content) = edit_msg.msgtype);
+    assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
+    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
+
+    // The event is sent, at some point.
+    assert_update!(watch => sent {
+        txn = event_txn,
+        event_id = event_id!("$1")
+    });
+
+    // That's all, folks!
+    assert!(watch.is_empty());
+}
