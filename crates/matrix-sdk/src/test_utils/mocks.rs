@@ -144,7 +144,7 @@ impl MatrixMockServer {
     /// Mocks a sync endpoint.
     pub fn mock_sync(&self) -> MockEndpoint<'_, SyncEndpoint> {
         let mock = Mock::given(method("GET"))
-            .and(path("/_matrix/client/r0/sync"))
+            .and(path("/_matrix/client/v3/sync"))
             .and(header("authorization", "Bearer 1234"));
         MockEndpoint {
             mock,
@@ -158,7 +158,7 @@ impl MatrixMockServer {
     /// Note: works with *any* room.
     pub fn mock_room_send(&self) -> MockEndpoint<'_, RoomSendEndpoint> {
         let mock = Mock::given(method("PUT"))
-            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
             .and(header("authorization", "Bearer 1234"));
         MockEndpoint { mock, server: &self.server, endpoint: RoomSendEndpoint }
     }
@@ -169,7 +169,7 @@ impl MatrixMockServer {
     pub fn mock_room_state_encryption(&self) -> MockEndpoint<'_, EncryptionStateEndpoint> {
         let mock = Mock::given(method("GET"))
             .and(header("authorization", "Bearer 1234"))
-            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.*room.*encryption.?"));
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.*room.*encryption.?"));
         MockEndpoint { mock, server: &self.server, endpoint: EncryptionStateEndpoint }
     }
 
@@ -179,14 +179,14 @@ impl MatrixMockServer {
     pub fn mock_set_room_state_encryption(&self) -> MockEndpoint<'_, SetEncryptionStateEndpoint> {
         let mock = Mock::given(method("PUT"))
             .and(header("authorization", "Bearer 1234"))
-            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.*room.*encryption.?"));
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.*room.*encryption.?"));
         MockEndpoint { mock, server: &self.server, endpoint: SetEncryptionStateEndpoint }
     }
 
     /// Creates a prebuilt mock for the room redact endpoint.
     pub fn mock_room_redact(&self) -> MockEndpoint<'_, RoomRedactEndpoint> {
         let mock = Mock::given(method("PUT"))
-            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/redact/.*?/.*?"))
             .and(header("authorization", "Bearer 1234"));
         MockEndpoint { mock, server: &self.server, endpoint: RoomRedactEndpoint }
     }
@@ -204,7 +204,7 @@ impl MatrixMockServer {
     /// Create a prebuilt mock for uploading media.
     pub fn mock_upload(&self) -> MockEndpoint<'_, UploadEndpoint> {
         let mock = Mock::given(method("POST"))
-            .and(path("/_matrix/media/r0/upload"))
+            .and(path("/_matrix/media/v3/upload"))
             .and(header("authorization", "Bearer 1234"));
         MockEndpoint { mock, server: &self.server, endpoint: UploadEndpoint }
     }
@@ -212,14 +212,14 @@ impl MatrixMockServer {
     /// Create a prebuilt mock for resolving room aliases.
     pub fn mock_room_directory_resolve_alias(&self) -> MockEndpoint<'_, ResolveRoomAliasEndpoint> {
         let mock =
-            Mock::given(method("GET")).and(path_regex(r"/_matrix/client/r0/directory/room/.*"));
+            Mock::given(method("GET")).and(path_regex(r"/_matrix/client/v3/directory/room/.*"));
         MockEndpoint { mock, server: &self.server, endpoint: ResolveRoomAliasEndpoint }
     }
 
     /// Create a prebuilt mock for creating room aliases.
     pub fn mock_create_room_alias(&self) -> MockEndpoint<'_, CreateRoomAliasEndpoint> {
         let mock =
-            Mock::given(method("PUT")).and(path_regex(r"/_matrix/client/r0/directory/room/.*"));
+            Mock::given(method("PUT")).and(path_regex(r"/_matrix/client/v3/directory/room/.*"));
         MockEndpoint { mock, server: &self.server, endpoint: CreateRoomAliasEndpoint }
     }
 }
@@ -495,7 +495,7 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
 
         let mock = self
             .mock
-            .and(path_regex(format!("^/_matrix/client/r0/rooms/{room_path}/event/{event_path}")))
+            .and(path_regex(format!("^/_matrix/client/v3/rooms/{room_path}/event/{event_path}")))
             .respond_with(ResponseTemplate::new(200).set_body_json(event.into_raw().json()));
         MatrixMock { server: self.server, mock }
     }
@@ -564,7 +564,7 @@ impl MockClientBuilder {
     fn new(homeserver: String) -> Self {
         let default_builder = Client::builder()
             .homeserver_url(homeserver)
-            .server_versions([MatrixVersion::V1_0])
+            .server_versions([MatrixVersion::V1_12])
             .request_config(RequestConfig::new().disable_retry());
 
         Self { builder: default_builder, logged_in: true }
