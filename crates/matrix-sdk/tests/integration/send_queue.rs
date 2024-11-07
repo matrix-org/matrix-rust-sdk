@@ -3,7 +3,7 @@ use std::{ops::Not as _, sync::Arc, time::Duration};
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
     attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, Thumbnail},
-    config::{RequestConfig, StoreConfig},
+    config::StoreConfig,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueError, RoomSendQueueStorageError,
@@ -11,15 +11,12 @@ use matrix_sdk::{
     },
     test_utils::{
         events::EventFactory,
-        logged_in_client,
         mocks::{MatrixMock, MatrixMockServer},
-        set_client_session,
     },
-    Client, MemoryStore,
+    MemoryStore,
 };
 use matrix_sdk_test::{async_test, InvitedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder};
 use ruma::{
-    api::MatrixVersion,
     event_id,
     events::{
         poll::unstable_start::{
@@ -210,7 +207,7 @@ async fn test_cant_send_invited_room() {
 
     // When I'm invited to a room,
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_room(&client, room_id, InvitedRoomBuilder::new(room_id)).await;
 
     // I can't send message to it with the send queue.
@@ -226,7 +223,7 @@ async fn test_cant_send_left_room() {
 
     // When I've left a room,
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_room(&client, room_id, LeftRoomBuilder::new(room_id)).await;
 
     // I can't send message to it with the send queue.
@@ -244,7 +241,7 @@ async fn test_cant_send_knocked_room() {
 
     // When I've knocked into a room,
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_room(&client, room_id, KnockedRoomBuilder::new(room_id)).await;
 
     // I can't send message to it with the send queue.
@@ -262,7 +259,7 @@ async fn test_nothing_sent_when_disabled() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     // When I disable the send queue,
@@ -294,7 +291,7 @@ async fn test_smoke() {
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
 
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
@@ -359,7 +356,7 @@ async fn test_smoke_raw() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
@@ -402,7 +399,7 @@ async fn test_smoke_raw() {
 async fn test_error_then_locally_reenabling() {
     let mock = MatrixMockServer::new().await;
 
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let mut errors = client.send_queue().subscribe_errors();
 
     // Starting with a globally enabled queue.
@@ -504,7 +501,7 @@ async fn test_error_then_locally_reenabling() {
 async fn test_error_then_globally_reenabling() {
     let mock = MatrixMockServer::new().await;
 
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let mut errors = client.send_queue().subscribe_errors();
 
     // Starting with a globally enabled queue.
@@ -571,7 +568,7 @@ async fn test_reenabling_queue() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let errors = client.send_queue().subscribe_errors();
@@ -644,7 +641,7 @@ async fn test_disjoint_enabled_status() {
     let room_id1 = room_id!("!a:b.c");
     let room_id2 = room_id!("!b:b.c");
 
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room1 = mock.sync_joined_room(&client, room_id1).await;
     let room2 = mock.sync_joined_room(&client, room_id2).await;
 
@@ -679,7 +676,7 @@ async fn test_cancellation() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
@@ -796,7 +793,7 @@ async fn test_edit() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
@@ -900,7 +897,7 @@ async fn test_edit_with_poll_start() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
@@ -1028,7 +1025,7 @@ async fn test_edit_while_being_sent_and_fails() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
@@ -1109,7 +1106,7 @@ async fn test_edit_wakes_the_sending_task() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
@@ -1159,7 +1156,7 @@ async fn test_abort_after_disable() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let mut errors = client.send_queue().subscribe_errors();
@@ -1217,7 +1214,7 @@ async fn test_abort_or_edit_after_send() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     // Start with an enabled sending queue.
@@ -1260,7 +1257,7 @@ async fn test_abort_while_being_sent_and_fails() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
@@ -1329,7 +1326,7 @@ async fn test_unrecoverable_errors() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let mut errors = client.send_queue().subscribe_errors();
@@ -1391,7 +1388,7 @@ async fn test_unwedge_unrecoverable_errors() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let mut errors = client.send_queue().subscribe_errors();
@@ -1457,8 +1454,8 @@ async fn test_no_network_access_error_is_recoverable() {
     // server in a static. Using the line below will create a "bare" server,
     // which is effectively dropped upon `drop()`.
     let server = wiremock::MockServer::builder().start().await;
-    let client = logged_in_client(Some(server.uri().to_string())).await;
     let mock = MatrixMockServer::from_server(server);
+    let client = mock.client_builder().build().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
@@ -1512,20 +1509,16 @@ async fn test_reloading_rooms_with_unsent_events() {
     let room_id2 = room_id!("!d:e.f");
 
     let server = wiremock::MockServer::start().await;
-    let client = Client::builder()
-        .homeserver_url(server.uri())
-        .server_versions([MatrixVersion::V1_0])
+    let mock = MatrixMockServer::from_server(server);
+
+    let client = mock
+        .client_builder()
         .store_config(
             StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
                 .state_store(store.clone()),
         )
-        .request_config(RequestConfig::new().disable_retry())
         .build()
-        .await
-        .unwrap();
-    set_client_session(&client).await;
-
-    let mock = MatrixMockServer::from_server(server);
+        .await;
 
     // Mark two rooms as joined.
     let room = mock.sync_joined_room(&client, room_id).await;
@@ -1570,19 +1563,15 @@ async fn test_reloading_rooms_with_unsent_events() {
     mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
     mock.mock_room_send().ok(event_id!("$2")).mock_once().mount().await;
 
-    let client = Client::builder()
-        .homeserver_url(mock.server().uri())
-        .server_versions([MatrixVersion::V1_0])
+    let new_client = mock
+        .client_builder()
         .store_config(
             StoreConfig::new("cross-process-store-locks-holder-name".to_owned()).state_store(store),
         )
-        .request_config(RequestConfig::new().disable_retry())
         .build()
-        .await
-        .unwrap();
-    set_client_session(&client).await;
+        .await;
 
-    client.send_queue().respawn_tasks_for_rooms_with_unsent_requests().await;
+    new_client.send_queue().respawn_tasks_for_rooms_with_unsent_requests().await;
 
     // Let the sending queues process events.
     sleep(Duration::from_secs(1)).await;
@@ -1597,7 +1586,7 @@ async fn test_reactions() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
@@ -1720,7 +1709,7 @@ async fn test_media_uploads() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
@@ -1940,7 +1929,7 @@ async fn test_media_upload_retry() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();

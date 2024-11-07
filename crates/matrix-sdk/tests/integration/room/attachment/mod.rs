@@ -40,7 +40,7 @@ async fn test_room_attachment_send() {
         .mount()
         .await;
 
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
@@ -82,7 +82,7 @@ async fn test_room_attachment_send_info() {
         .mount()
         .await;
 
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
@@ -132,7 +132,7 @@ async fn test_room_attachment_send_wrong_info() {
         .mount()
         .await;
 
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
@@ -191,7 +191,7 @@ async fn test_room_attachment_send_info_thumbnail() {
     // Second request: return the media MXC.
     mock.mock_upload().expect_mime_type("image/jpeg").ok(&media_mxc).mock_once().mount().await;
 
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
@@ -286,7 +286,7 @@ async fn test_room_attachment_send_mentions() {
         .mount()
         .await;
 
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
