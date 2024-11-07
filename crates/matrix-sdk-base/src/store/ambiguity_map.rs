@@ -32,13 +32,6 @@ use crate::{
     store::StateStoreExt,
 };
 
-#[derive(Debug)]
-pub(crate) struct AmbiguityCache {
-    pub store: Arc<DynStateStore>,
-    pub cache: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<OwnedUserId>>>,
-    pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
-}
-
 /// A map of users that use a certain display name.
 #[derive(Debug, Clone)]
 struct DisplayNameUsers {
@@ -79,6 +72,18 @@ impl DisplayNameUsers {
     fn is_ambiguous(&self) -> bool {
         self.user_count() > 1
     }
+}
+
+fn is_member_active(membership: &MembershipState) -> bool {
+    use MembershipState::*;
+    matches!(membership, Join | Invite | Knock)
+}
+
+#[derive(Debug)]
+pub(crate) struct AmbiguityCache {
+    pub store: Arc<DynStateStore>,
+    pub cache: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<OwnedUserId>>>,
+    pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
 }
 
 impl AmbiguityCache {
@@ -172,8 +177,6 @@ impl AmbiguityCache {
         room_id: &RoomId,
         new_event: &SyncRoomMemberEvent,
     ) -> Result<Option<String>> {
-        use MembershipState::*;
-
         let user_id = new_event.state_key();
 
         let old_event = if let Some(m) = changes
@@ -188,7 +191,7 @@ impl AmbiguityCache {
 
         let Some(Ok(old_event)) = old_event.map(|r| r.deserialize()) else { return Ok(None) };
 
-        if matches!(old_event.membership(), Join | Invite) {
+        if is_member_active(old_event.membership()) {
             let display_name = if let Some(d) = changes
                 .profiles
                 .get(room_id)
@@ -248,8 +251,6 @@ impl AmbiguityCache {
         room_id: &RoomId,
         member_event: &SyncRoomMemberEvent,
     ) -> Result<(Option<DisplayNameUsers>, Option<DisplayNameUsers>)> {
-        use MembershipState::*;
-
         let old_display_name = self.get_old_display_name(changes, room_id, member_event).await?;
 
         let old_map = if let Some(old_name) = old_display_name.as_deref() {
@@ -258,7 +259,7 @@ impl AmbiguityCache {
             None
         };
 
-        let new_map = if matches!(member_event.membership(), Join | Invite) {
+        let new_map = if is_member_active(member_event.membership()) {
             let new = member_event
                 .as_original()
                 .and_then(|ev| ev.content.displayname.as_deref())
