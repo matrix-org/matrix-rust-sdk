@@ -40,7 +40,8 @@ async fn test_room_attachment_send() {
         .mount()
         .await;
 
-    let room = mock.sync_joined_room(&DEFAULT_TEST_ROOM_ID).await;
+    let client = mock.make_client().await;
+    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
@@ -81,7 +82,8 @@ async fn test_room_attachment_send_info() {
         .mount()
         .await;
 
-    let room = mock.sync_joined_room(&DEFAULT_TEST_ROOM_ID).await;
+    let client = mock.make_client().await;
+    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let config = AttachmentConfig::new()
@@ -130,7 +132,8 @@ async fn test_room_attachment_send_wrong_info() {
         .mount()
         .await;
 
-    let room = mock.sync_joined_room(&DEFAULT_TEST_ROOM_ID).await;
+    let client = mock.make_client().await;
+    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     // Here, using `AttachmentInfo::Video`…
@@ -188,7 +191,8 @@ async fn test_room_attachment_send_info_thumbnail() {
     // Second request: return the media MXC.
     mock.mock_upload().expect_mime_type("image/jpeg").ok(&media_mxc).mock_once().mount().await;
 
-    let room = mock.sync_joined_room(&DEFAULT_TEST_ROOM_ID).await;
+    let client = mock.make_client().await;
+    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     // Preconditions: nothing is found in the cache.
@@ -199,7 +203,6 @@ async fn test_room_attachment_send_info_thumbnail() {
         format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(uint!(480), uint!(360))),
     };
 
-    let client = mock.client();
     let _ = client.media().get_media_content(&media_request, true).await.unwrap_err();
     let _ = client.media().get_media_content(&thumbnail_request, true).await.unwrap_err();
 
@@ -283,7 +286,8 @@ async fn test_room_attachment_send_mentions() {
         .mount()
         .await;
 
-    let room = mock.sync_joined_room(&DEFAULT_TEST_ROOM_ID).await;
+    let client = mock.make_client().await;
+    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room

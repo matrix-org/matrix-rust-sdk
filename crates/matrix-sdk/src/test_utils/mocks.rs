@@ -34,11 +34,8 @@ use wiremock::{
 use super::logged_in_client;
 use crate::{Client, Room};
 
-/// A `wiremock` server along with a client connected to it, with useful methods
-/// to help mocking Matrix client-server API endpoints easily.
-///
-/// This is a pair of a [`MockServer`] and a [`Client]` (one can retrieve them
-/// respectively with [`Self::server()`] and [`Self::client()`]).
+/// A `wiremock` [`MockServer`] along with useful methods to help mocking Matrix
+/// client-server API endpoints easily.
 ///
 /// It implements mock endpoints, limiting the shared code as much as possible,
 /// so the mocks are still flexible to use as scoped/unscoped mounts, named, and
@@ -63,7 +60,6 @@ use crate::{Client, Room};
 ///   mostly defers its implementations to [`wiremock::Mock`] under the hood.
 pub struct MatrixMockServer {
     server: MockServer,
-    client: Client,
 
     /// Make the sync response builder stateful, to keep in memory the batch
     /// token and avoid the client ignoring subsequent responses after the first
@@ -75,19 +71,19 @@ impl MatrixMockServer {
     /// Create a new `wiremock` server specialized for Matrix usage.
     pub async fn new() -> Self {
         let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri().to_string())).await;
-        Self { client, server, sync_response_builder: Default::default() }
+        Self { server, sync_response_builder: Default::default() }
     }
 
     /// Creates a new [`MatrixMockServer`] when both parts have been already
     /// created.
-    pub fn from_parts(server: MockServer, client: Client) -> Self {
-        Self { client, server, sync_response_builder: Default::default() }
+    pub fn from_server(server: MockServer) -> Self {
+        Self { server, sync_response_builder: Default::default() }
     }
 
-    /// Return the underlying client.
-    pub fn client(&self) -> Client {
-        self.client.clone()
+    /// Creates a new [`Client`] configured to use this server, preconfigured
+    /// with a session expected by the server endpoints.
+    pub async fn make_client(&self) -> Client {
+        logged_in_client(Some(self.server.uri().to_string())).await
     }
 
     /// Return the underlying server.
@@ -98,11 +94,16 @@ impl MatrixMockServer {
     /// Overrides the sync/ endpoint with knowledge that the given
     /// invited/joined/knocked/left room exists, runs a sync and returns the
     /// given room.
-    pub async fn sync_room(&self, room_id: &RoomId, room_data: impl Into<AnyRoomBuilder>) -> Room {
+    pub async fn sync_room(
+        &self,
+        client: &Client,
+        room_id: &RoomId,
+        room_data: impl Into<AnyRoomBuilder>,
+    ) -> Room {
         let any_room = room_data.into();
 
         self.mock_sync()
-            .ok_and_run(move |builder| match any_room {
+            .ok_and_run(client, move |builder| match any_room {
                 AnyRoomBuilder::Invited(invited) => {
                     builder.add_invited_room(invited);
                 }
@@ -118,13 +119,13 @@ impl MatrixMockServer {
             })
             .await;
 
-        self.client.get_room(room_id).expect("look at me, the room is known now")
+        client.get_room(room_id).expect("look at me, the room is known now")
     }
 
     /// Overrides the sync/ endpoint with knowledge that the given room exists
     /// in the joined state, runs a sync and returns the given room.
-    pub async fn sync_joined_room(&self, room_id: &RoomId) -> Room {
-        self.sync_room(room_id, JoinedRoomBuilder::new(room_id)).await
+    pub async fn sync_joined_room(&self, client: &Client, room_id: &RoomId) -> Room {
+        self.sync_room(client, room_id, JoinedRoomBuilder::new(room_id)).await
     }
 
     /// Verify that the previous mocks expected number of requests match
@@ -144,7 +145,6 @@ impl MatrixMockServer {
             .and(header("authorization", "Bearer 1234"));
         MockSync {
             mock,
-            client: self.client.clone(),
             server: &self.server,
             sync_response_builder: self.sync_response_builder.clone(),
         }
@@ -360,7 +360,6 @@ pub struct MockSync<'a> {
     mock: MockBuilder,
     server: &'a MockServer,
     sync_response_builder: Arc<Mutex<SyncResponseBuilder>>,
-    client: Client,
 }
 
 impl<'a> MockSync<'a> {
@@ -368,7 +367,7 @@ impl<'a> MockSync<'a> {
     /// sync with it.
     ///
     /// After calling this function, the sync endpoint isn't mocked anymore.
-    pub async fn ok_and_run<F: FnOnce(&mut SyncResponseBuilder)>(self, func: F) {
+    pub async fn ok_and_run<F: FnOnce(&mut SyncResponseBuilder)>(self, client: &Client, func: F) {
         let json_response = {
             let mut builder = self.sync_response_builder.lock().unwrap();
             func(&mut builder);
@@ -381,7 +380,7 @@ impl<'a> MockSync<'a> {
             .mount_as_scoped(self.server)
             .await;
 
-        let _response = self.client.sync_once(Default::default()).await.unwrap();
+        let _response = client.sync_once(Default::default()).await.unwrap();
     }
 }
 
