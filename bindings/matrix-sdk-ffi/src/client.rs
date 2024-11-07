@@ -703,7 +703,7 @@ impl Client {
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<String, ClientError> {
         let mime_type: mime::Mime = mime_type.parse().context("Parsing mime type")?;
-        let request = self.inner.media().upload(&mime_type, data);
+        let request = self.inner.media().upload(&mime_type, data, None);
 
         if let Some(progress_watcher) = progress_watcher {
             let mut subscriber = request.subscribe_to_send_progress();

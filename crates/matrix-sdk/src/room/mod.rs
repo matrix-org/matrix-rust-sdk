@@ -2263,7 +2263,7 @@ impl Room {
     ) -> Result<send_state_event::v3::Response> {
         self.ensure_room_joined()?;
 
-        let upload_response = self.client.media().upload(mime, data).await?;
+        let upload_response = self.client.media().upload(mime, data, None).await?;
         let mut info = info.unwrap_or_default();
         info.blurhash = upload_response.blurhash;
         info.mimetype = Some(mime.to_string());
