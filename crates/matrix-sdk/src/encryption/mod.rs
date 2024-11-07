@@ -774,7 +774,7 @@ impl Encryption {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn verification_state(&self) -> Subscriber<VerificationState> {
-        self.client.inner.verification_state.subscribe()
+        self.client.inner.verification_state.subscribe_reset()
     }
 
     /// Get a verification object with the given flow id.
@@ -1698,7 +1698,14 @@ impl Encryption {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use std::time::Duration;
+    use std::{
+        ops::Not,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+        time::Duration,
+    };
 
     use matrix_sdk_base::SessionMeta;
     use matrix_sdk_test::{
@@ -1713,13 +1720,15 @@ mod tests {
     use serde_json::json;
     use wiremock::{
         matchers::{header, method, path_regex},
-        Mock, MockServer, ResponseTemplate,
+        Mock, MockServer, Request, ResponseTemplate,
     };
 
     use crate::{
+        assert_next_matches_with_timeout,
         config::RequestConfig,
+        encryption::VerificationState,
         matrix_auth::{MatrixSession, MatrixSessionTokens},
-        test_utils::logged_in_client,
+        test_utils::{logged_in_client, no_retry_test_client, set_client_session},
         Client,
     };
 
@@ -2018,5 +2027,41 @@ mod tests {
         // Re-taking the lock doesn't update the olm machine.
         let after_taking_lock_second_time = client.olm_machine().await.as_ref().unwrap().clone();
         assert!(after_taking_lock_first_time.same_as(&after_taking_lock_second_time));
+    }
+
+    #[async_test]
+    async fn test_update_verification_state_is_updated_before_any_requests_happen() {
+        // Given a client and a server
+        let client = no_retry_test_client(None).await;
+        let server = MockServer::start().await;
+
+        // When we subscribe to its verification state
+        let mut verification_state = client.encryption().verification_state();
+
+        // We can get its initial value, and it's Unknown
+        assert_next_matches_with_timeout!(verification_state, VerificationState::Unknown);
+
+        // We set up a mocked request to check this endpoint is not called before
+        // reading the new state
+        let keys_requested = Arc::new(AtomicBool::new(false));
+        let inner_bool = keys_requested.clone();
+
+        Mock::given(method("GET"))
+            .and(path_regex(
+                r"/_matrix/client/r0/user/.*/account_data/m.secret_storage.default_key",
+            ))
+            .respond_with(move |_req: &Request| {
+                inner_bool.fetch_or(true, Ordering::SeqCst);
+                ResponseTemplate::new(200).set_body_json(json!({}))
+            })
+            .mount(&server)
+            .await;
+
+        // When the session is initialised and the encryption tasks spawn
+        set_client_session(&client).await;
+
+        // Then we can get an updated value without waiting for any network requests
+        assert!(keys_requested.load(Ordering::SeqCst).not());
+        assert_next_matches_with_timeout!(verification_state, VerificationState::Unverified);
     }
 }
