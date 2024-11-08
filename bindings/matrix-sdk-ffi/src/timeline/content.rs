@@ -16,7 +16,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::{crypto::types::events::UtdCause, room::power_levels::power_level_user_changes};
 use matrix_sdk_ui::timeline::{PollResult, RoomPinnedEventsChange, TimelineDetails};
-use ruma::events::room::MediaSource;
+use ruma::events::{room::MediaSource, FullStateEventContent};
 
 use super::ProfileDetails;
 use crate::ruma::{ImageInfo, Mentions, MessageType, PollKind};
@@ -49,11 +49,18 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
                 TimelineItemContent::UnableToDecrypt { msg: EncryptedMessage::new(&msg) }
             }
 
-            Content::MembershipChange(membership) => TimelineItemContent::RoomMembership {
-                user_id: membership.user_id().to_string(),
-                user_display_name: membership.display_name(),
-                change: membership.change().map(Into::into),
-            },
+            Content::MembershipChange(membership) => {
+                let reason = match membership.content() {
+                    FullStateEventContent::Original { content, .. } => content.reason.clone(),
+                    _ => None,
+                };
+                TimelineItemContent::RoomMembership {
+                    user_id: membership.user_id().to_string(),
+                    user_display_name: membership.display_name(),
+                    change: membership.change().map(Into::into),
+                    reason,
+                }
+            }
 
             Content::ProfileChange(profile) => {
                 let (display_name, prev_display_name) = profile
@@ -161,6 +168,7 @@ pub enum TimelineItemContent {
         user_id: String,
         user_display_name: Option<String>,
         change: Option<MembershipChange>,
+        reason: Option<String>,
     },
     ProfileChange {
         display_name: Option<String>,
