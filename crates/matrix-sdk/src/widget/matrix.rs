@@ -112,7 +112,6 @@ impl MatrixDriver {
     /// This method allows the widget machine to handle widget requests by
     /// providing a unified, high-level widget-specific API for sending events
     /// to the room.
-
     pub(crate) async fn send(
         &self,
         event_type: TimelineEventType,
