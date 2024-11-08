@@ -29,11 +29,14 @@ use matrix_sdk_test::{async_test, EventBuilder, JoinedRoomBuilder, ALICE, BOB};
 use once_cell::sync::Lazy;
 use ruma::{
     event_id,
-    events::room::{
-        member::{MembershipState, RoomMemberEventContent},
-        message::RoomMessageEventContent,
-        name::RoomNameEventContent,
-        topic::RoomTopicEventContent,
+    events::{
+        room::{
+            member::{MembershipState, RoomMemberEventContent},
+            message::RoomMessageEventContent,
+            name::RoomNameEventContent,
+            topic::RoomTopicEventContent,
+        },
+        StateEventType,
     },
     owned_room_id,
     serde::JsonObject,
@@ -335,14 +338,8 @@ async fn test_read_messages_with_msgtype_capabilities() {
             "end": "t47409-4357353_219380_26003_2269",
             "start": "t392-516_47314_0_7_1_1_1_11444_1"
         });
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/messages$"))
-            .and(header("authorization", "Bearer 1234"))
-            .and(query_param("limit", "3"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
-            .expect(1)
-            .mount(mock_server.server())
-            .await;
+
+        mock_server.mock_room_messages(Some(3)).ok(response_json).mock_once().mount().await;
 
         // Ask the driver to read messages
         send_request(
@@ -508,11 +505,11 @@ async fn test_send_room_message() {
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc2762.send.event:m.room.message"]))
         .await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/m.room.message/.*$"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$foobar" })))
-        .expect(1)
-        .mount(mock_server.server())
+    mock_server
+        .mock_room_send_for_type("m.room.message".into())
+        .ok(event_id!("$foobar"))
+        .mock_once()
+        .mount()
         .await;
 
     send_request(
@@ -549,11 +546,11 @@ async fn test_send_room_name() {
     )
     .await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.room.name/?$"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$foobar" })))
-        .expect(1)
-        .mount(mock_server.server())
+    mock_server
+        .mock_room_state_for_type(StateEventType::RoomName)
+        .ok(event_id!("$foobar"))
+        .mock_once()
+        .mount()
         .await;
 
     send_request(
@@ -594,7 +591,8 @@ async fn test_send_delayed_message_event() {
     .await;
 
     Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/m.room.message/.*$"))
+        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/m.room.message/.*"))
+        .and(query_param("org.matrix.msc4140.delay", "1000"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "delay_id": "1234",
         })))
@@ -641,7 +639,8 @@ async fn test_send_delayed_state_event() {
     .await;
 
     Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.room.name/?$"))
+        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.room.name/.*"))
+        .and(query_param("org.matrix.msc4140.delay", "1000"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "delay_id": "1234",
         })))

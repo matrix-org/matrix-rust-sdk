@@ -27,11 +27,15 @@ use matrix_sdk_test::{
     test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
     SyncResponseBuilder,
 };
-use ruma::{directory::PublicRoomsChunk, MxcUri, OwnedEventId, OwnedRoomId, RoomId, ServerName};
+use ruma::{
+    directory::PublicRoomsChunk,
+    events::{MessageLikeEventType, StateEventType},
+    MxcUri, OwnedEventId, OwnedRoomId, RoomId, ServerName,
+};
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
 use wiremock::{
-    matchers::{body_partial_json, header, method, path, path_regex},
+    matchers::{body_partial_json, header, method, path, path_regex, query_param},
     Mock, MockBuilder, MockGuard, MockServer, Request, Respond, ResponseTemplate, Times,
 };
 
@@ -317,6 +321,65 @@ impl MatrixMockServer {
         MockEndpoint { mock, server: &self.server, endpoint: RoomSendEndpoint }
     }
 
+    /// Creates a prebuilt mock for sending an event with a specific type in a
+    /// room.
+    ///
+    /// Note: works with *any* room.
+    ///
+    /// Similar to: [mock_room_send]
+    ///
+    /// # Examples
+    ///
+    /// see also [mock_room_send] for more context.
+    ///
+    /// ```
+    /// let event_id = event_id!("$some_id");
+    /// mock_server
+    ///     .mock_room_send_for_type("m.room.message")
+    ///     .ok(event_id)
+    ///     .expect(1)
+    ///     .mount()
+    ///     .await;
+    /// ```
+    pub fn mock_room_send_for_type(
+        &self,
+        event_type: MessageLikeEventType,
+    ) -> MockEndpoint<'_, RoomSendEndpoint> {
+        let mock = Mock::given(method("PUT"))
+            .and(path_regex(format!(r"^/_matrix/client/r0/rooms/.*/send/{}", event_type)))
+            .and(header("authorization", "Bearer 1234"));
+        MockEndpoint { mock, server: &self.server, endpoint: RoomSendEndpoint }
+    }
+
+    /// Creates a prebuilt mock for sending a state event in a room.
+    ///
+    /// Similar to: [mock_room_send]
+    ///
+    /// Note: works with *any* room.
+    /// Note: works with *any* event type.
+    pub fn mock_room_state(&self) -> MockEndpoint<'_, RoomSendEndpoint> {
+        let mock = Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/.*"))
+            .and(header("authorization", "Bearer 1234"));
+        MockEndpoint { mock, server: &self.server, endpoint: RoomSendEndpoint }
+    }
+
+    /// Creates a prebuilt mock for sending a state event with a specific type
+    /// in a room.
+    ///
+    /// Similar to: [mock_room_send]
+    ///
+    /// Note: works with *any* room.
+    pub fn mock_room_state_for_type(
+        &self,
+        state_type: StateEventType,
+    ) -> MockEndpoint<'_, RoomSendEndpoint> {
+        let mock = Mock::given(method("PUT"))
+            .and(path_regex(format!(r"^/_matrix/client/r0/rooms/.*/state/{}", state_type)))
+            .and(header("authorization", "Bearer 1234"));
+        MockEndpoint { mock, server: &self.server, endpoint: RoomSendEndpoint }
+    }
+
     /// Creates a prebuilt mock for asking whether *a* room is encrypted or not.
     ///
     /// Note: Applies to all rooms.
@@ -430,6 +493,17 @@ impl MatrixMockServer {
             server: &self.server,
             endpoint: RoomEventEndpoint { room: None, match_event_id: false },
         }
+    }
+
+    /// Create a prebuild mock for reading room message with the `/messages` endpoint.
+    pub fn mock_room_messages(&self, limit: Option<u32>) -> MockEndpoint<'_, RoomMessagesEndpoint> {
+        let mut mock = Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+            .and(header("authorization", "Bearer 1234"));
+        if let Some(l) = limit {
+            mock = mock.and(query_param("limit", l.to_string()));
+        }
+        MockEndpoint { mock, server: &self.server, endpoint: RoomMessagesEndpoint {} }
     }
 
     /// Create a prebuilt mock for uploading media.
@@ -801,7 +875,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// );
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn body_matches_partial_json(self, body: serde_json::Value) -> Self {
+    pub fn body_matches_partial_json(self, body: Value) -> Self {
         Self { mock: self.mock.and(body_partial_json(body)), ..self }
     }
 
@@ -1020,6 +1094,20 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
             .mock
             .and(path_regex(format!("^/_matrix/client/v3/rooms/{room_path}/event/{event_path}")))
             .respond_with(ResponseTemplate::new(200).set_body_json(event.into_raw().json()));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for the `/messages` endpoint.
+pub struct RoomMessagesEndpoint;
+
+/// A prebuilt mock for getting a room messages in a room.
+impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
+    /// Returns a messages endpoint that emulates success, i.e. the messages
+    /// provided as `response` could be retrieved.
+    pub fn ok(self, response: impl Into<Value>) -> MatrixMock<'a> {
+        let body: Value = response.into();
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(body));
         MatrixMock { server: self.server, mock }
     }
 }
