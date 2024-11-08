@@ -191,7 +191,7 @@ impl IntoRawStateEventContent for &Box<RawJsonValue> {
     }
 }
 
-const INVALID_ROOM_ALIAS_NAME_CHARS: &str = "#,:";
+const INVALID_ROOM_ALIAS_NAME_CHARS: &str = "#,:{}\\";
 
 /// Verifies the passed `String` matches the expected room alias format:
 ///
@@ -265,7 +265,7 @@ mod test {
 
     #[test]
     fn test_is_room_alias_format_valid_when_name_part_has_invalid_char_is_not_valid() {
-        assert!(!is_room_alias_format_valid("#alias,test:domain.org".to_owned()))
+        assert!(!is_room_alias_format_valid("#a#lias,{t\\est}:domain.org".to_owned()))
     }
 
     #[test]
