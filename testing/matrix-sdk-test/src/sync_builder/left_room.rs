@@ -22,6 +22,11 @@ impl LeftRoomBuilder {
         Self { room_id: room_id.to_owned(), inner: Default::default() }
     }
 
+    /// Get the room ID of this [`LeftRoomBuilder`].
+    pub fn room_id(&self) -> &RoomId {
+        &self.room_id
+    }
+
     /// Add an event to the timeline.
     ///
     /// The raw event can be created with the

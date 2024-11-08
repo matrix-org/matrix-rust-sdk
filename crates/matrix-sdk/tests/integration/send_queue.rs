@@ -208,7 +208,7 @@ async fn test_cant_send_invited_room() {
     // When I'm invited to a room,
     let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_room(&client, room_id, InvitedRoomBuilder::new(room_id)).await;
+    let room = mock.sync_room(&client, InvitedRoomBuilder::new(room_id)).await;
 
     // I can't send message to it with the send queue.
     assert_matches!(
@@ -224,7 +224,7 @@ async fn test_cant_send_left_room() {
     // When I've left a room,
     let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_room(&client, room_id, LeftRoomBuilder::new(room_id)).await;
+    let room = mock.sync_room(&client, LeftRoomBuilder::new(room_id)).await;
 
     // I can't send message to it with the send queue.
     assert_matches!(
@@ -242,7 +242,7 @@ async fn test_cant_send_knocked_room() {
     // When I've knocked into a room,
     let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_room(&client, room_id, KnockedRoomBuilder::new(room_id)).await;
+    let room = mock.sync_room(&client, KnockedRoomBuilder::new(room_id)).await;
 
     // I can't send message to it with the send queue.
     assert_matches!(
