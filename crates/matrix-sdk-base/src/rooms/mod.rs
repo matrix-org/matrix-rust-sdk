@@ -66,7 +66,7 @@ pub enum RoomDisplayName {
 }
 
 const WHITESPACE_REGEX: &str = r"\s+";
-const INVALID_SYMBOLS_REGEX: &str = r"[#,:]+";
+const INVALID_SYMBOLS_REGEX: &str = r"[#,:\{\}\\]+";
 
 impl RoomDisplayName {
     /// Transforms the current display name into the name part of a
@@ -636,7 +636,7 @@ mod tests {
     fn test_room_alias_from_room_display_name_removes_invalid_ascii_symbols() {
         assert_eq!(
             "roomalias",
-            RoomDisplayName::Named("#Room,Alias:".to_owned()).to_room_alias_name()
+            RoomDisplayName::Named("#Room,{Alias}:".to_owned()).to_room_alias_name()
         );
     }
 }
