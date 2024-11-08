@@ -37,8 +37,8 @@ use crate::{
     Client, ClientBuilder, Room,
 };
 
-/// A `wiremock` [`MockServer`] along with useful methods to help mocking Matrix
-/// client-server API endpoints easily.
+/// A [`wiremock`] [`MockServer`] along with useful methods to help mocking
+/// Matrix client-server API endpoints easily.
 ///
 /// It implements mock endpoints, limiting the shared code as much as possible,
 /// so the mocks are still flexible to use as scoped/unscoped mounts, named, and
@@ -46,21 +46,60 @@ use crate::{
 ///
 /// It works like this:
 ///
-/// - start by saying which endpoint you'd like to mock, e.g.
+/// * start by saying which endpoint you'd like to mock, e.g.
 ///   [`Self::mock_room_send()`]. This returns a specialized [`MockEndpoint`]
 ///   data structure, with its own impl. For this example, it's
 ///   `MockEndpoint<RoomSendEndpoint>`.
-/// - configure the response on the endpoint-specific mock data structure. For
+/// * configure the response on the endpoint-specific mock data structure. For
 ///   instance, if you want the sending to result in a transient failure, call
 ///   [`MockEndpoint::error500`]; if you want it to succeed and return the event
 ///   `$42`, call [`MockEndpoint::ok()`]. It's still possible to call
 ///   [`MockEndpoint::respond_with()`], as we do with wiremock MockBuilder, for
 ///   maximum flexibility when the helpers aren't sufficient.
-/// - once the endpoint's response is configured, for any mock builder, you get
+/// * once the endpoint's response is configured, for any mock builder, you get
 ///   a [`MatrixMock`]; this is a plain [`wiremock::Mock`] with the server
 ///   curried, so one doesn't have to pass it around when calling
 ///   [`MatrixMock::mount()`] or [`MatrixMock::mount_as_scoped()`]. As such, it
 ///   mostly defers its implementations to [`wiremock::Mock`] under the hood.
+///
+/// # Examples
+///
+/// ```
+/// # tokio_test::block_on(async {
+/// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
+/// use serde_json::json;
+///
+/// // First create the mock server and client pair.
+/// let mock_server = MatrixMockServer::new().await;
+/// let client = mock_server.client_builder().build().await;
+///
+/// // Let's say that our rooms are not encrypted.
+/// mock_server.mock_room_state_encryption().plain().mount().await;
+///
+/// // Let us get a room where we will send an event.
+/// let room = mock_server
+///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+///     .await;
+///
+/// // Now we mock the endpoint so we can actually send the event.
+/// let event_id = event_id!("$some_id");
+/// let send_guard = mock_server
+///     .mock_room_send()
+///     .ok(event_id)
+///     .expect(1)
+///     .mount_as_scoped()
+///     .await;
+///
+/// // And we send it out.
+/// let response = room.send_raw("m.room.message", json!({ "body": "Hello world" })).await?;
+///
+/// assert_eq!(
+///     event_id,
+///     response.event_id,
+///     "The event ID we mocked should match the one we received when we sent the event"
+/// );
+/// # anyhow::Ok(()) });
+/// ```
 pub struct MatrixMockServer {
     server: MockServer,
 
@@ -71,14 +110,13 @@ pub struct MatrixMockServer {
 }
 
 impl MatrixMockServer {
-    /// Create a new `wiremock` server specialized for Matrix usage.
+    /// Create a new [`wiremock`] server specialized for Matrix usage.
     pub async fn new() -> Self {
         let server = MockServer::start().await;
         Self { server, sync_response_builder: Default::default() }
     }
 
-    /// Creates a new [`MatrixMockServer`] when both parts have been already
-    /// created.
+    /// Creates a new [`MatrixMockServer`] from a [`wiremock`] server.
     pub fn from_server(server: MockServer) -> Self {
         Self { server, sync_response_builder: Default::default() }
     }
@@ -89,7 +127,7 @@ impl MatrixMockServer {
         MockClientBuilder::new(self.server.uri())
     }
 
-    /// Return the underlying server.
+    /// Return the underlying [`wiremock`] server.
     pub fn server(&self) -> &MockServer {
         &self.server
     }
@@ -97,6 +135,21 @@ impl MatrixMockServer {
     /// Overrides the sync/ endpoint with knowledge that the given
     /// invited/joined/knocked/left room exists, runs a sync and returns the
     /// given room.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
+    /// use matrix_sdk_test::LeftRoomBuilder;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// let left_room = mock_server
+    ///     .sync_room(&client, LeftRoomBuilder::new(room_id!("!room_id:localhost")))
+    ///     .await;
+    /// # anyhow::Ok(()) });
     pub async fn sync_room(&self, client: &Client, room_data: impl Into<AnyRoomBuilder>) -> Room {
         let any_room = room_data.into();
         let room_id = any_room.room_id().to_owned();
@@ -123,12 +176,56 @@ impl MatrixMockServer {
 
     /// Overrides the sync/ endpoint with knowledge that the given room exists
     /// in the joined state, runs a sync and returns the given room.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    /// # anyhow::Ok(()) });
     pub async fn sync_joined_room(&self, client: &Client, room_id: &RoomId) -> Room {
         self.sync_room(client, JoinedRoomBuilder::new(room_id)).await
     }
 
     /// Verify that the previous mocks expected number of requests match
     /// reality, and then cancels all active mocks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
+    /// use serde_json::json;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    /// mock_server.mock_room_send().ok(event_id!("$some_id")).mount().await;
+    ///
+    /// // This will succeed.
+    /// let response = room.send_raw("m.room.message", json!({ "body": "Hello world" })).await?;
+    ///
+    /// // Now we reset the mocks.
+    /// mock_server.verify_and_reset().await;
+    ///
+    /// // And we can't send anymore.
+    /// let response = room
+    ///     .send_raw("m.room.message", json!({ "body": "Hello world" }))
+    ///     .await
+    ///     .expect_err("We removed the mock so sending should now fail");
+    /// # anyhow::Ok(()) });
+    /// ```
     pub async fn verify_and_reset(&self) {
         self.server.verify().await;
         self.server.reset().await;
@@ -138,6 +235,32 @@ impl MatrixMockServer {
 // Specific mount endpoints.
 impl MatrixMockServer {
     /// Mocks a sync endpoint.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    /// use matrix_sdk_test::JoinedRoomBuilder;
+    ///
+    /// // First create the mock server and client pair.
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    /// let room_id = room_id!("!room_id:localhost");
+    ///
+    /// // Let's emulate what `MatrixMockServer::sync_joined_room()` does.
+    /// mock_server
+    ///     .mock_sync()
+    ///     .ok_and_run(&client, |builder| {
+    ///         builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    ///     })
+    ///     .await;
+    ///
+    /// let room = client
+    ///     .get_room(room_id)
+    ///     .expect("The room should be available after we mocked the sync");
+    /// # anyhow::Ok(()) });
+    /// ```
     pub fn mock_sync(&self) -> MockEndpoint<'_, SyncEndpoint> {
         let mock = Mock::given(method("GET"))
             .and(path("/_matrix/client/v3/sync"))
@@ -152,6 +275,40 @@ impl MatrixMockServer {
     /// Creates a prebuilt mock for sending an event in a room.
     ///
     /// Note: works with *any* room.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
+    /// use serde_json::json;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// let event_id = event_id!("$some_id");
+    /// mock_server
+    ///     .mock_room_send()
+    ///     .ok(event_id)
+    ///     .expect(1)
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let response = room.send_raw("m.room.message", json!({ "body": "Hello world" })).await?;
+    ///
+    /// assert_eq!(
+    ///     event_id,
+    ///     response.event_id,
+    ///     "The event ID we mocked should match the one we received when we sent the event"
+    /// );
+    /// # anyhow::Ok(()) });
+    /// ```
     pub fn mock_room_send(&self) -> MockEndpoint<'_, RoomSendEndpoint> {
         let mock = Mock::given(method("PUT"))
             .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
@@ -162,6 +319,28 @@ impl MatrixMockServer {
     /// Creates a prebuilt mock for asking whether *a* room is encrypted or not.
     ///
     /// Note: Applies to all rooms.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().encrypted().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// assert!(
+    ///     room.is_encrypted().await?,
+    ///     "The room should be marked as encrypted."
+    /// );
+    /// # anyhow::Ok(()) });
+    /// ```
     pub fn mock_room_state_encryption(&self) -> MockEndpoint<'_, EncryptionStateEndpoint> {
         let mock = Mock::given(method("GET"))
             .and(header("authorization", "Bearer 1234"))
@@ -172,6 +351,36 @@ impl MatrixMockServer {
     /// Creates a prebuilt mock for setting the room encryption state.
     ///
     /// Note: Applies to all rooms.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::{event_id, room_id},
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    /// mock_server
+    ///     .mock_set_room_state_encryption()
+    ///     .ok(event_id!("$id"))
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// room.enable_encryption()
+    ///     .await
+    ///     .expect("We should be able to enable encryption in the room");
+    /// # anyhow::Ok(()) });
+    /// ```
     pub fn mock_set_room_state_encryption(&self) -> MockEndpoint<'_, SetEncryptionStateEndpoint> {
         let mock = Mock::given(method("PUT"))
             .and(header("authorization", "Bearer 1234"))
@@ -180,6 +389,31 @@ impl MatrixMockServer {
     }
 
     /// Creates a prebuilt mock for the room redact endpoint.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::{event_id, room_id},
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    /// let event_id = event_id!("$id");
+    ///
+    /// mock_server.mock_room_redact().ok(event_id).mock_once().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// room.redact(event_id, None, None)
+    ///     .await
+    ///     .expect("We should be able to redact events in the room");
+    /// # anyhow::Ok(()) });
+    /// ```
     pub fn mock_room_redact(&self) -> MockEndpoint<'_, RoomRedactEndpoint> {
         let mock = Mock::given(method("PUT"))
             .and(path_regex(r"^/_matrix/client/v3/rooms/.*/redact/.*?/.*?"))
@@ -351,12 +585,78 @@ impl<'a, T> MockEndpoint<'a, T> {
     /// Specify how to respond to a query (viz., like
     /// [`MockBuilder::respond_with`] does), when other predefined responses
     /// aren't sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
+    /// use serde_json::json;
+    /// use wiremock::ResponseTemplate;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// let event_id = event_id!("$some_id");
+    /// mock_server
+    ///     .mock_room_send()
+    ///     .respond_with(
+    ///         ResponseTemplate::new(429)
+    ///             .insert_header("Retry-After", "100")
+    ///             .set_body_json(json!({
+    ///                 "errcode": "M_LIMIT_EXCEEDED",
+    ///                 "custom_field": "with custom data",
+    ///     })))
+    ///     .expect(1)
+    ///     .mount()
+    ///     .await;
+    ///
+    /// room
+    ///     .send_raw("m.room.message", json!({ "body": "Hello world" }))
+    ///     .await
+    ///     .expect_err("The sending of the event should fail");
+    /// # anyhow::Ok(()) });
+    /// ```
     pub fn respond_with<R: Respond + 'static>(self, func: R) -> MatrixMock<'a> {
         MatrixMock { mock: self.mock.respond_with(func), server: self.server }
     }
 
     /// Returns a send endpoint that emulates a transient failure, i.e responds
     /// with error 500.
+    ///
+    /// # Examples
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
+    /// use serde_json::json;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// mock_server
+    ///     .mock_room_send()
+    ///     .error500()
+    ///     .expect(1)
+    ///     .mount()
+    ///     .await;
+    ///
+    /// room
+    ///     .send_raw("m.room.message", json!({ "body": "Hello world" }))
+    ///     .await.expect_err("The sending of the event should have failed");
+    /// # anyhow::Ok(()) });
+    /// ```
     pub fn error500(self) -> MatrixMock<'a> {
         MatrixMock { mock: self.mock.respond_with(ResponseTemplate::new(500)), server: self.server }
     }
@@ -377,18 +677,119 @@ pub struct RoomSendEndpoint;
 impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// Ensures that the body of the request is a superset of the provided
     /// `body` parameter.
+    ///
+    /// # Examples
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::{room_id, event_id, events::room::message::RoomMessageEventContent},
+    ///     test_utils::mocks::MatrixMockServer
+    /// };
+    /// use serde_json::json;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// let event_id = event_id!("$some_id");
+    /// let send_guard = mock_server
+    ///     .mock_room_send()
+    ///     .body_matches_partial_json(json!({
+    ///         "body": "Hello world",
+    ///     }))
+    ///     .ok(event_id)
+    ///     .expect(1)
+    ///     .mount_as_scoped()
+    ///     .await;
+    ///
+    /// let content = RoomMessageEventContent::text_plain("Hello world");
+    /// let response = room.send(content).await?;
+    ///
+    /// assert_eq!(
+    ///     event_id,
+    ///     response.event_id,
+    ///     "The event ID we mocked should match the one we received when we sent the event"
+    /// );
+    /// # anyhow::Ok(()) });
+    /// ```
     pub fn body_matches_partial_json(self, body: serde_json::Value) -> Self {
         Self { mock: self.mock.and(body_partial_json(body)), ..self }
     }
 
     /// Returns a send endpoint that emulates success, i.e. the event has been
     /// sent with the given event id.
+    ///
+    /// # Examples
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
+    /// use serde_json::json;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// let event_id = event_id!("$some_id");
+    /// let send_guard = mock_server
+    ///     .mock_room_send()
+    ///     .ok(event_id)
+    ///     .expect(1)
+    ///     .mount_as_scoped()
+    ///     .await;
+    ///
+    /// let response = room.send_raw("m.room.message", json!({ "body": "Hello world" })).await?;
+    ///
+    /// assert_eq!(
+    ///     event_id,
+    ///     response.event_id,
+    ///     "The event ID we mocked should match the one we received when we sent the event"
+    /// );
+    /// # anyhow::Ok(()) });
+    /// ```
     pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
         self.ok_with_event_id(returned_event_id.into())
     }
 
     /// Returns a send endpoint that emulates a permanent failure (event is too
     /// large).
+    ///
+    /// # Examples
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
+    /// use serde_json::json;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// mock_server
+    ///     .mock_room_send()
+    ///     .error500()
+    ///     .expect(1)
+    ///     .mount()
+    ///     .await;
+    ///
+    /// room
+    ///     .send_raw("m.room.message", json!({ "body": "Hello world" }))
+    ///     .await.expect_err("The sending of the event should have failed");
+    /// # anyhow::Ok(()) });
+    /// ```
     pub fn error_too_large(self) -> MatrixMock<'a> {
         MatrixMock {
             mock: self.mock.respond_with(ResponseTemplate::new(413).set_body_json(json!({
@@ -410,6 +811,32 @@ impl<'a> MockEndpoint<'a, SyncEndpoint> {
     /// sync with it.
     ///
     /// After calling this function, the sync endpoint isn't mocked anymore.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    /// use matrix_sdk_test::JoinedRoomBuilder;
+    ///
+    /// // First create the mock server and client pair.
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    /// let room_id = room_id!("!room_id:localhost");
+    ///
+    /// // Let's emulate what `MatrixMockServer::sync_joined_room()` does.
+    /// mock_server
+    ///     .mock_sync()
+    ///     .ok_and_run(&client, |builder| {
+    ///         builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    ///     })
+    ///     .await;
+    ///
+    /// let room = client
+    ///     .get_room(room_id)
+    ///     .expect("The room should be available after we mocked the sync");
+    /// # anyhow::Ok(()) });
+    /// ```
     pub async fn ok_and_run<F: FnOnce(&mut SyncResponseBuilder)>(self, client: &Client, func: F) {
         let json_response = {
             let mut builder = self.endpoint.sync_response_builder.lock().unwrap();
@@ -432,6 +859,28 @@ pub struct EncryptionStateEndpoint;
 
 impl<'a> MockEndpoint<'a, EncryptionStateEndpoint> {
     /// Marks the room as encrypted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().encrypted().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// assert!(
+    ///     room.is_encrypted().await?,
+    ///     "The room should be marked as encrypted."
+    /// );
+    /// # anyhow::Ok(()) });
+    /// ```
     pub fn encrypted(self) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(
             ResponseTemplate::new(200).set_body_json(&*test_json::sync_events::ENCRYPTION_CONTENT),
@@ -440,6 +889,28 @@ impl<'a> MockEndpoint<'a, EncryptionStateEndpoint> {
     }
 
     /// Marks the room as not encrypted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// assert!(
+    ///     !room.is_encrypted().await?,
+    ///     "The room should not be marked as encrypted."
+    /// );
+    /// # anyhow::Ok(()) });
+    /// ```
     pub fn plain(self) -> MatrixMock<'a> {
         let mock = self
             .mock
