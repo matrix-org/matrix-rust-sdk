@@ -24,6 +24,7 @@ use futures_util::StreamExt;
 use ruma::{
     events::{AnyMessageLikeEventContent, AnyStateEventContent},
     serde::Raw,
+    RoomAliasId,
 };
 use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
 #[cfg(feature = "e2e-encryption")]
@@ -190,8 +191,37 @@ impl IntoRawStateEventContent for &Box<RawJsonValue> {
     }
 }
 
+const INVALID_ROOM_ALIAS_NAME_CHARS: &str = "#,:";
+
+/// Verifies the passed `String` matches the expected room alias format:
+///
+/// This means it's lowercase, with no whitespace chars, has a single leading
+/// `#` char and a single `:` separator between the local and domain parts, and
+/// the local part only contains characters that can't be percent encoded.
+pub fn is_room_alias_format_valid(alias: String) -> bool {
+    let alias_parts: Vec<&str> = alias.split(':').collect();
+    if alias_parts.len() != 2 {
+        return false;
+    }
+
+    let local_part = alias_parts[0];
+    let has_valid_format = local_part.chars().skip(1).all(|c| {
+        c.is_ascii()
+            && !c.is_whitespace()
+            && !c.is_control()
+            && !INVALID_ROOM_ALIAS_NAME_CHARS.contains(c)
+    });
+
+    let is_lowercase = alias.to_lowercase() == alias;
+
+    // Checks both the local part and the domain part
+    has_valid_format && is_lowercase && RoomAliasId::parse(alias).is_ok()
+}
+
 #[cfg(test)]
 mod test {
+    use crate::utils::is_room_alias_format_valid;
+
     #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_channel_observable_get_set() {
@@ -201,5 +231,55 @@ mod test {
         assert_eq!(observable.set(1), 0);
         assert_eq!(observable.set(10), 1);
         assert_eq!(observable.get(), 10);
+    }
+
+    #[test]
+    fn test_is_room_alias_format_valid_when_it_has_no_leading_hash_char_is_not_valid() {
+        assert!(!is_room_alias_format_valid("alias:domain.org".to_owned()))
+    }
+
+    #[test]
+    fn test_is_room_alias_format_valid_when_it_has_several_colon_chars_is_not_valid() {
+        assert!(!is_room_alias_format_valid("#alias:something:domain.org".to_owned()))
+    }
+
+    #[test]
+    fn test_is_room_alias_format_valid_when_it_has_no_colon_chars_is_not_valid() {
+        assert!(!is_room_alias_format_valid("#alias.domain.org".to_owned()))
+    }
+
+    #[test]
+    fn test_is_room_alias_format_valid_when_server_part_is_not_valid() {
+        assert!(!is_room_alias_format_valid("#alias:".to_owned()))
+    }
+
+    #[test]
+    fn test_is_room_alias_format_valid_when_name_part_has_whitespace_is_not_valid() {
+        assert!(!is_room_alias_format_valid("#alias with whitespace:domain.org".to_owned()))
+    }
+
+    #[test]
+    fn test_is_room_alias_format_valid_when_name_part_has_control_char_is_not_valid() {
+        assert!(!is_room_alias_format_valid("#alias\u{0009}:domain.org".to_owned()))
+    }
+
+    #[test]
+    fn test_is_room_alias_format_valid_when_name_part_has_invalid_char_is_not_valid() {
+        assert!(!is_room_alias_format_valid("#alias,test:domain.org".to_owned()))
+    }
+
+    #[test]
+    fn test_is_room_alias_format_valid_when_name_part_is_not_lowercase_is_not_valid() {
+        assert!(!is_room_alias_format_valid("#Alias:domain.org".to_owned()))
+    }
+
+    #[test]
+    fn test_is_room_alias_format_valid_when_server_part_is_not_lowercase_is_not_valid() {
+        assert!(!is_room_alias_format_valid("#alias:Domain.org".to_owned()))
+    }
+
+    #[test]
+    fn test_is_room_alias_format_valid_when_has_valid_format() {
+        assert!(is_room_alias_format_valid("#alias.test:domain.org".to_owned()))
     }
 }
