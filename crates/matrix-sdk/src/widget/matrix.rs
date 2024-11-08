@@ -29,10 +29,10 @@ use ruma::{
         AnyMessageLikeEventContent, AnyStateEventContent, AnySyncTimelineEvent, AnyTimelineEvent,
         MessageLikeEventType, StateEventType, TimelineEventType,
     },
-    serde::Raw,
-    RoomId, TransactionId,
+    serde::{from_raw_json_value, Raw},
+    EventId, RoomId, TransactionId,
 };
-use serde_json::value::RawValue as RawJsonValue;
+use serde_json::{value::RawValue as RawJsonValue, Value};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tracing::error;
 
@@ -107,7 +107,11 @@ impl MatrixDriver {
         Ok(events)
     }
 
-    /// Sends a given `event` to the room.
+    /// Sends the given `event` to the room.
+    ///
+    /// This method allows the widget machine to handle widget requests by
+    /// providing a unified, high-level widget-specific API for sending events
+    /// to the room.
     pub(crate) async fn send(
         &self,
         event_type: TimelineEventType,
@@ -116,6 +120,15 @@ impl MatrixDriver {
         delayed_event_parameters: Option<delayed_events::DelayParameters>,
     ) -> Result<SendEventResponse> {
         let type_str = event_type.to_string();
+
+        if let Some(redacts) = from_raw_json_value::<Value, serde_json::Error>(&content)
+            .ok()
+            .and_then(|b| b["redacts"].as_str().and_then(|s| EventId::parse(s).ok()))
+        {
+            return Ok(SendEventResponse::from_event_id(
+                self.room.redact(&redacts, None, None).await?.event_id,
+            ));
+        }
         Ok(match (state_key, delayed_event_parameters) {
             (None, None) => SendEventResponse::from_event_id(
                 self.room.send_raw(&type_str, content).await?.event_id,

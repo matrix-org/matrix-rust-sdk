@@ -19,6 +19,7 @@ use async_trait::async_trait;
 use futures_util::FutureExt;
 use matrix_sdk::{
     config::SyncSettings,
+    test_utils::mocks::MatrixMockServer,
     widget::{
         Capabilities, CapabilitiesProvider, WidgetDriver, WidgetDriverHandle, WidgetSettings,
     },
@@ -26,11 +27,11 @@ use matrix_sdk::{
 };
 use matrix_sdk_common::{executor::spawn, timeout::timeout};
 use matrix_sdk_test::{
-    async_test, mocks::mock_encryption_state, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder,
-    ALICE, BOB,
+    async_test, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
 };
 use once_cell::sync::Lazy;
 use ruma::{
+    event_id,
     events::room::{
         member::{MembershipState, RoomMemberEventContent},
         message::RoomMessageEventContent,
@@ -46,10 +47,10 @@ use serde_json::{json, Value as JsonValue};
 use tracing::error;
 use wiremock::{
     matchers::{header, method, path_regex, query_param},
-    Mock, MockServer, ResponseTemplate,
+    Mock, ResponseTemplate,
 };
 
-use crate::{logged_in_client_with_server, mock_sync};
+use crate::mock_sync;
 
 /// Create a JSON string from a [`json!`][serde_json::json] "literal".
 #[macro_export]
@@ -60,7 +61,9 @@ macro_rules! json_string {
 const WIDGET_ID: &str = "test-widget";
 static ROOM_ID: Lazy<OwnedRoomId> = Lazy::new(|| owned_room_id!("!a98sd12bjh:example.org"));
 
-async fn run_test_driver(init_on_content_load: bool) -> (Client, MockServer, WidgetDriverHandle) {
+async fn run_test_driver(
+    init_on_content_load: bool,
+) -> (Client, MatrixMockServer, WidgetDriverHandle) {
     struct DummyCapabilitiesProvider;
 
     #[async_trait]
@@ -70,20 +73,11 @@ async fn run_test_driver(init_on_content_load: bool) -> (Client, MockServer, Wid
             capabilities
         }
     }
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.make_client().await;
 
-    let (client, mock_server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(&ROOM_ID));
-
-    mock_sync(&mock_server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    mock_server.reset().await;
-
-    mock_encryption_state(&mock_server, false).await;
-
-    let room = client.get_room(&ROOM_ID).unwrap();
+    let room = mock_server.sync_joined_room(&client, &ROOM_ID).await;
+    mock_server.mock_room_state_encryption().plain().mount().await;
 
     let (driver, handle) = WidgetDriver::new(
         WidgetSettings::new(WIDGET_ID.to_owned(), init_on_content_load, "https://foo.bar/widget")
@@ -257,7 +251,7 @@ async fn test_read_messages() {
             .and(query_param("limit", "2"))
             .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
             .expect(1)
-            .mount(&mock_server)
+            .mount(mock_server.server())
             .await;
 
         // Ask the driver to read messages
@@ -282,8 +276,6 @@ async fn test_read_messages() {
         let first_event = &events[0];
         assert_eq!(first_event["content"]["body"], "hello");
     }
-
-    mock_server.verify().await;
 }
 
 #[async_test]
@@ -354,7 +346,7 @@ async fn test_read_messages_with_msgtype_capabilities() {
             .and(query_param("limit", "3"))
             .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
             .expect(1)
-            .mount(&mock_server)
+            .mount(mock_server.server())
             .await;
 
         // Ask the driver to read messages
@@ -379,8 +371,6 @@ async fn test_read_messages_with_msgtype_capabilities() {
         let first_event = &events[0];
         assert_eq!(first_event["content"]["body"], "hello");
     }
-
-    mock_server.verify().await;
 }
 
 #[async_test]
@@ -488,7 +478,7 @@ async fn test_receive_live_events() {
             )),
     );
 
-    mock_sync(&mock_server, sync_builder.build_json_sync_response(), None).await;
+    mock_sync(mock_server.server(), sync_builder.build_json_sync_response(), None).await;
     let _response =
         client.sync_once(SyncSettings::new().timeout(Duration::from_millis(3000))).await.unwrap();
 
@@ -531,7 +521,7 @@ async fn test_send_room_message() {
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/m.room.message/.*$"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$foobar" })))
         .expect(1)
-        .mount(&mock_server)
+        .mount(mock_server.server())
         .await;
 
     send_request(
@@ -556,7 +546,6 @@ async fn test_send_room_message() {
     assert_eq!(event_id, "$foobar");
 
     // Make sure the event-sending endpoint was hit exactly once
-    mock_server.verify().await;
 }
 
 #[async_test]
@@ -573,7 +562,7 @@ async fn test_send_room_name() {
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.name/?$"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$foobar" })))
         .expect(1)
-        .mount(&mock_server)
+        .mount(mock_server.server())
         .await;
 
     send_request(
@@ -598,7 +587,6 @@ async fn test_send_room_name() {
     assert_eq!(event_id, "$foobar");
 
     // Make sure the event-sending endpoint was hit exactly once
-    mock_server.verify().await;
 }
 
 #[async_test]
@@ -620,7 +608,7 @@ async fn test_send_delayed_message_event() {
             "delay_id": "1234",
         })))
         .expect(1)
-        .mount(&mock_server)
+        .mount(mock_server.server())
         .await;
 
     send_request(
@@ -646,7 +634,6 @@ async fn test_send_delayed_message_event() {
     assert_eq!(delay_id, "1234");
 
     // Make sure the event-sending endpoint was hit exactly once
-    mock_server.verify().await;
 }
 
 #[async_test]
@@ -668,7 +655,7 @@ async fn test_send_delayed_state_event() {
             "delay_id": "1234",
         })))
         .expect(1)
-        .mount(&mock_server)
+        .mount(mock_server.server())
         .await;
 
     send_request(
@@ -694,7 +681,6 @@ async fn test_send_delayed_state_event() {
     assert_eq!(delay_id, "1234");
 
     // Make sure the event-sending endpoint was hit exactly once
-    mock_server.verify().await;
 }
 
 #[async_test]
@@ -744,7 +730,7 @@ async fn test_update_delayed_event() {
         .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4140/delayed_events/1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .expect(1)
-        .mount(&mock_server)
+        .mount(mock_server.server())
         .await;
 
     send_request(
@@ -764,9 +750,6 @@ async fn test_update_delayed_event() {
     assert_eq!(response["action"], "org.matrix.msc4157.update_delayed_event");
     let empty_response = response["response"].clone();
     assert_eq!(empty_response, serde_json::from_str::<JsonValue>("{}").unwrap());
-
-    // Make sure the event-sending endpoint was hit exactly once
-    mock_server.verify().await;
 }
 
 #[async_test]
@@ -825,6 +808,45 @@ async fn test_try_update_delayed_event_without_permission_negotiate() {
             break;
         }
     }
+}
+
+#[async_test]
+async fn test_send_redaction() {
+    let (_, mock_server, driver_handle) = run_test_driver(false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!([
+            // "org.matrix.msc4157.send.delayed_event",
+            "org.matrix.msc2762.send.event:m.room.redaction"
+        ]),
+    )
+    .await;
+
+    mock_server.mock_room_redact().ok(event_id!("$redact_event_id")).mock_once().mount().await;
+
+    send_request(
+        &driver_handle,
+        "send-redact-message",
+        "send_event",
+        json!({
+            "type": "m.room.redaction",
+            "content": {
+                "redacts": "$1234"
+            },
+        }),
+    )
+    .await;
+
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_event");
+    let redact_event_id = msg["response"]["event_id"].as_str().unwrap();
+    let redact_room_id = msg["response"]["room_id"].as_str().unwrap();
+
+    assert_eq!(redact_event_id, "$redact_event_id");
+    assert_eq!(redact_room_id, "!a98sd12bjh:example.org");
 }
 
 async fn negotiate_capabilities(driver_handle: &WidgetDriverHandle, caps: JsonValue) {
