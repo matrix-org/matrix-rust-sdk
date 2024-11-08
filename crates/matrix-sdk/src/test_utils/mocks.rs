@@ -97,13 +97,9 @@ impl MatrixMockServer {
     /// Overrides the sync/ endpoint with knowledge that the given
     /// invited/joined/knocked/left room exists, runs a sync and returns the
     /// given room.
-    pub async fn sync_room(
-        &self,
-        client: &Client,
-        room_id: &RoomId,
-        room_data: impl Into<AnyRoomBuilder>,
-    ) -> Room {
+    pub async fn sync_room(&self, client: &Client, room_data: impl Into<AnyRoomBuilder>) -> Room {
         let any_room = room_data.into();
+        let room_id = any_room.room_id().to_owned();
 
         self.mock_sync()
             .ok_and_run(client, move |builder| match any_room {
@@ -122,13 +118,13 @@ impl MatrixMockServer {
             })
             .await;
 
-        client.get_room(room_id).expect("look at me, the room is known now")
+        client.get_room(&room_id).expect("look at me, the room is known now")
     }
 
     /// Overrides the sync/ endpoint with knowledge that the given room exists
     /// in the joined state, runs a sync and returns the given room.
     pub async fn sync_joined_room(&self, client: &Client, room_id: &RoomId) -> Room {
-        self.sync_room(client, room_id, JoinedRoomBuilder::new(room_id)).await
+        self.sync_room(client, JoinedRoomBuilder::new(room_id)).await
     }
 
     /// Verify that the previous mocks expected number of requests match
@@ -234,6 +230,18 @@ pub enum AnyRoomBuilder {
     Left(LeftRoomBuilder),
     /// A room we've knocked to.
     Knocked(KnockedRoomBuilder),
+}
+
+impl AnyRoomBuilder {
+    /// Get the [`RoomId`] of the room this [`AnyRoomBuilder`] will create.
+    fn room_id(&self) -> &RoomId {
+        match self {
+            AnyRoomBuilder::Invited(r) => r.room_id(),
+            AnyRoomBuilder::Joined(r) => r.room_id(),
+            AnyRoomBuilder::Left(r) => r.room_id(),
+            AnyRoomBuilder::Knocked(r) => r.room_id(),
+        }
+    }
 }
 
 impl From<InvitedRoomBuilder> for AnyRoomBuilder {
