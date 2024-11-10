@@ -37,9 +37,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tracing::error;
 
 use super::{machine::SendEventResponse, StateKeySelector};
-use crate::{
-    event_handler::EventHandlerDropGuard, room::MessagesOptions, HttpResult, Result, Room,
-};
+use crate::{event_handler::EventHandlerDropGuard, room::MessagesOptions, Error, Result, Room};
 
 /// Thin wrapper around a [`Room`] that provides functionality relevant for
 /// widgets.
@@ -54,9 +52,9 @@ impl MatrixDriver {
     }
 
     /// Requests an OpenID token for the current user.
-    pub(crate) async fn get_open_id(&self) -> HttpResult<OpenIdResponse> {
+    pub(crate) async fn get_open_id(&self) -> Result<OpenIdResponse, Error> {
         let user_id = self.room.own_user_id().to_owned();
-        self.room.client.send(OpenIdRequest::new(user_id), None).await
+        self.room.client.send(OpenIdRequest::new(user_id), None).await.map_err(Error::Http)
     }
 
     /// Reads the latest `limit` events of a given `event_type` from the room.
@@ -64,7 +62,7 @@ impl MatrixDriver {
         &self,
         event_type: MessageLikeEventType,
         limit: u32,
-    ) -> Result<Vec<Raw<AnyTimelineEvent>>> {
+    ) -> Result<Vec<Raw<AnyTimelineEvent>>, Error> {
         let options = assign!(MessagesOptions::backward(), {
             limit: limit.into(),
             filter: assign!(RoomEventFilter::default(), {
@@ -80,7 +78,7 @@ impl MatrixDriver {
         &self,
         event_type: StateEventType,
         state_key: &StateKeySelector,
-    ) -> Result<Vec<Raw<AnyTimelineEvent>>> {
+    ) -> Result<Vec<Raw<AnyTimelineEvent>>, Error> {
         let room_id = self.room.room_id();
         let convert = |sync_or_stripped_state| match sync_or_stripped_state {
             RawAnySyncOrStrippedState::Sync(ev) => Some(attach_room_id(ev.cast_ref(), room_id)),
@@ -118,7 +116,7 @@ impl MatrixDriver {
         state_key: Option<String>,
         content: Box<RawJsonValue>,
         delayed_event_parameters: Option<delayed_events::DelayParameters>,
-    ) -> Result<SendEventResponse> {
+    ) -> Result<SendEventResponse, Error> {
         let type_str = event_type.to_string();
 
         if let Some(redacts) = from_raw_json_value::<Value, serde_json::Error>(&content)
@@ -167,9 +165,9 @@ impl MatrixDriver {
         &self,
         delay_id: String,
         action: UpdateAction,
-    ) -> HttpResult<delayed_events::update_delayed_event::unstable::Response> {
+    ) -> Result<delayed_events::update_delayed_event::unstable::Response, Error> {
         let r = delayed_events::update_delayed_event::unstable::Request::new(delay_id, action);
-        self.room.client.send(r, None).await
+        self.room.client.send(r, None).await.map_err(Error::Http)
     }
 
     /// Starts forwarding new room events. Once the returned `EventReceiver`

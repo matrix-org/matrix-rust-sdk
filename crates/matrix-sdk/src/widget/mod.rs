@@ -29,7 +29,7 @@ use self::{
     },
     matrix::MatrixDriver,
 };
-use crate::{room::Room, HttpError, Result};
+use crate::{room::Room, Error, Result};
 
 mod capabilities;
 mod filter;
@@ -195,7 +195,7 @@ impl<T: CapabilitiesProvider> ProcessingContext<T> {
                 self.to_widget_tx.send(msg).await.map_err(|_| ())?;
             }
             Action::MatrixDriverRequest { request_id, data } => {
-                let response = match data {
+                let response: Result<MatrixDriverResponse, Error> = match data {
                     MatrixDriverRequestData::AcquireCapabilities(cmd) => {
                         let obtained = self
                             .capabilities_provider
@@ -208,22 +208,19 @@ impl<T: CapabilitiesProvider> ProcessingContext<T> {
                         .matrix_driver
                         .get_open_id()
                         .await
-                        .map(MatrixDriverResponse::OpenIdReceived)
-                        .map_err(|e| e.to_string()),
+                        .map(MatrixDriverResponse::OpenIdReceived),
 
                     MatrixDriverRequestData::ReadMessageLikeEvent(cmd) => self
                         .matrix_driver
                         .read_message_like_events(cmd.event_type.clone(), cmd.limit)
                         .await
-                        .map(MatrixDriverResponse::MatrixEventRead)
-                        .map_err(|e| e.to_string()),
+                        .map(MatrixDriverResponse::MatrixEventRead),
 
                     MatrixDriverRequestData::ReadStateEvent(cmd) => self
                         .matrix_driver
                         .read_state_events(cmd.event_type.clone(), &cmd.state_key)
                         .await
-                        .map(MatrixDriverResponse::MatrixEventRead)
-                        .map_err(|e| e.to_string()),
+                        .map(MatrixDriverResponse::MatrixEventRead),
 
                     MatrixDriverRequestData::SendMatrixEvent(req) => {
                         let SendEventRequest { event_type, state_key, content, delay } = req;
@@ -238,15 +235,13 @@ impl<T: CapabilitiesProvider> ProcessingContext<T> {
                             .send(event_type, state_key, content, delay_event_parameter)
                             .await
                             .map(MatrixDriverResponse::MatrixEventSent)
-                            .map_err(|e: crate::Error| e.to_string())
                     }
 
                     MatrixDriverRequestData::UpdateDelayedEvent(req) => self
                         .matrix_driver
                         .update_delayed_event(req.delay_id, req.action)
                         .await
-                        .map(MatrixDriverResponse::MatrixDelayedEventUpdate)
-                        .map_err(|e: HttpError| e.to_string()),
+                        .map(MatrixDriverResponse::MatrixDelayedEventUpdate),
                 };
 
                 self.events_tx

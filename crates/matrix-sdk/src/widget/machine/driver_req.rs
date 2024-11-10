@@ -76,7 +76,7 @@ where
 
     pub(crate) fn then(
         self,
-        response_handler: impl FnOnce(Result<T, String>, &mut WidgetMachine) -> Vec<Action>
+        response_handler: impl FnOnce(Result<T, crate::Error>, &mut WidgetMachine) -> Vec<Action>
             + Send
             + 'static,
     ) {

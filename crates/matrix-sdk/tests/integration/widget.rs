@@ -544,8 +544,6 @@ async fn test_send_room_message() {
     assert_eq!(msg["action"], "send_event");
     let event_id = msg["response"]["event_id"].as_str().unwrap();
     assert_eq!(event_id, "$foobar");
-
-    // Make sure the event-sending endpoint was hit exactly once
 }
 
 #[async_test]
@@ -585,8 +583,6 @@ async fn test_send_room_name() {
     assert_eq!(msg["action"], "send_event");
     let event_id = msg["response"]["event_id"].as_str().unwrap();
     assert_eq!(event_id, "$foobar");
-
-    // Make sure the event-sending endpoint was hit exactly once
 }
 
 #[async_test]
@@ -632,8 +628,6 @@ async fn test_send_delayed_message_event() {
     assert_eq!(msg["action"], "send_event");
     let delay_id = msg["response"]["delay_id"].as_str().unwrap();
     assert_eq!(delay_id, "1234");
-
-    // Make sure the event-sending endpoint was hit exactly once
 }
 
 #[async_test]
@@ -679,8 +673,67 @@ async fn test_send_delayed_state_event() {
     assert_eq!(msg["action"], "send_event");
     let delay_id = msg["response"]["delay_id"].as_str().unwrap();
     assert_eq!(delay_id, "1234");
+}
 
-    // Make sure the event-sending endpoint was hit exactly once
+#[async_test]
+async fn test_fail_sending_delay_rate_limit() {
+    let (_, mock_server, driver_handle) = run_test_driver(false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!([
+            "org.matrix.msc4157.send.delayed_event",
+            "org.matrix.msc2762.send.event:m.room.message"
+        ]),
+    )
+    .await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/m.room.message/.*$"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "errcode": "M_LIMIT_EXCEEDED",
+            "error": "Sending too many delay events"
+        })))
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+
+    send_request(
+        &driver_handle,
+        "send-room-message",
+        "send_event",
+        json!({
+            "type": "m.room.message",
+            "content": {
+                "msgtype": "m.text",
+                "body": "Message from a widget!",
+            },
+            "delay":1000,
+        }),
+    )
+    .await;
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_event");
+    // Receive the response in the correct widget error response format
+    assert_eq!(
+        msg["response"],
+        json!({
+                "error": {
+              "matrix_api_error": {
+                "http_headers": {},
+                "http_status": 400,
+                "response": {
+                  "errcode": "M_LIMIT_EXCEEDED",
+                  "error": "Sending too many delay events"
+                },
+                "url": ""
+              },
+              "message": "the server returned an error: [400 / M_LIMIT_EXCEEDED] Sending too many delay events"
+            }
+        })
+    );
 }
 
 #[async_test]

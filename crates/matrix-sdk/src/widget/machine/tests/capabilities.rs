@@ -114,7 +114,7 @@ fn capabilities_failure_results_into_empty_capabilities() {
 
         machine.process(IncomingMessage::MatrixDriverResponse {
             request_id,
-            response: Err("OHMG!".into()),
+            response: Err(crate::Error::UnknownError("OHMG!".into())),
         })
     };
 

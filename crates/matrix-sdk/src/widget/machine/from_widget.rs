@@ -12,20 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
+use std::collections::HashMap;
 
 use ruma::{
-    api::client::delayed_events::{
-        delayed_message_event, delayed_state_event, update_delayed_event,
+    api::client::{
+        delayed_events::{delayed_message_event, delayed_state_event, update_delayed_event},
+        error::ErrorBody,
     },
     events::{AnyTimelineEvent, MessageLikeEventType, StateEventType},
     serde::Raw,
     OwnedEventId, OwnedRoomId,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use super::{SendEventRequest, UpdateDelayedEventRequest};
-use crate::widget::StateKeySelector;
+use crate::{widget::StateKeySelector, Error, HttpError};
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case", content = "data")]
@@ -46,17 +48,63 @@ pub(super) struct FromWidgetErrorResponse {
     error: FromWidgetError,
 }
 
-impl FromWidgetErrorResponse {
-    pub(super) fn new(e: impl fmt::Display) -> Self {
-        Self { error: FromWidgetError { message: e.to_string() } }
+impl From<&HttpError> for FromWidgetErrorResponse {
+    fn from(error: &HttpError) -> Self {
+        Self {
+            error: FromWidgetError {
+                message: error.to_string(),
+                matrix_api_error: error.as_client_api_error().and_then(
+                    |api_error| match &api_error.body {
+                        ErrorBody::Standard { kind, message } => Some(FromWidgetMatrixErrorBody {
+                            http_status: api_error.status_code.as_u16().into(),
+                            http_headers: HashMap::new(),
+                            url: "".to_owned(),
+                            response: json!({"errcode": kind.to_string(), "error": message }),
+                        }),
+                        _ => None,
+                    },
+                ),
+            },
+        }
+    }
+}
+
+impl From<&Error> for FromWidgetErrorResponse {
+    fn from(error: &Error) -> Self {
+        match &error {
+            Error::Http(e) => e.into(),
+            Error::UnknownError(e) => e.to_string().into(),
+            _ => error.to_string().into(),
+        }
+    }
+}
+
+impl From<String> for FromWidgetErrorResponse {
+    fn from(error: String) -> Self {
+        Self { error: FromWidgetError { message: error, matrix_api_error: None } }
+    }
+}
+
+impl From<&str> for FromWidgetErrorResponse {
+    fn from(error: &str) -> Self {
+        error.to_string().into()
     }
 }
 
 #[derive(Serialize)]
 struct FromWidgetError {
     message: String,
+    matrix_api_error: Option<FromWidgetMatrixErrorBody>,
 }
 
+#[derive(Serialize)]
+struct FromWidgetMatrixErrorBody {
+    http_status: u32,
+    // TODO: figure out the which type to use here.
+    http_headers: HashMap<String, String>,
+    url: String,
+    response: Value,
+}
 #[derive(Serialize)]
 pub(super) struct SupportedApiVersionsResponse {
     supported_versions: Vec<ApiVersion>,

@@ -38,7 +38,7 @@ pub(crate) enum IncomingMessage {
         request_id: Uuid,
 
         /// The result of the request: response data or error message.
-        response: Result<MatrixDriverResponse, String>,
+        response: Result<MatrixDriverResponse, crate::Error>,
     },
 
     /// The `MatrixDriver` notified the `WidgetMachine` of a new matrix event.
