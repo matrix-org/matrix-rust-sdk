@@ -803,6 +803,9 @@ impl OtherUserIdentityData {
     /// reported to the user. In order to remove this notice users have to
     /// verify again or to withdraw the verification requirement.
     pub fn withdraw_verification(&self) {
+        // We also pin when we withdraw, since withdrawing implicitly acknowledges
+        // the identity change
+        self.pin();
         self.previously_verified.store(false, Ordering::SeqCst)
     }
 
@@ -1768,6 +1771,45 @@ pub(crate) mod tests {
         assert!(!other_identity.identity_needs_user_approval());
         // But there is still a pin violation
         assert!(other_identity.inner.has_pin_violation());
+    }
+
+    #[async_test]
+    async fn test_resolve_identity_pin_violation_with_withdraw_verification() {
+        use test_json::keys_query_sets::IdentityChangeDataSet as DataSet;
+
+        let my_user_id = user_id!("@me:localhost");
+        let machine = OlmMachine::new(my_user_id, device_id!("ABCDEFGH")).await;
+        machine.bootstrap_cross_signing(false).await.unwrap();
+
+        let keys_query = DataSet::key_query_with_identity_a();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        // Simulate an identity change
+        let keys_query = DataSet::key_query_with_identity_b();
+        let txn_id = TransactionId::new();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+        let other_user_id = DataSet::user_id();
+
+        let other_identity =
+            machine.get_identity(other_user_id, None).await.unwrap().unwrap().other().unwrap();
+
+        // For testing purpose mark it as previously verified
+        other_identity.mark_as_previously_verified().await.unwrap();
+
+        // The identity should need user approval now
+        assert!(other_identity.identity_needs_user_approval());
+
+        // We withdraw verification
+        other_identity.withdraw_verification().await.unwrap();
+
+        // The identity should not need any user approval now
+        let other_identity =
+            machine.get_identity(other_user_id, None).await.unwrap().unwrap().other().unwrap();
+        assert!(!other_identity.identity_needs_user_approval());
+        // And should not have a pin violation
+        assert!(!other_identity.inner.has_pin_violation());
     }
 
     #[async_test]
