@@ -14,4 +14,17 @@
 
 //! Event cache store and common types shared with `matrix_sdk::event_cache`.
 
+use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+
 pub mod store;
+
+/// The kind of event the event storage holds.
+pub type Event = SyncTimelineEvent;
+
+/// The kind of gap the event storage holds.
+#[derive(Clone, Debug)]
+pub struct Gap {
+    /// The token to use in the query, extracted from a previous "from" /
+    /// "end" field of a `/messages` response.
+    pub prev_token: String,
+}
