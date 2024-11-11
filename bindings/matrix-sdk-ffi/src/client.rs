@@ -194,9 +194,7 @@ pub struct Client {
 impl Client {
     pub async fn new(
         sdk_client: MatrixClient,
-        // Copy of `MatrixClient::cross_process_store_locks_holder_name` if OIDC stuff has been
-        // enabled.
-        cross_process_refresh_lock_id: Option<String>,
+        enable_oidc_refresh_lock: bool,
         session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     ) -> Result<Self, ClientError> {
         let session_verification_controller: Arc<
@@ -212,22 +210,26 @@ impl Client {
             }
         });
 
+        let cross_process_store_locks_holder_name =
+            sdk_client.cross_process_store_locks_holder_name().to_owned();
+
         let client = Client {
             inner: AsyncRuntimeDropped::new(sdk_client),
             delegate: RwLock::new(None),
             session_verification_controller,
         };
 
-        if let Some(cross_process_store_locks_holder_name) = cross_process_refresh_lock_id {
+        if enable_oidc_refresh_lock {
             if session_delegate.is_none() {
                 return Err(anyhow::anyhow!(
                     "missing session delegates when enabling the cross-process lock"
                 ))?;
             }
+
             client
                 .inner
                 .oidc()
-                .enable_cross_process_refresh_lock(cross_process_store_locks_holder_name.clone())
+                .enable_cross_process_refresh_lock(cross_process_store_locks_holder_name)
                 .await?;
         }
 
