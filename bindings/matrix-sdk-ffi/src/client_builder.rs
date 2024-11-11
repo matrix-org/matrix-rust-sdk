@@ -261,7 +261,7 @@ pub struct ClientBuilder {
     disable_ssl_verification: bool,
     disable_automatic_token_refresh: bool,
     cross_process_store_locks_holder_name: Option<String>,
-    enable_oidc_refresh_lock: bool,
+    enable_oidc_refresh_crypto_lock: bool,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     additional_root_certificates: Vec<Vec<u8>>,
     disable_built_in_root_certificates: bool,
@@ -286,7 +286,7 @@ impl ClientBuilder {
             disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
             cross_process_store_locks_holder_name: None,
-            enable_oidc_refresh_lock: false,
+            enable_oidc_refresh_crypto_lock: false,
             session_delegate: None,
             additional_root_certificates: Default::default(),
             disable_built_in_root_certificates: false,
@@ -311,13 +311,9 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn enable_cross_process_refresh_lock(
-        self: Arc<Self>,
-        session_delegate: Box<dyn ClientSessionDelegate>,
-    ) -> Arc<Self> {
+    pub fn enable_oidc_refresh_crypto_lock(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.enable_oidc_refresh_lock = true;
-        builder.session_delegate = Some(session_delegate.into());
+        builder.enable_oidc_refresh_crypto_lock = true;
         Arc::new(builder)
     }
 
@@ -631,7 +627,7 @@ impl ClientBuilder {
         Ok(Arc::new(
             Client::new(
                 sdk_client,
-                if builder.enable_oidc_refresh_lock {
+                if builder.enable_oidc_refresh_crypto_lock {
                     builder.cross_process_store_locks_holder_name
                 } else {
                     None
