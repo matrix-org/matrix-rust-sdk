@@ -33,7 +33,7 @@ use imbl::Vector;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
-    event_cache_store::EventCacheStoreLock,
+    event_cache::store::EventCacheStoreLock,
     store::{DynStateStore, ServerCapabilities},
     sync::{Notification, RoomUpdates},
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,

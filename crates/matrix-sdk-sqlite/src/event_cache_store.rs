@@ -3,7 +3,7 @@ use std::{borrow::Cow, fmt, path::Path, sync::Arc};
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
-    event_cache_store::EventCacheStore,
+    event_cache::store::EventCacheStore,
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -279,7 +279,7 @@ mod tests {
     };
 
     use matrix_sdk_base::{
-        event_cache_store::{EventCacheStore, EventCacheStoreError},
+        event_cache::store::{EventCacheStore, EventCacheStoreError},
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
         media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     };
@@ -387,7 +387,7 @@ mod encrypted_tests {
     use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
 
     use matrix_sdk_base::{
-        event_cache_store::EventCacheStoreError, event_cache_store_integration_tests,
+        event_cache::store::EventCacheStoreError, event_cache_store_integration_tests,
         event_cache_store_integration_tests_time,
     };
     use once_cell::sync::Lazy;

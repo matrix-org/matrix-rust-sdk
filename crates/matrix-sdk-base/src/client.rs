@@ -72,7 +72,7 @@ use crate::RoomMemberships;
 use crate::{
     deserialized_responses::{RawAnySyncOrStrippedTimelineEvent, SyncTimelineEvent},
     error::{Error, Result},
-    event_cache_store::EventCacheStoreLock,
+    event_cache::store::EventCacheStoreLock,
     response_processors::AccountDataProcessor,
     rooms::{
         normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons},

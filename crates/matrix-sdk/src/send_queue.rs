@@ -77,7 +77,7 @@
 //! no thumbnails):
 //!
 //! - The file's content is immediately cached in the
-//!   [`matrix_sdk_base::event_cache_store::EventCacheStore`], using an MXC ID
+//!   [`matrix_sdk_base::event_cache::store::EventCacheStore`], using an MXC ID
 //!   that is temporary and designates a local URI without any possible doubt.
 //! - An initial media event is created and uses this temporary MXC ID, and
 //!   propagated as a local echo for an event.
@@ -139,7 +139,7 @@ use std::{
 
 use as_variant::as_variant;
 use matrix_sdk_base::{
-    event_cache_store::EventCacheStoreError,
+    event_cache::store::EventCacheStoreError,
     media::MediaRequestParameters,
     store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
