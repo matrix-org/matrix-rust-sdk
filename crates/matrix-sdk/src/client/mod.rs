@@ -45,7 +45,7 @@ use ruma::{
     api::{
         client::{
             account::whoami,
-            alias::get_alias,
+            alias::{create_alias, get_alias},
             device::{delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
@@ -1058,6 +1058,13 @@ impl Client {
                 }
             }
         }
+    }
+
+    /// Creates a new room alias associated with a room.
+    pub async fn create_room_alias(&self, alias: &RoomAliasId, room_id: &RoomId) -> HttpResult<()> {
+        let request = create_alias::v3::Request::new(alias.to_owned(), room_id.to_owned());
+        self.send(request, None).await?;
+        Ok(())
     }
 
     /// Update the homeserver from the login response well-known if needed.
@@ -2974,5 +2981,21 @@ pub(crate) mod tests {
 
         let ret = client.is_room_alias_available(room_alias_id!("#some_alias:matrix.org")).await;
         assert_matches!(ret, Err(_));
+    }
+
+    #[async_test]
+    async fn test_create_room_alias() {
+        let server = MatrixMockServer::new().await;
+        let client = logged_in_client(Some(server.server().uri())).await;
+
+        server.mock_create_room_alias().ok().expect(1).mount().await;
+
+        let ret = client
+            .create_room_alias(
+                room_alias_id!("#some_alias:matrix.org"),
+                room_id!("!some_room:matrix.org"),
+            )
+            .await;
+        assert_matches!(ret, Ok(()));
     }
 }

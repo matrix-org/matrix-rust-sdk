@@ -208,6 +208,13 @@ impl MatrixMockServer {
             Mock::given(method("GET")).and(path_regex(r"/_matrix/client/r0/directory/room/.*"));
         MockResolveRoomAlias { mock, server: &self.server }
     }
+
+    /// Create a prebuilt mock for creating room aliases.
+    pub fn mock_create_room_alias(&self) -> MockCreateRoomAlias<'_> {
+        let mock =
+            Mock::given(method("PUT")).and(path_regex(r"/_matrix/client/r0/directory/room/.*"));
+        MockCreateRoomAlias { mock, server: &self.server }
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -547,6 +554,20 @@ impl<'a> MockResolveRoomAlias<'a> {
     /// Returns a data endpoint with a server error.
     pub fn error500(self) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(500));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for creating a room alias.
+pub struct MockCreateRoomAlias<'a> {
+    server: &'a MockServer,
+    mock: MockBuilder,
+}
+
+impl<'a> MockCreateRoomAlias<'a> {
+    /// Returns a data endpoint for creating a room alias.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
         MatrixMock { server: self.server, mock }
     }
 }
