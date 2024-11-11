@@ -14,7 +14,7 @@
 
 use deadpool_sqlite::{CreatePoolError, PoolError};
 #[cfg(feature = "event-cache")]
-use matrix_sdk_base::event_cache_store::EventCacheStoreError;
+use matrix_sdk_base::event_cache::store::EventCacheStoreError;
 #[cfg(feature = "state-store")]
 use matrix_sdk_base::store::StoreError as StateStoreError;
 #[cfg(feature = "crypto-store")]

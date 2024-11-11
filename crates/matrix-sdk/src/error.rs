@@ -25,7 +25,7 @@ use matrix_sdk_base::crypto::{
     CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
 };
 use matrix_sdk_base::{
-    event_cache_store::EventCacheStoreError, Error as SdkBaseError, QueueWedgeError, RoomState,
+    event_cache::store::EventCacheStoreError, Error as SdkBaseError, QueueWedgeError, RoomState,
     StoreError,
 };
 use reqwest::Error as ReqwestError;

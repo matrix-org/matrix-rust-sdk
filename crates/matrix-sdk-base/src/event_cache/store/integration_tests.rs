@@ -193,7 +193,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 ///
 /// ## Usage Example:
 /// ```no_run
-/// # use matrix_sdk_base::event_cache_store::{
+/// # use matrix_sdk_base::event_cache::store::{
 /// #    EventCacheStore,
 /// #    MemoryStore as MyStore,
 /// #    Result as EventCacheStoreResult,
@@ -217,7 +217,9 @@ macro_rules! event_cache_store_integration_tests {
     () => {
         mod event_cache_store_integration_tests {
             use matrix_sdk_test::async_test;
-            use $crate::event_cache_store::{EventCacheStoreIntegrationTests, IntoEventCacheStore};
+            use $crate::event_cache::store::{
+                EventCacheStoreIntegrationTests, IntoEventCacheStore,
+            };
 
             use super::get_event_cache_store;
 
@@ -249,7 +251,7 @@ macro_rules! event_cache_store_integration_tests_time {
             use std::time::Duration;
 
             use matrix_sdk_test::async_test;
-            use $crate::event_cache_store::IntoEventCacheStore;
+            use $crate::event_cache::store::IntoEventCacheStore;
 
             use super::get_event_cache_store;
 
