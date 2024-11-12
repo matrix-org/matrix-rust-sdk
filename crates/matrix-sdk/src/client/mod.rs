@@ -17,7 +17,7 @@
 use std::{
     collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
-    future::Future,
+    future::{ready, Future},
     pin::Pin,
     sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak},
 };
@@ -88,7 +88,8 @@ use crate::{
     error::{HttpError, HttpResult},
     event_cache::EventCache,
     event_handler::{
-        EventHandler, EventHandlerDropGuard, EventHandlerHandle, EventHandlerStore, SyncEvent,
+        EventHandler, EventHandlerContext, EventHandlerDropGuard, EventHandlerHandle,
+        EventHandlerStore, ObservableEventHandler, SyncEvent,
     },
     http_client::HttpClient,
     matrix_auth::MatrixAuth,
@@ -776,7 +777,7 @@ impl Client {
     /// ```
     pub fn add_event_handler<Ev, Ctx, H>(&self, handler: H) -> EventHandlerHandle
     where
-        Ev: SyncEvent + DeserializeOwned + Send + 'static,
+        Ev: SyncEvent + DeserializeOwned + SendOutsideWasm + 'static,
         H: EventHandler<Ev, Ctx>,
     {
         self.add_event_handler_impl(handler, None)
@@ -798,10 +799,94 @@ impl Client {
         handler: H,
     ) -> EventHandlerHandle
     where
-        Ev: SyncEvent + DeserializeOwned + Send + 'static,
+        Ev: SyncEvent + DeserializeOwned + SendOutsideWasm + 'static,
         H: EventHandler<Ev, Ctx>,
     {
         self.add_event_handler_impl(handler, Some(room_id.to_owned()))
+    }
+
+    /// Observe a specific event type.
+    ///
+    /// `Ev` represents the kind of event that will be observed. `Ctx`
+    /// represents the context that will come with the event. It relies on the
+    /// same mechanism as [`Self::add_event_handler`]. The main difference is
+    /// that it returns an [`ObservableEventHandler`] and doesn't require a
+    /// user-defined closure. It is possible to subscribe to the
+    /// [`ObservableEventHandler`] to get an [`EventHandlerSubscriber`], which
+    /// implements a [`Stream`]. The `Stream::Item` will be of type `(Ev,
+    /// Ctx)`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use futures_util::StreamExt as _;
+    /// use matrix_sdk::{
+    ///     ruma::{events::room::message::SyncRoomMessageEvent, push::Action},
+    ///     Client, Room,
+    /// };
+    ///
+    /// # async fn example(client: Client) {
+    /// let observer =
+    ///     client.observe_events::<SyncRoomMessageEvent, (Room, Vec<Action>)>();
+    ///
+    /// let mut subscriber = observer.subscribe();
+    ///
+    /// let (message_event, (room, push_actions)) =
+    ///     subscriber.next().await.unwrap();
+    /// # }
+    /// ```
+    ///
+    /// [`EventHandlerSubscriber`]: crate::event_handler::EventHandlerSubscriber
+    pub fn observe_events<Ev, Ctx>(&self) -> ObservableEventHandler<(Ev, Ctx)>
+    where
+        Ev: SyncEvent + DeserializeOwned + SendOutsideWasm + SyncOutsideWasm + 'static,
+        Ctx: EventHandlerContext + SendOutsideWasm + SyncOutsideWasm + 'static,
+    {
+        self.observe_room_events_impl(None)
+    }
+
+    /// Observe a specific room, and event type.
+    ///
+    /// This method works the same way as
+    /// [`observe_events`][Self::observe_events], except that the observability
+    /// will only be applied for events in the room with the specified ID.
+    /// See that method for more details.
+    pub fn observe_room_events<Ev, Ctx>(
+        &self,
+        room_id: &RoomId,
+    ) -> ObservableEventHandler<(Ev, Ctx)>
+    where
+        Ev: SyncEvent + DeserializeOwned + SendOutsideWasm + SyncOutsideWasm + 'static,
+        Ctx: EventHandlerContext + SendOutsideWasm + SyncOutsideWasm + 'static,
+    {
+        self.observe_room_events_impl(Some(room_id.to_owned()))
+    }
+
+    /// Shared implementation for `Self::observe_events` and
+    /// `Self::observe_room_events`.
+    fn observe_room_events_impl<Ev, Ctx>(
+        &self,
+        room_id: Option<OwnedRoomId>,
+    ) -> ObservableEventHandler<(Ev, Ctx)>
+    where
+        Ev: SyncEvent + DeserializeOwned + SendOutsideWasm + SyncOutsideWasm + 'static,
+        Ctx: EventHandlerContext + SendOutsideWasm + SyncOutsideWasm + 'static,
+    {
+        // The default value is `None`. It becomes `Some((Ev, Ctx))` once it has a
+        // new value.
+        let shared_observable = SharedObservable::new(None);
+
+        ObservableEventHandler::new(
+            shared_observable.clone(),
+            self.event_handler_drop_guard(self.add_event_handler_impl(
+                move |event: Ev, context: Ctx| {
+                    shared_observable.set(Some((event, context)));
+
+                    ready(())
+                },
+                room_id,
+            )),
+        )
     }
 
     /// Remove the event handler associated with the handle.
