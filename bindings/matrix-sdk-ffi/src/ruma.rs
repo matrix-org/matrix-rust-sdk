@@ -262,6 +262,23 @@ pub enum MessageType {
     Other { msgtype: String, body: String },
 }
 
+/// From MSC2530: https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
+/// If the filename field is present in a media message, clients should treat
+/// body as a caption instead of a file name. Otherwise, the body is the
+/// file name.
+///
+/// So:
+/// - if a media has a filename and a caption, the body is the caption, filename
+///   is its own field.
+/// - if a media only has a filename, then body is the filename.
+fn get_body_and_filename(filename: String, caption: Option<String>) -> (String, Option<String>) {
+    if let Some(caption) = caption {
+        (caption, Some(filename))
+    } else {
+        (filename, None)
+    }
+}
+
 impl TryFrom<MessageType> for RumaMessageType {
     type Error = serde_json::Error;
 
@@ -273,35 +290,39 @@ impl TryFrom<MessageType> for RumaMessageType {
                 }))
             }
             MessageType::Image { content } => {
+                let (body, filename) = get_body_and_filename(content.filename, content.caption);
                 let mut event_content =
-                    RumaImageMessageEventContent::new(content.body, (*content.source).clone())
+                    RumaImageMessageEventContent::new(body, (*content.source).clone())
                         .info(content.info.map(Into::into).map(Box::new));
-                event_content.formatted = content.formatted.map(Into::into);
-                event_content.filename = content.raw_filename;
+                event_content.formatted = content.formatted_caption.map(Into::into);
+                event_content.filename = filename;
                 Self::Image(event_content)
             }
             MessageType::Audio { content } => {
+                let (body, filename) = get_body_and_filename(content.filename, content.caption);
                 let mut event_content =
-                    RumaAudioMessageEventContent::new(content.body, (*content.source).clone())
+                    RumaAudioMessageEventContent::new(body, (*content.source).clone())
                         .info(content.info.map(Into::into).map(Box::new));
-                event_content.formatted = content.formatted.map(Into::into);
-                event_content.filename = content.raw_filename;
+                event_content.formatted = content.formatted_caption.map(Into::into);
+                event_content.filename = filename;
                 Self::Audio(event_content)
             }
             MessageType::Video { content } => {
+                let (body, filename) = get_body_and_filename(content.filename, content.caption);
                 let mut event_content =
-                    RumaVideoMessageEventContent::new(content.body, (*content.source).clone())
+                    RumaVideoMessageEventContent::new(body, (*content.source).clone())
                         .info(content.info.map(Into::into).map(Box::new));
-                event_content.formatted = content.formatted.map(Into::into);
-                event_content.filename = content.raw_filename;
+                event_content.formatted = content.formatted_caption.map(Into::into);
+                event_content.filename = filename;
                 Self::Video(event_content)
             }
             MessageType::File { content } => {
+                let (body, filename) = get_body_and_filename(content.filename, content.caption);
                 let mut event_content =
-                    RumaFileMessageEventContent::new(content.body, (*content.source).clone())
+                    RumaFileMessageEventContent::new(body, (*content.source).clone())
                         .info(content.info.map(Into::into).map(Box::new));
-                event_content.formatted = content.formatted.map(Into::into);
-                event_content.filename = content.raw_filename;
+                event_content.formatted = content.formatted_caption.map(Into::into);
+                event_content.filename = filename;
                 Self::File(event_content)
             }
             MessageType::Notice { content } => {
@@ -335,9 +356,6 @@ impl From<RumaMessageType> for MessageType {
             },
             RumaMessageType::Image(c) => MessageType::Image {
                 content: ImageMessageContent {
-                    body: c.body.clone(),
-                    formatted: c.formatted.as_ref().map(Into::into),
-                    raw_filename: c.filename.clone(),
                     filename: c.filename().to_owned(),
                     caption: c.caption().map(ToString::to_string),
                     formatted_caption: c.formatted_caption().map(Into::into),
@@ -347,9 +365,6 @@ impl From<RumaMessageType> for MessageType {
             },
             RumaMessageType::Audio(c) => MessageType::Audio {
                 content: AudioMessageContent {
-                    body: c.body.clone(),
-                    formatted: c.formatted.as_ref().map(Into::into),
-                    raw_filename: c.filename.clone(),
                     filename: c.filename().to_owned(),
                     caption: c.caption().map(ToString::to_string),
                     formatted_caption: c.formatted_caption().map(Into::into),
@@ -361,9 +376,6 @@ impl From<RumaMessageType> for MessageType {
             },
             RumaMessageType::Video(c) => MessageType::Video {
                 content: VideoMessageContent {
-                    body: c.body.clone(),
-                    formatted: c.formatted.as_ref().map(Into::into),
-                    raw_filename: c.filename.clone(),
                     filename: c.filename().to_owned(),
                     caption: c.caption().map(ToString::to_string),
                     formatted_caption: c.formatted_caption().map(Into::into),
@@ -373,9 +385,6 @@ impl From<RumaMessageType> for MessageType {
             },
             RumaMessageType::File(c) => MessageType::File {
                 content: FileMessageContent {
-                    body: c.body.clone(),
-                    formatted: c.formatted.as_ref().map(Into::into),
-                    raw_filename: c.filename.clone(),
                     filename: c.filename().to_owned(),
                     caption: c.caption().map(ToString::to_string),
                     formatted_caption: c.formatted_caption().map(Into::into),
@@ -452,15 +461,6 @@ pub struct EmoteMessageContent {
 
 #[derive(Clone, uniffi::Record)]
 pub struct ImageMessageContent {
-    /// The original body field, deserialized from the event. Prefer the use of
-    /// `filename` and `caption` over this.
-    pub body: String,
-    /// The original formatted body field, deserialized from the event. Prefer
-    /// the use of `filename` and `formatted_caption` over this.
-    pub formatted: Option<FormattedBody>,
-    /// The original filename field, deserialized from the event. Prefer the use
-    /// of `filename` over this.
-    pub raw_filename: Option<String>,
     /// The computed filename, for use in a client.
     pub filename: String,
     pub caption: Option<String>,
@@ -471,15 +471,6 @@ pub struct ImageMessageContent {
 
 #[derive(Clone, uniffi::Record)]
 pub struct AudioMessageContent {
-    /// The original body field, deserialized from the event. Prefer the use of
-    /// `filename` and `caption` over this.
-    pub body: String,
-    /// The original formatted body field, deserialized from the event. Prefer
-    /// the use of `filename` and `formatted_caption` over this.
-    pub formatted: Option<FormattedBody>,
-    /// The original filename field, deserialized from the event. Prefer the use
-    /// of `filename` over this.
-    pub raw_filename: Option<String>,
     /// The computed filename, for use in a client.
     pub filename: String,
     pub caption: Option<String>,
@@ -492,15 +483,6 @@ pub struct AudioMessageContent {
 
 #[derive(Clone, uniffi::Record)]
 pub struct VideoMessageContent {
-    /// The original body field, deserialized from the event. Prefer the use of
-    /// `filename` and `caption` over this.
-    pub body: String,
-    /// The original formatted body field, deserialized from the event. Prefer
-    /// the use of `filename` and `formatted_caption` over this.
-    pub formatted: Option<FormattedBody>,
-    /// The original filename field, deserialized from the event. Prefer the use
-    /// of `filename` over this.
-    pub raw_filename: Option<String>,
     /// The computed filename, for use in a client.
     pub filename: String,
     pub caption: Option<String>,
@@ -511,15 +493,6 @@ pub struct VideoMessageContent {
 
 #[derive(Clone, uniffi::Record)]
 pub struct FileMessageContent {
-    /// The original body field, deserialized from the event. Prefer the use of
-    /// `filename` and `caption` over this.
-    pub body: String,
-    /// The original formatted body field, deserialized from the event. Prefer
-    /// the use of `filename` and `formatted_caption` over this.
-    pub formatted: Option<FormattedBody>,
-    /// The original filename field, deserialized from the event. Prefer the use
-    /// of `filename` over this.
-    pub raw_filename: Option<String>,
     /// The computed filename, for use in a client.
     pub filename: String,
     pub caption: Option<String>,
