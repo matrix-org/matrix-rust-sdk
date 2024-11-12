@@ -2052,7 +2052,7 @@ impl Room {
     ) -> MessageType {
         // If caption is set, use it as body, and filename as the file name; otherwise,
         // body is the filename, and the filename is not set.
-        // https://github.com/tulir/matrix-spec-proposals/blob/body-as-caption/proposals/2530-body-as-caption.md
+        // https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
         let (body, filename) = match caption {
             Some(caption) => (caption, Some(filename.to_owned())),
             None => (filename.to_owned(), None),
