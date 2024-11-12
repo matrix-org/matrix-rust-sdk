@@ -1064,16 +1064,22 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
                     match decryptor.decrypt_event_impl(original_json).await {
                         Ok(event) => {
-                            trace!(
-                                "Successfully decrypted event that previously failed to decrypt"
-                            );
+                            if let matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt { utd_info, ..} = event.kind {
+                                info!("Failed to decrypt event after receiving room key: {:?}", utd_info.reason);
+                                None
+                            } else {
+                                trace!(
+                                    kind = ?event.kind,
+                                    "Successfully decrypted event that previously failed to decrypt"
+                                );
 
-                            // Notify observers that we managed to eventually decrypt an event.
-                            if let Some(hook) = unable_to_decrypt_hook {
-                                hook.on_late_decrypt(&remote_event.event_id, *utd_cause).await;
+                                // Notify observers that we managed to eventually decrypt an event.
+                                if let Some(hook) = unable_to_decrypt_hook {
+                                    hook.on_late_decrypt(&remote_event.event_id, *utd_cause).await;
+                                }
+
+                                Some(event)
                             }
-
-                            Some(event)
                         }
                         Err(e) => {
                             info!("Failed to decrypt event after receiving room key: {e}");
