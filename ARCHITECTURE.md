@@ -76,7 +76,7 @@ implement encryption at rest can use those primitives.
 
 Very high-level primitives implementing the best practices and cutting-edge Matrix tech:
 
-- `EncryptionService`: a specialized service running simplified sliding sync (MSC4186) for
+- `EncryptionSyncService`: a specialized service running simplified sliding sync (MSC4186) for
   everything related to crypto and E2EE for the current `Client`.
 - `RoomListService`: a specialized service running simplified sliding sync (MSC4186) for
   retrieving the list of current rooms, and exposing its entries.
