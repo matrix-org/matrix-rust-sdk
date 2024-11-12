@@ -129,7 +129,7 @@
 //! remembered and fixed up into the media event, just before sending it.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, HashMap},
     str::FromStr as _,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -833,7 +833,7 @@ struct QueueStorage {
     /// All the queued requests that are being sent at the moment.
     ///
     /// It also serves as an internal lock on the storage backend.
-    being_sent: Arc<RwLock<BTreeSet<OwnedTransactionId>>>,
+    being_sent: Arc<RwLock<Option<OwnedTransactionId>>>,
 }
 
 impl QueueStorage {
@@ -887,7 +887,8 @@ impl QueueStorage {
             self.client()?.store().load_send_queue_requests(&self.room_id).await?;
 
         if let Some(request) = queued_requests.iter().find(|queued| !queued.is_wedged()) {
-            being_sent.insert(request.transaction_id.clone());
+            let prev = being_sent.replace(request.transaction_id.clone());
+            assert!(prev.is_none());
 
             Ok(Some(request.clone()))
         } else {
@@ -899,7 +900,8 @@ impl QueueStorage {
     /// with the given transaction id as not being sent anymore, so it can
     /// be removed from the queue later.
     async fn mark_as_not_being_sent(&self, transaction_id: &TransactionId) {
-        self.being_sent.write().await.remove(transaction_id);
+        let was_being_sent = self.being_sent.write().await.take();
+        assert_eq!(was_being_sent.as_deref(), Some(transaction_id));
     }
 
     /// Marks a request popped with [`Self::peek_next_to_send`] and identified
@@ -912,7 +914,8 @@ impl QueueStorage {
     ) -> Result<(), RoomSendQueueStorageError> {
         // Keep the lock until we're done touching the storage.
         let mut being_sent = self.being_sent.write().await;
-        being_sent.remove(transaction_id);
+        let was_being_sent = being_sent.take();
+        assert_eq!(was_being_sent.as_deref(), Some(transaction_id));
 
         Ok(self
             .client()?
@@ -943,7 +946,8 @@ impl QueueStorage {
     ) -> Result<(), RoomSendQueueStorageError> {
         // Keep the lock until we're done touching the storage.
         let mut being_sent = self.being_sent.write().await;
-        being_sent.remove(transaction_id);
+        let was_being_sent = being_sent.take();
+        assert_eq!(was_being_sent.as_deref(), Some(transaction_id));
 
         let client = self.client()?;
         let store = client.store();
@@ -973,7 +977,7 @@ impl QueueStorage {
         // Keep the lock until we're done touching the storage.
         let being_sent = self.being_sent.read().await;
 
-        if being_sent.contains(transaction_id) {
+        if being_sent.as_deref() == Some(transaction_id) {
             // Save the intent to redact the event.
             self.client()?
                 .store()
@@ -1008,7 +1012,7 @@ impl QueueStorage {
         // Keep the lock until we're done touching the storage.
         let being_sent = self.being_sent.read().await;
 
-        if being_sent.contains(transaction_id) {
+        if being_sent.as_deref() == Some(transaction_id) {
             // Save the intent to edit the associated event.
             self.client()?
                 .store()
