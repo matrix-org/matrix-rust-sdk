@@ -2915,6 +2915,7 @@ dependencies = [
  "mime2ext",
  "once_cell",
  "openidconnect",
+ "pin-project-lite",
  "proptest",
  "rand",
  "reqwest",
