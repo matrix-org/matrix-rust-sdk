@@ -33,11 +33,12 @@ use ruma::{
 };
 use tracing::{debug, error, instrument, trace, warn, Span};
 
-use super::{QueueStorage, RoomSendQueue, RoomSendQueueError, SendAttachmentHandle};
+use super::{QueueStorage, RoomSendQueue, RoomSendQueueError};
 use crate::{
     attachment::AttachmentConfig,
     send_queue::{
-        LocalEcho, LocalEchoContent, RoomSendQueueStorageError, RoomSendQueueUpdate, SendHandle,
+        LocalEcho, LocalEchoContent, MediaHandles, RoomSendQueueStorageError, RoomSendQueueUpdate,
+        SendHandle,
     },
     Client, Room,
 };
@@ -141,7 +142,7 @@ impl RoomSendQueue {
         content_type: Mime,
         data: Vec<u8>,
         mut config: AttachmentConfig,
-    ) -> Result<SendAttachmentHandle, RoomSendQueueError> {
+    ) -> Result<SendHandle, RoomSendQueueError> {
         let Some(room) = self.inner.room.get() else {
             return Err(RoomSendQueueError::RoomDisappeared);
         };
@@ -249,27 +250,23 @@ impl RoomSendQueue {
 
         self.inner.notifier.notify_one();
 
+        let send_handle = SendHandle {
+            room: self.clone(),
+            transaction_id: send_event_txn.clone().into(),
+            media_handles: Some(MediaHandles { upload_thumbnail_txn, upload_file_txn }),
+        };
+
         let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id: send_event_txn.clone().into(),
             content: LocalEchoContent::Event {
                 serialized_event: SerializableEventContent::new(&event_content.into())
                     .map_err(RoomSendQueueStorageError::JsonSerialization)?,
-                // TODO: this should be a `SendAttachmentHandle`!
-                send_handle: SendHandle {
-                    room: self.clone(),
-                    transaction_id: send_event_txn.clone().into(),
-                    is_upload: true,
-                },
+                send_handle: send_handle.clone(),
                 send_error: None,
             },
         }));
 
-        Ok(SendAttachmentHandle {
-            _room: self.clone(),
-            _transaction_id: send_event_txn.into(),
-            _file_upload: upload_file_txn,
-            _thumbnail_transaction_id: upload_thumbnail_txn,
-        })
+        Ok(send_handle)
     }
 }
 
