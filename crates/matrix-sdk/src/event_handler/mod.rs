@@ -755,6 +755,20 @@ mod tests {
 
     #[async_test]
     #[allow(dependency_on_unit_never_type_fallback)]
+    async fn test_add_event_handler_with_tuples() -> crate::Result<()> {
+        let client = logged_in_client(None).await;
+
+        client.add_event_handler(
+            |_ev: OriginalSyncRoomMemberEvent, (_room, _client): (Room, Client)| future::ready(()),
+        );
+
+        // If it compiles, it works. No need to assert anything.
+
+        Ok(())
+    }
+
+    #[async_test]
+    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_remove_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 

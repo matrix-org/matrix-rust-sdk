@@ -107,3 +107,38 @@ impl<T> Deref for Ctx<T> {
         &self.0
     }
 }
+
+// `EventHandlerContext` for tuples.
+
+impl EventHandlerContext for () {
+    fn from_data(_data: &EventHandlerData<'_>) -> Option<Self> {
+        Some(())
+    }
+}
+
+macro_rules! impl_context_for_tuple {
+    ( $( $ty:ident ),* $(,)? ) => {
+        #[allow(non_snake_case)]
+        impl< $( $ty ),* > EventHandlerContext for ( $( $ty ),* , )
+        where
+            $( $ty : EventHandlerContext, )*
+        {
+            fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+                $(
+                    let $ty = $ty ::from_data(data)?;
+                )*
+
+                Some(( $( $ty ),* , ))
+            }
+        }
+    };
+}
+
+impl_context_for_tuple!(A);
+impl_context_for_tuple!(A, B);
+impl_context_for_tuple!(A, B, C);
+impl_context_for_tuple!(A, B, C, D);
+impl_context_for_tuple!(A, B, C, D, E);
+impl_context_for_tuple!(A, B, C, D, E, F);
+impl_context_for_tuple!(A, B, C, D, E, F, G);
+impl_context_for_tuple!(A, B, C, D, E, F, G, H);
