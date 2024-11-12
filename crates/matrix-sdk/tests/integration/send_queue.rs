@@ -2010,3 +2010,78 @@ async fn test_media_upload_retry() {
     // That's all, folks!
     assert!(watch.is_empty());
 }
+
+#[async_test]
+async fn test_unwedging_media_upload() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    // Create the media to send (no thumbnails).
+    let filename = "rickroll.gif";
+    let content_type = mime::IMAGE_JPEG;
+    let data = b"Never gonna give you up".to_vec();
+
+    let config = AttachmentConfig::new().info(AttachmentInfo::Image(BaseImageInfo {
+        height: Some(uint!(13)),
+        width: Some(uint!(37)),
+        size: Some(uint!(42)),
+        blurhash: None,
+    }));
+
+    // Prepare endpoints.
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // Fail for the first attempt with an error indicating the media's too large,
+    // wedging the upload.
+    mock.mock_upload().error_too_large().mock_once().mount().await;
+
+    // Send the media.
+    assert!(watch.is_empty());
+    q.send_attachment(filename, content_type, data, config)
+        .await
+        .expect("queuing the attachment works");
+
+    // Observe the local echo.
+    let (event_txn, send_handle, content) = assert_update!(watch => local echo event);
+    assert_let!(MessageType::Image(img_content) = content.msgtype);
+    assert_eq!(img_content.body, filename);
+
+    // Although the actual error happens on the file upload transaction id, it must
+    // be reported with the *event* transaction id.
+    let error = assert_update!(watch => error { recoverable=false, txn=event_txn });
+    let error = error.as_client_api_error().unwrap();
+    assert_eq!(error.status_code, 413);
+    assert!(q.is_enabled());
+
+    // Mount the mock for the upload and sending the event.
+    mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/media")).mock_once().mount().await;
+    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+
+    // Unwedge the upload.
+    send_handle.unwedge().await.unwrap();
+
+    // Observe the notification for the retry itself.
+    assert_update!(watch => retry { txn = event_txn });
+
+    // Observe the upload succeeding at some point.
+    assert_update!(watch => uploaded { related_to = event_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
+
+    let edit_msg = assert_update!(watch => edit local echo { txn = event_txn });
+    assert_let!(MessageType::Image(new_content) = edit_msg.msgtype);
+    assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
+    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
+
+    // The event is sent, at some point.
+    assert_update!(watch => sent { txn = event_txn, event_id = event_id!("$1") });
+
+    // That's all, folks!
+    assert!(watch.is_empty());
+}

@@ -1816,6 +1816,23 @@ impl SendHandle {
             .await
             .map_err(RoomSendQueueError::StorageError)?;
 
+        // If we have media handles, also try to unwedge them.
+        //
+        // It's fine to always do it to *all* the transaction IDs at once, because only
+        // one of the three requests will be active at the same time, i.e. only
+        // one entry will be updated in the store. The other two are either
+        // done, or dependent requests.
+        if let Some(handles) = &self.media_handles {
+            room.queue
+                .mark_as_unwedged(&handles.upload_file_txn)
+                .await
+                .map_err(RoomSendQueueError::StorageError)?;
+
+            if let Some(txn) = &handles.upload_thumbnail_txn {
+                room.queue.mark_as_unwedged(txn).await.map_err(RoomSendQueueError::StorageError)?;
+            }
+        }
+
         // Wake up the queue, in case the room was asleep before unwedging the request.
         room.notifier.notify_one();
 
