@@ -161,7 +161,7 @@ use ruma::{
     serde::Raw,
     OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
 };
-use tokio::sync::{broadcast, Notify, RwLock};
+use tokio::sync::{broadcast, oneshot, Notify, RwLock};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]
@@ -542,7 +542,7 @@ impl RoomSendQueue {
                 continue;
             }
 
-            let queued_request = match queue.peek_next_to_send().await {
+            let (queued_request, cancel_upload_rx) = match queue.peek_next_to_send().await {
                 Ok(Some(request)) => request,
 
                 Ok(None) => {
@@ -571,8 +571,9 @@ impl RoomSendQueue {
                 continue;
             };
 
-            match Self::handle_request(&room, queued_request).await {
-                Ok(parent_key) => match queue.mark_as_sent(&txn_id, parent_key.clone()).await {
+            match Self::handle_request(&room, queued_request, cancel_upload_rx).await {
+                Ok(Some(parent_key)) => match queue.mark_as_sent(&txn_id, parent_key.clone()).await
+                {
                     Ok(()) => match parent_key {
                         SentRequestKey::Event(event_id) => {
                             let _ = updates.send(RoomSendQueueUpdate::SentEvent {
@@ -593,6 +594,10 @@ impl RoomSendQueue {
                         warn!("unable to mark queued request as sent: {err}");
                     }
                 },
+
+                Ok(None) => {
+                    debug!("Request has been aborted while running, continuing.");
+                }
 
                 Err(err) => {
                     let is_recoverable = match err {
@@ -661,11 +666,14 @@ impl RoomSendQueue {
         info!("exited sending task");
     }
 
-    /// Handles a single request and returns the [`SentRequestKey`] on success.
+    /// Handles a single request and returns the [`SentRequestKey`] on success
+    /// (unless the request was cancelled, in which case it'll return
+    /// `None`).
     async fn handle_request(
         room: &Room,
         request: QueuedRequest,
-    ) -> Result<SentRequestKey, crate::Error> {
+        cancel_upload_rx: Option<oneshot::Receiver<()>>,
+    ) -> Result<Option<SentRequestKey>, crate::Error> {
         match request.kind {
             QueuedRequestKind::Event { content } => {
                 let (event, event_type) = content.raw();
@@ -677,7 +685,7 @@ impl RoomSendQueue {
                     .await?;
 
                 trace!(txn_id = %request.transaction_id, event_id = %res.event_id, "event successfully sent");
-                Ok(SentRequestKey::Event(res.event_id))
+                Ok(Some(SentRequestKey::Event(res.event_id)))
             }
 
             QueuedRequestKind::MediaUpload {
@@ -688,61 +696,83 @@ impl RoomSendQueue {
             } => {
                 trace!(%relates_to, "uploading media related to event");
 
-                let mime = Mime::from_str(&content_type).map_err(|_| {
-                    crate::Error::SendQueueWedgeError(QueueWedgeError::InvalidMimeType {
-                        mime_type: content_type.clone(),
-                    })
-                })?;
+                let fut = async move {
+                    let mime = Mime::from_str(&content_type).map_err(|_| {
+                        crate::Error::SendQueueWedgeError(QueueWedgeError::InvalidMimeType {
+                            mime_type: content_type.clone(),
+                        })
+                    })?;
 
-                let data = room
-                    .client()
-                    .event_cache_store()
-                    .lock()
-                    .await?
-                    .get_media_content(&cache_key)
-                    .await?
-                    .ok_or(crate::Error::SendQueueWedgeError(
-                        QueueWedgeError::MissingMediaContent,
-                    ))?;
-
-                #[cfg(feature = "e2e-encryption")]
-                let media_source = if room.is_encrypted().await? {
-                    trace!("upload will be encrypted (encrypted room)");
-                    let mut cursor = std::io::Cursor::new(data);
-                    let encrypted_file = room
+                    let data = room
                         .client()
-                        .upload_encrypted_file(&mime, &mut cursor)
-                        .with_request_config(RequestConfig::short_retry())
-                        .await?;
-                    MediaSource::Encrypted(Box::new(encrypted_file))
-                } else {
-                    trace!("upload will be in clear text (room without encryption)");
-                    let request_config = RequestConfig::short_retry()
-                        .timeout(Media::reasonable_upload_timeout(&data));
-                    let res =
-                        room.client().media().upload(&mime, data, Some(request_config)).await?;
-                    MediaSource::Plain(res.content_uri)
+                        .event_cache_store()
+                        .lock()
+                        .await?
+                        .get_media_content(&cache_key)
+                        .await?
+                        .ok_or(crate::Error::SendQueueWedgeError(
+                            QueueWedgeError::MissingMediaContent,
+                        ))?;
+
+                    #[cfg(feature = "e2e-encryption")]
+                    let media_source = if room.is_encrypted().await? {
+                        trace!("upload will be encrypted (encrypted room)");
+                        let mut cursor = std::io::Cursor::new(data);
+                        let encrypted_file = room
+                            .client()
+                            .upload_encrypted_file(&mime, &mut cursor)
+                            .with_request_config(RequestConfig::short_retry())
+                            .await?;
+                        MediaSource::Encrypted(Box::new(encrypted_file))
+                    } else {
+                        trace!("upload will be in clear text (room without encryption)");
+                        let request_config = RequestConfig::short_retry()
+                            .timeout(Media::reasonable_upload_timeout(&data));
+                        let res =
+                            room.client().media().upload(&mime, data, Some(request_config)).await?;
+                        MediaSource::Plain(res.content_uri)
+                    };
+
+                    #[cfg(not(feature = "e2e-encryption"))]
+                    let media_source = {
+                        let request_config = RequestConfig::short_retry()
+                            .timeout(Media::reasonable_upload_timeout(&data));
+                        let res =
+                            room.client().media().upload(&mime, data, Some(request_config)).await?;
+                        MediaSource::Plain(res.content_uri)
+                    };
+
+                    let uri = match &media_source {
+                        MediaSource::Plain(uri) => uri,
+                        MediaSource::Encrypted(encrypted_file) => &encrypted_file.url,
+                    };
+                    trace!(%relates_to, mxc_uri = %uri, "media successfully uploaded");
+
+                    Ok(SentRequestKey::Media(SentMediaInfo {
+                        file: media_source,
+                        thumbnail: thumbnail_source,
+                    }))
                 };
 
-                #[cfg(not(feature = "e2e-encryption"))]
-                let media_source = {
-                    let request_config = RequestConfig::short_retry()
-                        .timeout(Media::reasonable_upload_timeout(&data));
-                    let res =
-                        room.client().media().upload(&mime, data, Some(request_config)).await?;
-                    MediaSource::Plain(res.content_uri)
+                let wait_for_cancel = async move {
+                    if let Some(rx) = cancel_upload_rx {
+                        rx.await
+                    } else {
+                        std::future::pending().await
+                    }
                 };
 
-                let uri = match &media_source {
-                    MediaSource::Plain(uri) => uri,
-                    MediaSource::Encrypted(encrypted_file) => &encrypted_file.url,
-                };
-                trace!(%relates_to, mxc_uri = %uri, "media successfully uploaded");
+                tokio::select! {
+                    biased;
 
-                Ok(SentRequestKey::Media(SentMediaInfo {
-                    file: media_source,
-                    thumbnail: thumbnail_source,
-                }))
+                    _ = wait_for_cancel => {
+                        Ok(None)
+                    }
+
+                    res = fut => {
+                        res.map(Some)
+                    }
+                }
             }
         }
     }
@@ -822,6 +852,31 @@ struct RoomSendQueueInner {
     _task: JoinHandle<()>,
 }
 
+/// Information about a request being sent right this moment.
+struct BeingSentInfo {
+    /// Transaction id of the thing being sent.
+    transaction_id: OwnedTransactionId,
+
+    /// For an upload request, a trigger to cancel the upload before it
+    /// completes.
+    cancel_upload: Option<oneshot::Sender<()>>,
+}
+
+impl BeingSentInfo {
+    /// Aborts the upload, if a trigger is available.
+    ///
+    /// Consumes the object because the sender is a oneshot and will be consumed
+    /// upon sending.
+    fn cancel_upload(self) -> bool {
+        if let Some(cancel_upload) = self.cancel_upload {
+            let _ = cancel_upload.send(());
+            true
+        } else {
+            false
+        }
+    }
+}
+
 #[derive(Clone)]
 struct QueueStorage {
     /// Reference to the client, to get access to the underlying store.
@@ -830,10 +885,11 @@ struct QueueStorage {
     /// To which room is this storage related.
     room_id: OwnedRoomId,
 
-    /// All the queued requests that are being sent at the moment.
+    /// The one queued request that is being sent at the moment, along with
+    /// associated data that can be useful to act upon it.
     ///
     /// It also serves as an internal lock on the storage backend.
-    being_sent: Arc<RwLock<Option<OwnedTransactionId>>>,
+    being_sent: Arc<RwLock<Option<BeingSentInfo>>>,
 }
 
 impl QueueStorage {
@@ -879,7 +935,10 @@ impl QueueStorage {
     ///
     /// It is required to call [`Self::mark_as_sent`] after it's been
     /// effectively sent.
-    async fn peek_next_to_send(&self) -> Result<Option<QueuedRequest>, RoomSendQueueStorageError> {
+    async fn peek_next_to_send(
+        &self,
+    ) -> Result<Option<(QueuedRequest, Option<oneshot::Receiver<()>>)>, RoomSendQueueStorageError>
+    {
         // Keep the lock until we're done touching the storage.
         let mut being_sent = self.being_sent.write().await;
 
@@ -887,10 +946,21 @@ impl QueueStorage {
             self.client()?.store().load_send_queue_requests(&self.room_id).await?;
 
         if let Some(request) = queued_requests.iter().find(|queued| !queued.is_wedged()) {
-            let prev = being_sent.replace(request.transaction_id.clone());
+            let (cancel_upload_tx, cancel_upload_rx) =
+                if matches!(request.kind, QueuedRequestKind::MediaUpload { .. }) {
+                    let (tx, rx) = oneshot::channel();
+                    (Some(tx), Some(rx))
+                } else {
+                    Default::default()
+                };
+
+            let prev = being_sent.replace(BeingSentInfo {
+                transaction_id: request.transaction_id.clone(),
+                cancel_upload: cancel_upload_tx,
+            });
             assert!(prev.is_none());
 
-            Ok(Some(request.clone()))
+            Ok(Some((request.clone(), cancel_upload_rx)))
         } else {
             Ok(None)
         }
@@ -901,7 +971,10 @@ impl QueueStorage {
     /// be removed from the queue later.
     async fn mark_as_not_being_sent(&self, transaction_id: &TransactionId) {
         let was_being_sent = self.being_sent.write().await.take();
-        assert_eq!(was_being_sent.as_deref(), Some(transaction_id));
+        assert_eq!(
+            was_being_sent.as_ref().map(|info| info.transaction_id.as_ref()),
+            Some(transaction_id)
+        );
     }
 
     /// Marks a request popped with [`Self::peek_next_to_send`] and identified
@@ -915,7 +988,10 @@ impl QueueStorage {
         // Keep the lock until we're done touching the storage.
         let mut being_sent = self.being_sent.write().await;
         let was_being_sent = being_sent.take();
-        assert_eq!(was_being_sent.as_deref(), Some(transaction_id));
+        assert_eq!(
+            was_being_sent.as_ref().map(|info| info.transaction_id.as_ref()),
+            Some(transaction_id)
+        );
 
         Ok(self
             .client()?
@@ -947,7 +1023,10 @@ impl QueueStorage {
         // Keep the lock until we're done touching the storage.
         let mut being_sent = self.being_sent.write().await;
         let was_being_sent = being_sent.take();
-        assert_eq!(was_being_sent.as_deref(), Some(transaction_id));
+        assert_eq!(
+            was_being_sent.as_ref().map(|info| info.transaction_id.as_ref()),
+            Some(transaction_id)
+        );
 
         let client = self.client()?;
         let store = client.store();
@@ -977,7 +1056,7 @@ impl QueueStorage {
         // Keep the lock until we're done touching the storage.
         let being_sent = self.being_sent.read().await;
 
-        if being_sent.as_deref() == Some(transaction_id) {
+        if being_sent.as_ref().map(|info| info.transaction_id.as_ref()) == Some(transaction_id) {
             // Save the intent to redact the event.
             self.client()?
                 .store()
@@ -1012,7 +1091,7 @@ impl QueueStorage {
         // Keep the lock until we're done touching the storage.
         let being_sent = self.being_sent.read().await;
 
-        if being_sent.as_deref() == Some(transaction_id) {
+        if being_sent.as_ref().map(|info| info.transaction_id.as_ref()) == Some(transaction_id) {
             // Save the intent to edit the associated event.
             self.client()?
                 .store()
@@ -1760,9 +1839,25 @@ impl SendHandle {
     #[instrument(skip(self), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id))]
     pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
         trace!("received an abort request");
-        self.nyi_for_uploads()?;
 
-        if self.room.inner.queue.cancel_event(&self.transaction_id).await? {
+        let queue = &self.room.inner.queue;
+
+        if let Some(handles) = &self.media_handles {
+            if queue.abort_upload(&self.transaction_id, handles).await? {
+                // Propagate a cancelled update.
+                let _ = self.room.inner.updates.send(RoomSendQueueUpdate::CancelledLocalEvent {
+                    transaction_id: self.transaction_id.clone(),
+                });
+
+                return Ok(true);
+            }
+
+            // If it failed, it means the sending of the event is not a
+            // dependent request anymore. Fall back to the regular
+            // code path below, that handles aborting sending of an event.
+        }
+
+        if queue.cancel_event(&self.transaction_id).await? {
             trace!("successful abort");
 
             // Propagate a cancelled update too.
@@ -1841,6 +1936,7 @@ impl SendHandle {
         // one of the three requests will be active at the same time, i.e. only
         // one entry will be updated in the store. The other two are either
         // done, or dependent requests.
+
         if let Some(handles) = &self.media_handles {
             room.queue
                 .mark_as_unwedged(&handles.upload_file_txn)

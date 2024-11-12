@@ -98,6 +98,9 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// Remove all the media files' content associated to an `MxcUri` from the
     /// media store.
     ///
+    /// This should not raise an error when the `uri` parameter points to an
+    /// unknown media, and it should return an Ok result in this case.
+    ///
     /// # Arguments
     ///
     /// * `uri` - The `MxcUri` of the media files.

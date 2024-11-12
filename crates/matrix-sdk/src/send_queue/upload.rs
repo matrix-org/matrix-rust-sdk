@@ -43,11 +43,11 @@ use crate::{
     Client, Room,
 };
 
-/// Create a [`MediaRequest`] for a file we want to store locally before
-/// sending it.
+/// Create an [`OwnedMxcUri`] for a file or thumbnail we want to store locally
+/// before sending it.
 ///
 /// This uses a MXC ID that is only locally valid.
-fn make_local_file_media_request(txn_id: &TransactionId) -> MediaRequestParameters {
+fn make_local_uri(txn_id: &TransactionId) -> OwnedMxcUri {
     // This mustn't represent a potentially valid media server, otherwise it'd be
     // possible for an attacker to return malicious content under some
     // preconditions (e.g. the cache store has been cleared before the upload
@@ -55,10 +55,16 @@ fn make_local_file_media_request(txn_id: &TransactionId) -> MediaRequestParamete
     // which is guaranteed to be on the local machine. As a result, the only attack
     // possible would be coming from the user themselves, which we consider a
     // non-threat.
+    OwnedMxcUri::from(format!("mxc://send-queue.localhost/{txn_id}"))
+}
+
+/// Create a [`MediaRequest`] for a file we want to store locally before
+/// sending it.
+///
+/// This uses a MXC ID that is only locally valid.
+fn make_local_file_media_request(txn_id: &TransactionId) -> MediaRequestParameters {
     MediaRequestParameters {
-        source: MediaSource::Plain(OwnedMxcUri::from(format!(
-            "mxc://send-queue.localhost/{txn_id}"
-        ))),
+        source: MediaSource::Plain(make_local_uri(txn_id)),
         format: MediaFormat::File,
     }
 }
@@ -74,9 +80,7 @@ fn make_local_thumbnail_media_request(
 ) -> MediaRequestParameters {
     // See comment in [`make_local_file_media_request`].
     MediaRequestParameters {
-        source: MediaSource::Plain(OwnedMxcUri::from(format!(
-            "mxc://send-queue.localhost/{txn_id}"
-        ))),
+        source: MediaSource::Plain(make_local_uri(txn_id)),
         format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(width, height)),
     }
 }
@@ -402,5 +406,131 @@ impl QueueStorage {
             .map_err(RoomSendQueueStorageError::StateStoreError)?;
 
         Ok(())
+    }
+
+    /// Try to abort an upload that would be ongoing.
+    ///
+    /// Return true if any media (media itself or its thumbnail) was being
+    /// uploaded. In this case, the media event has also been removed from
+    /// the send queue. If it returns false, then the uploads already
+    /// happened, and the event sending *may* have started.
+    #[instrument(skip(self, handles))]
+    pub(super) async fn abort_upload(
+        &self,
+        event_txn: &TransactionId,
+        handles: &MediaHandles,
+    ) -> Result<bool, RoomSendQueueStorageError> {
+        let client = self.client()?;
+
+        // Keep the lock until we're done touching the storage.
+        let mut being_sent = self.being_sent.write().await;
+        debug!("trying to abort an upload");
+
+        let store = client.store();
+
+        let upload_file_as_dependent = ChildTransactionId::from(handles.upload_file_txn.clone());
+        let event_as_dependent = ChildTransactionId::from(event_txn.to_owned());
+
+        let mut removed_dependent_upload = false;
+        let mut removed_dependent_event = false;
+
+        if let Some(thumbnail_txn) = &handles.upload_thumbnail_txn {
+            if store.remove_send_queue_request(&self.room_id, thumbnail_txn).await? {
+                // The thumbnail upload existed as a request: either it was pending (something
+                // else was being sent), or it was actively being sent.
+                trace!("could remove thumbnail request, removing 2 dependent requests now");
+
+                // 1. Try to abort sending using the being_sent info, in case it was active.
+                if let Some(info) = being_sent.as_ref() {
+                    if info.transaction_id == *thumbnail_txn {
+                        // SAFETY: we knew it was Some(), two lines above.
+                        let info = being_sent.take().unwrap();
+                        if info.cancel_upload() {
+                            trace!("aborted ongoing thumbnail upload");
+                        }
+                    }
+                }
+
+                // 2. Remove the dependent requests.
+                removed_dependent_upload = store
+                    .remove_dependent_queued_request(&self.room_id, &upload_file_as_dependent)
+                    .await?;
+
+                if !removed_dependent_upload {
+                    warn!("unable to find the dependent file upload request");
+                }
+
+                removed_dependent_event = store
+                    .remove_dependent_queued_request(&self.room_id, &event_as_dependent)
+                    .await?;
+
+                if !removed_dependent_event {
+                    warn!("unable to find the dependent media event upload request");
+                }
+            }
+        }
+
+        // If we're here:
+        // - either there was no thumbnail to upload,
+        // - or the thumbnail request has terminated already.
+        //
+        // So the next target is the upload request itself, in both cases.
+
+        if !removed_dependent_upload {
+            if store.remove_send_queue_request(&self.room_id, &handles.upload_file_txn).await? {
+                // The upload existed as a request: either it was pending (something else was
+                // being sent), or it was actively being sent.
+                trace!("could remove file upload request, removing 1 dependent request");
+
+                // 1. Try to abort sending using the being_sent info, in case it was active.
+                if let Some(info) = being_sent.as_ref() {
+                    if info.transaction_id == handles.upload_file_txn {
+                        // SAFETY: we knew it was Some(), two lines above.
+                        let info = being_sent.take().unwrap();
+                        if info.cancel_upload() {
+                            trace!("aborted ongoing file upload");
+                        }
+                    }
+                }
+
+                // 2. Remove the dependent request.
+                if !store
+                    .remove_dependent_queued_request(&self.room_id, &event_as_dependent)
+                    .await?
+                {
+                    warn!("unable to find the dependent media event upload request");
+                }
+            } else {
+                // The upload was not in the send queue, so it's completed.
+                //
+                // It means the event sending is either still queued as a dependent request, or
+                // it's graduated into a request.
+                if !removed_dependent_event
+                    && !store
+                        .remove_dependent_queued_request(&self.room_id, &event_as_dependent)
+                        .await?
+                {
+                    // The media event has been promoted into a request, or the promoted request
+                    // has been sent already: we couldn't abort, let the caller decide what to do.
+                    debug!("uploads already happened => deferring to aborting an event sending");
+                    return Ok(false);
+                }
+            }
+        }
+
+        // At this point, all the requests and dependent requests have been cleaned up.
+        // Perform the final step: empty the cache from the local items.
+        {
+            let event_cache = client.event_cache_store().lock().await?;
+            event_cache
+                .remove_media_content_for_uri(&make_local_uri(&handles.upload_file_txn))
+                .await?;
+            if let Some(txn) = &handles.upload_thumbnail_txn {
+                event_cache.remove_media_content_for_uri(&make_local_uri(txn)).await?;
+            }
+        }
+
+        debug!("successfully aborted!");
+        Ok(true)
     }
 }

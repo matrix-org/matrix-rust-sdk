@@ -1870,13 +1870,8 @@ async fn test_media_uploads() {
     // ----------------------
     // Send handle operations.
 
-    // Operations on the send handle haven't been implemented yet.
-    assert_matches!(
-        send_handle.abort().await,
-        Err(RoomSendQueueStorageError::OperationNotImplementedYet)
-    );
-    // (and this operation would be invalid, we shouldn't turn a media into a
-    // message).
+    // This operation should be invalid, we shouldn't turn a media into a
+    // message.
     assert_matches!(
         send_handle.edit(RoomMessageEventContent::text_plain("hi").into()).await,
         Err(RoomSendQueueStorageError::OperationNotImplementedYet)
