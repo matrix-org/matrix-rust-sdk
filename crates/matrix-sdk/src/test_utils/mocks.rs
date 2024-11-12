@@ -669,6 +669,46 @@ impl<'a, T> MockEndpoint<'a, T> {
         );
         MatrixMock { server: self.server, mock }
     }
+
+    /// Returns an endpoint that emulates a permanent failure error (e.g. event
+    /// is too large).
+    ///
+    /// # Examples
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
+    /// use serde_json::json;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// mock_server
+    ///     .mock_room_send()
+    ///     .error_too_large()
+    ///     .expect(1)
+    ///     .mount()
+    ///     .await;
+    ///
+    /// room
+    ///     .send_raw("m.room.message", json!({ "body": "Hello world" }))
+    ///     .await.expect_err("The sending of the event should have failed");
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn error_too_large(self) -> MatrixMock<'a> {
+        MatrixMock {
+            mock: self.mock.respond_with(ResponseTemplate::new(413).set_body_json(json!({
+                // From https://spec.matrix.org/v1.10/client-server-api/#standard-error-response
+                "errcode": "M_TOO_LARGE",
+            }))),
+            server: self.server,
+        }
+    }
 }
 
 /// A prebuilt mock for sending an event in a room.
@@ -758,46 +798,6 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// ```
     pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
         self.ok_with_event_id(returned_event_id.into())
-    }
-
-    /// Returns a send endpoint that emulates a permanent failure (event is too
-    /// large).
-    ///
-    /// # Examples
-    /// ```
-    /// # tokio_test::block_on(async {
-    /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
-    /// use serde_json::json;
-    ///
-    /// let mock_server = MatrixMockServer::new().await;
-    /// let client = mock_server.client_builder().build().await;
-    ///
-    /// mock_server.mock_room_state_encryption().plain().mount().await;
-    ///
-    /// let room = mock_server
-    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
-    ///     .await;
-    ///
-    /// mock_server
-    ///     .mock_room_send()
-    ///     .error500()
-    ///     .expect(1)
-    ///     .mount()
-    ///     .await;
-    ///
-    /// room
-    ///     .send_raw("m.room.message", json!({ "body": "Hello world" }))
-    ///     .await.expect_err("The sending of the event should have failed");
-    /// # anyhow::Ok(()) });
-    /// ```
-    pub fn error_too_large(self) -> MatrixMock<'a> {
-        MatrixMock {
-            mock: self.mock.respond_with(ResponseTemplate::new(413).set_body_json(json!({
-                // From https://spec.matrix.org/v1.10/client-server-api/#standard-error-response
-                "errcode": "M_TOO_LARGE",
-            }))),
-            server: self.server,
-        }
     }
 }
 
