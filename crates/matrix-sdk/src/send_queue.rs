@@ -449,7 +449,7 @@ impl RoomSendQueue {
         let send_handle = SendHandle {
             room: self.clone(),
             transaction_id: transaction_id.clone(),
-            is_upload: false,
+            media_handles: None,
         };
 
         let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
@@ -1161,7 +1161,7 @@ impl QueueStorage {
                             send_handle: SendHandle {
                                 room: room.clone(),
                                 transaction_id: queued.transaction_id,
-                                is_upload: false,
+                                media_handles: None,
                             },
                             send_error: queued.error,
                         },
@@ -1205,8 +1205,8 @@ impl QueueStorage {
 
                 DependentQueuedRequestKind::FinishUpload {
                     local_echo,
-                    file_upload: _,
-                    thumbnail_info: _,
+                    file_upload,
+                    thumbnail_info,
                 } => {
                     // Materialize as an event local echo.
                     Some(LocalEcho {
@@ -1214,11 +1214,13 @@ impl QueueStorage {
                         content: LocalEchoContent::Event {
                             serialized_event: SerializableEventContent::new(&local_echo.into())
                                 .ok()?,
-                            // TODO this should be a `SendAttachmentHandle`!
                             send_handle: SendHandle {
                                 room: room.clone(),
                                 transaction_id: dep.own_transaction_id.into(),
-                                is_upload: true,
+                                media_handles: Some(MediaHandles {
+                                    upload_thumbnail_txn: thumbnail_info.map(|info| info.txn),
+                                    upload_file_txn: file_upload,
+                                }),
                             },
                             send_error: None,
                         },
@@ -1695,20 +1697,37 @@ pub enum RoomSendQueueStorageError {
     OperationNotImplementedYet,
 }
 
+/// Extra transaction IDs useful during an upload.
+#[derive(Clone, Debug)]
+struct MediaHandles {
+    /// Transaction id used when uploading the thumbnail.
+    ///
+    /// Optional because a media can be uploaded without a thumbnail.
+    upload_thumbnail_txn: Option<OwnedTransactionId>,
+
+    /// Transaction id used when uploading the media itself.
+    upload_file_txn: OwnedTransactionId,
+}
+
 /// A handle to manipulate an event that was scheduled to be sent to a room.
-// TODO (bnjbvr): consider renaming `SendEventHandle`, unless we can reuse it for medias too.
 #[derive(Clone, Debug)]
 pub struct SendHandle {
+    /// Link to the send queue used to send this request.
     room: RoomSendQueue,
+
+    /// Transaction id used for the sent request.
+    ///
+    /// If this is a media upload, this is the "main" transaction id, i.e. the
+    /// one used to send the event, and that will be seen by observers.
     transaction_id: OwnedTransactionId,
-    // TODO(bnjbvr): remove this, once we have settled the `SendHandle` vs `SendAttachmentHandle`
-    // situation.
-    is_upload: bool,
+
+    /// Additional handles for a media upload.
+    media_handles: Option<MediaHandles>,
 }
 
 impl SendHandle {
     fn nyi_for_uploads(&self) -> Result<(), RoomSendQueueStorageError> {
-        if self.is_upload {
+        if self.media_handles.is_some() {
             Err(RoomSendQueueStorageError::OperationNotImplementedYet)
         } else {
             Ok(())
@@ -1882,7 +1901,7 @@ impl SendReactionHandle {
         let handle = SendHandle {
             room: self.room.clone(),
             transaction_id: self.transaction_id.clone().into(),
-            is_upload: false,
+            media_handles: None,
         };
 
         handle.abort().await
@@ -1892,24 +1911,6 @@ impl SendReactionHandle {
     pub fn transaction_id(&self) -> &TransactionId {
         &self.transaction_id
     }
-}
-
-/// A handle to execute actions while sending an attachment.
-///
-/// In the future, this may support cancellation, subscribing to progress, etc.
-#[derive(Clone, Debug)]
-pub struct SendAttachmentHandle {
-    /// Reference to the send queue for the room where this attachment was sent.
-    _room: RoomSendQueue,
-
-    /// Transaction id for the sending of the event itself.
-    _transaction_id: OwnedTransactionId,
-
-    /// Transaction id for the file upload.
-    _file_upload: OwnedTransactionId,
-
-    /// Transaction id for the thumbnail upload.
-    _thumbnail_transaction_id: Option<OwnedTransactionId>,
 }
 
 /// From a given source of [`DependentQueuedRequest`], return only the most
