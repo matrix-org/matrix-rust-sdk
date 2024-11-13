@@ -2983,9 +2983,11 @@ version = "0.7.0"
 dependencies = [
  "assert_matches",
  "async-trait",
+ "eyeball-im",
  "futures-core",
  "futures-util",
  "gloo-timers",
+ "imbl",
  "js-sys",
  "matrix-sdk-test",
  "proptest",

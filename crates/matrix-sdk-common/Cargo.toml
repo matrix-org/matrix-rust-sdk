@@ -21,7 +21,10 @@ uniffi = ["dep:uniffi"]
 
 [dependencies]
 async-trait = { workspace = true }
+eyeball-im = { workspace = true }
 futures-core = { workspace = true }
+futures-util = { workspace = true }
+imbl = { workspace = true }
 ruma = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
