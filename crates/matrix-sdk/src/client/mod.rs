@@ -682,8 +682,6 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use url::Url;
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// use matrix_sdk::{
     ///     deserialized_responses::EncryptionInfo,
     ///     event_handler::Ctx,
@@ -700,14 +698,7 @@ impl Client {
     /// };
     /// use serde::{Deserialize, Serialize};
     ///
-    /// # futures_executor::block_on(async {
-    /// # let client = matrix_sdk::Client::builder()
-    /// #     .homeserver_url(homeserver)
-    /// #     .server_versions([ruma::api::MatrixVersion::V1_0])
-    /// #     .build()
-    /// #     .await
-    /// #     .unwrap();
-    /// #
+    /// # async fn example(client: Client) {
     /// client.add_event_handler(
     ///     |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
     ///         // Common usage: Room event plus room and client.
@@ -773,7 +764,7 @@ impl Client {
     /// client.add_event_handler(move |ev: SyncRoomMessageEvent | async move {
     ///     println!("Calling the handler with identifier {data}");
     /// });
-    /// # });
+    /// # }
     /// ```
     pub fn add_event_handler<Ev, Ctx, H>(&self, handler: H) -> EventHandlerHandle
     where
@@ -809,7 +800,7 @@ impl Client {
     ///
     /// `Ev` represents the kind of event that will be observed. `Ctx`
     /// represents the context that will come with the event. It relies on the
-    /// same mechanism as [`Self::add_event_handler`]. The main difference is
+    /// same mechanism as [`Client::add_event_handler`]. The main difference is
     /// that it returns an [`ObservableEventHandler`] and doesn't require a
     /// user-defined closure. It is possible to subscribe to the
     /// [`ObservableEventHandler`] to get an [`EventHandlerSubscriber`], which
@@ -818,6 +809,8 @@ impl Client {
     ///
     /// # Example
     ///
+    /// Let's see a classical usage:
+    ///
     /// ```
     /// use futures_util::StreamExt as _;
     /// use matrix_sdk::{
@@ -825,14 +818,50 @@ impl Client {
     ///     Client, Room,
     /// };
     ///
-    /// # async fn example(client: Client) {
+    /// # async fn example(client: Client) -> Option<()> {
     /// let observer =
     ///     client.observe_events::<SyncRoomMessageEvent, (Room, Vec<Action>)>();
     ///
     /// let mut subscriber = observer.subscribe();
     ///
-    /// let (message_event, (room, push_actions)) =
-    ///     subscriber.next().await.unwrap();
+    /// let (event, (room, push_actions)) = subscriber.next().await?;
+    /// # Some(())
+    /// # }
+    /// ```
+    ///
+    /// Now let's see how to get several contexts that can be useful for you:
+    ///
+    /// ```
+    /// use matrix_sdk::{
+    ///     deserialized_responses::EncryptionInfo,
+    ///     ruma::{
+    ///         events::room::{
+    ///             message::SyncRoomMessageEvent, topic::SyncRoomTopicEvent,
+    ///         },
+    ///         push::Action,
+    ///     },
+    ///     Client, Room,
+    /// };
+    ///
+    /// # async fn example(client: Client) {
+    /// // Observe `SyncRoomMessageEvent` and fetch `Room` + `Client`.
+    /// let _ = client.observe_events::<SyncRoomMessageEvent, (Room, Client)>();
+    ///
+    /// // Observe `SyncRoomMessageEvent` and fetch `Room` + `EncryptionInfo`
+    /// // to distinguish between unencrypted events and events that were decrypted
+    /// // by the SDK.
+    /// let _ = client
+    ///     .observe_events::<SyncRoomMessageEvent, (Room, Option<EncryptionInfo>)>(
+    ///     );
+    ///
+    /// // Observe `SyncRoomMessageEvent` and fetch `Room` + push actions.
+    /// // For example, an event with `Action::SetTweak(Tweak::Highlight(true))`
+    /// // should be highlighted in the timeline.
+    /// let _ =
+    ///     client.observe_events::<SyncRoomMessageEvent, (Room, Vec<Action>)>();
+    ///
+    /// // Observe `SyncRoomTopicEvent` and fetch nothing else.
+    /// let _ = client.observe_events::<SyncRoomTopicEvent, ()>();
     /// # }
     /// ```
     ///
@@ -847,10 +876,9 @@ impl Client {
 
     /// Observe a specific room, and event type.
     ///
-    /// This method works the same way as
-    /// [`observe_events`][Self::observe_events], except that the observability
-    /// will only be applied for events in the room with the specified ID.
-    /// See that method for more details.
+    /// This method works the same way as [`Client::observe_events`], except
+    /// that the observability will only be applied for events in the room with
+    /// the specified ID. See that method for more details.
     pub fn observe_room_events<Ev, Ctx>(
         &self,
         room_id: &RoomId,
@@ -862,8 +890,8 @@ impl Client {
         self.observe_room_events_impl(Some(room_id.to_owned()))
     }
 
-    /// Shared implementation for `Self::observe_events` and
-    /// `Self::observe_room_events`.
+    /// Shared implementation for `Client::observe_events` and
+    /// `Client::observe_room_events`.
     fn observe_room_events_impl<Ev, Ctx>(
         &self,
         room_id: Option<OwnedRoomId>,
