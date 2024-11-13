@@ -591,6 +591,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
 }
 
 #[async_test]
+#[ignore] // `share_pos()` has been disabled in the room list, see there to learn more.
 async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Error> {
     let tmp_dir = TempDir::new().unwrap();
     let store_path = tmp_dir.path();
