@@ -12,4 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Event cache store and common types shared with `matrix_sdk::event_cache`.
+
 pub mod store;

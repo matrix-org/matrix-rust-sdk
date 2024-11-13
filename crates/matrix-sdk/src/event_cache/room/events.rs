@@ -15,13 +15,13 @@
 use std::cmp::Ordering;
 
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_common::linked_chunk::{
+    Chunk, ChunkIdentifier, EmptyChunk, Error, Iter, LinkedChunk, Position,
+};
 use ruma::OwnedEventId;
 use tracing::{debug, error, warn};
 
-use super::super::{
-    deduplicator::{Decoration, Deduplicator},
-    linked_chunk::{Chunk, ChunkIdentifier, EmptyChunk, Error, Iter, LinkedChunk, Position},
-};
+use super::super::deduplicator::{Decoration, Deduplicator};
 
 /// An alias for the real event type.
 pub(crate) type Event = SyncTimelineEvent;

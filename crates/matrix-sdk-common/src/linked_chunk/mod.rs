@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #![allow(dead_code)]
+#![allow(rustdoc::private_intra_doc_links)]
 
 //! A linked chunk is the underlying data structure that holds all events.
 
@@ -56,7 +57,7 @@ macro_rules! assert_items_eq {
                     let chunk = $iterator .next().expect("next chunk (expect items)");
                     assert!(chunk.is_items(), "chunk should contain items");
 
-                    let $crate::event_cache::linked_chunk::ChunkContent::Items(items) = chunk.content() else {
+                    let $crate::linked_chunk::ChunkContent::Items(items) = chunk.content() else {
                         unreachable!()
                     };
 
@@ -934,7 +935,6 @@ impl ChunkIdentifierGenerator {
 #[repr(transparent)]
 pub struct ChunkIdentifier(u64);
 
-#[cfg(test)]
 impl PartialEq<u64> for ChunkIdentifier {
     fn eq(&self, other: &u64) -> bool {
         self.0 == *other
@@ -963,7 +963,7 @@ impl Position {
     /// # Panic
     ///
     /// This method will panic if it will underflow, i.e. if the index is 0.
-    pub(super) fn decrement_index(&mut self) {
+    pub fn decrement_index(&mut self) {
         self.1 = self.1.checked_sub(1).expect("Cannot decrement the index because it's already 0");
     }
 }
@@ -1346,7 +1346,8 @@ where
 }
 
 /// A type representing what to do when the system has to handle an empty chunk.
-pub(crate) enum EmptyChunk {
+#[derive(Debug)]
+pub enum EmptyChunk {
     /// Keep the empty chunk.
     Keep,
 
