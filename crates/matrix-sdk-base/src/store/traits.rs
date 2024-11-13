@@ -358,6 +358,7 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
         request: QueuedRequestKind,
+        priority: usize,
     ) -> Result<(), Self::Error>;
 
     /// Updates a send queue request with the given content, and resets its
@@ -390,6 +391,10 @@ pub trait StateStore: AsyncTraitDeps {
     ) -> Result<bool, Self::Error>;
 
     /// Loads all the send queue requests for the given room.
+    ///
+    /// The resulting vector of queued requests should be ordered from higher
+    /// priority to lower priority, and respect the insertion order when
+    /// priorities are equal.
     async fn load_send_queue_requests(
         &self,
         room_id: &RoomId,
@@ -641,8 +646,12 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
         content: QueuedRequestKind,
+        priority: usize,
     ) -> Result<(), Self::Error> {
-        self.0.save_send_queue_request(room_id, transaction_id, content).await.map_err(Into::into)
+        self.0
+            .save_send_queue_request(room_id, transaction_id, content, priority)
+            .await
+            .map_err(Into::into)
     }
 
     async fn update_send_queue_request(

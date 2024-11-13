@@ -437,6 +437,8 @@ struct PersistedQueuedRequest {
 
     pub error: Option<QueueWedgeError>,
 
+    priority: Option<usize>,
+
     // Migrated fields: keep these private, they're not used anymore elsewhere in the code base.
     /// Deprecated (from old format), now replaced with error field.
     is_wedged: Option<bool>,
@@ -459,7 +461,10 @@ impl PersistedQueuedRequest {
             _ => self.error,
         };
 
-        Some(QueuedRequest { kind, transaction_id: self.transaction_id, error })
+        // By default, events without a priority have a priority of 0.
+        let priority = self.priority.unwrap_or(0);
+
+        Some(QueuedRequest { kind, transaction_id: self.transaction_id, error, priority })
     }
 }
 
@@ -1329,6 +1334,7 @@ impl_state_store!({
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
         kind: QueuedRequestKind,
+        priority: usize,
     ) -> Result<()> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
@@ -1357,6 +1363,7 @@ impl_state_store!({
             error: None,
             is_wedged: None,
             event: None,
+            priority: Some(priority),
         });
 
         // Save the new vector into db.
@@ -1460,10 +1467,13 @@ impl_state_store!({
             .get(&encoded_key)?
             .await?;
 
-        let prev = prev.map_or_else(
+        let mut prev = prev.map_or_else(
             || Ok(Vec::new()),
             |val| self.deserialize_value::<Vec<PersistedQueuedRequest>>(&val),
         )?;
+
+        // Inverted stable ordering on priority.
+        prev.sort_by(|lhs, rhs| rhs.priority.unwrap_or(0).cmp(&lhs.priority.unwrap_or(0)));
 
         Ok(prev.into_iter().filter_map(PersistedQueuedRequest::into_queued_request).collect())
     }

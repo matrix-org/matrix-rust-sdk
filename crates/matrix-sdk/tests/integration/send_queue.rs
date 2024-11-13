@@ -900,12 +900,15 @@ async fn test_edit() {
     // Let the server process the responses.
     drop(lock_guard);
 
-    // Now the server will process the messages in order.
+    // The queue sends the first event, without the edit.
     assert_update!(watch => sent { txn = txn1, });
-    assert_update!(watch => sent { txn = txn2, });
 
-    // Let a bit of time to process the edit event sent to the server for txn1.
+    // The queue sends the edit; we can't check the transaction id because it's
+    // unknown.
     assert_update!(watch => sent {});
+
+    // The queue sends the second event.
+    assert_update!(watch => sent { txn = txn2, });
 
     assert!(watch.is_empty());
 }

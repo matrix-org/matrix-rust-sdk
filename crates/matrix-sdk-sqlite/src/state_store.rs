@@ -69,7 +69,7 @@ mod keys {
 /// This is used to figure whether the sqlite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`SqliteStateStore::run_migrations`] function..
-const DATABASE_VERSION: u8 = 9;
+const DATABASE_VERSION: u8 = 10;
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -303,6 +303,17 @@ impl SqliteStateStore {
                 // Run the migration.
                 txn.execute_batch(include_str!("../migrations/state_store/008_send_queue.sql"))?;
                 txn.set_db_version(9)
+            })
+            .await?;
+        }
+
+        if from < 10 && to >= 10 {
+            conn.with_transaction(move |txn| {
+                // Run the migration.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/009_send_queue_priority.sql"
+                ))?;
+                txn.set_db_version(10)
             })
             .await?;
         }
@@ -1685,6 +1696,7 @@ impl StateStore for SqliteStateStore {
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
         content: QueuedRequestKind,
+        priority: usize,
     ) -> Result<(), Self::Error> {
         let room_id_key = self.encode_key(keys::SEND_QUEUE, room_id);
         let room_id_value = self.serialize_value(&room_id.to_owned())?;
@@ -1699,7 +1711,7 @@ impl StateStore for SqliteStateStore {
         self.acquire()
             .await?
             .with_transaction(move |txn| {
-                txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content) VALUES (?, ?, ?, ?)")?.execute((room_id_key, room_id_value, transaction_id.to_string(), content))?;
+                txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content, priority) VALUES (?, ?, ?, ?, ?)")?.execute((room_id_key, room_id_value, transaction_id.to_string(), content, priority))?;
                 Ok(())
             })
             .await
@@ -1761,14 +1773,14 @@ impl StateStore for SqliteStateStore {
         // Note: ROWID is always present and is an auto-incremented integer counter. We
         // want to maintain the insertion order, so we can sort using it.
         // Note 2: transaction_id is not encoded, see why in `save_send_queue_event`.
-        let res: Vec<(String, Vec<u8>, Option<Vec<u8>>)> = self
+        let res: Vec<(String, Vec<u8>, Option<Vec<u8>>, usize)> = self
             .acquire()
             .await?
             .prepare(
-                "SELECT transaction_id, content, wedge_reason FROM send_queue_events WHERE room_id = ? ORDER BY ROWID",
+                "SELECT transaction_id, content, wedge_reason, priority FROM send_queue_events WHERE room_id = ? ORDER BY priority DESC, ROWID",
                 |mut stmt| {
                     stmt.query((room_id,))?
-                        .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+                        .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
                         .collect()
                 },
             )
@@ -1780,6 +1792,7 @@ impl StateStore for SqliteStateStore {
                 transaction_id: entry.0.into(),
                 kind: self.deserialize_json(&entry.1)?,
                 error: entry.2.map(|v| self.deserialize_value(&v)).transpose()?,
+                priority: entry.3,
             });
         }
 
