@@ -87,7 +87,7 @@ impl From<String> for FromWidgetErrorResponse {
 
 impl From<&str> for FromWidgetErrorResponse {
     fn from(error: &str) -> Self {
-        error.to_string().into()
+        error.to_owned().into()
     }
 }
 
