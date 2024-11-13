@@ -7,13 +7,13 @@ use matrix_sdk::{
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueError, RoomSendQueueStorageError,
-        RoomSendQueueUpdate,
+        RoomSendQueueUpdate, SendHandle,
     },
     test_utils::{
         events::EventFactory,
         mocks::{MatrixMock, MatrixMockServer},
     },
-    MemoryStore,
+    Client, MemoryStore,
 };
 use matrix_sdk_test::{async_test, InvitedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder};
 use ruma::{
@@ -24,18 +24,19 @@ use ruma::{
             UnstablePollStartContentBlock, UnstablePollStartEventContent,
         },
         room::{
-            message::{MessageType, RoomMessageEventContent},
+            message::{ImageMessageEventContent, MessageType, RoomMessageEventContent},
             MediaSource,
         },
         AnyMessageLikeEventContent, EventContent as _, Mentions,
     },
     mxc_uri, owned_user_id, room_id,
     serde::Raw,
-    uint, MxcUri, OwnedEventId, TransactionId,
+    uint, MxcUri, OwnedEventId, OwnedTransactionId, TransactionId,
 };
 use serde_json::json;
 use tokio::{
-    sync::Mutex,
+    sync::{broadcast::Receiver, Mutex},
+    task::yield_now,
     time::{sleep, timeout},
 };
 use wiremock::{Request, ResponseTemplate};
@@ -57,6 +58,44 @@ async fn queue_attachment_no_thumbnail(q: &RoomSendQueue) -> &'static str {
         .await
         .expect("queuing the attachment works");
     filename
+}
+
+/// Queues an attachment whenever the actual data/mime type etc. don't matter,
+/// along with a thumbnail.
+///
+/// Returns the filename, for sanity check purposes.
+async fn queue_attachment_with_thumbnail(q: &RoomSendQueue) -> (SendHandle, &'static str) {
+    let filename = "surprise.jpeg.exe";
+    let content_type = mime::IMAGE_JPEG;
+    let data = b"hello world".to_vec();
+
+    let thumbnail = Thumbnail {
+        data: b"thumbnail".to_vec(),
+        content_type: content_type.clone(),
+        info: Some(BaseThumbnailInfo {
+            height: Some(uint!(13)),
+            width: Some(uint!(37)),
+            size: Some(uint!(42)),
+        }),
+    };
+
+    let config =
+        AttachmentConfig::with_thumbnail(thumbnail).info(AttachmentInfo::Image(BaseImageInfo {
+            height: Some(uint!(13)),
+            width: Some(uint!(37)),
+            size: Some(uint!(42)),
+            blurhash: None,
+        }));
+
+    let handle = q
+        .send_attachment(filename, content_type, data, config)
+        .await
+        .expect("queuing the attachment works");
+
+    // Let the background task pick up the request.
+    yield_now().await;
+
+    (handle, filename)
 }
 
 fn mock_jpeg_upload<'a>(
@@ -756,7 +795,7 @@ async fn test_cancellation() {
     assert!(watch.is_empty());
 
     // Let the background task start now.
-    tokio::task::yield_now().await;
+    yield_now().await;
 
     // While the first item is being sent, the system records the intent to abort
     // it.
@@ -878,7 +917,7 @@ async fn test_edit() {
     assert!(watch.is_empty());
 
     // Let the background task start now.
-    tokio::task::yield_now().await;
+    yield_now().await;
 
     // While the first item is being sent, the system remembers the intent to edit
     // it, and will send it later.
@@ -1002,7 +1041,7 @@ async fn test_edit_with_poll_start() {
     assert!(watch.is_empty());
 
     // Let the background task start now.
-    tokio::task::yield_now().await;
+    yield_now().await;
 
     // Edit the poll start event
     let poll_answers: UnstablePollAnswers =
@@ -1089,7 +1128,7 @@ async fn test_edit_while_being_sent_and_fails() {
     assert!(watch.is_empty());
 
     // Let the background task start now.
-    tokio::task::yield_now().await;
+    yield_now().await;
 
     // While the first item is being sent, the system remembers the intent to edit
     // it, and will send it later.
@@ -1150,7 +1189,7 @@ async fn test_edit_wakes_the_sending_task() {
     assert!(watch.is_empty());
 
     // Let the background task start now.
-    tokio::task::yield_now().await;
+    yield_now().await;
 
     assert_update!(watch => error { recoverable = false, txn = txn });
     assert!(watch.is_empty());
@@ -1321,7 +1360,7 @@ async fn test_abort_while_being_sent_and_fails() {
     assert!(watch.is_empty());
 
     // Let the background task start now.
-    tokio::task::yield_now().await;
+    yield_now().await;
 
     // While the item is being sent, the system remembers the intent to redact it
     // later.
@@ -2075,11 +2114,57 @@ async fn test_unwedging_media_upload() {
     assert!(watch.is_empty());
 }
 
+/// Aborts an ongoing media upload and checks post-conditions:
+/// - we could abort
+/// - we get the notification about the aborted upload
+/// - the medias aren't present in the cache store
+async fn abort_and_verify(
+    client: &Client,
+    watch: &mut Receiver<RoomSendQueueUpdate>,
+    img_content: ImageMessageEventContent,
+    upload_handle: SendHandle,
+    upload_txn: OwnedTransactionId,
+) {
+    let file_source = img_content.source;
+    let info = img_content.info.unwrap();
+    let thumbnail_source = info.thumbnail_source.unwrap();
+    let thumbnail_info = info.thumbnail_info.unwrap();
+
+    let aborted = upload_handle.abort().await.unwrap();
+    assert!(aborted, "upload must have been aborted");
+
+    assert_update!(watch => cancelled { txn = upload_txn });
+
+    // The event cache doesn't contain the medias anymore.
+    client
+        .media()
+        .get_media_content(
+            &MediaRequestParameters { source: file_source, format: MediaFormat::File },
+            true,
+        )
+        .await
+        .unwrap_err();
+
+    client
+        .media()
+        .get_media_content(
+            &MediaRequestParameters {
+                source: thumbnail_source,
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                    thumbnail_info.width.unwrap(),
+                    thumbnail_info.height.unwrap(),
+                )),
+            },
+            true,
+        )
+        .await
+        .unwrap_err();
+}
+
 #[async_test]
 async fn test_media_event_is_sent_in_order() {
     // Test that despite happening in multiple requests, sending a media maintains
     // the ordering.
-
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
@@ -2088,6 +2173,7 @@ async fn test_media_event_is_sent_in_order() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
 
@@ -2144,4 +2230,62 @@ async fn test_media_event_is_sent_in_order() {
     assert_eq!(local_echoes.len(), 1);
     assert_let!(LocalEchoContent::Event { send_error, .. } = &local_echoes[0].content);
     assert!(send_error.is_some());
+}
+
+#[async_test]
+async fn test_cancel_upload_before_active() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    // Prepare endpoints.
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    mock.mock_room_send()
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
+            json!({
+              "event_id": event_id!("$msg")
+            }),
+        ))
+        .mock_once()
+        .mount()
+        .await;
+
+    // Send an event which sending will be "slow" (blocked by mutex).
+    q.send(RoomMessageEventContent::text_plain("hey").into()).await.unwrap();
+    let (msg_txn, _handle) = assert_update!(watch => local echo { body = "hey" });
+
+    // Send the media.
+    assert!(watch.is_empty());
+
+    let (upload_handle, filename) = queue_attachment_with_thumbnail(&q).await;
+
+    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+
+    assert_let!(MessageType::Image(img_content) = content.msgtype);
+    assert_eq!(img_content.filename(), filename);
+
+    // Abort the upload.
+    abort_and_verify(&client, &mut watch, img_content, upload_handle, upload_txn).await;
+
+    // Let the sending progress.
+    assert!(watch.is_empty());
+    sleep(Duration::from_secs(1)).await;
+
+    // The text event is sent, at some point.
+    assert_update!(watch => sent { txn = msg_txn, });
+
+    // Wait a bit of time for things to settle.
+    sleep(Duration::from_millis(500)).await;
+
+    // That's all, folks!
+    assert!(watch.is_empty());
 }
