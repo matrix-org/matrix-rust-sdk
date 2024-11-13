@@ -148,7 +148,7 @@ impl From<AttachmentInfo> for FileInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 /// Base metadata about a thumbnail.
 pub struct BaseThumbnailInfo {
     /// The height of the thumbnail in pixels.

@@ -323,18 +323,27 @@ impl QueueStorage {
                 let from_req =
                     make_local_thumbnail_media_request(&info.txn, info.height, info.width);
 
-                trace!( from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
+                if info.height == uint!(0) || info.width == uint!(0) {
+                    trace!(from = ?from_req.source, "removing thumbnail with unknown dimension from cache store");
 
-                // Reuse the same format for the cached thumbnail with the final MXC ID.
-                let new_format = from_req.format.clone();
+                    cache_store
+                        .remove_media_content(&from_req)
+                        .await
+                        .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+                } else {
+                    trace!(from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
 
-                cache_store
-                    .replace_media_key(
-                        &from_req,
-                        &MediaRequestParameters { source: new_source, format: new_format },
-                    )
-                    .await
-                    .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+                    // Reuse the same format for the cached thumbnail with the final MXC ID.
+                    let new_format = from_req.format.clone();
+
+                    cache_store
+                        .replace_media_key(
+                            &from_req,
+                            &MediaRequestParameters { source: new_source, format: new_format },
+                        )
+                        .await
+                        .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+                }
             }
         }
 
