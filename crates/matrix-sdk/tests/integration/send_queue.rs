@@ -6,7 +6,7 @@ use matrix_sdk::{
     config::StoreConfig,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     send_queue::{
-        LocalEcho, LocalEchoContent, RoomSendQueueError, RoomSendQueueStorageError,
+        LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueError, RoomSendQueueStorageError,
         RoomSendQueueUpdate,
     },
     test_utils::{
@@ -39,6 +39,25 @@ use tokio::{
     time::{sleep, timeout},
 };
 use wiremock::{Request, ResponseTemplate};
+
+/// Queues an attachment whenever the actual data/mime type etc. don't matter.
+///
+/// Returns the filename, for sanity check purposes.
+async fn queue_attachment_no_thumbnail(q: &RoomSendQueue) -> &'static str {
+    let filename = "surprise.jpeg.exe";
+    let content_type = mime::IMAGE_JPEG;
+    let data = b"hello world".to_vec();
+    let config = AttachmentConfig::new().info(AttachmentInfo::Image(BaseImageInfo {
+        height: Some(uint!(13)),
+        width: Some(uint!(37)),
+        size: Some(uint!(42)),
+        blurhash: None,
+    }));
+    q.send_attachment(filename, content_type, data, config)
+        .await
+        .expect("queuing the attachment works");
+    filename
+}
 
 fn mock_jpeg_upload<'a>(
     mock: &'a MatrixMockServer,
@@ -1936,18 +1955,6 @@ async fn test_media_upload_retry() {
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
 
-    // Create the media to send (no thumbnails).
-    let filename = "surprise.jpeg.exe";
-    let content_type = mime::IMAGE_JPEG;
-    let data = b"hello world".to_vec();
-
-    let config = AttachmentConfig::new().info(AttachmentInfo::Image(BaseImageInfo {
-        height: Some(uint!(13)),
-        width: Some(uint!(37)),
-        size: Some(uint!(42)),
-        blurhash: None,
-    }));
-
     // Prepare endpoints.
     mock.mock_room_state_encryption().plain().mount().await;
 
@@ -1962,9 +1969,7 @@ async fn test_media_upload_retry() {
 
     // Send the media.
     assert!(watch.is_empty());
-    q.send_attachment(filename, content_type, data, config)
-        .await
-        .expect("queuing the attachment works");
+    let filename = queue_attachment_no_thumbnail(&q).await;
 
     // Observe the local echo.
     let (event_txn, _send_handle, content) = assert_update!(watch => local echo event);
@@ -2024,18 +2029,6 @@ async fn test_unwedging_media_upload() {
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
 
-    // Create the media to send (no thumbnails).
-    let filename = "rickroll.gif";
-    let content_type = mime::IMAGE_JPEG;
-    let data = b"Never gonna give you up".to_vec();
-
-    let config = AttachmentConfig::new().info(AttachmentInfo::Image(BaseImageInfo {
-        height: Some(uint!(13)),
-        width: Some(uint!(37)),
-        size: Some(uint!(42)),
-        blurhash: None,
-    }));
-
     // Prepare endpoints.
     mock.mock_room_state_encryption().plain().mount().await;
 
@@ -2045,9 +2038,7 @@ async fn test_unwedging_media_upload() {
 
     // Send the media.
     assert!(watch.is_empty());
-    q.send_attachment(filename, content_type, data, config)
-        .await
-        .expect("queuing the attachment works");
+    let filename = queue_attachment_no_thumbnail(&q).await;
 
     // Observe the local echo.
     let (event_txn, send_handle, content) = assert_update!(watch => local echo event);
@@ -2084,4 +2075,75 @@ async fn test_unwedging_media_upload() {
 
     // That's all, folks!
     assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_media_event_is_sent_in_order() {
+    // Test that despite happening in multiple requests, sending a media maintains
+    // the ordering.
+
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    // Prepare endpoints.
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/media")).mock_once().mount().await;
+
+    assert!(watch.is_empty());
+
+    {
+        // 1. Send a text message that will get wedged.
+        mock.mock_room_send().error_too_large().mock_once().mount().await;
+        q.send(RoomMessageEventContent::text_plain("error").into()).await.unwrap();
+        let (text_txn, _send_handle) = assert_update!(watch => local echo { body = "error" });
+        assert_update!(watch => error { recoverable = false, txn = text_txn });
+    }
+
+    // We'll then send a media event, and then a text event with success.
+    mock.mock_room_send().ok(event_id!("$media")).mock_once().mount().await;
+    mock.mock_room_send().ok(event_id!("$text")).mock_once().mount().await;
+
+    // 2. Queue the media.
+    let filename = queue_attachment_no_thumbnail(&q).await;
+
+    // 3. Queue the message.
+    q.send(RoomMessageEventContent::text_plain("hello world").into()).await.unwrap();
+
+    // Observe the local echo for the media.
+    let (event_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    assert_let!(MessageType::Image(img_content) = content.msgtype);
+    assert_eq!(img_content.body, filename);
+
+    // Observe the local echo for the message.
+    let (text_txn, _send_handle) = assert_update!(watch => local echo { body = "hello world" });
+
+    // The media gets uploaded.
+    assert_update!(watch => uploaded { related_to = event_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
+
+    // The media event gets updated with the final MXC IDs.
+    assert_update!(watch => edit local echo { txn = event_txn });
+
+    // This is the main thing we're testing: the media must be effectively sent
+    // *before* the text message, despite implementation details (the media is
+    // sent over multiple send queue requests).
+
+    assert_update!(watch => sent { txn = event_txn, event_id = event_id!("$media") });
+    assert_update!(watch => sent { txn = text_txn, event_id = event_id!("$text") });
+
+    // That's all, folks!
+    assert!(watch.is_empty());
+
+    // When reopening the send queue, we still see the wedged event.
+    let (local_echoes, _watch) = q.subscribe().await.unwrap();
+    assert_eq!(local_echoes.len(), 1);
+    assert_let!(LocalEchoContent::Event { send_error, .. } = &local_echoes[0].content);
+    assert!(send_error.is_some());
 }
