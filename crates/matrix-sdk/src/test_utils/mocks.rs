@@ -354,15 +354,13 @@ impl MatrixMockServer {
     ///     .mount()
     ///     .await;
     ///
-    /// let responseNotMocked = room.send_raw("m.room.reaction", json!({ "body": "Hello world" })).await?;
+    /// let responseNotMocked = room.send_raw("m.room.reaction", json!({ "body": "Hello world" })).await;
+    /// // The `m.room.reaction` event type should not be mocked by the server.
+    /// assert!(responseNotMocked.is_err());
     ///
-    /// assert!(
-    ///     responseNotMocked,
-    ///     "The event ID we mocked should match the one we received when we sent the event"
-    /// );
     ///
     /// let response = room.send_raw("m.room.message", json!({ "body": "Hello world" })).await?;
-    ///
+    /// // The `m.room.message` event type should be mocked by the server.
     /// assert_eq!(
     ///     event_id,
     ///     response.event_id,
