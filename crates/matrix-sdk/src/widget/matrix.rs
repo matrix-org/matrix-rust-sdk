@@ -184,10 +184,11 @@ impl MatrixDriver {
         let drop_guard_state = self.room.client().event_handler_drop_guard(handle_state);
 
         // The receiver will get a combination of state and messgage like events.
-        // The state events will come from the state section of the sync. (to always represent current resolved state)
-        // All state events in the timeline section of the sync will not be forwarded to
-        // the widget.
-        // TODO annotate the events and send both timeline and state section state events.
+        // The state events will come from the state section of the sync. (to always
+        // represent current resolved state) All state events in the timeline
+        // section of the sync will not be forwarded to the widget.
+        // TODO annotate the events and send both timeline and state section state
+        // events.
         EventReceiver { rx, _drop_guards: [drop_guard_msg_like, drop_guard_state] }
     }
 }
