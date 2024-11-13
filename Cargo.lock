@@ -1654,9 +1654,9 @@ dependencies = [
 
 [[package]]
 name = "eyeball-im-util"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32b6b037e2cdce928a432ecc2880c944e5436d8a38c827974b882ad373f60037"
+checksum = "f63a70e454238b5f66a0a0544c3e6a38be765cb01f34da9b94a2f3ecd8777cf8"
 dependencies = [
  "arrayvec",
  "eyeball-im",
