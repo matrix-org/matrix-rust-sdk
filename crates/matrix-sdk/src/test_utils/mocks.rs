@@ -333,20 +333,49 @@ impl MatrixMockServer {
     /// see also [mock_room_send] for more context.
     ///
     /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
+    /// use serde_json::json;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
     /// let event_id = event_id!("$some_id");
     /// mock_server
-    ///     .mock_room_send_for_type("m.room.message")
+    ///     .mock_room_send_for_type("m.room.message".into())
     ///     .ok(event_id)
     ///     .expect(1)
     ///     .mount()
     ///     .await;
+    ///
+    /// let responseNotMocked = room.send_raw("m.room.reaction", json!({ "body": "Hello world" })).await?;
+    ///
+    /// assert!(
+    ///     responseNotMocked,
+    ///     "The event ID we mocked should match the one we received when we sent the event"
+    /// );
+    ///
+    /// let response = room.send_raw("m.room.message", json!({ "body": "Hello world" })).await?;
+    ///
+    /// assert_eq!(
+    ///     event_id,
+    ///     response.event_id,
+    ///     "The event ID we mocked should match the one we received when we sent the event"
+    /// );
+    /// # anyhow::Ok(()) });
     /// ```
     pub fn mock_room_send_for_type(
         &self,
         event_type: MessageLikeEventType,
     ) -> MockEndpoint<'_, RoomSendEndpoint> {
         let mock = Mock::given(method("PUT"))
-            .and(path_regex(format!(r"^/_matrix/client/r0/rooms/.*/send/{}", event_type)))
+            .and(path_regex(format!(r"^/_matrix/client/v3/rooms/.*/send/{}", event_type)))
             .and(header("authorization", "Bearer 1234"));
         MockEndpoint { mock, server: &self.server, endpoint: RoomSendEndpoint }
     }
@@ -375,7 +404,7 @@ impl MatrixMockServer {
         state_type: StateEventType,
     ) -> MockEndpoint<'_, RoomSendEndpoint> {
         let mock = Mock::given(method("PUT"))
-            .and(path_regex(format!(r"^/_matrix/client/r0/rooms/.*/state/{}", state_type)))
+            .and(path_regex(format!(r"^/_matrix/client/v3/rooms/.*/state/{}", state_type)))
             .and(header("authorization", "Bearer 1234"));
         MockEndpoint { mock, server: &self.server, endpoint: RoomSendEndpoint }
     }
@@ -495,10 +524,11 @@ impl MatrixMockServer {
         }
     }
 
-    /// Create a prebuild mock for reading room message with the `/messages` endpoint.
+    /// Create a prebuild mock for reading room message with the `/messages`
+    /// endpoint.
     pub fn mock_room_messages(&self, limit: Option<u32>) -> MockEndpoint<'_, RoomMessagesEndpoint> {
         let mut mock = Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/messages$"))
             .and(header("authorization", "Bearer 1234"));
         if let Some(l) = limit {
             mock = mock.and(query_param("limit", l.to_string()));
