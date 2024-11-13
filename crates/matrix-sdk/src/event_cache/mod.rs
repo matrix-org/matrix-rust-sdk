@@ -225,6 +225,7 @@ impl EventCache {
         mut room_updates_feed: Receiver<RoomUpdates>,
     ) {
         trace!("Spawning the listen task");
+
         loop {
             match room_updates_feed.recv().await {
                 Ok(updates) => {

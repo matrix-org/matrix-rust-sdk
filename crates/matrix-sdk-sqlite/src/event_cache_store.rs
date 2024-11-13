@@ -5,6 +5,7 @@ use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     event_cache::store::EventCacheStore,
     media::{MediaRequestParameters, UniqueKey},
+    store_locks::LockGeneration,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::MilliSecondsSinceUnixEpoch;
@@ -28,7 +29,7 @@ mod keys {
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 2;
+const DATABASE_VERSION: u8 = 3;
 
 /// A SQLite-based event cache store.
 #[derive(Clone)]
@@ -142,6 +143,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 3 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/003_lease_locks_with_generation.sql"
+            ))?;
+            txn.set_db_version(3)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -154,32 +165,41 @@ impl EventCacheStore for SqliteEventCacheStore {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool> {
+    ) -> Result<Option<LockGeneration>> {
         let key = key.to_owned();
         let holder = holder.to_owned();
 
         let now: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
         let expiration = now + lease_duration_ms as u64;
 
-        let num_touched = self
+        let generation = self
             .acquire()
             .await?
             .with_transaction(move |txn| {
-                txn.execute(
+                txn.query_row(
                     "INSERT INTO lease_locks (key, holder, expiration)
                     VALUES (?1, ?2, ?3)
-                    ON CONFLICT (key)
-                    DO
-                        UPDATE SET holder = ?2, expiration = ?3
-                        WHERE holder = ?2
+                    ON CONFLICT (key) DO
+                    UPDATE SET
+                        holder = excluded.holder,
+                        expiration = excluded.expiration,
+                        generation =
+                            CASE holder
+                                WHEN excluded.holder THEN generation
+                                ELSE generation + 1
+                            END
+                    WHERE
+                        holder = excluded.holder
                         OR expiration < ?4
-                ",
+                    RETURNING generation",
                     (key, holder, expiration, now),
+                    |row| row.get(0),
                 )
+                .optional()
             })
             .await?;
 
-        Ok(num_touched == 1)
+        Ok(generation)
     }
 
     async fn add_media_content(

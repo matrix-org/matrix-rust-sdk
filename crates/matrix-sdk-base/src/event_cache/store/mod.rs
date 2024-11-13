@@ -19,7 +19,7 @@
 //! into the event cache for the actual storage. By default this brings an
 //! in-memory store.
 
-use std::{fmt, ops::Deref, str::Utf8Error, sync::Arc};
+use std::{fmt, ops::Deref, result::Result as StdResult, str::Utf8Error, sync::Arc};
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
@@ -160,7 +160,7 @@ impl EventCacheStoreError {
 }
 
 /// An `EventCacheStore` specific result type.
-pub type Result<T, E = EventCacheStoreError> = std::result::Result<T, E>;
+pub type Result<T, E = EventCacheStoreError> = StdResult<T, E>;
 
 /// A type that wraps the [`EventCacheStore`] but implements [`BackingStore`] to
 /// make it usable inside the cross process lock.
@@ -177,7 +177,7 @@ impl BackingStore for LockableEventCacheStore {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> std::result::Result<bool, Self::LockError> {
-        self.0.try_take_leased_lock(lease_duration_ms, key, holder).await
+    ) -> StdResult<bool, Self::LockError> {
+        Ok(self.0.try_take_leased_lock(lease_duration_ms, key, holder).await?.is_some())
     }
 }

@@ -15,7 +15,7 @@
 use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
-use matrix_sdk_common::AsyncTraitDeps;
+use matrix_sdk_common::{store_locks::LockGeneration, AsyncTraitDeps};
 use ruma::MxcUri;
 
 use super::EventCacheStoreError;
@@ -35,7 +35,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool, Self::Error>;
+    ) -> Result<Option<LockGeneration>, Self::Error>;
 
     /// Add a media file's content in the media store.
     ///
@@ -127,7 +127,7 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool, Self::Error> {
+    ) -> Result<Option<LockGeneration>, Self::Error> {
         self.0.try_take_leased_lock(lease_duration_ms, key, holder).await.map_err(Into::into)
     }
 

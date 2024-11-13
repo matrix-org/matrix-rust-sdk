@@ -54,6 +54,13 @@ use crate::{
     SendOutsideWasm,
 };
 
+/// A lock generation is an integer incremented each time it is taken by another
+/// holder. This is not used by all cross-process locks.
+pub type LockGeneration = u64;
+
+/// Describe the first lock generation value (see [`LockGeneration`]).
+pub const FIRST_LOCK_GENERATION: LockGeneration = 0;
+
 /// Backing store for a cross-process lock.
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -351,16 +358,23 @@ mod tests {
 
     use super::{
         memory_store_helper::try_take_leased_lock, BackingStore, CrossProcessStoreLock,
-        CrossProcessStoreLockGuard, LockStoreError, EXTEND_LEASE_EVERY_MS,
+        CrossProcessStoreLockGuard, LockGeneration, LockStoreError, EXTEND_LEASE_EVERY_MS,
     };
+
+    type HolderExpirationGeneration = (String, Instant, LockGeneration);
 
     #[derive(Clone, Default)]
     struct TestStore {
-        leases: Arc<RwLock<HashMap<String, (String, Instant)>>>,
+        leases: Arc<RwLock<HashMap<String, HolderExpirationGeneration>>>,
     }
 
     impl TestStore {
-        fn try_take_leased_lock(&self, lease_duration_ms: u32, key: &str, holder: &str) -> bool {
+        fn try_take_leased_lock(
+            &self,
+            lease_duration_ms: u32,
+            key: &str,
+            holder: &str,
+        ) -> Option<LockGeneration> {
             try_take_leased_lock(&self.leases, lease_duration_ms, key, holder)
         }
     }
@@ -380,7 +394,7 @@ mod tests {
             key: &str,
             holder: &str,
         ) -> Result<bool, Self::LockError> {
-            Ok(self.try_take_leased_lock(lease_duration_ms, key, holder))
+            Ok(self.try_take_leased_lock(lease_duration_ms, key, holder).is_some())
         }
     }
 
@@ -506,36 +520,45 @@ pub mod memory_store_helper {
         time::{Duration, Instant},
     };
 
+    use super::{LockGeneration, FIRST_LOCK_GENERATION};
+
+    type HolderExpirationGeneration = (String, Instant, LockGeneration);
+
+    /// Try to acquire or to extend the lock.
+    ///
+    /// Return `Some` if the lock has been acquired (or extended). It contains
+    /// the generation number.
     pub fn try_take_leased_lock(
-        leases: &RwLock<HashMap<String, (String, Instant)>>,
+        leases: &RwLock<HashMap<String, HolderExpirationGeneration>>,
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> bool {
+    ) -> Option<LockGeneration> {
         let now = Instant::now();
         let expiration = now + Duration::from_millis(lease_duration_ms.into());
 
         match leases.write().unwrap().entry(key.to_owned()) {
             // There is an existing holder.
             Entry::Occupied(mut entry) => {
-                let (current_holder, current_expiration) = entry.get_mut();
+                let (current_holder, current_expiration, current_generation) = entry.get_mut();
 
                 if current_holder == holder {
                     // We had the lease before, extend it.
                     *current_expiration = expiration;
 
-                    true
+                    Some(*current_generation)
                 } else {
                     // We didn't have it.
                     if *current_expiration < now {
                         // Steal it!
                         *current_holder = holder.to_owned();
                         *current_expiration = expiration;
+                        *current_generation += 1;
 
-                        true
+                        Some(*current_generation)
                     } else {
                         // We tried our best.
-                        false
+                        None
                     }
                 }
             }
@@ -545,9 +568,10 @@ pub mod memory_store_helper {
                 entry.insert((
                     holder.to_owned(),
                     Instant::now() + Duration::from_millis(lease_duration_ms.into()),
+                    0,
                 ));
 
-                true
+                Some(FIRST_LOCK_GENERATION)
             }
         }
     }
