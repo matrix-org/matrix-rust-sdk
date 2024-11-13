@@ -350,7 +350,12 @@ impl QueueStorage {
 
         client
             .store()
-            .save_send_queue_request(&self.room_id, event_txn, new_content.into())
+            .save_send_queue_request(
+                &self.room_id,
+                event_txn,
+                new_content.into(),
+                Self::HIGH_PRIORITY,
+            )
             .await
             .map_err(RoomSendQueueStorageError::StateStoreError)?;
 
@@ -392,7 +397,7 @@ impl QueueStorage {
 
         client
             .store()
-            .save_send_queue_request(&self.room_id, next_upload_txn, request)
+            .save_send_queue_request(&self.room_id, next_upload_txn, request, Self::HIGH_PRIORITY)
             .await
             .map_err(RoomSendQueueStorageError::StateStoreError)?;
 

@@ -125,6 +125,12 @@ pub struct QueuedRequest {
     ///
     /// `None` if the request is in the queue, waiting to be sent.
     pub error: Option<QueueWedgeError>,
+
+    /// At which priority should this be handled?
+    ///
+    /// The bigger the value, the higher the priority at which this request
+    /// should be handled.
+    pub priority: usize,
 }
 
 impl QueuedRequest {

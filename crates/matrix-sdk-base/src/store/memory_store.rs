@@ -807,13 +807,14 @@ impl StateStore for MemoryStore {
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
         kind: QueuedRequestKind,
+        priority: usize,
     ) -> Result<(), Self::Error> {
         self.send_queue_events
             .write()
             .unwrap()
             .entry(room_id.to_owned())
             .or_default()
-            .push(QueuedRequest { kind, transaction_id, error: None });
+            .push(QueuedRequest { kind, transaction_id, error: None, priority });
         Ok(())
     }
 
@@ -867,7 +868,11 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<QueuedRequest>, Self::Error> {
-        Ok(self.send_queue_events.write().unwrap().entry(room_id.to_owned()).or_default().clone())
+        let mut ret =
+            self.send_queue_events.write().unwrap().entry(room_id.to_owned()).or_default().clone();
+        // Inverted order of priority, use stable sort to keep insertion order.
+        ret.sort_by(|lhs, rhs| rhs.priority.cmp(&lhs.priority));
+        Ok(ret)
     }
 
     async fn update_send_queue_request_status(

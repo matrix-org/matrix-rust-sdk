@@ -837,6 +837,12 @@ struct QueueStorage {
 }
 
 impl QueueStorage {
+    /// Default priority for a queued request.
+    const LOW_PRIORITY: usize = 0;
+
+    /// High priority for a queued request that must be handled before others.
+    const HIGH_PRIORITY: usize = 10;
+
     /// Create a new queue for queuing requests to be sent later.
     fn new(client: WeakClient, room: OwnedRoomId) -> Self {
         Self { room_id: room, being_sent: Default::default(), client }
@@ -847,7 +853,7 @@ impl QueueStorage {
         self.client.get().ok_or(RoomSendQueueStorageError::ClientShuttingDown)
     }
 
-    /// Push a new event to be sent in the queue.
+    /// Push a new event to be sent in the queue, with a default priority of 0.
     ///
     /// Returns the transaction id chosen to identify the request.
     async fn push(
@@ -858,7 +864,12 @@ impl QueueStorage {
 
         self.client()?
             .store()
-            .save_send_queue_request(&self.room_id, transaction_id.clone(), request)
+            .save_send_queue_request(
+                &self.room_id,
+                transaction_id.clone(),
+                request,
+                Self::LOW_PRIORITY,
+            )
             .await?;
 
         Ok(transaction_id)
@@ -1058,6 +1069,7 @@ impl QueueStorage {
                             thumbnail_source: None, // the thumbnail has no thumbnails :)
                             related_to: send_event_txn.clone(),
                         },
+                        Self::LOW_PRIORITY,
                     )
                     .await?;
 
@@ -1088,6 +1100,7 @@ impl QueueStorage {
                             thumbnail_source: None,
                             related_to: send_event_txn.clone(),
                         },
+                        Self::LOW_PRIORITY,
                     )
                     .await?;
 
@@ -1311,6 +1324,7 @@ impl QueueStorage {
                             &self.room_id,
                             dependent_request.own_transaction_id.into(),
                             serializable.into(),
+                            Self::HIGH_PRIORITY,
                         )
                         .await
                         .map_err(RoomSendQueueStorageError::StateStoreError)?;
@@ -1397,6 +1411,7 @@ impl QueueStorage {
                             &self.room_id,
                             dependent_request.own_transaction_id.into(),
                             serializable.into(),
+                            Self::HIGH_PRIORITY,
                         )
                         .await
                         .map_err(RoomSendQueueStorageError::StateStoreError)?;
