@@ -2289,3 +2289,55 @@ async fn test_cancel_upload_before_active() {
     // That's all, folks!
     assert!(watch.is_empty());
 }
+
+#[async_test]
+async fn test_cancel_upload_with_thumbnail_active() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    // Prepare endpoints.
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_room_send().ok(event_id!("$msg")).mock_once().mount().await;
+
+    // Have the thumbnail upload take forever and time out, if continued. This will
+    // be interrupted when aborting, so this will never have to complete.
+    mock.mock_upload()
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(60)).set_body_json(
+            json!({
+              "mxc_id": "mxc://sdk.rs/unreachable"
+            }),
+        ))
+        .expect(0)
+        .mount()
+        .await;
+
+    // Send the media.
+    assert!(watch.is_empty());
+
+    let (upload_handle, filename) = queue_attachment_with_thumbnail(&q).await;
+
+    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    assert_let!(MessageType::Image(img_content) = content.msgtype);
+    assert_eq!(img_content.filename(), filename);
+
+    // Abort the upload.
+    abort_and_verify(&client, &mut watch, img_content, upload_handle, upload_txn).await;
+
+    // To prove we're not waiting for the upload to finish, send a message and
+    // observe it's immediately sent.
+    q.send(RoomMessageEventContent::text_plain("hi").into()).await.unwrap();
+    let (msg_txn, _handle) = assert_update!(watch => local echo { body = "hi" });
+    assert_update!(watch => sent { txn = msg_txn, });
+
+    // That's all, folks!
+    assert!(watch.is_empty());
+}
