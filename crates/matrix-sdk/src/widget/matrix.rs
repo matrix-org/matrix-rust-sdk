@@ -26,8 +26,9 @@ use ruma::{
     },
     assign,
     events::{
-        AnyMessageLikeEventContent, AnyStateEventContent, AnySyncTimelineEvent, AnyTimelineEvent,
-        MessageLikeEventType, StateEventType, TimelineEventType,
+        AnyMessageLikeEventContent, AnyStateEventContent, AnySyncMessageLikeEvent,
+        AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, MessageLikeEventType,
+        StateEventType, TimelineEventType,
     },
     serde::Raw,
     RoomId, TransactionId,
@@ -164,13 +165,23 @@ impl MatrixDriver {
     pub(crate) fn events(&self) -> EventReceiver {
         let (tx, rx) = unbounded_channel();
         let room_id = self.room.room_id().to_owned();
-        let handle = self.room.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| {
-            let _ = tx.send(attach_room_id(&raw, &room_id));
+
+        let _tx = tx.clone();
+        let _room_id = room_id.clone();
+        let handle_msg_like =
+            self.room.add_event_handler(move |raw: Raw<AnySyncMessageLikeEvent>| {
+                let _ = _tx.send(attach_room_id(raw.cast_ref(), &_room_id));
+                async {}
+            });
+        let drop_guard_msg_like = self.room.client().event_handler_drop_guard(handle_msg_like);
+
+        let handle_state = self.room.add_event_handler(move |raw: Raw<AnySyncStateEvent>| {
+            let _ = tx.send(attach_room_id(raw.cast_ref(), &room_id));
             async {}
         });
+        let drop_guard_state = self.room.client().event_handler_drop_guard(handle_state);
 
-        let drop_guard = self.room.client().event_handler_drop_guard(handle);
-        EventReceiver { rx, _drop_guard: drop_guard }
+        EventReceiver { rx, _drop_guards: [drop_guard_msg_like, drop_guard_state] }
     }
 }
 
@@ -178,7 +189,7 @@ impl MatrixDriver {
 /// along with the drop guard for the room event handler.
 pub(crate) struct EventReceiver {
     rx: UnboundedReceiver<Raw<AnyTimelineEvent>>,
-    _drop_guard: EventHandlerDropGuard,
+    _drop_guards: [EventHandlerDropGuard; 2],
 }
 
 impl EventReceiver {
