@@ -166,6 +166,7 @@ impl MatrixDriver {
         let (tx, rx) = unbounded_channel();
         let room_id = self.room.room_id().to_owned();
 
+        // Get only message like events from the timeline section of the sync.
         let _tx = tx.clone();
         let _room_id = room_id.clone();
         let handle_msg_like =
@@ -175,12 +176,18 @@ impl MatrixDriver {
             });
         let drop_guard_msg_like = self.room.client().event_handler_drop_guard(handle_msg_like);
 
+        // Get only all state events from the state section of the sync.
         let handle_state = self.room.add_event_handler(move |raw: Raw<AnySyncStateEvent>| {
             let _ = tx.send(attach_room_id(raw.cast_ref(), &room_id));
             async {}
         });
         let drop_guard_state = self.room.client().event_handler_drop_guard(handle_state);
 
+        // The receiver will get a combination of state and messgage like events.
+        // The state events will come from the state section of the sync.
+        // All state events in the timeline section of the sync will not be forwarded to
+        // the widget.
+        // TODO annotate the events and send both timeline and state section state events.
         EventReceiver { rx, _drop_guards: [drop_guard_msg_like, drop_guard_state] }
     }
 }
