@@ -68,7 +68,10 @@ pub(crate) use self::{
     incoming::{IncomingMessage, MatrixDriverResponse},
 };
 
-/// Action (a command) that client (driver) must perform.
+/// A command to perform in reaction to an [`IncomingMessage`].
+///
+/// There are also initial actions that may be performed at the creation of a
+/// [`WidgetMachine`].
 #[derive(Debug)]
 pub(crate) enum Action {
     /// Send a raw message to the widget.
@@ -144,8 +147,10 @@ impl WidgetMachine {
             capabilities: CapabilitiesState::Unset,
         };
 
-        let actions = (!init_on_content_load).then(|| machine.negotiate_capabilities());
-        (machine, actions.unwrap_or_default())
+        let initial_actions =
+            if init_on_content_load { Vec::new() } else { machine.negotiate_capabilities() };
+
+        (machine, initial_actions)
     }
 
     /// Main entry point to drive the state machine.
