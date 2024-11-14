@@ -154,7 +154,6 @@ impl WidgetDriver {
             self.settings.widget_id().to_owned(),
             room.room_id().to_owned(),
             self.settings.init_on_content_load(),
-            None,
         );
 
         let matrix_driver = MatrixDriver::new(room.clone());

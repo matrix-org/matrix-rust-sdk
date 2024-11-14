@@ -20,13 +20,9 @@ use super::WIDGET_ID;
 use crate::widget::machine::{Action, IncomingMessage, WidgetMachine};
 
 #[test]
-fn get_supported_api_versions() {
-    let (mut machine, _) = WidgetMachine::new(
-        WIDGET_ID.to_owned(),
-        owned_room_id!("!a98sd12bjh:example.org"),
-        true,
-        None,
-    );
+fn test_get_supported_api_versions() {
+    let (mut machine, _) =
+        WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
 
     let actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
         "api": "fromWidget",

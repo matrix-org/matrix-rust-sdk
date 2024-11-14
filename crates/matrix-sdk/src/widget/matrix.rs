@@ -129,13 +129,16 @@ impl MatrixDriver {
                 self.room.redact(&redacts, None, None).await?.event_id,
             ));
         }
+
         Ok(match (state_key, delayed_event_parameters) {
             (None, None) => SendEventResponse::from_event_id(
                 self.room.send_raw(&type_str, content).await?.event_id,
             ),
+
             (Some(key), None) => SendEventResponse::from_event_id(
                 self.room.send_state_event_raw(&type_str, &key, content).await?.event_id,
             ),
+
             (None, Some(delayed_event_parameters)) => {
                 let r = delayed_events::delayed_message_event::unstable::Request::new_raw(
                     self.room.room_id().to_owned(),
@@ -146,6 +149,7 @@ impl MatrixDriver {
                 );
                 self.room.client.send(r, None).await.map(|r| r.into())?
             }
+
             (Some(key), Some(delayed_event_parameters)) => {
                 let r = delayed_events::delayed_state_event::unstable::Request::new_raw(
                     self.room.room_id().to_owned(),
