@@ -132,12 +132,9 @@ impl WidgetMachine {
         widget_id: String,
         room_id: OwnedRoomId,
         init_on_content_load: bool,
-        limits: Option<RequestLimits>,
     ) -> (Self, Vec<Action>) {
-        let limits = limits.unwrap_or_else(|| RequestLimits {
-            max_pending_requests: 15,
-            response_timeout: Duration::from_secs(10),
-        });
+        let limits =
+            RequestLimits { max_pending_requests: 15, response_timeout: Duration::from_secs(10) };
 
         let mut machine = Self {
             widget_id,
