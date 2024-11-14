@@ -115,26 +115,25 @@ impl WidgetDriver {
         (driver, channels)
     }
 
-    /// Starts a client widget API state machine for a given `widget` in a given
-    /// joined `room`. The function returns once the widget is disconnected or
-    /// any terminal error occurs.
+    /// Run client widget API state machine in a given joined `room` forever.
     ///
-    /// Not implemented yet! Currently, it does not contain any useful
-    /// functionality, it only blindly forwards the messages and returns errors
-    /// once a non-implemented part is triggered.
+    /// The function returns once the widget is disconnected or any terminal
+    /// error occurs.
     pub async fn run(
         self,
         room: Room,
         capabilities_provider: impl CapabilitiesProvider,
     ) -> Result<(), ()> {
-        // Create a channel so that we can conveniently send all events to it.
-        let (events_tx, mut events_rx) = unbounded_channel();
+        // Create a channel so that we can conveniently send all messages to it.
+        let (incoming_messages_tx, mut incoming_messages_rx) = unbounded_channel();
 
-        // Forward all of the incoming messages from the widget to the `events_tx`.
-        let tx = events_tx.clone();
-        tokio::spawn(async move {
-            while let Ok(msg) = self.from_widget_rx.recv().await {
-                let _ = tx.send(IncomingMessage::WidgetMessage(msg));
+        // Forward all of the incoming messages from the widget.
+        tokio::spawn({
+            let incoming_messages_tx = incoming_messages_tx.clone();
+            async move {
+                while let Ok(msg) = self.from_widget_rx.recv().await {
+                    let _ = incoming_messages_tx.send(IncomingMessage::WidgetMessage(msg));
+                }
             }
         });
 
@@ -152,7 +151,7 @@ impl WidgetDriver {
             matrix_driver: MatrixDriver::new(room.clone()),
             event_forwarding_guard: None,
             to_widget_tx: self.to_widget_tx,
-            events_tx,
+            events_tx: incoming_messages_tx,
             capabilities_provider,
         };
 
@@ -161,9 +160,9 @@ impl WidgetDriver {
             ctx.process_action(action).await?;
         }
 
-        // Process incoming events.
-        while let Some(event) = events_rx.recv().await {
-            ctx.process_event(event).await?;
+        // Process incoming messages as they're coming in.
+        while let Some(message) = incoming_messages_rx.recv().await {
+            ctx.process_incoming_message(message).await?;
         }
 
         Ok(())
@@ -181,8 +180,10 @@ struct ProcessingContext<T> {
 }
 
 impl<T: CapabilitiesProvider> ProcessingContext<T> {
-    async fn process_event(&mut self, event: IncomingMessage) -> Result<(), ()> {
-        for action in self.widget_machine.process(event) {
+    /// Compute the actions for a single given incoming message, and performs
+    /// them immediately.
+    async fn process_incoming_message(&mut self, msg: IncomingMessage) -> Result<(), ()> {
+        for action in self.widget_machine.process(msg) {
             self.process_action(action).await?;
         }
 
@@ -194,6 +195,7 @@ impl<T: CapabilitiesProvider> ProcessingContext<T> {
             Action::SendToWidget(msg) => {
                 self.to_widget_tx.send(msg).await.map_err(|_| ())?;
             }
+
             Action::MatrixDriverRequest { request_id, data } => {
                 let response = match data {
                     MatrixDriverRequestData::AcquireCapabilities(cmd) => {
@@ -253,6 +255,7 @@ impl<T: CapabilitiesProvider> ProcessingContext<T> {
                     .send(IncomingMessage::MatrixDriverResponse { request_id, response })
                     .map_err(|_| ())?;
             }
+
             Action::Subscribe => {
                 // Only subscribe if we are not already subscribed.
                 if self.event_forwarding_guard.is_none() {
@@ -264,10 +267,12 @@ impl<T: CapabilitiesProvider> ProcessingContext<T> {
                     self.event_forwarding_guard = Some(guard);
                     let (mut matrix, events_tx) =
                         (self.matrix_driver.events(), self.events_tx.clone());
+
                     tokio::spawn(async move {
                         loop {
                             tokio::select! {
                                 _ = stop_forwarding.cancelled() => { return }
+
                                 Some(event) = matrix.recv() => {
                                     let _ = events_tx.send(IncomingMessage::MatrixEventReceived(event));
                                 }
@@ -276,6 +281,7 @@ impl<T: CapabilitiesProvider> ProcessingContext<T> {
                     });
                 }
             }
+
             Action::Unsubscribe => {
                 self.event_forwarding_guard = None;
             }
