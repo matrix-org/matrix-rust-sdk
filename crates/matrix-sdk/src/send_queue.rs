@@ -958,7 +958,13 @@ impl QueueStorage {
                 transaction_id: request.transaction_id.clone(),
                 cancel_upload: cancel_upload_tx,
             });
-            assert!(prev.is_none());
+
+            if let Some(prev) = prev {
+                error!(
+                    prev_txn = ?prev.transaction_id,
+                    "a previous request was still active while picking a new one"
+                );
+            }
 
             Ok(Some((request.clone(), cancel_upload_rx)))
         } else {
@@ -971,10 +977,11 @@ impl QueueStorage {
     /// be removed from the queue later.
     async fn mark_as_not_being_sent(&self, transaction_id: &TransactionId) {
         let was_being_sent = self.being_sent.write().await.take();
-        assert_eq!(
-            was_being_sent.as_ref().map(|info| info.transaction_id.as_ref()),
-            Some(transaction_id)
-        );
+
+        let prev_txn = was_being_sent.as_ref().map(|info| info.transaction_id.as_ref());
+        if prev_txn != Some(transaction_id) {
+            error!(prev_txn = ?prev_txn, "previous active request didn't match that we expect (after transient error)");
+        }
     }
 
     /// Marks a request popped with [`Self::peek_next_to_send`] and identified
@@ -988,10 +995,11 @@ impl QueueStorage {
         // Keep the lock until we're done touching the storage.
         let mut being_sent = self.being_sent.write().await;
         let was_being_sent = being_sent.take();
-        assert_eq!(
-            was_being_sent.as_ref().map(|info| info.transaction_id.as_ref()),
-            Some(transaction_id)
-        );
+
+        let prev_txn = was_being_sent.as_ref().map(|info| info.transaction_id.as_ref());
+        if prev_txn != Some(transaction_id) {
+            error!(prev_txn = ?prev_txn, "previous active request didn't match that we expect (after permanent error)");
+        }
 
         Ok(self
             .client()?
@@ -1023,10 +1031,11 @@ impl QueueStorage {
         // Keep the lock until we're done touching the storage.
         let mut being_sent = self.being_sent.write().await;
         let was_being_sent = being_sent.take();
-        assert_eq!(
-            was_being_sent.as_ref().map(|info| info.transaction_id.as_ref()),
-            Some(transaction_id)
-        );
+
+        let prev_txn = was_being_sent.as_ref().map(|info| info.transaction_id.as_ref());
+        if prev_txn != Some(transaction_id) {
+            error!(prev_txn = ?prev_txn, "previous active request didn't match that we expect (after successful send");
+        }
 
         let client = self.client()?;
         let store = client.store();
