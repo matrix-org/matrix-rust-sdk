@@ -1,6 +1,6 @@
 # Copied with minimal adjustments, source:
 # https://github.com/google/mdbook-i18n-helpers/blob/2168b9cea1f4f76b55426591a9bcc308a620194f/.github/workflows/coverage-report.yml
-name: Codecov
+name: Upload code coverage
 
 on:
   # This workflow is triggered after every successful execution
