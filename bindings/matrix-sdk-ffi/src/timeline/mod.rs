@@ -48,8 +48,8 @@ use ruma::{
         },
         receipt::ReceiptThread,
         room::message::{
-            FormattedBody as RumaFormattedBody, ForwardThread, LocationMessageEventContent,
-            MessageType, RoomMessageEventContentWithoutRelation,
+            ForwardThread, LocationMessageEventContent, MessageType,
+            RoomMessageEventContentWithoutRelation,
         },
         AnyMessageLikeEventContent,
     },
@@ -81,6 +81,7 @@ use crate::{
 mod content;
 
 pub use content::MessageContent;
+use matrix_sdk::utils::formatted_body_from;
 
 use crate::error::QueueWedgeError;
 
@@ -289,7 +290,8 @@ impl Timeline {
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
         use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
-        let formatted_caption = formatted_caption_from(&caption, &formatted_caption);
+        let formatted_caption =
+            formatted_body_from(caption.as_deref(), formatted_caption.map(Into::into));
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_image_info = BaseImageInfo::try_from(&image_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
@@ -322,7 +324,8 @@ impl Timeline {
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
         use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
-        let formatted_caption = formatted_caption_from(&caption, &formatted_caption);
+        let formatted_caption =
+            formatted_body_from(caption.as_deref(), formatted_caption.map(Into::into));
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_video_info: BaseVideoInfo = BaseVideoInfo::try_from(&video_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
@@ -353,7 +356,8 @@ impl Timeline {
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
         use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
-        let formatted_caption = formatted_caption_from(&caption, &formatted_caption);
+        let formatted_caption =
+            formatted_body_from(caption.as_deref(), formatted_caption.map(Into::into));
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_audio_info: BaseAudioInfo = BaseAudioInfo::try_from(&audio_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
@@ -386,7 +390,8 @@ impl Timeline {
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
         use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
-        let formatted_caption = formatted_caption_from(&caption, &formatted_caption);
+        let formatted_caption =
+            formatted_body_from(caption.as_deref(), formatted_caption.map(Into::into));
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_audio_info: BaseAudioInfo = BaseAudioInfo::try_from(&audio_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?;
@@ -711,24 +716,6 @@ impl Timeline {
     ) -> Option<Arc<RoomMessageEventContentWithoutRelation>> {
         let msg_type: Option<MessageType> = msg_type.try_into().ok();
         msg_type.map(|m| Arc::new(RoomMessageEventContentWithoutRelation::new(m)))
-    }
-}
-
-/// Given a pair of optional `caption` and `formatted_caption` parameters,
-/// return a formatted caption:
-///
-/// - If a `formatted_caption` exists, return it.
-/// - If it doesn't exist but there is a `caption`, parse it as markdown and
-///   return the result.
-/// - Return `None` if there are no `caption` or `formatted_caption` parameters.
-fn formatted_caption_from(
-    caption: &Option<String>,
-    formatted_caption: &Option<FormattedBody>,
-) -> Option<RumaFormattedBody> {
-    match (&caption, formatted_caption) {
-        (None, None) => None,
-        (Some(body), None) => RumaFormattedBody::markdown(body),
-        (_, Some(formatted_body)) => Some(formatted_body.clone().into()),
     }
 }
 
