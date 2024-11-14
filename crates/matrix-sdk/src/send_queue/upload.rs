@@ -429,10 +429,10 @@ impl QueueStorage {
         event_txn: &TransactionId,
         handles: &MediaHandles,
     ) -> Result<bool, RoomSendQueueStorageError> {
-        let client = self.client()?;
+        let mut guard = self.store.lock().await;
+        let client = guard.client()?;
 
         // Keep the lock until we're done touching the storage.
-        let mut being_sent = self.being_sent.write().await;
         debug!("trying to abort an upload");
 
         let store = client.store();
@@ -450,10 +450,10 @@ impl QueueStorage {
                 trace!("could remove thumbnail request, removing 2 dependent requests now");
 
                 // 1. Try to abort sending using the being_sent info, in case it was active.
-                if let Some(info) = being_sent.as_ref() {
+                if let Some(info) = guard.being_sent.as_ref() {
                     if info.transaction_id == *thumbnail_txn {
                         // SAFETY: we knew it was Some(), two lines above.
-                        let info = being_sent.take().unwrap();
+                        let info = guard.being_sent.take().unwrap();
                         if info.cancel_upload() {
                             trace!("aborted ongoing thumbnail upload");
                         }
@@ -492,10 +492,10 @@ impl QueueStorage {
                 trace!("could remove file upload request, removing 1 dependent request");
 
                 // 1. Try to abort sending using the being_sent info, in case it was active.
-                if let Some(info) = being_sent.as_ref() {
+                if let Some(info) = guard.being_sent.as_ref() {
                     if info.transaction_id == handles.upload_file_txn {
                         // SAFETY: we knew it was Some(), two lines above.
-                        let info = being_sent.take().unwrap();
+                        let info = guard.being_sent.take().unwrap();
                         if info.cancel_upload() {
                             trace!("aborted ongoing file upload");
                         }
