@@ -55,6 +55,9 @@ pub struct RoomPreview {
     /// The number of joined members.
     pub num_joined_members: u64,
 
+    /// The number of active members, if known (joined + invited).
+    pub num_active_members: Option<u64>,
+
     /// The room type (space, custom) or nothing, if it's a regular room.
     pub room_type: Option<RoomType>,
 
@@ -83,6 +86,7 @@ impl RoomPreview {
         room_info: RoomInfo,
         is_direct: Option<bool>,
         num_joined_members: u64,
+        num_active_members: Option<u64>,
         state: Option<RoomState>,
     ) -> Self {
         RoomPreview {
@@ -107,6 +111,7 @@ impl RoomPreview {
             },
             is_world_readable: *room_info.history_visibility() == HistoryVisibility::WorldReadable,
             num_joined_members,
+            num_active_members,
             state,
             is_direct,
         }
@@ -121,6 +126,7 @@ impl RoomPreview {
             room.clone_info(),
             is_direct,
             room.joined_members_count(),
+            Some(room.active_members_count()),
             Some(room.state()),
         )
     }
@@ -178,6 +184,8 @@ impl RoomPreview {
             response.membership.map(|membership| RoomState::from(&membership))
         };
 
+        let num_active_members = cached_room.as_ref().map(|r| r.active_members_count());
+
         let is_direct = if let Some(cached_room) = cached_room {
             cached_room.is_direct().await.ok()
         } else {
@@ -191,6 +199,7 @@ impl RoomPreview {
             topic: response.topic,
             avatar_url: response.avatar_url,
             num_joined_members: response.num_joined_members.into(),
+            num_active_members,
             room_type: response.room_type,
             join_rule: response.join_rule,
             is_world_readable: response.world_readable,
@@ -238,8 +247,15 @@ impl RoomPreview {
 
         let room = client.get_room(room_id);
         let state = room.as_ref().map(|room| room.state());
+        let num_active_members = room.as_ref().map(|r| r.active_members_count());
         let is_direct = if let Some(room) = room { room.is_direct().await.ok() } else { None };
 
-        Ok(Self::from_room_info(room_info, is_direct, num_joined_members, state))
+        Ok(Self::from_room_info(
+            room_info,
+            is_direct,
+            num_joined_members,
+            num_active_members,
+            state,
+        ))
     }
 }

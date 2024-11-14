@@ -27,6 +27,7 @@ impl RoomPreview {
             avatar_url: info.avatar_url.as_ref().map(|url| url.to_string()),
             num_joined_members: info.num_joined_members,
             room_type: info.room_type.as_ref().map(|room_type| room_type.to_string()),
+            num_active_members: info.num_active_members,
             is_history_world_readable: info.is_world_readable,
             membership: info.state.map(|state| state.into()),
             join_rule: info
@@ -77,6 +78,8 @@ pub struct RoomPreviewInfo {
     pub avatar_url: Option<String>,
     /// The number of joined members.
     pub num_joined_members: u64,
+    /// The number of active members, if known (joined + invited).
+    pub num_active_members: Option<u64>,
     /// The room type (space, custom) or nothing, if it's a regular room.
     pub room_type: Option<String>,
     /// Is the history world-readable for this room?
