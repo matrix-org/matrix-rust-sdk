@@ -3,6 +3,7 @@ use matrix_sdk::{room_preview::RoomPreview as SdkRoomPreview, Client};
 use ruma::space::SpaceRoomJoinRule;
 use tracing::warn;
 
+use crate::room_member::RoomMember;
 use crate::{client::JoinRule, error::ClientError, room::Membership, utils::AsyncRuntimeDropped};
 
 /// A room preview for a room. It's intended to be used to represent rooms that
@@ -33,6 +34,7 @@ impl RoomPreview {
                 .clone()
                 .try_into()
                 .map_err(|_| anyhow::anyhow!("unhandled SpaceRoomJoinRule kind"))?,
+            is_direct: info.is_direct,
         })
     }
 
@@ -44,6 +46,13 @@ impl RoomPreview {
         let room =
             self.client.get_room(&self.inner.room_id).context("missing room for a room preview")?;
         room.leave().await.map_err(Into::into)
+    }
+
+    /// Get the user who created the invite, if any.
+    pub async fn inviter(&self) -> Option<RoomMember> {
+        let room = self.client.get_room(&self.inner.room_id)?;
+        let invite_details = room.invite_details().await.ok()?;
+        invite_details.inviter.and_then(|m| m.try_into().ok())
     }
 }
 
@@ -76,6 +85,8 @@ pub struct RoomPreviewInfo {
     pub membership: Option<Membership>,
     /// The join rule for this room (private, public, knock, etc.).
     pub join_rule: JoinRule,
+    /// Whether the room is direct or not, if known.
+    pub is_direct: Option<bool>,
 }
 
 impl TryFrom<SpaceRoomJoinRule> for JoinRule {
