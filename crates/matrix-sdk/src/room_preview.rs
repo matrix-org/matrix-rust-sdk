@@ -18,9 +18,11 @@
 //! This offers a few capabilities for previewing the content of the room as
 //! well.
 
+use futures_util::future::join_all;
 use matrix_sdk_base::{RoomInfo, RoomState};
 use ruma::{
     api::client::{membership::joined_members, state::get_state_events},
+    directory::PublicRoomJoinRule,
     events::room::{history_visibility::HistoryVisibility, join_rules::JoinRule},
     room::RoomType,
     space::SpaceRoomJoinRule,
@@ -29,7 +31,7 @@ use ruma::{
 use tokio::try_join;
 use tracing::{instrument, warn};
 
-use crate::{Client, Room};
+use crate::{room_directory_search::RoomDirectorySearch, Client, Room};
 
 /// The preview of a room, be it invited/joined/left, or not.
 #[derive(Debug, Clone)]
@@ -140,19 +142,74 @@ impl RoomPreview {
     ) -> crate::Result<Self> {
         // Use the room summary endpoint, if available, as described in
         // https://github.com/deepbluev7/matrix-doc/blob/room-summaries/proposals/3266-room-summary.md
-        match Self::from_room_summary(client, room_id.clone(), room_or_alias_id, via).await {
+        match Self::from_room_summary(client, room_id.clone(), room_or_alias_id, via.clone()).await
+        {
             Ok(res) => return Ok(res),
             Err(err) => {
                 warn!("error when previewing room from the room summary endpoint: {err}");
             }
         }
 
-        // TODO: (optimization) Use the room search directory, if available:
-        // - if the room directory visibility is public,
-        // - then use a public room filter set to this room id
+        // Try room directory search next.
+        match Self::from_room_directory_search(client, &room_id, room_or_alias_id, via).await {
+            Ok(Some(res)) => return Ok(res),
+            Ok(None) => warn!("Room '{room_or_alias_id}' not found in room directory search."),
+            Err(err) => {
+                warn!("Searching for '{room_or_alias_id}' in room directory search failed: {err}");
+            }
+        }
 
         // Resort to using the room state endpoint, as well as the joined members one.
         Self::from_state_events(client, &room_id).await
+    }
+
+    /// Get a [`RoomPreview`] by searching in the room directory for the
+    /// provided room alias or room id and transforming the [`RoomDescription`]
+    /// into a preview.
+    pub(crate) async fn from_room_directory_search(
+        client: &Client,
+        room_id: &RoomId,
+        room_or_alias_id: &RoomOrAliasId,
+        via: Vec<OwnedServerName>,
+    ) -> crate::Result<Option<Self>> {
+        // Get either the room alias or the room id without the leading identifier char
+        let search_term = if room_or_alias_id.is_room_alias_id() {
+            Some(room_or_alias_id.as_str()[1..].to_owned())
+        } else {
+            None
+        };
+
+        // If we have no alias, filtering using a room id is impossible, so just take
+        // the first 100 results and try to find the current room #YOLO
+        let batch_size = if search_term.is_some() { 20 } else { 100 };
+
+        if via.is_empty() {
+            // Just search in the current homeserver
+            search_for_room_preview_in_room_directory(
+                client.clone(),
+                search_term,
+                batch_size,
+                None,
+                room_id,
+            )
+            .await
+        } else {
+            let mut futures = Vec::new();
+            // Search for all servers and retrieve the results
+            for server in via {
+                futures.push(search_for_room_preview_in_room_directory(
+                    client.clone(),
+                    search_term.clone(),
+                    batch_size,
+                    Some(server),
+                    room_id,
+                ));
+            }
+
+            let joined_results = join_all(futures).await;
+
+            Ok(joined_results.into_iter().flatten().next().flatten())
+        }
     }
 
     /// Get a [`RoomPreview`] using MSC3266, if available on the remote server.
@@ -258,4 +315,48 @@ impl RoomPreview {
             state,
         ))
     }
+}
+
+async fn search_for_room_preview_in_room_directory(
+    client: Client,
+    filter: Option<String>,
+    batch_size: u32,
+    server: Option<OwnedServerName>,
+    expected_room_id: &RoomId,
+) -> crate::Result<Option<RoomPreview>> {
+    let mut directory_search = RoomDirectorySearch::new(client);
+    directory_search.search(filter, batch_size, server).await?;
+
+    let (results, _) = directory_search.results();
+
+    for room_description in results {
+        // Iterate until we find a room description with a matching room id
+        if room_description.room_id != expected_room_id {
+            continue;
+        }
+        return Ok(Some(RoomPreview {
+            room_id: room_description.room_id,
+            canonical_alias: room_description.alias,
+            name: room_description.name,
+            topic: room_description.topic,
+            avatar_url: room_description.avatar_url,
+            num_joined_members: room_description.joined_members,
+            num_active_members: None,
+            // Assume it's a room
+            room_type: None,
+            join_rule: match room_description.join_rule {
+                PublicRoomJoinRule::Public => SpaceRoomJoinRule::Public,
+                PublicRoomJoinRule::Knock => SpaceRoomJoinRule::Knock,
+                PublicRoomJoinRule::_Custom(rule) => SpaceRoomJoinRule::_Custom(rule),
+                _ => {
+                    panic!("Unexpected PublicRoomJoinRule {:?}", room_description.join_rule)
+                }
+            },
+            is_world_readable: room_description.is_world_readable,
+            state: None,
+            is_direct: None,
+        }));
+    }
+
+    Ok(None)
 }
