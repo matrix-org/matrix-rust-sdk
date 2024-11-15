@@ -418,15 +418,22 @@ impl Timeline {
         self: Arc<Self>,
         url: String,
         file_info: FileInfo,
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
         use_send_queue: bool,
     ) -> Arc<SendAttachmentJoinHandle> {
+        let formatted_caption =
+            formatted_body_from(caption.as_deref(), formatted_caption.map(Into::into));
         SendAttachmentJoinHandle::new(RUNTIME.spawn(async move {
             let base_file_info: BaseFileInfo =
                 BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?;
             let attachment_info = AttachmentInfo::File(base_file_info);
 
-            let attachment_config = AttachmentConfig::new().info(attachment_info);
+            let attachment_config = AttachmentConfig::new()
+                .info(attachment_info)
+                .caption(caption)
+                .formatted_caption(formatted_caption.map(Into::into));
 
             self.send_attachment(
                 url,
