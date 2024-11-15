@@ -2,6 +2,7 @@
 #![allow(unused)]
 
 use std::{
+    collections::BTreeMap,
     sync::{Arc, Mutex as StdMutex},
     time::Duration,
 };
@@ -21,6 +22,7 @@ use matrix_sdk::{
             room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
         },
         assign,
+        directory::PublicRoomsChunkInit,
         events::{
             receipt::ReceiptThread,
             room::{
@@ -30,14 +32,19 @@ use matrix_sdk::{
             },
             AnySyncMessageLikeEvent, InitialStateEvent, Mentions, StateEventType,
         },
-        mxc_uri,
+        mxc_uri, owned_server_name, room_id,
         space::SpaceRoomJoinRule,
-        RoomId,
+        uint, RoomId,
     },
     sliding_sync::VersionBuilder,
+    test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
     Client, RoomInfo, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
 };
-use matrix_sdk_base::sliding_sync::http;
+use matrix_sdk_base::{
+    ruma::{owned_room_id, room_alias_id},
+    sliding_sync::http,
+};
+use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
     room_list_service::filters::new_filter_all, sync_service::SyncService, timeline::RoomExt,
     RoomListService,
@@ -1090,6 +1097,100 @@ async fn test_room_preview() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[async_test]
+async fn test_room_preview_with_room_directory_search_and_room_alias_only() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_alias = room_alias_id!("#a-room:matrix.org");
+    let expected_room_id = room_id!("!a-room:matrix.org");
+
+    // Allow resolving the room via the room directory
+    server
+        .mock_room_directory_resolve_alias()
+        .ok(expected_room_id.as_ref(), Vec::new())
+        .mock_once()
+        .mount()
+        .await;
+
+    // Given a successful public room search
+    let chunks = vec![PublicRoomsChunkInit {
+        num_joined_members: uint!(0),
+        room_id: expected_room_id.to_owned(),
+        world_readable: true,
+        guest_can_join: true,
+    }
+    .into()];
+    server.mock_public_rooms().ok(chunks, None, None, Some(1)).mock_once().mount().await;
+
+    // The room preview is found
+    let preview = client
+        .get_room_preview(room_alias.into(), Vec::new())
+        .await
+        .expect("room preview couldn't be retrieved");
+    assert_eq!(preview.room_id, expected_room_id);
+}
+
+#[async_test]
+async fn test_room_preview_with_room_directory_search_and_room_alias_only_in_several_homeservers() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_alias = room_alias_id!("#a-room:matrix.org");
+    let expected_room_id = room_id!("!a-room:matrix.org");
+
+    // Allow resolving the room via the room directory
+    server
+        .mock_room_directory_resolve_alias()
+        .ok(expected_room_id.as_ref(), Vec::new())
+        .mock_once()
+        .mount()
+        .await;
+
+    let via_1 = owned_server_name!("server1.com");
+    let via_2 = owned_server_name!("server2.com");
+
+    // Given a couple of successful public room search responses
+    let via_map = BTreeMap::from_iter(vec![
+        (
+            via_1.to_owned(),
+            // The actual room we want
+            vec![PublicRoomsChunkInit {
+                num_joined_members: uint!(0),
+                room_id: expected_room_id.to_owned(),
+                world_readable: true,
+                guest_can_join: true,
+            }
+            .into()],
+        ),
+        (
+            via_2.to_owned(),
+            // Some other room
+            vec![PublicRoomsChunkInit {
+                num_joined_members: uint!(1),
+                room_id: owned_room_id!("!some-other-room:matrix.org"),
+                world_readable: true,
+                guest_can_join: true,
+            }
+            .into()],
+        ),
+    ]);
+    server
+        .mock_public_rooms()
+        .ok_with_via_params(via_map)
+        // Expect this to be called once for every server in the `via_map`
+        .expect(2)
+        .mount()
+        .await;
+
+    // The room preview is found in the first response
+    let preview = client
+        .get_room_preview(room_alias.into(), vec![via_1, via_2])
+        .await
+        .expect("room preview couldn't be retrieved");
+    assert_eq!(preview.room_id, expected_room_id);
 }
 
 fn assert_room_preview(preview: &RoomPreview, room_alias: &str) {

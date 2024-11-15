@@ -17,24 +17,31 @@
 
 #![allow(missing_debug_implementations)]
 
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, store::StoreConfig, SessionMeta};
 use matrix_sdk_test::{
     test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
     SyncResponseBuilder,
 };
-use ruma::{api::MatrixVersion, device_id, user_id, MxcUri, OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{
+    api::MatrixVersion, device_id, directory::PublicRoomsChunk, user_id, MxcUri, OwnedEventId,
+    OwnedRoomId, RoomId, ServerName,
+};
+use serde::Deserialize;
 use serde_json::json;
 use wiremock::{
     matchers::{body_partial_json, header, method, path, path_regex},
-    Mock, MockBuilder, MockGuard, MockServer, Respond, ResponseTemplate, Times,
+    Mock, MockBuilder, MockGuard, MockServer, Request, Respond, ResponseTemplate, Times,
 };
 
 use crate::{
     config::RequestConfig,
     matrix_auth::{MatrixSession, MatrixSessionTokens},
-    Client, ClientBuilder, Room,
+    Client, ClientBuilder, OwnedServerName, Room,
 };
 
 /// A [`wiremock`] [`MockServer`] along with useful methods to help mocking
@@ -451,6 +458,49 @@ impl MatrixMockServer {
         let mock =
             Mock::given(method("PUT")).and(path_regex(r"/_matrix/client/v3/directory/room/.*"));
         MockEndpoint { mock, server: &self.server, endpoint: CreateRoomAliasEndpoint }
+    }
+
+    /// Create a prebuilt mock for listing public rooms.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #
+    /// tokio_test::block_on(async {
+    /// use js_int::uint;
+    /// use ruma::directory::PublicRoomsChunkInit;
+    /// use matrix_sdk::room_directory_search::RoomDirectorySearch;
+    /// use matrix_sdk::{
+    ///     ruma::{event_id, room_id},
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    /// let event_id = event_id!("$id");
+    /// let room_id = room_id!("!room_id:localhost");
+    ///
+    /// let chunk = vec![PublicRoomsChunkInit {
+    ///     num_joined_members: uint!(0),
+    ///     room_id: room_id.to_owned(),
+    ///     world_readable: true,
+    ///     guest_can_join: true,
+    /// }.into()];
+    ///
+    /// mock_server.mock_public_rooms().ok(chunk, None, None, Some(20)).mock_once().mount().await;
+    /// let mut room_directory_search = RoomDirectorySearch::new(client);
+    ///
+    /// room_directory_search.search(Some("some-alias".to_owned()), 100, None)
+    ///     .await
+    ///     .expect("Room directory search failed");
+    ///
+    /// let (results, _) = room_directory_search.results();
+    /// assert_eq!(results.len(), 1);
+    /// assert_eq!(results.get(0).unwrap().room_id, room_id.to_owned());
+    /// # });
+    /// ```
+    pub fn mock_public_rooms(&self) -> MockEndpoint<'_, PublicRoomsEndpoint> {
+        let mock = Mock::given(method("POST")).and(path_regex(r"/_matrix/client/v3/publicRooms"));
+        MockEndpoint { mock, server: &self.server, endpoint: PublicRoomsEndpoint }
     }
 }
 
@@ -1029,6 +1079,59 @@ impl<'a> MockEndpoint<'a, CreateRoomAliasEndpoint> {
     /// Returns a data endpoint for creating a room alias.
     pub fn ok(self) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for paginating the public room list.
+pub struct PublicRoomsEndpoint;
+
+impl<'a> MockEndpoint<'a, PublicRoomsEndpoint> {
+    /// Returns a data endpoint for paginating the public room list.
+    pub fn ok(
+        self,
+        chunk: Vec<PublicRoomsChunk>,
+        next_batch: Option<String>,
+        prev_batch: Option<String>,
+        total_room_count_estimate: Option<u64>,
+    ) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chunk": chunk,
+            "next_batch": next_batch,
+            "prev_batch": prev_batch,
+            "total_room_count_estimate": total_room_count_estimate,
+        })));
+        MatrixMock { server: self.server, mock }
+    }
+
+    /// Returns a data endpoint for paginating the public room list with several
+    /// `via` params.
+    ///
+    /// Each `via` param must be in the `server_map` parameter, otherwise it'll
+    /// fail.
+    pub fn ok_with_via_params(
+        self,
+        server_map: BTreeMap<OwnedServerName, Vec<PublicRoomsChunk>>,
+    ) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(move |req: &Request| {
+            #[derive(Deserialize)]
+            struct PartialRequest {
+                server: Option<OwnedServerName>,
+            }
+
+            let (_, server) = req
+                .url
+                .query_pairs()
+                .into_iter()
+                .find(|(key, _)| key == "server")
+                .expect("Server param not found in request URL");
+            let server = ServerName::parse(server).expect("Couldn't parse server name");
+            let chunk = server_map.get(&server).expect("Chunk for the server param not found");
+            ResponseTemplate::new(200).set_body_json(json!({
+                "chunk": chunk,
+                "total_room_count_estimate": chunk.len(),
+            }))
+        });
         MatrixMock { server: self.server, mock }
     }
 }
