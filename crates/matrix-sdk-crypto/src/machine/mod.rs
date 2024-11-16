@@ -737,7 +737,7 @@ impl OlmMachine {
             .await
     }
 
-    /// Get the a key claiming request for the user/device pairs that we are
+    /// Get a key claiming request for the user/device pairs that we are
     /// missing Olm sessions for.
     ///
     /// Returns None if no key claiming request needs to be sent out.
