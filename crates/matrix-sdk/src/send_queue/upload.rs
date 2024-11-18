@@ -17,17 +17,20 @@
 use matrix_sdk_base::{
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     store::{
-        ChildTransactionId, FinishUploadThumbnailInfo, QueuedRequestKind, SentMediaInfo,
-        SentRequestKey, SerializableEventContent,
+        ChildTransactionId, DependentQueuedRequestKind, FinishUploadThumbnailInfo,
+        QueuedRequestKind, SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
     RoomState,
 };
 use mime::Mime;
 use ruma::{
     assign,
-    events::room::{
-        message::{MessageType, RoomMessageEventContent},
-        MediaSource, ThumbnailInfo,
+    events::{
+        room::{
+            message::{FormattedBody, MessageType, RoomMessageEventContent},
+            MediaSource, ThumbnailInfo,
+        },
+        AnyMessageLikeEventContent,
     },
     uint, OwnedMxcUri, OwnedTransactionId, TransactionId, UInt,
 };
@@ -36,6 +39,7 @@ use tracing::{debug, error, instrument, trace, warn, Span};
 use super::{QueueStorage, RoomSendQueue, RoomSendQueueError};
 use crate::{
     attachment::AttachmentConfig,
+    room::edit::update_media_caption,
     send_queue::{
         LocalEcho, LocalEchoContent, MediaHandles, RoomSendQueueStorageError, RoomSendQueueUpdate,
         SendHandle,
@@ -298,7 +302,6 @@ impl QueueStorage {
             let from_req = make_local_file_media_request(&file_upload_txn);
 
             trace!(from = ?from_req.source, to = ?sent_media.file, "renaming media file key in cache store");
-
             let cache_store = client
                 .event_cache_store()
                 .lock()
@@ -541,5 +544,122 @@ impl QueueStorage {
 
         debug!("successfully aborted!");
         Ok(true)
+    }
+
+    #[instrument(skip(self, caption, formatted_caption))]
+    pub(super) async fn edit_media_caption(
+        &self,
+        txn: &TransactionId,
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
+    ) -> Result<Option<AnyMessageLikeEventContent>, RoomSendQueueStorageError> {
+        // This error will be popular here.
+        use RoomSendQueueStorageError::InvalidMediaCaptionEdit;
+
+        let guard = self.store.lock().await;
+        let client = guard.client()?;
+        let store = client.store();
+
+        // The media event can be in one of three states:
+        // - still stored as a dependent request,
+        // - stored as a queued request, active (aka it's being sent).
+        // - stored as a queued request, not active yet (aka it's not being sent yet),
+        //
+        // We'll handle each of these cases one by one.
+
+        {
+            // If the event can be found as a dependent event, update the captions, save it
+            // back into the database, and return early.
+            let dependent_requests = store.load_dependent_queued_requests(&self.room_id).await?;
+
+            if let Some(found) =
+                dependent_requests.into_iter().find(|req| *req.own_transaction_id == *txn)
+            {
+                trace!("found the caption to edit in a dependent request");
+
+                let DependentQueuedRequestKind::FinishUpload {
+                    mut local_echo,
+                    file_upload,
+                    thumbnail_info,
+                } = found.kind
+                else {
+                    return Err(InvalidMediaCaptionEdit);
+                };
+
+                if !update_media_caption(&mut local_echo, caption, formatted_caption) {
+                    return Err(InvalidMediaCaptionEdit);
+                }
+
+                let new_dependent_request = DependentQueuedRequestKind::FinishUpload {
+                    local_echo: local_echo.clone(),
+                    file_upload,
+                    thumbnail_info,
+                };
+                store
+                    .update_dependent_queued_request(
+                        &self.room_id,
+                        &found.own_transaction_id,
+                        new_dependent_request,
+                    )
+                    .await?;
+
+                trace!("caption successfully updated");
+                return Ok(Some(local_echo.into()));
+            }
+        }
+
+        let requests = store.load_send_queue_requests(&self.room_id).await?;
+        let Some(found) = requests.into_iter().find(|req| req.transaction_id == *txn) else {
+            // Couldn't be found anymore, it's not possible to update captions.
+            return Ok(None);
+        };
+
+        trace!("found the caption to edit as a request");
+
+        let QueuedRequestKind::Event { content: serialized_content } = found.kind else {
+            return Err(InvalidMediaCaptionEdit);
+        };
+
+        let deserialized = serialized_content.deserialize()?;
+        let AnyMessageLikeEventContent::RoomMessage(mut content) = deserialized else {
+            return Err(InvalidMediaCaptionEdit);
+        };
+
+        if !update_media_caption(&mut content, caption, formatted_caption) {
+            return Err(InvalidMediaCaptionEdit);
+        }
+
+        let any_content: AnyMessageLikeEventContent = content.into();
+        let new_serialized = SerializableEventContent::new(&any_content.clone())?;
+
+        // If the request is active (being sent), send a dependent request.
+        if let Some(being_sent) = guard.being_sent.as_ref() {
+            if being_sent.transaction_id == *txn {
+                // Record a dependent request to edit, and exit.
+                store
+                    .save_dependent_queued_request(
+                        &self.room_id,
+                        txn,
+                        ChildTransactionId::new(),
+                        DependentQueuedRequestKind::EditEvent { new_content: new_serialized },
+                    )
+                    .await?;
+
+                trace!("media event was being sent, pushed a dependent edit");
+                return Ok(Some(any_content));
+            }
+        }
+
+        // The request is not active: edit the local echo.
+        store
+            .update_send_queue_request(
+                &self.room_id,
+                txn,
+                QueuedRequestKind::Event { content: new_serialized },
+            )
+            .await?;
+
+        trace!("media event was not being sent, updated local echo");
+        Ok(Some(any_content))
     }
 }

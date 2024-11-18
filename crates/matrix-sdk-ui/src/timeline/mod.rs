@@ -478,8 +478,15 @@ impl Timeline {
                         }
                     }
 
-                    EditedContent::MediaCaption { caption: _, formatted_caption: _ } => {
-                        todo!("bnjbvr you had one job");
+                    EditedContent::MediaCaption { caption, formatted_caption } => {
+                        if handle
+                            .edit_media_caption(caption, formatted_caption)
+                            .await
+                            .map_err(RoomSendQueueError::StorageError)?
+                        {
+                            return Ok(());
+                        }
+                        return Err(EditError::InvalidLocalEchoState.into());
                     }
                 };
 

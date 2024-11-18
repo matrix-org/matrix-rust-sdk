@@ -151,28 +151,6 @@ impl<'a> EventSource for &'a Room {
     }
 }
 
-/// Sets the caption of a media event content.
-///
-/// Why a macro over a plain function: the event content types all differ from
-/// each other, and it would require adding a trait and implementing it for all
-/// event types instead of having this simple macro.
-macro_rules! set_caption {
-    ($event:expr, $caption:expr) => {
-        let filename = $event.filename().to_owned();
-        // As a reminder:
-        // - body and no filename set means the body is the filename
-        // - body and filename set means the body is the caption, and filename is the
-        //   filename.
-        if let Some(caption) = $caption {
-            $event.filename = Some(filename);
-            $event.body = caption;
-        } else {
-            $event.filename = None;
-            $event.body = filename;
-        }
-    };
-}
-
 async fn make_edit_event<S: EventSource>(
     source: S,
     room_id: &RoomId,
@@ -235,30 +213,11 @@ async fn make_edit_event<S: EventSource>(
 
             let mut prev_content = original.content;
 
-            match &mut prev_content.msgtype {
-                MessageType::Audio(event) => {
-                    set_caption!(event, caption);
-                    event.formatted = formatted_caption;
-                }
-                MessageType::File(event) => {
-                    set_caption!(event, caption);
-                    event.formatted = formatted_caption;
-                }
-                MessageType::Image(event) => {
-                    set_caption!(event, caption);
-                    event.formatted = formatted_caption;
-                }
-                MessageType::Video(event) => {
-                    set_caption!(event, caption);
-                    event.formatted = formatted_caption;
-                }
-
-                _ => {
-                    return Err(EditError::IncompatibleEditType {
-                        target: prev_content.msgtype.msgtype().to_owned(),
-                        new_content: "caption for a media room message",
-                    })
-                }
+            if !update_media_caption(&mut prev_content, caption, formatted_caption) {
+                return Err(EditError::IncompatibleEditType {
+                    target: prev_content.msgtype.msgtype().to_owned(),
+                    new_content: "caption for a media room message",
+                });
             }
 
             let replacement = prev_content.make_replacement(
@@ -290,6 +249,62 @@ async fn make_edit_event<S: EventSource>(
 
             Ok(replacement.into())
         }
+    }
+}
+
+/// Sets the caption of a media event content.
+///
+/// Why a macro over a plain function: the event content types all differ from
+/// each other, and it would require adding a trait and implementing it for all
+/// event types instead of having this simple macro.
+macro_rules! set_caption {
+    ($event:expr, $caption:expr) => {
+        let filename = $event.filename().to_owned();
+        // As a reminder:
+        // - body and no filename set means the body is the filename
+        // - body and filename set means the body is the caption, and filename is the
+        //   filename.
+        if let Some(caption) = $caption {
+            $event.filename = Some(filename);
+            $event.body = caption;
+        } else {
+            $event.filename = None;
+            $event.body = filename;
+        }
+    };
+}
+
+/// Sets the caption of a [`RoomMessageEventContent`].
+///
+/// Returns true if the event represented a media event (and thus the captions
+/// could be updated), false otherwise.
+pub(crate) fn update_media_caption(
+    content: &mut RoomMessageEventContent,
+    caption: Option<String>,
+    formatted_caption: Option<FormattedBody>,
+) -> bool {
+    match &mut content.msgtype {
+        MessageType::Audio(event) => {
+            set_caption!(event, caption);
+            event.formatted = formatted_caption;
+            true
+        }
+        MessageType::File(event) => {
+            set_caption!(event, caption);
+            event.formatted = formatted_caption;
+            true
+        }
+        MessageType::Image(event) => {
+            set_caption!(event, caption);
+            event.formatted = formatted_caption;
+            true
+        }
+        MessageType::Video(event) => {
+            set_caption!(event, caption);
+            event.formatted = formatted_caption;
+            true
+        }
+        _ => false,
     }
 }
 
