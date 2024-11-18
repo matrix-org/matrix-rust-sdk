@@ -20,6 +20,7 @@
 //! in-memory store.
 
 use std::{
+    error::Error,
     fmt,
     ops::{Deref, DerefMut},
     result::Result as StdResult,
@@ -50,11 +51,23 @@ pub use self::{
 #[derive(Clone)]
 pub struct EventCacheStoreLock {
     /// The inner cross process lock that is used to lock the `EventCacheStore`.
-    cross_process_lock: CrossProcessStoreLock<LockableEventCacheStore>,
+    cross_process_lock: CrossProcessStoreLock<Arc<LockableEventCacheStore>>,
+
+    /// A reference to the `LockableEventCacheStore`.
+    ///
+    /// This is used to get access to extra API on `LockableEventCacheStore`,
+    /// not restricted to the `BackingStore` trait.
+    ///
+    /// This is necessary because `CrossProcessStoreLock` doesn't provide a way
+    /// to get a reference to the inner backing store. And that's okay.
+    lockable_store: Arc<LockableEventCacheStore>,
 
     /// The store itself.
     ///
-    /// That's the only place where the store exists.
+    /// The store lives here, and inside `Self::lockable_store`.
+    ///
+    /// This is necessary because the lock methods return a guard that contains
+    /// a reference to the store.
     store: Arc<DynEventCacheStore>,
 }
 
@@ -75,13 +88,15 @@ impl EventCacheStoreLock {
         S: IntoEventCacheStore,
     {
         let store = store.into_event_cache_store();
+        let lockable_store = Arc::new(LockableEventCacheStore::new(store.clone()));
 
         Self {
             cross_process_lock: CrossProcessStoreLock::new(
-                LockableEventCacheStore::new(store.clone()),
+                lockable_store.clone(),
                 "default".to_owned(),
                 holder,
             ),
+            lockable_store,
             store,
         }
     }
@@ -91,9 +106,38 @@ impl EventCacheStoreLock {
     /// It doesn't check whether the lock has been poisoned or not.
     /// A lock has been poisoned if it's been acquired from another holder.
     pub async fn lock_unchecked(&self) -> Result<EventCacheStoreLockGuard<'_>, LockStoreError> {
-        let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await?;
+        match self.lock().await? {
+            Ok(guard) => Ok(guard),
+            Err(poison_error) => Ok(poison_error.into_inner()),
+        }
+    }
 
-        Ok(EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.deref() })
+    /// Acquire a spin lock (see [`CrossProcessStoreLock::spin_lock`]).
+    ///
+    /// It **does** check whether the lock has been poisoned or not. Use
+    /// [`EventCacheStoreLock::lock_unchecked`] if you don't want to check. A
+    /// lock has been poisoned if it's been acquired from another holder.
+    ///
+    /// This method returns a first `Result` to handle the locking error. The
+    /// `Ok` variant contains another `Result` to handle the locking poison.
+    pub async fn lock(
+        &self,
+    ) -> Result<
+        Result<
+            EventCacheStoreLockGuard<'_>,
+            EventCacheStoreLockPoisonError<EventCacheStoreLockGuard<'_>>,
+        >,
+        LockStoreError,
+    > {
+        let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await?;
+        let event_cache_store_lock_guard =
+            EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.deref() };
+
+        Ok(if self.lockable_store.is_poisoned() {
+            Err(EventCacheStoreLockPoisonError(event_cache_store_lock_guard))
+        } else {
+            Ok(event_cache_store_lock_guard)
+        })
     }
 }
 
@@ -124,12 +168,44 @@ impl<'a> Deref for EventCacheStoreLockGuard<'a> {
     }
 }
 
+/// A type of error which can be returned whenever a cross-process lock is
+/// acquired.
+///
+/// [`EventCacheStoreLock`] is poisoned whenever the lock is acquired from
+/// another holder than the current holder, i.e. if the previous lock was held
+/// by another process basically.
+pub struct EventCacheStoreLockPoisonError<T>(T);
+
+impl<T> EventCacheStoreLockPoisonError<T> {
+    fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T> fmt::Debug for EventCacheStoreLockPoisonError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EventCacheStoreLockPoisonError").finish_non_exhaustive()
+    }
+}
+
+impl<T> fmt::Display for EventCacheStoreLockPoisonError<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        "Poisoned lock: lock has been acquired from another process".fmt(formatter)
+    }
+}
+
+impl<T> Error for EventCacheStoreLockPoisonError<T> {
+    fn description(&self) -> &str {
+        "Poisoned lock: lock has been acquired from another process"
+    }
+}
+
 /// Event cache store specific error type.
 #[derive(Debug, thiserror::Error)]
 pub enum EventCacheStoreError {
     /// An error happened in the underlying database backend.
     #[error(transparent)]
-    Backend(Box<dyn std::error::Error + Send + Sync>),
+    Backend(Box<dyn Error + Send + Sync>),
 
     /// The store is locked with a passphrase and an incorrect passphrase
     /// was given.
@@ -163,7 +239,7 @@ impl EventCacheStoreError {
     #[inline]
     pub fn backend<E>(error: E) -> Self
     where
-        E: std::error::Error + Send + Sync + 'static,
+        E: Error + Send + Sync + 'static,
     {
         Self::Backend(Box::new(error))
     }
