@@ -545,6 +545,7 @@ impl Timeline {
             .await
         {
             Ok(()) => Ok(()),
+
             Err(timeline::Error::EventNotInTimeline(_)) => {
                 // If we couldn't edit, assume it was an (remote) event that wasn't in the
                 // timeline, and try to edit it via the room itself.
@@ -560,7 +561,8 @@ impl Timeline {
                 room.send_queue().send(edit_event).await?;
                 Ok(())
             }
-            Err(err) => Err(err)?,
+
+            Err(err) => Err(err.into()),
         }
     }
 
@@ -1278,6 +1280,7 @@ impl From<ReceiptType> for ruma::api::client::receipt::create_receipt::v3::Recei
 #[derive(Clone, uniffi::Enum)]
 pub enum EditedContent {
     RoomMessage { content: Arc<RoomMessageEventContentWithoutRelation> },
+    MediaCaption { caption: Option<String>, formatted_caption: Option<FormattedBody> },
     PollStart { poll_data: PollData },
 }
 
@@ -1287,6 +1290,12 @@ impl TryFrom<EditedContent> for SdkEditedContent {
         match value {
             EditedContent::RoomMessage { content } => {
                 Ok(SdkEditedContent::RoomMessage((*content).clone()))
+            }
+            EditedContent::MediaCaption { caption, formatted_caption } => {
+                Ok(SdkEditedContent::MediaCaption {
+                    caption,
+                    formatted_caption: formatted_caption.map(Into::into),
+                })
             }
             EditedContent::PollStart { poll_data } => {
                 let block: UnstablePollStartContentBlock = poll_data.clone().try_into()?;
