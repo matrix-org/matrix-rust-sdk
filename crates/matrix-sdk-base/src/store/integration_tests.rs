@@ -89,6 +89,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_send_queue_priority(&self);
     /// Test operations related to send queue dependents.
     async fn test_send_queue_dependents(&self);
+    /// Test an update to a send queue dependent request.
+    async fn test_update_send_queue_dependent(&self);
     /// Test saving/restoring server capabilities.
     async fn test_server_capabilities_saving(&self);
 }
@@ -1522,6 +1524,54 @@ impl StateStoreIntegrationTests for DynStateStore {
         let dependents = self.load_dependent_queued_requests(room_id).await.unwrap();
         assert_eq!(dependents.len(), 2);
     }
+
+    async fn test_update_send_queue_dependent(&self) {
+        let room_id = room_id!("!test_send_queue_dependents:localhost");
+
+        let txn = TransactionId::new();
+
+        // Save a dependent redaction for an event.
+        let child_txn = ChildTransactionId::new();
+
+        self.save_dependent_queued_request(
+            room_id,
+            &txn,
+            child_txn.clone(),
+            DependentQueuedRequestKind::RedactEvent,
+        )
+        .await
+        .unwrap();
+
+        // It worked.
+        let dependents = self.load_dependent_queued_requests(room_id).await.unwrap();
+        assert_eq!(dependents.len(), 1);
+        assert_eq!(dependents[0].parent_transaction_id, txn);
+        assert_eq!(dependents[0].own_transaction_id, child_txn);
+        assert!(dependents[0].parent_key.is_none());
+        assert_matches!(dependents[0].kind, DependentQueuedRequestKind::RedactEvent);
+
+        // Make it a reaction, instead of a redaction.
+        self.update_dependent_queued_request(
+            room_id,
+            &child_txn,
+            DependentQueuedRequestKind::ReactEvent { key: "👍".to_owned() },
+        )
+        .await
+        .unwrap();
+
+        // It worked.
+        let dependents = self.load_dependent_queued_requests(room_id).await.unwrap();
+        assert_eq!(dependents.len(), 1);
+        assert_eq!(dependents[0].parent_transaction_id, txn);
+        assert_eq!(dependents[0].own_transaction_id, child_txn);
+        assert!(dependents[0].parent_key.is_none());
+        assert_matches!(
+            &dependents[0].kind,
+            DependentQueuedRequestKind::ReactEvent { key } => {
+                assert_eq!(key, "👍");
+            }
+        );
+    }
 }
 
 /// Macro building to allow your StateStore implementation to run the entire
@@ -1679,6 +1729,12 @@ macro_rules! statestore_integration_tests {
             async fn test_send_queue_dependents() {
                 let store = get_store().await.expect("creating store failed").into_state_store();
                 store.test_send_queue_dependents().await;
+            }
+
+            #[async_test]
+            async fn test_update_send_queue_dependent() {
+                let store = get_store().await.expect("creating store failed").into_state_store();
+                store.test_update_send_queue_dependent().await;
             }
         }
     };
