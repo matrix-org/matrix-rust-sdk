@@ -1,5 +1,6 @@
 use std::{ops::Not as _, sync::Arc, time::Duration};
 
+use as_variant::as_variant;
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
     attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, Thumbnail},
@@ -29,7 +30,7 @@ use ruma::{
         },
         AnyMessageLikeEventContent, EventContent as _, Mentions,
     },
-    mxc_uri, owned_user_id, room_id,
+    mxc_uri, owned_mxc_uri, owned_user_id, room_id,
     serde::Raw,
     uint, MxcUri, OwnedEventId, OwnedTransactionId, TransactionId,
 };
@@ -2722,6 +2723,306 @@ async fn test_cancel_upload_while_sending_event() {
     // Trying to abort after it's been sent/redacted is a no-op
     let aborted = upload_handle.abort().await.unwrap();
     assert!(aborted.not());
+
+    // That's all, folks!
+    assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_update_caption_while_sending_media() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    // Prepare endpoints.
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // File upload will take a second.
+    mock.mock_upload()
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
+            json!({
+              "content_uri": "mxc://sdk.rs/media"
+            }),
+        ))
+        .mock_once()
+        .named("file upload")
+        .mount()
+        .await;
+
+    // Sending of the media event will succeed.
+    mock.mock_room_send()
+        .ok(event_id!("$media"))
+        .mock_once()
+        .named("send event")
+        .mock_once()
+        .mount()
+        .await;
+
+    // Send the media.
+    assert!(watch.is_empty());
+
+    let (upload_handle, filename) = queue_attachment_no_thumbnail(&q).await;
+
+    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    assert_let!(MessageType::Image(local_content) = content.msgtype);
+    assert_eq!(local_content.filename(), filename);
+
+    // We can edit the caption while the file is being uploaded.
+    let edited = upload_handle.edit_media_caption(Some("caption".to_owned()), None).await.unwrap();
+    assert!(edited);
+
+    {
+        let new_content = assert_update!(watch => edit local echo { txn = upload_txn });
+        assert_let!(MessageType::Image(image) = new_content.msgtype);
+        assert_eq!(image.filename(), filename);
+        assert_eq!(image.caption(), Some("caption"));
+        assert!(image.formatted_caption().is_none());
+    }
+
+    // Then the media is uploaded.
+    sleep(Duration::from_secs(1)).await;
+    assert_update!(watch => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
+
+    // Then the media event is updated with the MXC ID.
+    {
+        let edit_msg = assert_update!(watch => edit local echo { txn = upload_txn });
+        assert_let!(MessageType::Image(image) = edit_msg.msgtype);
+        assert_let!(MediaSource::Plain(new_uri) = &image.source);
+        assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
+
+        // Still has the new caption.
+        assert_eq!(image.filename(), filename);
+        assert_eq!(image.caption(), Some("caption"));
+        assert!(image.formatted_caption().is_none());
+    }
+
+    // Then the event is sent.
+    assert_update!(watch => sent { txn = upload_txn, });
+
+    // That's all, folks!
+    assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_update_caption_before_event_is_sent() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    // Prepare endpoints.
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // File upload will take a second.
+    mock.mock_upload()
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
+            json!({
+              "content_uri": "mxc://sdk.rs/media"
+            }),
+        ))
+        .mock_once()
+        .named("file upload")
+        .mount()
+        .await;
+
+    // Sending of the media event will succeed.
+    mock.mock_room_send()
+        .ok(event_id!("$media"))
+        .mock_once()
+        .named("send event")
+        .mock_once()
+        .mount()
+        .await;
+
+    // Send the media.
+    assert!(watch.is_empty());
+
+    let (upload_handle, filename) = queue_attachment_no_thumbnail(&q).await;
+
+    // Let the upload request start.
+    sleep(Duration::from_millis(300)).await;
+
+    // Stop the send queue before upload is done. This will stall sending of the
+    // media event.
+    q.set_enabled(false);
+
+    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    assert_let!(MessageType::Image(local_content) = content.msgtype);
+    assert_eq!(local_content.filename(), filename);
+
+    // Wait for the media to be uploaded.
+    sleep(Duration::from_secs(1)).await;
+    assert_update!(watch => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
+
+    // The media event is updated with the remote MXC ID.
+    let mxc = {
+        let new_content = assert_update!(watch => edit local echo { txn = upload_txn });
+        assert_let!(MessageType::Image(image) = new_content.msgtype);
+        assert_eq!(image.filename(), filename);
+        assert_eq!(image.caption(), None);
+        assert!(image.formatted_caption().is_none());
+
+        let mxc = as_variant!(image.source, MediaSource::Plain).unwrap();
+        assert!(!mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
+        mxc
+    };
+
+    assert!(watch.is_empty());
+
+    // We can edit the caption here.
+    let edited = upload_handle.edit_media_caption(Some("caption".to_owned()), None).await.unwrap();
+    assert!(edited);
+
+    // The media event is updated with the captions.
+    {
+        let edit_msg = assert_update!(watch => edit local echo { txn = upload_txn });
+        assert_let!(MessageType::Image(image) = edit_msg.msgtype);
+
+        assert_eq!(image.filename(), filename);
+        assert_eq!(image.caption(), Some("caption"));
+        assert!(image.formatted_caption().is_none());
+
+        // But kept the mxc.
+        let new_mxc = as_variant!(image.source, MediaSource::Plain).unwrap();
+        assert_eq!(new_mxc, mxc);
+    }
+
+    // Re-enable the send queue.
+    q.set_enabled(true);
+
+    // Then the event is sent.
+    assert_update!(watch => sent { txn = upload_txn, });
+
+    // That's all, folks!
+    assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_update_caption_while_sending_media_event() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    // Prepare endpoints.
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // File upload will resolve immediately.
+    mock.mock_upload()
+        .ok(mxc_uri!("mxc://sdk.rs/media"))
+        .mock_once()
+        .named("file upload")
+        .mount()
+        .await;
+
+    // Sending of the media event will take one second.
+    mock.mock_room_send()
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
+            json!({
+                "event_id": "$1"
+            }),
+        ))
+        .mock_once()
+        .named("send event")
+        .mock_once()
+        .mount()
+        .await;
+
+    // There will be an edit event sent too; this one doesn't need to wait.
+    mock.mock_room_send()
+        .ok(event_id!("$edit"))
+        .mock_once()
+        .named("edit event")
+        .mock_once()
+        .mount()
+        .await;
+
+    // The /event endpoint is used to retrieve the original event, during creation
+    // of the edit event.
+    mock.mock_room_event()
+        .room(room_id)
+        .ok(EventFactory::new()
+            .image("surprise.jpeg.exe".to_owned(), owned_mxc_uri!("mxc://sdk.rs/media"))
+            .sender(client.user_id().unwrap())
+            .room(room_id)
+            .into_timeline())
+        .expect(1)
+        .named("room_event")
+        .mount()
+        .await;
+
+    // Send the media.
+    assert!(watch.is_empty());
+
+    let (upload_handle, filename) = queue_attachment_no_thumbnail(&q).await;
+
+    // See local echo.
+    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    assert_let!(MessageType::Image(local_content) = content.msgtype);
+    assert_eq!(local_content.filename(), filename);
+
+    // Wait for the media to be uploaded.
+    assert_update!(watch => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
+
+    // The media event is updated with the remote MXC ID.
+    let mxc = {
+        let new_content = assert_update!(watch => edit local echo { txn = upload_txn });
+        assert_let!(MessageType::Image(image) = new_content.msgtype);
+        assert_eq!(image.filename(), filename);
+        assert_eq!(image.caption(), None);
+        assert!(image.formatted_caption().is_none());
+
+        let mxc = as_variant!(image.source, MediaSource::Plain).unwrap();
+        assert!(!mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
+        mxc
+    };
+
+    // We can edit the caption while the event is beint sent.
+    let edited = upload_handle.edit_media_caption(Some("caption".to_owned()), None).await.unwrap();
+    assert!(edited);
+
+    // The media event is updated with the captions.
+    {
+        let edit_msg = assert_update!(watch => edit local echo { txn = upload_txn });
+        assert_let!(MessageType::Image(image) = edit_msg.msgtype);
+
+        assert_eq!(image.filename(), filename);
+        assert_eq!(image.caption(), Some("caption"));
+        assert!(image.formatted_caption().is_none());
+
+        // But kept the mxc.
+        let new_mxc = as_variant!(image.source, MediaSource::Plain).unwrap();
+        assert_eq!(new_mxc, mxc);
+    }
+
+    // Then the event is sent.
+    sleep(Duration::from_secs(1)).await;
+    assert_update!(watch => sent { txn = upload_txn, });
+
+    // Then the edit event is set, with another transaction id we don't know about.
+    assert_update!(watch => sent {});
 
     // That's all, folks!
     assert!(watch.is_empty());
