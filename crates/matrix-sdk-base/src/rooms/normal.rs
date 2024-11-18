@@ -856,8 +856,11 @@ impl Room {
     }
 
     /// Subscribe to the inner `RoomInfo`.
+    ///
+    /// Behaves like a `subscribe_reset`:
+    /// The first call to `next().await` will immediately return the current info.
     pub fn subscribe_info(&self) -> Subscriber<RoomInfo> {
-        self.inner.subscribe()
+        self.inner.subscribe_reset()
     }
 
     /// Clone the inner `RoomInfo`.
