@@ -23,11 +23,24 @@ use crate::{store::StoreConfig, BaseClient, SessionMeta};
 /// Create a [`BaseClient`] with the given user id, if provided, or an hardcoded
 /// one otherwise.
 pub(crate) async fn logged_in_base_client(user_id: Option<&UserId>) -> BaseClient {
-    let client = BaseClient::with_store_config(StoreConfig::new(
-        "cross-process-store-locks-holder-name".to_owned(),
-    ));
+    logged_in_base_client_with_store_config(
+        user_id,
+        StoreConfig::new("cross-process-store-locks-holder-name".to_owned()),
+    )
+    .await
+}
+
+/// Create a [`BaseClient`] with the given user id, if provided, or an hardcoded
+/// one otherwise, and with a store config.
+pub(crate) async fn logged_in_base_client_with_store_config(
+    user_id: Option<&UserId>,
+    store_config: StoreConfig,
+) -> BaseClient {
+    let client = BaseClient::with_store_config(store_config);
+
     let user_id =
         user_id.map(|user_id| user_id.to_owned()).unwrap_or_else(|| owned_user_id!("@u:e.uk"));
+
     client
         .set_session_meta(
             SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
@@ -36,5 +49,6 @@ pub(crate) async fn logged_in_base_client(user_id: Option<&UserId>) -> BaseClien
         )
         .await
         .expect("set_session_meta failed!");
+
     client
 }
