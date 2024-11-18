@@ -155,7 +155,10 @@ use ruma::{
     events::{
         reaction::ReactionEventContent,
         relation::Annotation,
-        room::{message::RoomMessageEventContent, MediaSource},
+        room::{
+            message::{FormattedBody, RoomMessageEventContent},
+            MediaSource,
+        },
         AnyMessageLikeEventContent, EventContent as _,
     },
     serde::Raw,
@@ -1850,10 +1853,13 @@ pub enum RoomSendQueueStorageError {
     #[error("The client is shutting down.")]
     ClientShuttingDown,
 
-    /// An operation not implemented yet on a send handle.
-    // TODO: remove this
-    #[error("This operation is not implemented yet for media uploads")]
+    /// An operation not implemented on a send handle.
+    #[error("This operation is not implemented for media uploads")]
     OperationNotImplementedYet,
+
+    /// Trying to edit a media caption for something that's not a media.
+    #[error("Can't edit a media caption when the underlying event isn't a media")]
+    InvalidMediaCaptionEdit,
 }
 
 /// Extra transaction IDs useful during an upload.
@@ -1980,6 +1986,43 @@ impl SendHandle {
             new_content.event_type().to_string(),
         )
         .await
+    }
+
+    /// Edits the content of a local echo with a media caption.
+    ///
+    /// Will fail if the event to be sent, represented by this send handle,
+    /// wasn't a media.
+    pub async fn edit_media_caption(
+        &self,
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
+    ) -> Result<bool, RoomSendQueueStorageError> {
+        if let Some(new_content) = self
+            .room
+            .inner
+            .queue
+            .edit_media_caption(&self.transaction_id, caption, formatted_caption)
+            .await?
+        {
+            trace!("successful edit of media caption");
+
+            // Wake up the queue, in case the room was asleep before the edit.
+            self.room.inner.notifier.notify_one();
+
+            let new_content = SerializableEventContent::new(&new_content)
+                .map_err(RoomSendQueueStorageError::JsonSerialization)?;
+
+            // Propagate a replaced update too.
+            let _ = self.room.inner.updates.send(RoomSendQueueUpdate::ReplacedLocalEvent {
+                transaction_id: self.transaction_id.clone(),
+                new_content,
+            });
+
+            Ok(true)
+        } else {
+            debug!("local echo doesn't exist anymore, can't edit media caption");
+            Ok(false)
+        }
     }
 
     /// Unwedge a local echo identified by its transaction identifier and try to
