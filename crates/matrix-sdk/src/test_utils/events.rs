@@ -34,13 +34,16 @@ use ruma::{
         relation::{Annotation, InReplyTo, Replacement, Thread},
         room::{
             encrypted::{EncryptedEventScheme, RoomEncryptedEventContent},
-            message::{Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
+            message::{
+                FormattedBody, ImageMessageEventContent, MessageType, Relation,
+                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+            },
             redaction::RoomRedactionEventContent,
         },
         AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
     },
     serde::Raw,
-    server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
+    server_name, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedRoomId,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
 use serde::Serialize;
@@ -232,6 +235,37 @@ impl EventBuilder<RoomMessageEventContent> {
             Some(Relation::Replacement(Replacement::new(edited_event_id.to_owned(), new_content)));
         self
     }
+
+    /// Adds a caption to a media event.
+    ///
+    /// Will crash if the event isn't a media room message.
+    pub fn caption(
+        mut self,
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
+    ) -> Self {
+        match &mut self.content.msgtype {
+            MessageType::Image(image) => {
+                let filename = image.filename().to_owned();
+                if let Some(caption) = caption {
+                    image.body = caption;
+                    image.filename = Some(filename);
+                } else {
+                    image.body = filename;
+                    image.filename = None;
+                }
+                image.formatted = formatted_caption;
+            }
+
+            MessageType::Audio(_) | MessageType::Video(_) | MessageType::File(_) => {
+                unimplemented!();
+            }
+
+            _ => panic!("unexpected event type for a caption"),
+        }
+
+        self
+    }
 }
 
 impl<E: EventContent> From<EventBuilder<E>> for Raw<AnySyncTimelineEvent>
@@ -411,6 +445,17 @@ impl EventFactory {
             poll_start_id.to_owned(),
         );
         self.event(poll_end_content)
+    }
+
+    /// Creates a plain (unencrypted) image event content referencing the given
+    /// MXC ID.
+    pub fn image(
+        &self,
+        filename: String,
+        url: OwnedMxcUri,
+    ) -> EventBuilder<RoomMessageEventContent> {
+        let image_event_content = ImageMessageEventContent::plain(filename, url);
+        self.event(RoomMessageEventContent::new(MessageType::Image(image_event_content)))
     }
 
     /// Set the next server timestamp.
