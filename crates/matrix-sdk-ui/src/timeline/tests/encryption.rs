@@ -233,7 +233,8 @@ async fn test_false_positive_late_decryption_regression() {
     {
         let utds = hook.utds.lock().unwrap();
         assert_eq!(utds.len(), 1);
-        // Without the regression fix this would be Some(time to decrypt)
+        // This is the main thing we're testing: if this wasn't identified as a definite
+        // UTD, this would be `Some(..)`.
         assert!(utds[0].time_to_decrypt.is_none());
     }
 }
