@@ -350,6 +350,9 @@ pub static POWER_LEVELS: Lazy<JsonValue> = Lazy::new(|| {
             "kick": 50,
             "redact": 50,
             "state_default": 50,
+            "notifications": {
+                "room": 0
+            },
             "users": {
                 "@example:localhost": 100,
                 "@bob:localhost": 0

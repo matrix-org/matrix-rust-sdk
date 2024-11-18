@@ -2975,6 +2975,10 @@ impl Room {
             return Ok(());
         }
 
+        if !self.can_user_trigger_room_notification(self.own_user_id()).await? {
+            return Ok(());
+        }
+
         self.send_call_notification(
             self.room_id().to_string().to_owned(),
             ApplicationType::Call,
