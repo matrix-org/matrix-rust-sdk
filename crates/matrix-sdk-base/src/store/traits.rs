@@ -424,15 +424,15 @@ pub trait StateStore: AsyncTraitDeps {
         content: DependentQueuedRequestKind,
     ) -> Result<(), Self::Error>;
 
-    /// Update a set of dependent send queue requests with a key identifying the
-    /// homeserver's response, effectively marking them as ready.
+    /// Mark a set of dependent send queue requests as ready, using a key
+    /// identifying the homeserver's response.
     ///
     /// ⚠ Beware! There's no verification applied that the parent key type is
     /// compatible with the dependent event type. The invalid state may be
     /// lazily filtered out in `load_dependent_queued_requests`.
     ///
     /// Returns the number of updated requests.
-    async fn update_dependent_queued_request(
+    async fn mark_dependent_queued_requests_as_ready(
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
@@ -709,14 +709,14 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
             .map_err(Into::into)
     }
 
-    async fn update_dependent_queued_request(
+    async fn mark_dependent_queued_requests_as_ready(
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         sent_parent_key: SentRequestKey,
     ) -> Result<usize, Self::Error> {
         self.0
-            .update_dependent_queued_request(room_id, parent_txn_id, sent_parent_key)
+            .mark_dependent_queued_requests_as_ready(room_id, parent_txn_id, sent_parent_key)
             .await
             .map_err(Into::into)
     }

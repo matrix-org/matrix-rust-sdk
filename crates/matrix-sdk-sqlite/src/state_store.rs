@@ -1924,7 +1924,7 @@ impl StateStore for SqliteStateStore {
             .await
     }
 
-    async fn update_dependent_queued_request(
+    async fn mark_dependent_queued_requests_as_ready(
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,

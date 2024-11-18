@@ -1478,7 +1478,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         // Update the event id.
         let event_id = owned_event_id!("$1");
         let num_updated = self
-            .update_dependent_queued_request(
+            .mark_dependent_queued_requests_as_ready(
                 room_id,
                 &txn0,
                 SentRequestKey::Event(event_id.clone()),

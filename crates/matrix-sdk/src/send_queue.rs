@@ -1077,7 +1077,9 @@ impl QueueStorage {
         let store = client.store();
 
         // Update all dependent requests.
-        store.update_dependent_queued_request(&self.room_id, transaction_id, parent_key).await?;
+        store
+            .mark_dependent_queued_requests_as_ready(&self.room_id, transaction_id, parent_key)
+            .await?;
 
         let removed = store.remove_send_queue_request(&self.room_id, transaction_id).await?;
 
