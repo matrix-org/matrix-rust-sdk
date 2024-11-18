@@ -39,6 +39,7 @@
 
 use std::{
     error::Error,
+    ops::Deref,
     sync::{
         atomic::{self, AtomicU32},
         Arc,
@@ -51,7 +52,7 @@ use tracing::{debug, error, info, instrument, trace};
 
 use crate::{
     executor::{spawn, JoinHandle},
-    SendOutsideWasm,
+    SendOutsideWasm, SyncOutsideWasm,
 };
 
 /// A lock generation is an integer incremented each time it is taken by another
@@ -74,6 +75,24 @@ pub trait BackingStore {
         key: &str,
         holder: &str,
     ) -> Result<bool, Self::LockError>;
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl<T> BackingStore for Arc<T>
+where
+    T: BackingStore + SendOutsideWasm + SyncOutsideWasm,
+{
+    type LockError = T::LockError;
+
+    async fn try_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool, Self::LockError> {
+        self.deref().try_lock(lease_duration_ms, key, holder).await
+    }
 }
 
 /// Small state machine to handle wait times.
