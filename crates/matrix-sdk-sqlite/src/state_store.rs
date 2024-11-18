@@ -1924,6 +1924,39 @@ impl StateStore for SqliteStateStore {
             .await
     }
 
+    async fn update_dependent_queued_request(
+        &self,
+        room_id: &RoomId,
+        own_transaction_id: &ChildTransactionId,
+        new_content: DependentQueuedRequestKind,
+    ) -> Result<bool> {
+        let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
+        let content = self.serialize_json(&new_content)?;
+
+        // See comment in `save_send_queue_event`.
+        let own_txn_id = own_transaction_id.to_string();
+
+        let num_updated = self
+            .acquire()
+            .await?
+            .with_transaction(move |txn| {
+                txn.prepare_cached(
+                    r#"UPDATE dependent_send_queue_events
+                       SET content = ?
+                       WHERE own_transaction_id = ?
+                       AND room_id = ?"#,
+                )?
+                .execute((content, own_txn_id, room_id))
+            })
+            .await?;
+
+        if num_updated > 1 {
+            return Err(Error::InconsistentUpdate);
+        }
+
+        Ok(num_updated == 1)
+    }
+
     async fn mark_dependent_queued_requests_as_ready(
         &self,
         room_id: &RoomId,

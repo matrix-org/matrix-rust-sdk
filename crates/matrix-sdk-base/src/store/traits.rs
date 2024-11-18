@@ -439,6 +439,16 @@ pub trait StateStore: AsyncTraitDeps {
         sent_parent_key: SentRequestKey,
     ) -> Result<usize, Self::Error>;
 
+    /// Update a dependent send queue request with the new content.
+    ///
+    /// Returns true if the request was found and could be updated.
+    async fn update_dependent_queued_request(
+        &self,
+        room_id: &RoomId,
+        own_transaction_id: &ChildTransactionId,
+        new_content: DependentQueuedRequestKind,
+    ) -> Result<bool, Self::Error>;
+
     /// Remove a specific dependent send queue request by id.
     ///
     /// Returns true if the dependent send queue request has been indeed
@@ -734,6 +744,18 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         room_id: &RoomId,
     ) -> Result<Vec<DependentQueuedRequest>, Self::Error> {
         self.0.load_dependent_queued_requests(room_id).await.map_err(Into::into)
+    }
+
+    async fn update_dependent_queued_request(
+        &self,
+        room_id: &RoomId,
+        own_transaction_id: &ChildTransactionId,
+        new_content: DependentQueuedRequestKind,
+    ) -> Result<bool, Self::Error> {
+        self.0
+            .update_dependent_queued_request(room_id, own_transaction_id, new_content)
+            .await
+            .map_err(Into::into)
     }
 }
 

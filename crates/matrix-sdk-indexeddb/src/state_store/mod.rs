@@ -1594,6 +1594,48 @@ impl_state_store!({
         Ok(())
     }
 
+    async fn update_dependent_queued_request(
+        &self,
+        room_id: &RoomId,
+        own_transaction_id: &ChildTransactionId,
+        new_content: DependentQueuedRequestKind,
+    ) -> Result<bool> {
+        let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
+
+        let tx = self.inner.transaction_on_one_with_mode(
+            keys::DEPENDENT_SEND_QUEUE,
+            IdbTransactionMode::Readwrite,
+        )?;
+
+        let obj = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
+
+        // We store an encoded vector of the dependent requests.
+        // Reload the previous vector for this room, or create an empty one.
+        let prev = obj.get(&encoded_key)?.await?;
+
+        let mut prev = prev.map_or_else(
+            || Ok(Vec::new()),
+            |val| self.deserialize_value::<Vec<DependentQueuedRequest>>(&val),
+        )?;
+
+        // Modify the dependent request, if found.
+        let mut found = false;
+        for entry in prev.iter_mut() {
+            if entry.own_transaction_id == *own_transaction_id {
+                found = true;
+                entry.kind = new_content;
+                break;
+            }
+        }
+
+        if found {
+            obj.put_key_val(&encoded_key, &self.serialize_value(&prev)?)?;
+            tx.await.into_result()?;
+        }
+
+        Ok(found)
+    }
+
     async fn mark_dependent_queued_requests_as_ready(
         &self,
         room_id: &RoomId,
