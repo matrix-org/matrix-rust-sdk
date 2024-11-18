@@ -706,7 +706,7 @@ impl RoomSendQueue {
                     let data = room
                         .client()
                         .event_cache_store()
-                        .lock()
+                        .lock_unchecked()
                         .await?
                         .get_media_content(&cache_key)
                         .await?

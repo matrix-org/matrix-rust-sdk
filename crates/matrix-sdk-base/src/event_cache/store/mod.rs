@@ -80,7 +80,10 @@ impl EventCacheStoreLock {
     }
 
     /// Acquire a spin lock (see [`CrossProcessStoreLock::spin_lock`]).
-    pub async fn lock(&self) -> Result<EventCacheStoreLockGuard<'_>, LockStoreError> {
+    ///
+    /// It doesn't check whether the lock has been poisoned or not.
+    /// A lock has been poisoned if it's been acquired from another holder.
+    pub async fn lock_unchecked(&self) -> Result<EventCacheStoreLockGuard<'_>, LockStoreError> {
         let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await?;
 
         Ok(EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.deref() })
