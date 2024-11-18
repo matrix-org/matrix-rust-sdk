@@ -19,7 +19,13 @@
 //! into the event cache for the actual storage. By default this brings an
 //! in-memory store.
 
-use std::{fmt, ops::Deref, result::Result as StdResult, str::Utf8Error, sync::Arc};
+use std::{
+    fmt,
+    ops::{Deref, DerefMut},
+    result::Result as StdResult,
+    str::Utf8Error,
+    sync::{Arc, Mutex},
+};
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
@@ -28,7 +34,8 @@ mod memory_store;
 mod traits;
 
 use matrix_sdk_common::store_locks::{
-    BackingStore, CrossProcessStoreLock, CrossProcessStoreLockGuard, LockStoreError,
+    BackingStore, CrossProcessStoreLock, CrossProcessStoreLockGuard, LockGeneration,
+    LockStoreError, FIRST_LOCK_GENERATION,
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 
@@ -71,7 +78,7 @@ impl EventCacheStoreLock {
 
         Self {
             cross_process_lock: CrossProcessStoreLock::new(
-                LockableEventCacheStore(store.clone()),
+                LockableEventCacheStore::new(store.clone()),
                 "default".to_owned(),
                 holder,
             ),
@@ -168,7 +175,23 @@ pub type Result<T, E = EventCacheStoreError> = StdResult<T, E>;
 /// A type that wraps the [`EventCacheStore`] but implements [`BackingStore`] to
 /// make it usable inside the cross process lock.
 #[derive(Clone, Debug)]
-struct LockableEventCacheStore(Arc<DynEventCacheStore>);
+struct LockableEventCacheStore {
+    store: Arc<DynEventCacheStore>,
+    generation_and_is_poisoned: Arc<Mutex<(LockGeneration, bool)>>,
+}
+
+impl LockableEventCacheStore {
+    fn new(store: Arc<DynEventCacheStore>) -> Self {
+        Self {
+            store,
+            generation_and_is_poisoned: Arc::new(Mutex::new((FIRST_LOCK_GENERATION, false))),
+        }
+    }
+
+    fn is_poisoned(&self) -> bool {
+        self.generation_and_is_poisoned.lock().unwrap().1
+    }
+}
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -181,6 +204,32 @@ impl BackingStore for LockableEventCacheStore {
         key: &str,
         holder: &str,
     ) -> StdResult<bool, Self::LockError> {
-        Ok(self.0.try_take_leased_lock(lease_duration_ms, key, holder).await?.is_some())
+        let lock_generation =
+            self.store.try_take_leased_lock(lease_duration_ms, key, holder).await?;
+
+        Ok(match lock_generation {
+            // Lock hasn't been acquired.
+            None => false,
+
+            // Lock has been acquired, and we have a generation.
+            Some(generation) => {
+                let mut guard = self.generation_and_is_poisoned.lock().unwrap();
+                let (last_generation, is_poisoned) = guard.deref_mut();
+
+                // The lock is considered poisoned if it's been acquired
+                // from another holder. If the lock is acquired from another
+                // holder, its generation is incremented by one. So, if
+                // `lock_generation` is different of `last_generation`, it
+                // means it's been acquired from another holder, and it is
+                // consequently poisoned; otherwise it is not poisoned.
+                //
+                // The initial value for `last_generation` **must be**
+                // `FIRST_LOCK_GENERATION`.
+                *is_poisoned = generation != *last_generation;
+                *last_generation = generation;
+
+                true
+            }
+        })
     }
 }
