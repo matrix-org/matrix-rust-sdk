@@ -309,3 +309,104 @@ impl BackingStore for LockableEventCacheStore {
         })
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))] // because time is a thing
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use matrix_sdk_common::store_locks::MAX_BACKOFF_MS;
+    use matrix_sdk_test::async_test;
+    use ruma::user_id;
+    use tokio::time::sleep;
+
+    use super::MemoryStore;
+    use crate::{store::StoreConfig, test_utils::logged_in_base_client_with_store_config};
+
+    #[async_test]
+    async fn test_not_poisoned_lock() {
+        let client = logged_in_base_client_with_store_config(
+            Some(user_id!("@client:sdk.rust")),
+            StoreConfig::new("holderA".to_owned()),
+        )
+        .await;
+
+        let event_cache_store_lock = client.event_cache_store();
+
+        // `lock_unchecked` is okay.
+        let guard = event_cache_store_lock.lock_unchecked().await;
+        assert!(guard.is_ok()); // lock has been acquired and may or may not be poisoned
+
+        // `lock` is okay.
+        let guard = event_cache_store_lock.lock().await;
+
+        assert!(guard.is_ok()); // lock has been acquired
+        assert!(guard.unwrap().is_ok()); // lock is not poisoned
+    }
+
+    #[async_test]
+    async fn test_poisoned_lock() {
+        // Use the same memory store between clients A and B.
+        let memory_store = Arc::new(MemoryStore::new());
+
+        let client_a = logged_in_base_client_with_store_config(
+            Some(user_id!("@client_a:sdk.rust")),
+            StoreConfig::new("holderA".to_owned()).event_cache_store(memory_store.clone()),
+        )
+        .await;
+
+        let client_b = logged_in_base_client_with_store_config(
+            Some(user_id!("@client_b:sdk.rust")),
+            StoreConfig::new("holderB".to_owned()).event_cache_store(memory_store),
+        )
+        .await;
+
+        let event_cache_store_lock_a = client_a.event_cache_store();
+        let event_cache_store_lock_b = client_b.event_cache_store();
+
+        // Client A can take the lock because no one has taken it so far.
+        {
+            // `lock` is okay.
+            let guard = event_cache_store_lock_a.lock().await;
+
+            assert!(guard.is_ok()); // lock has been acquired
+            assert!(guard.unwrap().is_ok()); // lock is not poisoned
+        }
+
+        sleep(Duration::from_millis(MAX_BACKOFF_MS as u64 + 100)).await;
+
+        // Client B can take the lock since all locks from A are expired, but
+        // now, B is poisoned because the content of the event cache might have
+        // been modified (if someone takes a lock, it's probably for a good
+        // reason, right?).
+        {
+            // `lock` is okay.
+            let guard = event_cache_store_lock_b.lock().await;
+
+            assert!(guard.is_ok()); // lock has been acquired
+            assert!(guard.unwrap().is_err()); // lock is poisoned!
+        }
+
+        sleep(Duration::from_millis(MAX_BACKOFF_MS as u64 + 100)).await;
+
+        // Client A can take the lock since all locks from B are expired, but
+        // now, A is poisoned. Let's not test `lock` but `lock_unchecked` this
+        // time.
+        {
+            // `lock_unchecked` is okay.
+            let guard = event_cache_store_lock_a.lock_unchecked().await;
+
+            assert!(guard.is_ok()); // lock has been acquired and might be
+                                    // poisoned, we don't know with this method
+        }
+
+        // Client A can still take the lock because it is holding it. The lock
+        // is no more poisoned.
+        {
+            // `lock` is okay.
+            let guard = event_cache_store_lock_a.lock().await;
+
+            assert!(guard.is_ok()); // lock has been acquired
+            assert!(guard.unwrap().is_ok()); // lock is not poisoned
+        }
+    }
+}
