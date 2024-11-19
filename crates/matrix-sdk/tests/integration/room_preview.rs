@@ -1,9 +1,15 @@
+#[cfg(feature = "experimental-sliding-sync")]
+use js_int::uint;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
+#[cfg(feature = "experimental-sliding-sync")]
+use matrix_sdk_base::sliding_sync;
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
     async_test, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, SyncResponseBuilder,
 };
-use ruma::{room_id, space::SpaceRoomJoinRule, RoomId};
+#[cfg(feature = "experimental-sliding-sync")]
+use ruma::{api::client::sync::sync_events::v5::response::Hero, assign};
+use ruma::{owned_user_id, room_id, space::SpaceRoomJoinRule, RoomId};
 use serde_json::json;
 use wiremock::{
     matchers::{header, method, path_regex},
@@ -91,6 +97,34 @@ async fn test_room_preview_leave_unknown_room_fails() {
     assert!(room_preview.state.is_none());
 
     assert!(client.get_room(room_id).is_none());
+}
+
+#[cfg(feature = "experimental-sliding-sync")]
+#[async_test]
+async fn test_room_preview_computes_name_if_room_is_known() {
+    let (client, _) = logged_in_client_with_server().await;
+    let room_id = room_id!("!room:localhost");
+
+    // Given a room with no name but a hero
+    let room = assign!(sliding_sync::http::response::Room::new(), {
+        name: None,
+        heroes: Some(vec![assign!(Hero::new(owned_user_id!("@alice:matrix.org")), {
+            name: Some("Alice".to_owned()),
+            avatar: None,
+        })]),
+        joined_count: Some(uint!(1)),
+        invited_count: Some(uint!(1)),
+    });
+    let mut response = sliding_sync::http::Response::new("0".to_owned());
+    response.rooms.insert(room_id.to_owned(), room);
+
+    client.process_sliding_sync_test_helper(&response).await.expect("Failed to process sync");
+
+    // When we get its preview
+    let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
+
+    // Its name is computed from its heroes
+    assert_eq!(room_preview.name.unwrap(), "Alice");
 }
 
 async fn mock_leave(room_id: &RoomId, server: &MockServer) {
