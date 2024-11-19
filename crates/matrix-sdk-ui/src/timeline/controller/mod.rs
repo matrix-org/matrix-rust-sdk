@@ -505,7 +505,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         let Some(prev_status) = prev_status else {
             match &item.kind {
                 EventTimelineItemKind::Local(local) => {
-                    if let Some(send_handle) = local.send_handle.clone() {
+                    if let Some(send_handle) = &local.send_handle {
                         if send_handle
                             .react(key.to_owned())
                             .await

@@ -1270,7 +1270,17 @@ impl QueueStorage {
 
         // If the target event has been already sent, abort immediately.
         if !requests.iter().any(|item| item.transaction_id == transaction_id) {
-            return Ok(None);
+            // We didn't find it as a queued request; try to find it as a dependent queued
+            // request.
+            let dependent_requests = store.load_dependent_queued_requests(&self.room_id).await?;
+            if !dependent_requests
+                .into_iter()
+                .filter_map(|item| item.is_own_event().then_some(item.own_transaction_id))
+                .any(|child_txn| *child_txn == *transaction_id)
+            {
+                // We didn't find it as either a request or a dependent request, abort.
+                return Ok(None);
+            }
         }
 
         // Record the dependent request.
