@@ -16,12 +16,9 @@ use std::sync::Arc;
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use matrix_sdk::{
-    assert_next_matches_with_timeout, send_queue::RoomSendQueueUpdate,
-    test_utils::events::EventFactory,
-};
+use matrix_sdk::{assert_next_matches_with_timeout, send_queue::RoomSendQueueUpdate};
 use matrix_sdk_base::store::QueueWedgeError;
-use matrix_sdk_test::{async_test, ALICE, BOB};
+use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, BOB};
 use ruma::{
     event_id,
     events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},

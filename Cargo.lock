@@ -3005,7 +3005,7 @@ dependencies = [
  "gloo-timers",
  "imbl",
  "js-sys",
- "matrix-sdk-test",
+ "matrix-sdk-test-macros",
  "proptest",
  "ruma",
  "serde",
@@ -3275,9 +3275,11 @@ dependencies = [
 name = "matrix-sdk-test"
 version = "0.7.0"
 dependencies = [
+ "as_variant",
  "ctor",
  "getrandom",
  "http",
+ "matrix-sdk-common",
  "matrix-sdk-test-macros",
  "once_cell",
  "ruma",

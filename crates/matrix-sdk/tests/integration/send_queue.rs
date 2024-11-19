@@ -10,13 +10,13 @@ use matrix_sdk::{
         LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueError, RoomSendQueueStorageError,
         RoomSendQueueUpdate, SendHandle,
     },
-    test_utils::{
-        events::EventFactory,
-        mocks::{MatrixMock, MatrixMockServer},
-    },
+    test_utils::mocks::{MatrixMock, MatrixMockServer},
     Client, MemoryStore,
 };
-use matrix_sdk_test::{async_test, InvitedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder};
+use matrix_sdk_test::{
+    async_test, event_factory::EventFactory, InvitedRoomBuilder, KnockedRoomBuilder,
+    LeftRoomBuilder,
+};
 use ruma::{
     event_id,
     events::{

@@ -6,10 +6,11 @@ use matrix_sdk::{
         paginator::PaginatorState, BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate,
         TimelineHasBeenResetWhilePaginating,
     },
-    test_utils::{assert_event_matches_msg, events::EventFactory, logged_in_client_with_server},
+    test_utils::{assert_event_matches_msg, logged_in_client_with_server},
 };
 use matrix_sdk_test::{
-    async_test, GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder,
+    async_test, event_factory::EventFactory, GlobalAccountDataTestEvent, JoinedRoomBuilder,
+    SyncResponseBuilder,
 };
 use ruma::{event_id, events::AnyTimelineEvent, room_id, serde::Raw, user_id};
 use serde_json::json;

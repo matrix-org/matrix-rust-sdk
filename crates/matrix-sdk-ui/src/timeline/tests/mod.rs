@@ -31,11 +31,12 @@ use matrix_sdk::{
     event_cache::paginator::{PaginableRoom, PaginatorError},
     room::{EventWithContextResponse, Messages, MessagesOptions},
     send_queue::RoomSendQueueUpdate,
-    test_utils::events::EventFactory,
     BoxFuture,
 };
 use matrix_sdk_base::{latest_event::LatestEvent, RoomInfo, RoomState};
-use matrix_sdk_test::{EventBuilder, ALICE, BOB, DEFAULT_TEST_ROOM_ID};
+use matrix_sdk_test::{
+    event_factory::EventFactory, EventBuilder, ALICE, BOB, DEFAULT_TEST_ROOM_ID,
+};
 use ruma::{
     event_id,
     events::{

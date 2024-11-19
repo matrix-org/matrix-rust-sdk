@@ -19,11 +19,9 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    assert_let_timeout,
-    attachment::AttachmentConfig,
-    test_utils::{events::EventFactory, mocks::MatrixMockServer},
+    assert_let_timeout, attachment::AttachmentConfig, test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{async_test, JoinedRoomBuilder, ALICE};
+use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt, TimelineItemContent};
 use ruma::{
     event_id,

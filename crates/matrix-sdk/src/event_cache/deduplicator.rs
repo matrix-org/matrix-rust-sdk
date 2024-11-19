@@ -142,10 +142,10 @@ pub enum Decoration<I> {
 mod tests {
     use assert_matches2::{assert_let, assert_matches};
     use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+    use matrix_sdk_test::event_factory::EventFactory;
     use ruma::{owned_event_id, user_id, EventId};
 
     use super::*;
-    use crate::test_utils::events::EventFactory;
 
     fn sync_timeline_event(event_id: &EventId) -> SyncTimelineEvent {
         EventFactory::new()
