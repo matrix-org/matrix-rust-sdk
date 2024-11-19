@@ -26,7 +26,6 @@ All notable changes to this project will be documented in this file.
 
 - Add `create_room_alias` function.
 
-
 - `Client::cross_process_store_locks_holder_name` is used everywhere:
  - `StoreConfig::new()` now takes a
    `cross_process_store_locks_holder_name` argument.
@@ -48,9 +47,9 @@ All notable changes to this project will be documented in this file.
 
 - Implement `EventHandlerContext` for tuples.
 
-- This patch introduces a mechanism similar to `Client::add_event_handler` and
-  `Client::add_room_event_handler` but with a reactive programming pattern. This
-  patch adds `Client::observe_events` and `Client::observe_room_events`.
+- Introduce a mechanism similar to `Client::add_event_handler` and
+  `Client::add_room_event_handler` but with a reactive programming pattern. Add
+  `Client::observe_events` and `Client::observe_room_events`.
 
  ```rust
  // Get an observer.
