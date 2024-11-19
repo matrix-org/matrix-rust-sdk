@@ -44,10 +44,16 @@ wasm-bindgen = "0.2.84"
 [dev-dependencies]
 assert_matches = { workspace = true }
 proptest = { version = "1.4.0", default-features = false, features = ["std"] }
-matrix-sdk-test = { workspace = true }
+matrix-sdk-test-macros = { path = "../../testing/matrix-sdk-test-macros" }
 wasm-bindgen-test = "0.3.33"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Enable the test macro.
+tokio = { workspace = true, features = ["rt", "macros"] }
+
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+# Enable the JS feature for getrandom.
+getrandom = { version = "0.2.6", default-features = false, features = ["js"] }
 js-sys = "0.3.64"
 
 [lints]
