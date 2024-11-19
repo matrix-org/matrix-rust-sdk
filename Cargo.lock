@@ -3001,6 +3001,7 @@ dependencies = [
  "eyeball-im",
  "futures-core",
  "futures-util",
+ "getrandom",
  "gloo-timers",
  "imbl",
  "js-sys",
