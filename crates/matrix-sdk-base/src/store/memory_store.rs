@@ -796,6 +796,8 @@ impl StateStore for MemoryStore {
         self.stripped_members.write().unwrap().remove(room_id);
         self.room_user_receipts.write().unwrap().remove(room_id);
         self.room_event_receipts.write().unwrap().remove(room_id);
+        self.send_queue_events.write().unwrap().remove(room_id);
+        self.dependent_send_queue_events.write().unwrap().remove(room_id);
 
         Ok(())
     }

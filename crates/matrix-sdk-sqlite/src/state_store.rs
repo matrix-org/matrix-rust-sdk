@@ -509,6 +509,7 @@ trait SqliteConnectionStateStoreExt {
     fn remove_display_name(&self, room_id: &[u8], name: &[u8]) -> rusqlite::Result<()>;
     fn remove_room_display_names(&self, room_id: &[u8]) -> rusqlite::Result<()>;
     fn remove_room_send_queue(&self, room_id: &[u8]) -> rusqlite::Result<()>;
+    fn remove_room_dependent_send_queue(&self, room_id: &[u8]) -> rusqlite::Result<()>;
 }
 
 impl SqliteConnectionStateStoreExt for rusqlite::Connection {
@@ -718,6 +719,12 @@ impl SqliteConnectionStateStoreExt for rusqlite::Connection {
 
     fn remove_room_send_queue(&self, room_id: &[u8]) -> rusqlite::Result<()> {
         self.prepare("DELETE FROM send_queue_events WHERE room_id = ?")?.execute((room_id,))?;
+        Ok(())
+    }
+
+    fn remove_room_dependent_send_queue(&self, room_id: &[u8]) -> rusqlite::Result<()> {
+        self.prepare("DELETE FROM dependent_send_queue_events WHERE room_id = ?")?
+            .execute((room_id,))?;
         Ok(())
     }
 }
@@ -1725,6 +1732,10 @@ impl StateStore for SqliteStateStore {
 
                 let send_queue_room_id = this.encode_key(keys::SEND_QUEUE, &room_id);
                 txn.remove_room_send_queue(&send_queue_room_id)?;
+
+                let dependent_send_queue_room_id =
+                    this.encode_key(keys::DEPENDENTS_SEND_QUEUE, &room_id);
+                txn.remove_room_dependent_send_queue(&dependent_send_queue_room_id)?;
 
                 Ok(())
             })
