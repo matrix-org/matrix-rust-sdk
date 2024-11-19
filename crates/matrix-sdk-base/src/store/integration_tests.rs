@@ -972,6 +972,24 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         self.populate().await?;
 
+        {
+            // Add a send queue request in that room.
+            let txn = TransactionId::new();
+            let ev =
+                SerializableEventContent::new(&RoomMessageEventContent::text_plain("sup").into())
+                    .unwrap();
+            self.save_send_queue_request(room_id, txn.clone(), ev.into(), 0).await?;
+
+            // Add a single dependent queue request.
+            self.save_dependent_queued_request(
+                room_id,
+                &txn,
+                ChildTransactionId::new(),
+                DependentQueuedRequestKind::RedactEvent,
+            )
+            .await?;
+        }
+
         self.remove_room(room_id).await?;
 
         assert_eq!(self.get_room_infos().await?.len(), 1, "room is still there");
@@ -1023,6 +1041,8 @@ impl StateStoreIntegrationTests for DynStateStore {
             .is_empty(),
             "still event recepts in the store"
         );
+        assert!(self.load_send_queue_requests(room_id).await?.is_empty());
+        assert!(self.load_dependent_queued_requests(room_id).await?.is_empty());
 
         self.remove_room(stripped_room_id).await?;
 
