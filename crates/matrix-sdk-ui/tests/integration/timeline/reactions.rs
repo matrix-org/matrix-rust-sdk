@@ -17,12 +17,10 @@ use std::{sync::Mutex, time::Duration};
 use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt as _, StreamExt as _};
-use matrix_sdk::{
-    assert_next_matches_with_timeout,
-    test_utils::{events::EventFactory, logged_in_client_with_server},
-};
+use matrix_sdk::{assert_next_matches_with_timeout, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
     async_test,
+    event_factory::EventFactory,
     mocks::{mock_encryption_state, mock_redaction},
     JoinedRoomBuilder, SyncResponseBuilder, ALICE,
 };

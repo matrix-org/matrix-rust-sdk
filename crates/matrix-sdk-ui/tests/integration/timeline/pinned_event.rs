@@ -3,14 +3,14 @@ use std::time::Duration;
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
-    assert_next_matches_with_timeout,
-    config::SyncSettings,
-    sync::SyncResponse,
-    test_utils::{events::EventFactory, logged_in_client_with_server},
-    Client,
+    assert_next_matches_with_timeout, config::SyncSettings, sync::SyncResponse,
+    test_utils::logged_in_client_with_server, Client,
 };
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
-use matrix_sdk_test::{async_test, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, BOB};
+use matrix_sdk_test::{
+    async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent,
+    SyncResponseBuilder, BOB,
+};
 use matrix_sdk_ui::{
     timeline::{RoomExt, TimelineFocus, TimelineItemContent},
     Timeline,

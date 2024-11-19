@@ -2,14 +2,11 @@ use std::{iter, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use js_int::uint;
-use matrix_sdk::{
-    config::SyncSettings, room::RoomMember, test_utils::events::EventFactory, RoomDisplayName,
-    RoomMemberships,
-};
+use matrix_sdk::{config::SyncSettings, room::RoomMember, RoomDisplayName, RoomMemberships};
 use matrix_sdk_test::{
-    async_test, bulk_room_members, sync_state_event, sync_timeline_event, test_json,
-    GlobalAccountDataTestEvent, JoinedRoomBuilder, LeftRoomBuilder, StateTestEvent,
-    SyncResponseBuilder, BOB, DEFAULT_TEST_ROOM_ID,
+    async_test, bulk_room_members, event_factory::EventFactory, sync_state_event,
+    sync_timeline_event, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, LeftRoomBuilder,
+    StateTestEvent, SyncResponseBuilder, BOB, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     event_id,

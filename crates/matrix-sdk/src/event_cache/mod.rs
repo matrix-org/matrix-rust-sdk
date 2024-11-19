@@ -502,12 +502,12 @@ mod tests {
     use assert_matches::assert_matches;
     use futures_util::FutureExt as _;
     use matrix_sdk_base::sync::{JoinedRoomUpdate, RoomUpdates, Timeline};
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{event_id, room_id, serde::Raw, user_id};
     use serde_json::json;
 
     use super::{EventCacheError, RoomEventCacheUpdate};
-    use crate::test_utils::{assert_event_matches_msg, events::EventFactory, logged_in_client};
+    use crate::test_utils::{assert_event_matches_msg, logged_in_client};
 
     #[async_test]
     async fn test_must_explicitly_subscribe() {

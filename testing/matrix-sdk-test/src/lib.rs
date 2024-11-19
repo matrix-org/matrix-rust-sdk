@@ -114,6 +114,7 @@ mod event_builder;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod mocks;
 
+pub mod event_factory;
 pub mod notification_settings;
 mod sync_builder;
 pub mod test_json;

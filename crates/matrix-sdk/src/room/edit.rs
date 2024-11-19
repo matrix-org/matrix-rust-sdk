@@ -353,7 +353,7 @@ mod tests {
 
     use assert_matches2::{assert_let, assert_matches};
     use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
         event_id,
         events::{
@@ -367,7 +367,7 @@ mod tests {
     use serde_json::json;
 
     use super::{make_edit_event, EditError, EventSource};
-    use crate::{room::edit::EditedContent, test_utils::events::EventFactory};
+    use crate::room::edit::EditedContent;
 
     #[derive(Default)]
     struct TestEventCache {

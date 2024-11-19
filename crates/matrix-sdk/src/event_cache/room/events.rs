@@ -316,10 +316,10 @@ impl RoomEvents {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
+    use matrix_sdk_test::event_factory::EventFactory;
     use ruma::{user_id, EventId, OwnedEventId};
 
     use super::*;
-    use crate::test_utils::events::EventFactory;
 
     macro_rules! assert_events_eq {
         ( $events_iterator:expr, [ $( ( $event_id:ident at ( $chunk_identifier:literal, $index:literal ) ) ),* $(,)? ] ) => {

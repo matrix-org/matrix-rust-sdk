@@ -4,14 +4,11 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{
-    config::SyncSettings,
-    test_utils::{events::EventFactory, logged_in_client_with_server},
-};
+use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_test::{
-    async_test, mocks::mock_encryption_state, EventBuilder, JoinedRoomBuilder, SyncResponseBuilder,
-    ALICE, BOB, CAROL,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, EventBuilder,
+    JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB, CAROL,
 };
 use matrix_sdk_ui::timeline::{
     Error as TimelineError, EventSendState, RoomExt, TimelineDetails, TimelineItemContent,

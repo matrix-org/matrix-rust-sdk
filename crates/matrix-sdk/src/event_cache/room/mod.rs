@@ -559,14 +559,14 @@ impl RoomEventCacheState {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
         event_id,
         events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
         room_id, user_id, RoomId,
     };
 
-    use crate::test_utils::{events::EventFactory, logged_in_client};
+    use crate::test_utils::logged_in_client;
 
     #[async_test]
     async fn test_event_with_redaction_relation() {
