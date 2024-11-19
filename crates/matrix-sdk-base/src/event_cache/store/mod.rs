@@ -182,6 +182,7 @@ impl<T> EventCacheStoreLockPoisonError<T> {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl<T> fmt::Debug for EventCacheStoreLockPoisonError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EventCacheStoreLockPoisonError").finish_non_exhaustive()
@@ -194,11 +195,7 @@ impl<T> fmt::Display for EventCacheStoreLockPoisonError<T> {
     }
 }
 
-impl<T> Error for EventCacheStoreLockPoisonError<T> {
-    fn description(&self) -> &str {
-        "Poisoned lock: lock has been acquired from another process"
-    }
-}
+impl<T> Error for EventCacheStoreLockPoisonError<T> {}
 
 /// Event cache store specific error type.
 #[derive(Debug, thiserror::Error)]
@@ -312,14 +309,15 @@ impl BackingStore for LockableEventCacheStore {
 
 #[cfg(all(test, not(target_arch = "wasm32")))] // because time is a thing
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{error::Error, fmt, sync::Arc, time::Duration};
 
+    use assert_matches::assert_matches;
     use matrix_sdk_common::store_locks::MAX_BACKOFF_MS;
     use matrix_sdk_test::async_test;
     use ruma::user_id;
     use tokio::time::sleep;
 
-    use super::MemoryStore;
+    use super::{EventCacheStoreError, EventCacheStoreLockPoisonError, MemoryStore};
     use crate::{store::StoreConfig, test_utils::logged_in_base_client_with_store_config};
 
     #[async_test]
@@ -408,5 +406,40 @@ mod tests {
             assert!(guard.is_ok()); // lock has been acquired
             assert!(guard.unwrap().is_ok()); // lock is not poisoned
         }
+    }
+
+    #[test]
+    fn test_poison_error() {
+        let error = EventCacheStoreLockPoisonError(42);
+
+        fn error_to_string<E>(error: E) -> String
+        where
+            E: Error,
+        {
+            error.to_string()
+        }
+
+        assert_eq!(
+            error_to_string(error),
+            "Poisoned lock: lock has been acquired from another process".to_owned(),
+        );
+    }
+
+    #[test]
+    fn test_backend_error() {
+        #[derive(Debug)]
+        struct Foo;
+
+        impl fmt::Display for Foo {
+            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.debug_struct("Foo").finish()
+            }
+        }
+
+        impl Error for Foo {}
+
+        let error = EventCacheStoreError::backend(Foo);
+
+        assert_matches!(error, EventCacheStoreError::Backend(_));
     }
 }
