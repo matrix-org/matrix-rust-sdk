@@ -2076,7 +2076,10 @@ impl Room {
             }
 
             mime::AUDIO => {
-                let mut content = AudioMessageEventContent::new(body, source);
+                let mut content = assign!(AudioMessageEventContent::new(body, source), {
+                    formatted: formatted_caption,
+                    filename
+                });
 
                 if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) =
                     &info
@@ -2117,7 +2120,9 @@ impl Room {
                     thumbnail_info
                 });
                 let content = assign!(FileMessageEventContent::new(body, source), {
-                    info: Some(Box::new(info))
+                    info: Some(Box::new(info)),
+                    formatted: formatted_caption,
+                    filename,
                 });
                 MessageType::File(content)
             }
