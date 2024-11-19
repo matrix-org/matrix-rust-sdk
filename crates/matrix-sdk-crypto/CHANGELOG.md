@@ -1,6 +1,70 @@
-# UNRELEASED
+# Changelog
 
-Changes:
+All notable changes to this project will be documented in this file.
+
+## [0.8.0] - 2024-11-19
+
+### Features
+
+- Pin identity when we withdraw verification.
+
+- Expose new method `OlmMachine::room_keys_withheld_received_stream`, to allow
+  applications to receive notifications about received `m.room_key.withheld`
+  events.
+  ([#3660](https://github.com/matrix-org/matrix-rust-sdk/pull/3660)),
+  ([#3674](https://github.com/matrix-org/matrix-rust-sdk/pull/3674))
+
+- Expose new method `OlmMachine::clear_crypto_cache()`, with FFI bindings.
+  ([#3462](https://github.com/matrix-org/matrix-rust-sdk/pull/3462))
+
+- Expose new method `OlmMachine::upload_device_keys()`.
+  ([#3457](https://github.com/matrix-org/matrix-rust-sdk/pull/3457))
+
+- Expose new method `CryptoStore::import_room_keys`.
+  ([#3448](https://github.com/matrix-org/matrix-rust-sdk/pull/3448))
+
+- Expose new method `BackupMachine::backup_version`.
+  ([#3320](https://github.com/matrix-org/matrix-rust-sdk/pull/3320))
+
+- Add data types to parse the QR code data for the QR code login defined in.
+  [MSC4108](https://github.com/matrix-org/matrix-spec-proposals/pull/4108)
+
+- Expose new method `CryptoStore::clear_caches`.
+  ([#3338](https://github.com/matrix-org/matrix-rust-sdk/pull/3338))
+
+- Expose new method `OlmMachine::device_creation_time`.
+  ([#3275](https://github.com/matrix-org/matrix-rust-sdk/pull/3275))
+
+- Log more details about the Olm session after encryption and decryption.
+  ([#3242](https://github.com/matrix-org/matrix-rust-sdk/pull/3242))
+
+- When Olm message decryption fails, report the error code(s) from the failure.
+  ([#3212](https://github.com/matrix-org/matrix-rust-sdk/pull/3212))
+
+- Expose new methods `OlmMachine::set_room_settings` and
+  `OlmMachine::get_room_settings`.
+  ([#3042](https://github.com/matrix-org/matrix-rust-sdk/pull/3042))
+
+- Add new properties `session_rotation_period` and
+  `session_rotation_period_msgs` to `store::RoomSettings`.
+  ([#3042](https://github.com/matrix-org/matrix-rust-sdk/pull/3042))
+
+- Fix bug which caused `SecretStorageKey` to incorrectly reject secret storage
+  keys whose metadata lacked check fields.
+  ([#3046](https://github.com/matrix-org/matrix-rust-sdk/pull/3046))
+
+- Add new API `Device::encrypt_event_raw` that allows
+  to encrypt an event to a specific device.
+  ([#3091](https://github.com/matrix-org/matrix-rust-sdk/pull/3091))
+
+- Add new API `store::Store::export_room_keys_stream` that provides room
+  keys on demand.
+
+- Include event timestamps on logs from event decryption.
+  ([#3194](https://github.com/matrix-org/matrix-rust-sdk/pull/3194))
+
+
+### Refactor
 
 - Add new method `OlmMachine::try_decrypt_room_event`.
   ([#4116](https://github.com/matrix-org/matrix-rust-sdk/pull/4116))
@@ -8,14 +72,14 @@ Changes:
 - Add reason code to `matrix_sdk_common::deserialized_responses::UnableToDecryptInfo`.
   ([#4116](https://github.com/matrix-org/matrix-rust-sdk/pull/4116))
 
-- The `UserIdentity` struct has been renamed to `OtherUserIdentity`
+- [**breaking**] The `UserIdentity` struct has been renamed to `OtherUserIdentity`.
   ([#4036](https://github.com/matrix-org/matrix-rust-sdk/pull/4036]))
 
-- The `UserIdentities` enum has been renamed to `UserIdentity`
+- [**breaking**] The `UserIdentities` enum has been renamed to `UserIdentity`.
   ([#4036](https://github.com/matrix-org/matrix-rust-sdk/pull/4036]))
 
-- Change the withheld code for keys not shared due to the `IdentityBasedStrategy`, from `m.unauthorised`
-  to `m.unverified`.
+- Change the withheld code for keys not shared due to the
+  `IdentityBasedStrategy`, from `m.unauthorised` to `m.unverified`.
   ([#3985](https://github.com/matrix-org/matrix-rust-sdk/pull/3985))
 
 - Improve logging for undecryptable Megolm events.
@@ -59,47 +123,47 @@ Changes:
 
 Breaking changes:
 
-- `VerificationRequestState::Transitioned` now includes a new field
+- [**breaking**] `VerificationRequestState::Transitioned` now includes a new field
   `other_device_data` of type `DeviceData`.
   ([#4153](https://github.com/matrix-org/matrix-rust-sdk/pull/4153))
 
-- `OlmMachine::decrypt_room_event` now returns a `DecryptedRoomEvent` type,
+- [**breaking**] `OlmMachine::decrypt_room_event` now returns a `DecryptedRoomEvent` type,
   instead of the more generic `TimelineEvent` type.
 
-- **NOTE**: this version causes changes to the format of the serialised data in
+- [**breaking**] **NOTE**: this version causes changes to the format of the serialised data in
   the CryptoStore, meaning that, once upgraded, it will not be possible to roll
   back applications to earlier versions without breaking user sessions.
 
-- Renamed `VerificationLevel::PreviouslyVerified` to
+- [**breaking**] Renamed `VerificationLevel::PreviouslyVerified` to
   `VerificationLevel::VerificationViolation`.
 
-- `OlmMachine::decrypt_room_event` now takes a `DecryptionSettings` argument,
-  which includes a `TrustRequirement` indicating the required trust level for
-  the sending device.  When it is called with `TrustRequirement` other than
-  `TrustRequirement::Unverified`, it may return the new
-  `MegolmError::SenderIdentityNotTrusted` variant if the sending device does not
-  satisfy the required trust level.
+- [**breaking**] `OlmMachine::decrypt_room_event` now takes a
+  `DecryptionSettings` argument, which includes a `TrustRequirement` indicating
+  the required trust level for the sending device.  When it is called with
+  `TrustRequirement` other than `TrustRequirement::Unverified`, it may return
+  the new `MegolmError::SenderIdentityNotTrusted` variant if the sending device
+  does not satisfy the required trust level.
   ([#3899](https://github.com/matrix-org/matrix-rust-sdk/pull/3899))
 
-- Change the structure of the `SenderData` enum to separate variants for
-  previously-verified, unverified and verified.
+- [**breaking**] Change the structure of the `SenderData` enum to separate
+  variants for previously-verified, unverified and verified.
   ([#3877](https://github.com/matrix-org/matrix-rust-sdk/pull/3877))
 
-- Where `EncryptionInfo` is returned it may include the new `PreviouslyVerified`
-  variant of `VerificationLevel` to indicate that the user was previously
-  verified and is no longer verified.
+- [**breaking**] Where `EncryptionInfo` is returned it may include the new
+  `PreviouslyVerified` variant of `VerificationLevel` to indicate that the user
+  was previously verified and is no longer verified.
   ([#3877](https://github.com/matrix-org/matrix-rust-sdk/pull/3877))
 
-- Expose new methods `OwnUserIdentity::was_previously_verified`,
+- [**breaking**] Expose new methods `OwnUserIdentity::was_previously_verified`,
   `OwnUserIdentity::withdraw_verification`, and
   `OwnUserIdentity::has_verification_violation`, which track whether our own
   identity was previously verified.
   ([#3846](https://github.com/matrix-org/matrix-rust-sdk/pull/3846))
 
-- Add a new `error_on_verified_user_problem` property to
+- [**breaking**] Add a new `error_on_verified_user_problem` property to
   `CollectStrategy::DeviceBasedStrategy`, which, when set, causes
   `OlmMachine::share_room_key` to fail with an error if any verified users on
-  the recipient list have unsigned devices, or are no lonver verified.
+  the recipient list have unsigned devices, or are no longer verified.
 
   When `CallectStrategy::IdentityBasedStrategy` is used,
   `OlmMachine::share_room_key` will fail with an error if any verified users on
@@ -109,102 +173,42 @@ Breaking changes:
   Also remove `CollectStrategy::new_device_based`: callers should construct a
   `CollectStrategy::DeviceBasedStrategy` directly.
 
-  `EncryptionSettings::new` now takes a `CollectStrategy` argument, instead of
-  a list of booleans.
+  `EncryptionSettings::new` now takes a `CollectStrategy` argument, instead of a
+  list of booleans.
   ([#3810](https://github.com/matrix-org/matrix-rust-sdk/pull/3810))
   ([#3816](https://github.com/matrix-org/matrix-rust-sdk/pull/3816))
   ([#3896](https://github.com/matrix-org/matrix-rust-sdk/pull/3896))
 
-- Remove the method `OlmMachine::clear_crypto_cache()`, crypto stores are not
-  supposed to have any caches anymore.
+- [**breaking**] Remove the method `OlmMachine::clear_crypto_cache()`, crypto
+  stores are not supposed to have any caches anymore.
 
-- Add a `custom_account` argument to the `OlmMachine::with_store()` method, this
-  allows users to learn their identity keys before they get access to the user
-  and device ID.
+- [**breaking**] Add a `custom_account` argument to the
+  `OlmMachine::with_store()` method, this allows users to learn their identity
+  keys before they get access to the user and device ID.
   ([#3451](https://github.com/matrix-org/matrix-rust-sdk/pull/3451))
 
-- Add a `backup_version` argument to `CryptoStore`'s
+- [**breaking**] Add a `backup_version` argument to `CryptoStore`'s
   `inbound_group_sessions_for_backup`,
-  `mark_inbound_group_sessions_as_backed_up` and
-  `inbound_group_session_counts` methods.
-  ([#3253](https://github.com/matrix-org/matrix-rust-sdk/pull/3253))
+  `mark_inbound_group_sessions_as_backed_up` and `inbound_group_session_counts`
+  methods. ([#3253](https://github.com/matrix-org/matrix-rust-sdk/pull/3253))
 
-- Rename the `OlmMachine::invalidate_group_session` method to
-  `OlmMachine::discard_room_key`
+- [**breaking**] Rename the `OlmMachine::invalidate_group_session` method to
+  `OlmMachine::discard_room_key`.
 
-- Move `OlmMachine::export_room_keys` to `matrix_sdk_crypto::store::Store`.
+- [**breaking**] Move `OlmMachine::export_room_keys` to `matrix_sdk_crypto::store::Store`.
   (Call it with `olm_machine.store().export_room_keys(...)`.)
 
-- Add new `dehydrated` property to `olm::account::PickledAccount`.
+- [**breaking**] Add new `dehydrated` property to `olm::account::PickledAccount`.
   ([#3164](https://github.com/matrix-org/matrix-rust-sdk/pull/3164))
 
-- Remove deprecated `OlmMachine::import_room_keys`.
+- [**breaking**] Remove deprecated `OlmMachine::import_room_keys`.
   ([#3448](https://github.com/matrix-org/matrix-rust-sdk/pull/3448))
 
-- Add the `SasState::Created` variant to differentiate the state between the
+- [**breaking**] Add the `SasState::Created` variant to differentiate the state between the
   party that sent the verification start and the party that received it.
 
-Deprecations:
-
-- Deprecate `BackupMachine::import_backed_up_room_keys`.
+- [**breaking**] Deprecate `BackupMachine::import_backed_up_room_keys`.
   ([#3448](https://github.com/matrix-org/matrix-rust-sdk/pull/3448))
-
-Additions:
-
-- Expose new method `OlmMachine::room_keys_withheld_received_stream`, to allow
-  applications to receive notifications about received `m.room_key.withheld`
-  events.
-  ([#3660](https://github.com/matrix-org/matrix-rust-sdk/pull/3660)),
-  ([#3674](https://github.com/matrix-org/matrix-rust-sdk/pull/3674))
-
-- Expose new method `OlmMachine::clear_crypto_cache()`, with FFI bindings
-  ([#3462](https://github.com/matrix-org/matrix-rust-sdk/pull/3462))
-
-- Expose new method `OlmMachine::upload_device_keys()`.
-  ([#3457](https://github.com/matrix-org/matrix-rust-sdk/pull/3457))
-
-- Expose new method `CryptoStore::import_room_keys`.
-  ([#3448](https://github.com/matrix-org/matrix-rust-sdk/pull/3448))
-
-- Expose new method `BackupMachine::backup_version`.
-  ([#3320](https://github.com/matrix-org/matrix-rust-sdk/pull/3320))
-
-- Add data types to parse the QR code data for the QR code login defined in
-  [MSC4108](https://github.com/matrix-org/matrix-spec-proposals/pull/4108)
-
-- Expose new method `CryptoStore::clear_caches`.
-  ([#3338](https://github.com/matrix-org/matrix-rust-sdk/pull/3338))
-
-- Expose new method `OlmMachine::device_creation_time`.
-  ([#3275](https://github.com/matrix-org/matrix-rust-sdk/pull/3275))
-
-- Log more details about the Olm session after encryption and decryption.
-  ([#3242](https://github.com/matrix-org/matrix-rust-sdk/pull/3242))
-
-- When Olm message decryption fails, report the error code(s) from the failure.
-  ([#3212](https://github.com/matrix-org/matrix-rust-sdk/pull/3212))
-
-- Expose new methods `OlmMachine::set_room_settings` and
-  `OlmMachine::get_room_settings`.
-  ([#3042](https://github.com/matrix-org/matrix-rust-sdk/pull/3042))
-
-- Add new properties `session_rotation_period` and
-  `session_rotation_period_msgs` to `store::RoomSettings`.
-  ([#3042](https://github.com/matrix-org/matrix-rust-sdk/pull/3042))
-
-- Fix bug which caused `SecretStorageKey` to incorrectly reject secret storage
-  keys whose metadata lacked check fields.
-  ([#3046](https://github.com/matrix-org/matrix-rust-sdk/pull/3046))
-
-- Add new API `Device::encrypt_event_raw` that allows
-  to encrypt an event to a specific device.
-  ([#3091](https://github.com/matrix-org/matrix-rust-sdk/pull/3091))
-
-- Add new API `store::Store::export_room_keys_stream` that provides room
-  keys on demand.
-
-- Include event timestamps on logs from event decryption.
-  ([#3194](https://github.com/matrix-org/matrix-rust-sdk/pull/3194))
 
 
 # 0.7.2
