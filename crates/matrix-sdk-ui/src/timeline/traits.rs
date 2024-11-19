@@ -18,7 +18,7 @@ use eyeball::Subscriber;
 use futures_util::FutureExt as _;
 use indexmap::IndexMap;
 #[cfg(test)]
-use matrix_sdk::crypto::{DecryptionSettings, TrustRequirement};
+use matrix_sdk::crypto::{DecryptionSettings, RoomEventDecryptionResult, TrustRequirement};
 use matrix_sdk::{
     deserialized_responses::TimelineEvent, event_cache::paginator::PaginableRoom, BoxFuture,
     Result, Room,
@@ -302,8 +302,14 @@ impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
         let (olm_machine, room_id) = self;
         let decryption_settings =
             DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
-        let event =
-            olm_machine.decrypt_room_event(raw.cast_ref(), room_id, &decryption_settings).await?;
-        Ok(event.into())
+        match olm_machine
+            .try_decrypt_room_event(raw.cast_ref(), room_id, &decryption_settings)
+            .await?
+        {
+            RoomEventDecryptionResult::Decrypted(decrypted) => Ok(decrypted.into()),
+            RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
+                Ok(TimelineEvent::new_utd_event(raw.clone(), utd_info))
+            }
+        }
     }
 }
