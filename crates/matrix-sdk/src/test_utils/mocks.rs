@@ -22,15 +22,12 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, store::StoreConfig, SessionMeta};
+use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
     test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
     SyncResponseBuilder,
 };
-use ruma::{
-    api::MatrixVersion, device_id, directory::PublicRoomsChunk, user_id, MxcUri, OwnedEventId,
-    OwnedRoomId, RoomId, ServerName,
-};
+use ruma::{directory::PublicRoomsChunk, MxcUri, OwnedEventId, OwnedRoomId, RoomId, ServerName};
 use serde::Deserialize;
 use serde_json::json;
 use wiremock::{
@@ -38,11 +35,8 @@ use wiremock::{
     Mock, MockBuilder, MockGuard, MockServer, Request, Respond, ResponseTemplate, Times,
 };
 
-use crate::{
-    config::RequestConfig,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
-    Client, ClientBuilder, OwnedServerName, Room,
-};
+use super::client::MockClientBuilder;
+use crate::{Client, OwnedServerName, Room};
 
 /// A [`wiremock`] [`MockServer`] along with useful methods to help mocking
 /// Matrix client-server API endpoints easily.
@@ -1133,60 +1127,5 @@ impl<'a> MockEndpoint<'a, PublicRoomsEndpoint> {
             }))
         });
         MatrixMock { server: self.server, mock }
-    }
-}
-
-/// An augmented [`ClientBuilder`] that also allows for handling session login.
-pub struct MockClientBuilder {
-    builder: ClientBuilder,
-    logged_in: bool,
-}
-
-impl MockClientBuilder {
-    fn new(homeserver: String) -> Self {
-        let default_builder = Client::builder()
-            .homeserver_url(homeserver)
-            .server_versions([MatrixVersion::V1_12])
-            .request_config(RequestConfig::new().disable_retry());
-
-        Self { builder: default_builder, logged_in: true }
-    }
-
-    /// Doesn't log-in a user.
-    ///
-    /// Authenticated requests will fail if this is called.
-    pub fn unlogged(mut self) -> Self {
-        self.logged_in = false;
-        self
-    }
-
-    /// Provides another [`StoreConfig`] for the underlying [`ClientBuilder`].
-    pub fn store_config(mut self, store_config: StoreConfig) -> Self {
-        self.builder = self.builder.store_config(store_config);
-        self
-    }
-
-    /// Finish building the client into the final [`Client`] instance.
-    pub async fn build(self) -> Client {
-        let client = self.builder.build().await.expect("building client failed");
-
-        if self.logged_in {
-            client
-                .matrix_auth()
-                .restore_session(MatrixSession {
-                    meta: SessionMeta {
-                        user_id: user_id!("@example:localhost").to_owned(),
-                        device_id: device_id!("DEVICEID").to_owned(),
-                    },
-                    tokens: MatrixSessionTokens {
-                        access_token: "1234".to_owned(),
-                        refresh_token: None,
-                    },
-                })
-                .await
-                .unwrap();
-        }
-
-        client
     }
 }

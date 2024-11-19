@@ -14,6 +14,7 @@ use url::Url;
 
 pub mod events;
 
+pub mod client;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod mocks;
 
