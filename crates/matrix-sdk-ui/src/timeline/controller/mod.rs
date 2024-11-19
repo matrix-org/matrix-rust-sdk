@@ -22,7 +22,7 @@ use imbl::Vector;
 #[cfg(test)]
 use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
-    deserialized_responses::SyncTimelineEvent,
+    deserialized_responses::{SyncTimelineEvent, TimelineEventKind as SdkTimelineEventKind},
     event_cache::{paginator::Paginator, RoomEventCache},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
@@ -1064,8 +1064,13 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
                     match decryptor.decrypt_event_impl(original_json).await {
                         Ok(event) => {
-                            if let matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt { utd_info, ..} = event.kind {
-                                info!("Failed to decrypt event after receiving room key: {:?}", utd_info.reason);
+                            if let SdkTimelineEventKind::UnableToDecrypt { utd_info, .. } =
+                                event.kind
+                            {
+                                info!(
+                                    "Failed to decrypt event after receiving room key: {:?}",
+                                    utd_info.reason
+                                );
                                 None
                             } else {
                                 // Notify observers that we managed to eventually decrypt an event.
