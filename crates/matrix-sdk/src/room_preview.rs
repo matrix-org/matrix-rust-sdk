@@ -93,11 +93,12 @@ impl RoomPreview {
         num_joined_members: u64,
         num_active_members: Option<u64>,
         state: Option<RoomState>,
+        computed_display_name: Option<String>,
     ) -> Self {
         RoomPreview {
             room_id: room_info.room_id().to_owned(),
             canonical_alias: room_info.canonical_alias().map(ToOwned::to_owned),
-            name: room_info.name().map(ToOwned::to_owned),
+            name: computed_display_name.or_else(|| room_info.name().map(ToOwned::to_owned)),
             topic: room_info.topic().map(ToOwned::to_owned),
             avatar_url: room_info.avatar_url().map(ToOwned::to_owned),
             room_type: room_info.room_type().cloned(),
@@ -128,12 +129,15 @@ impl RoomPreview {
     pub(crate) async fn from_known(room: &Room) -> Self {
         let is_direct = room.is_direct().await.ok();
 
+        let display_name = room.compute_display_name().await.ok().map(|name| name.to_string());
+
         Self::from_room_info(
             room.clone_info(),
             is_direct,
             room.joined_members_count(),
             Some(room.active_members_count()),
             Some(room.state()),
+            display_name,
         )
     }
 
@@ -247,7 +251,7 @@ impl RoomPreview {
 
         let num_active_members = cached_room.as_ref().map(|r| r.active_members_count());
 
-        let is_direct = if let Some(cached_room) = cached_room {
+        let is_direct = if let Some(cached_room) = &cached_room {
             cached_room.is_direct().await.ok()
         } else {
             None
@@ -266,7 +270,7 @@ impl RoomPreview {
             is_world_readable: response.world_readable,
             state,
             is_direct,
-            heroes: None,
+            heroes: cached_room.map(|r| r.heroes()),
         })
     }
 
