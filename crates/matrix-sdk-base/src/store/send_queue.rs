@@ -367,6 +367,27 @@ pub struct DependentQueuedRequest {
     pub parent_key: Option<SentRequestKey>,
 }
 
+impl DependentQueuedRequest {
+    /// Does the dependent request represent a new event that is *not*
+    /// aggregated, aka it is going to be its own item in a timeline?
+    pub fn is_own_event(&self) -> bool {
+        match self.kind {
+            DependentQueuedRequestKind::EditEvent { .. }
+            | DependentQueuedRequestKind::RedactEvent
+            | DependentQueuedRequestKind::ReactEvent { .. }
+            | DependentQueuedRequestKind::UploadFileWithThumbnail { .. } => {
+                // These are all aggregated events, or non-visible items (file upload producing
+                // a new MXC ID).
+                false
+            }
+            DependentQueuedRequestKind::FinishUpload { .. } => {
+                // This one graduates into a new media event.
+                true
+            }
+        }
+    }
+}
+
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for QueuedRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
