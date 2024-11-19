@@ -1092,7 +1092,7 @@ async fn test_room_preview() -> Result<()> {
         // methods.
         info!("Alice gets a preview of the public room using any method");
         let preview = alice.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
-        assert_room_preview(&preview, &room_alias);
+        assert_room_preview_from_unknown(&preview, &room_alias);
         assert_eq!(preview.state, Some(RoomState::Joined));
     }
 
@@ -1193,7 +1193,7 @@ async fn test_room_preview_with_room_directory_search_and_room_alias_only_in_sev
     assert_eq!(preview.room_id, expected_room_id);
 }
 
-fn assert_room_preview(preview: &RoomPreview, room_alias: &str) {
+fn assert_room_preview_from_unknown(preview: &RoomPreview, room_alias: &str) {
     assert_eq!(preview.canonical_alias.as_ref().unwrap().alias(), room_alias);
     assert_eq!(preview.name.as_ref().unwrap(), "Alice's Room");
     assert_eq!(preview.topic.as_ref().unwrap(), "Discussing Alice's Topic");
@@ -1202,6 +1202,7 @@ fn assert_room_preview(preview: &RoomPreview, room_alias: &str) {
     assert!(preview.room_type.is_none());
     assert_eq!(preview.join_rule, SpaceRoomJoinRule::Invite);
     assert!(preview.is_world_readable);
+    assert!(preview.heroes.is_none());
 }
 
 async fn get_room_preview_with_room_state(
@@ -1214,14 +1215,14 @@ async fn get_room_preview_with_room_state(
     // Alice has joined the room, so they get the full details.
     info!("Alice gets a preview of the public room from state events");
     let preview = RoomPreview::from_state_events(alice, room_id).await.unwrap();
-    assert_room_preview(&preview, room_alias);
+    assert_room_preview_from_unknown(&preview, room_alias);
     assert_eq!(preview.state, Some(RoomState::Joined));
 
     // Bob definitely doesn't know about the room, but they can get a preview of the
     // room too.
     info!("Bob gets a preview of the public room from state events");
     let preview = RoomPreview::from_state_events(bob, room_id).await.unwrap();
-    assert_room_preview(&preview, room_alias);
+    assert_room_preview_from_unknown(&preview, room_alias);
     assert!(preview.state.is_none());
 
     // Bob can't preview the second room, because its history visibility is neither
@@ -1245,7 +1246,7 @@ async fn get_room_preview_with_room_summary(
             .await
             .unwrap();
 
-    assert_room_preview(&preview, room_alias);
+    assert_room_preview_from_unknown(&preview, room_alias);
     assert_eq!(preview.state, Some(RoomState::Joined));
 
     // The preview also works when using the room alias parameter.
@@ -1260,7 +1261,7 @@ async fn get_room_preview_with_room_summary(
     .await
     .unwrap();
 
-    assert_room_preview(&preview, room_alias);
+    assert_room_preview_from_unknown(&preview, room_alias);
     assert_eq!(preview.state, Some(RoomState::Joined));
 
     // Bob definitely doesn't know about the room, but they can get a preview of the
@@ -1270,7 +1271,7 @@ async fn get_room_preview_with_room_summary(
         RoomPreview::from_room_summary(bob, room_id.to_owned(), room_id.into(), Vec::new())
             .await
             .unwrap();
-    assert_room_preview(&preview, room_alias);
+    assert_room_preview_from_unknown(&preview, room_alias);
     assert!(preview.state.is_none());
 
     // Bob can preview the second room with the room summary (because its join rule

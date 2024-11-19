@@ -19,7 +19,7 @@
 //! well.
 
 use futures_util::future::join_all;
-use matrix_sdk_base::{RoomInfo, RoomState};
+use matrix_sdk_base::{RoomHero, RoomInfo, RoomState};
 use ruma::{
     api::client::{membership::joined_members, state::get_state_events},
     directory::PublicRoomJoinRule,
@@ -77,6 +77,9 @@ pub struct RoomPreview {
 
     /// The `m.room.direct` state of the room, if known.
     pub is_direct: Option<bool>,
+
+    /// Room heroes.
+    pub heroes: Option<Vec<RoomHero>>,
 }
 
 impl RoomPreview {
@@ -116,6 +119,7 @@ impl RoomPreview {
             num_active_members,
             state,
             is_direct,
+            heroes: Some(room_info.heroes().to_vec()),
         }
     }
 
@@ -262,6 +266,7 @@ impl RoomPreview {
             is_world_readable: response.world_readable,
             state,
             is_direct,
+            heroes: None,
         })
     }
 
@@ -313,6 +318,7 @@ impl RoomPreview {
             num_joined_members,
             num_active_members,
             state,
+            None,
         ))
     }
 }
@@ -355,6 +361,7 @@ async fn search_for_room_preview_in_room_directory(
             is_world_readable: room_description.is_world_readable,
             state: None,
             is_direct: None,
+            heroes: None,
         }));
     }
 
