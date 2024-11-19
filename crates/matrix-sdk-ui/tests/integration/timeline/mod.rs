@@ -53,6 +53,7 @@ use crate::mock_sync;
 mod echo;
 mod edit;
 mod focus_event;
+mod media;
 mod pagination;
 mod pinned_event;
 mod profiles;
