@@ -103,8 +103,8 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use as_vector::*;
-use updates::*;
+pub use as_vector::*;
+pub use updates::*;
 
 /// Errors of [`LinkedChunk`].
 #[derive(thiserror::Error, Debug)]

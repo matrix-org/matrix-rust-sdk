@@ -3,7 +3,8 @@ use std::{borrow::Cow, fmt, path::Path, sync::Arc};
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
-    event_cache::store::EventCacheStore,
+    event_cache::{store::EventCacheStore, Event, Gap},
+    linked_chunk::Update,
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -180,6 +181,13 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await?;
 
         Ok(num_touched == 1)
+    }
+
+    async fn handle_linked_chunk_updates(
+        &self,
+        _updates: &[Update<Event, Gap>],
+    ) -> Result<(), Self::Error> {
+        todo!()
     }
 
     async fn add_media_content(

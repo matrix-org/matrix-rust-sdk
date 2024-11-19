@@ -16,12 +16,16 @@ use std::{collections::HashMap, num::NonZeroUsize, sync::RwLock as StdRwLock, ti
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    ring_buffer::RingBuffer, store_locks::memory_store_helper::try_take_leased_lock,
+    linked_chunk::Update, ring_buffer::RingBuffer,
+    store_locks::memory_store_helper::try_take_leased_lock,
 };
 use ruma::{MxcUri, OwnedMxcUri};
 
 use super::{EventCacheStore, EventCacheStoreError, Result};
-use crate::media::{MediaRequestParameters, UniqueKey as _};
+use crate::{
+    event_cache::{Event, Gap},
+    media::{MediaRequestParameters, UniqueKey as _},
+};
 
 /// In-memory, non-persistent implementation of the `EventCacheStore`.
 ///
@@ -64,6 +68,13 @@ impl EventCacheStore for MemoryStore {
         holder: &str,
     ) -> Result<bool, Self::Error> {
         Ok(try_take_leased_lock(&self.leases, lease_duration_ms, key, holder))
+    }
+
+    async fn handle_linked_chunk_updates(
+        &self,
+        _updates: &[Update<Event, Gap>],
+    ) -> Result<(), Self::Error> {
+        todo!()
     }
 
     async fn add_media_content(
