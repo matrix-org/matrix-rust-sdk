@@ -16,7 +16,8 @@ use std::{collections::HashMap, num::NonZeroUsize, sync::RwLock as StdRwLock, ti
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    linked_chunk::Update, ring_buffer::RingBuffer,
+    linked_chunk::{relational::RelationalLinkedChunk, Update},
+    ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
 };
 use ruma::{MxcUri, OwnedMxcUri};
@@ -35,6 +36,7 @@ use crate::{
 pub struct MemoryStore {
     media: StdRwLock<RingBuffer<(OwnedMxcUri, String /* unique key */, Vec<u8>)>>,
     leases: StdRwLock<HashMap<String, (String, Instant)>>,
+    events: StdRwLock<RelationalLinkedChunk<Event, Gap>>,
 }
 
 // SAFETY: `new_unchecked` is safe because 20 is not zero.
@@ -45,6 +47,7 @@ impl Default for MemoryStore {
         Self {
             media: StdRwLock::new(RingBuffer::new(NUMBER_OF_MEDIAS)),
             leases: Default::default(),
+            events: StdRwLock::new(RelationalLinkedChunk::new()),
         }
     }
 }
@@ -72,9 +75,11 @@ impl EventCacheStore for MemoryStore {
 
     async fn handle_linked_chunk_updates(
         &self,
-        _updates: &[Update<Event, Gap>],
+        updates: &[Update<Event, Gap>],
     ) -> Result<(), Self::Error> {
-        todo!()
+        self.events.write().unwrap().apply_updates(updates);
+
+        Ok(())
     }
 
     async fn add_media_content(
