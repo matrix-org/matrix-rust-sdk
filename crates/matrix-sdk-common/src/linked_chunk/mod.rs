@@ -872,12 +872,12 @@ impl<const CAP: usize, Item, Gap> Drop for LinkedChunk<CAP, Item, Gap> {
 }
 
 /// A [`LinkedChunk`] can be safely sent over thread boundaries if `Item: Send`
-/// and `Gap: Send`. The only unsafe part if around the `NonNull`, but the API
+/// and `Gap: Send`. The only unsafe part is around the `NonNull`, but the API
 /// and the lifetimes to deref them are designed safely.
 unsafe impl<const CAP: usize, Item: Send, Gap: Send> Send for LinkedChunk<CAP, Item, Gap> {}
 
 /// A [`LinkedChunk`] can be safely share between threads if `Item: Sync` and
-/// `Gap: Sync`. The only unsafe part if around the `NonNull`, but the API and
+/// `Gap: Sync`. The only unsafe part is around the `NonNull`, but the API and
 /// the lifetimes to deref them are designed safely.
 unsafe impl<const CAP: usize, Item: Sync, Gap: Sync> Sync for LinkedChunk<CAP, Item, Gap> {}
 
