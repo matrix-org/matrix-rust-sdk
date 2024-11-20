@@ -93,6 +93,7 @@ macro_rules! assert_items_eq {
 }
 
 mod as_vector;
+pub mod relational;
 mod updates;
 
 use std::{
@@ -933,7 +934,7 @@ impl ChunkIdentifierGenerator {
 /// Learn more with [`ChunkIdentifierGenerator`].
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(transparent)]
-pub struct ChunkIdentifier(u64);
+pub struct ChunkIdentifier(pub(super) u64);
 
 impl PartialEq<u64> for ChunkIdentifier {
     fn eq(&self, other: &u64) -> bool {
@@ -945,7 +946,7 @@ impl PartialEq<u64> for ChunkIdentifier {
 ///
 /// It's a pair of a chunk position and an item index.
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Position(ChunkIdentifier, usize);
+pub struct Position(pub(super) ChunkIdentifier, pub(super) usize);
 
 impl Position {
     /// Get the chunk identifier of the item.
@@ -965,6 +966,16 @@ impl Position {
     /// This method will panic if it will underflow, i.e. if the index is 0.
     pub fn decrement_index(&mut self) {
         self.1 = self.1.checked_sub(1).expect("Cannot decrement the index because it's already 0");
+    }
+
+    /// Increment the index part (see [`Self::index`]), i.e. add 1.
+    ///
+    /// # Panic
+    ///
+    /// This method will panic if it will overflow, i.e. if the index is larger
+    /// than `usize::MAX`.
+    pub fn increment_index(&mut self) {
+        self.1 = self.1.checked_add(1).expect("Cannot increment the index because it's too large");
     }
 }
 
