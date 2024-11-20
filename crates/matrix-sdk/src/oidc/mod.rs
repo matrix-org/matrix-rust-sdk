@@ -197,7 +197,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use thiserror::Error;
 use tokio::{spawn, sync::Mutex};
-use tracing::{error, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 use url::Url;
 
 mod auth_code_builder;
@@ -1368,6 +1368,7 @@ impl Oidc {
     /// or the same [`RefreshTokenError`], if it failed.
     ///
     /// [`ClientBuilder::handle_refresh_tokens()`]: crate::ClientBuilder::handle_refresh_tokens()
+    #[instrument(skip_all)]
     pub async fn refresh_access_token(&self) -> Result<(), RefreshTokenError> {
         macro_rules! fail {
             ($lock:expr, $err:expr) => {
@@ -1382,10 +1383,15 @@ impl Oidc {
         let refresh_status_lock = client.inner.auth_ctx.refresh_token_lock.clone().try_lock_owned();
 
         let Ok(mut refresh_status_guard) = refresh_status_lock else {
+            debug!("another refresh is happening, waiting for result.");
             // There's already a request to refresh happening in the same process. Wait for
             // it to finish.
-            return client.inner.auth_ctx.refresh_token_lock.lock().await.clone();
+            let res = client.inner.auth_ctx.refresh_token_lock.lock().await.clone();
+            debug!("other refresh is a {}", if res.is_ok() { "success" } else { "failure " });
+            return res;
         };
+
+        debug!("no other refresh happening in background, starting.");
 
         let cross_process_guard =
             if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
@@ -1396,6 +1402,7 @@ impl Oidc {
                 {
                     Ok(guard) => guard,
                     Err(err) => {
+                        warn!("couldn't acquire cross-process lock (timeout)");
                         fail!(refresh_status_guard, err);
                     }
                 };
@@ -1406,6 +1413,7 @@ impl Oidc {
                         .map_err(|err| RefreshTokenError::Oidc(Arc::new(err.into())))?;
                     // Optimistic exit: assume that the underlying process did update fast enough.
                     // In the worst case, we'll do another refresh Soon™.
+                    info!("other process handled refresh for us, assuming success");
                     *refresh_status_guard = Ok(());
                     return Ok(());
                 }
@@ -1416,9 +1424,12 @@ impl Oidc {
             };
 
         let Some(session_tokens) = self.session_tokens() else {
+            warn!("invalid state: missing session tokens");
             fail!(refresh_status_guard, RefreshTokenError::RefreshTokenRequired);
         };
+
         let Some(refresh_token) = session_tokens.refresh_token else {
+            warn!("invalid state: missing session tokens");
             fail!(refresh_status_guard, RefreshTokenError::RefreshTokenRequired);
         };
 
@@ -1426,11 +1437,13 @@ impl Oidc {
             Ok(metadata) => metadata,
             Err(err) => {
                 let err = Arc::new(err);
+                warn!("couldn't get provider metadata: {err}");
                 fail!(refresh_status_guard, RefreshTokenError::Oidc(err));
             }
         };
 
         let Some(auth_data) = self.data() else {
+            warn!("invalid state: missing auth data");
             fail!(
                 refresh_status_guard,
                 RefreshTokenError::Oidc(Arc::new(OidcError::NotAuthenticated))
@@ -1459,11 +1472,14 @@ impl Oidc {
                 .await
             {
                 Ok(()) => {
+                    debug!("success refreshing a token");
                     *refresh_status_guard = Ok(());
                     Ok(())
                 }
+
                 Err(err) => {
                     let err = RefreshTokenError::Oidc(Arc::new(err));
+                    warn!("error refreshing an oidc token: {err}");
                     fail!(refresh_status_guard, err);
                 }
             }
