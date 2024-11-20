@@ -4,14 +4,14 @@ use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     event_cache::{store::EventCacheStore, Event, Gap},
-    linked_chunk::Update,
+    linked_chunk::{ChunkIdentifier, Update},
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{MilliSecondsSinceUnixEpoch, RoomId};
-use rusqlite::OptionalExtension;
+use rusqlite::{OptionalExtension, Transaction};
 use tokio::fs;
-use tracing::debug;
+use tracing::{debug, trace};
 
 use crate::{
     error::{Error, Result},
@@ -21,6 +21,7 @@ use crate::{
 
 mod keys {
     // Tables
+    pub const LINKED_CHUNKS: &str = "linked_chunks";
     pub const MEDIA: &str = "media";
 }
 
@@ -29,7 +30,7 @@ mod keys {
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 2;
+const DATABASE_VERSION: u8 = 3;
 
 /// A SQLite-based event cache store.
 #[derive(Clone)]
@@ -143,6 +144,14 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 3 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/003_events.sql"))?;
+            txn.set_db_version(3)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -185,10 +194,208 @@ impl EventCacheStore for SqliteEventCacheStore {
 
     async fn handle_linked_chunk_updates(
         &self,
-        _room_id: &RoomId,
-        _updates: Vec<Update<Event, Gap>>,
+        room_id: &RoomId,
+        updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
-        todo!()
+        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
+
+        for up in updates {
+            match up {
+                Update::NewItemsChunk { previous, new, next } => {
+                    let hashed_room_id = hashed_room_id.clone();
+
+                    let previous = previous.as_ref().map(ChunkIdentifier::index);
+                    let new = new.index();
+                    let next = next.as_ref().map(ChunkIdentifier::index);
+
+                    trace!(
+                        %room_id,
+                        "new events chunk (prev={previous:?}, i={new}, next={next:?})",
+                    );
+
+                    self.acquire()
+                        .await?
+                        .with_transaction(move |txn| {
+                            insert_chunk(txn, &hashed_room_id, previous, new, next, "E")
+                        })
+                        .await?;
+                }
+
+                Update::NewGapChunk { previous, new, next, gap } => {
+                    let hashed_room_id = hashed_room_id.clone();
+
+                    let serialized = serde_json::to_vec(&gap.prev_token)?;
+                    let prev_token = self.encode_value(serialized)?;
+
+                    let previous = previous.as_ref().map(ChunkIdentifier::index);
+                    let new = new.index();
+                    let next = next.as_ref().map(ChunkIdentifier::index);
+
+                    trace!(
+                        %room_id,
+                        "new gap chunk (prev={previous:?}, i={new}, next={next:?})",
+                    );
+
+                    self.acquire()
+                        .await?
+                        .with_transaction(move |txn| -> rusqlite::Result<()> {
+                            // Insert the chunk as a gap.
+                            insert_chunk(txn, &hashed_room_id, previous, new, next, "G")?;
+
+                            // Insert the gap's value.
+                            // XXX(bnjbvr): might as well inline in the linked_chunks table? better
+                            // for flexibility to use another table though.
+                            txn.execute(
+                                r#"
+                                INSERT INTO gaps(chunk_id, room_id, prev_token)
+                                VALUES (?, ?, ?)
+                            "#,
+                                (new, hashed_room_id, prev_token),
+                            )?;
+
+                            Ok(())
+                        })
+                        .await?;
+                }
+
+                Update::RemoveChunk(chunk_identifier) => {
+                    let hashed_room_id = hashed_room_id.clone();
+                    let chunk_id = chunk_identifier.index();
+
+                    trace!(%room_id, "removing chunk @ {chunk_id}");
+
+                    self.acquire()
+                        .await?
+                        .with_transaction(move |txn| -> rusqlite::Result<()> {
+                            // Find chunk to delete.
+                            let (previous, next): (Option<usize>, Option<usize>) = txn.query_row(
+                                "SELECT previous, next FROM linked_chunks WHERE id = ? AND room_id = ?",
+                                (chunk_id, &hashed_room_id),
+                                |row| Ok((row.get(0)?, row.get(1)?))
+                            )?;
+
+                            // Replace its previous' next to its own next.
+                            if let Some(previous) = previous {
+                                txn.execute("UPDATE linked_chunks SET next = ? WHERE id = ? AND room_id = ?", (next, previous, &hashed_room_id))?;
+                            }
+
+                            // Replace its next' previous to its own previous.
+                            if let Some(next) = next {
+                                txn.execute("UPDATE linked_chunks SET previous = ? WHERE id = ? AND room_id = ?", (previous, next, &hashed_room_id))?;
+                            }
+
+                            // Now delete it, and let cascading delete corresponding entries in the
+                            // other data tables.
+                            txn.execute("DELETE FROM linked_chunks WHERE id = ? AND room_id = ?", (chunk_id, hashed_room_id))?;
+
+                            Ok(())
+                        })
+                        .await?;
+                }
+
+                Update::PushItems { at, items } => {
+                    let chunk_id = at.chunk_identifier().index();
+                    let hashed_room_id = hashed_room_id.clone();
+
+                    trace!(%room_id, "pushing items @ {chunk_id}");
+
+                    let this = self.clone();
+
+                    self.acquire()
+                        .await?
+                        .with_transaction(move |txn| -> Result<(), Self::Error> {
+                            for (i, event) in items.into_iter().enumerate() {
+                                let serialized = serde_json::to_vec(&event)?;
+                                let content = this.encode_value(serialized)?;
+
+                                let event_id =
+                                    event.event_id().map(|event_id| event_id.to_string());
+                                let index = at.index() + i;
+
+                                txn.execute(
+                                    r#"
+                                    INSERT INTO events(chunk_id, room_id, event_id, content, position)
+                                    VALUES (?, ?, ?, ?, ?)
+                                "#,
+                                    (chunk_id, &hashed_room_id, event_id, content, index),
+                                )?;
+                            }
+
+                            Ok(())
+                        })
+                        .await?;
+                }
+
+                Update::RemoveItem { at } => {
+                    let hashed_room_id = hashed_room_id.clone();
+                    let chunk_id = at.chunk_identifier().index();
+                    let index = at.index();
+
+                    trace!(%room_id, "removing item @ {chunk_id}:{index}");
+
+                    self.acquire()
+                        .await?
+                        .with_transaction(move |txn| -> rusqlite::Result<()> {
+                            // Remove the entry.
+                            txn.execute("DELETE FROM events WHERE room_id = ? AND chunk_id = ? AND position = ?", (&hashed_room_id, chunk_id, index))?;
+
+                            // Decrement the index of each item after the one we're going to
+                            // remove.
+                            txn.execute(
+                                r#"
+                                    UPDATE events
+                                    SET position = position - 1
+                                    WHERE room_id = ? AND chunk_id = ? AND position > ?
+                                "#,
+                                (&hashed_room_id, chunk_id, index)
+                            )?;
+
+                            Ok(())
+                        })
+                        .await?;
+                }
+
+                Update::DetachLastItems { at } => {
+                    let hashed_room_id = hashed_room_id.clone();
+                    let chunk_id = at.chunk_identifier().index();
+                    let index = at.index();
+
+                    trace!(%room_id, "truncating items >= {chunk_id}:{index}");
+
+                    self.acquire()
+                        .await?
+                        .with_transaction(move |txn| -> rusqlite::Result<()> {
+                            // Remove these entries.
+                            txn.execute("DELETE FROM events WHERE room_id = ? AND chunk_id = ? AND position >= ?", (&hashed_room_id, chunk_id, index))?;
+                            Ok(())
+                        })
+                        .await?;
+                }
+
+                Update::Clear => {
+                    let hashed_room_id = hashed_room_id.clone();
+
+                    trace!(%room_id, "clearing items");
+
+                    self.acquire()
+                        .await?
+                        .with_transaction(move |txn| {
+                            // Remove chunks, and let cascading do its job.
+                            txn.execute(
+                                "DELETE FROM linked_chunks WHERE room_id = ?",
+                                (&hashed_room_id,),
+                            )
+                        })
+                        .await?;
+                }
+
+                Update::StartReattachItems | Update::EndReattachItems => {
+                    // Nothing.
+                }
+            }
+        }
+
+        Ok(())
     }
 
     async fn add_media_content(
@@ -278,6 +485,50 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         Ok(())
     }
+}
+
+fn insert_chunk(
+    txn: &Transaction<'_>,
+    room_id: &Key,
+    previous: Option<u64>,
+    new: u64,
+    next: Option<u64>,
+    type_str: &str,
+) -> rusqlite::Result<()> {
+    // First, insert the new chunk.
+    txn.execute(
+        r#"
+            INSERT INTO linked_chunks(id, room_id, previous, next, type)
+            VALUES (?, ?, ?, ?, ?)
+        "#,
+        (new, room_id, previous, next, type_str),
+    )?;
+
+    // If this chunk has a previous one, update its `next` field.
+    if let Some(previous) = previous {
+        txn.execute(
+            r#"
+                UPDATE linked_chunks
+                SET next = ?
+                WHERE id = ? AND room_id = ?
+            "#,
+            (new, previous, room_id),
+        )?;
+    }
+
+    // If this chunk has a next one, update its `previous` field.
+    if let Some(next) = next {
+        txn.execute(
+            r#"
+                UPDATE linked_chunks
+                SET previous = ?
+                WHERE id = ? AND room_id = ?
+            "#,
+            (new, next, room_id),
+        )?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

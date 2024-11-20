@@ -138,6 +138,10 @@ pub enum EventCacheStoreError {
     #[error("Error encoding or decoding data from the event cache store: {0}")]
     Codec(#[from] Utf8Error),
 
+    /// The store failed to serialize or deserialize some data.
+    #[error("Error serializing or deserializing data from the event cache store: {0}")]
+    Serialization(#[from] serde_json::Error),
+
     /// The database format has changed in a backwards incompatible way.
     #[error(
         "The database format of the event cache store changed in an incompatible way, \
