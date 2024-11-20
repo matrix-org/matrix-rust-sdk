@@ -1308,6 +1308,23 @@ impl TryFrom<EditedContent> for SdkEditedContent {
     }
 }
 
+/// Create a caption edit.
+///
+/// If no `formatted_caption` is provided, then it's assumed the `caption`
+/// represents valid Markdown that can be used as the formatted caption.
+#[matrix_sdk_ffi_macros::export]
+fn create_caption_edit(
+    caption: Option<String>,
+    formatted_caption: Option<FormattedBody>,
+) -> EditedContent {
+    let formatted_caption =
+        formatted_body_from(caption.as_deref(), formatted_caption.map(Into::into));
+    EditedContent::MediaCaption {
+        caption,
+        formatted_caption: formatted_caption.as_ref().map(Into::into),
+    }
+}
+
 /// Wrapper to retrieve some timeline item info lazily.
 #[derive(Clone, uniffi::Object)]
 pub struct LazyTimelineItemProvider(Arc<matrix_sdk_ui::timeline::EventTimelineItem>);
