@@ -20,7 +20,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use matrix_sdk_common::store_locks::memory_store_helper::try_take_leased_lock;
+use matrix_sdk_common::store_locks::{memory_store_helper::try_take_leased_lock, LockGeneration};
 use ruma::{
     events::secret::request::SecretName, DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId,
     OwnedUserId, RoomId, TransactionId, UserId,
@@ -90,7 +90,7 @@ pub struct MemoryStore {
     key_requests_by_info: StdRwLock<HashMap<String, OwnedTransactionId>>,
     direct_withheld_info: StdRwLock<HashMap<OwnedRoomId, HashMap<String, RoomKeyWithheldEvent>>>,
     custom_values: StdRwLock<HashMap<String, Vec<u8>>>,
-    leases: StdRwLock<HashMap<String, (String, Instant)>>,
+    leases: StdRwLock<HashMap<String, (String, Instant, LockGeneration)>>,
     secret_inbox: StdRwLock<HashMap<String, Vec<GossippedSecret>>>,
     backup_keys: RwLock<BackupKeys>,
     next_batch_token: RwLock<Option<String>>,
@@ -632,7 +632,7 @@ impl CryptoStore for MemoryStore {
         key: &str,
         holder: &str,
     ) -> Result<bool> {
-        Ok(try_take_leased_lock(&self.leases, lease_duration_ms, key, holder))
+        Ok(try_take_leased_lock(&self.leases, lease_duration_ms, key, holder).is_some())
     }
 }
 

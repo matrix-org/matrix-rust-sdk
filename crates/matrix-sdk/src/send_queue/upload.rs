@@ -171,7 +171,7 @@ impl RoomSendQueue {
             let client = room.client();
             let cache_store = client
                 .event_cache_store()
-                .lock()
+                .lock_unchecked()
                 .await
                 .map_err(RoomSendQueueStorageError::LockError)?;
 
@@ -304,7 +304,7 @@ impl QueueStorage {
             trace!(from = ?from_req.source, to = ?sent_media.file, "renaming media file key in cache store");
             let cache_store = client
                 .event_cache_store()
-                .lock()
+                .lock_unchecked()
                 .await
                 .map_err(RoomSendQueueStorageError::LockError)?;
 
@@ -533,7 +533,7 @@ impl QueueStorage {
         // At this point, all the requests and dependent requests have been cleaned up.
         // Perform the final step: empty the cache from the local items.
         {
-            let event_cache = client.event_cache_store().lock().await?;
+            let event_cache = client.event_cache_store().lock_unchecked().await?;
             event_cache
                 .remove_media_content_for_uri(&make_local_uri(&handles.upload_file_txn))
                 .await?;

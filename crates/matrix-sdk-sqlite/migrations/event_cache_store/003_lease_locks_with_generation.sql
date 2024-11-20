@@ -1,0 +1,1 @@
+ALTER TABLE "lease_locks" ADD COLUMN "generation" INTEGER NOT NULL DEFAULT 0;

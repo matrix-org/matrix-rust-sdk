@@ -260,57 +260,57 @@ macro_rules! event_cache_store_integration_tests_time {
                 let store = get_event_cache_store().await.unwrap().into_event_cache_store();
 
                 let acquired0 = store.try_take_leased_lock(0, "key", "alice").await.unwrap();
-                assert!(acquired0);
+                assert_eq!(acquired0, Some(0)); // first lock generation
 
                 // Should extend the lease automatically (same holder).
                 let acquired2 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
-                assert!(acquired2);
+                assert_eq!(acquired2, Some(0)); // same lock generation
 
                 // Should extend the lease automatically (same holder + time is ok).
                 let acquired3 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
-                assert!(acquired3);
+                assert_eq!(acquired3, Some(0)); // same lock generation
 
                 // Another attempt at taking the lock should fail, because it's taken.
                 let acquired4 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                assert!(!acquired4);
+                assert!(acquired4.is_none()); // not acquired
 
                 // Even if we insist.
                 let acquired5 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                assert!(!acquired5);
+                assert!(acquired5.is_none()); // not acquired
 
                 // That's a nice test we got here, go take a little nap.
                 tokio::time::sleep(Duration::from_millis(50)).await;
 
                 // Still too early.
                 let acquired55 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                assert!(!acquired55);
+                assert!(acquired55.is_none()); // not acquired
 
                 // Ok you can take another nap then.
                 tokio::time::sleep(Duration::from_millis(250)).await;
 
                 // At some point, we do get the lock.
                 let acquired6 = store.try_take_leased_lock(0, "key", "bob").await.unwrap();
-                assert!(acquired6);
+                assert_eq!(acquired6, Some(1)); // new lock generation!
 
                 tokio::time::sleep(Duration::from_millis(1)).await;
 
                 // The other gets it almost immediately too.
                 let acquired7 = store.try_take_leased_lock(0, "key", "alice").await.unwrap();
-                assert!(acquired7);
+                assert_eq!(acquired7, Some(2)); // new lock generation!
 
                 tokio::time::sleep(Duration::from_millis(1)).await;
 
-                // But when we take a longer lease...
+                // But when we take a longer lease…
                 let acquired8 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                assert!(acquired8);
+                assert_eq!(acquired8, Some(3)); // new lock generation!
 
                 // It blocks the other user.
                 let acquired9 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
-                assert!(!acquired9);
+                assert!(acquired9.is_none()); // not acquired
 
                 // We can hold onto our lease.
                 let acquired10 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                assert!(acquired10);
+                assert_eq!(acquired10, Some(3)); // same lock generation
             }
         }
     };

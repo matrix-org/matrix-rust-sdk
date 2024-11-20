@@ -19,7 +19,14 @@
 //! into the event cache for the actual storage. By default this brings an
 //! in-memory store.
 
-use std::{fmt, ops::Deref, str::Utf8Error, sync::Arc};
+use std::{
+    error::Error,
+    fmt,
+    ops::{Deref, DerefMut},
+    result::Result as StdResult,
+    str::Utf8Error,
+    sync::{Arc, Mutex},
+};
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
@@ -28,7 +35,8 @@ mod memory_store;
 mod traits;
 
 use matrix_sdk_common::store_locks::{
-    BackingStore, CrossProcessStoreLock, CrossProcessStoreLockGuard, LockStoreError,
+    BackingStore, CrossProcessStoreLock, CrossProcessStoreLockGuard, LockGeneration,
+    LockStoreError, FIRST_LOCK_GENERATION,
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 
@@ -43,11 +51,23 @@ pub use self::{
 #[derive(Clone)]
 pub struct EventCacheStoreLock {
     /// The inner cross process lock that is used to lock the `EventCacheStore`.
-    cross_process_lock: CrossProcessStoreLock<LockableEventCacheStore>,
+    cross_process_lock: CrossProcessStoreLock<Arc<LockableEventCacheStore>>,
+
+    /// A reference to the `LockableEventCacheStore`.
+    ///
+    /// This is used to get access to extra API on `LockableEventCacheStore`,
+    /// not restricted to the `BackingStore` trait.
+    ///
+    /// This is necessary because `CrossProcessStoreLock` doesn't provide a way
+    /// to get a reference to the inner backing store. And that's okay.
+    lockable_store: Arc<LockableEventCacheStore>,
 
     /// The store itself.
     ///
-    /// That's the only place where the store exists.
+    /// The store lives here, and inside `Self::lockable_store`.
+    ///
+    /// This is necessary because the lock methods return a guard that contains
+    /// a reference to the store.
     store: Arc<DynEventCacheStore>,
 }
 
@@ -68,22 +88,56 @@ impl EventCacheStoreLock {
         S: IntoEventCacheStore,
     {
         let store = store.into_event_cache_store();
+        let lockable_store = Arc::new(LockableEventCacheStore::new(store.clone()));
 
         Self {
             cross_process_lock: CrossProcessStoreLock::new(
-                LockableEventCacheStore(store.clone()),
+                lockable_store.clone(),
                 "default".to_owned(),
                 holder,
             ),
+            lockable_store,
             store,
         }
     }
 
     /// Acquire a spin lock (see [`CrossProcessStoreLock::spin_lock`]).
-    pub async fn lock(&self) -> Result<EventCacheStoreLockGuard<'_>, LockStoreError> {
-        let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await?;
+    ///
+    /// It doesn't check whether the lock has been poisoned or not.
+    /// A lock has been poisoned if it's been acquired from another holder.
+    pub async fn lock_unchecked(&self) -> Result<EventCacheStoreLockGuard<'_>, LockStoreError> {
+        match self.lock().await? {
+            Ok(guard) => Ok(guard),
+            Err(poison_error) => Ok(poison_error.into_inner()),
+        }
+    }
 
-        Ok(EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.deref() })
+    /// Acquire a spin lock (see [`CrossProcessStoreLock::spin_lock`]).
+    ///
+    /// It **does** check whether the lock has been poisoned or not. Use
+    /// [`EventCacheStoreLock::lock_unchecked`] if you don't want to check. A
+    /// lock has been poisoned if it's been acquired from another holder.
+    ///
+    /// This method returns a first `Result` to handle the locking error. The
+    /// `Ok` variant contains another `Result` to handle the locking poison.
+    pub async fn lock(
+        &self,
+    ) -> Result<
+        Result<
+            EventCacheStoreLockGuard<'_>,
+            EventCacheStoreLockPoisonError<EventCacheStoreLockGuard<'_>>,
+        >,
+        LockStoreError,
+    > {
+        let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await?;
+        let event_cache_store_lock_guard =
+            EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.deref() };
+
+        Ok(if self.lockable_store.is_poisoned() {
+            Err(EventCacheStoreLockPoisonError(event_cache_store_lock_guard))
+        } else {
+            Ok(event_cache_store_lock_guard)
+        })
     }
 }
 
@@ -114,12 +168,41 @@ impl<'a> Deref for EventCacheStoreLockGuard<'a> {
     }
 }
 
+/// A type of error which can be returned whenever a cross-process lock is
+/// acquired.
+///
+/// [`EventCacheStoreLock`] is poisoned whenever the lock is acquired from
+/// another holder than the current holder, i.e. if the previous lock was held
+/// by another process basically.
+pub struct EventCacheStoreLockPoisonError<T>(T);
+
+impl<T> EventCacheStoreLockPoisonError<T> {
+    fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+#[cfg(not(tarpaulin_include))]
+impl<T> fmt::Debug for EventCacheStoreLockPoisonError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EventCacheStoreLockPoisonError").finish_non_exhaustive()
+    }
+}
+
+impl<T> fmt::Display for EventCacheStoreLockPoisonError<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        "Poisoned lock: lock has been acquired from another process".fmt(formatter)
+    }
+}
+
+impl<T> Error for EventCacheStoreLockPoisonError<T> {}
+
 /// Event cache store specific error type.
 #[derive(Debug, thiserror::Error)]
 pub enum EventCacheStoreError {
     /// An error happened in the underlying database backend.
     #[error(transparent)]
-    Backend(Box<dyn std::error::Error + Send + Sync>),
+    Backend(Box<dyn Error + Send + Sync>),
 
     /// The store is locked with a passphrase and an incorrect passphrase
     /// was given.
@@ -153,19 +236,35 @@ impl EventCacheStoreError {
     #[inline]
     pub fn backend<E>(error: E) -> Self
     where
-        E: std::error::Error + Send + Sync + 'static,
+        E: Error + Send + Sync + 'static,
     {
         Self::Backend(Box::new(error))
     }
 }
 
 /// An `EventCacheStore` specific result type.
-pub type Result<T, E = EventCacheStoreError> = std::result::Result<T, E>;
+pub type Result<T, E = EventCacheStoreError> = StdResult<T, E>;
 
 /// A type that wraps the [`EventCacheStore`] but implements [`BackingStore`] to
 /// make it usable inside the cross process lock.
 #[derive(Clone, Debug)]
-struct LockableEventCacheStore(Arc<DynEventCacheStore>);
+struct LockableEventCacheStore {
+    store: Arc<DynEventCacheStore>,
+    generation_and_is_poisoned: Arc<Mutex<(LockGeneration, bool)>>,
+}
+
+impl LockableEventCacheStore {
+    fn new(store: Arc<DynEventCacheStore>) -> Self {
+        Self {
+            store,
+            generation_and_is_poisoned: Arc::new(Mutex::new((FIRST_LOCK_GENERATION, false))),
+        }
+    }
+
+    fn is_poisoned(&self) -> bool {
+        self.generation_and_is_poisoned.lock().unwrap().1
+    }
+}
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -177,7 +276,170 @@ impl BackingStore for LockableEventCacheStore {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> std::result::Result<bool, Self::LockError> {
-        self.0.try_take_leased_lock(lease_duration_ms, key, holder).await
+    ) -> StdResult<bool, Self::LockError> {
+        let lock_generation =
+            self.store.try_take_leased_lock(lease_duration_ms, key, holder).await?;
+
+        Ok(match lock_generation {
+            // Lock hasn't been acquired.
+            None => false,
+
+            // Lock has been acquired, and we have a generation.
+            Some(generation) => {
+                let mut guard = self.generation_and_is_poisoned.lock().unwrap();
+                let (last_generation, is_poisoned) = guard.deref_mut();
+
+                // The lock is considered poisoned if it's been acquired
+                // from another holder. If the lock is acquired from another
+                // holder, its generation is incremented by one. So, if
+                // `lock_generation` is different of `last_generation`, it
+                // means it's been acquired from another holder, and it is
+                // consequently poisoned; otherwise it is not poisoned.
+                //
+                // The initial value for `last_generation` **must be**
+                // `FIRST_LOCK_GENERATION`.
+                *is_poisoned = generation != *last_generation;
+                *last_generation = generation;
+
+                true
+            }
+        })
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))] // because time is a thing
+mod tests {
+    use std::{error::Error, fmt, sync::Arc, time::Duration};
+
+    use assert_matches::assert_matches;
+    use matrix_sdk_common::store_locks::MAX_BACKOFF_MS;
+    use matrix_sdk_test::async_test;
+    use ruma::user_id;
+    use tokio::time::sleep;
+
+    use super::{EventCacheStoreError, EventCacheStoreLockPoisonError, MemoryStore};
+    use crate::{store::StoreConfig, test_utils::logged_in_base_client_with_store_config};
+
+    #[async_test]
+    async fn test_not_poisoned_lock() {
+        let client = logged_in_base_client_with_store_config(
+            Some(user_id!("@client:sdk.rust")),
+            StoreConfig::new("holderA".to_owned()),
+        )
+        .await;
+
+        let event_cache_store_lock = client.event_cache_store();
+
+        // `lock_unchecked` is okay.
+        let guard = event_cache_store_lock.lock_unchecked().await;
+        assert!(guard.is_ok()); // lock has been acquired and may or may not be poisoned
+
+        // `lock` is okay.
+        let guard = event_cache_store_lock.lock().await;
+
+        assert!(guard.is_ok()); // lock has been acquired
+        assert!(guard.unwrap().is_ok()); // lock is not poisoned
+    }
+
+    #[async_test]
+    async fn test_poisoned_lock() {
+        // Use the same memory store between clients A and B.
+        let memory_store = Arc::new(MemoryStore::new());
+
+        let client_a = logged_in_base_client_with_store_config(
+            Some(user_id!("@client_a:sdk.rust")),
+            StoreConfig::new("holderA".to_owned()).event_cache_store(memory_store.clone()),
+        )
+        .await;
+
+        let client_b = logged_in_base_client_with_store_config(
+            Some(user_id!("@client_b:sdk.rust")),
+            StoreConfig::new("holderB".to_owned()).event_cache_store(memory_store),
+        )
+        .await;
+
+        let event_cache_store_lock_a = client_a.event_cache_store();
+        let event_cache_store_lock_b = client_b.event_cache_store();
+
+        // Client A can take the lock because no one has taken it so far.
+        {
+            // `lock` is okay.
+            let guard = event_cache_store_lock_a.lock().await;
+
+            assert!(guard.is_ok()); // lock has been acquired
+            assert!(guard.unwrap().is_ok()); // lock is not poisoned
+        }
+
+        sleep(Duration::from_millis(MAX_BACKOFF_MS as u64 + 100)).await;
+
+        // Client B can take the lock since all locks from A are expired, but
+        // now, B is poisoned because the content of the event cache might have
+        // been modified (if someone takes a lock, it's probably for a good
+        // reason, right?).
+        {
+            // `lock` is okay.
+            let guard = event_cache_store_lock_b.lock().await;
+
+            assert!(guard.is_ok()); // lock has been acquired
+            assert!(guard.unwrap().is_err()); // lock is poisoned!
+        }
+
+        sleep(Duration::from_millis(MAX_BACKOFF_MS as u64 + 100)).await;
+
+        // Client A can take the lock since all locks from B are expired, but
+        // now, A is poisoned. Let's not test `lock` but `lock_unchecked` this
+        // time.
+        {
+            // `lock_unchecked` is okay.
+            let guard = event_cache_store_lock_a.lock_unchecked().await;
+
+            assert!(guard.is_ok()); // lock has been acquired and might be
+                                    // poisoned, we don't know with this method
+        }
+
+        // Client A can still take the lock because it is holding it. The lock
+        // is no more poisoned.
+        {
+            // `lock` is okay.
+            let guard = event_cache_store_lock_a.lock().await;
+
+            assert!(guard.is_ok()); // lock has been acquired
+            assert!(guard.unwrap().is_ok()); // lock is not poisoned
+        }
+    }
+
+    #[test]
+    fn test_poison_error() {
+        let error = EventCacheStoreLockPoisonError(42);
+
+        fn error_to_string<E>(error: E) -> String
+        where
+            E: Error,
+        {
+            error.to_string()
+        }
+
+        assert_eq!(
+            error_to_string(error),
+            "Poisoned lock: lock has been acquired from another process".to_owned(),
+        );
+    }
+
+    #[test]
+    fn test_backend_error() {
+        #[derive(Debug)]
+        struct Foo;
+
+        impl fmt::Display for Foo {
+            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.debug_struct("Foo").finish()
+            }
+        }
+
+        impl Error for Foo {}
+
+        let error = EventCacheStoreError::backend(Foo);
+
+        assert_matches!(error, EventCacheStoreError::Backend(_));
     }
 }

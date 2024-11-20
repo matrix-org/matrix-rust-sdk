@@ -16,7 +16,8 @@ use std::{collections::HashMap, num::NonZeroUsize, sync::RwLock as StdRwLock, ti
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    ring_buffer::RingBuffer, store_locks::memory_store_helper::try_take_leased_lock,
+    ring_buffer::RingBuffer,
+    store_locks::{memory_store_helper::try_take_leased_lock, LockGeneration},
 };
 use ruma::{MxcUri, OwnedMxcUri};
 
@@ -30,7 +31,7 @@ use crate::media::{MediaRequestParameters, UniqueKey as _};
 #[derive(Debug)]
 pub struct MemoryStore {
     media: StdRwLock<RingBuffer<(OwnedMxcUri, String /* unique key */, Vec<u8>)>>,
-    leases: StdRwLock<HashMap<String, (String, Instant)>>,
+    leases: StdRwLock<HashMap<String, (String, Instant, LockGeneration)>>,
 }
 
 // SAFETY: `new_unchecked` is safe because 20 is not zero.
@@ -62,7 +63,7 @@ impl EventCacheStore for MemoryStore {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool, Self::Error> {
+    ) -> Result<Option<LockGeneration>, Self::Error> {
         Ok(try_take_leased_lock(&self.leases, lease_duration_ms, key, holder))
     }
 

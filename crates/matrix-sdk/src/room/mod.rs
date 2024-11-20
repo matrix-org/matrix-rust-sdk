@@ -1988,7 +1988,7 @@ impl Room {
             .await?;
 
         if store_in_cache {
-            let cache_store_lock_guard = self.client.event_cache_store().lock().await?;
+            let cache_store_lock_guard = self.client.event_cache_store().lock_unchecked().await?;
 
             // A failure to cache shouldn't prevent the whole upload from finishing
             // properly, so only log errors during caching.
