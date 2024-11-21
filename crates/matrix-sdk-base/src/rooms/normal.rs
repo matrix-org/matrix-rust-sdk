@@ -573,49 +573,113 @@ impl Room {
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     pub async fn compute_display_name(&self) -> StoreResult<RoomDisplayName> {
-        let update_cache = |new_val: RoomDisplayName| {
-            self.inner.update_if(|info| {
-                if info.cached_display_name.as_ref() != Some(&new_val) {
-                    info.cached_display_name = Some(new_val.clone());
-                    true
-                } else {
-                    false
-                }
-            });
-            new_val
-        };
+        enum DisplayNameOrSummary {
+            Summary(RoomSummary),
+            DisplayName(RoomDisplayName),
+        }
 
-        let summary = {
+        let display_name_or_summary = {
             let inner = self.inner.read();
 
-            if let Some(name) = inner.name() {
-                let name = name.trim().to_owned();
-                drop(inner); // drop the lock on `self.inner` to avoid deadlocking in `update_cache`.
-                return Ok(update_cache(RoomDisplayName::Named(name)));
+            match (inner.name(), inner.canonical_alias()) {
+                (Some(name), _) => {
+                    let name = RoomDisplayName::Named(name.trim().to_owned());
+                    DisplayNameOrSummary::DisplayName(name)
+                }
+                (None, Some(alias)) => {
+                    let name = RoomDisplayName::Aliased(alias.alias().trim().to_owned());
+                    DisplayNameOrSummary::DisplayName(name)
+                }
+                // We can't directly compute the display name from the summary here because Rust
+                // thinks that the `inner` lock is still held even if we explicitly call `drop()`
+                // on it. So we introduced the DisplayNameOrSummary type and do the computation in
+                // two steps.
+                (None, None) => DisplayNameOrSummary::Summary(inner.summary.clone()),
             }
-
-            if let Some(alias) = inner.canonical_alias() {
-                let alias = alias.alias().trim().to_owned();
-                drop(inner); // See above comment.
-                return Ok(update_cache(RoomDisplayName::Aliased(alias)));
-            }
-
-            inner.summary.clone()
         };
 
-        // From here, use some heroes to compute the room's name.
-        let own_user_id = self.own_user_id().as_str();
+        let display_name = match display_name_or_summary {
+            DisplayNameOrSummary::Summary(summary) => {
+                self.compute_display_name_from_summary(summary).await?
+            }
+            DisplayNameOrSummary::DisplayName(display_name) => display_name,
+        };
+
+        // Update the cached display name before we return the newly computed value.
+        self.inner.update_if(|info| {
+            if info.cached_display_name.as_ref() != Some(&display_name) {
+                info.cached_display_name = Some(display_name.clone());
+                true
+            } else {
+                false
+            }
+        });
+
+        Ok(display_name)
+    }
+
+    /// Compute a [`RoomDisplayName`] from the given [`RoomSummary`].
+    async fn compute_display_name_from_summary(
+        &self,
+        summary: RoomSummary,
+    ) -> StoreResult<RoomDisplayName> {
+        let summary_member_count = summary.joined_member_count + summary.invited_member_count;
 
         let (heroes, num_joined_invited_guess) = if !summary.room_heroes.is_empty() {
-            let mut names = Vec::with_capacity(summary.room_heroes.len());
-            for hero in &summary.room_heroes {
-                if hero.user_id == own_user_id {
-                    continue;
-                }
-                if let Some(display_name) = &hero.display_name {
-                    names.push(display_name.clone());
-                    continue;
-                }
+            let heroes = self.extract_heroes(&summary.room_heroes).await?;
+            (heroes, None)
+        } else {
+            let (heroes, num_joined_invited) = self.compute_summary().await?;
+            (heroes, Some(num_joined_invited))
+        };
+
+        let num_joined_invited = if self.state() == RoomState::Invited {
+            // when we were invited we don't have a proper summary, we have to do best
+            // guessing
+            heroes.len() as u64 + 1
+        } else if summary_member_count == 0 {
+            if let Some(num_joined_invited) = num_joined_invited_guess {
+                num_joined_invited
+            } else {
+                self.store
+                    .get_user_ids(self.room_id(), RoomMemberships::JOIN | RoomMemberships::INVITE)
+                    .await?
+                    .len() as u64
+            }
+        } else {
+            summary_member_count
+        };
+
+        debug!(
+            room_id = ?self.room_id(),
+            own_user = ?self.own_user_id,
+            num_joined_invited,
+            heroes = ?heroes,
+            "Calculating name for a room based on heroes",
+        );
+
+        let display_name = compute_display_name_from_heroes(
+            num_joined_invited,
+            heroes.iter().map(|hero| hero.as_str()).collect(),
+        );
+
+        Ok(display_name)
+    }
+
+    /// Extract and collect the display names of the room heroes from a
+    /// [`RoomSummary`].
+    ///
+    /// Returns the display names as a list of strings.
+    async fn extract_heroes(&self, heroes: &[RoomHero]) -> StoreResult<Vec<String>> {
+        let own_user_id = self.own_user_id().as_str();
+
+        let mut names = Vec::with_capacity(heroes.len());
+        let heroes = heroes.iter().filter(|hero| hero.user_id != own_user_id);
+
+        for hero in heroes {
+            if let Some(display_name) = &hero.display_name {
+                names.push(display_name.clone());
+            } else {
                 match self.get_member(&hero.user_id).await {
                     Ok(Some(member)) => {
                         names.push(member.name().to_owned());
@@ -628,42 +692,9 @@ impl Room {
                     }
                 }
             }
+        }
 
-            (names, None)
-        } else {
-            let (heroes, num_joined_invited) = self.compute_summary().await?;
-            (heroes, Some(num_joined_invited))
-        };
-
-        let num_joined_invited = if self.state() == RoomState::Invited {
-            // when we were invited we don't have a proper summary, we have to do best
-            // guessing
-            heroes.len() as u64 + 1
-        } else if summary.joined_member_count == 0 && summary.invited_member_count == 0 {
-            if let Some(num_joined_invited) = num_joined_invited_guess {
-                num_joined_invited
-            } else {
-                self.store
-                    .get_user_ids(self.room_id(), RoomMemberships::JOIN | RoomMemberships::INVITE)
-                    .await?
-                    .len() as u64
-            }
-        } else {
-            summary.joined_member_count + summary.invited_member_count
-        };
-
-        debug!(
-            room_id = ?self.room_id(),
-            own_user = ?self.own_user_id,
-            num_joined_invited,
-            heroes = ?heroes,
-            "Calculating name for a room based on heroes",
-        );
-
-        Ok(update_cache(compute_display_name_from_heroes(
-            num_joined_invited,
-            heroes.iter().map(|hero| hero.as_str()).collect(),
-        )))
+        Ok(names)
     }
 
     /// Compute the room summary with the data present in the store.
