@@ -21,8 +21,11 @@ use std::{borrow::Cow, fmt, path::Path, sync::Arc};
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
-    event_cache::{store::EventCacheStore, Event, Gap},
-    linked_chunk::{ChunkContent, ChunkIdentifier, Update},
+    event_cache::{
+        store::{EventCacheStore, DEFAULT_CHUNK_CAPACITY},
+        Event, Gap,
+    },
+    linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunk, LinkedChunkBuilder, Update},
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -624,6 +627,32 @@ impl EventCacheStore for SqliteEventCacheStore {
         }
 
         Ok(())
+    }
+
+    async fn reload_linked_chunk(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, Self::Error> {
+        let chunks = self.load_chunks(room_id).await?;
+
+        let mut builder = LinkedChunkBuilder::new();
+
+        for c in chunks {
+            match c.content {
+                ChunkContent::Gap(gap) => {
+                    builder.push_gap(c.previous, c.id, c.next, gap);
+                }
+                ChunkContent::Items(items) => {
+                    builder.push_items(c.previous, c.id, c.next, items);
+                }
+            }
+        }
+
+        builder.with_update_history();
+
+        builder.build().map_err(|err| Error::InvalidData {
+            details: format!("when rebuilding a linked chunk: {err}"),
+        })
     }
 
     async fn add_media_content(

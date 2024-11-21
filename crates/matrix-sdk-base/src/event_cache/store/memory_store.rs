@@ -16,13 +16,13 @@ use std::{collections::HashMap, num::NonZeroUsize, sync::RwLock as StdRwLock, ti
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    linked_chunk::{relational::RelationalLinkedChunk, Update},
+    linked_chunk::{relational::RelationalLinkedChunk, LinkedChunk, Update},
     ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
 };
 use ruma::{MxcUri, OwnedMxcUri, RoomId};
 
-use super::{EventCacheStore, EventCacheStoreError, Result};
+use super::{EventCacheStore, EventCacheStoreError, Result, DEFAULT_CHUNK_CAPACITY};
 use crate::{
     event_cache::{Event, Gap},
     media::{MediaRequestParameters, UniqueKey as _},
@@ -91,6 +91,14 @@ impl EventCacheStore for MemoryStore {
         inner.events.apply_updates(room_id, updates);
 
         Ok(())
+    }
+
+    async fn reload_linked_chunk(
+        &self,
+        _room_id: &RoomId,
+    ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, Self::Error> {
+        // TODO(hywan)
+        Ok(Default::default())
     }
 
     async fn add_media_content(
