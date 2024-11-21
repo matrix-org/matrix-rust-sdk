@@ -80,7 +80,7 @@ pub use http_client::TransmissionProgress;
 #[cfg(all(feature = "e2e-encryption", feature = "sqlite"))]
 pub use matrix_sdk_sqlite::SqliteCryptoStore;
 #[cfg(feature = "sqlite")]
-pub use matrix_sdk_sqlite::SqliteStateStore;
+pub use matrix_sdk_sqlite::{SqliteEventCacheStore, SqliteStateStore};
 pub use media::Media;
 pub use pusher::Pusher;
 pub use room::Room;
