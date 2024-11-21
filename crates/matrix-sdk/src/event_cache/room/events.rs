@@ -16,7 +16,7 @@ use std::cmp::Ordering;
 
 use eyeball_im::VectorDiff;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
-use matrix_sdk_base::linked_chunk::AsVector;
+use matrix_sdk_base::{event_cache::store::DEFAULT_CHUNK_CAPACITY, linked_chunk::AsVector};
 use matrix_sdk_common::linked_chunk::{
     Chunk, ChunkIdentifier, EmptyChunk, Error, Iter, LinkedChunk, Position,
 };
@@ -24,8 +24,6 @@ use ruma::OwnedEventId;
 use tracing::{debug, error, warn};
 
 use super::super::deduplicator::{Decoration, Deduplicator};
-
-const DEFAULT_CHUNK_CAPACITY: usize = 128;
 
 /// This type represents all events of a single room.
 #[derive(Debug)]
