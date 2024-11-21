@@ -14,7 +14,10 @@
 
 #![allow(missing_docs)]
 
-use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
+use std::{
+    collections::BTreeSet,
+    sync::atomic::{AtomicU64, Ordering::SeqCst},
+};
 
 use as_variant::as_variant;
 use matrix_sdk_common::deserialized_responses::{
@@ -22,6 +25,7 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use ruma::{
     events::{
+        member_hints::MemberHintsEventContent,
         message::TextContentBlock,
         poll::{
             end::PollEndEventContent,
@@ -397,6 +401,34 @@ impl EventFactory {
         event.state_key = Some(member.to_string());
 
         event
+    }
+
+    /// Create a new `m.member_hints` event with the given service members.
+    ///
+    /// ```
+    /// use std::collections::BTreeSet;
+    ///
+    /// use matrix_sdk_test::event_factory::EventFactory;
+    /// use ruma::{
+    ///     events::{member_hints::MemberHintsEventContent, SyncStateEvent},
+    ///     owned_user_id, room_id,
+    ///     serde::Raw,
+    ///     user_id,
+    /// };
+    ///
+    /// let factory = EventFactory::new().room(room_id!("!test:localhost"));
+    ///
+    /// let event: Raw<SyncStateEvent<MemberHintsEventContent>> = factory
+    ///     .member_hints(BTreeSet::from([owned_user_id!("@alice:localhost")]))
+    ///     .sender(user_id!("@alice:localhost"))
+    ///     .into_raw();
+    /// ```
+    pub fn member_hints(
+        &self,
+        service_members: BTreeSet<OwnedUserId>,
+    ) -> EventBuilder<MemberHintsEventContent> {
+        // The `m.member_hints` event always has an empty state key, so let's set it.
+        self.event(MemberHintsEventContent::new(service_members)).state_key("")
     }
 
     /// Create a new plain/html `m.room.message`.
