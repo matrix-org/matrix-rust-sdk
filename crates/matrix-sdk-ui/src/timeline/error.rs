@@ -54,15 +54,15 @@ pub enum Error {
     UnknownEncryptionState,
 
     /// Something went wrong with the room event cache.
-    #[error("Something went wrong with the room event cache.")]
+    #[error(transparent)]
     EventCacheError(#[from] EventCacheError),
 
     /// An error happened during pagination.
-    #[error("An error happened during pagination.")]
+    #[error(transparent)]
     PaginationError(#[from] PaginationError),
 
     /// An error happened during pagination.
-    #[error("An error happened when loading pinned events.")]
+    #[error(transparent)]
     PinnedEventsError(#[from] PinnedEventsLoaderError),
 
     /// An error happened while operating the room's send queue.
