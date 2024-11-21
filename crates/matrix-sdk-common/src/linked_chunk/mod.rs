@@ -93,6 +93,7 @@ macro_rules! assert_items_eq {
 }
 
 mod as_vector;
+mod builder;
 pub mod relational;
 mod updates;
 
@@ -105,6 +106,7 @@ use std::{
 };
 
 pub use as_vector::*;
+pub use builder::*;
 pub use updates::*;
 
 /// Errors of [`LinkedChunk`].
@@ -944,7 +946,7 @@ impl ChunkIdentifierGenerator {
 /// It is not the position of the chunk, just its unique identifier.
 ///
 /// Learn more with [`ChunkIdentifierGenerator`].
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct ChunkIdentifier(u64);
 
@@ -1091,6 +1093,14 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
 
     fn new(identifier: ChunkIdentifier, content: ChunkContent<Item, Gap>) -> Self {
         Self { previous: None, next: None, identifier, content }
+    }
+
+    /// Create a new chunk given some content, but box it and leak it.
+    fn new_leaked(identifier: ChunkIdentifier, content: ChunkContent<Item, Gap>) -> NonNull<Self> {
+        let chunk = Self::new(identifier, content);
+        let chunk_box = Box::new(chunk);
+
+        NonNull::from(Box::leak(chunk_box))
     }
 
     /// Create a new gap chunk, but box it and leak it.
