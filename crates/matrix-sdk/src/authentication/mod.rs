@@ -17,6 +17,8 @@
 // TODO:(pixlwave) Move AuthenticationService from the FFI into this module.
 // TODO:(poljar) Move the oidc and matrix_auth modules under this module.
 
+use std::sync::Arc;
+
 use as_variant::as_variant;
 use matrix_sdk_base::SessionMeta;
 use tokio::sync::{broadcast, Mutex, OnceCell};
@@ -58,7 +60,7 @@ pub(crate) struct AuthCtx {
     pub(crate) handle_refresh_tokens: bool,
 
     /// Lock making sure we're only doing one token refresh at a time.
-    pub(crate) refresh_token_lock: Mutex<Result<(), RefreshTokenError>>,
+    pub(crate) refresh_token_lock: Arc<Mutex<Result<(), RefreshTokenError>>>,
 
     /// Session change publisher. Allows the subscriber to handle changes to the
     /// session such as logging out when the access token is invalid or
