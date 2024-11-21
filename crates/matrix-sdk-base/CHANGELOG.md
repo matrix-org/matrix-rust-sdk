@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Introduced support for
+  [MSC4171](https://github.com/matrix-org/matrix-rust-sdk/pull/4335), enabling
+  the designation of certain users as service members. These flagged users are
+  excluded from the room display name calculation.
+  ([#4335](https://github.com/matrix-org/matrix-rust-sdk/pull/4335))
+
 ### Bug Fixes
 
 - Fix an off-by-one error in the `ObservableMap` when the `remove()` method is
