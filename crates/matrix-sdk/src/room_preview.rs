@@ -124,9 +124,8 @@ impl RoomPreview {
         }
     }
 
-    /// Create a room preview from a known room (i.e. one we've been invited to,
-    /// we've joined or we've left).
-    pub(crate) async fn from_known(room: &Room) -> Self {
+    /// Create a room preview from a known room we've joined.
+    pub(crate) async fn from_joined(room: &Room) -> Self {
         let is_direct = room.is_direct().await.ok();
 
         let display_name = room.compute_display_name().await.ok().map(|name| name.to_string());
@@ -142,7 +141,7 @@ impl RoomPreview {
     }
 
     #[instrument(skip(client))]
-    pub(crate) async fn from_unknown(
+    pub(crate) async fn from_not_joined(
         client: &Client,
         room_id: OwnedRoomId,
         room_or_alias_id: &RoomOrAliasId,
