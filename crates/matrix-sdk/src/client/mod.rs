@@ -1142,8 +1142,8 @@ impl Client {
         self.base_client().get_room(room_id).map(|room| Room::new(self.clone(), room))
     }
 
-    /// Gets the preview of a room, whether the current user knows it (because
-    /// they've joined/left/been invited to it) or not.
+    /// Gets the preview of a room, whether the current user has joined it or
+    /// not.
     pub async fn get_room_preview(
         &self,
         room_or_alias_id: &RoomOrAliasId,
@@ -1155,10 +1155,16 @@ impl Client {
         };
 
         if let Some(room) = self.get_room(&room_id) {
-            return Ok(RoomPreview::from_known(&room).await);
+            // The cached data can only be trusted if the room is joined: for invite and
+            // knock rooms, no updates will be received for the rooms after the invite/knock
+            // action took place so we may have very out to date data for important fields
+            // such as `join_rule`
+            if room.state() == RoomState::Joined {
+                return Ok(RoomPreview::from_joined(&room).await);
+            }
         }
 
-        RoomPreview::from_unknown(self, room_id, room_or_alias_id, via).await
+        RoomPreview::from_not_joined(self, room_id, room_or_alias_id, via).await
     }
 
     /// Resolve a room alias to a room id and a list of servers which know

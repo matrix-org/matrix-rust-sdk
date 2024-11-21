@@ -9,7 +9,9 @@ use matrix_sdk_test::{
 };
 #[cfg(feature = "experimental-sliding-sync")]
 use ruma::{api::client::sync::sync_events::v5::response::Hero, assign};
-use ruma::{owned_user_id, room_id, space::SpaceRoomJoinRule, RoomId};
+use ruma::{
+    events::room::member::MembershipState, owned_user_id, room_id, space::SpaceRoomJoinRule, RoomId,
+};
 use serde_json::json;
 use wiremock::{
     matchers::{header, method, path_regex},
@@ -30,6 +32,14 @@ async fn test_room_preview_leave_invited() {
     client.sync_once(SyncSettings::default()).await.unwrap();
     server.reset().await;
 
+    mock_unknown_summary(
+        room_id,
+        None,
+        SpaceRoomJoinRule::Knock,
+        Some(MembershipState::Invite),
+        &server,
+    )
+    .await;
     mock_leave(room_id, &server).await;
 
     let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
@@ -52,6 +62,14 @@ async fn test_room_preview_leave_knocked() {
     client.sync_once(SyncSettings::default()).await.unwrap();
     server.reset().await;
 
+    mock_unknown_summary(
+        room_id,
+        None,
+        SpaceRoomJoinRule::Knock,
+        Some(MembershipState::Knock),
+        &server,
+    )
+    .await;
     mock_leave(room_id, &server).await;
 
     let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
@@ -91,7 +109,7 @@ async fn test_room_preview_leave_unknown_room_fails() {
     let (client, server) = logged_in_client_with_server().await;
     let room_id = room_id!("!room:localhost");
 
-    mock_unknown_summary(room_id, None, SpaceRoomJoinRule::Knock, &server).await;
+    mock_unknown_summary(room_id, None, SpaceRoomJoinRule::Knock, None, &server).await;
 
     let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
     assert!(room_preview.state.is_none());
@@ -142,6 +160,7 @@ async fn mock_unknown_summary(
     room_id: &RoomId,
     alias: Option<String>,
     join_rule: SpaceRoomJoinRule,
+    membership: Option<MembershipState>,
     server: &MockServer,
 ) {
     let body = if let Some(alias) = alias {
@@ -152,6 +171,7 @@ async fn mock_unknown_summary(
             "num_joined_members": 1,
             "world_readable": true,
             "join_rule": join_rule,
+            "membership": membership,
         })
     } else {
         json!({
@@ -160,6 +180,7 @@ async fn mock_unknown_summary(
             "num_joined_members": 1,
             "world_readable": true,
             "join_rule": join_rule,
+            "membership": membership,
         })
     };
     Mock::given(method("GET"))
