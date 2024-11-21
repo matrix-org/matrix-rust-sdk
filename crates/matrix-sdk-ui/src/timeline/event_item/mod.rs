@@ -368,7 +368,15 @@ impl EventTimelineItem {
 
         match self.content() {
             TimelineItemContent::Message(message) => {
-                matches!(message.msgtype(), MessageType::Text(_) | MessageType::Emote(_))
+                matches!(
+                    message.msgtype(),
+                    MessageType::Text(_)
+                        | MessageType::Emote(_)
+                        | MessageType::Audio(_)
+                        | MessageType::File(_)
+                        | MessageType::Image(_)
+                        | MessageType::Video(_)
+                )
             }
             TimelineItemContent::Poll(poll) => {
                 poll.response_data.is_empty() && poll.end_event_timestamp.is_none()
