@@ -43,7 +43,7 @@ pub use self::{
 #[derive(Clone)]
 pub struct EventCacheStoreLock {
     /// The inner cross process lock that is used to lock the `EventCacheStore`.
-    cross_process_lock: CrossProcessStoreLock<LockableEventCacheStore>,
+    cross_process_lock: Arc<CrossProcessStoreLock<LockableEventCacheStore>>,
 
     /// The store itself.
     ///
@@ -70,11 +70,11 @@ impl EventCacheStoreLock {
         let store = store.into_event_cache_store();
 
         Self {
-            cross_process_lock: CrossProcessStoreLock::new(
+            cross_process_lock: Arc::new(CrossProcessStoreLock::new(
                 LockableEventCacheStore(store.clone()),
                 "default".to_owned(),
                 holder,
-            ),
+            )),
             store,
         }
     }
