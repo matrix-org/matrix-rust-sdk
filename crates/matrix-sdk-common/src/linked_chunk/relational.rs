@@ -198,7 +198,7 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
                     })
                     .expect("Previous chunk should be present");
 
-                // Insert the chunk.
+                // Link the chunk.
                 entry_for_previous_chunk.next_chunk = Some(new);
             }
 
@@ -211,7 +211,7 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
                     })
                     .expect("Next chunk should be present");
 
-                // Insert the chunk.
+                // Link the chunk.
                 entry_for_next_chunk.previous_chunk = Some(new);
             }
 
@@ -360,7 +360,7 @@ mod tests {
             ],
         );
 
-        // Chunks are correctly links.
+        // Chunks are correctly linked.
         assert_eq!(
             relational_linked_chunk.chunks,
             &[
@@ -419,7 +419,7 @@ mod tests {
             ],
         );
 
-        // Chunks are correctly links.
+        // Chunks are correctly linked.
         assert_eq!(
             relational_linked_chunk.chunks,
             &[
@@ -462,7 +462,7 @@ mod tests {
             ],
         );
 
-        // Chunks are correctly links.
+        // Chunks are correctly linked.
         assert_eq!(
             relational_linked_chunk.chunks,
             &[
@@ -550,7 +550,7 @@ mod tests {
             ],
         );
 
-        // Chunks are correctly links.
+        // Chunks are correctly linked.
         assert_eq!(
             relational_linked_chunk.chunks,
             &[ChunkRow {
@@ -607,7 +607,7 @@ mod tests {
             ],
         );
 
-        // Chunks are correctly links.
+        // Chunks are correctly linked.
         assert_eq!(
             relational_linked_chunk.chunks,
             &[
