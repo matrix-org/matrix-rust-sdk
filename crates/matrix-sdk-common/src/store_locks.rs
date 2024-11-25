@@ -361,7 +361,7 @@ mod tests {
 
     impl TestStore {
         fn try_take_leased_lock(&self, lease_duration_ms: u32, key: &str, holder: &str) -> bool {
-            try_take_leased_lock(&self.leases, lease_duration_ms, key, holder)
+            try_take_leased_lock(&mut self.leases.write().unwrap(), lease_duration_ms, key, holder)
         }
     }
 
@@ -502,12 +502,11 @@ mod tests {
 pub mod memory_store_helper {
     use std::{
         collections::{hash_map::Entry, HashMap},
-        sync::RwLock,
         time::{Duration, Instant},
     };
 
     pub fn try_take_leased_lock(
-        leases: &RwLock<HashMap<String, (String, Instant)>>,
+        leases: &mut HashMap<String, (String, Instant)>,
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
@@ -515,7 +514,7 @@ pub mod memory_store_helper {
         let now = Instant::now();
         let expiration = now + Duration::from_millis(lease_duration_ms.into());
 
-        match leases.write().unwrap().entry(key.to_owned()) {
+        match leases.entry(key.to_owned()) {
             // There is an existing holder.
             Entry::Occupied(mut entry) => {
                 let (current_holder, current_expiration) = entry.get_mut();
