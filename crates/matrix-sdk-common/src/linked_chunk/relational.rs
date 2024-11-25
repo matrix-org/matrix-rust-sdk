@@ -15,13 +15,14 @@
 //! Implementation for a _relational linked chunk_, see
 //! [`RelationalLinkedChunk`].
 
-use ruma::RoomId;
+use ruma::{OwnedRoomId, RoomId};
 
 use crate::linked_chunk::{ChunkIdentifier, Position, Update};
 
 /// A row of the [`RelationalLinkedChunk::chunks`].
 #[derive(Debug, PartialEq)]
 struct ChunkRow {
+    room_id: OwnedRoomId,
     previous_chunk: Option<ChunkIdentifier>,
     chunk: ChunkIdentifier,
     next_chunk: Option<ChunkIdentifier>,
@@ -30,6 +31,7 @@ struct ChunkRow {
 /// A row of the [`RelationalLinkedChunk::items`].
 #[derive(Debug, PartialEq)]
 struct ItemRow<Item, Gap> {
+    room_id: OwnedRoomId,
     position: Position,
     item: Either<Item, Gap>,
 }
@@ -78,7 +80,7 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
 
     /// Apply [`Update`]s. That's the only way to write data inside this
     /// relational linked chunk.
-    pub fn apply_updates(&mut self, _room_id: &RoomId, updates: &[Update<Item, Gap>])
+    pub fn apply_updates(&mut self, room_id: &RoomId, updates: &[Update<Item, Gap>])
     where
         Item: Clone,
         Gap: Clone,
@@ -86,27 +88,32 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
         for update in updates {
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
-                    insert_chunk(&mut self.chunks, previous, new, next);
+                    insert_chunk(&mut self.chunks, room_id, previous, new, next);
                 }
 
                 Update::NewGapChunk { previous, new, next, gap } => {
-                    insert_chunk(&mut self.chunks, previous, new, next);
+                    insert_chunk(&mut self.chunks, room_id, previous, new, next);
                     self.items.push(ItemRow {
+                        room_id: room_id.to_owned(),
                         position: Position(*new, 0),
                         item: Either::Gap(gap.clone()),
                     });
                 }
 
                 Update::RemoveChunk(chunk_identifier) => {
-                    remove_chunk(&mut self.chunks, chunk_identifier);
+                    remove_chunk(&mut self.chunks, room_id, chunk_identifier);
 
                     let indices_to_remove = self
                         .items
                         .iter()
                         .enumerate()
-                        .filter_map(|(nth, ItemRow { position, .. })| {
-                            (position.chunk_identifier() == *chunk_identifier).then_some(nth)
-                        })
+                        .filter_map(
+                            |(nth, ItemRow { room_id: room_id_candidate, position, .. })| {
+                                (room_id == room_id_candidate
+                                    && position.chunk_identifier() == *chunk_identifier)
+                                    .then_some(nth)
+                            },
+                        )
                         .collect::<Vec<_>>();
 
                     for index_to_remove in indices_to_remove.into_iter().rev() {
@@ -118,7 +125,11 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
                     let mut at = *at;
 
                     for item in items {
-                        self.items.push(ItemRow { position: at, item: Either::Item(item.clone()) });
+                        self.items.push(ItemRow {
+                            room_id: room_id.to_owned(),
+                            position: at,
+                            item: Either::Item(item.clone()),
+                        });
                         at.increment_index();
                     }
                 }
@@ -126,7 +137,14 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
                 Update::RemoveItem { at } => {
                     let mut entry_to_remove = None;
 
-                    for (nth, ItemRow { position, .. }) in self.items.iter_mut().enumerate() {
+                    for (nth, ItemRow { room_id: room_id_candidate, position, .. }) in
+                        self.items.iter_mut().enumerate()
+                    {
+                        // Filter by room ID.
+                        if room_id != room_id_candidate {
+                            continue;
+                        }
+
                         // Find the item to remove.
                         if position == at {
                             debug_assert!(entry_to_remove.is_none(), "Found the same entry twice");
@@ -150,11 +168,14 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
                         .items
                         .iter()
                         .enumerate()
-                        .filter_map(|(nth, ItemRow { position, .. })| {
-                            (position.chunk_identifier() == at.chunk_identifier()
-                                && position.index() >= at.index())
-                            .then_some(nth)
-                        })
+                        .filter_map(
+                            |(nth, ItemRow { room_id: room_id_candidate, position, .. })| {
+                                (room_id == room_id_candidate
+                                    && position.chunk_identifier() == at.chunk_identifier()
+                                    && position.index() >= at.index())
+                                .then_some(nth)
+                            },
+                        )
                         .collect::<Vec<_>>();
 
                     for index_to_remove in indices_to_remove.into_iter().rev() {
@@ -168,6 +189,7 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
 
         fn insert_chunk(
             chunks: &mut Vec<ChunkRow>,
+            room_id: &RoomId,
             previous: &Option<ChunkIdentifier>,
             new: &ChunkIdentifier,
             next: &Option<ChunkIdentifier>,
@@ -176,7 +198,9 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
             if let Some(previous) = previous {
                 let entry_for_previous_chunk = chunks
                     .iter_mut()
-                    .find(|ChunkRow { chunk, .. }| chunk == previous)
+                    .find(|ChunkRow { room_id: room_id_candidate, chunk, .. }| {
+                        room_id == room_id_candidate && chunk == previous
+                    })
                     .expect("Previous chunk should be present");
 
                 // Insert the chunk.
@@ -187,7 +211,9 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
             if let Some(next) = next {
                 let entry_for_next_chunk = chunks
                     .iter_mut()
-                    .find(|ChunkRow { chunk, .. }| chunk == next)
+                    .find(|ChunkRow { room_id: room_id_candidate, chunk, .. }| {
+                        room_id == room_id_candidate && chunk == next
+                    })
                     .expect("Next chunk should be present");
 
                 // Insert the chunk.
@@ -195,24 +221,37 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
             }
 
             // Insert the chunk.
-            chunks.push(ChunkRow { previous_chunk: *previous, chunk: *new, next_chunk: *next });
+            chunks.push(ChunkRow {
+                room_id: room_id.to_owned(),
+                previous_chunk: *previous,
+                chunk: *new,
+                next_chunk: *next,
+            });
         }
 
-        fn remove_chunk(chunks: &mut Vec<ChunkRow>, chunk_to_remove: &ChunkIdentifier) {
+        fn remove_chunk(
+            chunks: &mut Vec<ChunkRow>,
+            room_id: &RoomId,
+            chunk_to_remove: &ChunkIdentifier,
+        ) {
             let entry_nth_to_remove = chunks
                 .iter()
                 .enumerate()
-                .find_map(|(nth, ChunkRow { chunk, .. })| (chunk == chunk_to_remove).then_some(nth))
+                .find_map(|(nth, ChunkRow { room_id: room_id_candidate, chunk, .. })| {
+                    (room_id == room_id_candidate && chunk == chunk_to_remove).then_some(nth)
+                })
                 .expect("Remove an unknown chunk");
 
-            let ChunkRow { previous_chunk: previous, next_chunk: next, .. } =
+            let ChunkRow { room_id, previous_chunk: previous, next_chunk: next, .. } =
                 chunks.remove(entry_nth_to_remove);
 
             // Find the previous chunk, and update its next chunk.
             if let Some(previous) = previous {
                 let entry_for_previous_chunk = chunks
                     .iter_mut()
-                    .find(|ChunkRow { chunk, .. }| *chunk == previous)
+                    .find(|ChunkRow { room_id: room_id_candidate, chunk, .. }| {
+                        &room_id == room_id_candidate && *chunk == previous
+                    })
                     .expect("Previous chunk should be present");
 
                 // Insert the chunk.
@@ -223,7 +262,9 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
             if let Some(next) = next {
                 let entry_for_next_chunk = chunks
                     .iter_mut()
-                    .find(|ChunkRow { chunk, .. }| *chunk == next)
+                    .find(|ChunkRow { room_id: room_id_candidate, chunk, .. }| {
+                        &room_id == room_id_candidate && *chunk == next
+                    })
                     .expect("Next chunk should be present");
 
                 // Insert the chunk.
@@ -268,10 +309,30 @@ mod tests {
         assert_eq!(
             relational_linked_chunk.chunks,
             &[
-                ChunkRow { previous_chunk: Some(CId(3)), chunk: CId(0), next_chunk: Some(CId(1)) },
-                ChunkRow { previous_chunk: Some(CId(0)), chunk: CId(1), next_chunk: None },
-                ChunkRow { previous_chunk: None, chunk: CId(2), next_chunk: Some(CId(3)) },
-                ChunkRow { previous_chunk: Some(CId(2)), chunk: CId(3), next_chunk: Some(CId(0)) },
+                ChunkRow {
+                    room_id: room_id.to_owned(),
+                    previous_chunk: Some(CId(3)),
+                    chunk: CId(0),
+                    next_chunk: Some(CId(1))
+                },
+                ChunkRow {
+                    room_id: room_id.to_owned(),
+                    previous_chunk: Some(CId(0)),
+                    chunk: CId(1),
+                    next_chunk: None
+                },
+                ChunkRow {
+                    room_id: room_id.to_owned(),
+                    previous_chunk: None,
+                    chunk: CId(2),
+                    next_chunk: Some(CId(3))
+                },
+                ChunkRow {
+                    room_id: room_id.to_owned(),
+                    previous_chunk: Some(CId(2)),
+                    chunk: CId(3),
+                    next_chunk: Some(CId(0))
+                },
             ],
         );
         // Items have not been modified.
@@ -299,15 +360,34 @@ mod tests {
         assert_eq!(
             relational_linked_chunk.chunks,
             &[
-                ChunkRow { previous_chunk: None, chunk: CId(0), next_chunk: Some(CId(1)) },
-                ChunkRow { previous_chunk: Some(CId(0)), chunk: CId(1), next_chunk: Some(CId(2)) },
-                ChunkRow { previous_chunk: Some(CId(1)), chunk: CId(2), next_chunk: None },
+                ChunkRow {
+                    room_id: room_id.to_owned(),
+                    previous_chunk: None,
+                    chunk: CId(0),
+                    next_chunk: Some(CId(1))
+                },
+                ChunkRow {
+                    room_id: room_id.to_owned(),
+                    previous_chunk: Some(CId(0)),
+                    chunk: CId(1),
+                    next_chunk: Some(CId(2))
+                },
+                ChunkRow {
+                    room_id: room_id.to_owned(),
+                    previous_chunk: Some(CId(1)),
+                    chunk: CId(2),
+                    next_chunk: None
+                },
             ],
         );
         // Items contains the gap.
         assert_eq!(
             relational_linked_chunk.items,
-            &[ItemRow { position: Position(CId(1), 0), item: Either::Gap(()) }],
+            &[ItemRow {
+                room_id: room_id.to_owned(),
+                position: Position(CId(1), 0),
+                item: Either::Gap(())
+            }],
         );
     }
 
@@ -334,8 +414,18 @@ mod tests {
         assert_eq!(
             relational_linked_chunk.chunks,
             &[
-                ChunkRow { previous_chunk: None, chunk: CId(0), next_chunk: Some(CId(2)) },
-                ChunkRow { previous_chunk: Some(CId(0)), chunk: CId(2), next_chunk: None },
+                ChunkRow {
+                    room_id: room_id.to_owned(),
+                    previous_chunk: None,
+                    chunk: CId(0),
+                    next_chunk: Some(CId(2))
+                },
+                ChunkRow {
+                    room_id: room_id.to_owned(),
+                    previous_chunk: Some(CId(0)),
+                    chunk: CId(2),
+                    next_chunk: None
+                },
             ],
         );
         // Items no longer contains the gap.
@@ -367,22 +457,64 @@ mod tests {
         assert_eq!(
             relational_linked_chunk.chunks,
             &[
-                ChunkRow { previous_chunk: None, chunk: CId(0), next_chunk: Some(CId(1)) },
-                ChunkRow { previous_chunk: Some(CId(0)), chunk: CId(1), next_chunk: None },
+                ChunkRow {
+                    room_id: room_id.to_owned(),
+                    previous_chunk: None,
+                    chunk: CId(0),
+                    next_chunk: Some(CId(1))
+                },
+                ChunkRow {
+                    room_id: room_id.to_owned(),
+                    previous_chunk: Some(CId(0)),
+                    chunk: CId(1),
+                    next_chunk: None
+                },
             ],
         );
         // Items contains the pushed items.
         assert_eq!(
             relational_linked_chunk.items,
             &[
-                ItemRow { position: Position(CId(0), 0), item: Either::Item('a') },
-                ItemRow { position: Position(CId(0), 1), item: Either::Item('b') },
-                ItemRow { position: Position(CId(0), 2), item: Either::Item('c') },
-                ItemRow { position: Position(CId(1), 0), item: Either::Item('x') },
-                ItemRow { position: Position(CId(1), 1), item: Either::Item('y') },
-                ItemRow { position: Position(CId(1), 2), item: Either::Item('z') },
-                ItemRow { position: Position(CId(0), 3), item: Either::Item('d') },
-                ItemRow { position: Position(CId(0), 4), item: Either::Item('e') },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(0), 0),
+                    item: Either::Item('a')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(0), 1),
+                    item: Either::Item('b')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(0), 2),
+                    item: Either::Item('c')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(1), 0),
+                    item: Either::Item('x')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(1), 1),
+                    item: Either::Item('y')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(1), 2),
+                    item: Either::Item('z')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(0), 3),
+                    item: Either::Item('d')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(0), 4),
+                    item: Either::Item('e')
+                },
             ],
         );
     }
@@ -409,15 +541,32 @@ mod tests {
         // Chunks are correctly links.
         assert_eq!(
             relational_linked_chunk.chunks,
-            &[ChunkRow { previous_chunk: None, chunk: CId(0), next_chunk: None }],
+            &[ChunkRow {
+                room_id: room_id.to_owned(),
+                previous_chunk: None,
+                chunk: CId(0),
+                next_chunk: None
+            }],
         );
         // Items contains the pushed items.
         assert_eq!(
             relational_linked_chunk.items,
             &[
-                ItemRow { position: Position(CId(0), 0), item: Either::Item('b') },
-                ItemRow { position: Position(CId(0), 1), item: Either::Item('c') },
-                ItemRow { position: Position(CId(0), 2), item: Either::Item('e') },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(0), 0),
+                    item: Either::Item('b')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(0), 1),
+                    item: Either::Item('c')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(0), 2),
+                    item: Either::Item('e')
+                },
             ],
         );
     }
@@ -447,19 +596,49 @@ mod tests {
         assert_eq!(
             relational_linked_chunk.chunks,
             &[
-                ChunkRow { previous_chunk: None, chunk: CId(0), next_chunk: Some(CId(1)) },
-                ChunkRow { previous_chunk: Some(CId(0)), chunk: CId(1), next_chunk: None },
+                ChunkRow {
+                    room_id: room_id.to_owned(),
+                    previous_chunk: None,
+                    chunk: CId(0),
+                    next_chunk: Some(CId(1))
+                },
+                ChunkRow {
+                    room_id: room_id.to_owned(),
+                    previous_chunk: Some(CId(0)),
+                    chunk: CId(1),
+                    next_chunk: None
+                },
             ],
         );
         // Items contains the pushed items.
         assert_eq!(
             relational_linked_chunk.items,
             &[
-                ItemRow { position: Position(CId(0), 0), item: Either::Item('a') },
-                ItemRow { position: Position(CId(0), 1), item: Either::Item('b') },
-                ItemRow { position: Position(CId(1), 0), item: Either::Item('x') },
-                ItemRow { position: Position(CId(1), 1), item: Either::Item('y') },
-                ItemRow { position: Position(CId(1), 2), item: Either::Item('z') },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(0), 0),
+                    item: Either::Item('a')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(0), 1),
+                    item: Either::Item('b')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(1), 0),
+                    item: Either::Item('x')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(1), 1),
+                    item: Either::Item('y')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position(CId(1), 2),
+                    item: Either::Item('z')
+                },
             ],
         );
     }
