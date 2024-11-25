@@ -848,14 +848,14 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     ///     .await;
     ///
     /// let event_id = event_id!("$some_id");
-    /// let send_guard = mock_server
+    /// mock_server
     ///     .mock_room_send()
     ///     .body_matches_partial_json(json!({
     ///         "body": "Hello world",
     ///     }))
     ///     .ok(event_id)
     ///     .expect(1)
-    ///     .mount_as_scoped()
+    ///     .mount()
     ///     .await;
     ///
     /// let content = RoomMessageEventContent::text_plain("Hello world");
@@ -897,13 +897,6 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// let event_id = event_id!("$some_id");
     /// mock_server
     ///     .mock_room_send()
-    ///     .for_type("m.room.message".into())
-    ///     .ok(event_id)
-    ///     .expect(1)
-    ///     .mount()
-    ///     .await;
-    /// mock_server
-    ///     .mock_room_send_state()
     ///     .for_type("m.room.message".into())
     ///     .ok(event_id)
     ///     .expect(1)
@@ -1010,17 +1003,21 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     ///     .await;
     ///
     /// let event_id = event_id!("$some_id");
-    /// let send_guard = mock_server
+    /// mock_server
     ///     .mock_room_send_state()
     ///     .body_matches_partial_json(json!({
-    ///         "redact": 50,
+    ///         "redact": 51,
     ///     }))
     ///     .ok(event_id)
     ///     .expect(1)
-    ///     .mount_as_scoped()
+    ///     .mount()
     ///     .await;
     ///
-    /// let content = RoomPowerLevelsEventContent::new();
+    /// let mut content = RoomPowerLevelsEventContent::new();
+    /// // Update the power level to a non default value.
+    /// // Otherwise it will be skipped from serialization.
+    /// content.redact = 51.into();
+    ///
     /// let response = room.send_state_event(content).await?;
     ///
     /// assert_eq!(
@@ -1500,104 +1497,5 @@ impl<'a> MockEndpoint<'a, PublicRoomsEndpoint> {
             }))
         });
         MatrixMock { server: self.server, mock }
-    }
-}
-mod tests {
-    use matrix_sdk_test::async_test;
-    #[async_test]
-    async fn test_doc_key() {
-        use crate::{
-            ruma::{
-                event_id,
-                events::{call::member::CallMemberEventContent, AnyStateEventContent},
-                room_id,
-            },
-            test_utils::mocks::MatrixMockServer,
-        };
-
-        let mock_server = MatrixMockServer::new().await;
-        let client = mock_server.client_builder().build().await;
-
-        mock_server.mock_room_state_encryption().plain().mount().await;
-
-        let room = mock_server.sync_joined_room(&client, room_id!("!room_id:localhost")).await;
-
-        let event_id = event_id!("$some_id");
-
-        mock_server
-            .mock_room_send_state()
-            .for_key("my_key".to_owned())
-            .ok(event_id)
-            .expect(1)
-            .mount()
-            .await;
-
-        let response_not_mocked = room
-            .send_state_event_for_key(
-                "",
-                AnyStateEventContent::CallMember(CallMemberEventContent::new_empty(None)),
-            )
-            .await;
-        // The `m.room.reaction` event type should not be mocked by the server.
-        assert!(response_not_mocked.is_err());
-
-        let response = room
-            .send_state_event_for_key(
-                "my_key",
-                AnyStateEventContent::CallMember(CallMemberEventContent::new_empty(None)),
-            )
-            .await
-            .unwrap();
-
-        // The `m.room.message` event type should be mocked by the server.
-        assert_eq!(
-            event_id, response.event_id,
-            "The event ID we mocked should match the one we received when we sent the event"
-        );
-    }
-
-    #[async_test]
-    async fn test_doc() {
-        use crate::{
-            ruma::{
-                event_id,
-                events::{
-                    room::{
-                        create::RoomCreateEventContent, power_levels::RoomPowerLevelsEventContent,
-                    },
-                    StateEventType,
-                },
-                room_id,
-            },
-            test_utils::mocks::MatrixMockServer,
-        };
-
-        let mock_server = MatrixMockServer::new().await;
-        let client = mock_server.client_builder().build().await;
-
-        mock_server.mock_room_state_encryption().plain().mount().await;
-
-        let room = mock_server.sync_joined_room(&client, room_id!("!room_id:localhost")).await;
-
-        let event_id = event_id!("$some_id");
-
-        mock_server
-            .mock_room_send_state()
-            .for_type(StateEventType::RoomPowerLevels)
-            .ok(event_id)
-            .expect(1)
-            .mount()
-            .await;
-
-        let response_not_mocked = room.send_state_event(RoomCreateEventContent::new_v11()).await;
-        // The `m.room.reaction` event type should not be mocked by the server.
-        assert!(response_not_mocked.is_err());
-
-        let response = room.send_state_event(RoomPowerLevelsEventContent::new()).await.unwrap();
-        // The `m.room.message` event type should be mocked by the server.
-        assert_eq!(
-            event_id, response.event_id,
-            "The event ID we mocked should match the one we received when we sent the event"
-        );
     }
 }
