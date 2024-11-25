@@ -729,9 +729,9 @@ mod tests {
             assert_eq!(chunks.len(), 1);
             assert_eq!(chunks[0].0, ChunkIdentifierGenerator::FIRST_IDENTIFIER);
             assert_eq!(chunks[0].1, 0);
-        }
 
-        assert!(as_vector.take().is_empty());
+            assert!(as_vector.take().is_empty());
+        }
 
         linked_chunk.push_items_back(['a', 'b', 'c', 'd']);
 
