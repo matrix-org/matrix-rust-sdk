@@ -934,7 +934,19 @@ impl ChunkIdentifierGenerator {
 /// Learn more with [`ChunkIdentifierGenerator`].
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(transparent)]
-pub struct ChunkIdentifier(pub(super) u64);
+pub struct ChunkIdentifier(u64);
+
+impl ChunkIdentifier {
+    /// Create a new [`ChunkIdentifier`].
+    pub(super) fn new(identifier: u64) -> Self {
+        Self(identifier)
+    }
+
+    /// Get the underlying identifier.
+    fn index(&self) -> u64 {
+        self.0
+    }
+}
 
 impl PartialEq<u64> for ChunkIdentifier {
     fn eq(&self, other: &u64) -> bool {
@@ -946,9 +958,14 @@ impl PartialEq<u64> for ChunkIdentifier {
 ///
 /// It's a pair of a chunk position and an item index.
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Position(pub(super) ChunkIdentifier, pub(super) usize);
+pub struct Position(ChunkIdentifier, usize);
 
 impl Position {
+    /// Create a new [`Position`].
+    pub(super) fn new(chunk_identifier: ChunkIdentifier, index: usize) -> Self {
+        Self(chunk_identifier, index)
+    }
+
     /// Get the chunk identifier of the item.
     pub fn chunk_identifier(&self) -> ChunkIdentifier {
         self.0
