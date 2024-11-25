@@ -405,6 +405,11 @@ impl UpdateToVectorDiff {
                     // Exiting the _detaching_ mode.
                     detaching = false;
                 }
+
+                Update::Clear => {
+                    // Let's straightforwardly emit a `VectorDiff::Clear`.
+                    diffs.push(VectorDiff::Clear);
+                }
             }
         }
 
@@ -473,6 +478,7 @@ mod tests {
                 VectorDiff::Remove { index } => {
                     accumulator.remove(index);
                 }
+                VectorDiff::Clear => accumulator.clear(),
                 diff => unimplemented!("{diff:?}"),
             }
         }
@@ -686,14 +692,20 @@ mod tests {
             &[VectorDiff::Insert { index: 14, value: 'z' }],
         );
 
-        drop(linked_chunk);
-        assert!(as_vector.take().is_empty());
-
-        // Finally, ensure the “reconstitued” vector is the one expected.
+        // Ensure the “reconstitued” vector is the one expected.
         assert_eq!(
             accumulator,
             vector!['m', 'a', 'w', 'x', 'y', 'b', 'd', 'i', 'j', 'k', 'l', 'e', 'f', 'g', 'z', 'h']
         );
+
+        // Let's try to clear the linked chunk now.
+        linked_chunk.clear();
+
+        apply_and_assert_eq(&mut accumulator, as_vector.take(), &[VectorDiff::Clear]);
+        assert!(accumulator.is_empty());
+
+        drop(linked_chunk);
+        assert!(as_vector.take().is_empty());
     }
 
     #[test]
