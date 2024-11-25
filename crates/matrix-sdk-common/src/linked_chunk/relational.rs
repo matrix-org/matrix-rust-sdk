@@ -15,6 +15,8 @@
 //! Implementation for a _relational linked chunk_, see
 //! [`RelationalLinkedChunk`].
 
+use ruma::RoomId;
+
 use crate::linked_chunk::{ChunkIdentifier, Position, Update};
 
 /// A row of the [`RelationalLinkedChunk::chunks`].
@@ -76,7 +78,7 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
 
     /// Apply [`Update`]s. That's the only way to write data inside this
     /// relational linked chunk.
-    pub fn apply_updates(&mut self, updates: &[Update<Item, Gap>])
+    pub fn apply_updates(&mut self, _room_id: &RoomId, updates: &[Update<Item, Gap>])
     where
         Item: Clone,
         Gap: Clone,
@@ -239,22 +241,28 @@ impl<Item, Gap> Default for RelationalLinkedChunk<Item, Gap> {
 
 #[cfg(test)]
 mod tests {
+    use ruma::room_id;
+
     use super::{ChunkIdentifier as CId, *};
 
     #[test]
     fn test_new_items_chunk() {
+        let room_id = room_id!("!r0:matrix.org");
         let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
 
-        relational_linked_chunk.apply_updates(&[
-            // 0
-            Update::NewItemsChunk { previous: None, new: CId(0), next: None },
-            // 1 after 0
-            Update::NewItemsChunk { previous: Some(CId(0)), new: CId(1), next: None },
-            // 2 before 0
-            Update::NewItemsChunk { previous: None, new: CId(2), next: Some(CId(0)) },
-            // 3 between 2 and 0
-            Update::NewItemsChunk { previous: Some(CId(2)), new: CId(3), next: Some(CId(0)) },
-        ]);
+        relational_linked_chunk.apply_updates(
+            room_id,
+            &[
+                // 0
+                Update::NewItemsChunk { previous: None, new: CId(0), next: None },
+                // 1 after 0
+                Update::NewItemsChunk { previous: Some(CId(0)), new: CId(1), next: None },
+                // 2 before 0
+                Update::NewItemsChunk { previous: None, new: CId(2), next: Some(CId(0)) },
+                // 3 between 2 and 0
+                Update::NewItemsChunk { previous: Some(CId(2)), new: CId(3), next: Some(CId(0)) },
+            ],
+        );
 
         // Chunks are correctly linked.
         assert_eq!(
@@ -272,16 +280,20 @@ mod tests {
 
     #[test]
     fn test_new_gap_chunk() {
+        let room_id = room_id!("!r0:matrix.org");
         let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
 
-        relational_linked_chunk.apply_updates(&[
-            // 0
-            Update::NewItemsChunk { previous: None, new: CId(0), next: None },
-            // 1 after 0
-            Update::NewGapChunk { previous: Some(CId(0)), new: CId(1), next: None, gap: () },
-            // 2 after 1
-            Update::NewItemsChunk { previous: Some(CId(1)), new: CId(2), next: None },
-        ]);
+        relational_linked_chunk.apply_updates(
+            room_id,
+            &[
+                // 0
+                Update::NewItemsChunk { previous: None, new: CId(0), next: None },
+                // 1 after 0
+                Update::NewGapChunk { previous: Some(CId(0)), new: CId(1), next: None, gap: () },
+                // 2 after 1
+                Update::NewItemsChunk { previous: Some(CId(1)), new: CId(2), next: None },
+            ],
+        );
 
         // Chunks are correctly links.
         assert_eq!(
@@ -301,18 +313,22 @@ mod tests {
 
     #[test]
     fn test_remove_chunk() {
+        let room_id = room_id!("!r0:matrix.org");
         let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
 
-        relational_linked_chunk.apply_updates(&[
-            // 0
-            Update::NewItemsChunk { previous: None, new: CId(0), next: None },
-            // 1 after 0
-            Update::NewGapChunk { previous: Some(CId(0)), new: CId(1), next: None, gap: () },
-            // 2 after 1
-            Update::NewItemsChunk { previous: Some(CId(1)), new: CId(2), next: None },
-            // remove 1
-            Update::RemoveChunk(CId(1)),
-        ]);
+        relational_linked_chunk.apply_updates(
+            room_id,
+            &[
+                // 0
+                Update::NewItemsChunk { previous: None, new: CId(0), next: None },
+                // 1 after 0
+                Update::NewGapChunk { previous: Some(CId(0)), new: CId(1), next: None, gap: () },
+                // 2 after 1
+                Update::NewItemsChunk { previous: Some(CId(1)), new: CId(2), next: None },
+                // remove 1
+                Update::RemoveChunk(CId(1)),
+            ],
+        );
 
         // Chunks are correctly links.
         assert_eq!(
@@ -328,20 +344,24 @@ mod tests {
 
     #[test]
     fn test_push_items() {
+        let room_id = room_id!("!r0:matrix.org");
         let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
 
-        relational_linked_chunk.apply_updates(&[
-            // new chunk (this is not mandatory for this test, but let's try to be realistic)
-            Update::NewItemsChunk { previous: None, new: CId(0), next: None },
-            // new items on 0
-            Update::PushItems { at: Position(CId(0), 0), items: vec!['a', 'b', 'c'] },
-            // new chunk (to test new items are pushed in the correct chunk)
-            Update::NewItemsChunk { previous: Some(CId(0)), new: CId(1), next: None },
-            // new items on 1
-            Update::PushItems { at: Position(CId(1), 0), items: vec!['x', 'y', 'z'] },
-            // new items on 0 again
-            Update::PushItems { at: Position(CId(0), 3), items: vec!['d', 'e'] },
-        ]);
+        relational_linked_chunk.apply_updates(
+            room_id,
+            &[
+                // new chunk (this is not mandatory for this test, but let's try to be realistic)
+                Update::NewItemsChunk { previous: None, new: CId(0), next: None },
+                // new items on 0
+                Update::PushItems { at: Position(CId(0), 0), items: vec!['a', 'b', 'c'] },
+                // new chunk (to test new items are pushed in the correct chunk)
+                Update::NewItemsChunk { previous: Some(CId(0)), new: CId(1), next: None },
+                // new items on 1
+                Update::PushItems { at: Position(CId(1), 0), items: vec!['x', 'y', 'z'] },
+                // new items on 0 again
+                Update::PushItems { at: Position(CId(0), 3), items: vec!['d', 'e'] },
+            ],
+        );
 
         // Chunks are correctly links.
         assert_eq!(
@@ -369,18 +389,22 @@ mod tests {
 
     #[test]
     fn test_remove_item() {
+        let room_id = room_id!("!r0:matrix.org");
         let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
 
-        relational_linked_chunk.apply_updates(&[
-            // new chunk (this is not mandatory for this test, but let's try to be realistic)
-            Update::NewItemsChunk { previous: None, new: CId(0), next: None },
-            // new items on 0
-            Update::PushItems { at: Position(CId(0), 0), items: vec!['a', 'b', 'c', 'd', 'e'] },
-            // remove an item: 'a'
-            Update::RemoveItem { at: Position(CId(0), 0) },
-            // remove an item: 'd'
-            Update::RemoveItem { at: Position(CId(0), 2) },
-        ]);
+        relational_linked_chunk.apply_updates(
+            room_id,
+            &[
+                // new chunk (this is not mandatory for this test, but let's try to be realistic)
+                Update::NewItemsChunk { previous: None, new: CId(0), next: None },
+                // new items on 0
+                Update::PushItems { at: Position(CId(0), 0), items: vec!['a', 'b', 'c', 'd', 'e'] },
+                // remove an item: 'a'
+                Update::RemoveItem { at: Position(CId(0), 0) },
+                // remove an item: 'd'
+                Update::RemoveItem { at: Position(CId(0), 2) },
+            ],
+        );
 
         // Chunks are correctly links.
         assert_eq!(
@@ -400,20 +424,24 @@ mod tests {
 
     #[test]
     fn test_detach_last_items() {
+        let room_id = room_id!("!r0:matrix.org");
         let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
 
-        relational_linked_chunk.apply_updates(&[
-            // new chunk
-            Update::NewItemsChunk { previous: None, new: CId(0), next: None },
-            // new chunk
-            Update::NewItemsChunk { previous: Some(CId(0)), new: CId(1), next: None },
-            // new items on 0
-            Update::PushItems { at: Position(CId(0), 0), items: vec!['a', 'b', 'c', 'd', 'e'] },
-            // new items on 1
-            Update::PushItems { at: Position(CId(1), 0), items: vec!['x', 'y', 'z'] },
-            // detach last items on 0
-            Update::DetachLastItems { at: Position(CId(0), 2) },
-        ]);
+        relational_linked_chunk.apply_updates(
+            room_id,
+            &[
+                // new chunk
+                Update::NewItemsChunk { previous: None, new: CId(0), next: None },
+                // new chunk
+                Update::NewItemsChunk { previous: Some(CId(0)), new: CId(1), next: None },
+                // new items on 0
+                Update::PushItems { at: Position(CId(0), 0), items: vec!['a', 'b', 'c', 'd', 'e'] },
+                // new items on 1
+                Update::PushItems { at: Position(CId(1), 0), items: vec!['x', 'y', 'z'] },
+                // detach last items on 0
+                Update::DetachLastItems { at: Position(CId(0), 2) },
+            ],
+        );
 
         // Chunks are correctly links.
         assert_eq!(
@@ -438,10 +466,11 @@ mod tests {
 
     #[test]
     fn test_start_and_end_reattach_items() {
+        let room_id = room_id!("!r0:matrix.org");
         let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
 
         relational_linked_chunk
-            .apply_updates(&[Update::StartReattachItems, Update::EndReattachItems]);
+            .apply_updates(room_id, &[Update::StartReattachItems, Update::EndReattachItems]);
 
         // Nothing happened.
         assert!(relational_linked_chunk.chunks.is_empty());

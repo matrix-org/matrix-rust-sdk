@@ -8,7 +8,7 @@ use matrix_sdk_base::{
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::MilliSecondsSinceUnixEpoch;
+use ruma::{MilliSecondsSinceUnixEpoch, RoomId};
 use rusqlite::OptionalExtension;
 use tokio::fs;
 use tracing::debug;
@@ -185,6 +185,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
     async fn handle_linked_chunk_updates(
         &self,
+        _room_id: &RoomId,
         _updates: &[Update<Event, Gap>],
     ) -> Result<(), Self::Error> {
         todo!()

@@ -20,7 +20,7 @@ use matrix_sdk_common::{
     ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
 };
-use ruma::{MxcUri, OwnedMxcUri};
+use ruma::{MxcUri, OwnedMxcUri, RoomId};
 
 use super::{EventCacheStore, EventCacheStoreError, Result};
 use crate::{
@@ -75,9 +75,10 @@ impl EventCacheStore for MemoryStore {
 
     async fn handle_linked_chunk_updates(
         &self,
+        room_id: &RoomId,
         updates: &[Update<Event, Gap>],
     ) -> Result<(), Self::Error> {
-        self.events.write().unwrap().apply_updates(updates);
+        self.events.write().unwrap().apply_updates(room_id, updates);
 
         Ok(())
     }
