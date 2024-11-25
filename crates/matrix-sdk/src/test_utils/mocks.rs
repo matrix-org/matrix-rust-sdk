@@ -29,7 +29,8 @@ use matrix_sdk_test::{
 };
 use ruma::{
     directory::PublicRoomsChunk,
-    events::{MessageLikeEventType, StateEventType},
+    events::{AnyStateEvent, AnyTimelineEvent, MessageLikeEventType, StateEventType},
+    serde::Raw,
     MxcUri, OwnedEventId, OwnedRoomId, RoomId, ServerName,
 };
 use serde::Deserialize;
@@ -344,7 +345,7 @@ impl MatrixMockServer {
     ///
     /// let event_id = event_id!("$some_id");
     /// mock_server
-    ///     .mock_send_room_state()
+    ///     .mock_room_send_state()
     ///     .ok(event_id)
     ///     .expect(1)
     ///     .mount()
@@ -368,7 +369,7 @@ impl MatrixMockServer {
         let mock = Mock::given(method("PUT"))
             .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/.*"))
             .and(header("authorization", "Bearer 1234"));
-        MockEndpoint { mock, server: &self.server, endpoint: RoomSendStateEndpoint::new() }
+        MockEndpoint { mock, server: &self.server, endpoint: RoomSendStateEndpoint::default() }
     }
 
     /// Creates a prebuilt mock for asking whether *a* room is encrypted or not.
@@ -495,7 +496,7 @@ impl MatrixMockServer {
         if let Some(l) = limit {
             mock = mock.and(query_param("limit", l.to_string()));
         }
-        MockEndpoint { mock, server: &self.server, endpoint: RoomMessagesEndpoint {} }
+        MockEndpoint { mock, server: &self.server, endpoint: RoomMessagesEndpoint }
     }
 
     /// Create a prebuilt mock for uploading media.
@@ -902,7 +903,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     ///     .mount()
     ///     .await;
     /// mock_server
-    ///     .mock_send_room_state()
+    ///     .mock_room_send_state()
     ///     .for_type("m.room.message".into())
     ///     .ok(event_id)
     ///     .expect(1)
@@ -973,24 +974,19 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
 }
 
 /// A prebuilt mock for sending a state event in a room.
+#[derive(Default)]
 pub struct RoomSendStateEndpoint {
     state_key: Option<String>,
     event_type: Option<StateEventType>,
 }
-impl RoomSendStateEndpoint {
-    /// Create new RoomSendStateEndpoint with unset state_key and event_type.
-    pub fn new() -> Self {
-        Self { state_key: None, event_type: None }
-    }
-}
 
 impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     fn generate_path_regex(endpoint: &RoomSendStateEndpoint) -> String {
-        return format!(
+        format!(
             r"^/_matrix/client/v3/rooms/.*/state/{}/{}",
             endpoint.event_type.as_ref().map(|t| t.to_string()).unwrap_or(".*".to_owned()),
             endpoint.state_key.as_ref().map(|k| k.to_string()).unwrap_or(".*".to_owned())
-        );
+        )
     }
     /// Ensures that the body of the request is a superset of the provided
     /// `body` parameter.
@@ -1381,9 +1377,22 @@ pub struct RoomMessagesEndpoint;
 impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
     /// Returns a messages endpoint that emulates success, i.e. the messages
     /// provided as `response` could be retrieved.
-    pub fn ok(self, response: impl Into<Value>) -> MatrixMock<'a> {
-        let body: Value = response.into();
-        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(body));
+    ///
+    /// Note: pass `chunk` in the correct order: topological for forward
+    /// pagination, reverse topological for backwards pagination.
+    pub fn ok(
+        self,
+        start: String,
+        end: Option<String>,
+        chunk: Vec<impl Into<Raw<AnyTimelineEvent>>>,
+        state: Vec<impl Into<Raw<AnyStateEvent>>>,
+    ) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "start": start,
+            "end": end,
+            "chunk": chunk.into_iter().map(|ev| ev.into()).collect::<Vec<_>>(),
+            "state": state.into_iter().map(|ev| ev.into()).collect::<Vec<_>>(),
+        })));
         MatrixMock { server: self.server, mock }
     }
 }
@@ -1552,10 +1561,12 @@ mod tests {
         use crate::{
             ruma::{
                 event_id,
-                events::room::{
-                    create::RoomCreateEventContent, power_levels::RoomPowerLevelsEventContent,
+                events::{
+                    room::{
+                        create::RoomCreateEventContent, power_levels::RoomPowerLevelsEventContent,
+                    },
+                    StateEventType,
                 },
-                events::StateEventType,
                 room_id,
             },
             test_utils::mocks::MatrixMockServer,

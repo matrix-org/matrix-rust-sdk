@@ -257,6 +257,7 @@ async fn test_ignored_unignored() {
 /// Puts a mounting point for /messages for a pagination request, matching
 /// against a precise `from` token given as `expected_from`, and returning the
 /// chunk of events and the next token as `end` (if available).
+// TODO: replace this with the `mock_room_messages` form mocks.rs
 async fn mock_messages(
     server: &MockServer,
     expected_from: &str,
