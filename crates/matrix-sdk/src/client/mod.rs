@@ -807,6 +807,10 @@ impl Client {
     /// implements a [`Stream`]. The `Stream::Item` will be of type `(Ev,
     /// Ctx)`.
     ///
+    /// Be careful that only the most recent value can be observed. Subscribers
+    /// are notified when a new value is sent, but there is no guarantee
+    /// that they will see all values.
+    ///
     /// # Example
     ///
     /// Let's see a classical usage:
@@ -879,6 +883,10 @@ impl Client {
     /// This method works the same way as [`Client::observe_events`], except
     /// that the observability will only be applied for events in the room with
     /// the specified ID. See that method for more details.
+    ///
+    /// Be careful that only the most recent value can be observed. Subscribers
+    /// are notified when a new value is sent, but there is no guarantee
+    /// that they will see all values.
     pub fn observe_room_events<Ev, Ctx>(
         &self,
         room_id: &RoomId,

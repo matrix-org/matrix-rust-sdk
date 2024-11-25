@@ -541,6 +541,9 @@ impl_event_handler!(A, B, C, D, E, F, G, H);
 
 /// An observer of events (may be tailored to a room).
 ///
+/// Only the most recent value can be observed. Subscribers are notified when a
+/// new value is sent, but there is no guarantee that they will see all values.
+///
 /// To create such observer, use [`Client::observe_events`] or
 /// [`Client::observe_room_events`].
 #[derive(Debug)]
