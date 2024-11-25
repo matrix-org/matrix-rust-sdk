@@ -632,7 +632,7 @@ impl CryptoStore for MemoryStore {
         key: &str,
         holder: &str,
     ) -> Result<bool> {
-        Ok(try_take_leased_lock(&self.leases, lease_duration_ms, key, holder))
+        Ok(try_take_leased_lock(&mut self.leases.write().unwrap(), lease_duration_ms, key, holder))
     }
 }
 
