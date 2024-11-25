@@ -25,13 +25,10 @@ use matrix_sdk_base::{
 use mime::Mime;
 use ruma::{
     events::{
-        room::{
-            message::{FormattedBody, MessageType, RoomMessageEventContent},
-            MediaSource,
-        },
+        room::message::{FormattedBody, MessageType, RoomMessageEventContent},
         AnyMessageLikeEventContent,
     },
-    OwnedMxcUri, OwnedTransactionId, TransactionId,
+    OwnedTransactionId, TransactionId,
 };
 use tracing::{debug, error, instrument, trace, warn, Span};
 
@@ -43,34 +40,8 @@ use crate::{
         LocalEcho, LocalEchoContent, MediaHandles, RoomSendQueueStorageError, RoomSendQueueUpdate,
         SendHandle,
     },
-    Client, Room,
+    Client, Media, Room,
 };
-
-/// Create an [`OwnedMxcUri`] for a file or thumbnail we want to store locally
-/// before sending it.
-///
-/// This uses a MXC ID that is only locally valid.
-fn make_local_uri(txn_id: &TransactionId) -> OwnedMxcUri {
-    // This mustn't represent a potentially valid media server, otherwise it'd be
-    // possible for an attacker to return malicious content under some
-    // preconditions (e.g. the cache store has been cleared before the upload
-    // took place). To mitigate against this, we use the .localhost TLD,
-    // which is guaranteed to be on the local machine. As a result, the only attack
-    // possible would be coming from the user themselves, which we consider a
-    // non-threat.
-    OwnedMxcUri::from(format!("mxc://send-queue.localhost/{txn_id}"))
-}
-
-/// Create a [`MediaRequest`] for a file we want to store locally before
-/// sending it.
-///
-/// This uses a MXC ID that is only locally valid.
-fn make_local_file_media_request(txn_id: &TransactionId) -> MediaRequestParameters {
-    MediaRequestParameters {
-        source: MediaSource::Plain(make_local_uri(txn_id)),
-        format: MediaFormat::File,
-    }
-}
 
 /// Replace the source by the final ones in all the media types handled by
 /// [`Room::make_attachment_type()`].
@@ -148,7 +119,7 @@ impl RoomSendQueue {
         Span::current().record("event_txn", tracing::field::display(&*send_event_txn));
         debug!(filename, %content_type, %upload_file_txn, "sending an attachment");
 
-        let file_media_request = make_local_file_media_request(&upload_file_txn);
+        let file_media_request = Media::make_local_file_media_request(&upload_file_txn);
 
         let (upload_thumbnail_txn, event_thumbnail_info, queue_thumbnail_info) = {
             let client = room.client();
@@ -174,7 +145,7 @@ impl RoomSendQueue {
                 let (data, content_type, thumbnail_info) = thumbnail.into_parts();
 
                 // Cache thumbnail in the cache store.
-                let thumbnail_media_request = make_local_file_media_request(&txn);
+                let thumbnail_media_request = Media::make_local_file_media_request(&txn);
                 cache_store
                     .add_media_content(&thumbnail_media_request, data)
                     .await
@@ -262,7 +233,7 @@ impl QueueStorage {
         // Update cache keys in the cache store.
         {
             // Do it for the file itself.
-            let from_req = make_local_file_media_request(&file_upload_txn);
+            let from_req = Media::make_local_file_media_request(&file_upload_txn);
 
             trace!(from = ?from_req.source, to = ?sent_media.file, "renaming media file key in cache store");
             let cache_store = client
@@ -286,7 +257,7 @@ impl QueueStorage {
             if let Some((txn, new_source)) =
                 thumbnail_upload_txn.as_ref().zip(sent_media.thumbnail.clone())
             {
-                let from_req = make_local_file_media_request(txn);
+                let from_req = Media::make_local_file_media_request(txn);
 
                 trace!(from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
 
@@ -488,10 +459,10 @@ impl QueueStorage {
         {
             let event_cache = client.event_cache_store().lock().await?;
             event_cache
-                .remove_media_content_for_uri(&make_local_uri(&handles.upload_file_txn))
+                .remove_media_content_for_uri(&Media::make_local_uri(&handles.upload_file_txn))
                 .await?;
             if let Some(txn) = &handles.upload_thumbnail_txn {
-                event_cache.remove_media_content_for_uri(&make_local_uri(txn)).await?;
+                event_cache.remove_media_content_for_uri(&Media::make_local_uri(txn)).await?;
             }
         }
 
