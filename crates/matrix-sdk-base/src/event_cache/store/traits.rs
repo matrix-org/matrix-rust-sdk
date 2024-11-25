@@ -16,7 +16,7 @@ use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_common::{linked_chunk::Update, AsyncTraitDeps};
-use ruma::MxcUri;
+use ruma::{MxcUri, RoomId};
 
 use super::EventCacheStoreError;
 use crate::{
@@ -45,6 +45,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// in-memory. This method aims at forwarding this update inside this store.
     async fn handle_linked_chunk_updates(
         &self,
+        room_id: &RoomId,
         updates: &[Update<Event, Gap>],
     ) -> Result<(), Self::Error>;
 
@@ -144,9 +145,10 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn handle_linked_chunk_updates(
         &self,
+        room_id: &RoomId,
         updates: &[Update<Event, Gap>],
     ) -> Result<(), Self::Error> {
-        self.0.handle_linked_chunk_updates(updates).await.map_err(Into::into)
+        self.0.handle_linked_chunk_updates(room_id, updates).await.map_err(Into::into)
     }
 
     async fn add_media_content(
