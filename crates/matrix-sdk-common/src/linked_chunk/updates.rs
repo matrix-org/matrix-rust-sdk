@@ -99,6 +99,10 @@ pub enum Update<Item, Gap> {
 
     /// Reattaching items (see [`Self::StartReattachItems`]) is finished.
     EndReattachItems,
+
+    /// All chunks have been cleared, i.e. all items and all gaps have been
+    /// dropped.
+    Clear,
 }
 
 /// A collection of [`Update`]s that can be observed.
