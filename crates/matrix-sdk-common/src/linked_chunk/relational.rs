@@ -56,7 +56,8 @@ enum Either<Item, Gap> {
 /// This type is also designed to receive [`Update`]. Applying `Update`s
 /// directly on a [`LinkedChunk`] is not ideal and particularly not trivial as
 /// the `Update`s do _not_ match the internal data layout of the `LinkedChunk`,
-/// they are been designed for storages, like a relational database for example.
+/// they have been designed for storages, like a relational database for
+/// example.
 ///
 /// This type is not as performant as [`LinkedChunk`] (in terms of memory
 /// layout, CPU caches etc.). It is only designed to be used in memory stores,
@@ -95,7 +96,7 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
                     insert_chunk(&mut self.chunks, room_id, previous, new, next);
                     self.items.push(ItemRow {
                         room_id: room_id.to_owned(),
-                        position: Position(*new, 0),
+                        position: Position::new(*new, 0),
                         item: Either::Gap(gap.clone()),
                     });
                 }
@@ -295,13 +296,17 @@ mod tests {
             room_id,
             &[
                 // 0
-                Update::NewItemsChunk { previous: None, new: CId(0), next: None },
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 // 1 after 0
-                Update::NewItemsChunk { previous: Some(CId(0)), new: CId(1), next: None },
+                Update::NewItemsChunk { previous: Some(CId::new(0)), new: CId::new(1), next: None },
                 // 2 before 0
-                Update::NewItemsChunk { previous: None, new: CId(2), next: Some(CId(0)) },
+                Update::NewItemsChunk { previous: None, new: CId::new(2), next: Some(CId::new(0)) },
                 // 3 between 2 and 0
-                Update::NewItemsChunk { previous: Some(CId(2)), new: CId(3), next: Some(CId(0)) },
+                Update::NewItemsChunk {
+                    previous: Some(CId::new(2)),
+                    new: CId::new(3),
+                    next: Some(CId::new(0)),
+                },
             ],
         );
 
@@ -311,27 +316,27 @@ mod tests {
             &[
                 ChunkRow {
                     room_id: room_id.to_owned(),
-                    previous_chunk: Some(CId(3)),
-                    chunk: CId(0),
-                    next_chunk: Some(CId(1))
+                    previous_chunk: Some(CId::new(3)),
+                    chunk: CId::new(0),
+                    next_chunk: Some(CId::new(1))
                 },
                 ChunkRow {
                     room_id: room_id.to_owned(),
-                    previous_chunk: Some(CId(0)),
-                    chunk: CId(1),
+                    previous_chunk: Some(CId::new(0)),
+                    chunk: CId::new(1),
                     next_chunk: None
                 },
                 ChunkRow {
                     room_id: room_id.to_owned(),
                     previous_chunk: None,
-                    chunk: CId(2),
-                    next_chunk: Some(CId(3))
+                    chunk: CId::new(2),
+                    next_chunk: Some(CId::new(3))
                 },
                 ChunkRow {
                     room_id: room_id.to_owned(),
-                    previous_chunk: Some(CId(2)),
-                    chunk: CId(3),
-                    next_chunk: Some(CId(0))
+                    previous_chunk: Some(CId::new(2)),
+                    chunk: CId::new(3),
+                    next_chunk: Some(CId::new(0))
                 },
             ],
         );
@@ -348,11 +353,16 @@ mod tests {
             room_id,
             &[
                 // 0
-                Update::NewItemsChunk { previous: None, new: CId(0), next: None },
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 // 1 after 0
-                Update::NewGapChunk { previous: Some(CId(0)), new: CId(1), next: None, gap: () },
+                Update::NewGapChunk {
+                    previous: Some(CId::new(0)),
+                    new: CId::new(1),
+                    next: None,
+                    gap: (),
+                },
                 // 2 after 1
-                Update::NewItemsChunk { previous: Some(CId(1)), new: CId(2), next: None },
+                Update::NewItemsChunk { previous: Some(CId::new(1)), new: CId::new(2), next: None },
             ],
         );
 
@@ -363,19 +373,19 @@ mod tests {
                 ChunkRow {
                     room_id: room_id.to_owned(),
                     previous_chunk: None,
-                    chunk: CId(0),
-                    next_chunk: Some(CId(1))
+                    chunk: CId::new(0),
+                    next_chunk: Some(CId::new(1))
                 },
                 ChunkRow {
                     room_id: room_id.to_owned(),
-                    previous_chunk: Some(CId(0)),
-                    chunk: CId(1),
-                    next_chunk: Some(CId(2))
+                    previous_chunk: Some(CId::new(0)),
+                    chunk: CId::new(1),
+                    next_chunk: Some(CId::new(2))
                 },
                 ChunkRow {
                     room_id: room_id.to_owned(),
-                    previous_chunk: Some(CId(1)),
-                    chunk: CId(2),
+                    previous_chunk: Some(CId::new(1)),
+                    chunk: CId::new(2),
                     next_chunk: None
                 },
             ],
@@ -385,7 +395,7 @@ mod tests {
             relational_linked_chunk.items,
             &[ItemRow {
                 room_id: room_id.to_owned(),
-                position: Position(CId(1), 0),
+                position: Position::new(CId::new(1), 0),
                 item: Either::Gap(())
             }],
         );
@@ -400,13 +410,18 @@ mod tests {
             room_id,
             &[
                 // 0
-                Update::NewItemsChunk { previous: None, new: CId(0), next: None },
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 // 1 after 0
-                Update::NewGapChunk { previous: Some(CId(0)), new: CId(1), next: None, gap: () },
+                Update::NewGapChunk {
+                    previous: Some(CId::new(0)),
+                    new: CId::new(1),
+                    next: None,
+                    gap: (),
+                },
                 // 2 after 1
-                Update::NewItemsChunk { previous: Some(CId(1)), new: CId(2), next: None },
+                Update::NewItemsChunk { previous: Some(CId::new(1)), new: CId::new(2), next: None },
                 // remove 1
-                Update::RemoveChunk(CId(1)),
+                Update::RemoveChunk(CId::new(1)),
             ],
         );
 
@@ -417,13 +432,13 @@ mod tests {
                 ChunkRow {
                     room_id: room_id.to_owned(),
                     previous_chunk: None,
-                    chunk: CId(0),
-                    next_chunk: Some(CId(2))
+                    chunk: CId::new(0),
+                    next_chunk: Some(CId::new(2))
                 },
                 ChunkRow {
                     room_id: room_id.to_owned(),
-                    previous_chunk: Some(CId(0)),
-                    chunk: CId(2),
+                    previous_chunk: Some(CId::new(0)),
+                    chunk: CId::new(2),
                     next_chunk: None
                 },
             ],
@@ -441,15 +456,15 @@ mod tests {
             room_id,
             &[
                 // new chunk (this is not mandatory for this test, but let's try to be realistic)
-                Update::NewItemsChunk { previous: None, new: CId(0), next: None },
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 // new items on 0
-                Update::PushItems { at: Position(CId(0), 0), items: vec!['a', 'b', 'c'] },
+                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['a', 'b', 'c'] },
                 // new chunk (to test new items are pushed in the correct chunk)
-                Update::NewItemsChunk { previous: Some(CId(0)), new: CId(1), next: None },
+                Update::NewItemsChunk { previous: Some(CId::new(0)), new: CId::new(1), next: None },
                 // new items on 1
-                Update::PushItems { at: Position(CId(1), 0), items: vec!['x', 'y', 'z'] },
+                Update::PushItems { at: Position::new(CId::new(1), 0), items: vec!['x', 'y', 'z'] },
                 // new items on 0 again
-                Update::PushItems { at: Position(CId(0), 3), items: vec!['d', 'e'] },
+                Update::PushItems { at: Position::new(CId::new(0), 3), items: vec!['d', 'e'] },
             ],
         );
 
@@ -460,13 +475,13 @@ mod tests {
                 ChunkRow {
                     room_id: room_id.to_owned(),
                     previous_chunk: None,
-                    chunk: CId(0),
-                    next_chunk: Some(CId(1))
+                    chunk: CId::new(0),
+                    next_chunk: Some(CId::new(1))
                 },
                 ChunkRow {
                     room_id: room_id.to_owned(),
-                    previous_chunk: Some(CId(0)),
-                    chunk: CId(1),
+                    previous_chunk: Some(CId::new(0)),
+                    chunk: CId::new(1),
                     next_chunk: None
                 },
             ],
@@ -477,42 +492,42 @@ mod tests {
             &[
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(0), 0),
+                    position: Position::new(CId::new(0), 0),
                     item: Either::Item('a')
                 },
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(0), 1),
+                    position: Position::new(CId::new(0), 1),
                     item: Either::Item('b')
                 },
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(0), 2),
+                    position: Position::new(CId::new(0), 2),
                     item: Either::Item('c')
                 },
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(1), 0),
+                    position: Position::new(CId::new(1), 0),
                     item: Either::Item('x')
                 },
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(1), 1),
+                    position: Position::new(CId::new(1), 1),
                     item: Either::Item('y')
                 },
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(1), 2),
+                    position: Position::new(CId::new(1), 2),
                     item: Either::Item('z')
                 },
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(0), 3),
+                    position: Position::new(CId::new(0), 3),
                     item: Either::Item('d')
                 },
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(0), 4),
+                    position: Position::new(CId::new(0), 4),
                     item: Either::Item('e')
                 },
             ],
@@ -528,13 +543,16 @@ mod tests {
             room_id,
             &[
                 // new chunk (this is not mandatory for this test, but let's try to be realistic)
-                Update::NewItemsChunk { previous: None, new: CId(0), next: None },
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 // new items on 0
-                Update::PushItems { at: Position(CId(0), 0), items: vec!['a', 'b', 'c', 'd', 'e'] },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec!['a', 'b', 'c', 'd', 'e'],
+                },
                 // remove an item: 'a'
-                Update::RemoveItem { at: Position(CId(0), 0) },
+                Update::RemoveItem { at: Position::new(CId::new(0), 0) },
                 // remove an item: 'd'
-                Update::RemoveItem { at: Position(CId(0), 2) },
+                Update::RemoveItem { at: Position::new(CId::new(0), 2) },
             ],
         );
 
@@ -544,7 +562,7 @@ mod tests {
             &[ChunkRow {
                 room_id: room_id.to_owned(),
                 previous_chunk: None,
-                chunk: CId(0),
+                chunk: CId::new(0),
                 next_chunk: None
             }],
         );
@@ -554,17 +572,17 @@ mod tests {
             &[
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(0), 0),
+                    position: Position::new(CId::new(0), 0),
                     item: Either::Item('b')
                 },
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(0), 1),
+                    position: Position::new(CId::new(0), 1),
                     item: Either::Item('c')
                 },
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(0), 2),
+                    position: Position::new(CId::new(0), 2),
                     item: Either::Item('e')
                 },
             ],
@@ -580,15 +598,18 @@ mod tests {
             room_id,
             &[
                 // new chunk
-                Update::NewItemsChunk { previous: None, new: CId(0), next: None },
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 // new chunk
-                Update::NewItemsChunk { previous: Some(CId(0)), new: CId(1), next: None },
+                Update::NewItemsChunk { previous: Some(CId::new(0)), new: CId::new(1), next: None },
                 // new items on 0
-                Update::PushItems { at: Position(CId(0), 0), items: vec!['a', 'b', 'c', 'd', 'e'] },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec!['a', 'b', 'c', 'd', 'e'],
+                },
                 // new items on 1
-                Update::PushItems { at: Position(CId(1), 0), items: vec!['x', 'y', 'z'] },
+                Update::PushItems { at: Position::new(CId::new(1), 0), items: vec!['x', 'y', 'z'] },
                 // detach last items on 0
-                Update::DetachLastItems { at: Position(CId(0), 2) },
+                Update::DetachLastItems { at: Position::new(CId::new(0), 2) },
             ],
         );
 
@@ -599,13 +620,13 @@ mod tests {
                 ChunkRow {
                     room_id: room_id.to_owned(),
                     previous_chunk: None,
-                    chunk: CId(0),
-                    next_chunk: Some(CId(1))
+                    chunk: CId::new(0),
+                    next_chunk: Some(CId::new(1))
                 },
                 ChunkRow {
                     room_id: room_id.to_owned(),
-                    previous_chunk: Some(CId(0)),
-                    chunk: CId(1),
+                    previous_chunk: Some(CId::new(0)),
+                    chunk: CId::new(1),
                     next_chunk: None
                 },
             ],
@@ -616,27 +637,27 @@ mod tests {
             &[
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(0), 0),
+                    position: Position::new(CId::new(0), 0),
                     item: Either::Item('a')
                 },
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(0), 1),
+                    position: Position::new(CId::new(0), 1),
                     item: Either::Item('b')
                 },
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(1), 0),
+                    position: Position::new(CId::new(1), 0),
                     item: Either::Item('x')
                 },
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(1), 1),
+                    position: Position::new(CId::new(1), 1),
                     item: Either::Item('y')
                 },
                 ItemRow {
                     room_id: room_id.to_owned(),
-                    position: Position(CId(1), 2),
+                    position: Position::new(CId::new(1), 2),
                     item: Either::Item('z')
                 },
             ],
