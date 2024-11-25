@@ -186,7 +186,7 @@ impl EventCacheStore for SqliteEventCacheStore {
     async fn handle_linked_chunk_updates(
         &self,
         _room_id: &RoomId,
-        _updates: &[Update<Event, Gap>],
+        _updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
         todo!()
     }

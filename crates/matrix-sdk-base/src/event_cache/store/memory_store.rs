@@ -85,11 +85,12 @@ impl EventCacheStore for MemoryStore {
     async fn handle_linked_chunk_updates(
         &self,
         room_id: &RoomId,
-        updates: &[Update<Event, Gap>],
+        updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
         let mut inner = self.inner.write().unwrap();
+        inner.events.apply_updates(room_id, updates);
 
-        Ok(inner.events.apply_updates(updates))
+        Ok(())
     }
 
     async fn add_media_content(
@@ -128,7 +129,7 @@ impl EventCacheStore for MemoryStore {
     async fn get_media_content(&self, request: &MediaRequestParameters) -> Result<Option<Vec<u8>>> {
         let expected_key = request.unique_key();
 
-        let inner = self.inner.write().unwrap();
+        let inner = self.inner.read().unwrap();
 
         Ok(inner.media.iter().find_map(|(_media_uri, media_key, media_content)| {
             (media_key == &expected_key).then(|| media_content.to_owned())

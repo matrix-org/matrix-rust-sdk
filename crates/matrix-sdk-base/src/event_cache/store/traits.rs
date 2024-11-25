@@ -46,7 +46,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     async fn handle_linked_chunk_updates(
         &self,
         room_id: &RoomId,
-        updates: &[Update<Event, Gap>],
+        updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error>;
 
     /// Add a media file's content in the media store.
@@ -146,7 +146,7 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
     async fn handle_linked_chunk_updates(
         &self,
         room_id: &RoomId,
-        updates: &[Update<Event, Gap>],
+        updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
         self.0.handle_linked_chunk_updates(room_id, updates).await.map_err(Into::into)
     }

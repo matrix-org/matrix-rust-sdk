@@ -81,11 +81,7 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
 
     /// Apply [`Update`]s. That's the only way to write data inside this
     /// relational linked chunk.
-    pub fn apply_updates(&mut self, room_id: &RoomId, updates: &[Update<Item, Gap>])
-    where
-        Item: Clone,
-        Gap: Clone,
-    {
+    pub fn apply_updates(&mut self, room_id: &RoomId, updates: Vec<Update<Item, Gap>>) {
         for update in updates {
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
@@ -96,8 +92,8 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
                     insert_chunk(&mut self.chunks, room_id, previous, new, next);
                     self.items.push(ItemRow {
                         room_id: room_id.to_owned(),
-                        position: Position::new(*new, 0),
-                        item: Either::Gap(gap.clone()),
+                        position: Position::new(new, 0),
+                        item: Either::Gap(gap),
                     });
                 }
 
@@ -111,7 +107,7 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
                         .filter_map(
                             |(nth, ItemRow { room_id: room_id_candidate, position, .. })| {
                                 (room_id == room_id_candidate
-                                    && position.chunk_identifier() == *chunk_identifier)
+                                    && position.chunk_identifier() == chunk_identifier)
                                     .then_some(nth)
                             },
                         )
@@ -122,14 +118,12 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
                     }
                 }
 
-                Update::PushItems { at, items } => {
-                    let mut at = *at;
-
+                Update::PushItems { mut at, items } => {
                     for item in items {
                         self.items.push(ItemRow {
                             room_id: room_id.to_owned(),
                             position: at,
-                            item: Either::Item(item.clone()),
+                            item: Either::Item(item),
                         });
                         at.increment_index();
                     }
@@ -147,7 +141,7 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
                         }
 
                         // Find the item to remove.
-                        if position == at {
+                        if *position == at {
                             debug_assert!(entry_to_remove.is_none(), "Found the same entry twice");
 
                             entry_to_remove = Some(nth);
@@ -191,21 +185,21 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
         fn insert_chunk(
             chunks: &mut Vec<ChunkRow>,
             room_id: &RoomId,
-            previous: &Option<ChunkIdentifier>,
-            new: &ChunkIdentifier,
-            next: &Option<ChunkIdentifier>,
+            previous: Option<ChunkIdentifier>,
+            new: ChunkIdentifier,
+            next: Option<ChunkIdentifier>,
         ) {
             // Find the previous chunk, and update its next chunk.
             if let Some(previous) = previous {
                 let entry_for_previous_chunk = chunks
                     .iter_mut()
                     .find(|ChunkRow { room_id: room_id_candidate, chunk, .. }| {
-                        room_id == room_id_candidate && chunk == previous
+                        room_id == room_id_candidate && *chunk == previous
                     })
                     .expect("Previous chunk should be present");
 
                 // Insert the chunk.
-                entry_for_previous_chunk.next_chunk = Some(*new);
+                entry_for_previous_chunk.next_chunk = Some(new);
             }
 
             // Find the next chunk, and update its previous chunk.
@@ -213,33 +207,33 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
                 let entry_for_next_chunk = chunks
                     .iter_mut()
                     .find(|ChunkRow { room_id: room_id_candidate, chunk, .. }| {
-                        room_id == room_id_candidate && chunk == next
+                        room_id == room_id_candidate && *chunk == next
                     })
                     .expect("Next chunk should be present");
 
                 // Insert the chunk.
-                entry_for_next_chunk.previous_chunk = Some(*new);
+                entry_for_next_chunk.previous_chunk = Some(new);
             }
 
             // Insert the chunk.
             chunks.push(ChunkRow {
                 room_id: room_id.to_owned(),
-                previous_chunk: *previous,
-                chunk: *new,
-                next_chunk: *next,
+                previous_chunk: previous,
+                chunk: new,
+                next_chunk: next,
             });
         }
 
         fn remove_chunk(
             chunks: &mut Vec<ChunkRow>,
             room_id: &RoomId,
-            chunk_to_remove: &ChunkIdentifier,
+            chunk_to_remove: ChunkIdentifier,
         ) {
             let entry_nth_to_remove = chunks
                 .iter()
                 .enumerate()
                 .find_map(|(nth, ChunkRow { room_id: room_id_candidate, chunk, .. })| {
-                    (room_id == room_id_candidate && chunk == chunk_to_remove).then_some(nth)
+                    (room_id == room_id_candidate && *chunk == chunk_to_remove).then_some(nth)
                 })
                 .expect("Remove an unknown chunk");
 
@@ -294,7 +288,7 @@ mod tests {
 
         relational_linked_chunk.apply_updates(
             room_id,
-            &[
+            vec![
                 // 0
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 // 1 after 0
@@ -351,7 +345,7 @@ mod tests {
 
         relational_linked_chunk.apply_updates(
             room_id,
-            &[
+            vec![
                 // 0
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 // 1 after 0
@@ -408,7 +402,7 @@ mod tests {
 
         relational_linked_chunk.apply_updates(
             room_id,
-            &[
+            vec![
                 // 0
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 // 1 after 0
@@ -454,7 +448,7 @@ mod tests {
 
         relational_linked_chunk.apply_updates(
             room_id,
-            &[
+            vec![
                 // new chunk (this is not mandatory for this test, but let's try to be realistic)
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 // new items on 0
@@ -541,7 +535,7 @@ mod tests {
 
         relational_linked_chunk.apply_updates(
             room_id,
-            &[
+            vec![
                 // new chunk (this is not mandatory for this test, but let's try to be realistic)
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 // new items on 0
@@ -596,7 +590,7 @@ mod tests {
 
         relational_linked_chunk.apply_updates(
             room_id,
-            &[
+            vec![
                 // new chunk
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 // new chunk
@@ -670,7 +664,7 @@ mod tests {
         let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
 
         relational_linked_chunk
-            .apply_updates(room_id, &[Update::StartReattachItems, Update::EndReattachItems]);
+            .apply_updates(room_id, vec![Update::StartReattachItems, Update::EndReattachItems]);
 
         // Nothing happened.
         assert!(relational_linked_chunk.chunks.is_empty());
