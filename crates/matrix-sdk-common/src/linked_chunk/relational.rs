@@ -179,6 +179,12 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
                 }
 
                 Update::StartReattachItems | Update::EndReattachItems => { /* nothing */ }
+
+                Update::Clear => {
+                    // Remove All The Things™.
+                    self.chunks.clear();
+                    self.items.clear();
+                }
             }
         }
 
@@ -656,6 +662,35 @@ mod tests {
                 },
             ],
         );
+    }
+
+    #[test]
+    fn test_clear_items() {
+        let room_id = room_id!("!r0:matrix.org");
+        let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
+
+        relational_linked_chunk.apply_updates(
+            room_id,
+            vec![
+                // new chunk
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                // new items on 0
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec!['a', 'b', 'c', 'd', 'e'],
+                },
+                // new chunk with cid 1
+                Update::NewItemsChunk { previous: None, new: CId::new(1), next: None },
+                // new items on 1
+                Update::PushItems { at: Position::new(CId::new(1), 0), items: vec!['x', 'y', 'z'] },
+                // and clear.
+                Update::Clear,
+            ],
+        );
+
+        // Everything is empty now.
+        assert!(relational_linked_chunk.chunks.is_empty());
+        assert!(relational_linked_chunk.items.is_empty());
     }
 
     #[test]
