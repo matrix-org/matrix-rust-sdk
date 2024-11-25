@@ -179,6 +179,11 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
                 }
 
                 Update::StartReattachItems | Update::EndReattachItems => { /* nothing */ }
+
+                Update::Clear => {
+                    self.chunks.clear();
+                    self.items.clear();
+                }
             }
         }
 
@@ -667,6 +672,59 @@ mod tests {
             .apply_updates(room_id, vec![Update::StartReattachItems, Update::EndReattachItems]);
 
         // Nothing happened.
+        assert!(relational_linked_chunk.chunks.is_empty());
+        assert!(relational_linked_chunk.items.is_empty());
+    }
+
+    #[test]
+    fn test_clear() {
+        let room_id = room_id!("!r0:matrix.org");
+        let mut relational_linked_chunk = RelationalLinkedChunk::<char, ()>::new();
+
+        relational_linked_chunk.apply_updates(
+            room_id,
+            vec![
+                // new chunk (this is not mandatory for this test, but let's try to be realistic)
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                // new items on 0
+                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['a', 'b', 'c'] },
+            ],
+        );
+
+        // Chunks are correctly linked.
+        assert_eq!(
+            relational_linked_chunk.chunks,
+            &[ChunkRow {
+                room_id: room_id.to_owned(),
+                previous_chunk: None,
+                chunk: CId::new(0),
+                next_chunk: None,
+            }],
+        );
+        // Items contains the pushed items.
+        assert_eq!(
+            relational_linked_chunk.items,
+            &[
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position::new(CId::new(0), 0),
+                    item: Either::Item('a')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position::new(CId::new(0), 1),
+                    item: Either::Item('b')
+                },
+                ItemRow {
+                    room_id: room_id.to_owned(),
+                    position: Position::new(CId::new(0), 2),
+                    item: Either::Item('c')
+                },
+            ],
+        );
+
+        // Now, time for a clean up.
+        relational_linked_chunk.apply_updates(room_id, vec![Update::Clear]);
         assert!(relational_linked_chunk.chunks.is_empty());
         assert!(relational_linked_chunk.items.is_empty());
     }
