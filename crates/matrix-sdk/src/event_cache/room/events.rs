@@ -14,7 +14,9 @@
 
 use std::cmp::Ordering;
 
+use eyeball_im::VectorDiff;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
+use matrix_sdk_base::linked_chunk::AsVector;
 use matrix_sdk_common::linked_chunk::{
     Chunk, ChunkIdentifier, EmptyChunk, Error, Iter, LinkedChunk, Position,
 };
@@ -31,6 +33,11 @@ pub struct RoomEvents {
     /// The real in-memory storage for all the events.
     chunks: LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>,
 
+    /// Type mapping [`Update`]s from [`Self::chunks`] to [`VectorDiff`]s.
+    ///
+    /// [`Update`]: matrix_sdk_base::linked_chunk::Update
+    chunks_updates_as_vectordiffs: AsVector<Event, Gap>,
+
     /// The events deduplicator instance to help finding duplicates.
     deduplicator: Deduplicator,
 }
@@ -44,12 +51,22 @@ impl Default for RoomEvents {
 impl RoomEvents {
     /// Build a new [`RoomEvents`] struct with zero events.
     pub fn new() -> Self {
-        Self { chunks: LinkedChunk::new(), deduplicator: Deduplicator::new() }
+        let mut chunks = LinkedChunk::new_with_update_history();
+        let chunks_updates_as_vectordiffs = chunks
+            .as_vector()
+            // SAFETY: The `LinkedChunk` has been built with `new_with_update_history`, so
+            // `as_vector` must return `Some(…)`.
+            .expect("`LinkedChunk` must have been constructor with `new_with_update_history`");
+
+        Self { chunks, chunks_updates_as_vectordiffs, deduplicator: Deduplicator::new() }
     }
 
     /// Clear all events.
+    ///
+    /// All events, all gaps, everything is dropped, move into the void, into
+    /// the ether, forever.
     pub fn reset(&mut self) {
-        self.chunks = LinkedChunk::new();
+        self.chunks.clear();
     }
 
     /// Push events after all events or gaps.
@@ -156,6 +173,18 @@ impl RoomEvents {
     /// The oldest event comes first.
     pub fn events(&self) -> impl Iterator<Item = (Position, &Event)> {
         self.chunks.items()
+    }
+
+    /// Get all updates from the room events as [`VectorDiff`].
+    ///
+    /// Be careful that each `VectorDiff` is returned only once!
+    ///
+    /// See [`AsVector`] to learn more.
+    ///
+    /// [`Update`]: matrix_sdk_base::linked_chunk::Update
+    #[allow(unused)] // gonna be useful very soon! but we need it now for test purposes
+    pub fn updates_as_vector_diffs(&mut self) -> Vec<VectorDiff<Event>> {
+        self.chunks_updates_as_vectordiffs.take()
     }
 
     /// Deduplicate `events` considering all events in `Self::chunks`.
@@ -315,6 +344,7 @@ impl RoomEvents {
 
 #[cfg(test)]
 mod tests {
+    use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use matrix_sdk_test::event_factory::EventFactory;
     use ruma::{user_id, EventId, OwnedEventId};
@@ -933,5 +963,58 @@ mod tests {
 
         // Ensure no chunk has been removed.
         assert_eq!(room_events.chunks().count(), 3);
+    }
+
+    #[test]
+    fn test_reset() {
+        let (event_id_0, event_0) = new_event("$ev0");
+        let (event_id_1, event_1) = new_event("$ev1");
+        let (event_id_2, event_2) = new_event("$ev2");
+        let (event_id_3, event_3) = new_event("$ev3");
+
+        // Push some events.
+        let mut room_events = RoomEvents::new();
+        room_events.push_events([event_0, event_1]);
+        room_events.push_gap(Gap { prev_token: "raclette".to_owned() });
+        room_events.push_events([event_2]);
+
+        // Read the updates as `VectorDiff`.
+        let diffs = room_events.updates_as_vector_diffs();
+
+        assert_eq!(diffs.len(), 2);
+
+        assert_matches!(
+            &diffs[0],
+            VectorDiff::Append { values } => {
+                assert_eq!(values.len(), 2);
+                assert_eq!(values[0].event_id(), Some(event_id_0));
+                assert_eq!(values[1].event_id(), Some(event_id_1));
+            }
+        );
+        assert_matches!(
+            &diffs[1],
+            VectorDiff::Append { values } => {
+                assert_eq!(values.len(), 1);
+                assert_eq!(values[0].event_id(), Some(event_id_2));
+            }
+        );
+
+        // Now we can reset and see what happens.
+        room_events.reset();
+        room_events.push_events([event_3]);
+
+        // Read the updates as `VectorDiff`.
+        let diffs = room_events.updates_as_vector_diffs();
+
+        assert_eq!(diffs.len(), 2);
+
+        assert_matches!(&diffs[0], VectorDiff::Clear);
+        assert_matches!(
+            &diffs[1],
+            VectorDiff::Append { values } => {
+                assert_eq!(values.len(), 1);
+                assert_eq!(values[0].event_id(), Some(event_id_3));
+            }
+        );
     }
 }
