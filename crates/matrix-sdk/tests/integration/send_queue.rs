@@ -30,6 +30,7 @@ use ruma::{
         },
         AnyMessageLikeEventContent, EventContent as _, Mentions,
     },
+    media::Method,
     mxc_uri, owned_mxc_uri, owned_user_id, room_id,
     serde::Raw,
     uint, MxcUri, OwnedEventId, OwnedTransactionId, TransactionId,
@@ -1891,7 +1892,29 @@ async fn test_media_uploads() {
     let thumbnail_media = client
         .media()
         .get_media_content(
-            &MediaRequestParameters { source: local_thumbnail_source, format: MediaFormat::File },
+            &MediaRequestParameters {
+                source: local_thumbnail_source.clone(),
+                format: MediaFormat::File,
+            },
+            true,
+        )
+        .await
+        .expect("media should be found");
+    assert_eq!(thumbnail_media, b"thumbnail");
+
+    // The format should be ignored when requesting a local media.
+    let thumbnail_media = client
+        .media()
+        .get_media_content(
+            &MediaRequestParameters {
+                source: local_thumbnail_source.clone(),
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings {
+                    method: Method::Scale,
+                    width: uint!(800),
+                    height: uint!(600),
+                    animated: false,
+                }),
+            },
             true,
         )
         .await
@@ -1954,6 +1977,16 @@ async fn test_media_uploads() {
         .await
         .expect("media should be found");
     assert_eq!(thumbnail_media, b"thumbnail");
+
+    // The local URI does not work anymore.
+    client
+        .media()
+        .get_media_content(
+            &MediaRequestParameters { source: local_thumbnail_source, format: MediaFormat::File },
+            true,
+        )
+        .await
+        .expect_err("media with local URI should not be found");
 
     // The event is sent, at some point.
     assert_update!(watch => sent {

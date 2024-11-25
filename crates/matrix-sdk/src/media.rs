@@ -40,14 +40,16 @@ use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
-    attachment::Thumbnail, config::RequestConfig, futures::SendRequest, Client, Error, Result,
-    TransmissionProgress,
+    attachment::Thumbnail, config::RequestConfig, futures::SendRequest, utils::not_found_error,
+    Client, Error, Result, TransmissionProgress,
 };
 
 /// A conservative upload speed of 1Mbps
 const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
 /// 5 min minimal upload request timeout, used to clamp the request timeout.
 const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
+/// The server name used to generate local MXC URIs.
+const LOCAL_MXC_SERVER_NAME: &str = "send-queue.localhost";
 
 /// A high-level API to interact with the media API.
 #[derive(Debug, Clone)]
@@ -391,6 +393,10 @@ impl Media {
         request: &MediaRequestParameters,
         use_cache: bool,
     ) -> Result<Vec<u8>> {
+        if Self::is_local_source(&request.source) {
+            return self.get_local_media_content(request.source.clone()).await;
+        }
+
         // Read from the cache.
         if use_cache {
             if let Some(content) =
@@ -504,6 +510,28 @@ impl Media {
         }
 
         Ok(content)
+    }
+
+    /// Get a media file's content that is only available in the media cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `source` - The source of the media content.
+    async fn get_local_media_content(&self, source: MediaSource) -> Result<Vec<u8>> {
+        let request = MediaRequestParameters {
+            source,
+            // We cannot ask for server-generated thumbnails of local URIs.
+            format: MediaFormat::File,
+        };
+
+        // Read from the cache.
+        self.client.event_cache_store().lock().await?.get_media_content(&request).await?.ok_or_else(
+            || {
+                // A request to the server would return a 404 NOT_FOUND error, so let's simulate
+                // that.
+                not_found_error("Unknown media ID".to_owned()).into()
+            },
+        )
     }
 
     /// Remove a media file's content from the store.
@@ -692,7 +720,7 @@ impl Media {
         // which is guaranteed to be on the local machine. As a result, the only attack
         // possible would be coming from the user themselves, which we consider a
         // non-threat.
-        OwnedMxcUri::from(format!("mxc://send-queue.localhost/{txn_id}"))
+        OwnedMxcUri::from(format!("mxc://{LOCAL_MXC_SERVER_NAME}/{txn_id}"))
     }
 
     /// Create a [`MediaRequest`] for a file we want to store locally before
@@ -704,5 +732,15 @@ impl Media {
             source: MediaSource::Plain(Self::make_local_uri(txn_id)),
             format: MediaFormat::File,
         }
+    }
+
+    /// Whether the given source has a MXC URI that was generated with
+    /// `make_local_uri`.
+    fn is_local_source(source: &MediaSource) -> bool {
+        let uri = match source {
+            MediaSource::Plain(uri) => uri,
+            MediaSource::Encrypted(file) => &file.url,
+        };
+        uri.server_name().is_ok_and(|server_name| server_name == LOCAL_MXC_SERVER_NAME)
     }
 }
