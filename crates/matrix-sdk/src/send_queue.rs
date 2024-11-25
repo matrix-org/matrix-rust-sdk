@@ -142,9 +142,8 @@ use matrix_sdk_base::{
     event_cache::store::EventCacheStoreError,
     media::MediaRequestParameters,
     store::{
-        ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
-        FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-        SentMediaInfo, SentRequestKey, SerializableEventContent,
+        ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError,
+        QueuedRequest, QueuedRequestKind, SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
     store_locks::LockStoreError,
     RoomState, StoreError,
@@ -1182,18 +1181,16 @@ impl QueueStorage {
         send_event_txn: OwnedTransactionId,
         upload_file_txn: OwnedTransactionId,
         file_media_request: MediaRequestParameters,
-        thumbnail: Option<(FinishUploadThumbnailInfo, MediaRequestParameters, Mime)>,
+        thumbnail: Option<(OwnedTransactionId, MediaRequestParameters, Mime)>,
     ) -> Result<(), RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
         let client = guard.client()?;
         let store = client.store();
 
-        let thumbnail_info =
-            if let Some((thumbnail_info, thumbnail_media_request, thumbnail_content_type)) =
+        let thumbnail_upload =
+            if let Some((upload_thumbnail_txn, thumbnail_media_request, thumbnail_content_type)) =
                 thumbnail
             {
-                let upload_thumbnail_txn = thumbnail_info.txn.clone();
-
                 // Save the thumbnail upload request.
                 store
                     .save_send_queue_request(
@@ -1223,7 +1220,7 @@ impl QueueStorage {
                     )
                     .await?;
 
-                Some(thumbnail_info)
+                Some(upload_thumbnail_txn)
             } else {
                 // Save the file upload as its own request, not a dependent one.
                 store
@@ -1252,7 +1249,7 @@ impl QueueStorage {
                 DependentQueuedRequestKind::FinishUpload {
                     local_echo: event,
                     file_upload: upload_file_txn.clone(),
-                    thumbnail_info,
+                    thumbnail_upload,
                 },
             )
             .await?;
@@ -1367,7 +1364,7 @@ impl QueueStorage {
                 DependentQueuedRequestKind::FinishUpload {
                     local_echo,
                     file_upload,
-                    thumbnail_info,
+                    thumbnail_upload,
                 } => {
                     // Materialize as an event local echo.
                     Some(LocalEcho {
@@ -1379,7 +1376,7 @@ impl QueueStorage {
                                 room: room.clone(),
                                 transaction_id: dep.own_transaction_id.into(),
                                 media_handles: Some(MediaHandles {
-                                    upload_thumbnail_txn: thumbnail_info.map(|info| info.txn),
+                                    upload_thumbnail_txn: thumbnail_upload,
                                     upload_file_txn: file_upload,
                                 }),
                             },
@@ -1592,7 +1589,7 @@ impl QueueStorage {
             DependentQueuedRequestKind::FinishUpload {
                 local_echo,
                 file_upload,
-                thumbnail_info,
+                thumbnail_upload,
             } => {
                 let Some(parent_key) = parent_key else {
                     // Not finished yet, we should retry later => false.
@@ -1604,7 +1601,7 @@ impl QueueStorage {
                     parent_key,
                     local_echo,
                     file_upload,
-                    thumbnail_info,
+                    thumbnail_upload,
                     new_updates,
                 )
                 .await?;

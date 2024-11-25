@@ -15,10 +15,10 @@
 //! Private implementations of the media upload mechanism.
 
 use matrix_sdk_base::{
-    media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
+    media::{MediaFormat, MediaRequestParameters},
     store::{
-        ChildTransactionId, DependentQueuedRequestKind, FinishUploadThumbnailInfo,
-        QueuedRequestKind, SentMediaInfo, SentRequestKey, SerializableEventContent,
+        ChildTransactionId, DependentQueuedRequestKind, QueuedRequestKind, SentMediaInfo,
+        SentRequestKey, SerializableEventContent,
     },
     RoomState,
 };
@@ -31,7 +31,7 @@ use ruma::{
         },
         AnyMessageLikeEventContent,
     },
-    OwnedMxcUri, OwnedTransactionId, TransactionId, UInt,
+    OwnedMxcUri, OwnedTransactionId, TransactionId,
 };
 use tracing::{debug, error, instrument, trace, warn, Span};
 
@@ -69,22 +69,6 @@ fn make_local_file_media_request(txn_id: &TransactionId) -> MediaRequestParamete
     MediaRequestParameters {
         source: MediaSource::Plain(make_local_uri(txn_id)),
         format: MediaFormat::File,
-    }
-}
-
-/// Create a [`MediaRequest`] for a file we want to store locally before
-/// sending it.
-///
-/// This uses a MXC ID that is only locally valid.
-fn make_local_thumbnail_media_request(
-    txn_id: &TransactionId,
-    height: UInt,
-    width: UInt,
-) -> MediaRequestParameters {
-    // See comment in [`make_local_file_media_request`].
-    MediaRequestParameters {
-        source: MediaSource::Plain(make_local_uri(txn_id)),
-        format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(width, height)),
     }
 }
 
@@ -182,20 +166,15 @@ impl RoomSendQueue {
 
             // Process the thumbnail, if it's been provided.
             if let Some(thumbnail) = config.thumbnail.take() {
-                // Normalize information to retrieve the thumbnail in the cache store.
-                let height = thumbnail.height;
-                let width = thumbnail.width;
-
                 let txn = TransactionId::new();
-                trace!(upload_thumbnail_txn = %txn, thumbnail_size = ?(height, width), "attachment has a thumbnail");
+                trace!(upload_thumbnail_txn = %txn, "attachment has a thumbnail");
 
                 // Create the information required for filling the thumbnail section of the
                 // media event.
                 let (data, content_type, thumbnail_info) = thumbnail.into_parts();
 
                 // Cache thumbnail in the cache store.
-                let thumbnail_media_request =
-                    make_local_thumbnail_media_request(&txn, height, width);
+                let thumbnail_media_request = make_local_file_media_request(&txn);
                 cache_store
                     .add_media_content(&thumbnail_media_request, data)
                     .await
@@ -204,11 +183,7 @@ impl RoomSendQueue {
                 (
                     Some(txn.clone()),
                     Some((thumbnail_media_request.source.clone(), thumbnail_info)),
-                    Some((
-                        FinishUploadThumbnailInfo { txn, width, height },
-                        thumbnail_media_request,
-                        content_type,
-                    )),
+                    Some((txn, thumbnail_media_request, content_type)),
                 )
             } else {
                 Default::default()
@@ -276,7 +251,7 @@ impl QueueStorage {
         parent_key: SentRequestKey,
         mut local_echo: RoomMessageEventContent,
         file_upload_txn: OwnedTransactionId,
-        thumbnail_info: Option<FinishUploadThumbnailInfo>,
+        thumbnail_upload_txn: Option<OwnedTransactionId>,
         new_updates: &mut Vec<RoomSendQueueUpdate>,
     ) -> Result<(), RoomSendQueueError> {
         // Both uploads are ready: enqueue the event with its final data.
@@ -308,11 +283,10 @@ impl QueueStorage {
                 .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
 
             // Rename the thumbnail too, if needs be.
-            if let Some((info, new_source)) =
-                thumbnail_info.as_ref().zip(sent_media.thumbnail.clone())
+            if let Some((txn, new_source)) =
+                thumbnail_upload_txn.as_ref().zip(sent_media.thumbnail.clone())
             {
-                let from_req =
-                    make_local_thumbnail_media_request(&info.txn, info.height, info.width);
+                let from_req = make_local_file_media_request(txn);
 
                 trace!(from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
 
@@ -559,7 +533,7 @@ impl QueueStorage {
                 let DependentQueuedRequestKind::FinishUpload {
                     mut local_echo,
                     file_upload,
-                    thumbnail_info,
+                    thumbnail_upload,
                 } = found.kind
                 else {
                     return Err(InvalidMediaCaptionEdit);
@@ -572,7 +546,7 @@ impl QueueStorage {
                 let new_dependent_request = DependentQueuedRequestKind::FinishUpload {
                     local_echo: local_echo.clone(),
                     file_upload,
-                    thumbnail_info,
+                    thumbnail_upload,
                 };
                 store
                     .update_dependent_queued_request(

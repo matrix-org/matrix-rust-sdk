@@ -1891,13 +1891,7 @@ async fn test_media_uploads() {
     let thumbnail_media = client
         .media()
         .get_media_content(
-            &MediaRequestParameters {
-                source: local_thumbnail_source,
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    tinfo.width.unwrap(),
-                    tinfo.height.unwrap(),
-                )),
-            },
+            &MediaRequestParameters { source: local_thumbnail_source, format: MediaFormat::File },
             true,
         )
         .await
@@ -1954,13 +1948,7 @@ async fn test_media_uploads() {
     let thumbnail_media = client
         .media()
         .get_media_content(
-            &MediaRequestParameters {
-                source: new_thumbnail_source,
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    tinfo.width.unwrap(),
-                    tinfo.height.unwrap(),
-                )),
-            },
+            &MediaRequestParameters { source: new_thumbnail_source, format: MediaFormat::File },
             true,
         )
         .await
