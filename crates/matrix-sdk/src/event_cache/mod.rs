@@ -48,7 +48,7 @@ use tokio::sync::{
     broadcast::{error::RecvError, Receiver},
     Mutex, RwLock,
 };
-use tracing::{error, info_span, instrument, trace, warn, Instrument as _, Span};
+use tracing::{error, info, info_span, instrument, trace, warn, Instrument as _, Span};
 
 use self::paginator::PaginatorError;
 use crate::{client::WeakClient, Client};
@@ -212,6 +212,7 @@ impl EventCache {
 
         async move {
             while ignore_user_list_stream.next().await.is_some() {
+                info!("received an ignore user list change");
                 inner.clear_all_rooms().await;
             }
         }
