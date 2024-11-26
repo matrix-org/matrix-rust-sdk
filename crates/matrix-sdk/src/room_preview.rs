@@ -68,7 +68,7 @@ pub struct RoomPreview {
 
     /// Is the room world-readable (i.e. is its history_visibility set to
     /// world_readable)?
-    pub is_world_readable: bool,
+    pub is_world_readable: Option<bool>,
 
     /// Has the current user been invited/joined/left this room?
     ///
@@ -115,7 +115,9 @@ impl RoomPreview {
                     SpaceRoomJoinRule::Private
                 }
             },
-            is_world_readable: *room_info.history_visibility() == HistoryVisibility::WorldReadable,
+            is_world_readable: room_info
+                .history_visibility()
+                .map(|vis| *vis == HistoryVisibility::WorldReadable),
             num_joined_members,
             num_active_members,
             state,
@@ -266,7 +268,7 @@ impl RoomPreview {
             num_active_members,
             room_type: response.room_type,
             join_rule: response.join_rule,
-            is_world_readable: response.world_readable,
+            is_world_readable: Some(response.world_readable),
             state,
             is_direct,
             heroes: cached_room.map(|r| r.heroes()),
@@ -361,7 +363,7 @@ async fn search_for_room_preview_in_room_directory(
                     panic!("Unexpected PublicRoomJoinRule {:?}", room_description.join_rule)
                 }
             },
-            is_world_readable: room_description.is_world_readable,
+            is_world_readable: Some(room_description.is_world_readable),
             state: None,
             is_direct: None,
             heroes: None,
