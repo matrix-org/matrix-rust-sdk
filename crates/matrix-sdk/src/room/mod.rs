@@ -613,7 +613,7 @@ impl Room {
     fn are_events_visible(&self) -> bool {
         if let RoomState::Invited = self.inner.state() {
             return matches!(
-                self.inner.history_visibility(),
+                self.inner.history_visibility_or_default(),
                 HistoryVisibility::WorldReadable | HistoryVisibility::Invited
             );
         }

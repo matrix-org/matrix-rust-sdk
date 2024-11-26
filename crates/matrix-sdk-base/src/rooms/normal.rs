@@ -487,8 +487,14 @@ impl Room {
     }
 
     /// Get the history visibility policy of this room.
-    pub fn history_visibility(&self) -> HistoryVisibility {
-        self.inner.read().history_visibility().clone()
+    pub fn history_visibility(&self) -> Option<HistoryVisibility> {
+        self.inner.read().history_visibility().cloned()
+    }
+
+    /// Get the history visibility policy of this room, or a sensible default if
+    /// the event is missing.
+    pub fn history_visibility_or_default(&self) -> HistoryVisibility {
+        self.inner.read().history_visibility_or_default().clone()
     }
 
     /// Is the room considered to be public.
@@ -1522,11 +1528,24 @@ impl RoomInfo {
 
     /// Returns the history visibility for this room.
     ///
-    /// Defaults to `WorldReadable`, if missing.
-    pub fn history_visibility(&self) -> &HistoryVisibility {
+    /// Returns None if the event was never seen during sync.
+    pub fn history_visibility(&self) -> Option<&HistoryVisibility> {
+        match &self.base_info.history_visibility {
+            Some(MinimalStateEvent::Original(ev)) => Some(&ev.content.history_visibility),
+            _ => None,
+        }
+    }
+
+    /// Returns the history visibility for this room, or a sensible default.
+    ///
+    /// Returns `Shared`, the default specified by the [spec], when the event is
+    /// missing.
+    ///
+    /// [spec]: https://spec.matrix.org/latest/client-server-api/#server-behaviour-7
+    pub fn history_visibility_or_default(&self) -> &HistoryVisibility {
         match &self.base_info.history_visibility {
             Some(MinimalStateEvent::Original(ev)) => &ev.content.history_visibility,
-            _ => &HistoryVisibility::WorldReadable,
+            _ => &HistoryVisibility::Shared,
         }
     }
 

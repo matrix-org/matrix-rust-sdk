@@ -1204,7 +1204,7 @@ fn assert_room_preview(preview: &RoomPreview, room_alias: &str) {
     assert_eq!(preview.num_joined_members, 1);
     assert!(preview.room_type.is_none());
     assert_eq!(preview.join_rule, SpaceRoomJoinRule::Invite);
-    assert!(preview.is_world_readable);
+    assert!(preview.is_world_readable.unwrap());
 }
 
 async fn get_room_preview_with_room_state(
