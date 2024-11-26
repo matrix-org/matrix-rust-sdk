@@ -460,8 +460,7 @@ impl Client {
         thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<(MediaSource, Option<(MediaSource, Box<ThumbnailInfo>)>)> {
-        let upload_thumbnail =
-            self.upload_encrypted_thumbnail(thumbnail, content_type, send_progress.clone());
+        let upload_thumbnail = self.upload_encrypted_thumbnail(thumbnail, send_progress.clone());
 
         let upload_attachment = async {
             let mut cursor = Cursor::new(data);
@@ -480,7 +479,6 @@ impl Client {
     async fn upload_encrypted_thumbnail(
         &self,
         thumbnail: Option<Thumbnail>,
-        content_type: &mime::Mime,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<Option<(MediaSource, Box<ThumbnailInfo>)>> {
         let Some(thumbnail) = thumbnail else {
@@ -490,7 +488,7 @@ impl Client {
         let mut cursor = Cursor::new(thumbnail.data);
 
         let file = self
-            .upload_encrypted_file(content_type, &mut cursor)
+            .upload_encrypted_file(&thumbnail.content_type, &mut cursor)
             .with_send_progress_observable(send_progress)
             .await?;
 
