@@ -57,7 +57,7 @@ use ruma::{
 use tokio::sync::RwLock;
 
 use super::{
-    controller::{TimelineEnd, TimelineSettings},
+    controller::{TimelineNewItemPosition, TimelineSettings},
     event_handler::TimelineEventKind,
     event_item::RemoteEventOrigin,
     traits::RoomDataProvider,
@@ -237,7 +237,10 @@ impl TestTimeline {
     async fn handle_live_event(&self, event: impl Into<SyncTimelineEvent>) {
         let event = event.into();
         self.controller
-            .add_events_at(vec![event], TimelineEnd::Back, RemoteEventOrigin::Sync)
+            .add_events_at(
+                vec![event],
+                TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+            )
             .await;
     }
 
@@ -256,7 +259,10 @@ impl TestTimeline {
     async fn handle_back_paginated_event(&self, event: Raw<AnyTimelineEvent>) {
         let timeline_event = TimelineEvent::new(event.cast());
         self.controller
-            .add_events_at(vec![timeline_event], TimelineEnd::Front, RemoteEventOrigin::Pagination)
+            .add_events_at(
+                vec![timeline_event],
+                TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination },
+            )
             .await;
     }
 

@@ -31,7 +31,7 @@ use super::{
     Error, Timeline, TimelineDropHandle, TimelineFocus,
 };
 use crate::{
-    timeline::{controller::TimelineEnd, event_item::RemoteEventOrigin},
+    timeline::{controller::TimelineNewItemPosition, event_item::RemoteEventOrigin},
     unable_to_decrypt_hook::UtdHookManager,
 };
 
@@ -273,9 +273,9 @@ impl TimelineBuilder {
 
                             inner.add_events_at(
                                 events,
-                                TimelineEnd::Back,
-                                match origin {
-                                    EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                                TimelineNewItemPosition::End {                                    origin: match origin {
+                                        EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                                    }
                                 }
                             ).await;
                         }

@@ -64,16 +64,27 @@ use crate::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 
-/// Which end of the timeline should an event be added to?
-///
-/// This is a simplification of `TimelineItemPosition` which doesn't contain the
-/// `Update` variant, when adding a bunch of events at the same time.
+/// This is a simplification of [`TimelineItemPosition`] which doesn't contain
+/// the [`TimelineItemPosition::UpdateDecrypted`] variant, because it is used
+/// only for **new** items.
 #[derive(Debug)]
-pub(crate) enum TimelineEnd {
-    /// Event should be prepended to the front of the timeline.
-    Front,
-    /// Event should be appended to the back of the timeline.
-    Back,
+pub(crate) enum TimelineNewItemPosition {
+    /// One or more items are prepended to the timeline (i.e. they're the
+    /// oldest).
+    Start { origin: RemoteEventOrigin },
+
+    /// One or more items are appended to the timeline (i.e. they're the most
+    /// recent).
+    End { origin: RemoteEventOrigin },
+}
+
+impl From<TimelineNewItemPosition> for TimelineItemPosition {
+    fn from(value: TimelineNewItemPosition) -> Self {
+        match value {
+            TimelineNewItemPosition::Start { origin } => Self::Start { origin },
+            TimelineNewItemPosition::End { origin } => Self::End { origin },
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -119,8 +130,7 @@ impl TimelineState {
     pub(super) async fn add_remote_events_at<P: RoomDataProvider>(
         &mut self,
         events: Vec<impl Into<SyncTimelineEvent>>,
-        position: TimelineEnd,
-        origin: RemoteEventOrigin,
+        position: TimelineNewItemPosition,
         room_data_provider: &P,
         settings: &TimelineSettings,
     ) -> HandleManyEventsResult {
@@ -130,7 +140,7 @@ impl TimelineState {
 
         let mut txn = self.transaction();
         let handle_many_res =
-            txn.add_remote_events_at(events, position, origin, room_data_provider, settings).await;
+            txn.add_remote_events_at(events, position, room_data_provider, settings).await;
         txn.commit();
 
         handle_many_res
@@ -285,15 +295,13 @@ impl TimelineState {
     pub(super) async fn replace_with_remote_events<P: RoomDataProvider>(
         &mut self,
         events: Vec<SyncTimelineEvent>,
-        position: TimelineEnd,
-        origin: RemoteEventOrigin,
+        position: TimelineNewItemPosition,
         room_data_provider: &P,
         settings: &TimelineSettings,
     ) -> HandleManyEventsResult {
         let mut txn = self.transaction();
         txn.clear();
-        let result =
-            txn.add_remote_events_at(events, position, origin, room_data_provider, settings).await;
+        let result = txn.add_remote_events_at(events, position, room_data_provider, settings).await;
         txn.commit();
         result
     }
@@ -347,17 +355,13 @@ impl TimelineStateTransaction<'_> {
     pub(super) async fn add_remote_events_at<P: RoomDataProvider>(
         &mut self,
         events: Vec<impl Into<SyncTimelineEvent>>,
-        position: TimelineEnd,
-        origin: RemoteEventOrigin,
+        position: TimelineNewItemPosition,
         room_data_provider: &P,
         settings: &TimelineSettings,
     ) -> HandleManyEventsResult {
         let mut total = HandleManyEventsResult::default();
 
-        let position = match position {
-            TimelineEnd::Front => TimelineItemPosition::Start { origin },
-            TimelineEnd::Back => TimelineItemPosition::End { origin },
-        };
+        let position = position.into();
 
         let mut day_divider_adjuster = DayDividerAdjuster::default();
 

@@ -52,8 +52,8 @@ use tracing::{
 };
 
 pub(super) use self::state::{
-    EventMeta, FullEventMeta, PendingEdit, PendingEditKind, TimelineEnd, TimelineMetadata,
-    TimelineState, TimelineStateTransaction,
+    EventMeta, FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata,
+    TimelineNewItemPosition, TimelineState, TimelineStateTransaction,
 };
 use super::{
     event_handler::TimelineEventKind,
@@ -404,8 +404,11 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .map_err(PaginationError::Paginator)?,
         };
 
-        self.add_events_at(pagination.events, TimelineEnd::Front, RemoteEventOrigin::Pagination)
-            .await;
+        self.add_events_at(
+            pagination.events,
+            TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination },
+        )
+        .await;
 
         Ok(pagination.hit_end_of_timeline)
     }
@@ -428,8 +431,11 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .map_err(PaginationError::Paginator)?,
         };
 
-        self.add_events_at(pagination.events, TimelineEnd::Back, RemoteEventOrigin::Pagination)
-            .await;
+        self.add_events_at(
+            pagination.events,
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Pagination },
+        )
+        .await;
 
         Ok(pagination.hit_end_of_timeline)
     }
@@ -629,23 +635,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
     pub(super) async fn add_events_at(
         &self,
         events: Vec<impl Into<SyncTimelineEvent>>,
-        position: TimelineEnd,
-        origin: RemoteEventOrigin,
+        position: TimelineNewItemPosition,
     ) -> HandleManyEventsResult {
         if events.is_empty() {
             return Default::default();
         }
 
         let mut state = self.state.write().await;
-        state
-            .add_remote_events_at(
-                events,
-                position,
-                origin,
-                &self.room_data_provider,
-                &self.settings,
-            )
-            .await
+        state.add_remote_events_at(events, position, &self.room_data_provider, &self.settings).await
     }
 
     pub(super) async fn clear(&self) {
@@ -683,8 +680,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             state
                 .replace_with_remote_events(
                     events,
-                    TimelineEnd::Back,
-                    origin,
+                    TimelineNewItemPosition::End { origin },
                     &self.room_data_provider,
                     &self.settings,
                 )
