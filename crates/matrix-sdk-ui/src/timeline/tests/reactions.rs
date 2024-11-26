@@ -28,8 +28,8 @@ use stream_assert::assert_next_matches;
 use tokio::time::timeout;
 
 use crate::timeline::{
-    controller::TimelineEnd, event_item::RemoteEventOrigin, tests::TestTimeline, ReactionStatus,
-    TimelineEventItemId, TimelineItem,
+    controller::TimelineNewItemPosition, event_item::RemoteEventOrigin, tests::TestTimeline,
+    ReactionStatus, TimelineEventItemId, TimelineItem,
 };
 
 const REACTION_KEY: &str = "👍";
@@ -204,8 +204,7 @@ async fn test_initial_reaction_timestamp_is_stored() {
                 // Event comes next.
                 f.text_msg("A").event_id(&message_event_id).into_sync(),
             ],
-            TimelineEnd::Back,
-            RemoteEventOrigin::Sync,
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;
 

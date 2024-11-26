@@ -35,7 +35,7 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    controller::{TimelineEnd, TimelineSettings},
+    controller::{TimelineNewItemPosition, TimelineSettings},
     event_item::{AnyOtherFullStateEventContent, RemoteEventOrigin},
     tests::{ReadReceiptMap, TestRoomDataProvider},
     MembershipChange, TimelineDetails, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
@@ -51,8 +51,7 @@ async fn test_initial_events() {
         .controller
         .add_events_at(
             vec![f.text_msg("A").sender(*ALICE), f.text_msg("B").sender(*BOB)],
-            TimelineEnd::Back,
-            RemoteEventOrigin::Sync,
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;
 
@@ -91,7 +90,10 @@ async fn test_replace_with_initial_events_and_read_marker() {
     let f = &timeline.factory;
     let ev = f.text_msg("hey").sender(*ALICE).into_sync();
 
-    timeline.controller.add_events_at(vec![ev], TimelineEnd::Back, RemoteEventOrigin::Sync).await;
+    timeline
+        .controller
+        .add_events_at(vec![ev], TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync })
+        .await;
 
     let items = timeline.controller.items().await;
     assert_eq!(items.len(), 2);
@@ -317,8 +319,7 @@ async fn test_dedup_initial() {
                 // … and a new event also came in
                 event_c,
             ],
-            TimelineEnd::Back,
-            RemoteEventOrigin::Sync,
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;
 
@@ -354,7 +355,10 @@ async fn test_internal_id_prefix() {
 
     timeline
         .controller
-        .add_events_at(vec![ev_a, ev_b, ev_c], TimelineEnd::Back, RemoteEventOrigin::Sync)
+        .add_events_at(
+            vec![ev_a, ev_b, ev_c],
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        )
         .await;
 
     let timeline_items = timeline.controller.items().await;
@@ -516,7 +520,10 @@ async fn test_replace_with_initial_events_when_batched() {
     let f = &timeline.factory;
     let ev = f.text_msg("hey").sender(*ALICE).into_sync();
 
-    timeline.controller.add_events_at(vec![ev], TimelineEnd::Back, RemoteEventOrigin::Sync).await;
+    timeline
+        .controller
+        .add_events_at(vec![ev], TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync })
+        .await;
 
     let (items, mut stream) = timeline.controller.subscribe_batched().await;
     assert_eq!(items.len(), 2);
