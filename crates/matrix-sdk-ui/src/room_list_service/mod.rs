@@ -89,12 +89,15 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::RoomPowerLevels, ""),
     (StateEventType::CallMember, "*"),
     (StateEventType::RoomJoinRules, ""),
+    // Those two events are required to properly compute room previews.
+    (StateEventType::RoomCreate, ""),
+    (StateEventType::RoomHistoryVisibility, ""),
 ];
 
 /// The default `required_state` constant value for sliding sync room
 /// subscriptions that must be added to `DEFAULT_REQUIRED_STATE`.
 const DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE: &[(StateEventType, &str)] =
-    &[(StateEventType::RoomCreate, ""), (StateEventType::RoomPinnedEvents, "")];
+    &[(StateEventType::RoomPinnedEvents, "")];
 
 /// The default `timeline_limit` value when used with room subscriptions.
 const DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT: u32 = 20;
