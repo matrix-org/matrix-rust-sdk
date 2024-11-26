@@ -153,7 +153,7 @@ fn build_thumbnail_info(
                 .and_then(|u| UInt::try_from(u).ok())
                 .ok_or(RoomError::InvalidAttachmentData)?;
             let size = thumbnail_info
-                .width
+                .size
                 .and_then(|u| UInt::try_from(u).ok())
                 .ok_or(RoomError::InvalidAttachmentData)?;
 
