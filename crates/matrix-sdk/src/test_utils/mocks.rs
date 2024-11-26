@@ -874,8 +874,6 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
 
     /// Ensures that the send endpoint request uses a specific event type.
     ///
-    /// Note: works with *any* room.
-    ///
     /// # Examples
     ///
     /// see also [`MatrixMockServer::mock_room_send`] for more context.
@@ -906,7 +904,6 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// let responseNotMocked = room.send_raw("m.room.reaction", json!({ "body": "Hello world" })).await;
     /// // The `m.room.reaction` event type should not be mocked by the server.
     /// assert!(responseNotMocked.is_err());
-    ///
     ///
     /// let response = room.send_raw("m.room.message", json!({ "body": "Hello world" })).await?;
     /// // The `m.room.message` event type should be mocked by the server.
@@ -977,10 +974,11 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     fn generate_path_regex(endpoint: &RoomSendStateEndpoint) -> String {
         format!(
             r"^/_matrix/client/v3/rooms/.*/state/{}/{}",
-            endpoint.event_type.as_ref().map(|t| t.to_string()).unwrap_or(".*".to_owned()),
-            endpoint.state_key.as_ref().map(|k| k.to_string()).unwrap_or(".*".to_owned())
+            endpoint.event_type.as_ref().map(|t| t.to_string()).unwrap_or_else(|| ".*".to_owned()),
+            endpoint.state_key.as_ref().map(|k| k.to_string()).unwrap_or_else(|| ".*".to_owned())
         )
     }
+
     /// Ensures that the body of the request is a superset of the provided
     /// `body` parameter.
     ///
