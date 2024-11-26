@@ -276,15 +276,24 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     /// [`ObservableUpdates::take`] method must be called to consume and
     /// clean the updates. See [`Self::updates`].
     pub fn new_with_update_history() -> Self {
+        let first_chunk_identifier = ChunkIdentifierGenerator::FIRST_IDENTIFIER;
+
+        let mut updates = ObservableUpdates::new();
+        updates.push(Update::NewItemsChunk {
+            previous: None,
+            new: first_chunk_identifier,
+            next: None,
+        });
+
         Self {
             links: Ends {
                 // INVARIANT: The first chunk must always be an Items, not a Gap.
-                first: Chunk::new_items_leaked(ChunkIdentifierGenerator::FIRST_IDENTIFIER),
+                first: Chunk::new_items_leaked(first_chunk_identifier),
                 last: None,
             },
             length: 0,
             chunk_identifier_generator: ChunkIdentifierGenerator::new_from_scratch(),
-            updates: Some(ObservableUpdates::new()),
+            updates: Some(updates),
             marker: PhantomData,
         }
     }
@@ -1475,10 +1484,26 @@ mod tests {
     }
 
     #[test]
+    fn test_new_with_initial_update() {
+        use super::Update::*;
+
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[NewItemsChunk { previous: None, new: ChunkIdentifier(0), next: None }]
+        );
+    }
+
+    #[test]
     fn test_push_items() {
         use super::Update::*;
 
         let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        // Ignore initial update.
+        let _ = linked_chunk.updates().unwrap().take();
+
         linked_chunk.push_items_back(['a']);
 
         assert_items_eq!(linked_chunk, ['a']);
@@ -1537,6 +1562,10 @@ mod tests {
         use super::Update::*;
 
         let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        // Ignore initial update.
+        let _ = linked_chunk.updates().unwrap().take();
+
         linked_chunk.push_items_back(['a']);
         assert_items_eq!(linked_chunk, ['a']);
         assert_eq!(
@@ -1854,6 +1883,10 @@ mod tests {
         use super::Update::*;
 
         let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        // Ignore initial update.
+        let _ = linked_chunk.updates().unwrap().take();
+
         linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f']);
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f']);
         assert_eq!(
@@ -2032,6 +2065,10 @@ mod tests {
         use super::Update::*;
 
         let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        // Ignore initial update.
+        let _ = linked_chunk.updates().unwrap().take();
+
         linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k']);
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f'] ['g', 'h', 'i'] ['j', 'k']);
         assert_eq!(linked_chunk.len(), 11);
@@ -2232,6 +2269,10 @@ mod tests {
         use super::Update::*;
 
         let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        // Ignore initial update.
+        let _ = linked_chunk.updates().unwrap().take();
+
         linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f'] ['g', 'h']);
         assert_eq!(linked_chunk.len(), 8);
@@ -2336,6 +2377,10 @@ mod tests {
         use super::Update::*;
 
         let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        // Ignore initial update.
+        let _ = linked_chunk.updates().unwrap().take();
+
         linked_chunk.push_items_back(['a', 'b', 'c', 'd', 'e', 'f']);
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f']);
         assert_eq!(
@@ -2511,6 +2556,10 @@ mod tests {
         use super::Update::*;
 
         let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        // Ignore initial update.
+        let _ = linked_chunk.updates().unwrap().take();
+
         linked_chunk.push_items_back(['a', 'b']);
         linked_chunk.push_gap_back(());
         linked_chunk.push_items_back(['l', 'm']);
@@ -2716,6 +2765,16 @@ mod tests {
         use super::Update::*;
 
         let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[NewItemsChunk {
+                previous: None,
+                new: ChunkIdentifierGenerator::FIRST_IDENTIFIER,
+                next: None
+            }]
+        );
+
         linked_chunk.clear();
 
         assert_eq!(
