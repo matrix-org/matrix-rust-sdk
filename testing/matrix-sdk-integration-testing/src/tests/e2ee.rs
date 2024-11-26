@@ -672,11 +672,14 @@ async fn test_failed_members_response() -> Result<()> {
 
     bob.sync_once().await?;
 
-    // Cause a failure of a sync_members request by asking for members before
-    // joining. Since this is a private DM room, it will fail with a 401, as
-    // we're not authorized to look at state history.
+    // Although we haven't joined the room yet, logic in `sync_members` looks at the
+    // room's visibility first; since it may be unknown for this room, from the
+    // point of view of Bob, it'll be assumed to be the default, aka shared. As
+    // a result, `sync_members()` doesn't even spawn a network request, and
+    // silently ignores the request.
+
     let result = bob.get_room(alice_room.room_id()).unwrap().sync_members().await;
-    assert!(result.is_err());
+    assert!(result.is_ok());
 
     bob.get_room(alice_room.room_id()).unwrap().join().await?;
 
