@@ -42,7 +42,8 @@ use ruma::{
                 VideoInfo as RumaVideoInfo,
                 VideoMessageEventContent as RumaVideoMessageEventContent,
             },
-            ImageInfo as RumaImageInfo, MediaSource, ThumbnailInfo as RumaThumbnailInfo,
+            ImageInfo as RumaImageInfo, MediaSource as RumaMediaSource,
+            ThumbnailInfo as RumaThumbnailInfo,
         },
     },
     matrix_uri::MatrixId as RumaMatrixId,
@@ -156,7 +157,7 @@ impl From<&RumaMatrixId> for MatrixId {
 
 #[matrix_sdk_ffi_macros::export]
 pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
-    Arc::new(MediaSource::Plain(url.into()))
+    Arc::new(MediaSource { media_source: RumaMediaSource::Plain(url.into()) })
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -200,21 +201,61 @@ pub fn message_event_content_from_html_as_emote(
     )))
 }
 
-#[extension_trait]
-pub impl MediaSourceExt for MediaSource {
-    fn from_json(json: String) -> Result<MediaSource, ClientError> {
-        let res = serde_json::from_str(&json)?;
-        Ok(res)
-    }
+#[derive(Clone, uniffi::Object)]
+pub struct MediaSource {
+    pub(crate) media_source: RumaMediaSource,
+}
 
-    fn to_json(&self) -> String {
-        serde_json::to_string(self).expect("Media source should always be serializable ")
+#[matrix_sdk_ffi_macros::export]
+impl MediaSource {
+    pub fn url(&self) -> String {
+        self.media_source.url()
+    }
+}
+
+impl TryFrom<RumaMediaSource> for MediaSource {
+    type Error = ClientError;
+
+    fn try_from(value: RumaMediaSource) -> Result<Self, Self::Error> {
+        value.verify()?;
+        Ok(Self { media_source: value })
+    }
+}
+
+impl TryFrom<&RumaMediaSource> for MediaSource {
+    type Error = ClientError;
+
+    fn try_from(value: &RumaMediaSource) -> Result<Self, Self::Error> {
+        value.verify()?;
+        Ok(Self { media_source: value.clone() })
+    }
+}
+
+impl From<MediaSource> for RumaMediaSource {
+    fn from(value: MediaSource) -> Self {
+        value.media_source
+    }
+}
+
+#[extension_trait]
+pub impl MediaSourceExt for RumaMediaSource {
+    fn verify(&self) -> Result<(), ClientError> {
+        match self {
+            RumaMediaSource::Plain(url) => {
+                url.validate().map_err(|e| ClientError::Generic { msg: e.to_string() })?;
+            }
+            RumaMediaSource::Encrypted(file) => {
+                file.url.validate().map_err(|e| ClientError::Generic { msg: e.to_string() })?;
+            }
+        }
+
+        Ok(())
     }
 
     fn url(&self) -> String {
         match self {
-            MediaSource::Plain(url) => url.to_string(),
-            MediaSource::Encrypted(file) => file.url.to_string(),
+            RumaMediaSource::Plain(url) => url.to_string(),
+            RumaMediaSource::Encrypted(file) => file.url.to_string(),
         }
     }
 }
@@ -280,7 +321,7 @@ fn get_body_and_filename(filename: String, caption: Option<String>) -> (String, 
 }
 
 impl TryFrom<MessageType> for RumaMessageType {
-    type Error = serde_json::Error;
+    type Error = ClientError;
 
     fn try_from(value: MessageType) -> Result<Self, Self::Error> {
         Ok(match value {
@@ -292,7 +333,7 @@ impl TryFrom<MessageType> for RumaMessageType {
             MessageType::Image { content } => {
                 let (body, filename) = get_body_and_filename(content.filename, content.caption);
                 let mut event_content =
-                    RumaImageMessageEventContent::new(body, (*content.source).clone())
+                    RumaImageMessageEventContent::new(body, (*content.source).clone().into())
                         .info(content.info.map(Into::into).map(Box::new));
                 event_content.formatted = content.formatted_caption.map(Into::into);
                 event_content.filename = filename;
@@ -301,7 +342,7 @@ impl TryFrom<MessageType> for RumaMessageType {
             MessageType::Audio { content } => {
                 let (body, filename) = get_body_and_filename(content.filename, content.caption);
                 let mut event_content =
-                    RumaAudioMessageEventContent::new(body, (*content.source).clone())
+                    RumaAudioMessageEventContent::new(body, (*content.source).clone().into())
                         .info(content.info.map(Into::into).map(Box::new));
                 event_content.formatted = content.formatted_caption.map(Into::into);
                 event_content.filename = filename;
@@ -310,7 +351,7 @@ impl TryFrom<MessageType> for RumaMessageType {
             MessageType::Video { content } => {
                 let (body, filename) = get_body_and_filename(content.filename, content.caption);
                 let mut event_content =
-                    RumaVideoMessageEventContent::new(body, (*content.source).clone())
+                    RumaVideoMessageEventContent::new(body, (*content.source).clone().into())
                         .info(content.info.map(Into::into).map(Box::new));
                 event_content.formatted = content.formatted_caption.map(Into::into);
                 event_content.filename = filename;
@@ -319,7 +360,7 @@ impl TryFrom<MessageType> for RumaMessageType {
             MessageType::File { content } => {
                 let (body, filename) = get_body_and_filename(content.filename, content.caption);
                 let mut event_content =
-                    RumaFileMessageEventContent::new(body, (*content.source).clone())
+                    RumaFileMessageEventContent::new(body, (*content.source).clone().into())
                         .info(content.info.map(Into::into).map(Box::new));
                 event_content.formatted = content.formatted_caption.map(Into::into);
                 event_content.filename = filename;
@@ -345,9 +386,11 @@ impl TryFrom<MessageType> for RumaMessageType {
     }
 }
 
-impl From<RumaMessageType> for MessageType {
-    fn from(value: RumaMessageType) -> Self {
-        match value {
+impl TryFrom<RumaMessageType> for MessageType {
+    type Error = ClientError;
+
+    fn try_from(value: RumaMessageType) -> Result<Self, Self::Error> {
+        Ok(match value {
             RumaMessageType::Emote(c) => MessageType::Emote {
                 content: EmoteMessageContent {
                     body: c.body.clone(),
@@ -359,16 +402,17 @@ impl From<RumaMessageType> for MessageType {
                     filename: c.filename().to_owned(),
                     caption: c.caption().map(ToString::to_string),
                     formatted_caption: c.formatted_caption().map(Into::into),
-                    source: Arc::new(c.source.clone()),
-                    info: c.info.as_deref().map(Into::into),
+                    source: Arc::new(c.source.try_into()?),
+                    info: c.info.as_deref().map(TryInto::try_into).transpose()?,
                 },
             },
+
             RumaMessageType::Audio(c) => MessageType::Audio {
                 content: AudioMessageContent {
                     filename: c.filename().to_owned(),
                     caption: c.caption().map(ToString::to_string),
                     formatted_caption: c.formatted_caption().map(Into::into),
-                    source: Arc::new(c.source.clone()),
+                    source: Arc::new(c.source.try_into()?),
                     info: c.info.as_deref().map(Into::into),
                     audio: c.audio.map(Into::into),
                     voice: c.voice.map(Into::into),
@@ -379,8 +423,8 @@ impl From<RumaMessageType> for MessageType {
                     filename: c.filename().to_owned(),
                     caption: c.caption().map(ToString::to_string),
                     formatted_caption: c.formatted_caption().map(Into::into),
-                    source: Arc::new(c.source.clone()),
-                    info: c.info.as_deref().map(Into::into),
+                    source: Arc::new(c.source.try_into()?),
+                    info: c.info.as_deref().map(TryInto::try_into).transpose()?,
                 },
             },
             RumaMessageType::File(c) => MessageType::File {
@@ -388,8 +432,8 @@ impl From<RumaMessageType> for MessageType {
                     filename: c.filename().to_owned(),
                     caption: c.caption().map(ToString::to_string),
                     formatted_caption: c.formatted_caption().map(Into::into),
-                    source: Arc::new(c.source.clone()),
-                    info: c.info.as_deref().map(Into::into),
+                    source: Arc::new(c.source.try_into()?),
+                    info: c.info.as_deref().map(TryInto::try_into).transpose()?,
                 },
             },
             RumaMessageType::Notice(c) => MessageType::Notice {
@@ -425,7 +469,7 @@ impl From<RumaMessageType> for MessageType {
                 msgtype: value.msgtype().to_owned(),
                 body: value.body().to_owned(),
             },
-        }
+        })
     }
 }
 
@@ -520,7 +564,7 @@ impl From<ImageInfo> for RumaImageInfo {
             mimetype: value.mimetype,
             size: value.size.map(u64_to_uint),
             thumbnail_info: value.thumbnail_info.map(Into::into).map(Box::new),
-            thumbnail_source: value.thumbnail_source.map(|source| (*source).clone()),
+            thumbnail_source: value.thumbnail_source.map(|source| (*source).clone().into()),
             blurhash: value.blurhash,
         })
     }
@@ -625,7 +669,7 @@ impl From<VideoInfo> for RumaVideoInfo {
             mimetype: value.mimetype,
             size: value.size.map(u64_to_uint),
             thumbnail_info: value.thumbnail_info.map(Into::into).map(Box::new),
-            thumbnail_source: value.thumbnail_source.map(|source| (*source).clone()),
+            thumbnail_source: value.thumbnail_source.map(|source| (*source).clone().into()),
             blurhash: value.blurhash,
         })
     }
@@ -668,7 +712,7 @@ impl From<FileInfo> for RumaFileInfo {
             mimetype: value.mimetype,
             size: value.size.map(u64_to_uint),
             thumbnail_info: value.thumbnail_info.map(Into::into).map(Box::new),
-            thumbnail_source: value.thumbnail_source.map(|source| (*source).clone()),
+            thumbnail_source: value.thumbnail_source.map(|source| (*source).clone().into()),
         })
     }
 }
@@ -790,8 +834,10 @@ pub enum MessageFormat {
     Unknown { format: String },
 }
 
-impl From<&matrix_sdk::ruma::events::room::ImageInfo> for ImageInfo {
-    fn from(info: &matrix_sdk::ruma::events::room::ImageInfo) -> Self {
+impl TryFrom<&matrix_sdk::ruma::events::room::ImageInfo> for ImageInfo {
+    type Error = ClientError;
+
+    fn try_from(info: &matrix_sdk::ruma::events::room::ImageInfo) -> Result<Self, Self::Error> {
         let thumbnail_info = info.thumbnail_info.as_ref().map(|info| ThumbnailInfo {
             height: info.height.map(Into::into),
             width: info.width.map(Into::into),
@@ -799,15 +845,20 @@ impl From<&matrix_sdk::ruma::events::room::ImageInfo> for ImageInfo {
             size: info.size.map(Into::into),
         });
 
-        Self {
+        Ok(Self {
             height: info.height.map(Into::into),
             width: info.width.map(Into::into),
             mimetype: info.mimetype.clone(),
             size: info.size.map(Into::into),
             thumbnail_info,
-            thumbnail_source: info.thumbnail_source.clone().map(Arc::new),
+            thumbnail_source: info
+                .thumbnail_source
+                .as_ref()
+                .map(TryInto::try_into)
+                .transpose()?
+                .map(Arc::new),
             blurhash: info.blurhash.clone(),
-        }
+        })
     }
 }
 
@@ -821,8 +872,10 @@ impl From<&RumaAudioInfo> for AudioInfo {
     }
 }
 
-impl From<&RumaVideoInfo> for VideoInfo {
-    fn from(info: &RumaVideoInfo) -> Self {
+impl TryFrom<&RumaVideoInfo> for VideoInfo {
+    type Error = ClientError;
+
+    fn try_from(info: &RumaVideoInfo) -> Result<Self, Self::Error> {
         let thumbnail_info = info.thumbnail_info.as_ref().map(|info| ThumbnailInfo {
             height: info.height.map(Into::into),
             width: info.width.map(Into::into),
@@ -830,21 +883,28 @@ impl From<&RumaVideoInfo> for VideoInfo {
             size: info.size.map(Into::into),
         });
 
-        Self {
+        Ok(Self {
             duration: info.duration,
             height: info.height.map(Into::into),
             width: info.width.map(Into::into),
             mimetype: info.mimetype.clone(),
             size: info.size.map(Into::into),
             thumbnail_info,
-            thumbnail_source: info.thumbnail_source.clone().map(Arc::new),
+            thumbnail_source: info
+                .thumbnail_source
+                .as_ref()
+                .map(TryInto::try_into)
+                .transpose()?
+                .map(Arc::new),
             blurhash: info.blurhash.clone(),
-        }
+        })
     }
 }
 
-impl From<&RumaFileInfo> for FileInfo {
-    fn from(info: &RumaFileInfo) -> Self {
+impl TryFrom<&RumaFileInfo> for FileInfo {
+    type Error = ClientError;
+
+    fn try_from(info: &RumaFileInfo) -> Result<Self, Self::Error> {
         let thumbnail_info = info.thumbnail_info.as_ref().map(|info| ThumbnailInfo {
             height: info.height.map(Into::into),
             width: info.width.map(Into::into),
@@ -852,12 +912,17 @@ impl From<&RumaFileInfo> for FileInfo {
             size: info.size.map(Into::into),
         });
 
-        Self {
+        Ok(Self {
             mimetype: info.mimetype.clone(),
             size: info.size.map(Into::into),
             thumbnail_info,
-            thumbnail_source: info.thumbnail_source.clone().map(Arc::new),
-        }
+            thumbnail_source: info
+                .thumbnail_source
+                .as_ref()
+                .map(TryInto::try_into)
+                .transpose()?
+                .map(Arc::new),
+        })
     }
 }
 

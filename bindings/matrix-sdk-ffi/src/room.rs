@@ -973,7 +973,7 @@ impl TryFrom<ImageInfo> for RumaAvatarImageInfo {
 
     fn try_from(value: ImageInfo) -> Result<Self, MediaInfoError> {
         let thumbnail_url = if let Some(media_source) = value.thumbnail_source {
-            match media_source.as_ref() {
+            match &media_source.as_ref().media_source {
                 MediaSource::Plain(mxc_uri) => Some(mxc_uri.clone()),
                 MediaSource::Encrypted(_) => return Err(MediaInfoError::InvalidField),
             }

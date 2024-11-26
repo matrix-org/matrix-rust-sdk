@@ -32,9 +32,7 @@ use matrix_sdk::{
             user_directory::search_users,
         },
         events::{
-            room::{
-                avatar::RoomAvatarEventContent, encryption::RoomEncryptionEventContent, MediaSource,
-            },
+            room::{avatar::RoomAvatarEventContent, encryption::RoomEncryptionEventContent},
             AnyInitialStateEvent, AnyToDeviceEvent, InitialStateEvent,
         },
         serde::Raw,
@@ -81,7 +79,7 @@ use crate::{
     notification_settings::NotificationSettings,
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
-    ruma::AuthData,
+    ruma::{AuthData, MediaSource},
     sync_service::{SyncService, SyncServiceBuilder},
     task_handle::TaskHandle,
     utils::AsyncRuntimeDropped,
@@ -455,7 +453,7 @@ impl Client {
             .inner
             .media()
             .get_media_file(
-                &MediaRequestParameters { source, format: MediaFormat::File },
+                &MediaRequestParameters { source: source.media_source, format: MediaFormat::File },
                 filename,
                 &mime_type,
                 use_cache,
@@ -728,7 +726,7 @@ impl Client {
         &self,
         media_source: Arc<MediaSource>,
     ) -> Result<Vec<u8>, ClientError> {
-        let source = (*media_source).clone();
+        let source = (*media_source).clone().media_source;
 
         debug!(?source, "requesting media file");
         Ok(self
@@ -744,9 +742,9 @@ impl Client {
         width: u64,
         height: u64,
     ) -> Result<Vec<u8>, ClientError> {
-        let source = (*media_source).clone();
+        let source = (*media_source).clone().media_source;
 
-        debug!(source = ?media_source, width, height, "requesting media thumbnail");
+        debug!(?source, width, height, "requesting media thumbnail");
         Ok(self
             .inner
             .media()
