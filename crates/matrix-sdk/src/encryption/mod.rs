@@ -485,20 +485,15 @@ impl Client {
             return Ok(None);
         };
 
-        let mut cursor = Cursor::new(thumbnail.data);
+        let (data, content_type, thumbnail_info) = thumbnail.into_parts();
+        let mut cursor = Cursor::new(data);
 
         let file = self
-            .upload_encrypted_file(&thumbnail.content_type, &mut cursor)
+            .upload_encrypted_file(&content_type, &mut cursor)
             .with_send_progress_observable(send_progress)
             .await?;
 
-        #[rustfmt::skip]
-            let thumbnail_info =
-                assign!(thumbnail.info.map(ThumbnailInfo::from).unwrap_or_default(), {
-                    mimetype: Some(thumbnail.content_type.as_ref().to_owned())
-                });
-
-        Ok(Some((MediaSource::Encrypted(Box::new(file)), Box::new(thumbnail_info))))
+        Ok(Some((MediaSource::Encrypted(Box::new(file)), thumbnail_info)))
     }
 
     /// Claim one-time keys creating new Olm sessions.

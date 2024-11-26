@@ -24,11 +24,10 @@ use matrix_sdk_base::{
 };
 use mime::Mime;
 use ruma::{
-    assign,
     events::{
         room::{
             message::{FormattedBody, MessageType, RoomMessageEventContent},
-            MediaSource, ThumbnailInfo,
+            MediaSource,
         },
         AnyMessageLikeEventContent,
     },
@@ -183,13 +182,16 @@ impl RoomSendQueue {
 
             // Process the thumbnail, if it's been provided.
             if let Some(thumbnail) = config.thumbnail.take() {
+                // Create the information required for filling the thumbnail section of the
+                // media event.
+                let (data, content_type, thumbnail_info) = thumbnail.into_parts();
+
                 // Normalize information to retrieve the thumbnail in the cache store.
-                let info = thumbnail.info.as_ref();
-                let height = info.and_then(|info| info.height).unwrap_or_else(|| {
+                let height = thumbnail_info.height.unwrap_or_else(|| {
                     trace!("thumbnail height is unknown, using 0 for the cache entry");
                     uint!(0)
                 });
-                let width = info.and_then(|info| info.width).unwrap_or_else(|| {
+                let width = thumbnail_info.width.unwrap_or_else(|| {
                     trace!("thumbnail width is unknown, using 0 for the cache entry");
                     uint!(0)
                 });
@@ -201,17 +203,9 @@ impl RoomSendQueue {
                 let thumbnail_media_request =
                     make_local_thumbnail_media_request(&txn, height, width);
                 cache_store
-                    .add_media_content(&thumbnail_media_request, thumbnail.data.clone())
+                    .add_media_content(&thumbnail_media_request, data)
                     .await
                     .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-
-                // Create the information required for filling the thumbnail section of the
-                // media event.
-                let thumbnail_info = Box::new(
-                    assign!(thumbnail.info.map(ThumbnailInfo::from).unwrap_or_default(), {
-                        mimetype: Some(thumbnail.content_type.as_ref().to_owned())
-                    }),
-                );
 
                 (
                     Some(txn.clone()),
@@ -219,7 +213,7 @@ impl RoomSendQueue {
                     Some((
                         FinishUploadThumbnailInfo { txn, width, height },
                         thumbnail_media_request,
-                        thumbnail.content_type,
+                        content_type,
                     )),
                 )
             } else {
