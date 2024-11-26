@@ -251,7 +251,7 @@ impl TimelineState {
             let handle_one_res = txn
                 .handle_remote_event(
                     event.into(),
-                    TimelineItemPosition::UpdateDecrypted(idx),
+                    TimelineItemPosition::UpdateDecrypted { timeline_item_index: idx },
                     room_data_provider,
                     settings,
                     &mut day_divider_adjuster,
@@ -451,7 +451,7 @@ impl TimelineStateTransaction<'_> {
                         TimelineItemPosition::End { origin }
                         | TimelineItemPosition::Start { origin } => origin,
 
-                        TimelineItemPosition::UpdateDecrypted(idx) => self
+                        TimelineItemPosition::UpdateDecrypted { timeline_item_index: idx } => self
                             .items
                             .get(idx)
                             .and_then(|item| item.as_event())
@@ -707,7 +707,7 @@ impl TimelineStateTransaction<'_> {
                 self.meta.all_events.push_back(event_meta.base_meta());
             }
 
-            TimelineItemPosition::UpdateDecrypted(_) => {
+            TimelineItemPosition::UpdateDecrypted { .. } => {
                 if let Some(event) =
                     self.meta.all_events.iter_mut().find(|e| e.event_id == event_meta.event_id)
                 {
