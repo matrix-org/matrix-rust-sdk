@@ -1,10 +1,7 @@
 use std::time::Duration;
 
 use matrix_sdk::{
-    attachment::{
-        AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo,
-        Thumbnail,
-    },
+    attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseVideoInfo, Thumbnail},
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     test_utils::mocks::MatrixMockServer,
 };
@@ -210,11 +207,9 @@ async fn test_room_attachment_send_info_thumbnail() {
     let config = AttachmentConfig::with_thumbnail(Thumbnail {
         data: b"Thumbnail".to_vec(),
         content_type: mime::IMAGE_JPEG,
-        info: Some(BaseThumbnailInfo {
-            height: Some(uint!(360)),
-            width: Some(uint!(480)),
-            size: Some(uint!(3600)),
-        }),
+        height: uint!(360),
+        width: uint!(480),
+        size: uint!(3600),
     })
     .info(AttachmentInfo::Image(BaseImageInfo {
         height: Some(uint!(600)),

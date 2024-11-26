@@ -148,27 +148,6 @@ impl From<AttachmentInfo> for FileInfo {
     }
 }
 
-#[derive(Debug, Default, Clone)]
-/// Base metadata about a thumbnail.
-pub struct BaseThumbnailInfo {
-    /// The height of the thumbnail in pixels.
-    pub height: Option<UInt>,
-    /// The width of the thumbnail in pixels.
-    pub width: Option<UInt>,
-    /// The file size of the thumbnail in bytes.
-    pub size: Option<UInt>,
-}
-
-impl From<BaseThumbnailInfo> for ThumbnailInfo {
-    fn from(info: BaseThumbnailInfo) -> Self {
-        assign!(ThumbnailInfo::new(), {
-            height: info.height,
-            width: info.width,
-            size: info.size,
-        })
-    }
-}
-
 /// A thumbnail to upload and send for an attachment.
 #[derive(Debug)]
 pub struct Thumbnail {
@@ -176,20 +155,23 @@ pub struct Thumbnail {
     pub data: Vec<u8>,
     /// The type of the thumbnail, this will be used as the content-type header.
     pub content_type: mime::Mime,
-    /// The metadata of the thumbnail.
-    pub info: Option<BaseThumbnailInfo>,
+    /// The height of the thumbnail in pixels.
+    pub height: UInt,
+    /// The width of the thumbnail in pixels.
+    pub width: UInt,
+    /// The file size of the thumbnail in bytes.
+    pub size: UInt,
 }
 
 impl Thumbnail {
     /// Convert this `Thumbnail` into a `(data, content_type, info)` tuple.
     pub fn into_parts(self) -> (Vec<u8>, mime::Mime, Box<ThumbnailInfo>) {
-        let thumbnail_info = assign!(
-            self.info
-                .as_ref()
-                .map(|info| ThumbnailInfo::from(info.clone()))
-                .unwrap_or_default(),
-            { mimetype: Some(self.content_type.to_string()) }
-        );
+        let thumbnail_info = assign!(ThumbnailInfo::new(), {
+            height: Some(self.height),
+            width: Some(self.width),
+            size: Some(self.size),
+            mimetype: Some(self.content_type.to_string())
+        });
         (self.data, self.content_type, Box::new(thumbnail_info))
     }
 }

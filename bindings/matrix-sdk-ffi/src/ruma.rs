@@ -15,9 +15,7 @@
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
 use extension_trait::extension_trait;
-use matrix_sdk::attachment::{
-    BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo,
-};
+use matrix_sdk::attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo};
 use ruma::{
     assign,
     events::{
@@ -744,21 +742,6 @@ impl From<ThumbnailInfo> for RumaThumbnailInfo {
             mimetype: value.mimetype,
             size: value.size.map(u64_to_uint),
         })
-    }
-}
-
-impl TryFrom<&ThumbnailInfo> for BaseThumbnailInfo {
-    type Error = MediaInfoError;
-
-    fn try_from(value: &ThumbnailInfo) -> Result<Self, MediaInfoError> {
-        let height = UInt::try_from(value.height.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-        let width = UInt::try_from(value.width.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-        let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-
-        Ok(BaseThumbnailInfo { height: Some(height), width: Some(width), size: Some(size) })
     }
 }
 
