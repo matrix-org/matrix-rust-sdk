@@ -29,7 +29,7 @@ use self::{
     },
     matrix::MatrixDriver,
 };
-use crate::{room::Room, Error, Result};
+use crate::{room::Room, Result};
 
 mod capabilities;
 mod filter;
@@ -195,7 +195,7 @@ impl<T: CapabilitiesProvider> ProcessingContext<T> {
                 self.to_widget_tx.send(msg).await.map_err(|_| ())?;
             }
             Action::MatrixDriverRequest { request_id, data } => {
-                let response: Result<MatrixDriverResponse, Error> = match data {
+                let response = match data {
                     MatrixDriverRequestData::AcquireCapabilities(cmd) => {
                         let obtained = self
                             .capabilities_provider

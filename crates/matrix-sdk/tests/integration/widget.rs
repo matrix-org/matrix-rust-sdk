@@ -688,6 +688,8 @@ async fn test_fail_sending_delay_rate_limit() {
     )
     .await;
 
+    // TODO convert to mock_server.mock_room_send().for_type()... once for_type is
+    // available
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/m.room.message/.*$"))
         .respond_with(ResponseTemplate::new(400).set_body_json(json!({
@@ -722,7 +724,6 @@ async fn test_fail_sending_delay_rate_limit() {
         json!({
                 "error": {
               "matrix_api_error": {
-                "http_headers": {},
                 "http_status": 400,
                 "response": {
                   "errcode": "M_LIMIT_EXCEEDED",

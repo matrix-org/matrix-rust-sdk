@@ -52,7 +52,7 @@ impl MatrixDriver {
     }
 
     /// Requests an OpenID token for the current user.
-    pub(crate) async fn get_open_id(&self) -> Result<OpenIdResponse, Error> {
+    pub(crate) async fn get_open_id(&self) -> Result<OpenIdResponse> {
         let user_id = self.room.own_user_id().to_owned();
         self.room.client.send(OpenIdRequest::new(user_id), None).await.map_err(Error::Http)
     }
@@ -62,7 +62,7 @@ impl MatrixDriver {
         &self,
         event_type: MessageLikeEventType,
         limit: u32,
-    ) -> Result<Vec<Raw<AnyTimelineEvent>>, Error> {
+    ) -> Result<Vec<Raw<AnyTimelineEvent>>> {
         let options = assign!(MessagesOptions::backward(), {
             limit: limit.into(),
             filter: assign!(RoomEventFilter::default(), {
@@ -78,7 +78,7 @@ impl MatrixDriver {
         &self,
         event_type: StateEventType,
         state_key: &StateKeySelector,
-    ) -> Result<Vec<Raw<AnyTimelineEvent>>, Error> {
+    ) -> Result<Vec<Raw<AnyTimelineEvent>>> {
         let room_id = self.room.room_id();
         let convert = |sync_or_stripped_state| match sync_or_stripped_state {
             RawAnySyncOrStrippedState::Sync(ev) => Some(attach_room_id(ev.cast_ref(), room_id)),
@@ -116,7 +116,7 @@ impl MatrixDriver {
         state_key: Option<String>,
         content: Box<RawJsonValue>,
         delayed_event_parameters: Option<delayed_events::DelayParameters>,
-    ) -> Result<SendEventResponse, Error> {
+    ) -> Result<SendEventResponse> {
         let type_str = event_type.to_string();
 
         if let Some(redacts) = from_raw_json_value::<Value, serde_json::Error>(&content)
@@ -165,7 +165,7 @@ impl MatrixDriver {
         &self,
         delay_id: String,
         action: UpdateAction,
-    ) -> Result<delayed_events::update_delayed_event::unstable::Response, Error> {
+    ) -> Result<delayed_events::update_delayed_event::unstable::Response> {
         let r = delayed_events::update_delayed_event::unstable::Request::new(delay_id, action);
         self.room.client.send(r, None).await.map_err(Error::Http)
     }
