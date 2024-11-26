@@ -202,7 +202,7 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
                         _ => None,
                     });
                 MessageLikeEventContent::RoomMessage {
-                    message_type: original_content.msgtype.into(),
+                    message_type: original_content.msgtype.try_into()?,
                     in_reply_to_event_id,
                 }
             }

@@ -695,6 +695,10 @@ async fn cache_latest_events(
     changes: Option<&StateChanges>,
     store: Option<&Store>,
 ) {
+    use crate::{
+        deserialized_responses::DisplayName, store::ambiguity_map::is_display_name_ambiguous,
+    };
+
     let mut encrypted_events =
         Vec::with_capacity(room.latest_encrypted_events.read().unwrap().capacity());
 
@@ -752,11 +756,13 @@ async fn cache_latest_events(
                                 .as_original()
                                 .and_then(|profile| profile.content.displayname.as_ref())
                                 .and_then(|display_name| {
+                                    let display_name = DisplayName::new(display_name);
+
                                     changes.ambiguity_maps.get(room.room_id()).and_then(
                                         |map_for_room| {
-                                            map_for_room
-                                                .get(display_name)
-                                                .map(|user_ids| user_ids.len() > 1)
+                                            map_for_room.get(&display_name).map(|users| {
+                                                is_display_name_ambiguous(&display_name, users)
+                                            })
                                         },
                                     )
                                 });

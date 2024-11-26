@@ -88,11 +88,7 @@ impl EncryptionSyncService {
     /// Creates a new instance of a `EncryptionSyncService`.
     ///
     /// This will create and manage an instance of [`matrix_sdk::SlidingSync`].
-    /// The `process_id` is used as the identifier of that instance, as such
-    /// make sure to not reuse a name used by another process, at the risk
-    /// of causing problems.
     pub async fn new(
-        process_id: String,
         client: Client,
         poll_and_network_timeouts: Option<(Duration, Duration)>,
         with_locking: WithLocking,
@@ -119,7 +115,13 @@ impl EncryptionSyncService {
 
         if with_locking {
             // Gently try to enable the cross-process lock on behalf of the user.
-            match client.encryption().enable_cross_process_store_lock(process_id).await {
+            match client
+                .encryption()
+                .enable_cross_process_store_lock(
+                    client.cross_process_store_locks_holder_name().to_owned(),
+                )
+                .await
+            {
                 Ok(()) | Err(matrix_sdk::Error::BadCryptoStoreState) => {
                     // Ignore; we've already set the crypto store lock to
                     // something, and that's sufficient as

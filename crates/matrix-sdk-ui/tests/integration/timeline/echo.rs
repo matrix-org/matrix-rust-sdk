@@ -19,14 +19,12 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    assert_next_matches_with_timeout,
-    config::SyncSettings,
-    executor::spawn,
-    ruma::MilliSecondsSinceUnixEpoch,
-    test_utils::{events::EventFactory, logged_in_client_with_server},
+    assert_next_matches_with_timeout, config::SyncSettings, executor::spawn,
+    ruma::MilliSecondsSinceUnixEpoch, test_utils::logged_in_client_with_server,
 };
 use matrix_sdk_test::{
-    async_test, mocks::mock_encryption_state, JoinedRoomBuilder, SyncResponseBuilder,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
+    SyncResponseBuilder,
 };
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt, TimelineItemContent};
 use ruma::{

@@ -25,7 +25,7 @@ use matrix_sdk::{
         events::room::message::{MessageType, RoomMessageEventContent},
         MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
     },
-    AuthSession, Client, ServerName, SqliteCryptoStore, SqliteStateStore,
+    AuthSession, Client, ServerName, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
 };
 use matrix_sdk_ui::{
     room_list_service::{self, filters::new_filter_non_left},
@@ -948,11 +948,12 @@ async fn configure_client(server_name: String, config_path: String) -> anyhow::R
     let config_path = PathBuf::from(config_path);
     let mut client_builder = Client::builder()
         .store_config(
-            StoreConfig::default()
-                .crypto_store(
-                    SqliteCryptoStore::open(config_path.join("crypto.sqlite"), None).await?,
-                )
-                .state_store(SqliteStateStore::open(config_path.join("state.sqlite"), None).await?),
+            StoreConfig::new("multiverse".to_owned())
+                .crypto_store(SqliteCryptoStore::open(config_path.join("crypto"), None).await?)
+                .state_store(SqliteStateStore::open(config_path.join("state"), None).await?)
+                .event_cache_store(
+                    SqliteEventCacheStore::open(config_path.join("cache"), None).await?,
+                ),
         )
         .server_name(&server_name)
         .with_encryption_settings(EncryptionSettings {

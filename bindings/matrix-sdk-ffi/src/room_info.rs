@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
 use matrix_sdk::RoomState;
+use tracing::warn;
 
 use crate::{
+    client::JoinRule,
     notification_settings::RoomNotificationMode,
     room::{Membership, RoomHero},
     room_member::RoomMember,
@@ -54,8 +56,10 @@ pub struct RoomInfo {
     /// Events causing mentions/highlights for the user, according to their
     /// notification settings.
     num_unread_mentions: u64,
-    /// The currently pinned event ids
+    /// The currently pinned event ids.
     pinned_event_ids: Vec<String>,
+    /// The join rule for this room, if known.
+    join_rule: Option<JoinRule>,
 }
 
 impl RoomInfo {
@@ -69,6 +73,11 @@ impl RoomInfo {
         }
         let pinned_event_ids =
             room.pinned_event_ids().unwrap_or_default().iter().map(|id| id.to_string()).collect();
+
+        let join_rule = room.join_rule().try_into();
+        if let Err(e) = &join_rule {
+            warn!("Failed to parse join rule: {:?}", e);
+        }
 
         Ok(Self {
             id: room.room_id().to_string(),
@@ -118,6 +127,7 @@ impl RoomInfo {
             num_unread_notifications: room.num_unread_notifications(),
             num_unread_mentions: room.num_unread_mentions(),
             pinned_event_ids,
+            join_rule: join_rule.ok(),
         })
     }
 }

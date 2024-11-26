@@ -2,24 +2,80 @@
 
 All notable changes to this project will be documented in this file.
 
-# unreleased
+## [0.8.0] - 2024-11-19
 
+### Bug Fixes
+
+- Add more invalid characters for room aliases.
+
+- Use the `DisplayName` struct to protect against homoglyph attacks.
+
+
+### Features
 - Add `BaseClient::room_key_recipient_strategy` field
-- Replace the `Notification` type from Ruma in `SyncResponse` and `StateChanges` by a custom one
-- The ambiguity maps in `SyncResponse` are moved to `JoinedRoom` and `LeftRoom`
-- `AmbiguityCache` contains the room member's user ID
+
+- `AmbiguityCache` contains the room member's user ID.
+
+- [**breaking**] `Media::get_thumbnail` and `MediaFormat::Thumbnail` allow to
+  request an animated thumbnail They both take a `MediaThumbnailSettings`
+  instead of `MediaThumbnailSize`.
+
+- Consider knocked members to be part of the room for display name
+  disambiguation.
+
+- `Client::cross_process_store_locks_holder_name` is used everywhere:
+ - `StoreConfig::new()` now takes a
+   `cross_process_store_locks_holder_name` argument.
+ - `StoreConfig` no longer implements `Default`.
+ - `BaseClient::new()` has been removed.
+ - `BaseClient::clone_with_in_memory_state_store()` now takes a
+   `cross_process_store_locks_holder_name` argument.
+ - `BaseClient` no longer implements `Default`.
+ - `EventCacheStoreLock::new()` no longer takes a `key` argument.
+ - `BuilderStoreConfig` no longer has
+   `cross_process_store_locks_holder_name` field for `Sqlite` and
+   `IndexedDb`.
+
+- Make `ObservableMap::stream` works on `wasm32-unknown-unknown`.
+
+- Allow aborting media uploads.
+
+- Replace the `Notification` type from Ruma in `SyncResponse` and `StateChanges`
+  by a custom one.
+
+- Introduce a `DisplayName` struct which normalizes and sanitizes
+display names.
+
+
+### Refactor
+
+- [**breaking**] Rename `DisplayName` to `RoomDisplayName`.
+
+- Rename `AmbiguityMap` to `DisplayNameUsers`.
+
+- Move `event_cache_store/` to `event_cache/store/` in `matrix-sdk-base`.
+
+- Move `linked_chunk` from `matrix-sdk` to `matrix-sdk-common`.
+
+- Move `Event` and `Gap` into `matrix_sdk_base::event_cache`.
+
+- The ambiguity maps in `SyncResponse` are moved to `JoinedRoom` and `LeftRoom`.
+
 - `Store::get_rooms` and `Store::get_rooms_filtered` are way faster because they
   don't acquire the lock for every room they read.
+
 - `Store::get_rooms`, `Store::get_rooms_filtered` and `Store::get_room` are
   renamed `Store::rooms`, `Store::rooms_filtered` and `Store::room`.
-- `Client::get_rooms` and `Client::get_rooms_filtered` are renamed
+
+- [**breaking**] `Client::get_rooms` and `Client::get_rooms_filtered` are renamed
   `Client::rooms` and `Client::rooms_filtered`.
-- `Client::get_stripped_rooms` has finally been removed.
-- `Media::get_thumbnail` and `MediaFormat::Thumbnail` allow to request an animated thumbnail
-  - They both take a `MediaThumbnailSettings` instead of `MediaThumbnailSize`.
-- The `StateStore` methods to access data in the media cache where moved to a separate
-  `EventCacheStore` trait.
-- The `instant` module was removed, use the `ruma::time` module instead.
+
+- [**breaking**] `Client::get_stripped_rooms` has finally been removed.
+
+- [**breaking**] The `StateStore` methods to access data in the media cache
+  where moved to a separate `EventCacheStore` trait.
+
+- [**breaking**] The `instant` module was removed, use the `ruma::time` module instead.
 
 # 0.7.0
 

@@ -16,10 +16,13 @@ test = false
 doctest = false
 
 [dependencies]
+as_variant = { workspace = true }
 http = { workspace = true }
+matrix-sdk-common = { path = "../../crates/matrix-sdk-common" }
 matrix-sdk-test-macros = { version = "0.7.0", path = "../matrix-sdk-test-macros" }
 once_cell = { workspace = true }
-ruma = { workspace = true, features = ["rand"] }
+# Enabling the unstable feature for polls support.
+ruma = { workspace = true, features = ["rand", "unstable-msc3381"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

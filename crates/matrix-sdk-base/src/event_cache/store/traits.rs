@@ -15,11 +15,14 @@
 use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
-use matrix_sdk_common::AsyncTraitDeps;
-use ruma::MxcUri;
+use matrix_sdk_common::{linked_chunk::Update, AsyncTraitDeps};
+use ruma::{MxcUri, RoomId};
 
 use super::EventCacheStoreError;
-use crate::media::MediaRequestParameters;
+use crate::{
+    event_cache::{Event, Gap},
+    media::MediaRequestParameters,
+};
 
 /// An abstract trait that can be used to implement different store backends
 /// for the event cache of the SDK.
@@ -36,6 +39,15 @@ pub trait EventCacheStore: AsyncTraitDeps {
         key: &str,
         holder: &str,
     ) -> Result<bool, Self::Error>;
+
+    /// An [`Update`] reflects an operation that has happened inside a linked
+    /// chunk. The linked chunk is used by the event cache to store the events
+    /// in-memory. This method aims at forwarding this update inside this store.
+    async fn handle_linked_chunk_updates(
+        &self,
+        room_id: &RoomId,
+        updates: Vec<Update<Event, Gap>>,
+    ) -> Result<(), Self::Error>;
 
     /// Add a media file's content in the media store.
     ///
@@ -98,6 +110,9 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// Remove all the media files' content associated to an `MxcUri` from the
     /// media store.
     ///
+    /// This should not raise an error when the `uri` parameter points to an
+    /// unknown media, and it should return an Ok result in this case.
+    ///
     /// # Arguments
     ///
     /// * `uri` - The `MxcUri` of the media files.
@@ -126,6 +141,14 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         holder: &str,
     ) -> Result<bool, Self::Error> {
         self.0.try_take_leased_lock(lease_duration_ms, key, holder).await.map_err(Into::into)
+    }
+
+    async fn handle_linked_chunk_updates(
+        &self,
+        room_id: &RoomId,
+        updates: Vec<Update<Event, Gap>>,
+    ) -> Result<(), Self::Error> {
+        self.0.handle_linked_chunk_updates(room_id, updates).await.map_err(Into::into)
     }
 
     async fn add_media_content(

@@ -26,8 +26,9 @@ use ruma::{
     },
     assign,
     events::{
-        AnyMessageLikeEventContent, AnyStateEventContent, AnySyncTimelineEvent, AnyTimelineEvent,
-        MessageLikeEventType, StateEventType, TimelineEventType,
+        AnyMessageLikeEventContent, AnyStateEventContent, AnySyncMessageLikeEvent,
+        AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, MessageLikeEventType,
+        StateEventType, TimelineEventType,
     },
     serde::{from_raw_json_value, Raw},
     EventId, RoomId, TransactionId,
@@ -127,13 +128,16 @@ impl MatrixDriver {
                 self.room.redact(&redacts, None, None).await?.event_id,
             ));
         }
+
         Ok(match (state_key, delayed_event_parameters) {
             (None, None) => SendEventResponse::from_event_id(
                 self.room.send_raw(&type_str, content).await?.event_id,
             ),
+
             (Some(key), None) => SendEventResponse::from_event_id(
                 self.room.send_state_event_raw(&type_str, &key, content).await?.event_id,
             ),
+
             (None, Some(delayed_event_parameters)) => {
                 let r = delayed_events::delayed_message_event::unstable::Request::new_raw(
                     self.room.room_id().to_owned(),
@@ -144,6 +148,7 @@ impl MatrixDriver {
                 );
                 self.room.client.send(r, None).await.map(|r| r.into())?
             }
+
             (Some(key), Some(delayed_event_parameters)) => {
                 let r = delayed_events::delayed_state_event::unstable::Request::new_raw(
                     self.room.room_id().to_owned(),
@@ -175,13 +180,31 @@ impl MatrixDriver {
     pub(crate) fn events(&self) -> EventReceiver {
         let (tx, rx) = unbounded_channel();
         let room_id = self.room.room_id().to_owned();
-        let handle = self.room.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| {
-            let _ = tx.send(attach_room_id(&raw, &room_id));
+
+        // Get only message like events from the timeline section of the sync.
+        let _tx = tx.clone();
+        let _room_id = room_id.clone();
+        let handle_msg_like =
+            self.room.add_event_handler(move |raw: Raw<AnySyncMessageLikeEvent>| {
+                let _ = _tx.send(attach_room_id(raw.cast_ref(), &_room_id));
+                async {}
+            });
+        let drop_guard_msg_like = self.room.client().event_handler_drop_guard(handle_msg_like);
+
+        // Get only all state events from the state section of the sync.
+        let handle_state = self.room.add_event_handler(move |raw: Raw<AnySyncStateEvent>| {
+            let _ = tx.send(attach_room_id(raw.cast_ref(), &room_id));
             async {}
         });
+        let drop_guard_state = self.room.client().event_handler_drop_guard(handle_state);
 
-        let drop_guard = self.room.client().event_handler_drop_guard(handle);
-        EventReceiver { rx, _drop_guard: drop_guard }
+        // The receiver will get a combination of state and message like events.
+        // The state events will come from the state section of the sync (to always
+        // represent current resolved state). All state events in the timeline
+        // section of the sync will not be forwarded to the widget.
+        // TODO annotate the events and send both timeline and state section state
+        // events.
+        EventReceiver { rx, _drop_guards: [drop_guard_msg_like, drop_guard_state] }
     }
 }
 
@@ -189,7 +212,7 @@ impl MatrixDriver {
 /// along with the drop guard for the room event handler.
 pub(crate) struct EventReceiver {
     rx: UnboundedReceiver<Raw<AnyTimelineEvent>>,
-    _drop_guard: EventHandlerDropGuard,
+    _drop_guards: [EventHandlerDropGuard; 2],
 }
 
 impl EventReceiver {

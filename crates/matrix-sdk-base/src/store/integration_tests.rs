@@ -1,6 +1,6 @@
 //! Trait and macro of integration tests for StateStore implementations.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
@@ -34,7 +34,8 @@ use ruma::{
 use serde_json::{json, value::Value as JsonValue};
 
 use super::{
-    send_queue::SentRequestKey, DependentQueuedRequestKind, DynStateStore, ServerCapabilities,
+    send_queue::SentRequestKey, DependentQueuedRequestKind, DisplayName, DynStateStore,
+    ServerCapabilities,
 };
 use crate::{
     deserialized_responses::MemberEvent,
@@ -85,8 +86,12 @@ pub trait StateStoreIntegrationTests {
     async fn test_display_names_saving(&self);
     /// Test operations with the send queue.
     async fn test_send_queue(&self);
+    /// Test priority of operations with the send queue.
+    async fn test_send_queue_priority(&self);
     /// Test operations related to send queue dependents.
     async fn test_send_queue_dependents(&self);
+    /// Test an update to a send queue dependent request.
+    async fn test_update_send_queue_dependent(&self);
     /// Test saving/restoring server capabilities.
     async fn test_server_capabilities_saving(&self);
 }
@@ -139,13 +144,15 @@ impl StateStoreIntegrationTests for DynStateStore {
         room.handle_state_event(&topic_event);
         changes.add_state_event(room_id, topic_event, topic_raw);
 
-        let mut room_ambiguity_map = BTreeMap::new();
+        let mut room_ambiguity_map = HashMap::new();
         let mut room_profiles = BTreeMap::new();
 
         let member_json: &JsonValue = &test_json::MEMBER;
         let member_event: SyncRoomMemberEvent =
             serde_json::from_value(member_json.clone()).unwrap();
-        let displayname = member_event.as_original().unwrap().content.displayname.clone().unwrap();
+        let displayname = DisplayName::new(
+            member_event.as_original().unwrap().content.displayname.as_ref().unwrap(),
+        );
         room_ambiguity_map.insert(displayname.clone(), BTreeSet::from([user_id.to_owned()]));
         room_profiles.insert(user_id.to_owned(), (&member_event).into());
 
@@ -254,6 +261,8 @@ impl StateStoreIntegrationTests for DynStateStore {
     async fn test_populate_store(&self) -> Result<()> {
         let room_id = room_id();
         let user_id = user_id();
+        let display_name = DisplayName::new("example");
+
         self.populate().await?;
 
         assert!(self.get_kv_data(StateStoreDataKey::SyncToken).await?.is_some());
@@ -288,7 +297,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             "Expected to find 1 joined user ids"
         );
         assert_eq!(
-            self.get_users_with_display_name(room_id, "example").await?.len(),
+            self.get_users_with_display_name(room_id, &display_name).await?.len(),
             2,
             "Expected to find 2 display names for room"
         );
@@ -960,9 +969,28 @@ impl StateStoreIntegrationTests for DynStateStore {
     async fn test_room_removal(&self) -> Result<()> {
         let room_id = room_id();
         let user_id = user_id();
+        let display_name = DisplayName::new("example");
         let stripped_room_id = stripped_room_id();
 
         self.populate().await?;
+
+        {
+            // Add a send queue request in that room.
+            let txn = TransactionId::new();
+            let ev =
+                SerializableEventContent::new(&RoomMessageEventContent::text_plain("sup").into())
+                    .unwrap();
+            self.save_send_queue_request(room_id, txn.clone(), ev.into(), 0).await?;
+
+            // Add a single dependent queue request.
+            self.save_dependent_queued_request(
+                room_id,
+                &txn,
+                ChildTransactionId::new(),
+                DependentQueuedRequestKind::RedactEvent,
+            )
+            .await?;
+        }
 
         self.remove_room(room_id).await?;
 
@@ -988,7 +1016,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             "still joined users found"
         );
         assert!(
-            self.get_users_with_display_name(room_id, "example").await?.is_empty(),
+            self.get_users_with_display_name(room_id, &display_name).await?.is_empty(),
             "still display names found"
         );
         assert!(self
@@ -1015,6 +1043,8 @@ impl StateStoreIntegrationTests for DynStateStore {
             .is_empty(),
             "still event recepts in the store"
         );
+        assert!(self.load_send_queue_requests(room_id).await?.is_empty());
+        assert!(self.load_dependent_queued_requests(room_id).await?.is_empty());
 
         self.remove_room(stripped_room_id).await?;
 
@@ -1143,15 +1173,15 @@ impl StateStoreIntegrationTests for DynStateStore {
     async fn test_display_names_saving(&self) {
         let room_id = room_id!("!test_display_names_saving:localhost");
         let user_id = user_id();
-        let user_display_name = "User";
+        let user_display_name = DisplayName::new("User");
         let second_user_id = user_id!("@second:localhost");
         let third_user_id = user_id!("@third:localhost");
-        let other_display_name = "Raoul";
-        let unknown_display_name = "Unknown";
+        let other_display_name = DisplayName::new("Raoul");
+        let unknown_display_name = DisplayName::new("Unknown");
 
         // No event in store.
         let mut display_names = vec![user_display_name.to_owned()];
-        let users = self.get_users_with_display_name(room_id, user_display_name).await.unwrap();
+        let users = self.get_users_with_display_name(room_id, &user_display_name).await.unwrap();
         assert!(users.is_empty());
         let names = self.get_users_with_display_names(room_id, &display_names).await.unwrap();
         assert!(names.is_empty());
@@ -1165,7 +1195,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .insert(user_display_name.to_owned(), [user_id.to_owned()].into());
         self.save_changes(&changes).await.unwrap();
 
-        let users = self.get_users_with_display_name(room_id, user_display_name).await.unwrap();
+        let users = self.get_users_with_display_name(room_id, &user_display_name).await.unwrap();
         assert_eq!(users.len(), 1);
         let names = self.get_users_with_display_names(room_id, &display_names).await.unwrap();
         assert_eq!(names.len(), 1);
@@ -1180,9 +1210,9 @@ impl StateStoreIntegrationTests for DynStateStore {
         self.save_changes(&changes).await.unwrap();
 
         display_names.push(other_display_name.to_owned());
-        let users = self.get_users_with_display_name(room_id, user_display_name).await.unwrap();
+        let users = self.get_users_with_display_name(room_id, &user_display_name).await.unwrap();
         assert_eq!(users.len(), 1);
-        let users = self.get_users_with_display_name(room_id, other_display_name).await.unwrap();
+        let users = self.get_users_with_display_name(room_id, &other_display_name).await.unwrap();
         assert_eq!(users.len(), 2);
         let names = self.get_users_with_display_names(room_id, &display_names).await.unwrap();
         assert_eq!(names.len(), 2);
@@ -1212,7 +1242,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let event0 =
             SerializableEventContent::new(&RoomMessageEventContent::text_plain("msg0").into())
                 .unwrap();
-        self.save_send_queue_request(room_id, txn0.clone(), event0.into()).await.unwrap();
+        self.save_send_queue_request(room_id, txn0.clone(), event0.into(), 0).await.unwrap();
 
         // Reading it will work.
         let pending = self.load_send_queue_requests(room_id).await.unwrap();
@@ -1236,7 +1266,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             )
             .unwrap();
 
-            self.save_send_queue_request(room_id, txn, event.into()).await.unwrap();
+            self.save_send_queue_request(room_id, txn, event.into(), 0).await.unwrap();
         }
 
         // Reading all the events should work.
@@ -1334,7 +1364,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             let event =
                 SerializableEventContent::new(&RoomMessageEventContent::text_plain("room2").into())
                     .unwrap();
-            self.save_send_queue_request(room_id2, txn.clone(), event.into()).await.unwrap();
+            self.save_send_queue_request(room_id2, txn.clone(), event.into(), 0).await.unwrap();
         }
 
         // Add and remove one event for room3.
@@ -1344,7 +1374,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             let event =
                 SerializableEventContent::new(&RoomMessageEventContent::text_plain("room3").into())
                     .unwrap();
-            self.save_send_queue_request(room_id3, txn.clone(), event.into()).await.unwrap();
+            self.save_send_queue_request(room_id3, txn.clone(), event.into(), 0).await.unwrap();
 
             self.remove_send_queue_request(room_id3, &txn).await.unwrap();
         }
@@ -1357,6 +1387,64 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert!(outstanding_rooms.iter().any(|room| room == room_id2));
     }
 
+    async fn test_send_queue_priority(&self) {
+        let room_id = room_id!("!test_send_queue:localhost");
+
+        // No queued event in store at first.
+        let events = self.load_send_queue_requests(room_id).await.unwrap();
+        assert!(events.is_empty());
+
+        // Saving one request should work.
+        let low0_txn = TransactionId::new();
+        let ev0 =
+            SerializableEventContent::new(&RoomMessageEventContent::text_plain("low0").into())
+                .unwrap();
+        self.save_send_queue_request(room_id, low0_txn.clone(), ev0.into(), 2).await.unwrap();
+
+        // Saving one request with higher priority should work.
+        let high_txn = TransactionId::new();
+        let ev1 =
+            SerializableEventContent::new(&RoomMessageEventContent::text_plain("high").into())
+                .unwrap();
+        self.save_send_queue_request(room_id, high_txn.clone(), ev1.into(), 10).await.unwrap();
+
+        // Saving another request with the low priority should work.
+        let low1_txn = TransactionId::new();
+        let ev2 =
+            SerializableEventContent::new(&RoomMessageEventContent::text_plain("low1").into())
+                .unwrap();
+        self.save_send_queue_request(room_id, low1_txn.clone(), ev2.into(), 2).await.unwrap();
+
+        // The requests should be ordered from higher priority to lower, and when equal,
+        // should use the insertion order instead.
+        let pending = self.load_send_queue_requests(room_id).await.unwrap();
+
+        assert_eq!(pending.len(), 3);
+        {
+            assert_eq!(pending[0].transaction_id, high_txn);
+
+            let deserialized = pending[0].as_event().unwrap().deserialize().unwrap();
+            assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
+            assert_eq!(content.body(), "high");
+        }
+
+        {
+            assert_eq!(pending[1].transaction_id, low0_txn);
+
+            let deserialized = pending[1].as_event().unwrap().deserialize().unwrap();
+            assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
+            assert_eq!(content.body(), "low0");
+        }
+
+        {
+            assert_eq!(pending[2].transaction_id, low1_txn);
+
+            let deserialized = pending[2].as_event().unwrap().deserialize().unwrap();
+            assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
+            assert_eq!(content.body(), "low1");
+        }
+    }
+
     async fn test_send_queue_dependents(&self) {
         let room_id = room_id!("!test_send_queue_dependents:localhost");
 
@@ -1365,7 +1453,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let event0 =
             SerializableEventContent::new(&RoomMessageEventContent::text_plain("hey").into())
                 .unwrap();
-        self.save_send_queue_request(room_id, txn0.clone(), event0.into()).await.unwrap();
+        self.save_send_queue_request(room_id, txn0.clone(), event0.into(), 0).await.unwrap();
 
         // No dependents, to start with.
         assert!(self.load_dependent_queued_requests(room_id).await.unwrap().is_empty());
@@ -1392,7 +1480,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         // Update the event id.
         let event_id = owned_event_id!("$1");
         let num_updated = self
-            .update_dependent_queued_request(
+            .mark_dependent_queued_requests_as_ready(
                 room_id,
                 &txn0,
                 SentRequestKey::Event(event_id.clone()),
@@ -1427,7 +1515,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let event1 =
             SerializableEventContent::new(&RoomMessageEventContent::text_plain("hey2").into())
                 .unwrap();
-        self.save_send_queue_request(room_id, txn1.clone(), event1.into()).await.unwrap();
+        self.save_send_queue_request(room_id, txn1.clone(), event1.into(), 0).await.unwrap();
 
         self.save_dependent_queued_request(
             room_id,
@@ -1461,6 +1549,54 @@ impl StateStoreIntegrationTests for DynStateStore {
         // This has removed none of the dependent events.
         let dependents = self.load_dependent_queued_requests(room_id).await.unwrap();
         assert_eq!(dependents.len(), 2);
+    }
+
+    async fn test_update_send_queue_dependent(&self) {
+        let room_id = room_id!("!test_send_queue_dependents:localhost");
+
+        let txn = TransactionId::new();
+
+        // Save a dependent redaction for an event.
+        let child_txn = ChildTransactionId::new();
+
+        self.save_dependent_queued_request(
+            room_id,
+            &txn,
+            child_txn.clone(),
+            DependentQueuedRequestKind::RedactEvent,
+        )
+        .await
+        .unwrap();
+
+        // It worked.
+        let dependents = self.load_dependent_queued_requests(room_id).await.unwrap();
+        assert_eq!(dependents.len(), 1);
+        assert_eq!(dependents[0].parent_transaction_id, txn);
+        assert_eq!(dependents[0].own_transaction_id, child_txn);
+        assert!(dependents[0].parent_key.is_none());
+        assert_matches!(dependents[0].kind, DependentQueuedRequestKind::RedactEvent);
+
+        // Make it a reaction, instead of a redaction.
+        self.update_dependent_queued_request(
+            room_id,
+            &child_txn,
+            DependentQueuedRequestKind::ReactEvent { key: "👍".to_owned() },
+        )
+        .await
+        .unwrap();
+
+        // It worked.
+        let dependents = self.load_dependent_queued_requests(room_id).await.unwrap();
+        assert_eq!(dependents.len(), 1);
+        assert_eq!(dependents[0].parent_transaction_id, txn);
+        assert_eq!(dependents[0].own_transaction_id, child_txn);
+        assert!(dependents[0].parent_key.is_none());
+        assert_matches!(
+            &dependents[0].kind,
+            DependentQueuedRequestKind::ReactEvent { key } => {
+                assert_eq!(key, "👍");
+            }
+        );
     }
 }
 
@@ -1610,9 +1746,21 @@ macro_rules! statestore_integration_tests {
             }
 
             #[async_test]
+            async fn test_send_queue_priority() {
+                let store = get_store().await.expect("creating store failed").into_state_store();
+                store.test_send_queue_priority().await;
+            }
+
+            #[async_test]
             async fn test_send_queue_dependents() {
                 let store = get_store().await.expect("creating store failed").into_state_store();
                 store.test_send_queue_dependents().await;
+            }
+
+            #[async_test]
+            async fn test_update_send_queue_dependent() {
+                let store = get_store().await.expect("creating store failed").into_state_store();
+                store.test_update_send_queue_dependent().await;
             }
         }
     };

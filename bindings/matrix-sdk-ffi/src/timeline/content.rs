@@ -16,26 +16,55 @@ use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::{crypto::types::events::UtdCause, room::power_levels::power_level_user_changes};
 use matrix_sdk_ui::timeline::{PollResult, RoomPinnedEventsChange, TimelineDetails};
-use ruma::events::room::MediaSource;
+use ruma::events::{room::MediaSource as RumaMediaSource, EventContent, FullStateEventContent};
 
 use super::ProfileDetails;
-use crate::ruma::{ImageInfo, Mentions, MessageType, PollKind};
+use crate::{
+    error::ClientError,
+    ruma::{ImageInfo, MediaSource, MediaSourceExt, Mentions, MessageType, PollKind},
+};
 
 impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent {
     fn from(value: matrix_sdk_ui::timeline::TimelineItemContent) -> Self {
         use matrix_sdk_ui::timeline::TimelineItemContent as Content;
 
         match value {
-            Content::Message(message) => TimelineItemContent::Message { content: message.into() },
+            Content::Message(message) => {
+                let msgtype = message.msgtype().msgtype().to_owned();
+
+                match TryInto::<MessageContent>::try_into(message) {
+                    Ok(message) => TimelineItemContent::Message { content: message },
+                    Err(error) => TimelineItemContent::FailedToParseMessageLike {
+                        event_type: msgtype,
+                        error: error.to_string(),
+                    },
+                }
+            }
 
             Content::RedactedMessage => TimelineItemContent::RedactedMessage,
 
             Content::Sticker(sticker) => {
                 let content = sticker.content();
-                TimelineItemContent::Sticker {
-                    body: content.body.clone(),
-                    info: (&content.info).into(),
-                    source: Arc::new(MediaSource::from(content.source.clone())),
+
+                let media_source = RumaMediaSource::from(content.source.clone());
+
+                if let Err(error) = media_source.verify() {
+                    return TimelineItemContent::FailedToParseMessageLike {
+                        event_type: sticker.content().event_type().to_string(),
+                        error: error.to_string(),
+                    };
+                }
+
+                match TryInto::<ImageInfo>::try_into(&content.info) {
+                    Ok(info) => TimelineItemContent::Sticker {
+                        body: content.body.clone(),
+                        info,
+                        source: Arc::new(MediaSource { media_source }),
+                    },
+                    Err(error) => TimelineItemContent::FailedToParseMessageLike {
+                        event_type: sticker.content().event_type().to_string(),
+                        error: error.to_string(),
+                    },
                 }
             }
 
@@ -49,11 +78,18 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
                 TimelineItemContent::UnableToDecrypt { msg: EncryptedMessage::new(&msg) }
             }
 
-            Content::MembershipChange(membership) => TimelineItemContent::RoomMembership {
-                user_id: membership.user_id().to_string(),
-                user_display_name: membership.display_name(),
-                change: membership.change().map(Into::into),
-            },
+            Content::MembershipChange(membership) => {
+                let reason = match membership.content() {
+                    FullStateEventContent::Original { content, .. } => content.reason.clone(),
+                    _ => None,
+                };
+                TimelineItemContent::RoomMembership {
+                    user_id: membership.user_id().to_string(),
+                    user_display_name: membership.display_name(),
+                    change: membership.change().map(Into::into),
+                    reason,
+                }
+            }
 
             Content::ProfileChange(profile) => {
                 let (display_name, prev_display_name) = profile
@@ -110,16 +146,18 @@ pub struct MessageContent {
     pub mentions: Option<Mentions>,
 }
 
-impl From<matrix_sdk_ui::timeline::Message> for MessageContent {
-    fn from(value: matrix_sdk_ui::timeline::Message) -> Self {
-        Self {
-            msg_type: value.msgtype().clone().into(),
+impl TryFrom<matrix_sdk_ui::timeline::Message> for MessageContent {
+    type Error = ClientError;
+
+    fn try_from(value: matrix_sdk_ui::timeline::Message) -> Result<Self, Self::Error> {
+        Ok(Self {
+            msg_type: value.msgtype().clone().try_into()?,
             body: value.body().to_owned(),
             in_reply_to: value.in_reply_to().map(|r| Arc::new(r.clone().into())),
             is_edited: value.is_edited(),
             thread_root: value.thread_root().map(|id| id.to_string()),
             mentions: value.mentions().cloned().map(|m| m.into()),
-        }
+        })
     }
 }
 
@@ -161,6 +199,7 @@ pub enum TimelineItemContent {
         user_id: String,
         user_display_name: Option<String>,
         change: Option<MembershipChange>,
+        reason: Option<String>,
     },
     ProfileChange {
         display_name: Option<String>,

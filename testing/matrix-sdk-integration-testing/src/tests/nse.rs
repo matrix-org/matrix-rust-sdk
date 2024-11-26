@@ -125,14 +125,18 @@ impl ClientWrapper {
     /// Otherwise, a random path is used.
     ///
     /// The contained SyncService always has a cross-process lock. If
-    /// app_identifier is supplied, it is used to identify this client's
-    /// process. If not, the default name is used.
+    /// `cross_process_store_locks_holder_name` is supplied, it is used to
+    /// identify this client's process. If not, the default name is used.
     async fn new(
         username: &str,
         sqlite_dir: Option<&Path>,
-        app_identifier: Option<String>,
+        cross_process_store_locks_holder_name: Option<String>,
     ) -> Self {
-        let builder = TestClientBuilder::new(username);
+        let mut builder = TestClientBuilder::new(username);
+
+        if let Some(holder_name) = cross_process_store_locks_holder_name {
+            builder = builder.cross_process_store_locks_holder_name(holder_name);
+        }
 
         let builder = if let Some(sqlite_dir) = sqlite_dir {
             builder.use_sqlite_dir(sqlite_dir)
@@ -153,7 +157,7 @@ impl ClientWrapper {
         let client = SyncTokenAwareClient::new(inner_client.clone());
 
         let sync_service = SyncService::builder(inner_client)
-            .with_cross_process_lock(app_identifier)
+            .with_cross_process_lock()
             .build()
             .await
             .expect("Failed to create sync service");

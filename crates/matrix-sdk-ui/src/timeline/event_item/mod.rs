@@ -368,7 +368,15 @@ impl EventTimelineItem {
 
         match self.content() {
             TimelineItemContent::Message(message) => {
-                matches!(message.msgtype(), MessageType::Text(_) | MessageType::Emote(_))
+                matches!(
+                    message.msgtype(),
+                    MessageType::Text(_)
+                        | MessageType::Emote(_)
+                        | MessageType::Audio(_)
+                        | MessageType::File(_)
+                        | MessageType::Image(_)
+                        | MessageType::Video(_)
+                )
             }
             TimelineItemContent::Poll(poll) => {
                 poll.response_data.is_empty() && poll.end_event_timestamp.is_none()
@@ -570,6 +578,11 @@ impl EventTimelineItem {
             EventTimelineItemKind::Remote(remote) => TimelineItemHandle::Remote(&remote.event_id),
         }
     }
+
+    /// For local echoes, return the associated send handle.
+    pub fn local_echo_send_handle(&self) -> Option<SendHandle> {
+        as_variant!(self.handle(), TimelineItemHandle::Local(handle) => handle.clone())
+    }
 }
 
 impl From<LocalEventTimelineItem> for EventTimelineItemKind {
@@ -721,12 +734,14 @@ impl ReactionsByKeyBySender {
 mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
-    use matrix_sdk::test_utils::{events::EventFactory, logged_in_client};
+    use matrix_sdk::test_utils::logged_in_client;
     use matrix_sdk_base::{
         deserialized_responses::SyncTimelineEvent, latest_event::LatestEvent, sliding_sync::http,
         MinimalStateEvent, OriginalMinimalStateEvent,
     };
-    use matrix_sdk_test::{async_test, sync_state_event, sync_timeline_event};
+    use matrix_sdk_test::{
+        async_test, event_factory::EventFactory, sync_state_event, sync_timeline_event,
+    };
     use ruma::{
         event_id,
         events::{

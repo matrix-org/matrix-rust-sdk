@@ -21,7 +21,7 @@
 //! store.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     ops::Deref,
     result::Result as StdResult,
@@ -29,9 +29,7 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
-#[cfg(not(target_arch = "wasm32"))]
 use eyeball_im::{Vector, VectorDiff};
-#[cfg(not(target_arch = "wasm32"))]
 use futures_util::Stream;
 use once_cell::sync::OnceCell;
 
@@ -60,7 +58,8 @@ use tokio::sync::{broadcast, Mutex, RwLock};
 use tracing::warn;
 
 use crate::{
-    event_cache_store,
+    deserialized_responses::DisplayName,
+    event_cache::store as event_cache_store,
     rooms::{normal::RoomInfoNotableUpdate, RoomInfo, RoomState},
     MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
 };
@@ -267,7 +266,6 @@ impl Store {
 
     /// Get a stream of all the rooms changes, in addition to the existing
     /// rooms.
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>>) {
         self.rooms.read().unwrap().stream()
     }
@@ -387,7 +385,7 @@ pub struct StateChanges {
 
     /// A map from room id to a map of a display name and a set of user ids that
     /// share that display name in the given room.
-    pub ambiguity_maps: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<OwnedUserId>>>,
+    pub ambiguity_maps: BTreeMap<OwnedRoomId, HashMap<DisplayName, BTreeSet<OwnedUserId>>>,
 }
 
 impl StateChanges {
@@ -483,7 +481,8 @@ impl StateChanges {
 /// ```
 /// # use matrix_sdk_base::store::StoreConfig;
 ///
-/// let store_config = StoreConfig::new();
+/// let store_config =
+///     StoreConfig::new("cross-process-store-locks-holder-name".to_owned());
 /// ```
 #[derive(Clone)]
 pub struct StoreConfig {
@@ -491,6 +490,7 @@ pub struct StoreConfig {
     pub(crate) crypto_store: Arc<DynCryptoStore>,
     pub(crate) state_store: Arc<DynStateStore>,
     pub(crate) event_cache_store: event_cache_store::EventCacheStoreLock,
+    cross_process_store_locks_holder_name: String,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -502,17 +502,20 @@ impl fmt::Debug for StoreConfig {
 
 impl StoreConfig {
     /// Create a new default `StoreConfig`.
+    ///
+    /// To learn more about `cross_process_store_locks_holder_name`, please read
+    /// [`CrossProcessStoreLock::new`](matrix_sdk_common::store_locks::CrossProcessStoreLock::new).
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(cross_process_store_locks_holder_name: String) -> Self {
         Self {
             #[cfg(feature = "e2e-encryption")]
             crypto_store: matrix_sdk_crypto::store::MemoryStore::new().into_crypto_store(),
             state_store: Arc::new(MemoryStore::new()),
             event_cache_store: event_cache_store::EventCacheStoreLock::new(
                 event_cache_store::MemoryStore::new(),
-                "default-key".to_owned(),
-                "matrix-sdk-base".to_owned(),
+                cross_process_store_locks_holder_name.clone(),
             ),
+            cross_process_store_locks_holder_name,
         }
     }
 
@@ -532,21 +535,14 @@ impl StoreConfig {
     }
 
     /// Set a custom implementation of an `EventCacheStore`.
-    ///
-    /// The `key` and `holder` arguments represent the key and holder inside the
-    /// [`CrossProcessStoreLock::new`][matrix_sdk_common::store_locks::CrossProcessStoreLock::new].
-    pub fn event_cache_store<S>(mut self, event_cache_store: S, key: String, holder: String) -> Self
+    pub fn event_cache_store<S>(mut self, event_cache_store: S) -> Self
     where
         S: event_cache_store::IntoEventCacheStore,
     {
-        self.event_cache_store =
-            event_cache_store::EventCacheStoreLock::new(event_cache_store, key, holder);
+        self.event_cache_store = event_cache_store::EventCacheStoreLock::new(
+            event_cache_store,
+            self.cross_process_store_locks_holder_name.clone(),
+        );
         self
-    }
-}
-
-impl Default for StoreConfig {
-    fn default() -> Self {
-        Self::new()
     }
 }

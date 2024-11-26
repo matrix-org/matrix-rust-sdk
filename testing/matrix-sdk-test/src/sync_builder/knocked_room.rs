@@ -20,6 +20,11 @@ impl KnockedRoomBuilder {
         Self { room_id: room_id.to_owned(), inner: Default::default() }
     }
 
+    /// Get the room ID of this [`KnockedRoomBuilder`].
+    pub fn room_id(&self) -> &RoomId {
+        &self.room_id
+    }
+
     /// Add an event to the state.
     pub fn add_state_event(mut self, event: StrippedStateTestEvent) -> Self {
         self.inner.knock_state.events.push(event.into_raw_event());

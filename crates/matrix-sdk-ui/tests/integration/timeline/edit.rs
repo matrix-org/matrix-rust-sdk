@@ -20,13 +20,12 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    config::SyncSettings,
-    room::edit::EditedContent,
-    test_utils::{events::EventFactory, logged_in_client_with_server},
+    config::SyncSettings, room::edit::EditedContent, test_utils::logged_in_client_with_server,
     Client,
 };
 use matrix_sdk_test::{
-    async_test, mocks::mock_encryption_state, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
+    SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::{
     timeline::{

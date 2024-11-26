@@ -18,11 +18,11 @@ use std::{future::Future, ops::ControlFlow, sync::Arc, time::Duration};
 
 use eyeball::Subscriber;
 use matrix_sdk_base::deserialized_responses::SyncTimelineEvent;
+use matrix_sdk_common::linked_chunk::ChunkContent;
 use tokio::time::timeout;
 use tracing::{debug, instrument, trace};
 
 use super::{
-    linked_chunk::ChunkContent,
     paginator::{PaginationResult, PaginatorState},
     room::{
         events::{Gap, RoomEvents},

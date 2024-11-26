@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #![allow(dead_code)]
+#![allow(rustdoc::private_intra_doc_links)]
 
 //! A linked chunk is the underlying data structure that holds all events.
 
@@ -56,7 +57,7 @@ macro_rules! assert_items_eq {
                     let chunk = $iterator .next().expect("next chunk (expect items)");
                     assert!(chunk.is_items(), "chunk should contain items");
 
-                    let $crate::event_cache::linked_chunk::ChunkContent::Items(items) = chunk.content() else {
+                    let $crate::linked_chunk::ChunkContent::Items(items) = chunk.content() else {
                         unreachable!()
                     };
 
@@ -92,6 +93,7 @@ macro_rules! assert_items_eq {
 }
 
 mod as_vector;
+pub mod relational;
 mod updates;
 
 use std::{
@@ -102,8 +104,8 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use as_vector::*;
-use updates::*;
+pub use as_vector::*;
+pub use updates::*;
 
 /// Errors of [`LinkedChunk`].
 #[derive(thiserror::Error, Debug)]
@@ -189,6 +191,36 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
             chunk = chunk.previous_mut()?;
         }
     }
+
+    /// Drop all chunks, and re-create the first one.
+    fn clear(&mut self) {
+        // Loop over all chunks, from the last to the first chunk, and drop them.
+        {
+            // Take the latest chunk.
+            let mut current_chunk_ptr = self.last.or(Some(self.first));
+
+            // As long as we have another chunk…
+            while let Some(chunk_ptr) = current_chunk_ptr {
+                // Fetch the previous chunk pointer.
+                let previous_ptr = unsafe { chunk_ptr.as_ref() }.previous;
+
+                // Re-box the chunk, and let Rust does its job.
+                let _chunk_boxed = unsafe { Box::from_raw(chunk_ptr.as_ptr()) };
+
+                // Update the `current_chunk_ptr`.
+                current_chunk_ptr = previous_ptr;
+            }
+
+            // At this step, all chunks have been dropped, including
+            // `self.first`.
+        }
+
+        // Recreate the first chunk.
+        self.first = Chunk::new_items_leaked(ChunkIdentifierGenerator::FIRST_IDENTIFIER);
+
+        // Reset the last chunk.
+        self.last = None;
+    }
 }
 
 /// The [`LinkedChunk`] structure.
@@ -254,6 +286,29 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             chunk_identifier_generator: ChunkIdentifierGenerator::new_from_scratch(),
             updates: Some(ObservableUpdates::new()),
             marker: PhantomData,
+        }
+    }
+
+    /// Clear all the chunks.
+    pub fn clear(&mut self) {
+        // Clear `self.links`.
+        self.links.clear();
+
+        // Clear `self.length`.
+        self.length = 0;
+
+        // Clear `self.chunk_identifier_generator`.
+        self.chunk_identifier_generator = ChunkIdentifierGenerator::new_from_scratch();
+
+        // “Clear” `self.updates`.
+        if let Some(updates) = self.updates.as_mut() {
+            // TODO: Optimisation: Do we want to clear all pending `Update`s in `updates`?
+            updates.push(Update::Clear);
+            updates.push(Update::NewItemsChunk {
+                previous: None,
+                new: ChunkIdentifierGenerator::FIRST_IDENTIFIER,
+                next: None,
+            })
         }
     }
 
@@ -845,37 +900,21 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
 impl<const CAP: usize, Item, Gap> Drop for LinkedChunk<CAP, Item, Gap> {
     fn drop(&mut self) {
-        // Take the latest chunk.
-        let mut current_chunk_ptr = self.links.last.or(Some(self.links.first));
-
-        // As long as we have another chunk…
-        while let Some(chunk_ptr) = current_chunk_ptr {
-            // Disconnect the chunk by updating `previous_chunk.next` pointer.
-            let previous_ptr = unsafe { chunk_ptr.as_ref() }.previous;
-
-            if let Some(mut previous_ptr) = previous_ptr {
-                unsafe { previous_ptr.as_mut() }.next = None;
-            }
-
-            // Re-box the chunk, and let Rust does its job.
-            let _chunk_boxed = unsafe { Box::from_raw(chunk_ptr.as_ptr()) };
-
-            // Update the `current_chunk_ptr`.
-            current_chunk_ptr = previous_ptr;
-        }
-
-        // At this step, all chunks have been dropped, including
-        // `self.first`.
+        // Only clear the links. Calling `Self::clear` would be an error as we don't
+        // want to emit an `Update::Clear` when `self` is dropped. Instead, we only care
+        // about freeing memory correctly. Rust can take care of everything except the
+        // pointers in `self.links`, hence the specific call to `self.links.clear()`.
+        self.links.clear();
     }
 }
 
 /// A [`LinkedChunk`] can be safely sent over thread boundaries if `Item: Send`
-/// and `Gap: Send`. The only unsafe part if around the `NonNull`, but the API
+/// and `Gap: Send`. The only unsafe part is around the `NonNull`, but the API
 /// and the lifetimes to deref them are designed safely.
 unsafe impl<const CAP: usize, Item: Send, Gap: Send> Send for LinkedChunk<CAP, Item, Gap> {}
 
 /// A [`LinkedChunk`] can be safely share between threads if `Item: Sync` and
-/// `Gap: Sync`. The only unsafe part if around the `NonNull`, but the API and
+/// `Gap: Sync`. The only unsafe part is around the `NonNull`, but the API and
 /// the lifetimes to deref them are designed safely.
 unsafe impl<const CAP: usize, Item: Sync, Gap: Sync> Sync for LinkedChunk<CAP, Item, Gap> {}
 
@@ -934,7 +973,18 @@ impl ChunkIdentifierGenerator {
 #[repr(transparent)]
 pub struct ChunkIdentifier(u64);
 
-#[cfg(test)]
+impl ChunkIdentifier {
+    /// Create a new [`ChunkIdentifier`].
+    pub(super) fn new(identifier: u64) -> Self {
+        Self(identifier)
+    }
+
+    /// Get the underlying identifier.
+    fn index(&self) -> u64 {
+        self.0
+    }
+}
+
 impl PartialEq<u64> for ChunkIdentifier {
     fn eq(&self, other: &u64) -> bool {
         self.0 == *other
@@ -948,6 +998,11 @@ impl PartialEq<u64> for ChunkIdentifier {
 pub struct Position(ChunkIdentifier, usize);
 
 impl Position {
+    /// Create a new [`Position`].
+    pub(super) fn new(chunk_identifier: ChunkIdentifier, index: usize) -> Self {
+        Self(chunk_identifier, index)
+    }
+
     /// Get the chunk identifier of the item.
     pub fn chunk_identifier(&self) -> ChunkIdentifier {
         self.0
@@ -963,8 +1018,18 @@ impl Position {
     /// # Panic
     ///
     /// This method will panic if it will underflow, i.e. if the index is 0.
-    pub(super) fn decrement_index(&mut self) {
+    pub fn decrement_index(&mut self) {
         self.1 = self.1.checked_sub(1).expect("Cannot decrement the index because it's already 0");
+    }
+
+    /// Increment the index part (see [`Self::index`]), i.e. add 1.
+    ///
+    /// # Panic
+    ///
+    /// This method will panic if it will overflow, i.e. if the index is larger
+    /// than `usize::MAX`.
+    pub fn increment_index(&mut self) {
+        self.1 = self.1.checked_add(1).expect("Cannot increment the index because it's too large");
     }
 }
 
@@ -1346,7 +1411,8 @@ where
 }
 
 /// A type representing what to do when the system has to handle an empty chunk.
-pub(crate) enum EmptyChunk {
+#[derive(Debug)]
+pub enum EmptyChunk {
     /// Keep the empty chunk.
     Keep,
 
@@ -1362,7 +1428,10 @@ impl EmptyChunk {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Not;
+    use std::{
+        ops::Not,
+        sync::{atomic::Ordering, Arc},
+    };
 
     use assert_matches::assert_matches;
 
@@ -2605,5 +2674,60 @@ mod tests {
         assert!(chunks.next().unwrap().is_last_chunk().not());
         assert!(chunks.next().unwrap().is_last_chunk());
         assert!(chunks.next().is_none());
+    }
+
+    // Test `LinkedChunk::clear`. This test creates a `LinkedChunk` with `new` to
+    // avoid creating too much confusion with `Update`s. The next test
+    // `test_clear_emit_an_update_clear` uses `new_with_update_history` and only
+    // test `Update::Clear`.
+    #[test]
+    fn test_clear() {
+        let mut linked_chunk = LinkedChunk::<3, Arc<char>, Arc<()>>::new();
+
+        let item = Arc::new('a');
+        let gap = Arc::new(());
+
+        linked_chunk.push_items_back([
+            item.clone(),
+            item.clone(),
+            item.clone(),
+            item.clone(),
+            item.clone(),
+        ]);
+        linked_chunk.push_gap_back(gap.clone());
+        linked_chunk.push_items_back([item.clone()]);
+
+        assert_eq!(Arc::strong_count(&item), 7);
+        assert_eq!(Arc::strong_count(&gap), 2);
+        assert_eq!(linked_chunk.len(), 6);
+        assert_eq!(linked_chunk.chunk_identifier_generator.next.load(Ordering::SeqCst), 3);
+
+        // Now, we can clear the linked chunk and see what happens.
+        linked_chunk.clear();
+
+        assert_eq!(Arc::strong_count(&item), 1);
+        assert_eq!(Arc::strong_count(&gap), 1);
+        assert_eq!(linked_chunk.len(), 0);
+        assert_eq!(linked_chunk.chunk_identifier_generator.next.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn test_clear_emit_an_update_clear() {
+        use super::Update::*;
+
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+        linked_chunk.clear();
+
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[
+                Clear,
+                NewItemsChunk {
+                    previous: None,
+                    new: ChunkIdentifierGenerator::FIRST_IDENTIFIER,
+                    next: None
+                }
+            ]
+        );
     }
 }

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::Arc,
 };
 
@@ -24,18 +24,18 @@ use ruma::{
     },
     OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
-use tracing::trace;
+use tracing::{instrument, trace};
 
 use super::{DynStateStore, Result, StateChanges};
 use crate::{
-    deserialized_responses::{AmbiguityChange, RawMemberEvent},
+    deserialized_responses::{AmbiguityChange, DisplayName, RawMemberEvent},
     store::StateStoreExt,
 };
 
 /// A map of users that use a certain display name.
 #[derive(Debug, Clone)]
 struct DisplayNameUsers {
-    display_name: String,
+    display_name: DisplayName,
     users: BTreeSet<OwnedUserId>,
 }
 
@@ -70,7 +70,7 @@ impl DisplayNameUsers {
 
     /// Is the display name considered to be ambiguous.
     fn is_ambiguous(&self) -> bool {
-        self.user_count() > 1
+        is_display_name_ambiguous(&self.display_name, &self.users)
     }
 }
 
@@ -82,8 +82,17 @@ fn is_member_active(membership: &MembershipState) -> bool {
 #[derive(Debug)]
 pub(crate) struct AmbiguityCache {
     pub store: Arc<DynStateStore>,
-    pub cache: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<OwnedUserId>>>,
+    pub cache: BTreeMap<OwnedRoomId, HashMap<DisplayName, BTreeSet<OwnedUserId>>>,
     pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
+}
+
+#[instrument(ret)]
+pub(crate) fn is_display_name_ambiguous(
+    display_name: &DisplayName,
+    users_with_display_name: &BTreeSet<OwnedUserId>,
+) -> bool {
+    trace!("Checking if a display name is ambiguous");
+    display_name.is_inherently_ambiguous() || users_with_display_name.len() > 1
 }
 
 impl AmbiguityCache {
@@ -224,18 +233,15 @@ impl AmbiguityCache {
     async fn get_users_with_display_name(
         &mut self,
         room_id: &RoomId,
-        display_name: &str,
+        display_name: &DisplayName,
     ) -> Result<DisplayNameUsers> {
         Ok(if let Some(u) = self.cache.entry(room_id.to_owned()).or_default().get(display_name) {
-            DisplayNameUsers { display_name: display_name.to_owned(), users: u.clone() }
+            DisplayNameUsers { display_name: display_name.clone(), users: u.clone() }
         } else {
             let users_with_display_name =
                 self.store.get_users_with_display_name(room_id, display_name).await?;
 
-            DisplayNameUsers {
-                display_name: display_name.to_owned(),
-                users: users_with_display_name,
-            }
+            DisplayNameUsers { display_name: display_name.clone(), users: users_with_display_name }
         })
     }
 
@@ -254,7 +260,8 @@ impl AmbiguityCache {
         let old_display_name = self.get_old_display_name(changes, room_id, member_event).await?;
 
         let old_map = if let Some(old_name) = old_display_name.as_deref() {
-            Some(self.get_users_with_display_name(room_id, old_name).await?)
+            let old_display_name = DisplayName::new(old_name);
+            Some(self.get_users_with_display_name(room_id, &old_display_name).await?)
         } else {
             None
         };
@@ -275,11 +282,221 @@ impl AmbiguityCache {
                 new
             };
 
-            Some(self.get_users_with_display_name(room_id, new_display_name).await?)
+            let new_display_name = DisplayName::new(new_display_name);
+
+            Some(self.get_users_with_display_name(room_id, &new_display_name).await?)
         } else {
             None
         };
 
         Ok((old_map, new_map))
+    }
+
+    #[cfg(test)]
+    fn check(&self, room_id: &RoomId, display_name: &DisplayName) -> bool {
+        self.cache
+            .get(room_id)
+            .and_then(|display_names| {
+                display_names
+                    .get(display_name)
+                    .map(|user_ids| is_display_name_ambiguous(display_name, user_ids))
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "The display name {:?} should be part of the cache {:?}",
+                    display_name, self.cache
+                )
+            })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use matrix_sdk_test::async_test;
+    use ruma::{room_id, server_name, user_id, EventId};
+    use serde_json::json;
+
+    use super::*;
+    use crate::store::{IntoStateStore, MemoryStore};
+
+    fn generate_event(user_id: &UserId, display_name: &str) -> SyncRoomMemberEvent {
+        let server_name = server_name!("localhost");
+        serde_json::from_value(json!({
+            "content": {
+                "displayname": display_name,
+                "membership": "join"
+            },
+            "event_id": EventId::new(server_name),
+            "origin_server_ts": 152037280,
+            "sender": user_id,
+            "state_key": user_id,
+            "type": "m.room.member",
+
+        }))
+        .expect("We should be able to deserialize the static member event")
+    }
+
+    macro_rules! assert_ambiguity {
+        (
+            [ $( ($user:literal, $display_name:literal) ),* ],
+            [ $( ($check_display_name:literal, $ambiguous:expr) ),* ] $(,)?
+        ) => {
+            assert_ambiguity!(
+                [ $( ($user, $display_name) ),* ],
+                [ $( ($check_display_name, $ambiguous) ),* ],
+                "The test failed the ambiguity assertions"
+            )
+        };
+
+        (
+            [ $( ($user:literal, $display_name:literal) ),* ],
+            [ $( ($check_display_name:literal, $ambiguous:expr) ),* ],
+            $description:literal $(,)?
+        ) => {
+            let store = MemoryStore::new();
+            let mut ambiguity_cache = AmbiguityCache::new(store.into_state_store());
+
+            let changes = Default::default();
+            let room_id = room_id!("!foo:bar");
+
+            macro_rules! add_display_name {
+                ($u:literal, $n:literal) => {
+                    let event = generate_event(user_id!($u), $n);
+
+                    ambiguity_cache
+                        .handle_event(&changes, room_id, &event)
+                        .await
+                        .expect("We should be able to handle a member event to calculate the ambiguity.");
+                };
+            }
+
+            macro_rules! assert_display_name_ambiguity {
+                ($n:literal, $a:expr) => {
+                    let display_name = DisplayName::new($n);
+
+                    if ambiguity_cache.check(room_id, &display_name) != $a {
+                        let foo = if $a { "be" } else { "not be" };
+                        panic!("{}: the display name {} should {} ambiguous", $description, $n, foo);
+                    }
+                };
+            }
+
+            $(
+                add_display_name!($user, $display_name);
+            )*
+
+            $(
+                assert_display_name_ambiguity!($check_display_name, $ambiguous);
+            )*
+        };
+    }
+
+    #[async_test]
+    async fn test_disambiguation() {
+        assert_ambiguity!(
+            [("@alice:localhost", "alice")],
+            [("alice", false)],
+            "Alice is alone in the room"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "alice")],
+            [("Alice", false)],
+            "Alice is alone in the room and has a capitalized display name"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "alice"), ("@bob:localhost", "alice")],
+            [("alice", true)],
+            "Alice and bob share a display name"
+        );
+
+        assert_ambiguity!(
+            [
+                ("@alice:localhost", "alice"),
+                ("@bob:localhost", "alice"),
+                ("@carol:localhost", "carol")
+            ],
+            [("alice", true), ("carol", false)],
+            "Alice and Bob share a display name, while Carol is unique"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "alice"), ("@bob:localhost", "ALICE")],
+            [("alice", true)],
+            "Alice and Bob share a display name that is differently capitalized"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "alice"), ("@bob:localhost", "аlice")],
+            [("alice", true)],
+            "Bob tries to impersonate Alice using a cyrilic а"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "@bob:localhost"), ("@bob:localhost", "аlice")],
+            [("@bob:localhost", true)],
+            "Alice tries to impersonate bob using an mxid"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "Sahasrahla"), ("@bob:localhost", "𝒮𝒶𝒽𝒶𝓈𝓇𝒶𝒽𝓁𝒶")],
+            [("Sahasrahla", true)],
+            "Bob tries to impersonate Alice using scripture symbols"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "Sahasrahla"), ("@bob:localhost", "𝔖𝔞𝔥𝔞𝔰𝔯𝔞𝔥𝔩𝔞")],
+            [("Sahasrahla", true)],
+            "Bob tries to impersonate Alice using fraktur symbols"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "Sahasrahla"), ("@bob:localhost", "Ⓢⓐⓗⓐⓢⓡⓐⓗⓛⓐ")],
+            [("Sahasrahla", true)],
+            "Bob tries to impersonate Alice using circled symbols"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "Sahasrahla"), ("@bob:localhost", "🅂🄰🄷🄰🅂🅁🄰🄷🄻🄰")],
+            [("Sahasrahla", true)],
+            "Bob tries to impersonate Alice using squared symbols"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "Sahasrahla"), ("@bob:localhost", "Ｓａｈａｓｒａｈｌａ")],
+            [("Sahasrahla", true)],
+            "Bob tries to impersonate Alice using big unicode letters"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "Sahasrahla"), ("@bob:localhost", "\u{202e}alharsahas")],
+            [("Sahasrahla", true)],
+            "Bob tries to impersonate Alice using left to right shenanigans"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "Sahasrahla"), ("@bob:localhost", "Sa̴hasrahla")],
+            [("Sahasrahla", true)],
+            "Bob tries to impersonate Alice using a diacritical mark"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "Sahasrahla"), ("@bob:localhost", "Sahas\u{200B}rahla")],
+            [("Sahasrahla", true)],
+            "Bob tries to impersonate Alice using a zero-width space"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "Sahasrahla"), ("@bob:localhost", "Sahas\u{200D}rahla")],
+            [("Sahasrahla", true)],
+            "Bob tries to impersonate Alice using a zero-width space"
+        );
+
+        assert_ambiguity!(
+            [("@alice:localhost", "ff"), ("@bob:localhost", "\u{FB00}")],
+            [("ff", true)],
+            "Bob tries to impersonate Alice using a ligature"
+        );
     }
 }

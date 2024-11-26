@@ -62,7 +62,7 @@ where
 pub(crate) mod tests {
     use std::{future, time::Duration};
 
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test_macros::async_test;
 
     use super::timeout;
 

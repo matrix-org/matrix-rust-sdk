@@ -1,9 +1,15 @@
 use anyhow::Context as _;
 use matrix_sdk::{room_preview::RoomPreview as SdkRoomPreview, Client};
-use ruma::space::SpaceRoomJoinRule;
+use ruma::{room::RoomType as RumaRoomType, space::SpaceRoomJoinRule};
 use tracing::warn;
 
-use crate::{client::JoinRule, error::ClientError, room::Membership, utils::AsyncRuntimeDropped};
+use crate::{
+    client::JoinRule,
+    error::ClientError,
+    room::{Membership, RoomHero},
+    room_member::RoomMember,
+    utils::AsyncRuntimeDropped,
+};
 
 /// A room preview for a room. It's intended to be used to represent rooms that
 /// aren't joined yet.
@@ -25,7 +31,8 @@ impl RoomPreview {
             topic: info.topic.clone(),
             avatar_url: info.avatar_url.as_ref().map(|url| url.to_string()),
             num_joined_members: info.num_joined_members,
-            room_type: info.room_type.as_ref().map(|room_type| room_type.to_string()),
+            num_active_members: info.num_active_members,
+            room_type: info.room_type.as_ref().into(),
             is_history_world_readable: info.is_world_readable,
             membership: info.state.map(|state| state.into()),
             join_rule: info
@@ -33,6 +40,11 @@ impl RoomPreview {
                 .clone()
                 .try_into()
                 .map_err(|_| anyhow::anyhow!("unhandled SpaceRoomJoinRule kind"))?,
+            is_direct: info.is_direct,
+            heroes: info
+                .heroes
+                .as_ref()
+                .map(|heroes| heroes.iter().map(|h| h.to_owned().into()).collect()),
         })
     }
 
@@ -44,6 +56,13 @@ impl RoomPreview {
         let room =
             self.client.get_room(&self.inner.room_id).context("missing room for a room preview")?;
         room.leave().await.map_err(Into::into)
+    }
+
+    /// Get the user who created the invite, if any.
+    pub async fn inviter(&self) -> Option<RoomMember> {
+        let room = self.client.get_room(&self.inner.room_id)?;
+        let invite_details = room.invite_details().await.ok()?;
+        invite_details.inviter.and_then(|m| m.try_into().ok())
     }
 }
 
@@ -68,14 +87,20 @@ pub struct RoomPreviewInfo {
     pub avatar_url: Option<String>,
     /// The number of joined members.
     pub num_joined_members: u64,
+    /// The number of active members, if known (joined + invited).
+    pub num_active_members: Option<u64>,
     /// The room type (space, custom) or nothing, if it's a regular room.
-    pub room_type: Option<String>,
+    pub room_type: RoomType,
     /// Is the history world-readable for this room?
     pub is_history_world_readable: bool,
     /// The membership state for the current user, if known.
     pub membership: Option<Membership>,
     /// The join rule for this room (private, public, knock, etc.).
     pub join_rule: JoinRule,
+    /// Whether the room is direct or not, if known.
+    pub is_direct: Option<bool>,
+    /// Room heroes.
+    pub heroes: Option<Vec<RoomHero>>,
 }
 
 impl TryFrom<SpaceRoomJoinRule> for JoinRule {
@@ -95,5 +120,29 @@ impl TryFrom<SpaceRoomJoinRule> for JoinRule {
                 return Err(());
             }
         })
+    }
+}
+
+/// The type of room for a [`RoomPreviewInfo`].
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum RoomType {
+    /// It's a plain chat room.
+    Room,
+    /// It's a space that can group several rooms.
+    Space,
+    /// It's a custom implementation.
+    Custom { value: String },
+}
+
+impl From<Option<&RumaRoomType>> for RoomType {
+    fn from(value: Option<&RumaRoomType>) -> Self {
+        match value {
+            Some(RumaRoomType::Space) => RoomType::Space,
+            Some(RumaRoomType::_Custom(_)) => RoomType::Custom {
+                // SAFETY: this was checked in the match branch above
+                value: value.unwrap().to_string(),
+            },
+            _ => RoomType::Room,
+        }
     }
 }

@@ -18,6 +18,7 @@ use std::{
     io::Cursor,
     iter,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use as_variant::as_variant;
@@ -43,12 +44,24 @@ use ruma::{
 };
 use serde_json::{json, value::to_raw_value};
 use stream_assert::assert_next_matches;
+use tokio::time::sleep;
 
 use super::TestTimeline;
 use crate::{
     timeline::{EncryptedMessage, TimelineDetails, TimelineItemContent},
     unable_to_decrypt_hook::{UnableToDecryptHook, UnableToDecryptInfo, UtdHookManager},
 };
+
+#[derive(Debug, Default)]
+struct DummyUtdHook {
+    utds: Mutex<Vec<UnableToDecryptInfo>>,
+}
+
+impl UnableToDecryptHook for DummyUtdHook {
+    fn on_utd(&self, info: UnableToDecryptInfo) {
+        self.utds.lock().unwrap().push(info);
+    }
+}
 
 #[async_test]
 async fn test_retry_message_decryption() {
@@ -66,17 +79,6 @@ async fn test_retry_message_decryption() {
         wIeiFi1dT43/jLAUGkslsi1VvnyfUu8qO404RxYO3XHoGLMFoFLOO+lZ+VGci2Vz10AhxJhEBHxRKxw4k2uB\
         HztoSJUr/2Y\n\
         -----END MEGOLM SESSION DATA-----";
-
-    #[derive(Debug, Default)]
-    struct DummyUtdHook {
-        utds: Mutex<Vec<UnableToDecryptInfo>>,
-    }
-
-    impl UnableToDecryptHook for DummyUtdHook {
-        fn on_utd(&self, info: UnableToDecryptInfo) {
-            self.utds.lock().unwrap().push(info);
-        }
-    }
 
     let hook = Arc::new(DummyUtdHook::default());
     let client = test_client_builder(None).build().await.unwrap();
@@ -166,6 +168,73 @@ async fn test_retry_message_decryption() {
 
         // The previous UTD report is still there.
         assert_eq!(utds[0].event_id, event.event_id().unwrap());
+        assert!(utds[0].time_to_decrypt.is_none());
+    }
+}
+
+// There has been a regression when the `retry_event_decryption` function
+// changed from failing with an Error to instead return a new type of timeline
+// event in UTD. The regression caused the timeline to consider any
+// re-decryption attempt as successful.
+#[async_test]
+async fn test_false_positive_late_decryption_regression() {
+    const SESSION_ID: &str = "gM8i47Xhu0q52xLfgUXzanCMpLinoyVyH7R58cBuVBU";
+
+    let hook = Arc::new(DummyUtdHook::default());
+    let client = test_client_builder(None).build().await.unwrap();
+    let utd_hook =
+        Arc::new(UtdHookManager::new(hook.clone(), client).with_max_delay(Duration::from_secs(1)));
+
+    let timeline = TestTimeline::with_unable_to_decrypt_hook(utd_hook.clone());
+
+    let f = &timeline.factory;
+    timeline
+        .handle_live_event(
+            f.event(RoomEncryptedEventContent::new(
+                EncryptedEventScheme::MegolmV1AesSha2(
+                    MegolmV1AesSha2ContentInit {
+                        ciphertext: "\
+                            AwgAEtABPRMavuZMDJrPo6pGQP4qVmpcuapuXtzKXJyi3YpEsjSWdzuRKIgJzD4P\
+                            cSqJM1A8kzxecTQNJsC5q22+KSFEPxPnI4ltpm7GFowSoPSW9+bFdnlfUzEP1jPq\
+                            YevHAsMJp2fRKkzQQbPordrUk1gNqEpGl4BYFeRqKl9GPdKFwy45huvQCLNNueql\
+                            CFZVoYMuhxrfyMiJJAVNTofkr2um2mKjDTlajHtr39pTG8k0eOjSXkLOSdZvNOMz\
+                            hGhSaFNeERSA2G2YbeknOvU7MvjiO0AKuxaAe1CaVhAI14FCgzrJ8g0y5nly+n7x\
+                            QzL2G2Dn8EoXM5Iqj8W99iokQoVsSrUEnaQ1WnSIfewvDDt4LCaD/w7PGETMCQ"
+                            .to_owned(),
+                        sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA".to_owned(),
+                        device_id: "NLAZCWIOCO".into(),
+                        session_id: SESSION_ID.into(),
+                    }
+                    .into(),
+                ),
+                None,
+            ))
+            .sender(&BOB)
+            .into_utd_sync_timeline_event(),
+        )
+        .await;
+
+    let own_user_id = user_id!("@example:morheus.localhost");
+    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+
+    timeline
+        .controller
+        .retry_event_decryption_test(
+            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
+            olm_machine,
+            Some(iter::once(SESSION_ID.to_owned()).collect()),
+        )
+        .await;
+    assert_eq!(timeline.controller.items().await.len(), 2);
+
+    // Wait past the max delay for utd late decryption detection
+    sleep(Duration::from_secs(2)).await;
+
+    {
+        let utds = hook.utds.lock().unwrap();
+        assert_eq!(utds.len(), 1);
+        // This is the main thing we're testing: if this wasn't identified as a definite
+        // UTD, this would be `Some(..)`.
         assert!(utds[0].time_to_decrypt.is_none());
     }
 }

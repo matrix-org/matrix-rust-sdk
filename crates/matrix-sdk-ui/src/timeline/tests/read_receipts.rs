@@ -15,8 +15,7 @@
 use std::sync::Arc;
 
 use eyeball_im::VectorDiff;
-use matrix_sdk::test_utils::events::EventFactory;
-use matrix_sdk_test::{async_test, ALICE, BOB, CAROL};
+use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, BOB, CAROL};
 use ruma::{
     event_id,
     events::{

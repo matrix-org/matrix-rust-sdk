@@ -260,7 +260,8 @@ pub struct ClientBuilder {
     proxy: Option<String>,
     disable_ssl_verification: bool,
     disable_automatic_token_refresh: bool,
-    cross_process_refresh_lock_id: Option<String>,
+    cross_process_store_locks_holder_name: Option<String>,
+    enable_oidc_refresh_lock: bool,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
     additional_root_certificates: Vec<Vec<u8>>,
     disable_built_in_root_certificates: bool,
@@ -284,7 +285,8 @@ impl ClientBuilder {
             proxy: None,
             disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
-            cross_process_refresh_lock_id: None,
+            cross_process_store_locks_holder_name: None,
+            enable_oidc_refresh_lock: false,
             session_delegate: None,
             additional_root_certificates: Default::default(),
             disable_built_in_root_certificates: false,
@@ -300,14 +302,18 @@ impl ClientBuilder {
         })
     }
 
-    pub fn enable_cross_process_refresh_lock(
+    pub fn cross_process_store_locks_holder_name(
         self: Arc<Self>,
-        process_id: String,
-        session_delegate: Box<dyn ClientSessionDelegate>,
+        holder_name: String,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.cross_process_refresh_lock_id = Some(process_id);
-        builder.session_delegate = Some(session_delegate.into());
+        builder.cross_process_store_locks_holder_name = Some(holder_name);
+        Arc::new(builder)
+    }
+
+    pub fn enable_oidc_refresh_lock(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.enable_oidc_refresh_lock = true;
         Arc::new(builder)
     }
 
@@ -472,6 +478,11 @@ impl ClientBuilder {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = MatrixClient::builder();
 
+        if let Some(holder_name) = &builder.cross_process_store_locks_holder_name {
+            inner_builder =
+                inner_builder.cross_process_store_locks_holder_name(holder_name.clone());
+        }
+
         if let Some(session_paths) = &builder.session_paths {
             let data_path = PathBuf::from(&session_paths.data_path);
             let cache_path = PathBuf::from(&session_paths.cache_path);
@@ -614,12 +625,8 @@ impl ClientBuilder {
         let sdk_client = inner_builder.build().await?;
 
         Ok(Arc::new(
-            Client::new(
-                sdk_client,
-                builder.cross_process_refresh_lock_id,
-                builder.session_delegate,
-            )
-            .await?,
+            Client::new(sdk_client, builder.enable_oidc_refresh_lock, builder.session_delegate)
+                .await?,
         ))
     }
 

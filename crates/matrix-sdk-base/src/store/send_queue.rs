@@ -125,6 +125,12 @@ pub struct QueuedRequest {
     ///
     /// `None` if the request is in the queue, waiting to be sent.
     pub error: Option<QueueWedgeError>,
+
+    /// At which priority should this be handled?
+    ///
+    /// The bigger the value, the higher the priority at which this request
+    /// should be handled.
+    pub priority: usize,
 }
 
 impl QueuedRequest {
@@ -359,6 +365,27 @@ pub struct DependentQueuedRequest {
     /// If the parent request has been sent, the parent's request identifier
     /// returned by the server once the local echo has been sent out.
     pub parent_key: Option<SentRequestKey>,
+}
+
+impl DependentQueuedRequest {
+    /// Does the dependent request represent a new event that is *not*
+    /// aggregated, aka it is going to be its own item in a timeline?
+    pub fn is_own_event(&self) -> bool {
+        match self.kind {
+            DependentQueuedRequestKind::EditEvent { .. }
+            | DependentQueuedRequestKind::RedactEvent
+            | DependentQueuedRequestKind::ReactEvent { .. }
+            | DependentQueuedRequestKind::UploadFileWithThumbnail { .. } => {
+                // These are all aggregated events, or non-visible items (file upload producing
+                // a new MXC ID).
+                false
+            }
+            DependentQueuedRequestKind::FinishUpload { .. } => {
+                // This one graduates into a new media event.
+                true
+            }
+        }
+    }
 }
 
 #[cfg(not(tarpaulin_include))]

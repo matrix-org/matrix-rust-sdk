@@ -40,16 +40,20 @@ use std::{
     pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering::SeqCst},
-        RwLock,
+        Arc, RwLock, Weak,
     },
+    task::{Context, Poll},
 };
 
 use anymap2::any::CloneAnySendSync;
+use eyeball::{SharedObservable, Subscriber};
+use futures_core::Stream;
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, SyncTimelineEvent},
     SendOutsideWasm, SyncOutsideWasm,
 };
+use pin_project_lite::pin_project;
 use ruma::{events::AnySyncStateEvent, push::Action, serde::Raw, OwnedRoomId};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::value::RawValue as RawJsonValue;
@@ -287,7 +291,7 @@ impl Client {
         room_id: Option<OwnedRoomId>,
     ) -> EventHandlerHandle
     where
-        Ev: SyncEvent + DeserializeOwned + Send + 'static,
+        Ev: SyncEvent + DeserializeOwned + SendOutsideWasm + 'static,
         H: EventHandler<Ev, Ctx>,
     {
         let handler_fn: Box<EventHandlerFn> = Box::new(move |data| {
@@ -535,11 +539,142 @@ impl_event_handler!(A, B, C, D, E, F);
 impl_event_handler!(A, B, C, D, E, F, G);
 impl_event_handler!(A, B, C, D, E, F, G, H);
 
+/// An observer of events (may be tailored to a room).
+///
+/// Only the most recent value can be observed. Subscribers are notified when a
+/// new value is sent, but there is no guarantee that they will see all values.
+///
+/// To create such observer, use [`Client::observe_events`] or
+/// [`Client::observe_room_events`].
+#[derive(Debug)]
+pub struct ObservableEventHandler<T> {
+    /// This type is actually nothing more than a thin glue layer between the
+    /// [`EventHandler`] mechanism and the reactive programming types from
+    /// [`eyeball`]. Here, we use a [`SharedObservable`] that is updated by the
+    /// [`EventHandler`].
+    shared_observable: SharedObservable<Option<T>>,
+
+    /// This type owns the [`EventHandlerDropGuard`]. As soon as this type goes
+    /// out of scope, the event handler is unregistered/removed.
+    ///
+    /// [`EventHandlerSubscriber`] holds a weak, non-owning reference, to this
+    /// guard. It is useful to detect when to close the [`Stream`]: as soon as
+    /// this type goes out of scope, the subscriber will close itself on poll.
+    event_handler_guard: Arc<EventHandlerDropGuard>,
+}
+
+impl<T> ObservableEventHandler<T> {
+    pub(crate) fn new(
+        shared_observable: SharedObservable<Option<T>>,
+        event_handler_guard: EventHandlerDropGuard,
+    ) -> Self {
+        Self { shared_observable, event_handler_guard: Arc::new(event_handler_guard) }
+    }
+
+    /// Subscribe to this observer.
+    ///
+    /// It returns an [`EventHandlerSubscriber`], which implements [`Stream`].
+    /// See its documentation to learn more.
+    pub fn subscribe(&self) -> EventHandlerSubscriber<T> {
+        EventHandlerSubscriber::new(
+            self.shared_observable.subscribe(),
+            // The subscriber holds a weak non-owning reference to the event handler guard, so that
+            // it can detect when this observer is dropped, and can close the subscriber's stream.
+            Arc::downgrade(&self.event_handler_guard),
+        )
+    }
+}
+
+pin_project! {
+    /// The subscriber of an [`ObservableEventHandler`].
+    ///
+    /// To create such subscriber, use [`ObservableEventHandler::subscribe`].
+    ///
+    /// This type implements [`Stream`], which means it is possible to poll the
+    /// next value asynchronously. In other terms, polling this type will return
+    /// the new event as soon as they are synced. See [`Client::observe_events`]
+    /// to learn more.
+    #[derive(Debug)]
+    pub struct EventHandlerSubscriber<T> {
+        // The `Subscriber` associated to the `SharedObservable` inside
+        // `ObservableEventHandle`.
+        //
+        // Keep in mind all this API is just a thin glue layer between
+        // `EventHandle` and `SharedObservable`, that's… maagiic!
+        #[pin]
+        subscriber: Subscriber<Option<T>>,
+
+        // A weak non-owning reference to the event handler guard from
+        // `ObservableEventHandler`. When this type is polled (via its `Stream`
+        // implementation), it is possible to detect whether the observable has
+        // been dropped by upgrading this weak reference, and close the `Stream`
+        // if it needs to.
+        event_handler_guard: Weak<EventHandlerDropGuard>,
+    }
+}
+
+impl<T> EventHandlerSubscriber<T> {
+    fn new(
+        subscriber: Subscriber<Option<T>>,
+        event_handler_handle: Weak<EventHandlerDropGuard>,
+    ) -> Self {
+        Self { subscriber, event_handler_guard: event_handler_handle }
+    }
+}
+
+impl<T> Stream for EventHandlerSubscriber<T>
+where
+    T: Clone,
+{
+    type Item = T;
+
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+
+        let Some(_) = this.event_handler_guard.upgrade() else {
+            // The `EventHandlerHandle` has been dropped via `EventHandlerDropGuard`. It
+            // means the `ObservableEventHandler` has been dropped. It's time to
+            // close this stream.
+            return Poll::Ready(None);
+        };
+
+        // First off, the subscriber is of type `Subscriber<Option<T>>` because the
+        // `SharedObservable` starts with a `None` value to indicate it has no yet
+        // received any update. We want the `Stream` to return `T`, not `Option<T>`. We
+        // then filter out all `None` value.
+        //
+        // Second, when a `None` value is met, we want to poll again (hence the `loop`).
+        // At best, there is a new value to return. At worst, the subscriber will return
+        // `Poll::Pending` and will register the wakers accordingly.
+
+        loop {
+            match this.subscriber.as_mut().poll_next(context) {
+                // Stream has been closed somehow.
+                Poll::Ready(None) => return Poll::Ready(None),
+
+                // The initial value (of the `SharedObservable` behind `self.subscriber`) has been
+                // polled. We want to filter it out.
+                Poll::Ready(Some(None)) => {
+                    // Loop over.
+                    continue;
+                }
+
+                // We have a new value!
+                Poll::Ready(Some(Some(value))) => return Poll::Ready(Some(value)),
+
+                // Classical pending.
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
         async_test, InvitedRoomBuilder, JoinedRoomBuilder, DEFAULT_TEST_ROOM_ID,
     };
+    use stream_assert::{assert_closed, assert_pending, assert_ready};
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
     use std::{
@@ -755,6 +890,20 @@ mod tests {
 
     #[async_test]
     #[allow(dependency_on_unit_never_type_fallback)]
+    async fn test_add_event_handler_with_tuples() -> crate::Result<()> {
+        let client = logged_in_client(None).await;
+
+        client.add_event_handler(
+            |_ev: OriginalSyncRoomMemberEvent, (_room, _client): (Room, Client)| future::ready(()),
+        );
+
+        // If it compiles, it works. No need to assert anything.
+
+        Ok(())
+    }
+
+    #[async_test]
+    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_remove_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -868,6 +1017,154 @@ mod tests {
         client.process_sync(response).await?;
 
         assert_eq!(counter.load(SeqCst), 1);
+        Ok(())
+    }
+
+    #[async_test]
+    #[allow(dependency_on_unit_never_type_fallback)]
+    async fn test_observe_events() -> crate::Result<()> {
+        let client = logged_in_client(None).await;
+
+        let room_id_0 = room_id!("!r0.matrix.org");
+        let room_id_1 = room_id!("!r1.matrix.org");
+
+        let observable = client.observe_events::<OriginalSyncRoomNameEvent, Room>();
+
+        let mut subscriber = observable.subscribe();
+
+        assert_pending!(subscriber);
+
+        let mut response_builder = SyncResponseBuilder::new();
+        let response = response_builder
+            .add_joined_room(JoinedRoomBuilder::new(room_id_0).add_state_event(
+                StateTestEvent::Custom(json!({
+                    "content": {
+                        "name": "Name 0"
+                    },
+                    "event_id": "$ev0",
+                    "origin_server_ts": 1,
+                    "sender": "@mnt_io:matrix.org",
+                    "state_key": "",
+                    "type": "m.room.name",
+                    "unsigned": {
+                        "age": 1,
+                    }
+                })),
+            ))
+            .build_sync_response();
+        client.process_sync(response).await?;
+
+        let (room_name, room) = assert_ready!(subscriber);
+
+        assert_eq!(room_name.event_id.as_str(), "$ev0");
+        assert_eq!(room.room_id(), room_id_0);
+        assert_eq!(room.name().unwrap(), "Name 0");
+
+        assert_pending!(subscriber);
+
+        let response = response_builder
+            .add_joined_room(JoinedRoomBuilder::new(room_id_1).add_state_event(
+                StateTestEvent::Custom(json!({
+                    "content": {
+                        "name": "Name 1"
+                    },
+                    "event_id": "$ev1",
+                    "origin_server_ts": 2,
+                    "sender": "@mnt_io:matrix.org",
+                    "state_key": "",
+                    "type": "m.room.name",
+                    "unsigned": {
+                        "age": 2,
+                    }
+                })),
+            ))
+            .build_sync_response();
+        client.process_sync(response).await?;
+
+        let (room_name, room) = assert_ready!(subscriber);
+
+        assert_eq!(room_name.event_id.as_str(), "$ev1");
+        assert_eq!(room.room_id(), room_id_1);
+        assert_eq!(room.name().unwrap(), "Name 1");
+
+        assert_pending!(subscriber);
+
+        drop(observable);
+        assert_closed!(subscriber);
+
+        Ok(())
+    }
+
+    #[async_test]
+    #[allow(dependency_on_unit_never_type_fallback)]
+    async fn test_observe_room_events() -> crate::Result<()> {
+        let client = logged_in_client(None).await;
+
+        let room_id = room_id!("!r0.matrix.org");
+
+        let observable_for_room =
+            client.observe_room_events::<OriginalSyncRoomNameEvent, (Room, Client)>(room_id);
+
+        let mut subscriber_for_room = observable_for_room.subscribe();
+
+        assert_pending!(subscriber_for_room);
+
+        let mut response_builder = SyncResponseBuilder::new();
+        let response = response_builder
+            .add_joined_room(JoinedRoomBuilder::new(room_id).add_state_event(
+                StateTestEvent::Custom(json!({
+                    "content": {
+                        "name": "Name 0"
+                    },
+                    "event_id": "$ev0",
+                    "origin_server_ts": 1,
+                    "sender": "@mnt_io:matrix.org",
+                    "state_key": "",
+                    "type": "m.room.name",
+                    "unsigned": {
+                        "age": 1,
+                    }
+                })),
+            ))
+            .build_sync_response();
+        client.process_sync(response).await?;
+
+        let (room_name, (room, _client)) = assert_ready!(subscriber_for_room);
+
+        assert_eq!(room_name.event_id.as_str(), "$ev0");
+        assert_eq!(room.name().unwrap(), "Name 0");
+
+        assert_pending!(subscriber_for_room);
+
+        let response = response_builder
+            .add_joined_room(JoinedRoomBuilder::new(room_id).add_state_event(
+                StateTestEvent::Custom(json!({
+                    "content": {
+                        "name": "Name 1"
+                    },
+                    "event_id": "$ev1",
+                    "origin_server_ts": 2,
+                    "sender": "@mnt_io:matrix.org",
+                    "state_key": "",
+                    "type": "m.room.name",
+                    "unsigned": {
+                        "age": 2,
+                    }
+                })),
+            ))
+            .build_sync_response();
+        client.process_sync(response).await?;
+
+        let (room_name, (room, _client)) = assert_ready!(subscriber_for_room);
+
+        assert_eq!(room_name.event_id.as_str(), "$ev1");
+        assert_eq!(room.name().unwrap(), "Name 1");
+
+        assert_pending!(subscriber_for_room);
+
+        drop(observable_for_room);
+        assert_closed!(subscriber_for_room);
+
         Ok(())
     }
 }

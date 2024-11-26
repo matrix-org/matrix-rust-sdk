@@ -176,7 +176,6 @@ pub(super) enum ReadEventRequest {
         event_type: StateEventType,
         state_key: StateKeySelector,
     },
-    #[allow(dead_code)]
     ReadMessageLikeEvent {
         #[serde(rename = "type")]
         event_type: MessageLikeEventType,

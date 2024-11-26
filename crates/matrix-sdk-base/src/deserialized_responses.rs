@@ -14,9 +14,11 @@
 
 //! SDK-specific variations of response types from Ruma.
 
-use std::{collections::BTreeMap, fmt, iter};
+use std::{collections::BTreeMap, fmt, hash::Hash, iter};
 
 pub use matrix_sdk_common::deserialized_responses::*;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use ruma::{
     events::{
         room::{
@@ -31,6 +33,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, UserId,
 };
 use serde::Serialize;
+use unicode_normalization::UnicodeNormalization;
 
 /// A change in ambiguity of room members that an `m.room.member` event
 /// triggers.
@@ -65,6 +68,178 @@ pub struct AmbiguityChanges {
     /// A map from room id to a map of an event id to the `AmbiguityChange` that
     /// the event with the given id caused.
     pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
+}
+
+static MXID_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(DisplayName::MXID_PATTERN)
+        .expect("We should be able to create a regex from our static MXID pattern")
+});
+static LEFT_TO_RIGHT_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(DisplayName::LEFT_TO_RIGHT_PATTERN)
+        .expect("We should be able to create a regex from our static left-to-right pattern")
+});
+static HIDDEN_CHARACTERS_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(DisplayName::HIDDEN_CHARACTERS_PATTERN)
+        .expect("We should be able to create a regex from our static hidden characters pattern")
+});
+
+/// Regex to match `i` characters.
+///
+/// This is used to replace an `i` with a lowercase `l`, i.e. to mark "Hello"
+/// and "HeIlo" as ambiguous. Decancer will lowercase an `I` for us.
+static I_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new("[i]").expect("We should be able to create a regex from our uppercase I pattern")
+});
+
+/// Regex to match `0` characters.
+///
+/// This is used to replace an `0` with a lowercase `o`, i.e. to mark "HellO"
+/// and "Hell0" as ambiguous. Decancer will lowercase an `O` for us.
+static ZERO_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new("[0]").expect("We should be able to create a regex from our zero pattern")
+});
+
+/// Regex to match a couple of dot-like characters, also matches an actual dot.
+///
+/// This is used to replace a `.` with a `:`, i.e. to mark "@mxid.domain.tld" as
+/// ambiguous.
+static DOT_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new("[.\u{1d16d}]").expect("We should be able to create a regex from our dot pattern")
+});
+
+/// A high-level wrapper for strings representing display names.
+///
+/// This wrapper provides attempts to determine whether a display name
+/// contains characters that could make it ambiguous or easily confused
+/// with similar names.
+///
+///
+/// # Examples
+///
+/// ```
+/// use matrix_sdk_base::deserialized_responses::DisplayName;
+///
+/// let display_name = DisplayName::new("𝒮𝒶𝒽𝒶𝓈𝓇𝒶𝒽𝓁𝒶");
+///
+/// // The normalized and sanitized string will be returned by DisplayName.as_normalized_str().
+/// assert_eq!(display_name.as_normalized_str(), Some("sahasrahla"));
+/// ```
+///
+/// ```
+/// # use matrix_sdk_base::deserialized_responses::DisplayName;
+/// let display_name = DisplayName::new("@alice:localhost");
+///
+/// // The display name looks like an MXID, which makes it ambiguous.
+/// assert!(display_name.is_inherently_ambiguous());
+/// ```
+#[derive(Debug, Clone, Eq)]
+pub struct DisplayName {
+    raw: String,
+    decancered: Option<String>,
+}
+
+impl Hash for DisplayName {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        if let Some(decancered) = &self.decancered {
+            decancered.hash(state);
+        } else {
+            self.raw.hash(state);
+        }
+    }
+}
+
+impl PartialEq for DisplayName {
+    fn eq(&self, other: &Self) -> bool {
+        match (self.decancered.as_deref(), other.decancered.as_deref()) {
+            (None, None) => self.raw == other.raw,
+            (None, Some(_)) | (Some(_), None) => false,
+            (Some(this), Some(other)) => this == other,
+        }
+    }
+}
+
+impl DisplayName {
+    /// Regex pattern matching an MXID.
+    const MXID_PATTERN: &str = "@.+[:.].+";
+
+    /// Regex pattern matching some left-to-right formatting marks:
+    ///     * LTR and RTL marks U+200E and U+200F
+    ///     * LTR/RTL and other directional formatting marks U+202A - U+202F
+    const LEFT_TO_RIGHT_PATTERN: &str = "[\u{202a}-\u{202f}\u{200e}\u{200f}]";
+
+    /// Regex pattern matching bunch of unicode control characters and otherwise
+    /// misleading/invisible characters.
+    ///
+    /// This includes:
+    ///     * various width spaces U+2000 - U+200D
+    ///     * Combining characters U+0300 - U+036F
+    ///     * Blank/invisible characters (U2800, U2062-U2063)
+    ///     * Arabic Letter RTL mark U+061C
+    ///     * Zero width no-break space (BOM) U+FEFF
+    const HIDDEN_CHARACTERS_PATTERN: &str =
+        "[\u{2000}-\u{200D}\u{300}-\u{036f}\u{2062}-\u{2063}\u{2800}\u{061c}\u{feff}]";
+
+    /// Creates a new [`DisplayName`] from the given raw string.
+    ///
+    /// The raw display name is transformed into a Unicode-normalized form, with
+    /// common confusable characters removed to reduce ambiguity.
+    ///
+    /// **Note**: If removing confusable characters fails,
+    /// [`DisplayName::is_inherently_ambiguous`] will return `true`, and
+    /// [`DisplayName::as_normalized_str()`] will return `None.
+    pub fn new(raw: &str) -> Self {
+        let normalized = raw.nfd().collect::<String>();
+        let replaced = DOT_REGEX.replace_all(&normalized, ":");
+        let replaced = HIDDEN_CHARACTERS_REGEX.replace_all(&replaced, "");
+
+        let decancered = decancer::cure!(&replaced).ok().map(|cured| {
+            let removed_left_to_right = LEFT_TO_RIGHT_REGEX.replace_all(cured.as_ref(), "");
+            let replaced = I_REGEX.replace_all(&removed_left_to_right, "l");
+            // We re-run the dot replacement because decancer normalized a lot of weird
+            // characets into a `.`, it just doesn't do that for /u{1d16d}.
+            let replaced = DOT_REGEX.replace_all(&replaced, ":");
+            let replaced = ZERO_REGEX.replace_all(&replaced, "o");
+
+            replaced.to_string()
+        });
+
+        Self { raw: raw.to_owned(), decancered }
+    }
+
+    /// Is this display name considered to be ambiguous?
+    ///
+    /// If the display name has cancer (i.e. fails normalisation or has a
+    /// different normalised form) or looks like an MXID, then it's ambiguous.
+    pub fn is_inherently_ambiguous(&self) -> bool {
+        // If we look like an MXID or have hidden characters then we're ambiguous.
+        self.looks_like_an_mxid() || self.has_hidden_characters() || self.decancered.is_none()
+    }
+
+    /// Returns the underlying raw and and unsanitized string of this
+    /// [`DisplayName`].
+    pub fn as_raw_str(&self) -> &str {
+        &self.raw
+    }
+
+    /// Returns the underlying normalized and and sanitized string of this
+    /// [`DisplayName`].
+    ///
+    /// Returns `None` if normalization failed during construction of this
+    /// [`DisplayName`].
+    pub fn as_normalized_str(&self) -> Option<&str> {
+        self.decancered.as_deref()
+    }
+
+    fn has_hidden_characters(&self) -> bool {
+        HIDDEN_CHARACTERS_REGEX.is_match(&self.raw)
+    }
+
+    fn looks_like_an_mxid(&self) -> bool {
+        self.decancered
+            .as_deref()
+            .map(|d| MXID_REGEX.is_match(d))
+            .unwrap_or_else(|| MXID_REGEX.is_match(&self.raw))
+    }
 }
 
 /// A deserialized response for the rooms members API call.
@@ -294,10 +469,12 @@ impl MemberEvent {
     ///
     /// It there is no `displayname` in the event's content, the localpart or
     /// the user ID is returned.
-    pub fn display_name(&self) -> &str {
-        self.original_content()
-            .and_then(|c| c.displayname.as_deref())
-            .unwrap_or_else(|| self.user_id().localpart())
+    pub fn display_name(&self) -> DisplayName {
+        DisplayName::new(
+            self.original_content()
+                .and_then(|c| c.displayname.as_deref())
+                .unwrap_or_else(|| self.user_id().localpart()),
+        )
     }
 }
 
@@ -308,5 +485,242 @@ impl SyncOrStrippedState<RoomPowerLevelsEventContent> {
             Self::Sync(e) => e.power_levels(),
             Self::Stripped(e) => e.power_levels(),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    macro_rules! assert_display_name_eq {
+        ($left:expr, $right:expr $(, $desc:expr)?) => {{
+            let left = crate::deserialized_responses::DisplayName::new($left);
+            let right = crate::deserialized_responses::DisplayName::new($right);
+
+            similar_asserts::assert_eq!(
+                left,
+                right
+                $(, $desc)?
+            );
+        }};
+    }
+
+    macro_rules! assert_display_name_ne {
+        ($left:expr, $right:expr $(, $desc:expr)?) => {{
+            let left = crate::deserialized_responses::DisplayName::new($left);
+            let right = crate::deserialized_responses::DisplayName::new($right);
+
+            assert_ne!(
+                left,
+                right
+                $(, $desc)?
+            );
+        }};
+    }
+
+    macro_rules! assert_ambiguous {
+        ($name:expr) => {
+            let name = crate::deserialized_responses::DisplayName::new($name);
+
+            assert!(
+                name.is_inherently_ambiguous(),
+                "The display {:?} should be considered amgibuous",
+                name
+            );
+        };
+    }
+
+    macro_rules! assert_not_ambiguous {
+        ($name:expr) => {
+            let name = crate::deserialized_responses::DisplayName::new($name);
+
+            assert!(
+                !name.is_inherently_ambiguous(),
+                "The display {:?} should not be considered amgibuous",
+                name
+            );
+        };
+    }
+
+    #[test]
+    fn test_display_name_inherently_ambiguous() {
+        // These should not be inherently ambiguous, only if another similarly looking
+        // display name appears should they be considered to be ambiguous.
+        assert_not_ambiguous!("Alice");
+        assert_not_ambiguous!("Carol");
+        assert_not_ambiguous!("Car0l");
+        assert_not_ambiguous!("Ivan");
+        assert_not_ambiguous!("𝒮𝒶𝒽𝒶𝓈𝓇𝒶𝒽𝓁𝒶");
+        assert_not_ambiguous!("Ⓢⓐⓗⓐⓢⓡⓐⓗⓛⓐ");
+        assert_not_ambiguous!("🅂🄰🄷🄰🅂🅁🄰🄷🄻🄰");
+        assert_not_ambiguous!("Ｓａｈａｓｒａｈｌａ");
+        // Left to right is fine, if it's the only one in the room.
+        assert_not_ambiguous!("\u{202e}alharsahas");
+
+        // These on the other hand contain invisible chars.
+        assert_ambiguous!("Sa̴hasrahla");
+        assert_ambiguous!("Sahas\u{200D}rahla");
+    }
+
+    #[test]
+    fn test_display_name_equality_capitalization() {
+        // Display name with different capitalization
+        assert_display_name_eq!("Alice", "alice");
+    }
+
+    #[test]
+    fn test_display_name_equality_different_names() {
+        // Different display names
+        assert_display_name_ne!("Alice", "Carol");
+    }
+
+    #[test]
+    fn test_display_name_equality_capital_l() {
+        // Different display names
+        assert_display_name_eq!("Hello", "HeIlo");
+    }
+
+    #[test]
+    fn test_display_name_equality_confusable_zero() {
+        // Different display names
+        assert_display_name_eq!("Carol", "Car0l");
+    }
+
+    #[test]
+    fn test_display_name_equality_cyrilic() {
+        // Display name with scritpure symbols
+        assert_display_name_eq!("alice", "аlice");
+    }
+
+    #[test]
+    fn test_display_name_equality_scriptures() {
+        // Display name with scritpure symbols
+        assert_display_name_eq!("Sahasrahla", "𝒮𝒶𝒽𝒶𝓈𝓇𝒶𝒽𝓁𝒶");
+    }
+
+    #[test]
+    fn test_display_name_equality_frakturs() {
+        // Display name with fraktur symbols
+        assert_display_name_eq!("Sahasrahla", "𝔖𝔞𝔥𝔞𝔰𝔯𝔞𝔥𝔩𝔞");
+    }
+
+    #[test]
+    fn test_display_name_equality_circled() {
+        // Display name with circled symbols
+        assert_display_name_eq!("Sahasrahla", "Ⓢⓐⓗⓐⓢⓡⓐⓗⓛⓐ");
+    }
+
+    #[test]
+    fn test_display_name_equality_squared() {
+        // Display name with squared symbols
+        assert_display_name_eq!("Sahasrahla", "🅂🄰🄷🄰🅂🅁🄰🄷🄻🄰");
+    }
+
+    #[test]
+    fn test_display_name_equality_big_unicode() {
+        // Display name with big unicode letters
+        assert_display_name_eq!("Sahasrahla", "Ｓａｈａｓｒａｈｌａ");
+    }
+
+    #[test]
+    fn test_display_name_equality_left_to_right() {
+        // Display name with a left-to-right character
+        assert_display_name_eq!("Sahasrahla", "\u{202e}alharsahas");
+    }
+
+    #[test]
+    fn test_display_name_equality_diacritical() {
+        // Display name with a diacritical mark.
+        assert_display_name_eq!("Sahasrahla", "Sa̴hasrahla");
+    }
+
+    #[test]
+    fn test_display_name_equality_zero_width_joiner() {
+        // Display name with a zero-width joiner
+        assert_display_name_eq!("Sahasrahla", "Sahas\u{200B}rahla");
+    }
+
+    #[test]
+    fn test_display_name_equality_zero_width_space() {
+        // Display name with zero-width space.
+        assert_display_name_eq!("Sahasrahla", "Sahas\u{200D}rahla");
+    }
+
+    #[test]
+    fn test_display_name_equality_ligatures() {
+        // Display name with a ligature.
+        assert_display_name_eq!("ff", "\u{FB00}");
+    }
+
+    #[test]
+    fn test_display_name_confusable_mxid_colon() {
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid\u{0589}domain.tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid\u{05c3}domain.tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid\u{0703}domain.tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid\u{0a83}domain.tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid\u{16ec}domain.tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid\u{205a}domain.tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid\u{2236}domain.tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid\u{fe13}domain.tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid\u{fe52}domain.tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid\u{fe30}domain.tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid\u{ff1a}domain.tld");
+
+        // Additionally these should be considered to be ambiguous on their own.
+        assert_ambiguous!("@mxid\u{0589}domain.tld");
+        assert_ambiguous!("@mxid\u{05c3}domain.tld");
+        assert_ambiguous!("@mxid\u{0703}domain.tld");
+        assert_ambiguous!("@mxid\u{0a83}domain.tld");
+        assert_ambiguous!("@mxid\u{16ec}domain.tld");
+        assert_ambiguous!("@mxid\u{205a}domain.tld");
+        assert_ambiguous!("@mxid\u{2236}domain.tld");
+        assert_ambiguous!("@mxid\u{fe13}domain.tld");
+        assert_ambiguous!("@mxid\u{fe52}domain.tld");
+        assert_ambiguous!("@mxid\u{fe30}domain.tld");
+        assert_ambiguous!("@mxid\u{ff1a}domain.tld");
+    }
+
+    #[test]
+    fn test_display_name_confusable_mxid_dot() {
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid:domain\u{0701}tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid:domain\u{0702}tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid:domain\u{2024}tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid:domain\u{fe52}tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid:domain\u{ff0e}tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid:domain\u{1d16d}tld");
+
+        // Additionally these should be considered to be ambiguous on their own.
+        assert_ambiguous!("@mxid:domain\u{0701}tld");
+        assert_ambiguous!("@mxid:domain\u{0702}tld");
+        assert_ambiguous!("@mxid:domain\u{2024}tld");
+        assert_ambiguous!("@mxid:domain\u{fe52}tld");
+        assert_ambiguous!("@mxid:domain\u{ff0e}tld");
+        assert_ambiguous!("@mxid:domain\u{1d16d}tld");
+    }
+
+    #[test]
+    fn test_display_name_confusable_mxid_replacing_a() {
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid:dom\u{1d44e}in.tld");
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid:dom\u{0430}in.tld");
+
+        // Additionally these should be considered to be ambiguous on their own.
+        assert_ambiguous!("@mxid:dom\u{1d44e}in.tld");
+        assert_ambiguous!("@mxid:dom\u{0430}in.tld");
+    }
+
+    #[test]
+    fn test_display_name_confusable_mxid_replacing_l() {
+        assert_display_name_eq!("@mxid:domain.tld", "@mxid:domain.tId");
+        assert_display_name_eq!("mxid:domain.tld", "mxid:domain.t\u{217c}d");
+        assert_display_name_eq!("mxid:domain.tld", "mxid:domain.t\u{ff4c}d");
+        assert_display_name_eq!("mxid:domain.tld", "mxid:domain.t\u{1d5f9}d");
+        assert_display_name_eq!("mxid:domain.tld", "mxid:domain.t\u{1d695}d");
+        assert_display_name_eq!("mxid:domain.tld", "mxid:domain.t\u{2223}d");
+
+        // Additionally these should be considered to be ambiguous on their own.
+        assert_ambiguous!("@mxid:domain.tId");
+        assert_ambiguous!("@mxid:domain.t\u{217c}d");
+        assert_ambiguous!("@mxid:domain.t\u{ff4c}d");
+        assert_ambiguous!("@mxid:domain.t\u{1d5f9}d");
+        assert_ambiguous!("@mxid:domain.t\u{1d695}d");
+        assert_ambiguous!("@mxid:domain.t\u{2223}d");
     }
 }

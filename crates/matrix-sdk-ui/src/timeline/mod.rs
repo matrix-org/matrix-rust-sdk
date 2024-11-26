@@ -461,6 +461,7 @@ impl Timeline {
                             .into());
                         }
                     }
+
                     EditedContent::PollStart { new_content, .. } => {
                         if matches!(item.content, TimelineItemContent::Poll(_)) {
                             AnyMessageLikeEventContent::UnstablePollStart(
@@ -475,6 +476,17 @@ impl Timeline {
                             }
                             .into());
                         }
+                    }
+
+                    EditedContent::MediaCaption { caption, formatted_caption } => {
+                        if handle
+                            .edit_media_caption(caption, formatted_caption)
+                            .await
+                            .map_err(RoomSendQueueError::StorageError)?
+                        {
+                            return Ok(());
+                        }
+                        return Err(EditError::InvalidLocalEchoState.into());
                     }
                 };
 

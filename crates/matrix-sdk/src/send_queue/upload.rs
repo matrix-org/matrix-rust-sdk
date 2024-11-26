@@ -17,36 +17,40 @@
 use matrix_sdk_base::{
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     store::{
-        ChildTransactionId, FinishUploadThumbnailInfo, QueuedRequestKind, SentMediaInfo,
-        SentRequestKey, SerializableEventContent,
+        ChildTransactionId, DependentQueuedRequestKind, FinishUploadThumbnailInfo,
+        QueuedRequestKind, SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
     RoomState,
 };
 use mime::Mime;
 use ruma::{
-    assign,
-    events::room::{
-        message::{MessageType, RoomMessageEventContent},
-        MediaSource, ThumbnailInfo,
+    events::{
+        room::{
+            message::{FormattedBody, MessageType, RoomMessageEventContent},
+            MediaSource,
+        },
+        AnyMessageLikeEventContent,
     },
-    uint, OwnedMxcUri, OwnedTransactionId, TransactionId, UInt,
+    OwnedMxcUri, OwnedTransactionId, TransactionId, UInt,
 };
 use tracing::{debug, error, instrument, trace, warn, Span};
 
-use super::{QueueStorage, RoomSendQueue, RoomSendQueueError, SendAttachmentHandle};
+use super::{QueueStorage, RoomSendQueue, RoomSendQueueError};
 use crate::{
     attachment::AttachmentConfig,
+    room::edit::update_media_caption,
     send_queue::{
-        LocalEcho, LocalEchoContent, RoomSendQueueStorageError, RoomSendQueueUpdate, SendHandle,
+        LocalEcho, LocalEchoContent, MediaHandles, RoomSendQueueStorageError, RoomSendQueueUpdate,
+        SendHandle,
     },
     Client, Room,
 };
 
-/// Create a [`MediaRequest`] for a file we want to store locally before
-/// sending it.
+/// Create an [`OwnedMxcUri`] for a file or thumbnail we want to store locally
+/// before sending it.
 ///
 /// This uses a MXC ID that is only locally valid.
-fn make_local_file_media_request(txn_id: &TransactionId) -> MediaRequestParameters {
+fn make_local_uri(txn_id: &TransactionId) -> OwnedMxcUri {
     // This mustn't represent a potentially valid media server, otherwise it'd be
     // possible for an attacker to return malicious content under some
     // preconditions (e.g. the cache store has been cleared before the upload
@@ -54,10 +58,16 @@ fn make_local_file_media_request(txn_id: &TransactionId) -> MediaRequestParamete
     // which is guaranteed to be on the local machine. As a result, the only attack
     // possible would be coming from the user themselves, which we consider a
     // non-threat.
+    OwnedMxcUri::from(format!("mxc://send-queue.localhost/{txn_id}"))
+}
+
+/// Create a [`MediaRequest`] for a file we want to store locally before
+/// sending it.
+///
+/// This uses a MXC ID that is only locally valid.
+fn make_local_file_media_request(txn_id: &TransactionId) -> MediaRequestParameters {
     MediaRequestParameters {
-        source: MediaSource::Plain(OwnedMxcUri::from(format!(
-            "mxc://send-queue.localhost/{txn_id}"
-        ))),
+        source: MediaSource::Plain(make_local_uri(txn_id)),
         format: MediaFormat::File,
     }
 }
@@ -73,9 +83,7 @@ fn make_local_thumbnail_media_request(
 ) -> MediaRequestParameters {
     // See comment in [`make_local_file_media_request`].
     MediaRequestParameters {
-        source: MediaSource::Plain(OwnedMxcUri::from(format!(
-            "mxc://send-queue.localhost/{txn_id}"
-        ))),
+        source: MediaSource::Plain(make_local_uri(txn_id)),
         format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(width, height)),
     }
 }
@@ -141,7 +149,7 @@ impl RoomSendQueue {
         content_type: Mime,
         data: Vec<u8>,
         mut config: AttachmentConfig,
-    ) -> Result<SendAttachmentHandle, RoomSendQueueError> {
+    ) -> Result<SendHandle, RoomSendQueueError> {
         let Some(room) = self.inner.room.get() else {
             return Err(RoomSendQueueError::RoomDisappeared);
         };
@@ -175,34 +183,23 @@ impl RoomSendQueue {
             // Process the thumbnail, if it's been provided.
             if let Some(thumbnail) = config.thumbnail.take() {
                 // Normalize information to retrieve the thumbnail in the cache store.
-                let info = thumbnail.info.as_ref();
-                let height = info.and_then(|info| info.height).unwrap_or_else(|| {
-                    trace!("thumbnail height is unknown, using 0 for the cache entry");
-                    uint!(0)
-                });
-                let width = info.and_then(|info| info.width).unwrap_or_else(|| {
-                    trace!("thumbnail width is unknown, using 0 for the cache entry");
-                    uint!(0)
-                });
+                let height = thumbnail.height;
+                let width = thumbnail.width;
 
                 let txn = TransactionId::new();
                 trace!(upload_thumbnail_txn = %txn, thumbnail_size = ?(height, width), "attachment has a thumbnail");
+
+                // Create the information required for filling the thumbnail section of the
+                // media event.
+                let (data, content_type, thumbnail_info) = thumbnail.into_parts();
 
                 // Cache thumbnail in the cache store.
                 let thumbnail_media_request =
                     make_local_thumbnail_media_request(&txn, height, width);
                 cache_store
-                    .add_media_content(&thumbnail_media_request, thumbnail.data.clone())
+                    .add_media_content(&thumbnail_media_request, data)
                     .await
                     .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-
-                // Create the information required for filling the thumbnail section of the
-                // media event.
-                let thumbnail_info = Box::new(
-                    assign!(thumbnail.info.map(ThumbnailInfo::from).unwrap_or_default(), {
-                        mimetype: Some(thumbnail.content_type.as_ref().to_owned())
-                    }),
-                );
 
                 (
                     Some(txn.clone()),
@@ -210,7 +207,7 @@ impl RoomSendQueue {
                     Some((
                         FinishUploadThumbnailInfo { txn, width, height },
                         thumbnail_media_request,
-                        thumbnail.content_type,
+                        content_type,
                     )),
                 )
             } else {
@@ -249,27 +246,23 @@ impl RoomSendQueue {
 
         self.inner.notifier.notify_one();
 
+        let send_handle = SendHandle {
+            room: self.clone(),
+            transaction_id: send_event_txn.clone().into(),
+            media_handles: Some(MediaHandles { upload_thumbnail_txn, upload_file_txn }),
+        };
+
         let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id: send_event_txn.clone().into(),
             content: LocalEchoContent::Event {
                 serialized_event: SerializableEventContent::new(&event_content.into())
                     .map_err(RoomSendQueueStorageError::JsonSerialization)?,
-                // TODO: this should be a `SendAttachmentHandle`!
-                send_handle: SendHandle {
-                    room: self.clone(),
-                    transaction_id: send_event_txn.clone().into(),
-                    is_upload: true,
-                },
+                send_handle: send_handle.clone(),
                 send_error: None,
             },
         }));
 
-        Ok(SendAttachmentHandle {
-            _room: self.clone(),
-            _transaction_id: send_event_txn.into(),
-            _file_upload: upload_file_txn,
-            _thumbnail_transaction_id: upload_thumbnail_txn,
-        })
+        Ok(send_handle)
     }
 }
 
@@ -297,7 +290,6 @@ impl QueueStorage {
             let from_req = make_local_file_media_request(&file_upload_txn);
 
             trace!(from = ?from_req.source, to = ?sent_media.file, "renaming media file key in cache store");
-
             let cache_store = client
                 .event_cache_store()
                 .lock()
@@ -322,7 +314,7 @@ impl QueueStorage {
                 let from_req =
                     make_local_thumbnail_media_request(&info.txn, info.height, info.width);
 
-                trace!( from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
+                trace!(from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
 
                 // Reuse the same format for the cached thumbnail with the final MXC ID.
                 let new_format = from_req.format.clone();
@@ -353,7 +345,12 @@ impl QueueStorage {
 
         client
             .store()
-            .save_send_queue_request(&self.room_id, event_txn, new_content.into())
+            .save_send_queue_request(
+                &self.room_id,
+                event_txn,
+                new_content.into(),
+                Self::HIGH_PRIORITY,
+            )
             .await
             .map_err(RoomSendQueueStorageError::StateStoreError)?;
 
@@ -395,10 +392,253 @@ impl QueueStorage {
 
         client
             .store()
-            .save_send_queue_request(&self.room_id, next_upload_txn, request)
+            .save_send_queue_request(&self.room_id, next_upload_txn, request, Self::HIGH_PRIORITY)
             .await
             .map_err(RoomSendQueueStorageError::StateStoreError)?;
 
         Ok(())
+    }
+
+    /// Try to abort an upload that would be ongoing.
+    ///
+    /// Return true if any media (media itself or its thumbnail) was being
+    /// uploaded. In this case, the media event has also been removed from
+    /// the send queue. If it returns false, then the uploads already
+    /// happened, and the event sending *may* have started.
+    #[instrument(skip(self, handles))]
+    pub(super) async fn abort_upload(
+        &self,
+        event_txn: &TransactionId,
+        handles: &MediaHandles,
+    ) -> Result<bool, RoomSendQueueStorageError> {
+        let mut guard = self.store.lock().await;
+        let client = guard.client()?;
+
+        // Keep the lock until we're done touching the storage.
+        debug!("trying to abort an upload");
+
+        let store = client.store();
+
+        let upload_file_as_dependent = ChildTransactionId::from(handles.upload_file_txn.clone());
+        let event_as_dependent = ChildTransactionId::from(event_txn.to_owned());
+
+        let mut removed_dependent_upload = false;
+        let mut removed_dependent_event = false;
+
+        if let Some(thumbnail_txn) = &handles.upload_thumbnail_txn {
+            if store.remove_send_queue_request(&self.room_id, thumbnail_txn).await? {
+                // The thumbnail upload existed as a request: either it was pending (something
+                // else was being sent), or it was actively being sent.
+                trace!("could remove thumbnail request, removing 2 dependent requests now");
+
+                // 1. Try to abort sending using the being_sent info, in case it was active.
+                if let Some(info) = guard.being_sent.as_ref() {
+                    if info.transaction_id == *thumbnail_txn {
+                        // SAFETY: we knew it was Some(), two lines above.
+                        let info = guard.being_sent.take().unwrap();
+                        if info.cancel_upload() {
+                            trace!("aborted ongoing thumbnail upload");
+                        }
+                    }
+                }
+
+                // 2. Remove the dependent requests.
+                removed_dependent_upload = store
+                    .remove_dependent_queued_request(&self.room_id, &upload_file_as_dependent)
+                    .await?;
+
+                if !removed_dependent_upload {
+                    warn!("unable to find the dependent file upload request");
+                }
+
+                removed_dependent_event = store
+                    .remove_dependent_queued_request(&self.room_id, &event_as_dependent)
+                    .await?;
+
+                if !removed_dependent_event {
+                    warn!("unable to find the dependent media event upload request");
+                }
+            }
+        }
+
+        // If we're here:
+        // - either there was no thumbnail to upload,
+        // - or the thumbnail request has terminated already.
+        //
+        // So the next target is the upload request itself, in both cases.
+
+        if !removed_dependent_upload {
+            if store.remove_send_queue_request(&self.room_id, &handles.upload_file_txn).await? {
+                // The upload existed as a request: either it was pending (something else was
+                // being sent), or it was actively being sent.
+                trace!("could remove file upload request, removing 1 dependent request");
+
+                // 1. Try to abort sending using the being_sent info, in case it was active.
+                if let Some(info) = guard.being_sent.as_ref() {
+                    if info.transaction_id == handles.upload_file_txn {
+                        // SAFETY: we knew it was Some(), two lines above.
+                        let info = guard.being_sent.take().unwrap();
+                        if info.cancel_upload() {
+                            trace!("aborted ongoing file upload");
+                        }
+                    }
+                }
+
+                // 2. Remove the dependent request.
+                if !store
+                    .remove_dependent_queued_request(&self.room_id, &event_as_dependent)
+                    .await?
+                {
+                    warn!("unable to find the dependent media event upload request");
+                }
+            } else {
+                // The upload was not in the send queue, so it's completed.
+                //
+                // It means the event sending is either still queued as a dependent request, or
+                // it's graduated into a request.
+                if !removed_dependent_event
+                    && !store
+                        .remove_dependent_queued_request(&self.room_id, &event_as_dependent)
+                        .await?
+                {
+                    // The media event has been promoted into a request, or the promoted request
+                    // has been sent already: we couldn't abort, let the caller decide what to do.
+                    debug!("uploads already happened => deferring to aborting an event sending");
+                    return Ok(false);
+                }
+            }
+        }
+
+        // At this point, all the requests and dependent requests have been cleaned up.
+        // Perform the final step: empty the cache from the local items.
+        {
+            let event_cache = client.event_cache_store().lock().await?;
+            event_cache
+                .remove_media_content_for_uri(&make_local_uri(&handles.upload_file_txn))
+                .await?;
+            if let Some(txn) = &handles.upload_thumbnail_txn {
+                event_cache.remove_media_content_for_uri(&make_local_uri(txn)).await?;
+            }
+        }
+
+        debug!("successfully aborted!");
+        Ok(true)
+    }
+
+    #[instrument(skip(self, caption, formatted_caption))]
+    pub(super) async fn edit_media_caption(
+        &self,
+        txn: &TransactionId,
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
+    ) -> Result<Option<AnyMessageLikeEventContent>, RoomSendQueueStorageError> {
+        // This error will be popular here.
+        use RoomSendQueueStorageError::InvalidMediaCaptionEdit;
+
+        let guard = self.store.lock().await;
+        let client = guard.client()?;
+        let store = client.store();
+
+        // The media event can be in one of three states:
+        // - still stored as a dependent request,
+        // - stored as a queued request, active (aka it's being sent).
+        // - stored as a queued request, not active yet (aka it's not being sent yet),
+        //
+        // We'll handle each of these cases one by one.
+
+        {
+            // If the event can be found as a dependent event, update the captions, save it
+            // back into the database, and return early.
+            let dependent_requests = store.load_dependent_queued_requests(&self.room_id).await?;
+
+            if let Some(found) =
+                dependent_requests.into_iter().find(|req| *req.own_transaction_id == *txn)
+            {
+                trace!("found the caption to edit in a dependent request");
+
+                let DependentQueuedRequestKind::FinishUpload {
+                    mut local_echo,
+                    file_upload,
+                    thumbnail_info,
+                } = found.kind
+                else {
+                    return Err(InvalidMediaCaptionEdit);
+                };
+
+                if !update_media_caption(&mut local_echo, caption, formatted_caption) {
+                    return Err(InvalidMediaCaptionEdit);
+                }
+
+                let new_dependent_request = DependentQueuedRequestKind::FinishUpload {
+                    local_echo: local_echo.clone(),
+                    file_upload,
+                    thumbnail_info,
+                };
+                store
+                    .update_dependent_queued_request(
+                        &self.room_id,
+                        &found.own_transaction_id,
+                        new_dependent_request,
+                    )
+                    .await?;
+
+                trace!("caption successfully updated");
+                return Ok(Some(local_echo.into()));
+            }
+        }
+
+        let requests = store.load_send_queue_requests(&self.room_id).await?;
+        let Some(found) = requests.into_iter().find(|req| req.transaction_id == *txn) else {
+            // Couldn't be found anymore, it's not possible to update captions.
+            return Ok(None);
+        };
+
+        trace!("found the caption to edit as a request");
+
+        let QueuedRequestKind::Event { content: serialized_content } = found.kind else {
+            return Err(InvalidMediaCaptionEdit);
+        };
+
+        let deserialized = serialized_content.deserialize()?;
+        let AnyMessageLikeEventContent::RoomMessage(mut content) = deserialized else {
+            return Err(InvalidMediaCaptionEdit);
+        };
+
+        if !update_media_caption(&mut content, caption, formatted_caption) {
+            return Err(InvalidMediaCaptionEdit);
+        }
+
+        let any_content: AnyMessageLikeEventContent = content.into();
+        let new_serialized = SerializableEventContent::new(&any_content.clone())?;
+
+        // If the request is active (being sent), send a dependent request.
+        if let Some(being_sent) = guard.being_sent.as_ref() {
+            if being_sent.transaction_id == *txn {
+                // Record a dependent request to edit, and exit.
+                store
+                    .save_dependent_queued_request(
+                        &self.room_id,
+                        txn,
+                        ChildTransactionId::new(),
+                        DependentQueuedRequestKind::EditEvent { new_content: new_serialized },
+                    )
+                    .await?;
+
+                trace!("media event was being sent, pushed a dependent edit");
+                return Ok(Some(any_content));
+            }
+        }
+
+        // The request is not active: edit the local echo.
+        store
+            .update_send_queue_request(
+                &self.room_id,
+                txn,
+                QueuedRequestKind::Event { content: new_serialized },
+            )
+            .await?;
+
+        trace!("media event was not being sent, updated local echo");
+        Ok(Some(any_content))
     }
 }

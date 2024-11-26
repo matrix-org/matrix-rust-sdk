@@ -1247,6 +1247,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "decancer"
+version = "3.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a41401dd84c9335e2f5aec7f64057e243585d62622260d41c245919a601ccc9"
+dependencies = [
+ "lazy_static",
+ "paste",
+ "regex",
+]
+
+[[package]]
 name = "delegate-display"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1642,22 +1653,21 @@ dependencies = [
 
 [[package]]
 name = "eyeball-im"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ae8c5165c9770f3ec7cccce12f4c5d70f01fa8bf84cf30cfbfd5a1c6f8901d5"
+checksum = "a1c02432230060cae0621e15803e073976d22974e0f013c9cb28a4ea1b484629"
 dependencies = [
  "futures-core",
  "imbl",
  "tokio",
- "tokio-util",
  "tracing",
 ]
 
 [[package]]
 name = "eyeball-im-util"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32b6b037e2cdce928a432ecc2880c944e5436d8a38c827974b882ad373f60037"
+checksum = "f63a70e454238b5f66a0a0544c3e6a38be765cb01f34da9b94a2f3ecd8777cf8"
 dependencies = [
  "arrayvec",
  "eyeball-im",
@@ -2872,7 +2882,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "anymap2",
@@ -2915,6 +2925,7 @@ dependencies = [
  "mime2ext",
  "once_cell",
  "openidconnect",
+ "pin-project-lite",
  "proptest",
  "rand",
  "reqwest",
@@ -2930,6 +2941,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
+ "tokio-test",
  "tokio-util",
  "tower",
  "tracing",
@@ -2946,7 +2958,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-base"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "as_variant",
  "assert_matches",
@@ -2954,6 +2966,7 @@ dependencies = [
  "assign",
  "async-trait",
  "bitflags 2.6.0",
+ "decancer",
  "eyeball",
  "eyeball-im",
  "futures-executor",
@@ -2969,25 +2982,30 @@ dependencies = [
  "ruma",
  "serde",
  "serde_json",
+ "similar-asserts",
  "stream_assert",
  "thiserror",
  "tokio",
  "tracing",
+ "unicode-normalization",
  "uniffi",
  "wasm-bindgen-test",
 ]
 
 [[package]]
 name = "matrix-sdk-common"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "assert_matches",
  "async-trait",
+ "eyeball-im",
  "futures-core",
  "futures-util",
+ "getrandom",
  "gloo-timers",
+ "imbl",
  "js-sys",
- "matrix-sdk-test",
+ "matrix-sdk-test-macros",
  "proptest",
  "ruma",
  "serde",
@@ -3005,10 +3023,11 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-crypto"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "aes",
  "anyhow",
+ "aquamarine",
  "as_variant",
  "assert_matches",
  "assert_matches2",
@@ -3128,7 +3147,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-indexeddb"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -3196,7 +3215,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-qrcode"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "byteorder",
  "image",
@@ -3208,7 +3227,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-sqlite"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "assert_matches",
  "async-trait",
@@ -3235,7 +3254,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-store-encryption"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3257,9 +3276,11 @@ dependencies = [
 name = "matrix-sdk-test"
 version = "0.7.0"
 dependencies = [
+ "as_variant",
  "ctor",
  "getrandom",
  "http",
+ "matrix-sdk-common",
  "matrix-sdk-test-macros",
  "once_cell",
  "ruma",
@@ -3281,7 +3302,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-ui"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "as_variant",
@@ -5622,6 +5643,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-test"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2468baabc3311435b55dd935f702f42cd1b8abb7e754fb7dfb16bd36aa88f9f7"
+dependencies = [
+ "async-stream",
+ "bytes",
+ "futures-core",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "tokio-util"
 version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5891,9 +5925,9 @@ checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 
 [[package]]
 name = "unicode-normalization"
-version = "0.1.23"
+version = "0.1.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a56d1686db2308d901306f92a263857ef59ea39678a5458e7cb17f01415101f5"
+checksum = "5033c97c4262335cded6d6fc3e5c18ab755e1a3dc96376350f3d8e9f009ad956"
 dependencies = [
  "tinyvec",
 ]

@@ -29,6 +29,9 @@ use super::{ChunkIdentifier, Position};
 ///
 /// These updates are useful to store a `LinkedChunk` in another form of
 /// storage, like a database or something similar.
+///
+/// [`LinkedChunk`]: super::LinkedChunk
+/// [`LinkedChunk::updates`]: super::LinkedChunk::updates
 #[derive(Debug, Clone, PartialEq)]
 pub enum Update<Item, Gap> {
     /// A new chunk of kind Items has been created.
@@ -96,11 +99,17 @@ pub enum Update<Item, Gap> {
 
     /// Reattaching items (see [`Self::StartReattachItems`]) is finished.
     EndReattachItems,
+
+    /// All chunks have been cleared, i.e. all items and all gaps have been
+    /// dropped.
+    Clear,
 }
 
 /// A collection of [`Update`]s that can be observed.
 ///
 /// Get a value for this type with [`LinkedChunk::updates`].
+///
+/// [`LinkedChunk::updates`]: super::LinkedChunk::updates
 #[derive(Debug)]
 pub struct ObservableUpdates<Item, Gap> {
     pub(super) inner: Arc<RwLock<UpdatesInner<Item, Gap>>>,

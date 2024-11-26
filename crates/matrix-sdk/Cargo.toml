@@ -9,7 +9,7 @@ name = "matrix-sdk"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = { workspace = true }
-version = "0.7.1"
+version = "0.8.0"
 
 [package.metadata.docs.rs]
 features = ["docsrs"]
@@ -66,7 +66,7 @@ docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode"]
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
-aquamarine = "0.6.0"
+aquamarine = { workspace = true }
 assert_matches2 = { workspace = true, optional = true }
 as_variant = { workspace = true }
 async-channel = "2.2.1"
@@ -97,6 +97,7 @@ matrix-sdk-sqlite = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }
 mime = "0.3.16"
 mime2ext = "0.1.52"
+pin-project-lite = { workspace = true }
 rand = { workspace = true , optional = true }
 ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965", "unstable-msc3930", "unstable-msc3245-v1-compat", "unstable-msc2867"] }
 serde = { workspace = true }
@@ -144,6 +145,7 @@ serde_urlencoded = "0.7.1"
 similar-asserts = { workspace = true }
 stream_assert = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tokio-test = "0.4.4"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.33"

@@ -7,15 +7,16 @@ use futures_util::future::join_all;
 use matrix_sdk::{
     config::SyncSettings,
     room::{edit::EditedContent, Receipts, ReportedContentScore, RoomMemberRole},
-    test_utils::{events::EventFactory, mocks::MatrixMockServer},
+    test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
     async_test,
+    event_factory::EventFactory,
     mocks::{mock_encryption_state, mock_redaction},
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
-    EphemeralTestEvent, GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder,
-    DEFAULT_TEST_ROOM_ID,
+    EphemeralTestEvent, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
+    SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
@@ -635,7 +636,8 @@ async fn test_call_notifications_ring_for_dms() {
     let (client, server) = logged_in_client_with_server().await;
 
     let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::default());
+    let room_builder = JoinedRoomBuilder::default().add_state_event(StateTestEvent::PowerLevels);
+    sync_builder.add_joined_room(room_builder);
     sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Direct);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -678,9 +680,10 @@ async fn test_call_notifications_notify_for_rooms() {
     let (client, server) = logged_in_client_with_server().await;
 
     let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::default());
-
+    let room_builder = JoinedRoomBuilder::default().add_state_event(StateTestEvent::PowerLevels);
+    sync_builder.add_joined_room(room_builder);
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+
     mock_encryption_state(&server, false).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -716,12 +719,47 @@ async fn test_call_notifications_notify_for_rooms() {
 }
 
 #[async_test]
+async fn test_call_notifications_dont_notify_room_without_mention_powerlevel() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    let mut power_level_event = StateTestEvent::PowerLevels.into_json_value();
+    // Allow noone to send room notify events.
+    *power_level_event.get_mut("content").unwrap().get_mut("notifications").unwrap() =
+        json!({"room": 101});
+
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::default().add_state_event(StateTestEvent::Custom(power_level_event)),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    mock_encryption_state(&server, false).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    assert!(!room.is_direct().await.unwrap());
+    assert!(!room.has_active_room_call());
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"event_id": "$event_id"})))
+        // Expect no calls of the send because we dont have permission to notify.
+        .expect(0)
+        .mount(&server)
+        .await;
+
+    room.send_call_notification_if_needed().await.unwrap();
+}
+
+#[async_test]
 async fn test_make_reply_event_doesnt_require_event_cache() {
     // Even if we don't have enabled the event cache, we'll resort to using the
     // /event query to get details on an event.
 
     let mock = MatrixMockServer::new().await;
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
     let user_id = client.user_id().unwrap().to_owned();
 
     let room_id = room_id!("!galette:saucisse.bzh");
@@ -745,7 +783,7 @@ async fn test_make_reply_event_doesnt_require_event_cache() {
 #[async_test]
 async fn test_enable_encryption_doesnt_stay_unencrypted() {
     let mock = MatrixMockServer::new().await;
-    let client = mock.make_client().await;
+    let client = mock.client_builder().build().await;
 
     mock.mock_room_state_encryption().plain().mount().await;
     mock.mock_set_room_state_encryption().ok(event_id!("$1")).mount().await;

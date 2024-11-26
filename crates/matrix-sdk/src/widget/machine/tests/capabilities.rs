@@ -23,16 +23,16 @@ use crate::widget::machine::{
 };
 
 #[test]
-fn machine_can_negotiate_capabilities_immediately() {
+fn test_machine_can_negotiate_capabilities_immediately() {
     let room_id = owned_room_id!("!a98sd12bjh:example.org");
-    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id, false, None);
+    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id, false);
     assert_capabilities_dance(&mut machine, actions, None);
 }
 
 #[test]
-fn machine_can_request_capabilities_on_content_load() {
+fn test_machine_can_request_capabilities_on_content_load() {
     let room_id = owned_room_id!("!a98sd12bjh:example.org");
-    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id, true, None);
+    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id, true);
     assert!(actions.is_empty());
 
     // Content loaded event processed.
@@ -67,9 +67,9 @@ fn machine_can_request_capabilities_on_content_load() {
 }
 
 #[test]
-fn capabilities_failure_results_into_empty_capabilities() {
+fn test_capabilities_failure_results_into_empty_capabilities() {
     let room_id = owned_room_id!("!a98sd12bjh:example.org");
-    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id, false, None);
+    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id, false);
 
     // Ask widget to provide desired capabilities.
     let actions = {

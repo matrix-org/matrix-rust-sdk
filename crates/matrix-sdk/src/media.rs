@@ -40,7 +40,8 @@ use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
-    attachment::Thumbnail, futures::SendRequest, Client, Error, Result, TransmissionProgress,
+    attachment::Thumbnail, config::RequestConfig, futures::SendRequest, Client, Error, Result,
+    TransmissionProgress,
 };
 
 /// A conservative upload speed of 1Mbps
@@ -144,8 +145,11 @@ impl Media {
     /// * `content_type` - The type of the media, this will be used as the
     ///   content-type header.
     ///
-    /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
-    ///   media.
+    /// * `data` - Vector of bytes to be uploaded to the server.
+    ///
+    /// * `request_config` - Optional request configuration for the HTTP client,
+    ///   overriding the default. If not provided, a reasonable timeout value is
+    ///   inferred.
     ///
     /// # Examples
     ///
@@ -159,23 +163,36 @@ impl Media {
     /// # let mut client = Client::new(homeserver).await?;
     /// let image = fs::read("/home/example/my-cat.jpg")?;
     ///
-    /// let response = client.media().upload(&mime::IMAGE_JPEG, image).await?;
+    /// let response =
+    ///     client.media().upload(&mime::IMAGE_JPEG, image, None).await?;
     ///
     /// println!("Cat URI: {}", response.content_uri);
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn upload(&self, content_type: &Mime, data: Vec<u8>) -> SendUploadRequest {
-        let timeout = std::cmp::max(
-            Duration::from_secs(data.len() as u64 / DEFAULT_UPLOAD_SPEED),
-            MIN_UPLOAD_REQUEST_TIMEOUT,
-        );
+    pub fn upload(
+        &self,
+        content_type: &Mime,
+        data: Vec<u8>,
+        request_config: Option<RequestConfig>,
+    ) -> SendUploadRequest {
+        let request_config = request_config.unwrap_or_else(|| {
+            self.client.request_config().timeout(Self::reasonable_upload_timeout(&data))
+        });
 
         let request = assign!(media::create_content::v3::Request::new(data), {
             content_type: Some(content_type.essence_str().to_owned()),
         });
 
-        let request_config = self.client.request_config().timeout(timeout);
         self.client.send(request, Some(request_config))
+    }
+
+    /// Returns a reasonable upload timeout for an upload, based on the size of
+    /// the data to be uploaded.
+    pub(crate) fn reasonable_upload_timeout(data: &[u8]) -> Duration {
+        std::cmp::max(
+            Duration::from_secs(data.len() as u64 / DEFAULT_UPLOAD_SPEED),
+            MIN_UPLOAD_REQUEST_TIMEOUT,
+        )
     }
 
     /// Preallocates an MXC URI for a media that will be uploaded soon.
@@ -630,7 +647,7 @@ impl Media {
         let upload_thumbnail = self.upload_thumbnail(thumbnail, send_progress.clone());
 
         let upload_attachment = async move {
-            self.upload(content_type, data)
+            self.upload(content_type, data, None)
                 .with_send_progress_observable(send_progress)
                 .await
                 .map_err(Error::from)
@@ -652,20 +669,14 @@ impl Media {
             return Ok(None);
         };
 
+        let (data, content_type, thumbnail_info) = thumbnail.into_parts();
+
         let response = self
-            .upload(&thumbnail.content_type, thumbnail.data)
+            .upload(&content_type, data, None)
             .with_send_progress_observable(send_progress)
             .await?;
         let url = response.content_uri;
 
-        let thumbnail_info = assign!(
-            thumbnail.info
-                .as_ref()
-                .map(|info| ThumbnailInfo::from(info.clone()))
-                .unwrap_or_default(),
-            { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
-        );
-
-        Ok(Some((MediaSource::Plain(url), Box::new(thumbnail_info))))
+        Ok(Some((MediaSource::Plain(url), thumbnail_info)))
     }
 }

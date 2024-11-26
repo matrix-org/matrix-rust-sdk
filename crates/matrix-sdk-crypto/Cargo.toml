@@ -9,7 +9,7 @@ name = "matrix-sdk-crypto"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = { workspace = true }
-version = "0.7.2"
+version = "0.8.0"
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
@@ -23,6 +23,11 @@ experimental-algorithms = []
 uniffi = ["dep:uniffi"]
 _disable-minimum-rotation-period-ms = []
 
+# Private feature, see
+# https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823 for the gory
+# details.
+test-send-sync = []
+
 # "message-ids" feature doesn't do anything and is deprecated.
 message-ids = []
 
@@ -31,6 +36,7 @@ testing = ["matrix-sdk-test"]
 
 [dependencies]
 aes = "0.8.1"
+aquamarine = { workspace = true }
 as_variant = { workspace = true }
 async-trait = { workspace = true }
 bs58 = { version = "0.5.0" }

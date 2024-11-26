@@ -9,7 +9,7 @@ name = "matrix-sdk-base"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = { workspace = true }
-version = "0.7.0"
+version = "0.8.0"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -30,7 +30,7 @@ uniffi = ["dep:uniffi", "matrix-sdk-crypto?/uniffi", "matrix-sdk-common/uniffi"]
 # Private feature, see
 # https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823 for the gory
 # details.
-test-send-sync = []
+test-send-sync = ["matrix-sdk-crypto?/test-send-sync"]
 
 # "message-ids" feature doesn't do anything and is deprecated.
 message-ids = []
@@ -50,6 +50,7 @@ assert_matches = { workspace = true, optional = true }
 assert_matches2 = { workspace = true, optional = true }
 async-trait = { workspace = true }
 bitflags = { version = "2.4.0", features = ["serde"] }
+decancer = "3.2.4"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 futures-util = { workspace = true }
@@ -60,14 +61,15 @@ matrix-sdk-crypto = { workspace = true, optional = true }
 matrix-sdk-store-encryption = { workspace = true }
 matrix-sdk-test = { workspace = true, optional = true }
 once_cell = { workspace = true }
+regex = "1.11.0"
 ruma = { workspace = true, features = ["canonical-json", "unstable-msc3381", "unstable-msc2867", "rand"] }
+unicode-normalization = "0.1.24"
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 uniffi = { workspace = true, optional = true }
-regex = "1.11.1"
 
 [dev-dependencies]
 assert_matches = { workspace = true }
@@ -77,6 +79,7 @@ futures-executor = { workspace = true }
 http = { workspace = true }
 matrix-sdk-test = { workspace = true }
 stream_assert = { workspace = true }
+similar-asserts = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

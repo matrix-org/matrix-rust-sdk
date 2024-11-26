@@ -105,7 +105,7 @@ macro_rules! timer {
 #[cfg(test)]
 mod tests {
     #[cfg(not(target_arch = "wasm32"))]
-    #[matrix_sdk_test::async_test]
+    #[matrix_sdk_test_macros::async_test]
     async fn test_timer_name() {
         use tracing::{span, Level};
 

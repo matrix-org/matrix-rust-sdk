@@ -16,12 +16,17 @@ use std::{collections::HashMap, num::NonZeroUsize, sync::RwLock as StdRwLock, ti
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    ring_buffer::RingBuffer, store_locks::memory_store_helper::try_take_leased_lock,
+    linked_chunk::{relational::RelationalLinkedChunk, Update},
+    ring_buffer::RingBuffer,
+    store_locks::memory_store_helper::try_take_leased_lock,
 };
-use ruma::{MxcUri, OwnedMxcUri};
+use ruma::{MxcUri, OwnedMxcUri, RoomId};
 
 use super::{EventCacheStore, EventCacheStoreError, Result};
-use crate::media::{MediaRequestParameters, UniqueKey as _};
+use crate::{
+    event_cache::{Event, Gap},
+    media::{MediaRequestParameters, UniqueKey as _},
+};
 
 /// In-memory, non-persistent implementation of the `EventCacheStore`.
 ///
@@ -29,8 +34,14 @@ use crate::media::{MediaRequestParameters, UniqueKey as _};
 #[allow(clippy::type_complexity)]
 #[derive(Debug)]
 pub struct MemoryStore {
-    media: StdRwLock<RingBuffer<(OwnedMxcUri, String /* unique key */, Vec<u8>)>>,
-    leases: StdRwLock<HashMap<String, (String, Instant)>>,
+    inner: StdRwLock<MemoryStoreInner>,
+}
+
+#[derive(Debug)]
+struct MemoryStoreInner {
+    media: RingBuffer<(OwnedMxcUri, String /* unique key */, Vec<u8>)>,
+    leases: HashMap<String, (String, Instant)>,
+    events: RelationalLinkedChunk<Event, Gap>,
 }
 
 // SAFETY: `new_unchecked` is safe because 20 is not zero.
@@ -39,8 +50,11 @@ const NUMBER_OF_MEDIAS: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(20) 
 impl Default for MemoryStore {
     fn default() -> Self {
         Self {
-            media: StdRwLock::new(RingBuffer::new(NUMBER_OF_MEDIAS)),
-            leases: Default::default(),
+            inner: StdRwLock::new(MemoryStoreInner {
+                media: RingBuffer::new(NUMBER_OF_MEDIAS),
+                leases: Default::default(),
+                events: RelationalLinkedChunk::new(),
+            }),
         }
     }
 }
@@ -63,7 +77,20 @@ impl EventCacheStore for MemoryStore {
         key: &str,
         holder: &str,
     ) -> Result<bool, Self::Error> {
-        Ok(try_take_leased_lock(&self.leases, lease_duration_ms, key, holder))
+        let mut inner = self.inner.write().unwrap();
+
+        Ok(try_take_leased_lock(&mut inner.leases, lease_duration_ms, key, holder))
+    }
+
+    async fn handle_linked_chunk_updates(
+        &self,
+        room_id: &RoomId,
+        updates: Vec<Update<Event, Gap>>,
+    ) -> Result<(), Self::Error> {
+        let mut inner = self.inner.write().unwrap();
+        inner.events.apply_updates(room_id, updates);
+
+        Ok(())
     }
 
     async fn add_media_content(
@@ -73,8 +100,10 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<()> {
         // Avoid duplication. Let's try to remove it first.
         self.remove_media_content(request).await?;
+
         // Now, let's add it.
-        self.media.write().unwrap().push((request.uri().to_owned(), request.unique_key(), data));
+        let mut inner = self.inner.write().unwrap();
+        inner.media.push((request.uri().to_owned(), request.unique_key(), data));
 
         Ok(())
     }
@@ -86,8 +115,10 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<(), Self::Error> {
         let expected_key = from.unique_key();
 
-        let mut medias = self.media.write().unwrap();
-        if let Some((mxc, key, _)) = medias.iter_mut().find(|(_, key, _)| *key == expected_key) {
+        let mut inner = self.inner.write().unwrap();
+
+        if let Some((mxc, key, _)) = inner.media.iter_mut().find(|(_, key, _)| *key == expected_key)
+        {
             *mxc = to.uri().to_owned();
             *key = to.unique_key();
         }
@@ -98,8 +129,9 @@ impl EventCacheStore for MemoryStore {
     async fn get_media_content(&self, request: &MediaRequestParameters) -> Result<Option<Vec<u8>>> {
         let expected_key = request.unique_key();
 
-        let media = self.media.read().unwrap();
-        Ok(media.iter().find_map(|(_media_uri, media_key, media_content)| {
+        let inner = self.inner.read().unwrap();
+
+        Ok(inner.media.iter().find_map(|(_media_uri, media_key, media_content)| {
             (media_key == &expected_key).then(|| media_content.to_owned())
         }))
     }
@@ -107,23 +139,27 @@ impl EventCacheStore for MemoryStore {
     async fn remove_media_content(&self, request: &MediaRequestParameters) -> Result<()> {
         let expected_key = request.unique_key();
 
-        let mut media = self.media.write().unwrap();
-        let Some(index) = media
+        let mut inner = self.inner.write().unwrap();
+
+        let Some(index) = inner
+            .media
             .iter()
             .position(|(_media_uri, media_key, _media_content)| media_key == &expected_key)
         else {
             return Ok(());
         };
 
-        media.remove(index);
+        inner.media.remove(index);
 
         Ok(())
     }
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        let mut media = self.media.write().unwrap();
+        let mut inner = self.inner.write().unwrap();
+
         let expected_key = uri.to_owned();
-        let positions = media
+        let positions = inner
+            .media
             .iter()
             .enumerate()
             .filter_map(|(position, (media_uri, _media_key, _media_content))| {
@@ -133,7 +169,7 @@ impl EventCacheStore for MemoryStore {
 
         // Iterate in reverse-order so that positions stay valid after first removals.
         for position in positions.into_iter().rev() {
-            media.remove(position);
+            inner.media.remove(position);
         }
 
         Ok(())

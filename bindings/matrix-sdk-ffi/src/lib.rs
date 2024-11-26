@@ -33,13 +33,11 @@ mod utils;
 mod widget;
 
 use async_compat::TOKIO1 as RUNTIME;
-use matrix_sdk::ruma::events::room::{
-    message::RoomMessageEventContentWithoutRelation, MediaSource,
-};
+use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
 
 use self::{
     error::ClientError,
-    ruma::{MediaSourceExt, Mentions, RoomMessageEventContentWithoutRelationExt},
+    ruma::{Mentions, RoomMessageEventContentWithoutRelationExt},
     task_handle::TaskHandle,
 };
 

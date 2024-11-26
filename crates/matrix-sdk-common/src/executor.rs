@@ -81,7 +81,7 @@ impl<T: 'static> Future for JoinHandle<T> {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test_macros::async_test;
 
     use super::spawn;
 

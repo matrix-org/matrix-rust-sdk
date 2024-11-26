@@ -460,8 +460,7 @@ impl Client {
         thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<(MediaSource, Option<(MediaSource, Box<ThumbnailInfo>)>)> {
-        let upload_thumbnail =
-            self.upload_encrypted_thumbnail(thumbnail, content_type, send_progress.clone());
+        let upload_thumbnail = self.upload_encrypted_thumbnail(thumbnail, send_progress.clone());
 
         let upload_attachment = async {
             let mut cursor = Cursor::new(data);
@@ -480,27 +479,21 @@ impl Client {
     async fn upload_encrypted_thumbnail(
         &self,
         thumbnail: Option<Thumbnail>,
-        content_type: &mime::Mime,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<Option<(MediaSource, Box<ThumbnailInfo>)>> {
         let Some(thumbnail) = thumbnail else {
             return Ok(None);
         };
 
-        let mut cursor = Cursor::new(thumbnail.data);
+        let (data, content_type, thumbnail_info) = thumbnail.into_parts();
+        let mut cursor = Cursor::new(data);
 
         let file = self
-            .upload_encrypted_file(content_type, &mut cursor)
+            .upload_encrypted_file(&content_type, &mut cursor)
             .with_send_progress_observable(send_progress)
             .await?;
 
-        #[rustfmt::skip]
-            let thumbnail_info =
-                assign!(thumbnail.info.map(ThumbnailInfo::from).unwrap_or_default(), {
-                    mimetype: Some(thumbnail.content_type.as_ref().to_owned())
-                });
-
-        Ok(Some((MediaSource::Encrypted(Box::new(file)), Box::new(thumbnail_info))))
+        Ok(Some((MediaSource::Encrypted(Box::new(file)), thumbnail_info)))
     }
 
     /// Claim one-time keys creating new Olm sessions.
@@ -1458,6 +1451,8 @@ impl Encryption {
     /// caches.
     ///
     /// The provided `lock_value` must be a unique identifier for this process.
+    /// Check [`Client::cross_process_store_locks_holder_name`] to
+    /// get the global value.
     pub async fn enable_cross_process_store_lock(&self, lock_value: String) -> Result<(), Error> {
         // If the lock has already been created, don't recreate it from scratch.
         if let Some(prev_lock) = self.client.locks().cross_process_crypto_store_lock.get() {

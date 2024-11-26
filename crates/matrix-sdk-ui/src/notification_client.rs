@@ -111,7 +111,8 @@ impl NotificationClient {
         parent_client: Client,
         process_setup: NotificationProcessSetup,
     ) -> Result<Self, Error> {
-        let client = parent_client.notification_client().await?;
+        let client = parent_client.notification_client(Self::LOCK_ID.to_owned()).await?;
+
         Ok(NotificationClient {
             client,
             parent_client,
@@ -242,7 +243,6 @@ impl NotificationClient {
         };
 
         let encryption_sync = EncryptionSyncService::new(
-            Self::LOCK_ID.to_owned(),
             self.client.clone(),
             Some((Duration::from_secs(3), Duration::from_secs(4))),
             with_locking,

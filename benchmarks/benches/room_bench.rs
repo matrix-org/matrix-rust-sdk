@@ -2,15 +2,16 @@ use std::{sync::Arc, time::Duration};
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use matrix_sdk::{
-    config::SyncSettings,
-    test_utils::{events::EventFactory, logged_in_client_with_server},
-    utils::IntoRawStateEventContent,
+    config::SyncSettings, test_utils::logged_in_client_with_server, utils::IntoRawStateEventContent,
 };
 use matrix_sdk_base::{
     store::StoreConfig, BaseClient, RoomInfo, RoomState, SessionMeta, StateChanges, StateStore,
 };
 use matrix_sdk_sqlite::SqliteStateStore;
-use matrix_sdk_test::{EventBuilder, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder};
+use matrix_sdk_test::{
+    event_factory::EventFactory, EventBuilder, JoinedRoomBuilder, StateTestEvent,
+    SyncResponseBuilder,
+};
 use matrix_sdk_ui::{timeline::TimelineFocus, Timeline};
 use ruma::{
     api::client::membership::get_member_events,
@@ -74,7 +75,10 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
         .block_on(sqlite_store.save_changes(&changes))
         .expect("initial filling of sqlite failed");
 
-    let base_client = BaseClient::with_store_config(StoreConfig::new().state_store(sqlite_store));
+    let base_client = BaseClient::with_store_config(
+        StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+            .state_store(sqlite_store),
+    );
 
     runtime
         .block_on(base_client.set_session_meta(

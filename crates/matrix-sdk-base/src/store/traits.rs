@@ -14,7 +14,7 @@
 
 use std::{
     borrow::Borrow,
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     sync::Arc,
 };
@@ -46,7 +46,9 @@ use super::{
     StoreError,
 };
 use crate::{
-    deserialized_responses::{RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState},
+    deserialized_responses::{
+        DisplayName, RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState,
+    },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships,
 };
 
@@ -206,7 +208,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
-        display_name: &str,
+        display_name: &DisplayName,
     ) -> Result<BTreeSet<OwnedUserId>, Self::Error>;
 
     /// Get all the users that use the given display names in the given room.
@@ -219,8 +221,8 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_users_with_display_names<'a>(
         &self,
         room_id: &RoomId,
-        display_names: &'a [String],
-    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>, Self::Error>;
+        display_names: &'a [DisplayName],
+    ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>, Self::Error>;
 
     /// Get an event out of the account data store.
     ///
@@ -358,6 +360,7 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
         request: QueuedRequestKind,
+        priority: usize,
     ) -> Result<(), Self::Error>;
 
     /// Updates a send queue request with the given content, and resets its
@@ -390,6 +393,10 @@ pub trait StateStore: AsyncTraitDeps {
     ) -> Result<bool, Self::Error>;
 
     /// Loads all the send queue requests for the given room.
+    ///
+    /// The resulting vector of queued requests should be ordered from higher
+    /// priority to lower priority, and respect the insertion order when
+    /// priorities are equal.
     async fn load_send_queue_requests(
         &self,
         room_id: &RoomId,
@@ -417,20 +424,30 @@ pub trait StateStore: AsyncTraitDeps {
         content: DependentQueuedRequestKind,
     ) -> Result<(), Self::Error>;
 
-    /// Update a set of dependent send queue requests with a key identifying the
-    /// homeserver's response, effectively marking them as ready.
+    /// Mark a set of dependent send queue requests as ready, using a key
+    /// identifying the homeserver's response.
     ///
     /// ⚠ Beware! There's no verification applied that the parent key type is
     /// compatible with the dependent event type. The invalid state may be
     /// lazily filtered out in `load_dependent_queued_requests`.
     ///
     /// Returns the number of updated requests.
-    async fn update_dependent_queued_request(
+    async fn mark_dependent_queued_requests_as_ready(
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         sent_parent_key: SentRequestKey,
     ) -> Result<usize, Self::Error>;
+
+    /// Update a dependent send queue request with the new content.
+    ///
+    /// Returns true if the request was found and could be updated.
+    async fn update_dependent_queued_request(
+        &self,
+        room_id: &RoomId,
+        own_transaction_id: &ChildTransactionId,
+        new_content: DependentQueuedRequestKind,
+    ) -> Result<bool, Self::Error>;
 
     /// Remove a specific dependent send queue request by id.
     ///
@@ -562,7 +579,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
-        display_name: &str,
+        display_name: &DisplayName,
     ) -> Result<BTreeSet<OwnedUserId>, Self::Error> {
         self.0.get_users_with_display_name(room_id, display_name).await.map_err(Into::into)
     }
@@ -570,8 +587,8 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
     async fn get_users_with_display_names<'a>(
         &self,
         room_id: &RoomId,
-        display_names: &'a [String],
-    ) -> Result<BTreeMap<&'a str, BTreeSet<OwnedUserId>>, Self::Error> {
+        display_names: &'a [DisplayName],
+    ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>, Self::Error> {
         self.0.get_users_with_display_names(room_id, display_names).await.map_err(Into::into)
     }
 
@@ -641,8 +658,12 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
         content: QueuedRequestKind,
+        priority: usize,
     ) -> Result<(), Self::Error> {
-        self.0.save_send_queue_request(room_id, transaction_id, content).await.map_err(Into::into)
+        self.0
+            .save_send_queue_request(room_id, transaction_id, content, priority)
+            .await
+            .map_err(Into::into)
     }
 
     async fn update_send_queue_request(
@@ -698,14 +719,14 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
             .map_err(Into::into)
     }
 
-    async fn update_dependent_queued_request(
+    async fn mark_dependent_queued_requests_as_ready(
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         sent_parent_key: SentRequestKey,
     ) -> Result<usize, Self::Error> {
         self.0
-            .update_dependent_queued_request(room_id, parent_txn_id, sent_parent_key)
+            .mark_dependent_queued_requests_as_ready(room_id, parent_txn_id, sent_parent_key)
             .await
             .map_err(Into::into)
     }
@@ -723,6 +744,18 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         room_id: &RoomId,
     ) -> Result<Vec<DependentQueuedRequest>, Self::Error> {
         self.0.load_dependent_queued_requests(room_id).await.map_err(Into::into)
+    }
+
+    async fn update_dependent_queued_request(
+        &self,
+        room_id: &RoomId,
+        own_transaction_id: &ChildTransactionId,
+        new_content: DependentQueuedRequestKind,
+    ) -> Result<bool, Self::Error> {
+        self.0
+            .update_dependent_queued_request(room_id, own_transaction_id, new_content)
+            .await
+            .map_err(Into::into)
     }
 }
 

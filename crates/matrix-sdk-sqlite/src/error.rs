@@ -14,7 +14,7 @@
 
 use deadpool_sqlite::{CreatePoolError, PoolError};
 #[cfg(feature = "event-cache")]
-use matrix_sdk_base::event_cache_store::EventCacheStoreError;
+use matrix_sdk_base::event_cache::store::EventCacheStoreError;
 #[cfg(feature = "state-store")]
 use matrix_sdk_base::store::StoreError as StateStoreError;
 #[cfg(feature = "crypto-store")]
@@ -101,6 +101,9 @@ pub enum Error {
 
     #[error("Redaction failed: {0}")]
     Redaction(#[source] ruma::canonical_json::RedactionError),
+
+    #[error("An update keyed by unique ID touched more than one entry")]
+    InconsistentUpdate,
 }
 
 macro_rules! impl_from {

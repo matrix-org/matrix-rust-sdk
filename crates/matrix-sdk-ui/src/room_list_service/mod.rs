@@ -88,6 +88,7 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::RoomCanonicalAlias, ""),
     (StateEventType::RoomPowerLevels, ""),
     (StateEventType::CallMember, "*"),
+    (StateEventType::RoomJoinRules, ""),
 ];
 
 /// The default `required_state` constant value for sliding sync room
@@ -135,9 +136,10 @@ impl RoomListService {
             }))
             .with_typing_extension(assign!(http::request::Typing::default(), {
                 enabled: Some(true),
-            }))
-            // We don't deal with encryption device messages here so this is safe
-            .share_pos();
+            }));
+        // TODO: Re-enable once we know it creates slowness.
+        // // We don't deal with encryption device messages here so this is safe
+        // .share_pos();
 
         let sliding_sync = builder
             .add_cached_list(

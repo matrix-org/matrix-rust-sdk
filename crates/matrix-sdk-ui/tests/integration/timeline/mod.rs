@@ -19,12 +19,11 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    assert_let_timeout,
-    config::SyncSettings,
-    test_utils::{events::EventFactory, logged_in_client_with_server},
+    assert_let_timeout, config::SyncSettings, test_utils::logged_in_client_with_server,
 };
 use matrix_sdk_test::{
     async_test,
+    event_factory::EventFactory,
     mocks::{mock_encryption_state, mock_redaction},
     sync_timeline_event, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent,
     SyncResponseBuilder, BOB,
@@ -53,6 +52,7 @@ use crate::mock_sync;
 mod echo;
 mod edit;
 mod focus_event;
+mod media;
 mod pagination;
 mod pinned_event;
 mod profiles;

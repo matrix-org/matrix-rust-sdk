@@ -46,7 +46,7 @@ pub(crate) enum IncomingMessage {
     /// The `MatrixDriver` notified the `WidgetMachine` of a new matrix event.
     ///
     /// This means that the machine previously subscribed to some events
-    /// (`Action::Subscribe` request).
+    /// ([`crate::widget::Action::Subscribe`] request).
     MatrixEventReceived(Raw<AnyTimelineEvent>),
 }
 
