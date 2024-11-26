@@ -304,6 +304,11 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         if let Some(updates) = self.updates.as_mut() {
             // TODO: Optimisation: Do we want to clear all pending `Update`s in `updates`?
             updates.push(Update::Clear);
+            updates.push(Update::NewItemsChunk {
+                previous: None,
+                new: ChunkIdentifierGenerator::FIRST_IDENTIFIER,
+                next: None,
+            })
         }
     }
 
@@ -2713,6 +2718,16 @@ mod tests {
         let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
         linked_chunk.clear();
 
-        assert_eq!(linked_chunk.updates().unwrap().take(), &[Clear]);
+        assert_eq!(
+            linked_chunk.updates().unwrap().take(),
+            &[
+                Clear,
+                NewItemsChunk {
+                    previous: None,
+                    new: ChunkIdentifierGenerator::FIRST_IDENTIFIER,
+                    next: None
+                }
+            ]
+        );
     }
 }

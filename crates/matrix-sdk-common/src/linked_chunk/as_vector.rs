@@ -302,6 +302,12 @@ impl UpdateToVectorDiff {
                             self.chunks.insert(next_chunk_index, (*new, 0));
                         }
 
+                        // First chunk!
+                        (None, None) if self.chunks.is_empty() => {
+                            self.chunks.push_back((*new, 0));
+                        }
+
+                        // Impossible state.
                         (None, None) => {
                             unreachable!(
                                 "Inserting new chunk with no previous nor next chunk identifiers \
@@ -407,6 +413,9 @@ impl UpdateToVectorDiff {
                 }
 
                 Update::Clear => {
+                    // Clean `self.chunks`.
+                    self.chunks.clear();
+
                     // Let's straightforwardly emit a `VectorDiff::Clear`.
                     diffs.push(VectorDiff::Clear);
                 }
@@ -455,10 +464,11 @@ impl UpdateToVectorDiff {
 mod tests {
     use std::fmt::Debug;
 
+    use assert_matches::assert_matches;
     use imbl::{vector, Vector};
 
     use super::{
-        super::{EmptyChunk, LinkedChunk},
+        super::{ChunkIdentifierGenerator, EmptyChunk, LinkedChunk},
         VectorDiff,
     };
 
@@ -706,6 +716,58 @@ mod tests {
 
         drop(linked_chunk);
         assert!(as_vector.take().is_empty());
+    }
+
+    #[test]
+    fn test_as_vector_with_update_clear() {
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+        let mut as_vector = linked_chunk.as_vector().unwrap();
+
+        {
+            // 1 initial chunk in the `UpdateToVectorDiff` mapper.
+            let chunks = &as_vector.mapper.chunks;
+            assert_eq!(chunks.len(), 1);
+            assert_eq!(chunks[0].0, ChunkIdentifierGenerator::FIRST_IDENTIFIER);
+            assert_eq!(chunks[0].1, 0);
+        }
+
+        assert!(as_vector.take().is_empty());
+
+        linked_chunk.push_items_back(['a', 'b', 'c', 'd']);
+
+        {
+            let diffs = as_vector.take();
+            assert_eq!(diffs.len(), 2);
+            assert_matches!(&diffs[0], VectorDiff::Append { .. });
+            assert_matches!(&diffs[1], VectorDiff::Append { .. });
+
+            // 2 chunks in the `UpdateToVectorDiff` mapper.
+            assert_eq!(as_vector.mapper.chunks.len(), 2);
+        }
+
+        linked_chunk.clear();
+
+        {
+            let diffs = as_vector.take();
+            assert_eq!(diffs.len(), 1);
+            assert_matches!(&diffs[0], VectorDiff::Clear);
+
+            // 1 chunk in the `UpdateToVectorDiff` mapper.
+            let chunks = &as_vector.mapper.chunks;
+            assert_eq!(chunks.len(), 1);
+            assert_eq!(chunks[0].0, ChunkIdentifierGenerator::FIRST_IDENTIFIER);
+            assert_eq!(chunks[0].1, 0);
+        }
+
+        // And we can push again.
+        linked_chunk.push_items_back(['a', 'b', 'c', 'd']);
+
+        {
+            let diffs = as_vector.take();
+            assert_eq!(diffs.len(), 2);
+            assert_matches!(&diffs[0], VectorDiff::Append { .. });
+            assert_matches!(&diffs[1], VectorDiff::Append { .. });
+        }
     }
 
     #[test]
