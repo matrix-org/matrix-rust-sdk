@@ -24,7 +24,7 @@ use matrix_sdk::crypto::CollectStrategy;
 use matrix_sdk::{
     attachment::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
-        BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
+        BaseVideoInfo, Thumbnail,
     },
     deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     room::edit::EditedContent as SdkEditedContent,
@@ -53,7 +53,7 @@ use ruma::{
         },
         AnyMessageLikeEventContent,
     },
-    EventId,
+    EventId, UInt,
 };
 use tokio::{
     sync::Mutex,
@@ -144,19 +144,26 @@ fn build_thumbnail_info(
             let thumbnail_data =
                 fs::read(thumbnail_url).map_err(|_| RoomError::InvalidThumbnailData)?;
 
-            let base_thumbnail_info = BaseThumbnailInfo::try_from(&thumbnail_info)
-                .map_err(|_| RoomError::InvalidAttachmentData)?;
+            let height = thumbnail_info
+                .height
+                .and_then(|u| UInt::try_from(u).ok())
+                .ok_or(RoomError::InvalidAttachmentData)?;
+            let width = thumbnail_info
+                .width
+                .and_then(|u| UInt::try_from(u).ok())
+                .ok_or(RoomError::InvalidAttachmentData)?;
+            let size = thumbnail_info
+                .width
+                .and_then(|u| UInt::try_from(u).ok())
+                .ok_or(RoomError::InvalidAttachmentData)?;
 
             let mime_str =
                 thumbnail_info.mimetype.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
             let mime_type =
                 mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
 
-            let thumbnail = Thumbnail {
-                data: thumbnail_data,
-                content_type: mime_type,
-                info: Some(base_thumbnail_info),
-            };
+            let thumbnail =
+                Thumbnail { data: thumbnail_data, content_type: mime_type, height, width, size };
 
             Ok(AttachmentConfig::with_thumbnail(thumbnail))
         }

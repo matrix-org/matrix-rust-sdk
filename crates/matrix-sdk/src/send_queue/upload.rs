@@ -31,7 +31,7 @@ use ruma::{
         },
         AnyMessageLikeEventContent,
     },
-    uint, OwnedMxcUri, OwnedTransactionId, TransactionId, UInt,
+    OwnedMxcUri, OwnedTransactionId, TransactionId, UInt,
 };
 use tracing::{debug, error, instrument, trace, warn, Span};
 
@@ -182,22 +182,16 @@ impl RoomSendQueue {
 
             // Process the thumbnail, if it's been provided.
             if let Some(thumbnail) = config.thumbnail.take() {
-                // Create the information required for filling the thumbnail section of the
-                // media event.
-                let (data, content_type, thumbnail_info) = thumbnail.into_parts();
-
                 // Normalize information to retrieve the thumbnail in the cache store.
-                let height = thumbnail_info.height.unwrap_or_else(|| {
-                    trace!("thumbnail height is unknown, using 0 for the cache entry");
-                    uint!(0)
-                });
-                let width = thumbnail_info.width.unwrap_or_else(|| {
-                    trace!("thumbnail width is unknown, using 0 for the cache entry");
-                    uint!(0)
-                });
+                let height = thumbnail.height;
+                let width = thumbnail.width;
 
                 let txn = TransactionId::new();
                 trace!(upload_thumbnail_txn = %txn, thumbnail_size = ?(height, width), "attachment has a thumbnail");
+
+                // Create the information required for filling the thumbnail section of the
+                // media event.
+                let (data, content_type, thumbnail_info) = thumbnail.into_parts();
 
                 // Cache thumbnail in the cache store.
                 let thumbnail_media_request =
@@ -320,27 +314,18 @@ impl QueueStorage {
                 let from_req =
                     make_local_thumbnail_media_request(&info.txn, info.height, info.width);
 
-                if info.height == uint!(0) || info.width == uint!(0) {
-                    trace!(from = ?from_req.source, "removing thumbnail with unknown dimension from cache store");
+                trace!(from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
 
-                    cache_store
-                        .remove_media_content(&from_req)
-                        .await
-                        .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-                } else {
-                    trace!(from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
+                // Reuse the same format for the cached thumbnail with the final MXC ID.
+                let new_format = from_req.format.clone();
 
-                    // Reuse the same format for the cached thumbnail with the final MXC ID.
-                    let new_format = from_req.format.clone();
-
-                    cache_store
-                        .replace_media_key(
-                            &from_req,
-                            &MediaRequestParameters { source: new_source, format: new_format },
-                        )
-                        .await
-                        .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-                }
+                cache_store
+                    .replace_media_key(
+                        &from_req,
+                        &MediaRequestParameters { source: new_source, format: new_format },
+                    )
+                    .await
+                    .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
             }
         }
 

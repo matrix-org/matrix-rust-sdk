@@ -3,7 +3,7 @@ use std::{ops::Not as _, sync::Arc, time::Duration};
 use as_variant::as_variant;
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
-    attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, Thumbnail},
+    attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, Thumbnail},
     config::StoreConfig,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     send_queue::{
@@ -74,11 +74,9 @@ async fn queue_attachment_with_thumbnail(q: &RoomSendQueue) -> (SendHandle, &'st
     let thumbnail = Thumbnail {
         data: b"thumbnail".to_vec(),
         content_type: content_type.clone(),
-        info: Some(BaseThumbnailInfo {
-            height: Some(uint!(13)),
-            width: Some(uint!(37)),
-            size: Some(uint!(42)),
-        }),
+        height: uint!(13),
+        width: uint!(37),
+        size: uint!(42),
     };
 
     let config =
@@ -1789,11 +1787,9 @@ async fn test_media_uploads() {
     let thumbnail = Thumbnail {
         data: b"thumbnail".to_vec(),
         content_type: content_type.clone(),
-        info: Some(BaseThumbnailInfo {
-            height: Some(uint!(13)),
-            width: Some(uint!(37)),
-            size: Some(uint!(42)),
-        }),
+        height: uint!(13),
+        width: uint!(37),
+        size: uint!(42),
     };
 
     let attachment_info = AttachmentInfo::Image(BaseImageInfo {
@@ -1976,160 +1972,6 @@ async fn test_media_uploads() {
         txn = transaction_id,
         event_id = event_id!("$1")
     });
-
-    // That's all, folks!
-    assert!(watch.is_empty());
-}
-
-#[async_test]
-async fn test_media_uploads_no_caching_of_thumbnails_of_unknown_sizes() {
-    let mock = MatrixMockServer::new().await;
-
-    // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
-    let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
-
-    let q = room.send_queue();
-
-    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
-    assert!(local_echoes.is_empty());
-
-    // ----------------------
-    // Create the media to send, with a thumbnail that has unknown dimensions.
-    let filename = "surprise.jpeg.exe";
-    let content_type = mime::IMAGE_JPEG;
-    let data = b"hello world".to_vec();
-
-    let thumbnail = Thumbnail {
-        data: b"thumbnail".to_vec(),
-        content_type: content_type.clone(),
-        info: Some(BaseThumbnailInfo::default()),
-    };
-
-    let attachment_info = AttachmentInfo::Image(BaseImageInfo {
-        height: Some(uint!(14)),
-        width: Some(uint!(38)),
-        size: Some(uint!(43)),
-        blurhash: None,
-    });
-
-    let config = AttachmentConfig::with_thumbnail(thumbnail).info(attachment_info);
-
-    // ----------------------
-    // Prepare endpoints.
-    mock.mock_room_state_encryption().plain().mount().await;
-    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
-
-    mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/thumbnail")).mock_once().mount().await;
-    mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/media")).mock_once().mount().await;
-
-    // ----------------------
-    // Send the media.
-    assert!(watch.is_empty());
-    q.send_attachment(filename, content_type, data, config)
-        .await
-        .expect("queuing the attachment works");
-
-    // ----------------------
-    // Observe the local echo
-    let (txn, _send_handle, content) = assert_update!(watch => local echo event);
-
-    // Sanity-check metadata.
-    assert_let!(MessageType::Image(img_content) = content.msgtype);
-    assert_eq!(img_content.filename(), filename);
-
-    let info = img_content.info.unwrap();
-    assert_eq!(info.height, Some(uint!(14)));
-    assert_eq!(info.width, Some(uint!(38)));
-    assert_eq!(info.size, Some(uint!(43)));
-    assert_eq!(info.mimetype.as_deref(), Some("image/jpeg"));
-
-    // Check the data source: it should reference the send queue local storage.
-    let local_source = img_content.source;
-    assert_let!(MediaSource::Plain(mxc) = &local_source);
-    assert!(mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
-
-    // The media is immediately available from the cache.
-    let file_media = client
-        .media()
-        .get_media_content(
-            &MediaRequestParameters { source: local_source, format: MediaFormat::File },
-            true,
-        )
-        .await
-        .expect("media should be found");
-    assert_eq!(file_media, b"hello world");
-
-    // ----------------------
-    // Thumbnail.
-
-    // Check metadata.
-    let tinfo = info.thumbnail_info.unwrap();
-    assert_eq!(tinfo.height, None);
-    assert_eq!(tinfo.width, None);
-    assert_eq!(tinfo.size, None);
-    assert_eq!(tinfo.mimetype.as_deref(), Some("image/jpeg"));
-
-    // Check the thumbnail source: it should reference the send queue local storage.
-    let local_thumbnail_source = info.thumbnail_source.unwrap();
-    assert_let!(MediaSource::Plain(mxc) = &local_thumbnail_source);
-    assert!(mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
-
-    let thumbnail_media = client
-        .media()
-        .get_media_content(
-            &MediaRequestParameters {
-                source: local_thumbnail_source,
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(uint!(0), uint!(0))),
-            },
-            true,
-        )
-        .await
-        .expect("media should be found");
-    assert_eq!(thumbnail_media, b"thumbnail");
-
-    // ----------------------
-    // Let the upload progress.
-
-    assert_update!(watch => uploaded { related_to = txn, mxc = mxc_uri!("mxc://sdk.rs/thumbnail") });
-    assert_update!(watch => uploaded { related_to = txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
-
-    let edit_msg = assert_update!(watch => edit local echo { txn = txn });
-    assert_let!(MessageType::Image(new_content) = edit_msg.msgtype);
-    assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
-
-    let file_media = client
-        .media()
-        .get_media_content(
-            &MediaRequestParameters { source: new_content.source, format: MediaFormat::File },
-            true,
-        )
-        .await
-        .expect("media should be found with its final MXC uri in the cache");
-    assert_eq!(file_media, b"hello world");
-
-    let new_thumbnail_source = new_content.info.unwrap().thumbnail_source.unwrap();
-    assert_let!(MediaSource::Plain(new_uri) = &new_thumbnail_source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/thumbnail"));
-
-    // Retrieving the thumbnail should NOT work, since it doesn't make sense to
-    // cache it with a size of 0.
-    client
-        .media()
-        .get_media_content(
-            &MediaRequestParameters {
-                source: new_thumbnail_source,
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(uint!(0), uint!(0))),
-            },
-            true,
-        )
-        .await
-        .unwrap_err();
-
-    // The event is sent, at some point.
-    assert_update!(watch => sent { event_id = event_id!("$1") });
 
     // That's all, folks!
     assert!(watch.is_empty());

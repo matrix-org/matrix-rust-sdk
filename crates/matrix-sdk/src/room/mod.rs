@@ -1949,14 +1949,9 @@ impl Room {
 
         // If necessary, store caching data for the thumbnail ahead of time.
         let thumbnail_cache_info = if store_in_cache {
-            // Use a small closure returning Option to avoid an unnecessary complicated
-            // chain of map/and_then.
-            let get_info = || {
-                let thumbnail = thumbnail.as_ref()?;
-                let info = thumbnail.info.as_ref()?;
-                Some((thumbnail.data.clone(), info.height?, info.width?))
-            };
-            get_info()
+            thumbnail
+                .as_ref()
+                .map(|thumbnail| (thumbnail.data.clone(), thumbnail.height, thumbnail.width))
         } else {
             None
         };
