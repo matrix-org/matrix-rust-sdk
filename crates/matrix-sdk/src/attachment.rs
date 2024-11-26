@@ -180,6 +180,20 @@ pub struct Thumbnail {
     pub info: Option<BaseThumbnailInfo>,
 }
 
+impl Thumbnail {
+    /// Convert this `Thumbnail` into a `(data, content_type, info)` tuple.
+    pub fn into_parts(self) -> (Vec<u8>, mime::Mime, Box<ThumbnailInfo>) {
+        let thumbnail_info = assign!(
+            self.info
+                .as_ref()
+                .map(|info| ThumbnailInfo::from(info.clone()))
+                .unwrap_or_default(),
+            { mimetype: Some(self.content_type.to_string()) }
+        );
+        (self.data, self.content_type, Box::new(thumbnail_info))
+    }
+}
+
 /// Configuration for sending an attachment.
 #[derive(Debug, Default)]
 pub struct AttachmentConfig {

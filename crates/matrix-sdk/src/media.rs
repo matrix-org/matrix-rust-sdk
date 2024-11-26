@@ -669,20 +669,14 @@ impl Media {
             return Ok(None);
         };
 
+        let (data, content_type, thumbnail_info) = thumbnail.into_parts();
+
         let response = self
-            .upload(&thumbnail.content_type, thumbnail.data, None)
+            .upload(&content_type, data, None)
             .with_send_progress_observable(send_progress)
             .await?;
         let url = response.content_uri;
 
-        let thumbnail_info = assign!(
-            thumbnail.info
-                .as_ref()
-                .map(|info| ThumbnailInfo::from(info.clone()))
-                .unwrap_or_default(),
-            { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
-        );
-
-        Ok(Some((MediaSource::Plain(url), Box::new(thumbnail_info))))
+        Ok(Some((MediaSource::Plain(url), thumbnail_info)))
     }
 }
