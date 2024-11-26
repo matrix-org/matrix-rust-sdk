@@ -269,17 +269,26 @@ impl TimelineEventKind {
 pub(super) enum TimelineItemPosition {
     /// One or more items are prepended to the timeline (i.e. they're the
     /// oldest).
-    Start { origin: RemoteEventOrigin },
+    Start {
+        /// The origin of the new item(s).
+        origin: RemoteEventOrigin,
+    },
 
     /// One or more items are appended to the timeline (i.e. they're the most
     /// recent).
-    End { origin: RemoteEventOrigin },
+    End {
+        /// The origin of the new item(s).
+        origin: RemoteEventOrigin,
+    },
 
     /// A single item is updated, after it's been successfully decrypted.
     ///
     /// This happens when an item that was a UTD must be replaced with the
     /// decrypted event.
-    UpdateDecrypted(usize),
+    UpdateDecrypted {
+        /// The index of the **timeline item**.
+        timeline_item_index: usize,
+    },
 }
 
 /// The outcome of handling a single event with
@@ -481,8 +490,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         if !self.result.item_added {
             trace!("No new item added");
 
-            if let Flow::Remote { position: TimelineItemPosition::UpdateDecrypted(idx), .. } =
-                self.ctx.flow
+            if let Flow::Remote {
+                position: TimelineItemPosition::UpdateDecrypted { timeline_item_index: idx },
+                ..
+            } = self.ctx.flow
             {
                 // If add was not called, that means the UTD event is one that
                 // wouldn't normally be visible. Remove it.
@@ -576,7 +587,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         replacement: PendingEdit,
     ) {
         match position {
-            TimelineItemPosition::Start { .. } | TimelineItemPosition::UpdateDecrypted(_) => {
+            TimelineItemPosition::Start { .. } | TimelineItemPosition::UpdateDecrypted { .. } => {
                 // Only insert the edit if there wasn't any other edit
                 // before.
                 //
@@ -1012,7 +1023,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     | TimelineItemPosition::End { origin } => origin,
 
                     // For updates, reuse the origin of the encrypted event.
-                    TimelineItemPosition::UpdateDecrypted(idx) => self.items[idx]
+                    TimelineItemPosition::UpdateDecrypted { timeline_item_index: idx } => self
+                        .items[idx]
                         .as_event()
                         .and_then(|ev| Some(ev.as_remote()?.origin))
                         .unwrap_or_else(|| {
@@ -1162,7 +1174,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
             Flow::Remote {
                 event_id: decrypted_event_id,
-                position: TimelineItemPosition::UpdateDecrypted(idx),
+                position: TimelineItemPosition::UpdateDecrypted { timeline_item_index: idx },
                 ..
             } => {
                 trace!("Updating timeline item at position {idx}");
