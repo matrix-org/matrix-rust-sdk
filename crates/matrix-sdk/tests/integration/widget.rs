@@ -713,14 +713,13 @@ async fn test_fail_sending_delay_rate_limit() {
     assert_eq!(
         msg["response"],
         json!({
-                "error": {
+            "error": {
               "matrix_api_error": {
                 "http_status": 400,
                 "response": {
                   "errcode": "M_LIMIT_EXCEEDED",
                   "error": "Sending too many delay events"
                 },
-                "url": ""
               },
               "message": "the server returned an error: [400 / M_LIMIT_EXCEEDED] Sending too many delay events"
             }
