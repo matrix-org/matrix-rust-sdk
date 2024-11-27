@@ -31,20 +31,27 @@ use ruma::{
             guest_access::RoomGuestAccessEventContent,
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
+            message::{ImageMessageEventContent, MessageType, RoomMessageEventContent},
             name::{RedactedRoomNameEventContent, RoomNameEventContent},
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
+            MediaSource,
         },
         EmptyStateKey, EventContent, RedactContent, StateEventContent, StateEventType,
     },
-    OwnedRoomId, OwnedUserId, RoomId,
+    owned_mxc_uri, uint, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt,
 };
 use serde::{Deserialize, Serialize};
 
+use super::{
+    ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, SentRequestKey,
+    SerializableEventContent,
+};
 #[cfg(feature = "experimental-sliding-sync")]
 use crate::latest_event::LatestEvent;
 use crate::{
     deserialized_responses::SyncOrStrippedState,
+    media::MediaRequestParameters,
     rooms::{
         normal::{RoomSummary, SyncInfo},
         BaseRoomInfo, RoomNotableTags,
@@ -252,4 +259,180 @@ impl From<RoomNameEventContentV1> for RoomNameEventContent {
     fn from(value: RoomNameEventContentV1) -> Self {
         RoomNameEventContent::new(value.name.unwrap_or_default())
     }
+}
+
+/// [`DependentQueuedRequest`] v1.
+///
+/// See the docs of [`DependentQueuedRequestKindV1`] for details on the
+/// migration.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DependentQueuedRequestV1 {
+    /// Unique identifier for this dependent queued request.
+    ///
+    /// Useful for deletion.
+    pub own_transaction_id: ChildTransactionId,
+
+    /// The kind of user intent.
+    pub kind: DependentQueuedRequestKindV1,
+
+    /// Transaction id for the parent's local echo / used in the server request.
+    ///
+    /// Note: this is the transaction id used for the depended-on request, i.e.
+    /// the one that was originally sent and that's being modified with this
+    /// dependent request.
+    pub parent_transaction_id: OwnedTransactionId,
+
+    /// If the parent request has been sent, the parent's request identifier
+    /// returned by the server once the local echo has been sent out.
+    pub parent_key: Option<SentRequestKey>,
+}
+
+impl DependentQueuedRequestV1 {
+    /// Construct a `DependentQueuedRequestV1` with the given
+    /// `DependentQueuedRequestKindV1`.
+    pub fn example_with_kind(kind: DependentQueuedRequestKindV1) -> Self {
+        Self {
+            own_transaction_id: ChildTransactionId::new(),
+            kind,
+            parent_transaction_id: TransactionId::new(),
+            parent_key: None,
+        }
+    }
+
+    /// Construct a `DependentQueuedRequestV1` with a
+    /// `DependentQueuedRequestKindV1::FinishUpload{ .. }` that
+    /// should be migrated.
+    ///
+    /// Returns the request and the transaction ID of the thumbnail, aka the
+    /// `thumbnail_upload` of the new kind type.
+    pub fn finish_upload_example() -> (Self, OwnedTransactionId) {
+        let (kind, thumbnail_upload) = DependentQueuedRequestKindV1::finish_upload_example();
+        (Self::example_with_kind(kind), thumbnail_upload)
+    }
+}
+
+impl From<DependentQueuedRequestV1> for DependentQueuedRequest {
+    fn from(value: DependentQueuedRequestV1) -> Self {
+        Self {
+            own_transaction_id: value.own_transaction_id,
+            kind: value.kind.into(),
+            parent_transaction_id: value.parent_transaction_id,
+            parent_key: value.parent_key,
+        }
+    }
+}
+
+/// [`DependentQueuedRequestKind`] v1.
+///
+/// It used to contain the width and height of the thumbnail for the
+/// `FinishUpload` variant.
+///
+/// With this migration in the `StateStore`, the associated media needs to be
+/// migrated too in the `EventCacheStore`, by changing the `MediaRequest` to use
+/// the `MediaFormat::File` instead of `MediaFormat::Thumbnail(_)`.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum DependentQueuedRequestKindV1 {
+    /// The event should be edited.
+    EditEvent {
+        /// The new event for the content.
+        new_content: SerializableEventContent,
+    },
+
+    /// The event should be redacted/aborted/removed.
+    RedactEvent,
+
+    /// The event should be reacted to, with the given key.
+    ReactEvent {
+        /// Key used for the reaction.
+        key: String,
+    },
+
+    /// Upload a file that had a thumbnail.
+    UploadFileWithThumbnail {
+        /// Content type for the file itself (not the thumbnail).
+        content_type: String,
+
+        /// Media request necessary to retrieve the file itself (not the
+        /// thumbnail).
+        cache_key: MediaRequestParameters,
+
+        /// To which media transaction id does this upload relate to?
+        related_to: OwnedTransactionId,
+    },
+
+    /// Finish an upload by updating references to the media cache and sending
+    /// the final media event with the remote MXC URIs.
+    FinishUpload {
+        /// Local echo for the event (containing the local MXC URIs).
+        local_echo: RoomMessageEventContent,
+
+        /// Transaction id for the file upload.
+        file_upload: OwnedTransactionId,
+
+        /// Information about the thumbnail, if present.
+        thumbnail_info: Option<FinishUploadThumbnailInfo>,
+    },
+}
+
+impl DependentQueuedRequestKindV1 {
+    /// Construct a `DependentQueuedRequestKindV1::FinishUpload{ .. }` that
+    /// should be migrated.
+    ///
+    /// Returns the kind and the transaction ID of the thumbnail, aka the
+    /// `thumbnail_upload` of the new type.
+    pub fn finish_upload_example() -> (Self, OwnedTransactionId) {
+        let local_echo = MessageType::Image(ImageMessageEventContent::new(
+            "image.png".to_owned(),
+            MediaSource::Plain(owned_mxc_uri!("mxc://homeserver.local/media")),
+        ))
+        .into();
+        let file_upload = TransactionId::new();
+        let thumbnail_upload = TransactionId::new();
+        let thumbnail_info = FinishUploadThumbnailInfo {
+            txn: thumbnail_upload.clone(),
+            width: uint!(800),
+            height: uint!(600),
+        };
+
+        let kind =
+            Self::FinishUpload { local_echo, file_upload, thumbnail_info: Some(thumbnail_info) };
+        (kind, thumbnail_upload)
+    }
+}
+
+impl From<DependentQueuedRequestKindV1> for DependentQueuedRequestKind {
+    fn from(value: DependentQueuedRequestKindV1) -> Self {
+        match value {
+            DependentQueuedRequestKindV1::EditEvent { new_content } => {
+                Self::EditEvent { new_content }
+            }
+            DependentQueuedRequestKindV1::RedactEvent => Self::RedactEvent,
+            DependentQueuedRequestKindV1::ReactEvent { key } => Self::ReactEvent { key },
+            DependentQueuedRequestKindV1::UploadFileWithThumbnail {
+                content_type,
+                cache_key,
+                related_to,
+            } => Self::UploadFileWithThumbnail { content_type, cache_key, related_to },
+            DependentQueuedRequestKindV1::FinishUpload {
+                local_echo,
+                file_upload,
+                thumbnail_info,
+            } => Self::FinishUpload {
+                local_echo,
+                file_upload,
+                thumbnail_upload: thumbnail_info.map(|info| info.txn),
+            },
+        }
+    }
+}
+
+/// Detailed record about a thumbnail used when finishing a media upload.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FinishUploadThumbnailInfo {
+    /// Transaction id for the thumbnail upload.
+    pub txn: OwnedTransactionId,
+    /// Thumbnail's width.
+    pub width: UInt,
+    /// Thumbnail's height.
+    pub height: UInt,
 }
