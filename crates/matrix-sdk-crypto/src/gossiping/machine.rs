@@ -616,7 +616,6 @@ impl GossipMachine {
     ///   i.
     /// - `Err(x)`: Should *refuse* to share the session. `x` is the reason for
     ///   the refusal.
-
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn should_share_key(
         &self,

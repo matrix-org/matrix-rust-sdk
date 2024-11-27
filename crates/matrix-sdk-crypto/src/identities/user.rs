@@ -435,16 +435,20 @@ impl OtherUserIdentity {
         Ok(())
     }
 
-    // Test helper
+    /// Test helper that marks that an identity has been previously verified and
+    /// persist the change in the store.
     #[cfg(test)]
     pub async fn mark_as_previously_verified(&self) -> Result<(), CryptoStoreError> {
         self.inner.mark_as_previously_verified();
+
         let to_save = UserIdentityData::Other(self.inner.clone());
         let changes = Changes {
             identities: IdentityChanges { changed: vec![to_save], ..Default::default() },
             ..Default::default()
         };
+
         self.verification_machine.store.inner().save_changes(changes).await?;
+
         Ok(())
     }
 

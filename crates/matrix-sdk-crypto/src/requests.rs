@@ -222,6 +222,8 @@ pub enum OutgoingRequests {
 
 #[cfg(test)]
 impl OutgoingRequests {
+    /// Test helper to destructure the [`OutgoingRequests`] as a
+    /// [`ToDeviceRequest`].
     pub fn to_device(&self) -> Option<&ToDeviceRequest> {
         as_variant!(self, Self::ToDeviceRequest)
     }
