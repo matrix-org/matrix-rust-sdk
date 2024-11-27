@@ -383,7 +383,7 @@ mod tests {
     fn test_new_room_events_has_zero_events() {
         let room_events = RoomEvents::new();
 
-        assert_eq!(room_events.chunks.len(), 0);
+        assert_eq!(room_events.events().count(), 0);
     }
 
     #[test]

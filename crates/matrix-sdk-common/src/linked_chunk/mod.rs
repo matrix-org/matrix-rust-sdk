@@ -233,9 +233,6 @@ pub struct LinkedChunk<const CHUNK_CAPACITY: usize, Item, Gap> {
     /// The links to the chunks, i.e. the first and the last chunk.
     links: Ends<CHUNK_CAPACITY, Item, Gap>,
 
-    /// The number of items hold by this linked chunk.
-    length: usize,
-
     /// The generator of chunk identifiers.
     chunk_identifier_generator: ChunkIdentifierGenerator,
 
@@ -263,7 +260,6 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                 first: Chunk::new_items_leaked(ChunkIdentifierGenerator::FIRST_IDENTIFIER),
                 last: None,
             },
-            length: 0,
             chunk_identifier_generator: ChunkIdentifierGenerator::new_from_scratch(),
             updates: None,
             marker: PhantomData,
@@ -282,7 +278,6 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                 first: Chunk::new_items_leaked(ChunkIdentifierGenerator::FIRST_IDENTIFIER),
                 last: None,
             },
-            length: 0,
             chunk_identifier_generator: ChunkIdentifierGenerator::new_from_scratch(),
             updates: Some(ObservableUpdates::new()),
             marker: PhantomData,
@@ -293,9 +288,6 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     pub fn clear(&mut self) {
         // Clear `self.links`.
         self.links.clear();
-
-        // Clear `self.length`.
-        self.length = 0;
 
         // Clear `self.chunk_identifier_generator`.
         self.chunk_identifier_generator = ChunkIdentifierGenerator::new_from_scratch();
@@ -312,12 +304,6 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         }
     }
 
-    /// Get the number of items in this linked chunk.
-    #[allow(clippy::len_without_is_empty)]
-    pub fn len(&self) -> usize {
-        self.length
-    }
-
     /// Push items at the end of the [`LinkedChunk`], i.e. on the last
     /// chunk.
     ///
@@ -331,7 +317,6 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         I::IntoIter: ExactSizeIterator,
     {
         let items = items.into_iter();
-        let number_of_items = items.len();
 
         let last_chunk = self.links.latest_chunk_mut();
 
@@ -348,8 +333,6 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             // OK.
             self.links.last = Some(last_chunk.as_ptr());
         }
-
-        self.length += number_of_items;
     }
 
     /// Push a gap at the end of the [`LinkedChunk`], i.e. after the last
@@ -387,7 +370,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             .chunk_mut(chunk_identifier)
             .ok_or(Error::InvalidChunkIdentifier { identifier: chunk_identifier })?;
 
-        let (chunk, number_of_items) = match &mut chunk.content {
+        let chunk = match &mut chunk.content {
             ChunkContent::Gap(..) => {
                 return Err(Error::ChunkIsAGap { identifier: chunk_identifier })
             }
@@ -401,50 +384,46 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
                 // Prepare the items to be pushed.
                 let items = items.into_iter();
-                let number_of_items = items.len();
 
-                (
-                    // Push at the end of the current items.
-                    if item_index == current_items_length {
-                        chunk
-                            // Push the new items.
-                            .push_items(items, &self.chunk_identifier_generator, &mut self.updates)
+                // Push at the end of the current items.
+                if item_index == current_items_length {
+                    chunk
+                        // Push the new items.
+                        .push_items(items, &self.chunk_identifier_generator, &mut self.updates)
+                }
+                // Insert inside the current items.
+                else {
+                    if let Some(updates) = self.updates.as_mut() {
+                        updates.push(Update::DetachLastItems {
+                            at: Position(chunk_identifier, item_index),
+                        });
                     }
-                    // Insert inside the current items.
-                    else {
-                        if let Some(updates) = self.updates.as_mut() {
-                            updates.push(Update::DetachLastItems {
-                                at: Position(chunk_identifier, item_index),
-                            });
-                        }
 
-                        // Split the items.
-                        let detached_items = current_items.split_off(item_index);
+                    // Split the items.
+                    let detached_items = current_items.split_off(item_index);
 
-                        let chunk = chunk
-                            // Push the new items.
-                            .push_items(items, &self.chunk_identifier_generator, &mut self.updates);
+                    let chunk = chunk
+                        // Push the new items.
+                        .push_items(items, &self.chunk_identifier_generator, &mut self.updates);
 
-                        if let Some(updates) = self.updates.as_mut() {
-                            updates.push(Update::StartReattachItems);
-                        }
+                    if let Some(updates) = self.updates.as_mut() {
+                        updates.push(Update::StartReattachItems);
+                    }
 
-                        let chunk = chunk
-                            // Finally, push the items that have been detached.
-                            .push_items(
-                                detached_items.into_iter(),
-                                &self.chunk_identifier_generator,
-                                &mut self.updates,
-                            );
+                    let chunk = chunk
+                        // Finally, push the items that have been detached.
+                        .push_items(
+                            detached_items.into_iter(),
+                            &self.chunk_identifier_generator,
+                            &mut self.updates,
+                        );
 
-                        if let Some(updates) = self.updates.as_mut() {
-                            updates.push(Update::EndReattachItems);
-                        }
+                    if let Some(updates) = self.updates.as_mut() {
+                        updates.push(Update::EndReattachItems);
+                    }
 
-                        chunk
-                    },
-                    number_of_items,
-                )
+                    chunk
+                }
             }
         };
 
@@ -455,8 +434,6 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             // OK.
             self.links.last = Some(chunk.as_ptr());
         }
-
-        self.length += number_of_items;
 
         Ok(())
     }
@@ -524,8 +501,6 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                     self.links.last = chunk.previous;
                 }
             }
-
-            self.length -= 1;
 
             // Stop borrowing `chunk`.
         }
@@ -677,10 +652,9 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
             debug_assert!(chunk.is_first_chunk().not(), "A gap cannot be the first chunk");
 
-            let (maybe_last_chunk_ptr, number_of_items) = match &mut chunk.content {
+            let maybe_last_chunk_ptr = match &mut chunk.content {
                 ChunkContent::Gap(..) => {
                     let items = items.into_iter();
-                    let number_of_items = items.len();
 
                     let last_inserted_chunk = chunk
                         // Insert a new items chunk…
@@ -691,11 +665,9 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                         // … and insert the items.
                         .push_items(items, &self.chunk_identifier_generator, &mut self.updates);
 
-                    (
-                        last_inserted_chunk.is_last_chunk().then(|| last_inserted_chunk.as_ptr()),
-                        number_of_items,
-                    )
+                    last_inserted_chunk.is_last_chunk().then(|| last_inserted_chunk.as_ptr())
                 }
+
                 ChunkContent::Items(..) => {
                     return Err(Error::ChunkIsItems { identifier: chunk_identifier })
                 }
@@ -716,8 +688,6 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             if let Some(last_chunk_ptr) = maybe_last_chunk_ptr {
                 self.links.last = Some(last_chunk_ptr);
             }
-
-            self.length += number_of_items;
 
             // Stop borrowing `chunk`.
         }
@@ -895,6 +865,11 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         let chunk_iterator = self.chunks();
 
         Some(AsVector::new(updates, token, chunk_iterator))
+    }
+
+    /// Returns the number of items of the linked chunk.
+    fn len(&self) -> usize {
+        self.items().count()
     }
 }
 
@@ -1387,7 +1362,6 @@ where
             .debug_struct("LinkedChunk")
             .field("first (deref)", unsafe { self.links.first.as_ref() })
             .field("last", &self.links.last)
-            .field("length", &self.length)
             .finish_non_exhaustive()
     }
 }
