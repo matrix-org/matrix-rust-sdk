@@ -21,7 +21,11 @@ use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::{prelude::*, request::OpenDbRequest, IdbDatabase, IdbVersionChangeEvent};
 use js_sys::Date as JsDate;
 use matrix_sdk_base::{
-    deserialized_responses::SyncOrStrippedState, store::migration_helpers::RoomInfoV1,
+    deserialized_responses::SyncOrStrippedState,
+    store::{
+        migration_helpers::{DependentQueuedRequestKindV1, DependentQueuedRequestV1, RoomInfoV1},
+        DependentQueuedRequest,
+    },
     StateStoreDataKey,
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -46,7 +50,7 @@ use super::{
 };
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: u32 = 12;
+const CURRENT_DB_VERSION: u32 = 13;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
@@ -237,6 +241,9 @@ pub async fn upgrade_inner_db(
             }
             if old_version < 12 {
                 db = migrate_to_v12(db).await?;
+            }
+            if old_version < 13 {
+                db = migrate_to_v13(db, store_cipher).await?;
             }
         }
 
@@ -794,6 +801,38 @@ async fn migrate_to_v12(db: IdbDatabase) -> Result<IdbDatabase> {
     Ok(IdbDatabase::open_u32(&name, 12)?.await?)
 }
 
+/// Change the format of the `DependentQueuedRequestKind`s in
+/// `DEPENDENT_SEND_QUEUE`.
+async fn migrate_to_v13(
+    db: IdbDatabase,
+    store_cipher: Option<&StoreCipher>,
+) -> Result<IdbDatabase> {
+    let tx = db.transaction_on_multi_with_mode(
+        &[keys::DEPENDENT_SEND_QUEUE],
+        IdbTransactionMode::Readwrite,
+    )?;
+
+    if let Some(cursor) = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?.open_cursor()?.await? {
+        loop {
+            let room_requests =
+                deserialize_value::<Vec<DependentQueuedRequestV1>>(store_cipher, &cursor.value())?;
+            let migrated_requests =
+                room_requests.into_iter().map(DependentQueuedRequest::from).collect::<Vec<_>>();
+            let serialized_requests = serialize_value(store_cipher, &migrated_requests)?;
+            cursor.update(&serialized_requests)?.await?;
+
+            if !cursor.continue_cursor()?.await? {
+                break;
+            }
+        }
+    }
+
+    tx.await.into_result()?;
+
+    let migration = OngoingMigration::default();
+    apply_migration(db, 13, migration).await
+}
+
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -802,9 +841,13 @@ mod tests {
     use assert_matches2::assert_let;
     use indexed_db_futures::prelude::*;
     use matrix_sdk_base::{
-        deserialized_responses::RawMemberEvent, store::StateStoreExt,
-        sync::UnreadNotificationsCount, RoomMemberships, RoomState, StateStore, StateStoreDataKey,
-        StoreError,
+        deserialized_responses::RawMemberEvent,
+        store::{
+            migration_helpers::{DependentQueuedRequestKindV1, DependentQueuedRequestV1},
+            DependentQueuedRequestKind, StateStoreExt,
+        },
+        sync::UnreadNotificationsCount,
+        RoomMemberships, RoomState, StateStore, StateStoreDataKey, StoreError,
     };
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
@@ -888,6 +931,12 @@ mod tests {
                 }
                 if version < 7 {
                     db.create_object_store(old_keys::STRIPPED_ROOM_INFOS)?;
+                }
+                if version >= 9 {
+                    db.create_object_store(keys::ROOM_SEND_QUEUE)?;
+                }
+                if version >= 10 {
+                    db.create_object_store(keys::DEPENDENT_SEND_QUEUE)?;
                 }
                 if version < 11 {
                     db.create_object_store(old_keys::MEDIA)?;
@@ -1601,6 +1650,64 @@ mod tests {
         let room_c = room_infos.iter().find(|r| r.room_id() == room_c_id).unwrap();
         assert_eq!(room_c.name(), None);
         assert_eq!(room_c.creator(), Some(room_c_create_sender));
+
+        Ok(())
+    }
+
+    #[async_test]
+    pub async fn test_migrating_to_v13() -> Result<()> {
+        let name = format!("migrating-v13-{}", Uuid::new_v4().as_hyphenated().to_string());
+
+        // Create initial data.
+        let room_id = room_id!("!room:dummy.local");
+
+        let redact_request =
+            DependentQueuedRequestV1::example_with_kind(DependentQueuedRequestKindV1::RedactEvent);
+        let redact_txn_id = redact_request.own_transaction_id.clone();
+
+        let (finish_upload_request, finish_upload_thumbnail_upload) =
+            DependentQueuedRequestV1::finish_upload_example();
+        let finish_upload_txn_id = finish_upload_request.own_transaction_id.clone();
+
+        let initial_requests = vec![redact_request, finish_upload_request];
+
+        // Populate DB with old table.
+        {
+            let db = create_fake_db(&name, 12).await?;
+            let tx = db.transaction_on_multi_with_mode(
+                &[keys::DEPENDENT_SEND_QUEUE],
+                IdbTransactionMode::Readwrite,
+            )?;
+
+            let store = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
+            store.put_key_val(
+                &encode_key(None, keys::DEPENDENT_SEND_QUEUE, room_id),
+                &serialize_value(None, &initial_requests)?,
+            )?;
+
+            tx.await.into_result()?;
+            db.close();
+        }
+
+        // this transparently migrates to the latest version
+        let store = IndexeddbStateStore::builder().name(name).build().await?;
+
+        // Check all dependent queued requests are there.
+        let loaded_requests = store.load_dependent_queued_requests(room_id).await.unwrap();
+        assert_eq!(loaded_requests.len(), 2);
+
+        // The requests should be returned in the same order that they were inserted.
+        let first_request = &loaded_requests[0];
+        assert_eq!(first_request.own_transaction_id, redact_txn_id);
+        assert_matches!(first_request.kind, DependentQueuedRequestKind::RedactEvent);
+
+        let second_request = &loaded_requests[1];
+        assert_eq!(second_request.own_transaction_id, finish_upload_txn_id);
+        let second_request_thumbnail_upload = assert_matches!(
+            &second_request.kind,
+            DependentQueuedRequestKind::FinishUpload { thumbnail_upload, .. } => thumbnail_upload
+        );
+        assert_eq!(*second_request_thumbnail_upload, Some(finish_upload_thumbnail_upload));
 
         Ok(())
     }
