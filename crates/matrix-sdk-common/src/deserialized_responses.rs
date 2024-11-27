@@ -587,6 +587,11 @@ impl fmt::Debug for TimelineEventKind {
 /// A successfully-decrypted encrypted event.
 pub struct DecryptedRoomEvent {
     /// The decrypted event.
+    ///
+    /// Note: it's not an error that this contains an `AnyMessageLikeEvent`: an
+    /// encrypted payload *always contains* a room id, by the [spec].
+    ///
+    /// [spec]: https://spec.matrix.org/v1.12/client-server-api/#mmegolmv1aes-sha2
     pub event: Raw<AnyMessageLikeEvent>,
 
     /// The encryption info about the event.
