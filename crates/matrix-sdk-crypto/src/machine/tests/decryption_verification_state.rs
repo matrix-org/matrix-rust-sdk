@@ -42,11 +42,12 @@ use crate::{
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
             ToDeviceEvent,
         },
+        requests::OutgoingRequests,
         CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, SelfSigningPubkey,
     },
     utilities::json_convert,
     CryptoStoreError, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, OlmMachine,
-    OtherUserIdentityData, OutgoingRequests, TrustRequirement, UserIdentity,
+    OtherUserIdentityData, TrustRequirement, UserIdentity,
 };
 
 #[async_test]

@@ -26,8 +26,8 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    store::DynCryptoStore, CollectStrategy, DecryptionSettings, EncryptionSettings,
-    EncryptionSyncChanges, OlmError, OlmMachine, RoomEventDecryptionResult, ToDeviceRequest,
+    store::DynCryptoStore, types::requests::ToDeviceRequest, CollectStrategy, DecryptionSettings,
+    EncryptionSettings, EncryptionSyncChanges, OlmError, OlmMachine, RoomEventDecryptionResult,
     TrustRequirement,
 };
 #[cfg(feature = "e2e-encryption")]

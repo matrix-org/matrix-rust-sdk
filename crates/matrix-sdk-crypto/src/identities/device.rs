@@ -51,10 +51,11 @@ use crate::{
             room::encrypted::ToDeviceEncryptedEventContent, room_key_withheld::WithheldCode,
             EventType,
         },
+        requests::{OutgoingVerificationRequest, ToDeviceRequest},
         DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures, SignedKey,
     },
     verification::VerificationMachine,
-    Account, OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
+    Account, Sas, VerificationRequest,
 };
 
 pub enum MaybeEncryptedRoomKey {

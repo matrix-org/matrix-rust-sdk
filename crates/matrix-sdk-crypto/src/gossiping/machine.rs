@@ -1117,6 +1117,7 @@ mod tests {
     use crate::{
         gossiping::KeyForwardDecision,
         olm::OutboundGroupSession,
+        types::requests::OutgoingRequests,
         types::{
             events::{
                 forwarded_room_key::ForwardedRoomKeyContent, olm_v1::AnyDecryptedOlmEvent,
@@ -1124,7 +1125,7 @@ mod tests {
             },
             EventEncryptionAlgorithm,
         },
-        EncryptionSettings, OutgoingRequests,
+        EncryptionSettings,
     };
     use crate::{
         identities::{DeviceData, IdentityManager, LocalTrust},
@@ -1311,7 +1312,7 @@ mod tests {
 
     fn extract_content<'a>(
         recipient: &UserId,
-        request: &'a crate::OutgoingRequest,
+        request: &'a crate::types::requests::OutgoingRequest,
     ) -> &'a Raw<ruma::events::AnyToDeviceEventContent> {
         request
             .request()
@@ -1344,7 +1345,7 @@ mod tests {
     fn request_to_event<C>(
         recipient: &UserId,
         sender: &UserId,
-        request: &crate::OutgoingRequest,
+        request: &crate::types::requests::OutgoingRequest,
     ) -> crate::types::events::ToDeviceEvent<C>
     where
         C: crate::types::events::EventType

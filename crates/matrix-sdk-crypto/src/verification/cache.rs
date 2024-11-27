@@ -24,9 +24,11 @@ use tracing::debug;
 use tracing::{trace, warn};
 
 use super::{event_enums::OutgoingContent, FlowId, Sas, Verification};
+use crate::types::requests::{
+    OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+};
 #[cfg(feature = "qrcode")]
 use crate::QrVerification;
-use crate::{OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest};
 
 #[derive(Clone, Debug, Default)]
 pub struct VerificationCache {

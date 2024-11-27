@@ -66,12 +66,13 @@ use crate::{
             },
             ToDeviceEvent,
         },
+        requests::{OutgoingRequests, ToDeviceRequest},
         DeviceKeys, SignedKey, SigningKeys,
     },
     utilities::json_convert,
     verification::tests::bob_id,
     Account, DecryptionSettings, DeviceData, EncryptionSettings, MegolmError, OlmError,
-    OutgoingRequests, RoomEventDecryptionResult, ToDeviceRequest, TrustRequirement,
+    RoomEventDecryptionResult, TrustRequirement,
 };
 
 mod decryption_verification_state;

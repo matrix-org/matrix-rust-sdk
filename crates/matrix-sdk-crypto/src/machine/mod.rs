@@ -89,13 +89,16 @@ use crate::{
             },
             ToDeviceEvents,
         },
-        requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
+        requests::{
+            IncomingResponse, KeysQueryRequest, OutgoingRequest, ToDeviceRequest,
+            UploadSigningKeysRequest,
+        },
         EventEncryptionAlgorithm, Signatures,
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, CryptoStoreError, DecryptionSettings, DeviceData, KeysQueryRequest,
-    LocalTrust, RoomEventDecryptionResult, SignatureError, ToDeviceRequest, TrustRequirement,
+    CrossSigningKeyExport, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
+    RoomEventDecryptionResult, SignatureError, TrustRequirement,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
