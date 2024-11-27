@@ -90,7 +90,7 @@ use crate::{
             ToDeviceEvents,
         },
         requests::{
-            IncomingResponse, KeysQueryRequest, OutgoingRequest, ToDeviceRequest,
+            AnyIncomingResponse, KeysQueryRequest, OutgoingRequest, ToDeviceRequest,
             UploadSigningKeysRequest,
         },
         EventEncryptionAlgorithm, Signatures,
@@ -579,34 +579,34 @@ impl OlmMachine {
     pub async fn mark_request_as_sent<'a>(
         &self,
         request_id: &TransactionId,
-        response: impl Into<IncomingResponse<'a>>,
+        response: impl Into<AnyIncomingResponse<'a>>,
     ) -> OlmResult<()> {
         match response.into() {
-            IncomingResponse::KeysUpload(response) => {
+            AnyIncomingResponse::KeysUpload(response) => {
                 Box::pin(self.receive_keys_upload_response(response)).await?;
             }
-            IncomingResponse::KeysQuery(response) => {
+            AnyIncomingResponse::KeysQuery(response) => {
                 Box::pin(self.receive_keys_query_response(request_id, response)).await?;
             }
-            IncomingResponse::KeysClaim(response) => {
+            AnyIncomingResponse::KeysClaim(response) => {
                 Box::pin(
                     self.inner.session_manager.receive_keys_claim_response(request_id, response),
                 )
                 .await?;
             }
-            IncomingResponse::ToDevice(_) => {
+            AnyIncomingResponse::ToDevice(_) => {
                 Box::pin(self.mark_to_device_request_as_sent(request_id)).await?;
             }
-            IncomingResponse::SigningKeysUpload(_) => {
+            AnyIncomingResponse::SigningKeysUpload(_) => {
                 Box::pin(self.receive_cross_signing_upload_response()).await?;
             }
-            IncomingResponse::SignatureUpload(_) => {
+            AnyIncomingResponse::SignatureUpload(_) => {
                 self.inner.verification_machine.mark_request_as_sent(request_id);
             }
-            IncomingResponse::RoomMessage(_) => {
+            AnyIncomingResponse::RoomMessage(_) => {
                 self.inner.verification_machine.mark_request_as_sent(request_id);
             }
-            IncomingResponse::KeysBackup(_) => {
+            AnyIncomingResponse::KeysBackup(_) => {
                 Box::pin(self.inner.backup_machine.mark_request_as_sent(request_id)).await?;
             }
         };

@@ -748,7 +748,7 @@ pub(crate) mod tests {
         store::{Changes, CryptoStore, CryptoStoreWrapper, IdentityChanges, MemoryStore},
         types::{
             events::ToDeviceEvents,
-            requests::{OutgoingRequest, AnyOutgoingRequest, OutgoingVerificationRequest},
+            requests::{AnyOutgoingRequest, OutgoingRequest, OutgoingVerificationRequest},
         },
         Account, DeviceData, OtherUserIdentityData, OwnUserIdentityData,
     };
