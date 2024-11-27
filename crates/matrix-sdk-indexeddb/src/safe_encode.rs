@@ -1,3 +1,5 @@
+//! Helpers for wasm32/browser environments
+
 #![allow(dead_code)]
 use base64::{
     alphabet,
@@ -14,8 +16,6 @@ use ruma::{
 };
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
-
-/// Helpers for wasm32/browser environments
 
 /// ASCII Group Separator, for elements in the keys
 pub const KEY_SEPARATOR: &str = "\u{001D}";

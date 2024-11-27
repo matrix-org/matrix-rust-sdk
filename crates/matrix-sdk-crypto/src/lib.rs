@@ -1078,7 +1078,6 @@ pub enum RoomEventDecryptionResult {
 /// # Ok(())
 /// # }
 /// ```
-
 ///
 /// TODO
 ///

@@ -184,6 +184,11 @@ where
 
 impl<C: EventType + Debug + Sized + Serialize> DecryptedOlmV1Event<C> {
     #[cfg(test)]
+    /// Test helper to create a new [`DecryptedOlmV1Event`] with the given
+    /// content.
+    ///
+    /// This should never be done in real code as we need to deserialize
+    /// decrypted events.
     pub fn new(
         sender: &UserId,
         recipient: &UserId,

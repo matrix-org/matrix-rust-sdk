@@ -28,7 +28,6 @@
 ///     cryptostore_integration_tests!();
 /// }
 /// ```
-
 #[allow(unused_macros)]
 #[macro_export]
 macro_rules! cryptostore_integration_tests {
