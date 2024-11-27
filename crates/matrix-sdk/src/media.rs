@@ -393,8 +393,8 @@ impl Media {
         request: &MediaRequestParameters,
         use_cache: bool,
     ) -> Result<Vec<u8>> {
-        if Self::is_local_source(&request.source) {
-            return self.get_local_media_content(request.source.clone()).await;
+        if let Some(uri) = Self::as_local_uri(&request.source) {
+            return self.get_local_media_content(uri).await;
         }
 
         // Read from the cache.
@@ -516,22 +516,20 @@ impl Media {
     ///
     /// # Arguments
     ///
-    /// * `source` - The source of the media content.
-    async fn get_local_media_content(&self, source: MediaSource) -> Result<Vec<u8>> {
-        let request = MediaRequestParameters {
-            source,
-            // We cannot ask for server-generated thumbnails of local URIs.
-            format: MediaFormat::File,
-        };
-
+    /// * `uri` - The local URI of the media content.
+    async fn get_local_media_content(&self, uri: &MxcUri) -> Result<Vec<u8>> {
         // Read from the cache.
-        self.client.event_cache_store().lock().await?.get_media_content(&request).await?.ok_or_else(
-            || {
+        self.client
+            .event_cache_store()
+            .lock()
+            .await?
+            .get_media_content_for_uri(uri)
+            .await?
+            .ok_or_else(|| {
                 // A request to the server would return a 404 NOT_FOUND error, so let's simulate
                 // that.
                 not_found_error("Unknown media ID".to_owned()).into()
-            },
-        )
+            })
     }
 
     /// Remove a media file's content from the store.
@@ -734,13 +732,17 @@ impl Media {
         }
     }
 
-    /// Whether the given source has a MXC URI that was generated with
-    /// `make_local_uri`.
-    fn is_local_source(source: &MediaSource) -> bool {
+    /// Returns the local MXC URI contained by the given source, if any.
+    ///
+    /// A local MXC URI is a URI that was generated with `make_local_uri`.
+    fn as_local_uri(source: &MediaSource) -> Option<&MxcUri> {
         let uri = match source {
             MediaSource::Plain(uri) => uri,
             MediaSource::Encrypted(file) => &file.url,
         };
-        uri.server_name().is_ok_and(|server_name| server_name == LOCAL_MXC_SERVER_NAME)
+
+        uri.server_name()
+            .is_ok_and(|server_name| server_name == LOCAL_MXC_SERVER_NAME)
+            .then_some(uri)
     }
 }
