@@ -512,10 +512,19 @@ impl MatrixMockServer {
         MockEndpoint { mock, server: &self.server, endpoint: ResolveRoomAliasEndpoint }
     }
 
-    /// Create a prebuilt mock for creating room aliases.
+    /// Create a prebuilt mock for publishing room aliases in the room
+    /// directory.
     pub fn mock_create_room_alias(&self) -> MockEndpoint<'_, CreateRoomAliasEndpoint> {
         let mock =
             Mock::given(method("PUT")).and(path_regex(r"/_matrix/client/v3/directory/room/.*"));
+        MockEndpoint { mock, server: &self.server, endpoint: CreateRoomAliasEndpoint }
+    }
+
+    /// Create a prebuilt mock for removing room aliases from the room
+    /// directory.
+    pub fn mock_remove_room_alias(&self) -> MockEndpoint<'_, CreateRoomAliasEndpoint> {
+        let mock =
+            Mock::given(method("DELETE")).and(path_regex(r"/_matrix/client/v3/directory/room/.*"));
         MockEndpoint { mock, server: &self.server, endpoint: CreateRoomAliasEndpoint }
     }
 
@@ -695,6 +704,11 @@ impl MatrixMock<'_> {
     /// Also verifies that it's been called once.
     pub fn mock_once(self) -> Self {
         Self { mock: self.mock.up_to_n_times(1).expect(1), ..self }
+    }
+
+    /// Makes sure the endpoint is never reached.
+    pub fn never(self) -> Self {
+        Self { mock: self.mock.expect(0), ..self }
     }
 
     /// Specify an upper limit to the number of times you would like this
@@ -1023,7 +1037,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     ///
     /// let response = room.client().send(r, None).await.unwrap();
     /// // The delayed `m.room.message` event type should be mocked by the server.
-    /// assert_eq!("$some_id", response.delay_id);    
+    /// assert_eq!("$some_id", response.delay_id);
     /// # anyhow::Ok(()) });
     /// ```
     pub fn with_delay(self, delay: Duration) -> Self {
@@ -1626,6 +1640,17 @@ pub struct CreateRoomAliasEndpoint;
 
 impl<'a> MockEndpoint<'a, CreateRoomAliasEndpoint> {
     /// Returns a data endpoint for creating a room alias.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for removing a room alias.
+pub struct RemoveRoomAliasEndpoint;
+
+impl<'a> MockEndpoint<'a, RemoveRoomAliasEndpoint> {
+    /// Returns a data endpoint for removing a room alias.
     pub fn ok(self) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
         MatrixMock { server: self.server, mock }

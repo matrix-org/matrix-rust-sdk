@@ -20,7 +20,8 @@ use ruma::{
         call::notify,
         room::{
             avatar::ImageInfo as RumaAvatarImageInfo,
-            message::RoomMessageEventContentWithoutRelation,
+            history_visibility::HistoryVisibility as RumaHistoryVisibility,
+            join_rules::JoinRule as RumaJoinRule, message::RoomMessageEventContentWithoutRelation,
             power_levels::RoomPowerLevels as RumaPowerLevels, MediaSource,
         },
         AnyMessageLikeEventContent, AnySyncTimelineEvent, TimelineEventType,
@@ -33,7 +34,8 @@ use tracing::error;
 use super::RUNTIME;
 use crate::{
     chunk_iterator::ChunkIterator,
-    error::{ClientError, MediaInfoError, RoomError},
+    client::JoinRule,
+    error::{ClientError, MediaInfoError, NotYetImplemented, RoomError},
     event::{MessageLikeEventType, RoomMessageEventMessageType, StateEventType},
     identity_status_change::IdentityStatusChange,
     room_info::RoomInfo,
@@ -911,6 +913,37 @@ impl Room {
         room_event_cache.clear().await?;
         Ok(())
     }
+
+    /// Update the canonical alias of the room.
+    ///
+    /// Note that publishing the alias in the room directory is done separately.
+    pub async fn update_canonical_alias(
+        &self,
+        new_alias: Option<String>,
+    ) -> Result<(), ClientError> {
+        let new_alias = new_alias.map(TryInto::try_into).transpose()?;
+        self.inner.update_canonical_alias(new_alias).await.map_err(Into::into)
+    }
+
+    /// Enable End-to-end encryption in this room.
+    pub async fn enable_encryption(&self) -> Result<(), ClientError> {
+        self.inner.enable_encryption().await.map_err(Into::into)
+    }
+
+    /// Update room history visibility for this room.
+    pub async fn update_history_visibility(
+        &self,
+        visibility: RoomHistoryVisibility,
+    ) -> Result<(), ClientError> {
+        let visibility: RumaHistoryVisibility = visibility.try_into()?;
+        self.inner.update_room_history_visibility(visibility).await.map_err(Into::into)
+    }
+
+    /// Update the join rule for this room.
+    pub async fn update_join_rules(&self, new_rule: JoinRule) -> Result<(), ClientError> {
+        let new_rule: RumaJoinRule = new_rule.try_into()?;
+        self.inner.update_join_rule(new_rule).await.map_err(Into::into)
+    }
 }
 
 /// Generates a `matrix.to` permalink to the given room alias.
@@ -1142,5 +1175,64 @@ impl TryFrom<ComposerDraftType> for SdkComposerDraftType {
         };
 
         Ok(draft_type)
+    }
+}
+
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum RoomHistoryVisibility {
+    /// Previous events are accessible to newly joined members from the point
+    /// they were invited onwards.
+    ///
+    /// Events stop being accessible when the member's state changes to
+    /// something other than *invite* or *join*.
+    Invited,
+
+    /// Previous events are accessible to newly joined members from the point
+    /// they joined the room onwards.
+    /// Events stop being accessible when the member's state changes to
+    /// something other than *join*.
+    Joined,
+
+    /// Previous events are always accessible to newly joined members.
+    ///
+    /// All events in the room are accessible, even those sent when the member
+    /// was not a part of the room.
+    Shared,
+
+    /// All events while this is the `HistoryVisibility` value may be shared by
+    /// any participating homeserver with anyone, regardless of whether they
+    /// have ever joined the room.
+    WorldReadable,
+
+    /// A custom visibility value.
+    Custom { value: String },
+}
+
+impl TryFrom<RumaHistoryVisibility> for RoomHistoryVisibility {
+    type Error = NotYetImplemented;
+    fn try_from(value: RumaHistoryVisibility) -> Result<Self, Self::Error> {
+        match value {
+            RumaHistoryVisibility::Invited => Ok(RoomHistoryVisibility::Invited),
+            RumaHistoryVisibility::Shared => Ok(RoomHistoryVisibility::Shared),
+            RumaHistoryVisibility::WorldReadable => Ok(RoomHistoryVisibility::WorldReadable),
+            RumaHistoryVisibility::Joined => Ok(RoomHistoryVisibility::Joined),
+            RumaHistoryVisibility::_Custom(_) => {
+                Ok(RoomHistoryVisibility::Custom { value: value.to_string() })
+            }
+            _ => Err(NotYetImplemented),
+        }
+    }
+}
+
+impl TryFrom<RoomHistoryVisibility> for RumaHistoryVisibility {
+    type Error = NotYetImplemented;
+    fn try_from(value: RoomHistoryVisibility) -> Result<Self, Self::Error> {
+        match value {
+            RoomHistoryVisibility::Invited => Ok(RumaHistoryVisibility::Invited),
+            RoomHistoryVisibility::Shared => Ok(RumaHistoryVisibility::Shared),
+            RoomHistoryVisibility::Joined => Ok(RumaHistoryVisibility::Joined),
+            RoomHistoryVisibility::WorldReadable => Ok(RumaHistoryVisibility::WorldReadable),
+            RoomHistoryVisibility::Custom { .. } => Err(NotYetImplemented),
+        }
     }
 }
