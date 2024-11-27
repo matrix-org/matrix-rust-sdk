@@ -1633,7 +1633,7 @@ impl TryFrom<Session> for AuthSession {
                 user: user_session,
             };
 
-            Ok(AuthSession::Oidc(session))
+            Ok(AuthSession::Oidc(session.into()))
         } else {
             // Create a regular Matrix Session.
             let session = matrix_sdk::matrix_auth::MatrixSession {
