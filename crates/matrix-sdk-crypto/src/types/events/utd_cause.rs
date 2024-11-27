@@ -339,10 +339,11 @@ mod tests {
     }
 
     #[test]
-    fn test_historical_expected_reason_depending_on_origin_ts_for_missing_session() {
+    fn test_date_of_device_determines_whether_a_missing_key_utd_is_expected_historical() {
         let message_creation_ts = 10000;
         let utd_event = a_utd_event_with_origin_ts(message_creation_ts);
 
+        // Given the device is older than the event
         let older_than_event_device = CryptoContextInfo {
             device_creation_ts: MilliSecondsSinceUnixEpoch(
                 (message_creation_ts - 1000).try_into().unwrap(),
@@ -350,6 +351,8 @@ mod tests {
             is_backup_configured: true,
         };
 
+        // If the key was missing
+        // Then we say the cause is unknown - this is not an historical event
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({})),
@@ -362,6 +365,7 @@ mod tests {
             UtdCause::Unknown
         );
 
+        // But if the device is newer than the event
         let newer_than_event_device = CryptoContextInfo {
             device_creation_ts: MilliSecondsSinceUnixEpoch(
                 (message_creation_ts + 1000).try_into().unwrap(),
@@ -369,6 +373,8 @@ mod tests {
             is_backup_configured: true,
         };
 
+        // If the key was missing
+        // Then we say this is expected, because the event is historical
         assert_eq!(
             UtdCause::determine(
                 &utd_event,
@@ -383,10 +389,11 @@ mod tests {
     }
 
     #[test]
-    fn test_historical_expected_reason_depending_on_origin_ts_for_ratcheted_session() {
+    fn test_date_of_device_determines_whether_a_message_index_utd_is_expected_historical() {
         let message_creation_ts = 10000;
         let utd_event = a_utd_event_with_origin_ts(message_creation_ts);
 
+        // Given the device is older than the event
         let older_than_event_device = CryptoContextInfo {
             device_creation_ts: MilliSecondsSinceUnixEpoch(
                 (message_creation_ts - 1000).try_into().unwrap(),
@@ -394,6 +401,8 @@ mod tests {
             is_backup_configured: true,
         };
 
+        // If the message index was incorrect
+        // Then we say the cause is unknown - this is not an historical event
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({})),
@@ -406,6 +415,7 @@ mod tests {
             UtdCause::Unknown
         );
 
+        // But if the device is newer than the event
         let newer_than_event_device = CryptoContextInfo {
             device_creation_ts: MilliSecondsSinceUnixEpoch(
                 (message_creation_ts + 1000).try_into().unwrap(),
@@ -413,6 +423,8 @@ mod tests {
             is_backup_configured: true,
         };
 
+        // If the message index was incorrect
+        // Then we say this is expected, because the event is historical
         assert_eq!(
             UtdCause::determine(
                 &utd_event,
@@ -427,10 +439,11 @@ mod tests {
     }
 
     #[test]
-    fn test_historical_expected_reason_depending_on_origin_only_for_correct_reason() {
+    fn test_when_event_is_old_and_message_index_is_wrong_this_is_expected_historical() {
         let message_creation_ts = 10000;
         let utd_event = a_utd_event_with_origin_ts(message_creation_ts);
 
+        // Given the device is newer than the event
         let newer_than_event_device = CryptoContextInfo {
             device_creation_ts: MilliSecondsSinceUnixEpoch(
                 (message_creation_ts + 1000).try_into().unwrap(),
@@ -438,6 +451,8 @@ mod tests {
             is_backup_configured: true,
         };
 
+        // If the message index was incorrect
+        // Then we say this is an expected UTD (because it's historical)
         assert_eq!(
             UtdCause::determine(
                 &utd_event,
@@ -450,6 +465,8 @@ mod tests {
             UtdCause::HistoricalMessage
         );
 
+        // But if we have some other failure
+        // Then we say the UTD is unexpected, and we don't know what type it is
         assert_eq!(
             UtdCause::determine(
                 &utd_event,
@@ -461,7 +478,6 @@ mod tests {
             ),
             UtdCause::Unknown
         );
-
         assert_eq!(
             UtdCause::determine(
                 &utd_event,
@@ -476,10 +492,13 @@ mod tests {
     }
 
     #[test]
-    fn test_historical_expected_only_if_backup_configured() {
+    fn test_when_event_is_old_and_message_index_is_wrong_but_backup_is_disabled_this_is_unexpected()
+    {
         let message_creation_ts = 10000;
         let utd_event = a_utd_event_with_origin_ts(message_creation_ts);
 
+        // Given the device is newer than the event
+        // But backup is disabled
         let crypto_context_info = CryptoContextInfo {
             device_creation_ts: MilliSecondsSinceUnixEpoch(
                 (message_creation_ts + 1000).try_into().unwrap(),
@@ -487,6 +506,8 @@ mod tests {
             is_backup_configured: false,
         };
 
+        // If the message key was missing
+        // Then we say this was unexpected (because backup was disabled)
         assert_eq!(
             UtdCause::determine(
                 &utd_event,
@@ -499,6 +520,8 @@ mod tests {
             UtdCause::Unknown
         );
 
+        // And if the message index was incorrect
+        // Then we still say this was unexpected (because backup was disabled)
         assert_eq!(
             UtdCause::determine(
                 &utd_event,
