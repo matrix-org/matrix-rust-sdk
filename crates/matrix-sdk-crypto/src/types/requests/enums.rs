@@ -135,7 +135,7 @@ impl From<OutgoingVerificationRequest> for AnyOutgoingRequest {
 
 /// Enum over all the incoming responses we need to receive.
 #[derive(Debug)]
-pub enum IncomingResponse<'a> {
+pub enum AnyIncomingResponse<'a> {
     /// The `/keys/upload` response, notifying us about the amount of uploaded
     /// one-time keys.
     KeysUpload(&'a KeysUploadResponse),
@@ -158,44 +158,44 @@ pub enum IncomingResponse<'a> {
     KeysBackup(&'a KeysBackupResponse),
 }
 
-impl<'a> From<&'a KeysUploadResponse> for IncomingResponse<'a> {
+impl<'a> From<&'a KeysUploadResponse> for AnyIncomingResponse<'a> {
     fn from(response: &'a KeysUploadResponse) -> Self {
-        IncomingResponse::KeysUpload(response)
+        AnyIncomingResponse::KeysUpload(response)
     }
 }
 
-impl<'a> From<&'a KeysBackupResponse> for IncomingResponse<'a> {
+impl<'a> From<&'a KeysBackupResponse> for AnyIncomingResponse<'a> {
     fn from(response: &'a KeysBackupResponse) -> Self {
-        IncomingResponse::KeysBackup(response)
+        AnyIncomingResponse::KeysBackup(response)
     }
 }
 
-impl<'a> From<&'a KeysQueryResponse> for IncomingResponse<'a> {
+impl<'a> From<&'a KeysQueryResponse> for AnyIncomingResponse<'a> {
     fn from(response: &'a KeysQueryResponse) -> Self {
-        IncomingResponse::KeysQuery(response)
+        AnyIncomingResponse::KeysQuery(response)
     }
 }
 
-impl<'a> From<&'a ToDeviceResponse> for IncomingResponse<'a> {
+impl<'a> From<&'a ToDeviceResponse> for AnyIncomingResponse<'a> {
     fn from(response: &'a ToDeviceResponse) -> Self {
-        IncomingResponse::ToDevice(response)
+        AnyIncomingResponse::ToDevice(response)
     }
 }
 
-impl<'a> From<&'a RoomMessageResponse> for IncomingResponse<'a> {
+impl<'a> From<&'a RoomMessageResponse> for AnyIncomingResponse<'a> {
     fn from(response: &'a RoomMessageResponse) -> Self {
-        IncomingResponse::RoomMessage(response)
+        AnyIncomingResponse::RoomMessage(response)
     }
 }
 
-impl<'a> From<&'a KeysClaimResponse> for IncomingResponse<'a> {
+impl<'a> From<&'a KeysClaimResponse> for AnyIncomingResponse<'a> {
     fn from(response: &'a KeysClaimResponse) -> Self {
-        IncomingResponse::KeysClaim(response)
+        AnyIncomingResponse::KeysClaim(response)
     }
 }
 
-impl<'a> From<&'a SignatureUploadResponse> for IncomingResponse<'a> {
+impl<'a> From<&'a SignatureUploadResponse> for AnyIncomingResponse<'a> {
     fn from(response: &'a SignatureUploadResponse) -> Self {
-        IncomingResponse::SignatureUpload(response)
+        AnyIncomingResponse::SignatureUpload(response)
     }
 }

@@ -380,7 +380,7 @@ impl Client {
     pub(crate) async fn mark_request_as_sent(
         &self,
         request_id: &TransactionId,
-        response: impl Into<matrix_sdk_base::crypto::types::requests::IncomingResponse<'_>>,
+        response: impl Into<matrix_sdk_base::crypto::types::requests::AnyIncomingResponse<'_>>,
     ) -> Result<(), matrix_sdk_base::Error> {
         Ok(self
             .olm_machine()

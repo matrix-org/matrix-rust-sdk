@@ -1693,7 +1693,7 @@ mod tests {
     #[async_test]
     #[cfg(feature = "e2e-encryption")]
     async fn test_no_pos_with_e2ee_marks_all_tracked_users_as_dirty() -> anyhow::Result<()> {
-        use matrix_sdk_base::crypto::types::requests::{IncomingResponse, AnyOutgoingRequest};
+        use matrix_sdk_base::crypto::types::requests::{AnyIncomingResponse, AnyOutgoingRequest};
         use matrix_sdk_test::ruma_response_from_json;
         use ruma::user_id;
 
@@ -1723,7 +1723,7 @@ mod tests {
             olm_machine
                 .mark_request_as_sent(
                     outgoing_requests[0].request_id(),
-                    IncomingResponse::KeysUpload(&ruma_response_from_json(&json!({
+                    AnyIncomingResponse::KeysUpload(&ruma_response_from_json(&json!({
                         "one_time_key_counts": {}
                     }))),
                 )
@@ -1732,7 +1732,7 @@ mod tests {
             olm_machine
                 .mark_request_as_sent(
                     outgoing_requests[1].request_id(),
-                    IncomingResponse::KeysQuery(&ruma_response_from_json(&json!({
+                    AnyIncomingResponse::KeysQuery(&ruma_response_from_json(&json!({
                         "device_keys": {
                             alice: {},
                             bob: {},
@@ -1750,7 +1750,7 @@ mod tests {
             olm_machine
                 .mark_request_as_sent(
                     outgoing_requests[0].request_id(),
-                    IncomingResponse::KeysQuery(&ruma_response_from_json(&json!({
+                    AnyIncomingResponse::KeysQuery(&ruma_response_from_json(&json!({
                         "device_keys": {
                             me: {},
                         }
@@ -1799,7 +1799,7 @@ mod tests {
             olm_machine
                 .mark_request_as_sent(
                     outgoing_requests[0].request_id(),
-                    IncomingResponse::KeysQuery(&ruma_response_from_json(&json!({
+                    AnyIncomingResponse::KeysQuery(&ruma_response_from_json(&json!({
                         "device_keys": {
                             alice: {},
                             bob: {},

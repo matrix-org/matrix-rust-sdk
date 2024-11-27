@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use http::Response;
 use matrix_sdk_crypto::{
     types::requests::{
-        IncomingResponse, KeysBackupRequest, OutgoingRequest,
+        AnyIncomingResponse, KeysBackupRequest, OutgoingRequest,
         OutgoingVerificationRequest as SdkVerificationRequest, RoomMessageRequest, ToDeviceRequest,
         UploadSigningKeysRequest as RustUploadSigningKeysRequest,
     },
@@ -341,16 +341,16 @@ impl From<RoomMessageResponse> for OwnedResponse {
     }
 }
 
-impl<'a> From<&'a OwnedResponse> for IncomingResponse<'a> {
+impl<'a> From<&'a OwnedResponse> for AnyIncomingResponse<'a> {
     fn from(r: &'a OwnedResponse) -> Self {
         match r {
-            OwnedResponse::KeysClaim(r) => IncomingResponse::KeysClaim(r),
-            OwnedResponse::KeysQuery(r) => IncomingResponse::KeysQuery(r),
-            OwnedResponse::KeysUpload(r) => IncomingResponse::KeysUpload(r),
-            OwnedResponse::ToDevice(r) => IncomingResponse::ToDevice(r),
-            OwnedResponse::SignatureUpload(r) => IncomingResponse::SignatureUpload(r),
-            OwnedResponse::KeysBackup(r) => IncomingResponse::KeysBackup(r),
-            OwnedResponse::RoomMessage(r) => IncomingResponse::RoomMessage(r),
+            OwnedResponse::KeysClaim(r) => AnyIncomingResponse::KeysClaim(r),
+            OwnedResponse::KeysQuery(r) => AnyIncomingResponse::KeysQuery(r),
+            OwnedResponse::KeysUpload(r) => AnyIncomingResponse::KeysUpload(r),
+            OwnedResponse::ToDevice(r) => AnyIncomingResponse::ToDevice(r),
+            OwnedResponse::SignatureUpload(r) => AnyIncomingResponse::SignatureUpload(r),
+            OwnedResponse::KeysBackup(r) => AnyIncomingResponse::KeysBackup(r),
+            OwnedResponse::RoomMessage(r) => AnyIncomingResponse::RoomMessage(r),
         }
     }
 }

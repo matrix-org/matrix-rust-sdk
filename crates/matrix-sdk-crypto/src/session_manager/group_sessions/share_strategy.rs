@@ -1368,7 +1368,7 @@ mod tests {
         machine
             .mark_request_as_sent(
                 &TransactionId::new(),
-                crate::types::requests::IncomingResponse::KeysQuery(&kq_response),
+                crate::types::requests::AnyIncomingResponse::KeysQuery(&kq_response),
             )
             .await
             .unwrap();
