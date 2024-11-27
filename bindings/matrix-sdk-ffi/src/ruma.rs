@@ -154,11 +154,6 @@ impl From<&RumaMatrixId> for MatrixId {
 }
 
 #[matrix_sdk_ffi_macros::export]
-pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
-    Arc::new(MediaSource { media_source: RumaMediaSource::Plain(url.into()) })
-}
-
-#[matrix_sdk_ffi_macros::export]
 pub fn message_event_content_new(
     msgtype: MessageType,
 ) -> Result<Arc<RoomMessageEventContentWithoutRelation>, ClientError> {
@@ -206,8 +201,31 @@ pub struct MediaSource {
 
 #[matrix_sdk_ffi_macros::export]
 impl MediaSource {
+    #[uniffi::constructor]
+    pub fn from_url(url: String) -> Result<Arc<MediaSource>, ClientError> {
+        let media_source = RumaMediaSource::Plain(url.into());
+        media_source.verify()?;
+
+        Ok(Arc::new(MediaSource { media_source }))
+    }
+
     pub fn url(&self) -> String {
         self.media_source.url()
+    }
+
+    // Used on Element X Android
+    #[uniffi::constructor]
+    pub fn from_json(json: String) -> Result<Arc<Self>, ClientError> {
+        let media_source: RumaMediaSource = serde_json::from_str(&json)?;
+        media_source.verify()?;
+
+        Ok(Arc::new(MediaSource { media_source }))
+    }
+
+    // Used on Element X Android
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(&self.media_source)
+            .expect("Media source should always be serializable ")
     }
 }
 
@@ -236,7 +254,7 @@ impl From<MediaSource> for RumaMediaSource {
 }
 
 #[extension_trait]
-pub impl MediaSourceExt for RumaMediaSource {
+pub(crate) impl MediaSourceExt for RumaMediaSource {
     fn verify(&self) -> Result<(), ClientError> {
         match self {
             RumaMediaSource::Plain(url) => {
