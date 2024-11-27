@@ -554,7 +554,7 @@ pub struct MatrixMock<'a> {
     server: &'a MockServer,
 }
 
-impl<'a> MatrixMock<'a> {
+impl MatrixMock<'_> {
     /// Set an expectation on the number of times this [`MatrixMock`] should
     /// match in the current test case.
     ///
@@ -850,7 +850,7 @@ pub struct SyncEndpoint {
     sync_response_builder: Arc<Mutex<SyncResponseBuilder>>,
 }
 
-impl<'a> MockEndpoint<'a, SyncEndpoint> {
+impl MockEndpoint<'_, SyncEndpoint> {
     /// Temporarily mocks the sync with the given endpoint and runs a client
     /// sync with it.
     ///

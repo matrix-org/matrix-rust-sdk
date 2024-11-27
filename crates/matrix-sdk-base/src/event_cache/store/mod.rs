@@ -100,13 +100,13 @@ pub struct EventCacheStoreLockGuard<'a> {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl<'a> fmt::Debug for EventCacheStoreLockGuard<'a> {
+impl fmt::Debug for EventCacheStoreLockGuard<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_struct("EventCacheStoreLockGuard").finish_non_exhaustive()
     }
 }
 
-impl<'a> Deref for EventCacheStoreLockGuard<'a> {
+impl Deref for EventCacheStoreLockGuard<'_> {
     type Target = DynEventCacheStore;
 
     fn deref(&self) -> &Self::Target {

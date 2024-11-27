@@ -86,7 +86,7 @@ pub struct LoginWithQrCode<'a> {
     state: SharedObservable<LoginProgress>,
 }
 
-impl<'a> LoginWithQrCode<'a> {
+impl LoginWithQrCode<'_> {
     /// Subscribe to the progress of QR code login.
     ///
     /// It's usually necessary to subscribe to this to let the existing device

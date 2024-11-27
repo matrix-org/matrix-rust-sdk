@@ -27,7 +27,7 @@ use ruma::{
 pub struct DebugListOfRawEventsNoId<'a, T>(pub &'a [Raw<T>]);
 
 #[cfg(not(tarpaulin_include))]
-impl<'a, T> fmt::Debug for DebugListOfRawEventsNoId<'a, T> {
+impl<T> fmt::Debug for DebugListOfRawEventsNoId<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut list = f.debug_list();
         list.entries(self.0.iter().map(DebugRawEventNoId));
@@ -41,7 +41,7 @@ impl<'a, T> fmt::Debug for DebugListOfRawEventsNoId<'a, T> {
 pub struct DebugInvitedRoom<'a>(pub &'a InvitedRoom);
 
 #[cfg(not(tarpaulin_include))]
-impl<'a> fmt::Debug for DebugInvitedRoom<'a> {
+impl fmt::Debug for DebugInvitedRoom<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("InvitedRoom")
             .field("invite_state", &DebugListOfRawEvents(&self.0.invite_state.events))
@@ -55,7 +55,7 @@ impl<'a> fmt::Debug for DebugInvitedRoom<'a> {
 pub struct DebugKnockedRoom<'a>(pub &'a KnockedRoom);
 
 #[cfg(not(tarpaulin_include))]
-impl<'a> fmt::Debug for DebugKnockedRoom<'a> {
+impl fmt::Debug for DebugKnockedRoom<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("KnockedRoom")
             .field("knock_state", &DebugListOfRawEvents(&self.0.knock_state.events))
@@ -66,7 +66,7 @@ impl<'a> fmt::Debug for DebugKnockedRoom<'a> {
 pub(crate) struct DebugListOfRawEvents<'a, T>(pub &'a [Raw<T>]);
 
 #[cfg(not(tarpaulin_include))]
-impl<'a, T> fmt::Debug for DebugListOfRawEvents<'a, T> {
+impl<T> fmt::Debug for DebugListOfRawEvents<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut list = f.debug_list();
         list.entries(self.0.iter().map(DebugRawEvent));

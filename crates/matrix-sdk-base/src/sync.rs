@@ -248,7 +248,7 @@ impl Timeline {
 struct DebugInvitedRoomUpdates<'a>(&'a BTreeMap<OwnedRoomId, InvitedRoomUpdate>);
 
 #[cfg(not(tarpaulin_include))]
-impl<'a> fmt::Debug for DebugInvitedRoomUpdates<'a> {
+impl fmt::Debug for DebugInvitedRoomUpdates<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_map().entries(self.0.iter().map(|(k, v)| (k, DebugInvitedRoom(v)))).finish()
     }
@@ -257,7 +257,7 @@ impl<'a> fmt::Debug for DebugInvitedRoomUpdates<'a> {
 struct DebugKnockedRoomUpdates<'a>(&'a BTreeMap<OwnedRoomId, KnockedRoomUpdate>);
 
 #[cfg(not(tarpaulin_include))]
-impl<'a> fmt::Debug for DebugKnockedRoomUpdates<'a> {
+impl fmt::Debug for DebugKnockedRoomUpdates<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_map().entries(self.0.iter().map(|(k, v)| (k, DebugKnockedRoom(v)))).finish()
     }

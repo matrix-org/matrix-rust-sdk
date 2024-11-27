@@ -2311,8 +2311,8 @@ impl OlmMachine {
     ///   incremented and updated it in the database. Otherwise, `false`.
     ///
     /// * The (possibly updated) generation counter.
-    pub async fn maintain_crypto_store_generation<'a>(
-        &'a self,
+    pub async fn maintain_crypto_store_generation(
+        &'_ self,
         generation: &Mutex<Option<u64>>,
     ) -> StoreResult<(bool, u64)> {
         let mut gen_guard = generation.lock().await;

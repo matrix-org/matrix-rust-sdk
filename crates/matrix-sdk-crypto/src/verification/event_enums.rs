@@ -398,7 +398,7 @@ pub enum StartContent<'a> {
     Room(&'a KeyVerificationStartEventContent),
 }
 
-impl<'a> StartContent<'a> {
+impl StartContent<'_> {
     #[allow(clippy::wrong_self_convention)]
     pub fn from_device(&self) -> &DeviceId {
         match self {
@@ -458,7 +458,7 @@ impl<'a> From<&'a ToDeviceKeyVerificationDoneEventContent> for DoneContent<'a> {
     }
 }
 
-impl<'a> DoneContent<'a> {
+impl DoneContent<'_> {
     pub fn flow_id(&self) -> &str {
         match self {
             Self::ToDevice(c) => c.transaction_id.as_str(),
