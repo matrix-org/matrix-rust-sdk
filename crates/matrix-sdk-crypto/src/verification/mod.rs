@@ -748,7 +748,7 @@ pub(crate) mod tests {
         store::{Changes, CryptoStore, CryptoStoreWrapper, IdentityChanges, MemoryStore},
         types::{
             events::ToDeviceEvents,
-            requests::{OutgoingRequest, OutgoingRequests, OutgoingVerificationRequest},
+            requests::{OutgoingRequest, AnyOutgoingRequest, OutgoingVerificationRequest},
         },
         Account, DeviceData, OtherUserIdentityData, OwnUserIdentityData,
     };
@@ -767,7 +767,7 @@ pub(crate) mod tests {
         request: &OutgoingRequest,
     ) -> ToDeviceEvents {
         match request.request() {
-            OutgoingRequests::ToDeviceRequest(r) => request_to_event(sender, &r.clone().into()),
+            AnyOutgoingRequest::ToDeviceRequest(r) => request_to_event(sender, &r.clone().into()),
             _ => panic!("Unsupported outgoing request"),
         }
     }

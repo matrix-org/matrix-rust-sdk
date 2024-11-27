@@ -35,7 +35,7 @@ use serde_json::json;
 
 use crate::{
     store::Changes,
-    types::{events::ToDeviceEvent, requests::OutgoingRequests},
+    types::{events::ToDeviceEvent, requests::AnyOutgoingRequest},
     CrossSigningBootstrapRequests, DeviceData, OlmMachine,
 };
 
@@ -215,7 +215,7 @@ pub fn bootstrap_requests_to_keys_query_response(
     // And if we have a device, add that
     if let Some(dk) = bootstrap_requests
         .upload_keys_req
-        .and_then(|req| as_variant!(req.request.as_ref(), OutgoingRequests::KeysUpload).cloned())
+        .and_then(|req| as_variant!(req.request.as_ref(), AnyOutgoingRequest::KeysUpload).cloned())
         .and_then(|keys_upload_request| keys_upload_request.device_keys)
     {
         let user_id: String = dk.get_field("user_id").unwrap().unwrap();

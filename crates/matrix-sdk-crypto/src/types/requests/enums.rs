@@ -39,7 +39,7 @@ use super::{
 
 /// Enum over the different outgoing requests we can have.
 #[derive(Debug)]
-pub enum OutgoingRequests {
+pub enum AnyOutgoingRequest {
     /// The `/keys/upload` request, uploading device and one-time keys.
     KeysUpload(KeysUploadRequest),
     /// The `/keys/query` request, fetching the device and cross signing keys of
@@ -62,7 +62,7 @@ pub enum OutgoingRequests {
 }
 
 #[cfg(test)]
-impl OutgoingRequests {
+impl AnyOutgoingRequest {
     /// Test helper to destructure the [`OutgoingRequests`] as a
     /// [`ToDeviceRequest`].
     pub fn to_device(&self) -> Option<&ToDeviceRequest> {
@@ -70,37 +70,37 @@ impl OutgoingRequests {
     }
 }
 
-impl From<KeysQueryRequest> for OutgoingRequests {
+impl From<KeysQueryRequest> for AnyOutgoingRequest {
     fn from(request: KeysQueryRequest) -> Self {
         Self::KeysQuery(request)
     }
 }
 
-impl From<KeysClaimRequest> for OutgoingRequests {
+impl From<KeysClaimRequest> for AnyOutgoingRequest {
     fn from(r: KeysClaimRequest) -> Self {
         Self::KeysClaim(r)
     }
 }
 
-impl From<KeysUploadRequest> for OutgoingRequests {
+impl From<KeysUploadRequest> for AnyOutgoingRequest {
     fn from(request: KeysUploadRequest) -> Self {
         Self::KeysUpload(request)
     }
 }
 
-impl From<ToDeviceRequest> for OutgoingRequests {
+impl From<ToDeviceRequest> for AnyOutgoingRequest {
     fn from(request: ToDeviceRequest) -> Self {
         Self::ToDeviceRequest(request)
     }
 }
 
-impl From<RoomMessageRequest> for OutgoingRequests {
+impl From<RoomMessageRequest> for AnyOutgoingRequest {
     fn from(request: RoomMessageRequest) -> Self {
         Self::RoomMessage(request)
     }
 }
 
-impl From<SignatureUploadRequest> for OutgoingRequests {
+impl From<SignatureUploadRequest> for AnyOutgoingRequest {
     fn from(request: SignatureUploadRequest) -> Self {
         Self::SignatureUpload(request)
     }
@@ -124,11 +124,11 @@ impl From<KeysUploadRequest> for OutgoingRequest {
     }
 }
 
-impl From<OutgoingVerificationRequest> for OutgoingRequests {
+impl From<OutgoingVerificationRequest> for AnyOutgoingRequest {
     fn from(request: OutgoingVerificationRequest) -> Self {
         match request {
-            OutgoingVerificationRequest::ToDevice(r) => OutgoingRequests::ToDeviceRequest(r),
-            OutgoingVerificationRequest::InRoom(r) => OutgoingRequests::RoomMessage(r),
+            OutgoingVerificationRequest::ToDevice(r) => AnyOutgoingRequest::ToDeviceRequest(r),
+            OutgoingVerificationRequest::InRoom(r) => AnyOutgoingRequest::RoomMessage(r),
         }
     }
 }

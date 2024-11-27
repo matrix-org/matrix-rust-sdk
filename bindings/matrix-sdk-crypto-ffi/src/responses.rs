@@ -139,7 +139,7 @@ pub enum Request {
 
 impl From<OutgoingRequest> for Request {
     fn from(r: OutgoingRequest) -> Self {
-        use matrix_sdk_crypto::types::requests::OutgoingRequests::*;
+        use matrix_sdk_crypto::types::requests::AnyOutgoingRequest::*;
 
         match r.request() {
             KeysUpload(u) => {
