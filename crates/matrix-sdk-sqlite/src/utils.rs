@@ -198,7 +198,7 @@ pub(crate) trait SqliteTransactionExt {
         Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
 }
 
-impl<'a> SqliteTransactionExt for Transaction<'a> {
+impl SqliteTransactionExt for Transaction<'_> {
     fn chunk_large_query_over<Query, Res>(
         &self,
         mut keys_to_chunk: Vec<Key>,

@@ -231,7 +231,7 @@ pub(crate) struct SyncedKeyQueryManager<'a> {
     manager: &'a KeyQueryManager,
 }
 
-impl<'a> SyncedKeyQueryManager<'a> {
+impl SyncedKeyQueryManager<'_> {
     /// Add entries to the list of users being tracked for device changes
     ///
     /// Any users not already on the list are flagged as awaiting a key query.

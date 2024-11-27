@@ -31,7 +31,7 @@ pub(super) struct EventTimelineItemWithId<'a> {
     pub internal_id: &'a TimelineUniqueId,
 }
 
-impl<'a> EventTimelineItemWithId<'a> {
+impl EventTimelineItemWithId<'_> {
     /// Create a clone of the underlying [`TimelineItem`] with the given kind.
     pub fn with_inner_kind(&self, kind: impl Into<EventTimelineItemKind>) -> Arc<TimelineItem> {
         TimelineItem::new(self.inner.with_kind(kind), self.internal_id.clone())

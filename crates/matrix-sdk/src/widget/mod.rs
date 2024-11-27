@@ -305,7 +305,7 @@ impl<'de> Deserialize<'de> for StateKeySelector {
     {
         struct StateKeySelectorVisitor;
 
-        impl<'de> Visitor<'de> for StateKeySelectorVisitor {
+        impl Visitor<'_> for StateKeySelectorVisitor {
             type Value = StateKeySelector;
 
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

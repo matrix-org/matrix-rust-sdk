@@ -128,7 +128,7 @@ trait EventSource {
     ) -> impl Future<Output = Result<SyncTimelineEvent, EditError>> + SendOutsideWasm;
 }
 
-impl<'a> EventSource for &'a Room {
+impl EventSource for &Room {
     async fn get_event(&self, event_id: &EventId) -> Result<SyncTimelineEvent, EditError> {
         match self.event_cache().await {
             Ok((event_cache, _drop_handles)) => {

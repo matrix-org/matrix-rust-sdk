@@ -341,7 +341,7 @@ impl Recovery {
     /// # anyhow::Ok(()) };
     /// ```
     #[instrument(skip_all)]
-    pub fn recover_and_reset<'a>(&'a self, old_key: &'a str) -> RecoverAndReset<'_> {
+    pub fn recover_and_reset<'a>(&'a self, old_key: &'a str) -> RecoverAndReset<'a> {
         RecoverAndReset::new(self, old_key)
     }
 

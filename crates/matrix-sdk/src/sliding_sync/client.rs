@@ -253,7 +253,7 @@ impl Client {
 
 struct SlidingSyncPreviousEventsProvider<'a>(&'a BTreeMap<OwnedRoomId, SlidingSyncRoom>);
 
-impl<'a> PreviousEventsProvider for SlidingSyncPreviousEventsProvider<'a> {
+impl PreviousEventsProvider for SlidingSyncPreviousEventsProvider<'_> {
     fn for_room(
         &self,
         room_id: &ruma::RoomId,

@@ -517,7 +517,7 @@ struct DayDividerInvariantsReport<'a, 'o> {
     errors: Vec<DayDividerInsertError>,
 }
 
-impl<'a, 'o> Display for DayDividerInvariantsReport<'a, 'o> {
+impl Display for DayDividerInvariantsReport<'_, '_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Write all the items of a slice of timeline items.
         fn write_items(

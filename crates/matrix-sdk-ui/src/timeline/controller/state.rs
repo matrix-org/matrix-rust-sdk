@@ -1117,7 +1117,7 @@ pub(crate) struct FullEventMeta<'a> {
     pub timestamp: Option<MilliSecondsSinceUnixEpoch>,
 }
 
-impl<'a> FullEventMeta<'a> {
+impl FullEventMeta<'_> {
     fn base_meta(&self) -> EventMeta {
         EventMeta { event_id: self.event_id.to_owned(), visible: self.visible }
     }
