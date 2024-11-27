@@ -16,11 +16,13 @@
 
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
-use events::{Gap, RoomEvents};
+use events::Gap;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
+    event_cache::store::EventCacheStoreLock,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
+use once_cell::sync::OnceCell;
 use ruma::{
     events::{
         relation::RelationType,
@@ -63,10 +65,11 @@ impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
     pub(super) fn new(
         client: WeakClient,
+        store: Arc<OnceCell<EventCacheStoreLock>>,
         room_id: OwnedRoomId,
         all_events_cache: Arc<RwLock<AllEventsCache>>,
     ) -> Self {
-        Self { inner: Arc::new(RoomEventCacheInner::new(client, room_id, all_events_cache)) }
+        Self { inner: Arc::new(RoomEventCacheInner::new(client, store, room_id, all_events_cache)) }
     }
 
     /// Subscribe to room updates for this room, after getting the initial list
@@ -77,7 +80,7 @@ impl RoomEventCache {
         &self,
     ) -> Result<(Vec<SyncTimelineEvent>, Receiver<RoomEventCacheUpdate>)> {
         let state = self.inner.state.read().await;
-        let events = state.events.events().map(|(_position, item)| item.clone()).collect();
+        let events = state.events().events().map(|(_position, item)| item.clone()).collect();
 
         Ok((events, self.inner.sender.subscribe()))
     }
@@ -99,7 +102,7 @@ impl RoomEventCache {
         }
 
         let state = self.inner.state.read().await;
-        for (_pos, event) in state.events.revents() {
+        for (_pos, event) in state.events().revents() {
             if event.event_id().as_deref() == Some(event_id) {
                 return Some(event.clone());
             }
@@ -231,19 +234,18 @@ impl RoomEventCacheInner {
     /// to handle new timeline events.
     fn new(
         client: WeakClient,
+        store: Arc<OnceCell<EventCacheStoreLock>>,
         room_id: OwnedRoomId,
         all_events_cache: Arc<RwLock<AllEventsCache>>,
     ) -> Self {
         let sender = Sender::new(32);
 
         let weak_room = WeakRoom::new(client, room_id);
+        let room_id = weak_room.room_id().to_owned();
 
         Self {
-            room_id: weak_room.room_id().to_owned(),
-            state: RwLock::new(RoomEventCacheState {
-                events: RoomEvents::default(),
-                waited_for_initial_prev_token: false,
-            }),
+            room_id: room_id.clone(),
+            state: RwLock::new(RoomEventCacheState::new(room_id, store)),
             all_events: all_events_cache,
             sender,
             pagination_batch_token_notifier: Default::default(),
@@ -355,14 +357,14 @@ impl RoomEventCacheInner {
         let mut state = self.state.write().await;
 
         // Reset the room's state.
-        state.reset();
+        state.reset().await?;
 
         // Propagate to observers.
         let _ = self.sender.send(RoomEventCacheUpdate::Clear);
 
         // Push the new events.
         self.append_events_locked_impl(
-            &mut state.events,
+            &mut state,
             sync_timeline_events,
             prev_batch.clone(),
             ephemeral_events,
@@ -385,8 +387,9 @@ impl RoomEventCacheInner {
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
+        let mut state = self.state.write().await;
         self.append_events_locked_impl(
-            &mut self.state.write().await.events,
+            &mut state,
             sync_timeline_events,
             prev_batch,
             ephemeral_events,
@@ -471,7 +474,7 @@ impl RoomEventCacheInner {
     /// This is a private implementation. It must not be exposed publicly.
     async fn append_events_locked_impl(
         &self,
-        room_events: &mut RoomEvents,
+        state: &mut RoomEventCacheState,
         sync_timeline_events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
@@ -488,11 +491,15 @@ impl RoomEventCacheInner {
         // Add the previous back-pagination token (if present), followed by the timeline
         // events themselves.
         {
-            if let Some(prev_token) = &prev_batch {
-                room_events.push_gap(Gap { prev_token: prev_token.clone() });
-            }
+            state
+                .with_events_mut(|room_events| {
+                    if let Some(prev_token) = &prev_batch {
+                        room_events.push_gap(Gap { prev_token: prev_token.clone() });
+                    }
 
-            room_events.push_events(sync_timeline_events.clone());
+                    room_events.push_events(sync_timeline_events.clone());
+                })
+                .await?;
 
             let mut cache = self.all_events.write().await;
             for ev in &sync_timeline_events {
@@ -533,28 +540,93 @@ impl RoomEventCacheInner {
     }
 }
 
-/// State for a single room's event cache.
-///
-/// This contains all inner mutable state that ought to be updated at the same
-/// time.
-pub(super) struct RoomEventCacheState {
-    /// The events of the room.
-    pub events: RoomEvents,
+// Use a private module to hide `events` to this parent module.
+mod private {
+    use std::sync::Arc;
 
-    /// Have we ever waited for a previous-batch-token to come from sync, in the
-    /// context of pagination? We do this at most once per room, the first
-    /// time we try to run backward pagination. We reset that upon clearing
-    /// the timeline events.
-    pub waited_for_initial_prev_token: bool,
-}
+    use matrix_sdk_base::event_cache::store::EventCacheStoreLock;
+    use once_cell::sync::OnceCell;
+    use ruma::OwnedRoomId;
 
-impl RoomEventCacheState {
-    /// Resets this data structure as if it were brand new.
-    pub(super) fn reset(&mut self) {
-        self.events.reset();
-        self.waited_for_initial_prev_token = false;
+    use super::events::RoomEvents;
+    use crate::event_cache::EventCacheError;
+
+    /// State for a single room's event cache.
+    ///
+    /// This contains all the inner mutable states that ought to be updated at
+    /// the same time.
+    pub struct RoomEventCacheState {
+        /// The room this state relates to.
+        room: OwnedRoomId,
+
+        /// Reference to the underlying backing store.
+        ///
+        /// Set to none if the room shouldn't read the linked chunk from
+        /// storage, and shouldn't store updates to storage.
+        store: Arc<OnceCell<EventCacheStoreLock>>,
+
+        /// The events of the room.
+        events: RoomEvents,
+
+        /// Have we ever waited for a previous-batch-token to come from sync, in
+        /// the context of pagination? We do this at most once per room,
+        /// the first time we try to run backward pagination. We reset
+        /// that upon clearing the timeline events.
+        pub waited_for_initial_prev_token: bool,
+    }
+
+    impl RoomEventCacheState {
+        /// Create a new empty state.
+        pub fn new(room: OwnedRoomId, store: Arc<OnceCell<EventCacheStoreLock>>) -> Self {
+            Self {
+                room,
+                store,
+                events: RoomEvents::default(),
+                waited_for_initial_prev_token: false,
+            }
+        }
+
+        /// Propagate changes to the underlying storage.
+        async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
+            let updates = self.events.updates().take();
+
+            if !updates.is_empty() {
+                if let Some(store) = self.store.get() {
+                    let locked = store.lock().await?;
+                    locked.handle_linked_chunk_updates(&self.room, updates).await?;
+                }
+            }
+
+            Ok(())
+        }
+
+        /// Resets this data structure as if it were brand new.
+        pub async fn reset(&mut self) -> Result<(), EventCacheError> {
+            self.events.reset();
+            self.propagate_changes().await?;
+            self.waited_for_initial_prev_token = false;
+            Ok(())
+        }
+
+        /// Returns a read-only reference to the underlying events.
+        pub fn events(&self) -> &RoomEvents {
+            &self.events
+        }
+
+        /// Gives a temporary mutable handle to the underlying in-memory events,
+        /// and will propagate changes to the storage once done.
+        pub async fn with_events_mut<O, F: FnOnce(&mut RoomEvents) -> O>(
+            &mut self,
+            func: F,
+        ) -> Result<O, EventCacheError> {
+            let output = func(&mut self.events);
+            self.propagate_changes().await?;
+            Ok(output)
+        }
     }
 }
+
+pub(super) use private::RoomEventCacheState;
 
 #[cfg(test)]
 mod tests {
