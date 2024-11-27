@@ -11,9 +11,9 @@ use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState, SyncOrStrippedState},
     store::{
-        migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedRequest,
-        DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-        SentRequestKey,
+        migration_helpers::{DependentQueuedRequestKindV1, RoomInfoV1},
+        ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError,
+        QueuedRequest, QueuedRequestKind, SentRequestKey,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue,
@@ -69,7 +69,7 @@ mod keys {
 /// This is used to figure whether the sqlite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`SqliteStateStore::run_migrations`] function..
-const DATABASE_VERSION: u8 = 10;
+const DATABASE_VERSION: u8 = 11;
 
 /// A sqlite based cryptostore.
 #[derive(Clone)]
@@ -314,6 +314,34 @@ impl SqliteStateStore {
                     "../migrations/state_store/009_send_queue_priority.sql"
                 ))?;
                 txn.set_db_version(10)
+            })
+            .await?;
+        }
+
+        if from < 11 && to >= 11 {
+            let this = self.clone();
+            conn.with_transaction(move |txn| {
+                // Run the migration.
+                for dependent_send_queue_event in txn
+                    .prepare("SELECT room_id, own_transaction_id, content FROM dependent_send_queue_events")?
+                    .query_map((), |row| {
+                        Ok(
+                            (row.get::<_, Vec<u8>>(0)?,row.get::<_, String>(1)?, row.get::<_, Vec<u8>>(2)?)
+                        )
+                    })? {
+
+                    let (room_id, own_transaction_id, content) = dependent_send_queue_event?;
+
+                    let content_v1 = this.deserialize_json::<DependentQueuedRequestKindV1>(&content)?;
+                    let migrated_content = DependentQueuedRequestKind::from(content_v1);
+                    let serialized_content = this.serialize_json(&migrated_content)?;
+
+                    txn.prepare_cached("UPDATE dependent_send_queue_events SET content = ? WHERE room_id = ? AND own_transaction_id = ?")?
+                        .execute((serialized_content, room_id, own_transaction_id))?;
+                }
+
+                txn.set_db_version(11)?;
+                Result::<_, Error>::Ok(())
             })
             .await?;
         }
@@ -2107,8 +2135,12 @@ mod migration_tests {
         },
     };
 
+    use assert_matches::assert_matches;
     use matrix_sdk_base::{
-        store::{ChildTransactionId, DependentQueuedRequestKind, SerializableEventContent},
+        store::{
+            migration_helpers::{DependentQueuedRequestKindV1, DependentQueuedRequestV1},
+            ChildTransactionId, DependentQueuedRequestKind, SerializableEventContent,
+        },
         sync::UnreadNotificationsCount,
         RoomState, StateStore,
     };
@@ -2432,5 +2464,76 @@ mod migration_tests {
             .execute((room_id_key, room_id_value, transaction_id.to_string(), content, is_wedged))?;
 
         Ok(())
+    }
+
+    #[async_test]
+    pub async fn test_migrating_v10_to_v11() {
+        let path = new_path();
+
+        // Create initial data.
+        let room_id = room_id!("!room:dummy.local");
+
+        let redact_request =
+            DependentQueuedRequestV1::example_with_kind(DependentQueuedRequestKindV1::RedactEvent);
+        let redact_txn_id = redact_request.own_transaction_id.clone();
+
+        let (finish_upload_request, finish_upload_thumbnail_upload) =
+            DependentQueuedRequestV1::finish_upload_example();
+        let finish_upload_txn_id = finish_upload_request.own_transaction_id.clone();
+
+        let initial_requests = [redact_request, finish_upload_request];
+
+        // Create and populate db.
+        {
+            let db = create_fake_db(&path, 10).await.unwrap();
+            let conn = db.pool.get().await.unwrap();
+
+            let this = db.clone();
+            conn.with_transaction(move |txn| {
+                let room_id = this.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
+
+                for request in initial_requests {
+                    let content = this.serialize_json(&request.kind)?;
+                    let own_txn_id = request.own_transaction_id.to_string();
+                    let parent_txn_id = request.parent_transaction_id.to_string();
+
+                    txn.prepare_cached(
+                        r#"INSERT INTO dependent_send_queue_events
+                           (room_id, parent_transaction_id, own_transaction_id, content)
+                           VALUES (?, ?, ?, ?)"#,
+                    )?
+                    .execute((
+                        &room_id,
+                        parent_txn_id,
+                        own_txn_id,
+                        content,
+                    ))?;
+                }
+
+                Result::<_, Error>::Ok(())
+            })
+            .await
+            .unwrap();
+        }
+
+        // This transparently migrates to the latest version.
+        let store = SqliteStateStore::open(path, Some(SECRET)).await.unwrap();
+
+        // Check all dependent queued requests are there.
+        let loaded_requests = store.load_dependent_queued_requests(room_id).await.unwrap();
+        assert_eq!(loaded_requests.len(), 2);
+
+        // The requests should be returned in the same order that they were inserted.
+        let first_request = &loaded_requests[0];
+        assert_eq!(first_request.own_transaction_id, redact_txn_id);
+        assert_matches!(first_request.kind, DependentQueuedRequestKind::RedactEvent);
+
+        let second_request = &loaded_requests[1];
+        assert_eq!(second_request.own_transaction_id, finish_upload_txn_id);
+        let second_request_thumbnail_upload = assert_matches!(
+            &second_request.kind,
+            DependentQueuedRequestKind::FinishUpload { thumbnail_upload, .. } => thumbnail_upload
+        );
+        assert_eq!(*second_request_thumbnail_upload, Some(finish_upload_thumbnail_upload));
     }
 }
