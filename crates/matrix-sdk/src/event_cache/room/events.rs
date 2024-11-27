@@ -16,7 +16,10 @@ use std::cmp::Ordering;
 
 use eyeball_im::VectorDiff;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
-use matrix_sdk_base::{event_cache::store::DEFAULT_CHUNK_CAPACITY, linked_chunk::AsVector};
+use matrix_sdk_base::{
+    event_cache::store::DEFAULT_CHUNK_CAPACITY,
+    linked_chunk::{AsVector, ObservableUpdates},
+};
 use matrix_sdk_common::linked_chunk::{
     Chunk, ChunkIdentifier, EmptyChunk, Error, Iter, LinkedChunk, Position,
 };
@@ -183,6 +186,12 @@ impl RoomEvents {
     #[allow(unused)] // gonna be useful very soon! but we need it now for test purposes
     pub fn updates_as_vector_diffs(&mut self) -> Vec<VectorDiff<Event>> {
         self.chunks_updates_as_vectordiffs.take()
+    }
+
+    /// Get a mutable reference to the [`LinkedChunk`] updates, aka
+    /// [`ObservableUpdates`].
+    pub(super) fn updates(&mut self) -> &mut ObservableUpdates<Event, Gap> {
+        self.chunks.updates().expect("this is always built with an update history in the ctor")
     }
 
     /// Deduplicate `events` considering all events in `Self::chunks`.

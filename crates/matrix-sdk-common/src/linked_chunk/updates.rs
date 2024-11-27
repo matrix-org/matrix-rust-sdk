@@ -129,7 +129,7 @@ impl<Item, Gap> ObservableUpdates<Item, Gap> {
     /// Take new updates.
     ///
     /// Updates that have been taken will not be read again.
-    pub(super) fn take(&mut self) -> Vec<Update<Item, Gap>>
+    pub fn take(&mut self) -> Vec<Update<Item, Gap>>
     where
         Item: Clone,
         Gap: Clone,
