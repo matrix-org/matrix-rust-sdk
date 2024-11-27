@@ -1,10 +1,12 @@
+#![allow(dead_code)] // Most of the unused code may be used soonish.
+
 use std::{borrow::Cow, fmt, path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     event_cache::{store::EventCacheStore, Event, Gap},
-    linked_chunk::{ChunkIdentifier, Update},
+    linked_chunk::{ChunkContent, ChunkIdentifier, Update},
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -107,6 +109,193 @@ impl SqliteEventCacheStore {
     async fn acquire(&self) -> Result<SqliteAsyncConn> {
         Ok(self.pool.get().await?)
     }
+
+    fn map_row_to_chunk(
+        row: &rusqlite::Row<'_>,
+    ) -> Result<(u64, Option<u64>, Option<u64>, String), rusqlite::Error> {
+        Ok((
+            row.get::<_, u64>(0)?,
+            row.get::<_, Option<u64>>(1)?,
+            row.get::<_, Option<u64>>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    }
+
+    async fn load_chunks(&self, room_id: &RoomId) -> Result<Vec<RawLinkedChunk>> {
+        let room_id = room_id.to_owned();
+        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, &room_id);
+
+        let this = self.clone();
+
+        let result = self
+            .acquire()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let mut items = Vec::new();
+
+                for data in txn
+                    .prepare(
+                        "SELECT id, previous, next, type FROM linked_chunks WHERE room_id = ? ORDER BY id",
+                    )?
+                    .query_map((&hashed_room_id,), Self::map_row_to_chunk)?
+                {
+                    let (id, previous, next, chunk_type) = data?;
+                    let new = txn.rebuild_chunk(
+                        &this,
+                        &hashed_room_id,
+                        previous,
+                        id,
+                        next,
+                        chunk_type.as_str(),
+                    )?;
+                    items.push(new);
+                }
+
+                Ok(items)
+            })
+            .await?;
+
+        Ok(result)
+    }
+
+    async fn load_chunk_with_id(
+        &self,
+        room_id: &RoomId,
+        chunk_id: ChunkIdentifier,
+    ) -> Result<RawLinkedChunk> {
+        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
+
+        let this = self.clone();
+
+        self
+            .acquire()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let (id, previous, next, chunk_type) = txn.query_row(
+                    "SELECT id, previous, next, type FROM linked_chunks WHERE room_id = ? AND chunk_id = ?", 
+                    (&hashed_room_id, chunk_id.index()),
+                    Self::map_row_to_chunk
+                )?;
+                txn.rebuild_chunk(&this, &hashed_room_id, previous, id, next, chunk_type.as_str())
+            }).await
+    }
+}
+
+trait TransactionExtForLinkedChunks {
+    fn rebuild_chunk(
+        &self,
+        store: &SqliteEventCacheStore,
+        room_id: &Key,
+        previous: Option<u64>,
+        index: u64,
+        next: Option<u64>,
+        chunk_type: &str,
+    ) -> Result<RawLinkedChunk>;
+
+    fn load_gap_content(
+        &self,
+        store: &SqliteEventCacheStore,
+        room_id: &Key,
+        chunk_id: ChunkIdentifier,
+    ) -> Result<Gap>;
+
+    fn load_events_content(
+        &self,
+        store: &SqliteEventCacheStore,
+        room_id: &Key,
+        chunk_id: ChunkIdentifier,
+    ) -> Result<Vec<Event>>;
+}
+
+impl TransactionExtForLinkedChunks for Transaction<'_> {
+    fn rebuild_chunk(
+        &self,
+        store: &SqliteEventCacheStore,
+        room_id: &Key,
+        previous: Option<u64>,
+        id: u64,
+        next: Option<u64>,
+        chunk_type: &str,
+    ) -> Result<RawLinkedChunk> {
+        let previous = previous.map(ChunkIdentifier::new);
+        let next = next.map(ChunkIdentifier::new);
+        let id = ChunkIdentifier::new(id);
+
+        match chunk_type {
+            "G" => {
+                // It's a gap! There's at most one row for it in the database, so a
+                // call to `query_row` is sufficient.
+                let gap = self.load_gap_content(store, room_id, id)?;
+                Ok(RawLinkedChunk { content: ChunkContent::Gap(gap), previous, id, next })
+            }
+
+            "E" => {
+                // It's events!
+                let events = self.load_events_content(store, room_id, id)?;
+                Ok(RawLinkedChunk { content: ChunkContent::Items(events), previous, id, next })
+            }
+
+            other => {
+                // It's an error!
+                Err(Error::InvalidData {
+                    details: format!("a linked chunk has an unknown type {other}"),
+                })
+            }
+        }
+    }
+
+    fn load_gap_content(
+        &self,
+        store: &SqliteEventCacheStore,
+        room_id: &Key,
+        chunk_id: ChunkIdentifier,
+    ) -> Result<Gap> {
+        let encoded_prev_token: Vec<u8> = self.query_row(
+            "SELECT prev_token FROM gaps WHERE chunk_id = ? AND room_id = ?",
+            (chunk_id.index(), &room_id),
+            |row| row.get(0),
+        )?;
+        let prev_token_bytes = store.decode_value(&encoded_prev_token)?;
+        let prev_token = serde_json::from_slice(&prev_token_bytes)?;
+        Ok(Gap { prev_token })
+    }
+
+    fn load_events_content(
+        &self,
+        store: &SqliteEventCacheStore,
+        room_id: &Key,
+        chunk_id: ChunkIdentifier,
+    ) -> Result<Vec<Event>> {
+        // Retrieve all the events from the database.
+        let mut events = Vec::new();
+
+        for event_data in self
+            .prepare(
+                r#"
+                    SELECT content FROM events
+                    WHERE chunk_id = ? AND room_id = ?
+                    ORDER BY position ASC
+                "#,
+            )?
+            .query_map((chunk_id.index(), &room_id), |row| row.get::<_, Vec<u8>>(0))?
+        {
+            let encoded_content = event_data?;
+            let serialized_content = store.decode_value(&encoded_content)?;
+            let sync_timeline_event = serde_json::from_slice(&serialized_content)?;
+
+            events.push(sync_timeline_event);
+        }
+
+        Ok(events)
+    }
+}
+
+struct RawLinkedChunk {
+    content: ChunkContent<Event, Gap>,
+
+    previous: Option<ChunkIdentifier>,
+    id: ChunkIdentifier,
+    next: Option<ChunkIdentifier>,
 }
 
 async fn create_pool(path: &Path) -> Result<SqlitePool, OpenStoreError> {
@@ -538,14 +727,23 @@ mod tests {
         time::Duration,
     };
 
+    use assert_matches::assert_matches;
     use matrix_sdk_base::{
-        event_cache::store::{EventCacheStore, EventCacheStoreError},
+        deserialized_responses::{
+            AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, SyncTimelineEvent,
+            TimelineEventKind, VerificationState,
+        },
+        event_cache::{
+            store::{EventCacheStore, EventCacheStoreError},
+            Gap,
+        },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
+        linked_chunk::{ChunkContent, ChunkIdentifier, Position, Update},
         media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     };
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
     use once_cell::sync::Lazy;
-    use ruma::{events::room::MediaSource, media::Method, mxc_uri, uint};
+    use ruma::{events::room::MediaSource, media::Method, mxc_uri, push::Action, uint};
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteEventCacheStore;
@@ -639,6 +837,423 @@ mod tests {
         assert_eq!(contents.len(), 2, "media cache contents length is wrong");
         assert_eq!(contents[0], content, "file is not last access");
         assert_eq!(contents[1], thumbnail_content, "thumbnail is not second-to-last access");
+    }
+
+    #[async_test]
+    async fn test_linked_chunk_new_items_chunk() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = &DEFAULT_TEST_ROOM_ID;
+
+        store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None, // Note: the store must link the next entry itself.
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(42)),
+                        new: ChunkIdentifier::new(13),
+                        next: Some(ChunkIdentifier::new(37)), /* But it's fine to explicitly pass
+                                                               * the next link ahead of time. */
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(13)),
+                        new: ChunkIdentifier::new(37),
+                        next: None,
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let mut chunks = store.load_chunks(room_id).await.unwrap();
+
+        assert_eq!(chunks.len(), 3);
+
+        {
+            // Chunks are ordered from smaller to bigger IDs.
+            let c = chunks.remove(0);
+            assert_eq!(c.id, ChunkIdentifier::new(13));
+            assert_eq!(c.previous, Some(ChunkIdentifier::new(42)));
+            assert_eq!(c.next, Some(ChunkIdentifier::new(37)));
+            assert_matches!(c.content, ChunkContent::Items(events) => {
+                assert!(events.is_empty());
+            });
+
+            let c = chunks.remove(0);
+            assert_eq!(c.id, ChunkIdentifier::new(37));
+            assert_eq!(c.previous, Some(ChunkIdentifier::new(13)));
+            assert_eq!(c.next, None);
+            assert_matches!(c.content, ChunkContent::Items(events) => {
+                assert!(events.is_empty());
+            });
+
+            let c = chunks.remove(0);
+            assert_eq!(c.id, ChunkIdentifier::new(42));
+            assert_eq!(c.previous, None);
+            assert_eq!(c.next, Some(ChunkIdentifier::new(13)));
+            assert_matches!(c.content, ChunkContent::Items(events) => {
+                assert!(events.is_empty());
+            });
+        }
+    }
+
+    #[async_test]
+    async fn test_linked_chunk_new_gap_chunk() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = &DEFAULT_TEST_ROOM_ID;
+
+        store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![Update::NewGapChunk {
+                    previous: None,
+                    new: ChunkIdentifier::new(42),
+                    next: None,
+                    gap: Gap { prev_token: "raclette".to_owned() },
+                }],
+            )
+            .await
+            .unwrap();
+
+        let mut chunks = store.load_chunks(room_id).await.unwrap();
+
+        assert_eq!(chunks.len(), 1);
+
+        // Chunks are ordered from smaller to bigger IDs.
+        let c = chunks.remove(0);
+        assert_eq!(c.id, ChunkIdentifier::new(42));
+        assert_eq!(c.previous, None);
+        assert_eq!(c.next, None);
+        assert_matches!(c.content, ChunkContent::Gap(gap) => {
+            assert_eq!(gap.prev_token, "raclette");
+        });
+    }
+
+    #[async_test]
+    async fn test_linked_chunk_remove_chunk() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = &DEFAULT_TEST_ROOM_ID;
+
+        store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewGapChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                        gap: Gap { prev_token: "raclette".to_owned() },
+                    },
+                    Update::RemoveChunk(ChunkIdentifier::new(42)),
+                ],
+            )
+            .await
+            .unwrap();
+
+        let chunks = store.load_chunks(room_id).await.unwrap();
+        assert!(chunks.is_empty());
+
+        // Check that cascading worked. Yes, sqlite, I doubt you.
+        let num_gaps: u64 = store
+            .acquire()
+            .await
+            .unwrap()
+            .with_transaction(|txn| {
+                txn.query_row("SELECT COUNT(*) FROM gaps", (), |row| row.get(0))
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(num_gaps, 0);
+    }
+
+    fn make_test_event(content: &str) -> SyncTimelineEvent {
+        let encryption_info = EncryptionInfo {
+            sender: (*ALICE).into(),
+            sender_device: None,
+            algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+                curve25519_key: "1337".to_owned(),
+                sender_claimed_keys: Default::default(),
+            },
+            verification_state: VerificationState::Verified,
+        };
+
+        let event = EventFactory::new()
+            .text_msg(content)
+            .room(*DEFAULT_TEST_ROOM_ID)
+            .sender(*ALICE)
+            .into_raw_timeline()
+            .cast();
+
+        SyncTimelineEvent {
+            kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
+                event,
+                encryption_info,
+                unsigned_encryption_info: None,
+            }),
+            push_actions: vec![Action::Notify],
+        }
+    }
+
+    #[track_caller]
+    fn check_event(event: &SyncTimelineEvent, text: &str) {
+        // Check push actions.
+        let actions = &event.push_actions;
+        assert_eq!(actions.len(), 1);
+        assert_matches!(&actions[0], Action::Notify);
+
+        // Check content.
+        assert_matches!(&event.kind, TimelineEventKind::Decrypted(d) => {
+            // Check encryption fields.
+            assert_eq!(d.encryption_info.sender, *ALICE);
+            assert_matches!(&d.encryption_info.algorithm_info, AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, .. } => {
+                assert_eq!(curve25519_key, "1337");
+            });
+
+            // Check event.
+            let deserialized = d.event.deserialize().unwrap();
+            assert_matches!(deserialized, ruma::events::AnyMessageLikeEvent::RoomMessage(msg) => {
+                assert_eq!(msg.as_original().unwrap().content.body(), text);
+            });
+        });
+    }
+
+    #[async_test]
+    async fn test_linked_chunk_push_items() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = &DEFAULT_TEST_ROOM_ID;
+
+        store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(42), 0),
+                        items: vec![make_test_event("hello"), make_test_event("world")],
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(42), 2),
+                        items: vec![make_test_event("who?")],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let mut chunks = store.load_chunks(room_id).await.unwrap();
+
+        assert_eq!(chunks.len(), 1);
+
+        let c = chunks.remove(0);
+        assert_eq!(c.id, ChunkIdentifier::new(42));
+        assert_eq!(c.previous, None);
+        assert_eq!(c.next, None);
+        assert_matches!(c.content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 3);
+
+            check_event(&events[0], "hello");
+            check_event(&events[1], "world");
+            check_event(&events[2], "who?");
+        });
+    }
+
+    #[async_test]
+    async fn test_linked_chunk_remove_item() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+
+        store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(42), 0),
+                        items: vec![make_test_event("hello"), make_test_event("world")],
+                    },
+                    Update::RemoveItem { at: Position::new(ChunkIdentifier::new(42), 0) },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let mut chunks = store.load_chunks(room_id).await.unwrap();
+
+        assert_eq!(chunks.len(), 1);
+
+        let c = chunks.remove(0);
+        assert_eq!(c.id, ChunkIdentifier::new(42));
+        assert_eq!(c.previous, None);
+        assert_eq!(c.next, None);
+        assert_matches!(c.content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            check_event(&events[0], "world");
+        });
+
+        // Make sure the position has been updated for the remaining event.
+        let num_rows: u64 = store
+            .acquire()
+            .await
+            .unwrap()
+            .with_transaction(move |txn| {
+                txn.query_row(
+                    "SELECT COUNT(*) FROM events WHERE chunk_id = 42 AND room_id = ? AND position = 0",
+                    (room_id.as_bytes(),),
+                    |row| row.get(0),
+                )
+            })
+            .await
+            .unwrap();
+        assert_eq!(num_rows, 1);
+    }
+
+    #[async_test]
+    async fn test_linked_chunk_detach_last_items() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+
+        store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(42), 0),
+                        items: vec![
+                            make_test_event("hello"),
+                            make_test_event("world"),
+                            make_test_event("howdy"),
+                        ],
+                    },
+                    Update::DetachLastItems { at: Position::new(ChunkIdentifier::new(42), 1) },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let mut chunks = store.load_chunks(room_id).await.unwrap();
+
+        assert_eq!(chunks.len(), 1);
+
+        let c = chunks.remove(0);
+        assert_eq!(c.id, ChunkIdentifier::new(42));
+        assert_eq!(c.previous, None);
+        assert_eq!(c.next, None);
+        assert_matches!(c.content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            check_event(&events[0], "hello");
+        });
+    }
+
+    #[async_test]
+    async fn test_linked_chunk_start_end_reattach_items() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+
+        // Same updates and checks as test_linked_chunk_push_items, but with extra
+        // `StartReattachItems` and `EndReattachItems` updates, which must have no
+        // effects.
+        store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(42), 0),
+                        items: vec![
+                            make_test_event("hello"),
+                            make_test_event("world"),
+                            make_test_event("howdy"),
+                        ],
+                    },
+                    Update::StartReattachItems,
+                    Update::EndReattachItems,
+                ],
+            )
+            .await
+            .unwrap();
+
+        let mut chunks = store.load_chunks(room_id).await.unwrap();
+
+        assert_eq!(chunks.len(), 1);
+
+        let c = chunks.remove(0);
+        assert_eq!(c.id, ChunkIdentifier::new(42));
+        assert_eq!(c.previous, None);
+        assert_eq!(c.next, None);
+        assert_matches!(c.content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 3);
+            check_event(&events[0], "hello");
+            check_event(&events[1], "world");
+            check_event(&events[2], "howdy");
+        });
+    }
+
+    #[async_test]
+    async fn test_linked_chunk_clear() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+
+        store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                    },
+                    Update::NewGapChunk {
+                        previous: Some(ChunkIdentifier::new(42)),
+                        new: ChunkIdentifier::new(54),
+                        next: None,
+                        gap: Gap { prev_token: "fondue".to_owned() },
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(42), 0),
+                        items: vec![
+                            make_test_event("hello"),
+                            make_test_event("world"),
+                            make_test_event("howdy"),
+                        ],
+                    },
+                    Update::Clear,
+                ],
+            )
+            .await
+            .unwrap();
+
+        let chunks = store.load_chunks(room_id).await.unwrap();
+        assert!(chunks.is_empty());
     }
 }
 
