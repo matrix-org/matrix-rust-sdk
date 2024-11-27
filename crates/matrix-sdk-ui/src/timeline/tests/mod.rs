@@ -17,7 +17,9 @@
 use std::{
     collections::{BTreeMap, HashMap},
     future::ready,
+    ops::Sub,
     sync::Arc,
+    time::{Duration, SystemTime},
 };
 
 use eyeball::{SharedObservable, Subscriber};
@@ -33,7 +35,9 @@ use matrix_sdk::{
     send_queue::RoomSendQueueUpdate,
     BoxFuture,
 };
-use matrix_sdk_base::{latest_event::LatestEvent, RoomInfo, RoomState};
+use matrix_sdk_base::{
+    crypto::types::events::CryptoContextInfo, latest_event::LatestEvent, RoomInfo, RoomState,
+};
 use matrix_sdk_test::{
     event_factory::EventFactory, EventBuilder, ALICE, BOB, DEFAULT_TEST_ROOM_ID,
 };
@@ -374,6 +378,17 @@ impl RoomDataProvider for TestRoomDataProvider {
 
     fn room_version(&self) -> RoomVersionId {
         RoomVersionId::V10
+    }
+
+    fn crypto_context_info(&self) -> BoxFuture<'_, CryptoContextInfo> {
+        ready(CryptoContextInfo {
+            device_creation_ts: MilliSecondsSinceUnixEpoch::from_system_time(
+                SystemTime::now().sub(Duration::from_secs(60 * 3)),
+            )
+            .unwrap_or(MilliSecondsSinceUnixEpoch::now()),
+            is_backup_configured: false,
+        })
+        .boxed()
     }
 
     fn profile_from_user_id<'a>(&'a self, _user_id: &'a UserId) -> BoxFuture<'a, Option<Profile>> {
