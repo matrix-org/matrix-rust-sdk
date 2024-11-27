@@ -15,7 +15,7 @@
 use matrix_sdk_common::deserialized_responses::{
     UnableToDecryptInfo, UnableToDecryptReason, VerificationLevel,
 };
-use ruma::{events::AnySyncTimelineEvent, serde::Raw};
+use ruma::{events::AnySyncTimelineEvent, serde::Raw, MilliSecondsSinceUnixEpoch};
 use serde::Deserialize;
 
 /// Our best guess at the reason why an event can't be decrypted.
@@ -47,6 +47,16 @@ pub enum UtdCause {
     /// data was obtained from an insecure source (imported from a file,
     /// obtained from a legacy (asymmetric) backup, unsafe key forward, etc.)
     UnknownDevice = 4,
+
+    /// We are missing the keys for this event, but it is a "device-historical"
+    /// message and no backup is accessible or usable.
+    ///
+    /// Device-historical means that the message was sent before the current
+    /// device existed (but the current user was probably a member of the room
+    /// at the time the message was sent). Not to
+    /// be confused with pre-join or pre-invite messages (see
+    /// [`UtdCause::SentBeforeWeJoined`] for that).
+    HistoricalMessage = 5,
 }
 
 /// MSC4115 membership info in the unsigned area.
@@ -65,10 +75,25 @@ enum Membership {
     Join,
 }
 
+/// Contextual crypto information used by [`UtdCause::determine`] to properly
+/// identify an Unable-To-Decrypt cause in addition to the
+/// [`UnableToDecryptInfo`] and raw event info.
+#[derive(Debug, Clone, Copy)]
+pub struct CryptoContextInfo {
+    /// The current device creation timestamp, used as a heuristic to determine
+    /// if an event is device-historical or not (sent before the current device
+    /// existed).
+    pub device_creation_ts: MilliSecondsSinceUnixEpoch,
+    /// True if key storage is correctly set up and can be used by the current
+    /// client to download and decrypt message keys.
+    pub is_backup_configured: bool,
+}
+
 impl UtdCause {
     /// Decide the cause of this UTD, based on the evidence we have.
     pub fn determine(
-        raw_event: Option<&Raw<AnySyncTimelineEvent>>,
+        raw_event: &Raw<AnySyncTimelineEvent>,
+        crypto_context_info: CryptoContextInfo,
         unable_to_decrypt_info: &UnableToDecryptInfo,
     ) -> Self {
         // TODO: in future, use more information to give a richer answer. E.g.
@@ -76,16 +101,27 @@ impl UtdCause {
             UnableToDecryptReason::MissingMegolmSession
             | UnableToDecryptReason::UnknownMegolmMessageIndex => {
                 // Look in the unsigned area for a `membership` field.
-                if let Some(raw_event) = raw_event {
-                    if let Ok(Some(unsigned)) =
-                        raw_event.get_field::<UnsignedWithMembership>("unsigned")
-                    {
-                        if let Membership::Leave = unsigned.membership {
-                            // We were not a member - this is the cause of the UTD
-                            return UtdCause::SentBeforeWeJoined;
-                        }
+                if let Some(unsigned) =
+                    raw_event.get_field::<UnsignedWithMembership>("unsigned").ok().flatten()
+                {
+                    if let Membership::Leave = unsigned.membership {
+                        // We were not a member - this is the cause of the UTD
+                        return UtdCause::SentBeforeWeJoined;
                     }
                 }
+
+                if let Ok(timeline_event) = raw_event.deserialize() {
+                    if crypto_context_info.is_backup_configured
+                        && timeline_event.origin_server_ts()
+                            < crypto_context_info.device_creation_ts
+                    {
+                        // It's a device-historical message and there is no accessible
+                        // backup. The key is missing and it
+                        // is expected.
+                        return UtdCause::HistoricalMessage;
+                    }
+                }
+
                 UtdCause::Unknown
             }
 
@@ -111,10 +147,10 @@ mod tests {
     use matrix_sdk_common::deserialized_responses::{
         DeviceLinkProblem, UnableToDecryptInfo, UnableToDecryptReason, VerificationLevel,
     };
-    use ruma::{events::AnySyncTimelineEvent, serde::Raw};
+    use ruma::{events::AnySyncTimelineEvent, serde::Raw, uint, MilliSecondsSinceUnixEpoch};
     use serde_json::{json, value::to_raw_value};
 
-    use crate::types::events::UtdCause;
+    use crate::types::events::{utd_cause::CryptoContextInfo, UtdCause};
 
     #[test]
     fn test_a_missing_raw_event_means_we_guess_unknown() {
@@ -122,7 +158,8 @@ mod tests {
         // is unknown.
         assert_eq!(
             UtdCause::determine(
-                None,
+                &raw_event(json!({})),
+                some_crypto_context_info(),
                 &UnableToDecryptInfo {
                     session_id: None,
                     reason: UnableToDecryptReason::MissingMegolmSession,
@@ -137,7 +174,8 @@ mod tests {
         // If our JSON contains no membership info, then we guess the UTD is unknown.
         assert_eq!(
             UtdCause::determine(
-                Some(&raw_event(json!({}))),
+                &raw_event(json!({})),
+                some_crypto_context_info(),
                 &UnableToDecryptInfo {
                     session_id: None,
                     reason: UnableToDecryptReason::MissingMegolmSession
@@ -153,7 +191,8 @@ mod tests {
         // we guess the UTD is unknown.
         assert_eq!(
             UtdCause::determine(
-                Some(&raw_event(json!({ "unsigned": { "membership": 3 } }))),
+                &raw_event(json!({ "unsigned": { "membership": 3 } })),
+                some_crypto_context_info(),
                 &UnableToDecryptInfo {
                     session_id: None,
                     reason: UnableToDecryptReason::MissingMegolmSession
@@ -169,7 +208,8 @@ mod tests {
         // UTD is unknown.
         assert_eq!(
             UtdCause::determine(
-                Some(&raw_event(json!({ "unsigned": { "membership": "invite" } }),)),
+                &raw_event(json!({ "unsigned": { "membership": "invite" } }),),
+                some_crypto_context_info(),
                 &UnableToDecryptInfo {
                     session_id: None,
                     reason: UnableToDecryptReason::MissingMegolmSession
@@ -185,7 +225,8 @@ mod tests {
         // UTD is unknown.
         assert_eq!(
             UtdCause::determine(
-                Some(&raw_event(json!({ "unsigned": { "membership": "join" } }))),
+                &raw_event(json!({ "unsigned": { "membership": "join" } })),
+                some_crypto_context_info(),
                 &UnableToDecryptInfo {
                     session_id: None,
                     reason: UnableToDecryptReason::MissingMegolmSession
@@ -201,7 +242,8 @@ mod tests {
         // until we have MSC3061.
         assert_eq!(
             UtdCause::determine(
-                Some(&raw_event(json!({ "unsigned": { "membership": "leave" } }))),
+                &raw_event(json!({ "unsigned": { "membership": "leave" } })),
+                some_crypto_context_info(),
                 &UnableToDecryptInfo {
                     session_id: None,
                     reason: UnableToDecryptReason::MissingMegolmSession
@@ -218,7 +260,8 @@ mod tests {
         // even if membership=leave.
         assert_eq!(
             UtdCause::determine(
-                Some(&raw_event(json!({ "unsigned": { "membership": "leave" } }))),
+                &raw_event(json!({ "unsigned": { "membership": "leave" } })),
+                some_crypto_context_info(),
                 &UnableToDecryptInfo {
                     session_id: None,
                     reason: UnableToDecryptReason::MalformedEncryptedEvent
@@ -233,9 +276,8 @@ mod tests {
         // Before MSC4115 is merged, we support the unstable prefix too.
         assert_eq!(
             UtdCause::determine(
-                Some(&raw_event(
-                    json!({ "unsigned": { "io.element.msc4115.membership": "leave" } })
-                )),
+                &raw_event(json!({ "unsigned": { "io.element.msc4115.membership": "leave" } })),
+                some_crypto_context_info(),
                 &UnableToDecryptInfo {
                     session_id: None,
                     reason: UnableToDecryptReason::MissingMegolmSession
@@ -249,7 +291,8 @@ mod tests {
     fn test_verification_violation_is_passed_through() {
         assert_eq!(
             UtdCause::determine(
-                Some(&raw_event(json!({}))),
+                &raw_event(json!({})),
+                some_crypto_context_info(),
                 &UnableToDecryptInfo {
                     session_id: None,
                     reason: UnableToDecryptReason::SenderIdentityNotTrusted(
@@ -265,7 +308,8 @@ mod tests {
     fn test_unsigned_device_is_passed_through() {
         assert_eq!(
             UtdCause::determine(
-                Some(&raw_event(json!({}))),
+                &raw_event(json!({})),
+                some_crypto_context_info(),
                 &UnableToDecryptInfo {
                     session_id: None,
                     reason: UnableToDecryptReason::SenderIdentityNotTrusted(
@@ -281,7 +325,8 @@ mod tests {
     fn test_unknown_device_is_passed_through() {
         assert_eq!(
             UtdCause::determine(
-                Some(&raw_event(json!({}))),
+                &raw_event(json!({})),
+                some_crypto_context_info(),
                 &UnableToDecryptInfo {
                     session_id: None,
                     reason: UnableToDecryptReason::SenderIdentityNotTrusted(
@@ -293,7 +338,206 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_historical_expected_reason_depending_on_origin_ts_for_missing_session() {
+        let message_creation_ts = 10000;
+        let utd_event = a_utd_event_with_origin_ts(message_creation_ts);
+
+        let older_than_event_device = CryptoContextInfo {
+            device_creation_ts: MilliSecondsSinceUnixEpoch(
+                (message_creation_ts - 1000).try_into().unwrap(),
+            ),
+            is_backup_configured: true,
+        };
+
+        assert_eq!(
+            UtdCause::determine(
+                &raw_event(json!({})),
+                older_than_event_device,
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
+            UtdCause::Unknown
+        );
+
+        let newer_than_event_device = CryptoContextInfo {
+            device_creation_ts: MilliSecondsSinceUnixEpoch(
+                (message_creation_ts + 1000).try_into().unwrap(),
+            ),
+            is_backup_configured: true,
+        };
+
+        assert_eq!(
+            UtdCause::determine(
+                &utd_event,
+                newer_than_event_device,
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
+            UtdCause::HistoricalMessage
+        );
+    }
+
+    #[test]
+    fn test_historical_expected_reason_depending_on_origin_ts_for_ratcheted_session() {
+        let message_creation_ts = 10000;
+        let utd_event = a_utd_event_with_origin_ts(message_creation_ts);
+
+        let older_than_event_device = CryptoContextInfo {
+            device_creation_ts: MilliSecondsSinceUnixEpoch(
+                (message_creation_ts - 1000).try_into().unwrap(),
+            ),
+            is_backup_configured: true,
+        };
+
+        assert_eq!(
+            UtdCause::determine(
+                &raw_event(json!({})),
+                older_than_event_device,
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::UnknownMegolmMessageIndex
+                }
+            ),
+            UtdCause::Unknown
+        );
+
+        let newer_than_event_device = CryptoContextInfo {
+            device_creation_ts: MilliSecondsSinceUnixEpoch(
+                (message_creation_ts + 1000).try_into().unwrap(),
+            ),
+            is_backup_configured: true,
+        };
+
+        assert_eq!(
+            UtdCause::determine(
+                &utd_event,
+                newer_than_event_device,
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::UnknownMegolmMessageIndex
+                }
+            ),
+            UtdCause::HistoricalMessage
+        );
+    }
+
+    #[test]
+    fn test_historical_expected_reason_depending_on_origin_only_for_correct_reason() {
+        let message_creation_ts = 10000;
+        let utd_event = a_utd_event_with_origin_ts(message_creation_ts);
+
+        let newer_than_event_device = CryptoContextInfo {
+            device_creation_ts: MilliSecondsSinceUnixEpoch(
+                (message_creation_ts + 1000).try_into().unwrap(),
+            ),
+            is_backup_configured: true,
+        };
+
+        assert_eq!(
+            UtdCause::determine(
+                &utd_event,
+                newer_than_event_device,
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::UnknownMegolmMessageIndex
+                }
+            ),
+            UtdCause::HistoricalMessage
+        );
+
+        assert_eq!(
+            UtdCause::determine(
+                &utd_event,
+                newer_than_event_device,
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MalformedEncryptedEvent
+                }
+            ),
+            UtdCause::Unknown
+        );
+
+        assert_eq!(
+            UtdCause::determine(
+                &utd_event,
+                newer_than_event_device,
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MegolmDecryptionFailure
+                }
+            ),
+            UtdCause::Unknown
+        );
+    }
+
+    #[test]
+    fn test_historical_expected_only_if_backup_configured() {
+        let message_creation_ts = 10000;
+        let utd_event = a_utd_event_with_origin_ts(message_creation_ts);
+
+        let crypto_context_info = CryptoContextInfo {
+            device_creation_ts: MilliSecondsSinceUnixEpoch(
+                (message_creation_ts + 1000).try_into().unwrap(),
+            ),
+            is_backup_configured: false,
+        };
+
+        assert_eq!(
+            UtdCause::determine(
+                &utd_event,
+                crypto_context_info,
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::MissingMegolmSession
+                }
+            ),
+            UtdCause::Unknown
+        );
+
+        assert_eq!(
+            UtdCause::determine(
+                &utd_event,
+                crypto_context_info,
+                &UnableToDecryptInfo {
+                    session_id: None,
+                    reason: UnableToDecryptReason::UnknownMegolmMessageIndex
+                }
+            ),
+            UtdCause::Unknown
+        );
+    }
+
+    fn a_utd_event_with_origin_ts(origin_server_ts: i32) -> Raw<AnySyncTimelineEvent> {
+        raw_event(json!({
+            "type": "m.room.encrypted",
+            "event_id": "$0",
+            // the values don't matter much but the expected fields should be there.
+            "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "ciphertext": "FOO",
+                "sender_key": "SENDERKEYSENDERKEY",
+                "device_id": "ABCDEFGH",
+                "session_id": "A0",
+            },
+            "sender": "@bob:localhost",
+            "origin_server_ts": origin_server_ts,
+            "unsigned": { "membership": "join" }
+        }))
+    }
+
     fn raw_event(value: serde_json::Value) -> Raw<AnySyncTimelineEvent> {
         Raw::from_json(to_raw_value(&value).unwrap())
+    }
+
+    fn some_crypto_context_info() -> CryptoContextInfo {
+        CryptoContextInfo {
+            device_creation_ts: MilliSecondsSinceUnixEpoch(uint!(42)),
+            is_backup_configured: false,
+        }
     }
 }
