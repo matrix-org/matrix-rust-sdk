@@ -746,9 +746,11 @@ pub(crate) mod tests {
     use super::{event_enums::OutgoingContent, VerificationStore};
     use crate::{
         olm::PrivateCrossSigningIdentity,
-        requests::{OutgoingRequest, OutgoingRequests},
         store::{Changes, CryptoStore, CryptoStoreWrapper, IdentityChanges, MemoryStore},
-        types::events::ToDeviceEvents,
+        types::{
+            events::ToDeviceEvents,
+            requests::{OutgoingRequest, OutgoingRequests},
+        },
         Account, DeviceData, OtherUserIdentityData, OutgoingVerificationRequest,
         OwnUserIdentityData,
     };

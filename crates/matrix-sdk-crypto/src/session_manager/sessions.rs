@@ -34,9 +34,12 @@ use vodozemac::Curve25519PublicKey;
 use crate::{
     error::OlmResult,
     gossiping::GossipMachine,
-    requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store},
-    types::{events::EventType, EventEncryptionAlgorithm},
+    types::{
+        events::EventType,
+        requests::{OutgoingRequest, ToDeviceRequest},
+        EventEncryptionAlgorithm,
+    },
     DeviceData,
 };
 

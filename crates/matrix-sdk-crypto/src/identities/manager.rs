@@ -33,12 +33,14 @@ use crate::{
     error::OlmResult,
     identities::{DeviceData, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData},
     olm::{InboundGroupSession, PrivateCrossSigningIdentity, SenderDataFinder, SenderDataType},
-    requests::KeysQueryRequest,
     store::{
         caches::SequenceNumber, Changes, DeviceChanges, IdentityChanges, KeyQueryManager,
         Result as StoreResult, Store, StoreCache, StoreCacheGuard, UserKeyQueryResult,
     },
-    types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
+    types::{
+        requests::KeysQueryRequest, CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey,
+        UserSigningPubkey,
+    },
     CryptoStoreError, LocalTrust, OwnUserIdentity, SignatureError, UserIdentity,
 };
 

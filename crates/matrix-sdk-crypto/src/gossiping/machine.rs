@@ -45,16 +45,18 @@ use crate::{
     error::{EventError, OlmError, OlmResult},
     identities::IdentityManager,
     olm::{InboundGroupSession, Session},
-    requests::{OutgoingRequest, ToDeviceRequest},
     session_manager::GroupSessionCache,
     store::{Changes, CryptoStoreError, SecretImportError, Store, StoreCache},
-    types::events::{
-        forwarded_room_key::ForwardedRoomKeyContent,
-        olm_v1::{DecryptedForwardedRoomKeyEvent, DecryptedSecretSendEvent},
-        room::encrypted::EncryptedEvent,
-        room_key_request::RoomKeyRequestEvent,
-        secret_send::SecretSendContent,
-        EventType,
+    types::{
+        events::{
+            forwarded_room_key::ForwardedRoomKeyContent,
+            olm_v1::{DecryptedForwardedRoomKeyEvent, DecryptedSecretSendEvent},
+            room::encrypted::EncryptedEvent,
+            room_key_request::RoomKeyRequestEvent,
+            secret_send::SecretSendContent,
+            EventType,
+        },
+        requests::{OutgoingRequest, ToDeviceRequest},
     },
     Device, MegolmError,
 };

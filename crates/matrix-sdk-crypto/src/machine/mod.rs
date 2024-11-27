@@ -70,7 +70,6 @@ use crate::{
         KnownSenderData, OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData,
         SenderDataFinder, SessionType, StaticAccountData,
     },
-    requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
         Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
@@ -90,6 +89,7 @@ use crate::{
             },
             ToDeviceEvents,
         },
+        requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
         EventEncryptionAlgorithm, Signatures,
     },
     utilities::timestamp_to_iso8601,

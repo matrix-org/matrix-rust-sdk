@@ -36,10 +36,12 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    requests::{OutgoingRequest, ToDeviceRequest},
-    types::events::{
-        olm_v1::DecryptedSecretSendEvent,
-        room_key_request::{RoomKeyRequestContent, RoomKeyRequestEvent, SupportedKeyInfo},
+    types::{
+        events::{
+            olm_v1::DecryptedSecretSendEvent,
+            room_key_request::{RoomKeyRequestContent, RoomKeyRequestEvent, SupportedKeyInfo},
+        },
+        requests::{OutgoingRequest, ToDeviceRequest},
     },
     Device,
 };
