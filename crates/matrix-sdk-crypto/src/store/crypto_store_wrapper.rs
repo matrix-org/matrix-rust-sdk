@@ -102,7 +102,7 @@ impl CryptoStoreWrapper {
             .await?
             .as_ref()
             .and_then(|i| i.own())
-            .map_or(false, |own| own.is_verified());
+            .is_some_and(|own| own.is_verified());
 
         let secrets = changes.secrets.to_owned();
         let devices = changes.devices.to_owned();
