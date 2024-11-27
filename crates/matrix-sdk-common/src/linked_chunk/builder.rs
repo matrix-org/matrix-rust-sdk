@@ -112,20 +112,14 @@ impl<const CAP: usize, Item, Gap> LinkedChunkBuilder<CAP, Item, Gap> {
 
     /// Run all error checks before reconstructing the full linked chunk.
     ///
-    /// Must be called after checking `self.chunks` isn't empty.
+    /// Must be called after checking `self.chunks` isn't empty in
+    /// [`Self::build`].
     ///
     /// Returns the identifier of the first chunk.
     fn check_consistency(&mut self) -> Result<ChunkIdentifier, LinkedChunkBuilderError> {
         // Look for the first id.
-        let mut first_id = None;
-
-        for (id, chunk) in self.chunks.iter() {
-            if chunk.previous.is_none() {
-                // This chunk is a good candidate to be the first chunk.
-                first_id = Some(*id);
-                break;
-            }
-        }
+        let first_id =
+            self.chunks.iter().find_map(|(id, chunk)| chunk.previous.is_none().then_some(*id));
 
         // There's no first chunk, but we've checked that `self.chunks` isn't empty:
         // it's a malformed list.
@@ -205,7 +199,6 @@ impl<const CAP: usize, Item, Gap> LinkedChunkBuilder<CAP, Item, Gap> {
         // - counting items from the item chunks we'll encounter,
         // - finding the max `ChunkIdentifier` (`max_chunk_id`).
 
-        let mut num_items = 0;
         let mut max_chunk_id = first_id.index();
 
         // Small helper to graduate a temporary chunk into a final one. As we're doing
@@ -219,15 +212,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunkBuilder<CAP, Item, Gap> {
             max_chunk_id = max_chunk_id.max(id.index());
 
             // Graduate the current temporary chunk into a final chunk.
-            let chunk_ptr = match temp.content {
-                ChunkContent::Gap(gap) => Chunk::new_gap_leaked(id, gap),
-
-                ChunkContent::Items(items) => {
-                    // Update the total count of items.
-                    num_items += items.len();
-                    Chunk::new_leaked(id, ChunkContent::Items(items))
-                }
-            };
+            let chunk_ptr = Chunk::new_leaked(id, temp.content);
 
             Some((temp.next, chunk_ptr))
         };
@@ -273,13 +258,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunkBuilder<CAP, Item, Gap> {
         let updates =
             if self.build_with_update_history { Some(ObservableUpdates::new()) } else { None };
 
-        Ok(Some(LinkedChunk {
-            links,
-            length: num_items,
-            chunk_identifier_generator,
-            updates,
-            marker: PhantomData,
-        }))
+        Ok(Some(LinkedChunk { links, chunk_identifier_generator, updates, marker: PhantomData }))
     }
 }
 
