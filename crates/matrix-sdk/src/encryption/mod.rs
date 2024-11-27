@@ -613,28 +613,28 @@ impl Client {
     }
 
     async fn send_outgoing_request(&self, r: OutgoingRequest) -> Result<()> {
-        use matrix_sdk_base::crypto::types::requests::OutgoingRequests;
+        use matrix_sdk_base::crypto::types::requests::AnyOutgoingRequest;
 
         match r.request() {
-            OutgoingRequests::KeysQuery(request) => {
+            AnyOutgoingRequest::KeysQuery(request) => {
                 self.keys_query(r.request_id(), request.device_keys.clone()).await?;
             }
-            OutgoingRequests::KeysUpload(request) => {
+            AnyOutgoingRequest::KeysUpload(request) => {
                 self.keys_upload(r.request_id(), request).await?;
             }
-            OutgoingRequests::ToDeviceRequest(request) => {
+            AnyOutgoingRequest::ToDeviceRequest(request) => {
                 let response = self.send_to_device(request).await?;
                 self.mark_request_as_sent(r.request_id(), &response).await?;
             }
-            OutgoingRequests::SignatureUpload(request) => {
+            AnyOutgoingRequest::SignatureUpload(request) => {
                 let response = self.send(request.clone(), None).await?;
                 self.mark_request_as_sent(r.request_id(), &response).await?;
             }
-            OutgoingRequests::RoomMessage(request) => {
+            AnyOutgoingRequest::RoomMessage(request) => {
                 let response = self.room_send_helper(request).await?;
                 self.mark_request_as_sent(r.request_id(), &response).await?;
             }
-            OutgoingRequests::KeysClaim(request) => {
+            AnyOutgoingRequest::KeysClaim(request) => {
                 let response = self.send(request.clone(), None).await?;
                 self.mark_request_as_sent(r.request_id(), &response).await?;
             }

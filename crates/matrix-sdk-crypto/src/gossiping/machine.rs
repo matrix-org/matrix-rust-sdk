@@ -1117,7 +1117,7 @@ mod tests {
     use crate::{
         gossiping::KeyForwardDecision,
         olm::OutboundGroupSession,
-        types::requests::OutgoingRequests,
+        types::requests::AnyOutgoingRequest,
         types::{
             events::{
                 forwarded_room_key::ForwardedRoomKeyContent, olm_v1::AnyDecryptedOlmEvent,
@@ -2066,7 +2066,7 @@ mod tests {
         assert_eq!(bob_machine.outgoing_to_device_requests().await.unwrap().len(), 1);
         assert_matches!(
             bob_machine.outgoing_to_device_requests().await.unwrap()[0].request(),
-            OutgoingRequests::KeysClaim(_)
+            AnyOutgoingRequest::KeysClaim(_)
         );
         assert!(!bob_machine.inner.users_for_key_claim.read().unwrap().is_empty());
         assert!(!bob_machine.inner.wait_queue.is_empty());

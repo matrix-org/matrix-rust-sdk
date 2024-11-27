@@ -765,15 +765,15 @@ impl TryFrom<OutgoingRequest> for OutgoingContent {
     type Error = String;
 
     fn try_from(value: OutgoingRequest) -> Result<Self, Self::Error> {
-        use crate::types::requests::OutgoingRequests;
+        use crate::types::requests::AnyOutgoingRequest;
 
         match value.request() {
-            OutgoingRequests::KeysUpload(_)
-            | OutgoingRequests::KeysQuery(_)
-            | OutgoingRequests::SignatureUpload(_)
-            | OutgoingRequests::KeysClaim(_) => Err("Invalid request type".to_owned()),
-            OutgoingRequests::ToDeviceRequest(r) => Self::try_from(r.clone()),
-            OutgoingRequests::RoomMessage(r) => Ok(Self::from(r.clone())),
+            AnyOutgoingRequest::KeysUpload(_)
+            | AnyOutgoingRequest::KeysQuery(_)
+            | AnyOutgoingRequest::SignatureUpload(_)
+            | AnyOutgoingRequest::KeysClaim(_) => Err("Invalid request type".to_owned()),
+            AnyOutgoingRequest::ToDeviceRequest(r) => Self::try_from(r.clone()),
+            AnyOutgoingRequest::RoomMessage(r) => Ok(Self::from(r.clone())),
         }
     }
 }

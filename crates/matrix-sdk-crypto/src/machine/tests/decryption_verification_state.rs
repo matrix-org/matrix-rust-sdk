@@ -42,7 +42,7 @@ use crate::{
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
             ToDeviceEvent,
         },
-        requests::OutgoingRequests,
+        requests::AnyOutgoingRequest,
         CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, SelfSigningPubkey,
     },
     utilities::json_convert,
@@ -498,7 +498,7 @@ async fn set_up_alice_cross_signing(alice: &OlmMachine, bob: &OlmMachine) {
         upload_signing_keys_req.self_signing_key.unwrap().try_into().unwrap();
     let upload_keys_req = cross_signing_requests.upload_keys_req.unwrap().clone();
     assert_let!(
-        OutgoingRequests::KeysUpload(device_upload_request) = upload_keys_req.request.as_ref()
+        AnyOutgoingRequest::KeysUpload(device_upload_request) = upload_keys_req.request.as_ref()
     );
     bob.store()
         .save_device_data(&[DeviceData::try_from(

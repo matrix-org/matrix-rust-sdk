@@ -66,7 +66,7 @@ use crate::{
             },
             ToDeviceEvent,
         },
-        requests::{OutgoingRequests, ToDeviceRequest},
+        requests::{AnyOutgoingRequest, ToDeviceRequest},
         DeviceKeys, SignedKey, SigningKeys,
     },
     utilities::json_convert,
@@ -449,7 +449,7 @@ async fn test_request_missing_secrets() {
         .unwrap()
         .into_iter()
         .filter(|outgoing| match outgoing.request.as_ref() {
-            OutgoingRequests::ToDeviceRequest(request) => {
+            AnyOutgoingRequest::ToDeviceRequest(request) => {
                 request.event_type.to_string() == "m.secret.request"
             }
             _ => false,
@@ -480,7 +480,7 @@ async fn test_request_missing_secrets_cross_signed() {
         .unwrap()
         .into_iter()
         .filter(|outgoing| match outgoing.request.as_ref() {
-            OutgoingRequests::ToDeviceRequest(request) => {
+            AnyOutgoingRequest::ToDeviceRequest(request) => {
                 request.event_type.to_string() == "m.secret.request"
             }
             _ => false,

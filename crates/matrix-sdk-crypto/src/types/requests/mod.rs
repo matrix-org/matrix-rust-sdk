@@ -42,7 +42,7 @@ pub struct OutgoingRequest {
     /// response.
     pub(crate) request_id: OwnedTransactionId,
     /// The underlying outgoing request.
-    pub(crate) request: Arc<OutgoingRequests>,
+    pub(crate) request: Arc<AnyOutgoingRequest>,
 }
 
 impl OutgoingRequest {
@@ -52,7 +52,7 @@ impl OutgoingRequest {
     }
 
     /// Get the underlying outgoing request.
-    pub fn request(&self) -> &OutgoingRequests {
+    pub fn request(&self) -> &AnyOutgoingRequest {
         &self.request
     }
 }
