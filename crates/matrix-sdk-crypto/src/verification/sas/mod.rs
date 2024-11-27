@@ -43,8 +43,8 @@ use super::{
 use crate::{
     identities::{DeviceData, UserIdentityData},
     olm::StaticAccountData,
-    requests::{OutgoingVerificationRequest, RoomMessageRequest},
     store::CryptoStoreError,
+    types::requests::{OutgoingVerificationRequest, RoomMessageRequest},
     Emoji, ToDeviceRequest,
 };
 

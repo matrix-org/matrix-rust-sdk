@@ -38,8 +38,8 @@ use super::{
 };
 use crate::{
     olm::{PrivateCrossSigningIdentity, StaticAccountData},
-    requests::OutgoingRequest,
     store::{CryptoStoreError, CryptoStoreWrapper},
+    types::requests::OutgoingRequest,
     DeviceData, OtherUserIdentityData, OutgoingVerificationRequest, RoomMessageRequest,
     ToDeviceRequest,
 };
