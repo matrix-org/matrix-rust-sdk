@@ -15,13 +15,13 @@ js = ["dep:getrandom", "getrandom?/js"]
 
 [dependencies]
 base64 = { workspace = true }
-blake3 = "1.5.0"
+blake3 = "1.5.5"
 chacha20poly1305 = { version = "0.10.1", features = ["std"] }
-getrandom = { version = "0.2.10", optional = true }
-hmac = "0.12.1"
-pbkdf2 = "0.12.2"
+getrandom = { version = "0.2.15", optional = true }
+hmac = { workspace = true }
+pbkdf2 = { workspace = true }
 rand = { workspace = true }
-rmp-serde = "1.1.2"
+rmp-serde = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

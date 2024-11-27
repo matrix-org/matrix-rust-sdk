@@ -69,34 +69,34 @@ anymap2 = "0.13.0"
 aquamarine = { workspace = true }
 assert_matches2 = { workspace = true, optional = true }
 as_variant = { workspace = true }
-async-channel = "2.2.1"
+async-channel = "2.3.1"
 async-stream = { workspace = true }
 async-trait = { workspace = true }
-axum = { version = "0.7.4", optional = true }
-bytes = "1.1.0"
-bytesize = "1.1"
-chrono = { version = "0.4.23", optional = true }
-event-listener = "5.3.0"
+axum = { version = "0.7.9", optional = true }
+bytes = "1.8.0"
+bytesize = "1.3"
+chrono = { workspace = true, optional = true }
+event-listener = "5.3.1"
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
-eyre = { version = "0.6.8", optional = true }
+eyre = { version = "0.6.12", optional = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
 growable-bloom-filter = { workspace = true }
 http = { workspace = true }
 imbl = { workspace = true, features = ["serde"] }
-indexmap = "2.0.2"
+indexmap = { workspace = true }
 js_int = "0.2.2"
 language-tags = { version = "0.3.2", optional = true }
-mas-oidc-client = { version = "0.10.0", default-features = false, optional = true }
+mas-oidc-client = { version = "0.11.0", default-features = false, optional = true }
 matrix-sdk-base = { workspace = true }
 matrix-sdk-common = { workspace = true }
 matrix-sdk-ffi-macros = { workspace = true, optional = true }
 matrix-sdk-indexeddb = { workspace = true, optional = true }
 matrix-sdk-sqlite = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }
-mime = "0.3.16"
-mime2ext = "0.1.52"
+mime = { workspace = true }
+mime2ext = "0.1.53"
 pin-project-lite = { workspace = true }
 rand = { workspace = true , optional = true }
 ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965", "unstable-msc3930", "unstable-msc3245-v1-compat", "unstable-msc2867"] }
@@ -104,31 +104,31 @@ serde = { workspace = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true, optional = true }
-tempfile = "3.3.0"
+tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio-stream = { workspace = true, features = ["sync"] }
-tower = { version = "0.4.13", features = ["util"], optional = true }
+tower = { version = "0.5.1", features = ["util"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 uniffi = { workspace = true, optional = true }
 url = { workspace = true, features = ["serde"] }
 urlencoding = "2.1.3"
-uuid = { version = "1.4.1", features = ["serde", "v4"], optional = true }
+uuid = { workspace = true, features = ["serde", "v4"], optional = true }
 vodozemac = { workspace = true }
 zeroize = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-gloo-timers = { version = "0.3.0", features = ["futures"] }
+gloo-timers = { workspace = true, features = ["futures"] }
 reqwest = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }
-openidconnect = { version = "4.0.0-alpha.2", optional = true }
+openidconnect = { version = "4.0.0-rc.1", optional = true }
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
 reqwest = { workspace = true, features = ["stream"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
-tokio-util = "0.7.9"
+tokio-util = "0.7.12"
 wiremock = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -148,10 +148,10 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tokio-test = "0.4.4"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test = "0.3.33"
+wasm-bindgen-test = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-proptest = "1.4.0"
+proptest = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 wiremock = { workspace = true }
 

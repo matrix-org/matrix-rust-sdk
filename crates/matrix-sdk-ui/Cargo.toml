@@ -21,10 +21,10 @@ unstable-msc3956 = ["ruma/unstable-msc3956"]
 [dependencies]
 as_variant = { workspace = true }
 async_cell = "0.2.2"
-async-once-cell = "0.5.2"
+async-once-cell = "0.5.4"
 async-rx = { workspace = true }
 async-stream = { workspace = true }
-chrono = "0.4.23"
+chrono = { workspace = true }
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }
 eyeball-im-util = { workspace = true }
@@ -33,11 +33,11 @@ futures-util = { workspace = true }
 fuzzy-matcher = "0.3.7"
 growable-bloom-filter = { workspace = true }
 imbl = { workspace = true, features = ["serde"] }
-indexmap = "2.0.0"
+indexmap = { workspace = true }
 itertools = { workspace = true }
 matrix-sdk = { workspace = true, features = ["experimental-sliding-sync", "e2e-encryption"] }
 matrix-sdk-base = { workspace = true }
-mime = "0.3.16"
+mime = { workspace = true }
 once_cell = { workspace = true }
 pin-project-lite = { workspace = true }
 ruma = { workspace = true, features = ["html", "unstable-msc3381"] }
@@ -47,7 +47,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true, features = ["sync"] }
 tracing = { workspace = true, features = ["attributes"] }
-unicode-normalization = "0.1.22"
+unicode-normalization = { workspace = true }
 uniffi = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -59,7 +59,7 @@ eyeball-im-util = { workspace = true }
 matrix-sdk = { workspace = true, features = ["testing", "sqlite"] }
 matrix-sdk-test = { workspace = true }
 stream_assert = { workspace = true }
-tempfile = "3.3.0"
+tempfile = { workspace = true }
 wiremock = { workspace = true }
 
 [lints]

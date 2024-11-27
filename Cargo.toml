@@ -18,34 +18,44 @@ default-members = ["benchmarks", "crates/*", "labs/*"]
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.76"
+rust-version = "1.80"
 
 [workspace.dependencies]
-anyhow = "1.0.68"
+anyhow = "1.0.93"
 aquamarine = "0.6.0"
-assert-json-diff = "2"
+assert-json-diff = "2.0.2"
 assert_matches = "1.5.0"
-assert_matches2 = "0.1.1"
+assert_matches2 = "0.1.2"
 async-rx = "0.1.3"
-async-stream = "0.3.3"
-async-trait = "0.1.60"
+async-stream = "0.3.5"
+async-trait = "0.1.83"
 as_variant = "1.2.0"
-base64 = "0.22.0"
-byteorder = "1.4.3"
+base64 = "0.22.1"
+byteorder = "1.5.0"
+chrono = "0.4.38"
 eyeball = { version = "0.8.8", features = ["tracing"] }
 eyeball-im = { version = "0.5.1", features = ["tracing"] }
 eyeball-im-util = "0.7.0"
-futures-core = "0.3.28"
+futures-core = "0.3.31"
 futures-executor = "0.3.21"
-futures-util = "0.3.26"
-growable-bloom-filter = "2.1.0"
+futures-util = "0.3.31"
+gloo-timers = "0.3.0"
+growable-bloom-filter = "2.1.1"
+hkdf = "0.12.4"
+hmac = "0.12.1"
 http = "1.1.0"
 imbl = "3.0.0"
-itertools = "0.12.0"
-once_cell = "1.16.0"
-pin-project-lite = "0.2.9"
+indexmap = "2.6.0"
+itertools = "0.13.0"
+js-sys = "0.3.69"
+mime = "0.3.17"
+once_cell = "1.20.2"
+pbkdf2 = { version = "0.12.2" }
+pin-project-lite = "0.2.15"
+proptest = { version = "1.5.0", default-features = false, features = ["std"] }
 rand = "0.8.5"
 reqwest = { version = "0.12.4", default-features = false }
+rmp-serde = "1.3.0"
 ruma = { version = "0.11.1", features = [
     "client-api-c",
     "compat-upload-signatures",
@@ -65,20 +75,26 @@ serde = "1.0.151"
 serde_html_form = "0.2.0"
 serde_json = "1.0.91"
 sha2 = "0.10.8"
-similar-asserts = "1.5.0"
+similar-asserts = "1.6.0"
 stream_assert = "0.1.1"
-thiserror = "1.0.38"
-tokio = { version = "1.39.1", default-features = false, features = ["sync"] }
+tempfile = "3.9.0"
+thiserror = "2.0.3"
+tokio = { version = "1.41.1", default-features = false, features = ["sync"] }
 tokio-stream = "0.1.14"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
 tracing-subscriber = "0.3.18"
+unicode-normalization = "0.1.24"
 uniffi = { version = "0.28.0" }
 uniffi_bindgen = { version = "0.28.0" }
-url = "2.5.0"
-vodozemac = { version = "0.8.0", features = ["insecure-pk-encryption"] }
-wiremock = "0.6.0"
-zeroize = "1.6.0"
+url = "2.5.4"
+uuid = "1.11.0"
+vodozemac = { version = "0.8.1", features = ["insecure-pk-encryption"] }
+wasm-bindgen = "0.2.84"
+wasm-bindgen-test = "0.3.33"
+web-sys = "0.3.69"
+wiremock = "0.6.2"
+zeroize = "1.8.1"
 
 matrix-sdk = { path = "crates/matrix-sdk", version = "0.8.0", default-features = false }
 matrix-sdk-base = { path = "crates/matrix-sdk-base", version = "0.8.0" }
