@@ -23,7 +23,7 @@ use js_sys::Date as JsDate;
 use matrix_sdk_base::{
     deserialized_responses::SyncOrStrippedState,
     store::{
-        migration_helpers::{DependentQueuedRequestKindV1, DependentQueuedRequestV1, RoomInfoV1},
+        migration_helpers::{DependentQueuedRequestV1, RoomInfoV1},
         DependentQueuedRequest,
     },
     StateStoreDataKey,
