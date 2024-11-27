@@ -438,7 +438,7 @@ fn events_intersects<'a>(
     let previous_events_ids = BTreeSet::from_iter(previous_events.filter_map(|ev| ev.event_id()));
     new_events
         .iter()
-        .any(|ev| ev.event_id().map_or(false, |event_id| previous_events_ids.contains(&event_id)))
+        .any(|ev| ev.event_id().is_some_and(|event_id| previous_events_ids.contains(&event_id)))
 }
 
 /// Given a set of events coming from sync, for a room, update the

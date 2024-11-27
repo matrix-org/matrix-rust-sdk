@@ -854,8 +854,8 @@ impl OtherUserIdentityData {
 
         // Check if the new master_key is signed by our own **verified**
         // user_signing_key. If the identity was verified we remember it.
-        let updated_is_verified = maybe_verified_own_user_signing_key
-            .map_or(false, |own_user_signing_key| {
+        let updated_is_verified =
+            maybe_verified_own_user_signing_key.is_some_and(|own_user_signing_key| {
                 own_user_signing_key.verify_master_key(&master_key).is_ok()
             });
 

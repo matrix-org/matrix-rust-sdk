@@ -1031,7 +1031,7 @@ impl TimelineMetadata {
                 .skip(*i + 1)
                 // …that's not virtual and not sent by us…
                 .find(|(_, item)| {
-                    item.as_event().map_or(false, |event| event.sender() != self.own_user_id)
+                    item.as_event().is_some_and(|event| event.sender() != self.own_user_id)
                 })
                 .map(|(i, _)| i);
 

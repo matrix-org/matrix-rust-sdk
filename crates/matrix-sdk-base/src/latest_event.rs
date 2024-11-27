@@ -74,7 +74,7 @@ pub fn is_suitable_for_latest_event<'a>(
             // Check if this is a replacement for another message. If it is, ignore it
             if let Some(original_message) = message.as_original() {
                 let is_replacement =
-                    original_message.content.relates_to.as_ref().map_or(false, |relates_to| {
+                    original_message.content.relates_to.as_ref().is_some_and(|relates_to| {
                         if let Some(relation_type) = relates_to.rel_type() {
                             relation_type == RelationType::Replacement
                         } else {
@@ -83,12 +83,13 @@ pub fn is_suitable_for_latest_event<'a>(
                     });
 
                 if is_replacement {
-                    return PossibleLatestEvent::NoUnsupportedMessageLikeType;
+                    PossibleLatestEvent::NoUnsupportedMessageLikeType
+                } else {
+                    PossibleLatestEvent::YesRoomMessage(message)
                 }
-                return PossibleLatestEvent::YesRoomMessage(message);
+            } else {
+                PossibleLatestEvent::YesRoomMessage(message)
             }
-
-            return PossibleLatestEvent::YesRoomMessage(message);
         }
 
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::UnstablePollStart(poll)) => {
