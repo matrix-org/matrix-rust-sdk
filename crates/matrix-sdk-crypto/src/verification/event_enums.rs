@@ -679,9 +679,9 @@ impl From<(OwnedRoomId, AnyMessageLikeEventContent)> for OutgoingContent {
     }
 }
 
-use crate::{
-    types::events::ToDeviceEvents, OutgoingRequest, OutgoingVerificationRequest,
-    RoomMessageRequest, ToDeviceRequest,
+use crate::types::{
+    events::ToDeviceEvents,
+    requests::{OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest},
 };
 
 impl TryFrom<OutgoingVerificationRequest> for OutgoingContent {
@@ -765,13 +765,15 @@ impl TryFrom<OutgoingRequest> for OutgoingContent {
     type Error = String;
 
     fn try_from(value: OutgoingRequest) -> Result<Self, Self::Error> {
+        use crate::types::requests::OutgoingRequests;
+
         match value.request() {
-            crate::OutgoingRequests::KeysUpload(_)
-            | crate::OutgoingRequests::KeysQuery(_)
-            | crate::OutgoingRequests::SignatureUpload(_)
-            | crate::OutgoingRequests::KeysClaim(_) => Err("Invalid request type".to_owned()),
-            crate::OutgoingRequests::ToDeviceRequest(r) => Self::try_from(r.clone()),
-            crate::OutgoingRequests::RoomMessage(r) => Ok(Self::from(r.clone())),
+            OutgoingRequests::KeysUpload(_)
+            | OutgoingRequests::KeysQuery(_)
+            | OutgoingRequests::SignatureUpload(_)
+            | OutgoingRequests::KeysClaim(_) => Err("Invalid request type".to_owned()),
+            OutgoingRequests::ToDeviceRequest(r) => Self::try_from(r.clone()),
+            OutgoingRequests::RoomMessage(r) => Ok(Self::from(r.clone())),
         }
     }
 }

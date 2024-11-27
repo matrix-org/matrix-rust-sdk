@@ -51,8 +51,8 @@ use super::{
     VerificationStore,
 };
 use crate::{
-    CryptoStoreError, DeviceData, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
-    UserIdentityData,
+    types::requests::{OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest},
+    CryptoStoreError, DeviceData, UserIdentityData,
 };
 
 const SECRET_SIZE: usize = 16;

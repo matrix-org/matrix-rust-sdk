@@ -54,9 +54,8 @@ use crate::{
     gossiping::{GossipMachine, GossipRequest},
     olm::{PrivateCrossSigningIdentity, StaticAccountData},
     store::{Changes, CryptoStoreWrapper},
-    types::Signatures,
-    CryptoStoreError, DeviceData, LocalTrust, OutgoingVerificationRequest, OwnUserIdentityData,
-    UserIdentityData,
+    types::{requests::OutgoingVerificationRequest, Signatures},
+    CryptoStoreError, DeviceData, LocalTrust, OwnUserIdentityData, UserIdentityData,
 };
 
 #[derive(Clone, Debug)]
@@ -749,10 +748,9 @@ pub(crate) mod tests {
         store::{Changes, CryptoStore, CryptoStoreWrapper, IdentityChanges, MemoryStore},
         types::{
             events::ToDeviceEvents,
-            requests::{OutgoingRequest, OutgoingRequests},
+            requests::{OutgoingRequest, OutgoingRequests, OutgoingVerificationRequest},
         },
-        Account, DeviceData, OtherUserIdentityData, OutgoingVerificationRequest,
-        OwnUserIdentityData,
+        Account, DeviceData, OtherUserIdentityData, OwnUserIdentityData,
     };
 
     pub(crate) fn request_to_event(

@@ -22,9 +22,9 @@ use crate::{
         test_helpers::{get_machine_pair, get_machine_pair_with_session},
         tests,
     },
-    types::events::ToDeviceEvent,
+    types::{events::ToDeviceEvent, requests::ToDeviceRequest},
     utilities::json_convert,
-    EncryptionSyncChanges, OlmError, ToDeviceRequest,
+    EncryptionSyncChanges, OlmError,
 };
 
 #[async_test]

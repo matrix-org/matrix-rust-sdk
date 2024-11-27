@@ -56,9 +56,10 @@ use crate::{
             room_key::{MegolmV1AesSha2Content as MegolmV1AesSha2RoomKeyContent, RoomKeyContent},
             room_key_withheld::{RoomKeyWithheldContent, WithheldCode},
         },
+        requests::ToDeviceRequest,
         EventEncryptionAlgorithm,
     },
-    DeviceData, ToDeviceRequest,
+    DeviceData,
 };
 
 const ONE_HOUR: Duration = Duration::from_secs(60 * 60);

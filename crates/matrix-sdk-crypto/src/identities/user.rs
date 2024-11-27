@@ -36,9 +36,11 @@ use tracing::error;
 use crate::{
     error::SignatureError,
     store::{Changes, IdentityChanges, Store},
-    types::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
+    types::{
+        requests::OutgoingVerificationRequest, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
+    },
     verification::VerificationMachine,
-    CryptoStoreError, DeviceData, OutgoingVerificationRequest, VerificationRequest,
+    CryptoStoreError, DeviceData, VerificationRequest,
 };
 
 /// Enum over the different user identity types we can have.

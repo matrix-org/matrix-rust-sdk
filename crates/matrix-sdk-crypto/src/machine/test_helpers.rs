@@ -34,8 +34,9 @@ use ruma::{
 use serde_json::json;
 
 use crate::{
-    store::Changes, types::events::ToDeviceEvent, CrossSigningBootstrapRequests, DeviceData,
-    OlmMachine, OutgoingRequests,
+    store::Changes,
+    types::{events::ToDeviceEvent, requests::OutgoingRequests},
+    CrossSigningBootstrapRequests, DeviceData, OlmMachine,
 };
 
 /// These keys need to be periodically uploaded to the server.

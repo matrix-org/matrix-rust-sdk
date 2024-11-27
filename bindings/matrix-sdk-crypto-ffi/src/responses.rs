@@ -4,9 +4,12 @@ use std::collections::HashMap;
 
 use http::Response;
 use matrix_sdk_crypto::{
-    CrossSigningBootstrapRequests, IncomingResponse, KeysBackupRequest, OutgoingRequest,
-    OutgoingVerificationRequest as SdkVerificationRequest, RoomMessageRequest, ToDeviceRequest,
-    UploadSigningKeysRequest as RustUploadSigningKeysRequest,
+    types::requests::{
+        IncomingResponse, KeysBackupRequest, OutgoingRequest,
+        OutgoingVerificationRequest as SdkVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+        UploadSigningKeysRequest as RustUploadSigningKeysRequest,
+    },
+    CrossSigningBootstrapRequests,
 };
 use ruma::{
     api::client::{
@@ -136,7 +139,7 @@ pub enum Request {
 
 impl From<OutgoingRequest> for Request {
     fn from(r: OutgoingRequest) -> Self {
-        use matrix_sdk_crypto::OutgoingRequests::*;
+        use matrix_sdk_crypto::types::requests::OutgoingRequests::*;
 
         match r.request() {
             KeysUpload(u) => {

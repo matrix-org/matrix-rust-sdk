@@ -31,7 +31,10 @@ use futures_util::{
     stream::{self, StreamExt},
 };
 use matrix_sdk_base::crypto::{
-    CrossSigningBootstrapRequests, OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
+    types::requests::{
+        OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+    },
+    CrossSigningBootstrapRequests, OlmMachine,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
@@ -377,7 +380,7 @@ impl Client {
     pub(crate) async fn mark_request_as_sent(
         &self,
         request_id: &TransactionId,
-        response: impl Into<matrix_sdk_base::crypto::IncomingResponse<'_>>,
+        response: impl Into<matrix_sdk_base::crypto::types::requests::IncomingResponse<'_>>,
     ) -> Result<(), matrix_sdk_base::Error> {
         Ok(self
             .olm_machine()
@@ -579,13 +582,15 @@ impl Client {
 
     pub(crate) async fn send_verification_request(
         &self,
-        request: matrix_sdk_base::crypto::OutgoingVerificationRequest,
+        request: OutgoingVerificationRequest,
     ) -> Result<()> {
+        use matrix_sdk_base::crypto::types::requests::OutgoingVerificationRequest::*;
+
         match request {
-            matrix_sdk_base::crypto::OutgoingVerificationRequest::ToDevice(t) => {
+            ToDevice(t) => {
                 self.send_to_device(&t).await?;
             }
-            matrix_sdk_base::crypto::OutgoingVerificationRequest::InRoom(r) => {
+            InRoom(r) => {
                 self.room_send_helper(&r).await?;
             }
         }
@@ -608,7 +613,7 @@ impl Client {
     }
 
     async fn send_outgoing_request(&self, r: OutgoingRequest) -> Result<()> {
-        use matrix_sdk_base::crypto::OutgoingRequests;
+        use matrix_sdk_base::crypto::types::requests::OutgoingRequests;
 
         match r.request() {
             OutgoingRequests::KeysQuery(request) => {

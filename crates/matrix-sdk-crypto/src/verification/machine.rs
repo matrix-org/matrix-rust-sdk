@@ -39,9 +39,10 @@ use super::{
 use crate::{
     olm::{PrivateCrossSigningIdentity, StaticAccountData},
     store::{CryptoStoreError, CryptoStoreWrapper},
-    types::requests::OutgoingRequest,
-    DeviceData, OtherUserIdentityData, OutgoingVerificationRequest, RoomMessageRequest,
-    ToDeviceRequest,
+    types::requests::{
+        OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+    },
+    DeviceData, OtherUserIdentityData,
 };
 
 #[derive(Clone, Debug)]

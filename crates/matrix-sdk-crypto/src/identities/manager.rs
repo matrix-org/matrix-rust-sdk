@@ -1230,9 +1230,8 @@ pub(crate) mod testing {
         identities::IdentityManager,
         olm::{Account, PrivateCrossSigningIdentity},
         store::{CryptoStoreWrapper, MemoryStore, PendingChanges, Store},
-        types::DeviceKeys,
+        types::{requests::UploadSigningKeysRequest, DeviceKeys},
         verification::VerificationMachine,
-        UploadSigningKeysRequest,
     };
 
     pub fn user_id() -> &'static UserId {
