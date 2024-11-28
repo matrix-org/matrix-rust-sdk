@@ -1,18 +1,16 @@
-/*
-Copyright 2024 The Matrix.org Foundation C.I.C.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+// Copyright 2024 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 use std::{fmt::Debug, iter, pin::Pin};
 
@@ -23,6 +21,7 @@ use matrix_sdk_test::async_test;
 use ruma::{room_id, user_id, RoomId, TransactionId, UserId};
 use serde::Serialize;
 use serde_json::json;
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 
 use crate::{
     machine::{
@@ -305,13 +304,16 @@ where
 /// Given the `room_keys_received_stream`, check that there is a pending update,
 /// and pop it.
 fn get_room_key_received_update(
-    room_keys_received_stream: &mut Pin<Box<impl Stream<Item = Vec<RoomKeyInfo>>>>,
+    room_keys_received_stream: &mut Pin<
+        Box<impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>>>,
+    >,
 ) -> RoomKeyInfo {
     room_keys_received_stream
         .next()
         .now_or_never()
         .flatten()
         .expect("We should have received an update of room key infos")
+        .unwrap()
         .pop()
         .expect("Received an empty room key info update")
 }
