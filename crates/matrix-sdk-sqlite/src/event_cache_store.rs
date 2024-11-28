@@ -358,6 +358,9 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 3 {
+        // Enable foreign keys for this database.
+        conn.execute_batch("PRAGMA foreign_keys = ON;").await?;
+
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/003_events.sql"))?;
             txn.set_db_version(3)
