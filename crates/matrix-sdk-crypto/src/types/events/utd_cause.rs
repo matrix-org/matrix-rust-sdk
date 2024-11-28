@@ -160,10 +160,7 @@ mod tests {
             UtdCause::determine(
                 &raw_event(json!({})),
                 some_crypto_context_info(),
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::MissingMegolmSession,
-                }
+                &missing_megolm_session()
             ),
             UtdCause::Unknown
         );
@@ -176,10 +173,7 @@ mod tests {
             UtdCause::determine(
                 &raw_event(json!({})),
                 some_crypto_context_info(),
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::MissingMegolmSession
-                }
+                &missing_megolm_session()
             ),
             UtdCause::Unknown
         );
@@ -193,10 +187,7 @@ mod tests {
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": 3 } })),
                 some_crypto_context_info(),
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::MissingMegolmSession
-                }
+                &missing_megolm_session()
             ),
             UtdCause::Unknown
         );
@@ -210,10 +201,7 @@ mod tests {
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": "invite" } }),),
                 some_crypto_context_info(),
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::MissingMegolmSession
-                }
+                &missing_megolm_session()
             ),
             UtdCause::Unknown
         );
@@ -227,10 +215,7 @@ mod tests {
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": "join" } })),
                 some_crypto_context_info(),
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::MissingMegolmSession
-                }
+                &missing_megolm_session()
             ),
             UtdCause::Unknown
         );
@@ -244,10 +229,7 @@ mod tests {
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": "leave" } })),
                 some_crypto_context_info(),
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::MissingMegolmSession
-                }
+                &missing_megolm_session()
             ),
             UtdCause::SentBeforeWeJoined
         );
@@ -262,10 +244,7 @@ mod tests {
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": "leave" } })),
                 some_crypto_context_info(),
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::MalformedEncryptedEvent
-                }
+                &malformed_encrypted_event()
             ),
             UtdCause::Unknown
         );
@@ -278,10 +257,7 @@ mod tests {
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "io.element.msc4115.membership": "leave" } })),
                 some_crypto_context_info(),
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::MissingMegolmSession
-                }
+                &missing_megolm_session()
             ),
             UtdCause::SentBeforeWeJoined
         );
@@ -293,12 +269,7 @@ mod tests {
             UtdCause::determine(
                 &raw_event(json!({})),
                 some_crypto_context_info(),
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::SenderIdentityNotTrusted(
-                        VerificationLevel::VerificationViolation,
-                    )
-                }
+                &verification_violation()
             ),
             UtdCause::VerificationViolation
         );
@@ -310,12 +281,7 @@ mod tests {
             UtdCause::determine(
                 &raw_event(json!({})),
                 some_crypto_context_info(),
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::SenderIdentityNotTrusted(
-                        VerificationLevel::UnsignedDevice,
-                    )
-                }
+                &unsigned_device()
             ),
             UtdCause::UnsignedDevice
         );
@@ -327,12 +293,7 @@ mod tests {
             UtdCause::determine(
                 &raw_event(json!({})),
                 some_crypto_context_info(),
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::SenderIdentityNotTrusted(
-                        VerificationLevel::None(DeviceLinkProblem::MissingDevice)
-                    )
-                }
+                &missing_device()
             ),
             UtdCause::UnknownDevice
         );
@@ -357,10 +318,7 @@ mod tests {
             UtdCause::determine(
                 &raw_event(json!({})),
                 older_than_event_device,
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::MissingMegolmSession
-                }
+                &missing_megolm_session()
             ),
             UtdCause::Unknown
         );
@@ -376,14 +334,7 @@ mod tests {
         // If the key was missing
         // Then we say this is expected, because the event is historical
         assert_eq!(
-            UtdCause::determine(
-                &utd_event,
-                newer_than_event_device,
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::MissingMegolmSession
-                }
-            ),
+            UtdCause::determine(&utd_event, newer_than_event_device, &missing_megolm_session()),
             UtdCause::HistoricalMessage
         );
     }
@@ -407,10 +358,7 @@ mod tests {
             UtdCause::determine(
                 &raw_event(json!({})),
                 older_than_event_device,
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::UnknownMegolmMessageIndex
-                }
+                &unknown_megolm_message_index()
             ),
             UtdCause::Unknown
         );
@@ -429,10 +377,7 @@ mod tests {
             UtdCause::determine(
                 &utd_event,
                 newer_than_event_device,
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::UnknownMegolmMessageIndex
-                }
+                &unknown_megolm_message_index()
             ),
             UtdCause::HistoricalMessage
         );
@@ -457,10 +402,7 @@ mod tests {
             UtdCause::determine(
                 &utd_event,
                 newer_than_event_device,
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::UnknownMegolmMessageIndex
-                }
+                &unknown_megolm_message_index()
             ),
             UtdCause::HistoricalMessage
         );
@@ -468,25 +410,11 @@ mod tests {
         // But if we have some other failure
         // Then we say the UTD is unexpected, and we don't know what type it is
         assert_eq!(
-            UtdCause::determine(
-                &utd_event,
-                newer_than_event_device,
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::MalformedEncryptedEvent
-                }
-            ),
+            UtdCause::determine(&utd_event, newer_than_event_device, &malformed_encrypted_event()),
             UtdCause::Unknown
         );
         assert_eq!(
-            UtdCause::determine(
-                &utd_event,
-                newer_than_event_device,
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::MegolmDecryptionFailure
-                }
-            ),
+            UtdCause::determine(&utd_event, newer_than_event_device, &megolm_decryption_failure()),
             UtdCause::Unknown
         );
     }
@@ -509,28 +437,14 @@ mod tests {
         // If the message key was missing
         // Then we say this was unexpected (because backup was disabled)
         assert_eq!(
-            UtdCause::determine(
-                &utd_event,
-                crypto_context_info,
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::MissingMegolmSession
-                }
-            ),
+            UtdCause::determine(&utd_event, crypto_context_info, &missing_megolm_session()),
             UtdCause::Unknown
         );
 
         // And if the message index was incorrect
         // Then we still say this was unexpected (because backup was disabled)
         assert_eq!(
-            UtdCause::determine(
-                &utd_event,
-                crypto_context_info,
-                &UnableToDecryptInfo {
-                    session_id: None,
-                    reason: UnableToDecryptReason::UnknownMegolmMessageIndex
-                }
-            ),
+            UtdCause::determine(&utd_event, crypto_context_info, &unknown_megolm_message_index()),
             UtdCause::Unknown
         );
     }
@@ -561,6 +475,61 @@ mod tests {
         CryptoContextInfo {
             device_creation_ts: MilliSecondsSinceUnixEpoch(uint!(42)),
             is_backup_configured: false,
+        }
+    }
+
+    fn missing_megolm_session() -> UnableToDecryptInfo {
+        UnableToDecryptInfo {
+            session_id: None,
+            reason: UnableToDecryptReason::MissingMegolmSession,
+        }
+    }
+
+    fn malformed_encrypted_event() -> UnableToDecryptInfo {
+        UnableToDecryptInfo {
+            session_id: None,
+            reason: UnableToDecryptReason::MalformedEncryptedEvent,
+        }
+    }
+
+    fn unknown_megolm_message_index() -> UnableToDecryptInfo {
+        UnableToDecryptInfo {
+            session_id: None,
+            reason: UnableToDecryptReason::UnknownMegolmMessageIndex,
+        }
+    }
+
+    fn megolm_decryption_failure() -> UnableToDecryptInfo {
+        UnableToDecryptInfo {
+            session_id: None,
+            reason: UnableToDecryptReason::MegolmDecryptionFailure,
+        }
+    }
+
+    fn verification_violation() -> UnableToDecryptInfo {
+        UnableToDecryptInfo {
+            session_id: None,
+            reason: UnableToDecryptReason::SenderIdentityNotTrusted(
+                VerificationLevel::VerificationViolation,
+            ),
+        }
+    }
+
+    fn unsigned_device() -> UnableToDecryptInfo {
+        UnableToDecryptInfo {
+            session_id: None,
+            reason: UnableToDecryptReason::SenderIdentityNotTrusted(
+                VerificationLevel::UnsignedDevice,
+            ),
+        }
+    }
+
+    fn missing_device() -> UnableToDecryptInfo {
+        UnableToDecryptInfo {
+            session_id: None,
+            reason: UnableToDecryptReason::SenderIdentityNotTrusted(VerificationLevel::None(
+                DeviceLinkProblem::MissingDevice,
+            )),
         }
     }
 }
