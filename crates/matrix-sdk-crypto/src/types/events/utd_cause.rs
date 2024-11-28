@@ -152,6 +152,10 @@ mod tests {
 
     use crate::types::events::{utd_cause::CryptoContextInfo, UtdCause};
 
+    const EVENT_TIME: usize = 5555;
+    const BEFORE_EVENT_TIME: usize = 1111;
+    const AFTER_EVENT_TIME: usize = 9999;
+
     #[test]
     fn test_a_missing_raw_event_means_we_guess_unknown() {
         // When we don't provide any JSON to check for membership, then we guess the UTD
@@ -296,44 +300,34 @@ mod tests {
     }
 
     #[test]
-    fn test_date_of_device_determines_whether_a_missing_key_utd_is_expected_historical() {
-        // If the key was missing
-        // Then we say the cause is unknown - this is not an historical event
+    fn test_old_devices_dont_cause_historical_utds() {
+        // If the device is old, we say this UTD is unexpected (missing megolm session)
         assert_eq!(
-            UtdCause::determine(
-                &raw_event(json!({})),
-                device_old_with_backup(),
-                &missing_megolm_session()
-            ),
+            UtdCause::determine(&utd_event(), device_old_with_backup(), &missing_megolm_session()),
             UtdCause::Unknown
         );
 
-        // But if the device is newer than the event
-        // If the key was missing
-        // Then we say this is expected, because the event is historical
+        // Same for unknown megolm message index
+        assert_eq!(
+            UtdCause::determine(
+                &utd_event(),
+                device_old_with_backup(),
+                &unknown_megolm_message_index()
+            ),
+            UtdCause::Unknown
+        );
+    }
+
+    #[test]
+    fn test_new_devices_cause_historical_utds() {
+        // If the device is old, we say this UTD is expected historical (missing megolm
+        // session)
         assert_eq!(
             UtdCause::determine(&utd_event(), device_new_with_backup(), &missing_megolm_session()),
             UtdCause::HistoricalMessage
         );
-    }
 
-    #[test]
-    fn test_date_of_device_determines_whether_a_message_index_utd_is_expected_historical() {
-        // If the message index was incorrect
-        // Then we say the cause is unknown - this is not an historical event
-        assert_eq!(
-            UtdCause::determine(
-                &raw_event(json!({})),
-                device_old_with_backup(),
-                &unknown_megolm_message_index()
-            ),
-            UtdCause::Unknown
-        );
-
-        // But if the device is newer than the event
-
-        // If the message index was incorrect
-        // Then we say this is expected, because the event is historical
+        // Same for unknown megolm message index
         assert_eq!(
             UtdCause::determine(
                 &utd_event(),
@@ -345,20 +339,9 @@ mod tests {
     }
 
     #[test]
-    fn test_when_event_is_old_and_message_index_is_wrong_this_is_expected_historical() {
-        // If the message index was incorrect
-        // Then we say this is an expected UTD (because it's historical)
-        assert_eq!(
-            UtdCause::determine(
-                &utd_event(),
-                device_new_with_backup(),
-                &unknown_megolm_message_index()
-            ),
-            UtdCause::HistoricalMessage
-        );
-
-        // But if we have some other failure
-        // Then we say the UTD is unexpected, and we don't know what type it is
+    fn test_malformed_events_are_never_expected_utds() {
+        // Even if the device is new, if the reason for the UTD is a malformed event,
+        // it's an unexpected UTD.
         assert_eq!(
             UtdCause::determine(
                 &utd_event(),
@@ -367,6 +350,8 @@ mod tests {
             ),
             UtdCause::Unknown
         );
+
+        // Same for decryption failures
         assert_eq!(
             UtdCause::determine(
                 &utd_event(),
@@ -378,19 +363,18 @@ mod tests {
     }
 
     #[test]
-    fn test_when_event_is_old_and_message_index_is_wrong_but_backup_is_disabled_this_is_unexpected()
-    {
-        // Given the device is newer than the event
-        // But backup is disabled
-        // If the message key was missing
-        // Then we say this was unexpected (because backup was disabled)
+    fn test_if_backup_is_disabled_this_utd_is_unexpected() {
+        // If the backup is disables, even if the device is new and the reason for the
+        // UTD is missing keys, we still treat this UTD as unexpected.
+        //
+        // TODO: I (AJB) think this is wrong, but it will be addressed as part of
+        // https://github.com/element-hq/element-meta/issues/2638
         assert_eq!(
             UtdCause::determine(&utd_event(), device_new_no_backup(), &missing_megolm_session()),
             UtdCause::Unknown
         );
 
-        // And if the message index was incorrect
-        // Then we still say this was unexpected (because backup was disabled)
+        // Same for unknown megolm message index
         assert_eq!(
             UtdCause::determine(
                 &utd_event(),
@@ -414,7 +398,7 @@ mod tests {
                 "session_id": "A0",
             },
             "sender": "@bob:localhost",
-            "origin_server_ts": 5555,
+            "origin_server_ts": EVENT_TIME,
             "unsigned": { "membership": "join" }
         }))
     }
@@ -423,23 +407,30 @@ mod tests {
         Raw::from_json(to_raw_value(&value).unwrap())
     }
 
+    fn device_old_no_backup() -> CryptoContextInfo {
+        CryptoContextInfo {
+            device_creation_ts: MilliSecondsSinceUnixEpoch((BEFORE_EVENT_TIME).try_into().unwrap()),
+            is_backup_configured: false,
+        }
+    }
+
     fn device_old_with_backup() -> CryptoContextInfo {
         CryptoContextInfo {
-            device_creation_ts: MilliSecondsSinceUnixEpoch((1111).try_into().unwrap()),
+            device_creation_ts: MilliSecondsSinceUnixEpoch((BEFORE_EVENT_TIME).try_into().unwrap()),
             is_backup_configured: true,
         }
     }
 
     fn device_new_no_backup() -> CryptoContextInfo {
         CryptoContextInfo {
-            device_creation_ts: MilliSecondsSinceUnixEpoch((9999).try_into().unwrap()),
+            device_creation_ts: MilliSecondsSinceUnixEpoch((AFTER_EVENT_TIME).try_into().unwrap()),
             is_backup_configured: false,
         }
     }
 
     fn device_new_with_backup() -> CryptoContextInfo {
         CryptoContextInfo {
-            device_creation_ts: MilliSecondsSinceUnixEpoch((9999).try_into().unwrap()),
+            device_creation_ts: MilliSecondsSinceUnixEpoch((AFTER_EVENT_TIME).try_into().unwrap()),
             is_backup_configured: true,
         }
     }
