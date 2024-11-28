@@ -1158,17 +1158,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     None => self.meta.new_timeline_item(item),
                 };
 
-                trace!("Adding new remote timeline item after all non-local events");
-
-                // We are about to insert the `new_item`, great! Though, we try to keep
-                // precise insertion semantics here, in this exact order:
-                //
-                // * _push back_ when the new item is inserted after all items,
-                // * _push front_ when the new item is inserted at index 0,
-                // * _insert_ otherwise.
-                //
-                // It means that the first inserted item will generate a _push back_ for
-                // example.
                 match position {
                     TimelineItemPosition::Start { .. } => {
                         trace!("Adding new remote timeline item at the front");
@@ -1187,9 +1176,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         // local echo, or at the start if there is no such item.
                         let insert_idx = latest_event_idx.map_or(0, |idx| idx + 1);
 
-                        // Let's prioritize push backs because it's the hot path. Events are more
-                        // generally added at the back because they come from the sync most of the
-                        // time.
+                        // Try to keep precise insertion semantics here, in this exact order:
+                        //
+                        // * _push back_ when the new item is inserted after all items (the
+                        //   assumption
+                        // being that this is the hot path, because most of the time new events
+                        // come from the sync),
+                        // * _push front_ when the new item is inserted at index 0,
+                        // * _insert_ otherwise.
+
                         if insert_idx == self.items.len() {
                             trace!("Adding new remote timeline item at the back");
                             self.items.push_back(new_item);
