@@ -50,6 +50,13 @@ mod keys {
 /// the [`run_migrations`] function.
 const DATABASE_VERSION: u8 = 3;
 
+/// The string used to identify a chunk of type events, in the `type` field in
+/// the database.
+const CHUNK_TYPE_EVENT_TYPE_STRING: &str = "E";
+/// The string used to identify a chunk of type gap, in the `type` field in the
+/// database.
+const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
+
 /// A SQLite-based event cache store.
 #[derive(Clone)]
 pub struct SqliteEventCacheStore {
@@ -149,6 +156,7 @@ impl SqliteEventCacheStore {
             .with_transaction(move |txn| -> Result<_> {
                 let mut items = Vec::new();
 
+                // Use `ORDER BY id` to get a deterministic ordering for testing purposes.
                 for data in txn
                     .prepare(
                         "SELECT id, previous, next, type FROM linked_chunks WHERE room_id = ? ORDER BY id",
@@ -238,14 +246,14 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
         let id = ChunkIdentifier::new(id);
 
         match chunk_type {
-            "G" => {
+            CHUNK_TYPE_GAP_TYPE_STRING => {
                 // It's a gap! There's at most one row for it in the database, so a
                 // call to `query_row` is sufficient.
                 let gap = self.load_gap_content(store, room_id, id)?;
                 Ok(RawLinkedChunk { content: ChunkContent::Gap(gap), previous, id, next })
             }
 
-            "E" => {
+            CHUNK_TYPE_EVENT_TYPE_STRING => {
                 // It's events!
                 let events = self.load_events_content(store, room_id, id)?;
                 Ok(RawLinkedChunk { content: ChunkContent::Items(events), previous, id, next })
@@ -421,7 +429,14 @@ impl EventCacheStore for SqliteEventCacheStore {
                     self.acquire()
                         .await?
                         .with_transaction(move |txn| {
-                            insert_chunk(txn, &hashed_room_id, previous, new, next, "E")
+                            insert_chunk(
+                                txn,
+                                &hashed_room_id,
+                                previous,
+                                new,
+                                next,
+                                CHUNK_TYPE_EVENT_TYPE_STRING,
+                            )
                         })
                         .await?;
                 }
@@ -445,11 +460,16 @@ impl EventCacheStore for SqliteEventCacheStore {
                         .await?
                         .with_transaction(move |txn| -> rusqlite::Result<()> {
                             // Insert the chunk as a gap.
-                            insert_chunk(txn, &hashed_room_id, previous, new, next, "G")?;
+                            insert_chunk(
+                                txn,
+                                &hashed_room_id,
+                                previous,
+                                new,
+                                next,
+                                CHUNK_TYPE_GAP_TYPE_STRING,
+                            )?;
 
                             // Insert the gap's value.
-                            // XXX(bnjbvr): might as well inline in the linked_chunks table? better
-                            // for flexibility to use another table though.
                             txn.execute(
                                 r#"
                                 INSERT INTO gaps(chunk_id, room_id, prev_token)
@@ -967,27 +987,64 @@ mod tests {
                         next: None,
                         gap: Gap { prev_token: "raclette".to_owned() },
                     },
-                    Update::RemoveChunk(ChunkIdentifier::new(42)),
+                    Update::NewGapChunk {
+                        previous: Some(ChunkIdentifier::new(42)),
+                        new: ChunkIdentifier::new(43),
+                        next: None,
+                        gap: Gap { prev_token: "fondue".to_owned() },
+                    },
+                    Update::NewGapChunk {
+                        previous: Some(ChunkIdentifier::new(43)),
+                        new: ChunkIdentifier::new(44),
+                        next: None,
+                        gap: Gap { prev_token: "tartiflette".to_owned() },
+                    },
+                    Update::RemoveChunk(ChunkIdentifier::new(43)),
                 ],
             )
             .await
             .unwrap();
 
-        let chunks = store.load_chunks(room_id).await.unwrap();
-        assert!(chunks.is_empty());
+        let mut chunks = store.load_chunks(room_id).await.unwrap();
+
+        assert_eq!(chunks.len(), 2);
+
+        // Chunks are ordered from smaller to bigger IDs.
+        let c = chunks.remove(0);
+        assert_eq!(c.id, ChunkIdentifier::new(42));
+        assert_eq!(c.previous, None);
+        assert_eq!(c.next, Some(ChunkIdentifier::new(44)));
+        assert_matches!(c.content, ChunkContent::Gap(gap) => {
+            assert_eq!(gap.prev_token, "raclette");
+        });
+
+        let c = chunks.remove(0);
+        assert_eq!(c.id, ChunkIdentifier::new(44));
+        assert_eq!(c.previous, Some(ChunkIdentifier::new(42)));
+        assert_eq!(c.next, None);
+        assert_matches!(c.content, ChunkContent::Gap(gap) => {
+            assert_eq!(gap.prev_token, "tartiflette");
+        });
 
         // Check that cascading worked. Yes, sqlite, I doubt you.
-        let num_gaps: u64 = store
+        let gaps = store
             .acquire()
             .await
             .unwrap()
-            .with_transaction(|txn| {
-                txn.query_row("SELECT COUNT(*) FROM gaps", (), |row| row.get(0))
+            .with_transaction(|txn| -> rusqlite::Result<_> {
+                let mut gaps = Vec::new();
+                for data in txn
+                    .prepare("SELECT chunk_id FROM gaps ORDER BY chunk_id")?
+                    .query_map((), |row| row.get::<_, u64>(0))?
+                {
+                    gaps.push(data?);
+                }
+                Ok(gaps)
             })
             .await
             .unwrap();
 
-        assert_eq!(num_gaps, 0);
+        assert_eq!(gaps, vec![42, 44]);
     }
 
     fn make_test_event(content: &str) -> SyncTimelineEvent {
