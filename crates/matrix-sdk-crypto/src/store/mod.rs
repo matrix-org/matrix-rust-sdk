@@ -57,6 +57,7 @@ use ruma::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::{Mutex, MutexGuard, Notify, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{info, warn};
 use vodozemac::{base64_encode, megolm::SessionOrdering, Curve25519PublicKey};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -1593,12 +1594,14 @@ impl Store {
     /// the stream. Updates that happen at the same time are batched into a
     /// [`Vec`].
     ///
-    /// If the reader of the stream lags too far behind, a warning will be
-    /// logged and items will be dropped.
+    /// If the reader of the stream lags too far behind an error will be sent to
+    /// the reader.
     ///
     /// The stream will terminate once all references to the underlying
     /// `CryptoStoreWrapper` are dropped.
-    pub fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
+    pub fn room_keys_received_stream(
+        &self,
+    ) -> impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>> {
         self.inner.store.room_keys_received_stream()
     }
 
@@ -2043,7 +2046,8 @@ mod tests {
             .next()
             .now_or_never()
             .flatten()
-            .expect("We should have received an update of room key infos");
+            .expect("We should have received an update of room key infos")
+            .unwrap();
         assert_eq!(room_keys.len(), 1);
         assert_eq!(room_keys[0].room_id, "!room1:localhost");
     }
