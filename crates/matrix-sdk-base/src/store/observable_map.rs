@@ -195,6 +195,12 @@ mod tests {
         assert_eq!(map.get(&'a'), Some(&'E'));
         assert_eq!(map.get(&'b'), Some(&'f'));
         assert_eq!(map.get(&'c'), Some(&'G'));
+
+        // remove non-last item
+        assert_eq!(map.remove(&'b'), Some('f'));
+
+        // get_or_create item after the removed one
+        assert_eq!(map.get_or_create(&'c', || 'G'), &'G');
     }
 
     #[test]
@@ -208,20 +214,26 @@ mod tests {
         // new items
         map.insert('a', 'e');
         map.insert('b', 'f');
+        map.insert('c', 'g');
 
         assert_eq!(map.get(&'a'), Some(&'e'));
         assert_eq!(map.get(&'b'), Some(&'f'));
-        assert!(map.get(&'c').is_none());
+        assert_eq!(map.get(&'c'), Some(&'g'));
+        assert!(map.get(&'d').is_none());
 
-        // remove one item
-        assert_eq!(map.remove(&'b'), Some('f'));
+        // remove last item
+        assert_eq!(map.remove(&'c'), Some('g'));
 
         assert_eq!(map.get(&'a'), Some(&'e'));
-        assert_eq!(map.get(&'b'), None);
+        assert_eq!(map.get(&'b'), Some(&'f'));
         assert_eq!(map.get(&'c'), None);
 
         // remove a non-existent item
         assert_eq!(map.remove(&'c'), None);
+
+        // remove a non-last item
+        assert_eq!(map.remove(&'a'), Some('e'));
+        assert_eq!(map.get(&'b'), Some(&'f'));
     }
 
     #[test]
