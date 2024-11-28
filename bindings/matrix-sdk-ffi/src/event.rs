@@ -3,7 +3,10 @@ use matrix_sdk::IdParseError;
 use matrix_sdk_ui::timeline::TimelineEventItemId;
 use ruma::{
     events::{
-        room::{message::Relation, redaction::SyncRoomRedactionEvent},
+        room::{
+            message::{MessageType as RumaMessageType, Relation},
+            redaction::SyncRoomRedactionEvent,
+        },
         AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
         MessageLikeEventContent as RumaMessageLikeEventContent, RedactContent,
         RedactedStateEventContent, StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
@@ -352,6 +355,39 @@ impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
             MessageLikeEventType::UnstablePollEnd => Self::UnstablePollEnd,
             MessageLikeEventType::UnstablePollResponse => Self::UnstablePollResponse,
             MessageLikeEventType::UnstablePollStart => Self::UnstablePollStart,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, uniffi::Enum)]
+pub enum RoomMessageEventMessageType {
+    Audio,
+    Emote,
+    File,
+    Image,
+    Location,
+    Notice,
+    ServerNotice,
+    Text,
+    Video,
+    VerificationRequest,
+    Other,
+}
+
+impl From<RumaMessageType> for RoomMessageEventMessageType {
+    fn from(val: ruma::events::room::message::MessageType) -> Self {
+        match val {
+            RumaMessageType::Audio { .. } => Self::Audio,
+            RumaMessageType::Emote { .. } => Self::Emote,
+            RumaMessageType::File { .. } => Self::File,
+            RumaMessageType::Image { .. } => Self::Image,
+            RumaMessageType::Location { .. } => Self::Location,
+            RumaMessageType::Notice { .. } => Self::Notice,
+            RumaMessageType::ServerNotice { .. } => Self::ServerNotice,
+            RumaMessageType::Text { .. } => Self::Text,
+            RumaMessageType::Video { .. } => Self::Video,
+            RumaMessageType::VerificationRequest { .. } => Self::VerificationRequest,
+            _ => Self::Other,
         }
     }
 }
