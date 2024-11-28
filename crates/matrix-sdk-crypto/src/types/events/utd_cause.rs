@@ -147,7 +147,7 @@ mod tests {
     use matrix_sdk_common::deserialized_responses::{
         DeviceLinkProblem, UnableToDecryptInfo, UnableToDecryptReason, VerificationLevel,
     };
-    use ruma::{events::AnySyncTimelineEvent, serde::Raw, uint, MilliSecondsSinceUnixEpoch};
+    use ruma::{events::AnySyncTimelineEvent, serde::Raw, MilliSecondsSinceUnixEpoch};
     use serde_json::{json, value::to_raw_value};
 
     use crate::types::events::{utd_cause::CryptoContextInfo, UtdCause};
@@ -159,7 +159,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({})),
-                some_crypto_context_info(),
+                device_new_with_backup(),
                 &missing_megolm_session()
             ),
             UtdCause::Unknown
@@ -172,7 +172,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({})),
-                some_crypto_context_info(),
+                device_new_with_backup(),
                 &missing_megolm_session()
             ),
             UtdCause::Unknown
@@ -186,7 +186,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": 3 } })),
-                some_crypto_context_info(),
+                device_new_with_backup(),
                 &missing_megolm_session()
             ),
             UtdCause::Unknown
@@ -200,7 +200,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": "invite" } }),),
-                some_crypto_context_info(),
+                device_new_with_backup(),
                 &missing_megolm_session()
             ),
             UtdCause::Unknown
@@ -214,7 +214,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": "join" } })),
-                some_crypto_context_info(),
+                device_new_with_backup(),
                 &missing_megolm_session()
             ),
             UtdCause::Unknown
@@ -228,7 +228,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": "leave" } })),
-                some_crypto_context_info(),
+                device_new_with_backup(),
                 &missing_megolm_session()
             ),
             UtdCause::SentBeforeWeJoined
@@ -243,7 +243,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": "leave" } })),
-                some_crypto_context_info(),
+                device_new_with_backup(),
                 &malformed_encrypted_event()
             ),
             UtdCause::Unknown
@@ -256,7 +256,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "io.element.msc4115.membership": "leave" } })),
-                some_crypto_context_info(),
+                device_new_with_backup(),
                 &missing_megolm_session()
             ),
             UtdCause::SentBeforeWeJoined
@@ -268,7 +268,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({})),
-                some_crypto_context_info(),
+                device_new_with_backup(),
                 &verification_violation()
             ),
             UtdCause::VerificationViolation
@@ -280,7 +280,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({})),
-                some_crypto_context_info(),
+                device_new_with_backup(),
                 &unsigned_device()
             ),
             UtdCause::UnsignedDevice
@@ -290,93 +290,54 @@ mod tests {
     #[test]
     fn test_unknown_device_is_passed_through() {
         assert_eq!(
-            UtdCause::determine(
-                &raw_event(json!({})),
-                some_crypto_context_info(),
-                &missing_device()
-            ),
+            UtdCause::determine(&raw_event(json!({})), device_new_with_backup(), &missing_device()),
             UtdCause::UnknownDevice
         );
     }
 
     #[test]
     fn test_date_of_device_determines_whether_a_missing_key_utd_is_expected_historical() {
-        let message_creation_ts = 10000;
-        let utd_event = a_utd_event_with_origin_ts(message_creation_ts);
-
-        // Given the device is older than the event
-        let older_than_event_device = CryptoContextInfo {
-            device_creation_ts: MilliSecondsSinceUnixEpoch(
-                (message_creation_ts - 1000).try_into().unwrap(),
-            ),
-            is_backup_configured: true,
-        };
-
         // If the key was missing
         // Then we say the cause is unknown - this is not an historical event
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({})),
-                older_than_event_device,
+                device_old_with_backup(),
                 &missing_megolm_session()
             ),
             UtdCause::Unknown
         );
 
         // But if the device is newer than the event
-        let newer_than_event_device = CryptoContextInfo {
-            device_creation_ts: MilliSecondsSinceUnixEpoch(
-                (message_creation_ts + 1000).try_into().unwrap(),
-            ),
-            is_backup_configured: true,
-        };
-
         // If the key was missing
         // Then we say this is expected, because the event is historical
         assert_eq!(
-            UtdCause::determine(&utd_event, newer_than_event_device, &missing_megolm_session()),
+            UtdCause::determine(&utd_event(), device_new_with_backup(), &missing_megolm_session()),
             UtdCause::HistoricalMessage
         );
     }
 
     #[test]
     fn test_date_of_device_determines_whether_a_message_index_utd_is_expected_historical() {
-        let message_creation_ts = 10000;
-        let utd_event = a_utd_event_with_origin_ts(message_creation_ts);
-
-        // Given the device is older than the event
-        let older_than_event_device = CryptoContextInfo {
-            device_creation_ts: MilliSecondsSinceUnixEpoch(
-                (message_creation_ts - 1000).try_into().unwrap(),
-            ),
-            is_backup_configured: true,
-        };
-
         // If the message index was incorrect
         // Then we say the cause is unknown - this is not an historical event
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({})),
-                older_than_event_device,
+                device_old_with_backup(),
                 &unknown_megolm_message_index()
             ),
             UtdCause::Unknown
         );
 
         // But if the device is newer than the event
-        let newer_than_event_device = CryptoContextInfo {
-            device_creation_ts: MilliSecondsSinceUnixEpoch(
-                (message_creation_ts + 1000).try_into().unwrap(),
-            ),
-            is_backup_configured: true,
-        };
 
         // If the message index was incorrect
         // Then we say this is expected, because the event is historical
         assert_eq!(
             UtdCause::determine(
-                &utd_event,
-                newer_than_event_device,
+                &utd_event(),
+                device_new_with_backup(),
                 &unknown_megolm_message_index()
             ),
             UtdCause::HistoricalMessage
@@ -385,23 +346,12 @@ mod tests {
 
     #[test]
     fn test_when_event_is_old_and_message_index_is_wrong_this_is_expected_historical() {
-        let message_creation_ts = 10000;
-        let utd_event = a_utd_event_with_origin_ts(message_creation_ts);
-
-        // Given the device is newer than the event
-        let newer_than_event_device = CryptoContextInfo {
-            device_creation_ts: MilliSecondsSinceUnixEpoch(
-                (message_creation_ts + 1000).try_into().unwrap(),
-            ),
-            is_backup_configured: true,
-        };
-
         // If the message index was incorrect
         // Then we say this is an expected UTD (because it's historical)
         assert_eq!(
             UtdCause::determine(
-                &utd_event,
-                newer_than_event_device,
+                &utd_event(),
+                device_new_with_backup(),
                 &unknown_megolm_message_index()
             ),
             UtdCause::HistoricalMessage
@@ -410,11 +360,19 @@ mod tests {
         // But if we have some other failure
         // Then we say the UTD is unexpected, and we don't know what type it is
         assert_eq!(
-            UtdCause::determine(&utd_event, newer_than_event_device, &malformed_encrypted_event()),
+            UtdCause::determine(
+                &utd_event(),
+                device_new_with_backup(),
+                &malformed_encrypted_event()
+            ),
             UtdCause::Unknown
         );
         assert_eq!(
-            UtdCause::determine(&utd_event, newer_than_event_device, &megolm_decryption_failure()),
+            UtdCause::determine(
+                &utd_event(),
+                device_new_with_backup(),
+                &megolm_decryption_failure()
+            ),
             UtdCause::Unknown
         );
     }
@@ -422,34 +380,28 @@ mod tests {
     #[test]
     fn test_when_event_is_old_and_message_index_is_wrong_but_backup_is_disabled_this_is_unexpected()
     {
-        let message_creation_ts = 10000;
-        let utd_event = a_utd_event_with_origin_ts(message_creation_ts);
-
         // Given the device is newer than the event
         // But backup is disabled
-        let crypto_context_info = CryptoContextInfo {
-            device_creation_ts: MilliSecondsSinceUnixEpoch(
-                (message_creation_ts + 1000).try_into().unwrap(),
-            ),
-            is_backup_configured: false,
-        };
-
         // If the message key was missing
         // Then we say this was unexpected (because backup was disabled)
         assert_eq!(
-            UtdCause::determine(&utd_event, crypto_context_info, &missing_megolm_session()),
+            UtdCause::determine(&utd_event(), device_new_no_backup(), &missing_megolm_session()),
             UtdCause::Unknown
         );
 
         // And if the message index was incorrect
         // Then we still say this was unexpected (because backup was disabled)
         assert_eq!(
-            UtdCause::determine(&utd_event, crypto_context_info, &unknown_megolm_message_index()),
+            UtdCause::determine(
+                &utd_event(),
+                device_new_no_backup(),
+                &unknown_megolm_message_index()
+            ),
             UtdCause::Unknown
         );
     }
 
-    fn a_utd_event_with_origin_ts(origin_server_ts: i32) -> Raw<AnySyncTimelineEvent> {
+    fn utd_event() -> Raw<AnySyncTimelineEvent> {
         raw_event(json!({
             "type": "m.room.encrypted",
             "event_id": "$0",
@@ -462,7 +414,7 @@ mod tests {
                 "session_id": "A0",
             },
             "sender": "@bob:localhost",
-            "origin_server_ts": origin_server_ts,
+            "origin_server_ts": 5555,
             "unsigned": { "membership": "join" }
         }))
     }
@@ -471,10 +423,24 @@ mod tests {
         Raw::from_json(to_raw_value(&value).unwrap())
     }
 
-    fn some_crypto_context_info() -> CryptoContextInfo {
+    fn device_old_with_backup() -> CryptoContextInfo {
         CryptoContextInfo {
-            device_creation_ts: MilliSecondsSinceUnixEpoch(uint!(42)),
+            device_creation_ts: MilliSecondsSinceUnixEpoch((1111).try_into().unwrap()),
+            is_backup_configured: true,
+        }
+    }
+
+    fn device_new_no_backup() -> CryptoContextInfo {
+        CryptoContextInfo {
+            device_creation_ts: MilliSecondsSinceUnixEpoch((9999).try_into().unwrap()),
             is_backup_configured: false,
+        }
+    }
+
+    fn device_new_with_backup() -> CryptoContextInfo {
+        CryptoContextInfo {
+            device_creation_ts: MilliSecondsSinceUnixEpoch((9999).try_into().unwrap()),
+            is_backup_configured: true,
         }
     }
 
