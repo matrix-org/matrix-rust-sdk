@@ -779,7 +779,9 @@ mod tests {
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
     use once_cell::sync::Lazy;
-    use ruma::{events::room::MediaSource, media::Method, mxc_uri, push::Action, uint};
+    use ruma::{
+        events::room::MediaSource, media::Method, mxc_uri, push::Action, room_id, uint, RoomId,
+    };
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteEventCacheStore;
@@ -1047,7 +1049,7 @@ mod tests {
         assert_eq!(gaps, vec![42, 44]);
     }
 
-    fn make_test_event(content: &str) -> SyncTimelineEvent {
+    fn make_test_event(room_id: &RoomId, content: &str) -> SyncTimelineEvent {
         let encryption_info = EncryptionInfo {
             sender: (*ALICE).into(),
             sender_device: None,
@@ -1060,7 +1062,7 @@ mod tests {
 
         let event = EventFactory::new()
             .text_msg(content)
-            .room(*DEFAULT_TEST_ROOM_ID)
+            .room(room_id)
             .sender(*ALICE)
             .into_raw_timeline()
             .cast();
@@ -1115,11 +1117,14 @@ mod tests {
                     },
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![make_test_event("hello"), make_test_event("world")],
+                        items: vec![
+                            make_test_event(room_id, "hello"),
+                            make_test_event(room_id, "world"),
+                        ],
                     },
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(42), 2),
-                        items: vec![make_test_event("who?")],
+                        items: vec![make_test_event(room_id, "who?")],
                     },
                 ],
             )
@@ -1160,7 +1165,10 @@ mod tests {
                     },
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: vec![make_test_event("hello"), make_test_event("world")],
+                        items: vec![
+                            make_test_event(room_id, "hello"),
+                            make_test_event(room_id, "world"),
+                        ],
                     },
                     Update::RemoveItem { at: Position::new(ChunkIdentifier::new(42), 0) },
                 ],
@@ -1216,9 +1224,9 @@ mod tests {
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(42), 0),
                         items: vec![
-                            make_test_event("hello"),
-                            make_test_event("world"),
-                            make_test_event("howdy"),
+                            make_test_event(room_id, "hello"),
+                            make_test_event(room_id, "world"),
+                            make_test_event(room_id, "howdy"),
                         ],
                     },
                     Update::DetachLastItems { at: Position::new(ChunkIdentifier::new(42), 1) },
@@ -1262,9 +1270,9 @@ mod tests {
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(42), 0),
                         items: vec![
-                            make_test_event("hello"),
-                            make_test_event("world"),
-                            make_test_event("howdy"),
+                            make_test_event(room_id, "hello"),
+                            make_test_event(room_id, "world"),
+                            make_test_event(room_id, "howdy"),
                         ],
                     },
                     Update::StartReattachItems,
@@ -1314,9 +1322,9 @@ mod tests {
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(42), 0),
                         items: vec![
-                            make_test_event("hello"),
-                            make_test_event("world"),
-                            make_test_event("howdy"),
+                            make_test_event(room_id, "hello"),
+                            make_test_event(room_id, "world"),
+                            make_test_event(room_id, "howdy"),
                         ],
                     },
                     Update::Clear,
@@ -1327,6 +1335,77 @@ mod tests {
 
         let chunks = store.load_chunks(room_id).await.unwrap();
         assert!(chunks.is_empty());
+    }
+
+    #[async_test]
+    async fn test_linked_chunk_multiple_rooms() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room1 = room_id!("!realcheeselovers:raclette.fr");
+        let room2 = room_id!("!realcheeselovers:fondue.ch");
+
+        // Check that applying updates to one room doesn't affect the others.
+        // Use the same chunk identifier in both rooms to battle-test search.
+
+        store
+            .handle_linked_chunk_updates(
+                room1,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(42), 0),
+                        items: vec![
+                            make_test_event(room1, "best cheese is raclette"),
+                            make_test_event(room1, "obviously"),
+                        ],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        store
+            .handle_linked_chunk_updates(
+                room2,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(42), 0),
+                        items: vec![make_test_event(room1, "beaufort is the best")],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        // Check chunks from room 1.
+        let mut chunks_room1 = store.load_chunks(room1).await.unwrap();
+        assert_eq!(chunks_room1.len(), 1);
+
+        let c = chunks_room1.remove(0);
+        assert_matches!(c.content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 2);
+            check_event(&events[0], "best cheese is raclette");
+            check_event(&events[1], "obviously");
+        });
+
+        // Check chunks from room 2.
+        let mut chunks_room2 = store.load_chunks(room2).await.unwrap();
+        assert_eq!(chunks_room2.len(), 1);
+
+        let c = chunks_room2.remove(0);
+        assert_matches!(c.content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            check_event(&events[0], "beaufort is the best");
+        });
     }
 }
 
