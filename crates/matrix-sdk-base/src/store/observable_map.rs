@@ -138,6 +138,10 @@ where
         L: Hash + Eq + ?Sized,
     {
         let position = self.mapping.remove(key)?;
+        // reindex every mapped entry that is after the position we're looking to remove
+        for mposition in self.mapping.values_mut().filter(|mposition| **mposition > position) {
+            *mposition = mposition.saturating_sub(1);
+        }
         Some(self.values.remove(position))
     }
 }
