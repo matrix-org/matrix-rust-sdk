@@ -650,6 +650,7 @@ async fn build_indexeddb_store_config(
 }
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "indexeddb"))]
+#[allow(clippy::unused_async)]
 async fn build_indexeddb_store_config(
     _name: &str,
     _passphrase: Option<&str>,
