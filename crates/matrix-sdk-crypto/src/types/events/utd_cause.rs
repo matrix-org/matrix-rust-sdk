@@ -162,7 +162,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({})),
-                device_new_with_backup(),
+                device_old_no_backup(),
                 &missing_megolm_session()
             ),
             UtdCause::Unknown
