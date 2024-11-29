@@ -157,20 +157,6 @@ mod tests {
     const AFTER_EVENT_TIME: usize = 9999;
 
     #[test]
-    fn test_a_missing_raw_event_means_we_guess_unknown() {
-        // When we don't provide any JSON to check for membership, then we guess the UTD
-        // is unknown.
-        assert_eq!(
-            UtdCause::determine(
-                &raw_event(json!({})),
-                device_new_with_backup(),
-                &missing_megolm_session()
-            ),
-            UtdCause::Unknown
-        );
-    }
-
-    #[test]
     fn test_if_there_is_no_membership_info_we_guess_unknown() {
         // If our JSON contains no membership info, then we guess the UTD is unknown.
         assert_eq!(
