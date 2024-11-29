@@ -1864,6 +1864,7 @@ mod tests {
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
     use matrix_sdk_test::{
         async_test,
+        event_factory::EventFactory,
         test_json::{sync_events::PINNED_EVENTS, TAG},
         ALICE, BOB, CAROL,
     };
@@ -1879,10 +1880,7 @@ mod tests {
             room::{
                 canonical_alias::RoomCanonicalAliasEventContent,
                 encryption::{OriginalSyncRoomEncryptionEvent, RoomEncryptionEventContent},
-                member::{
-                    MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
-                    SyncRoomMemberEvent,
-                },
+                member::{MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent},
                 name::RoomNameEventContent,
                 pinned_events::RoomPinnedEventsEventContent,
             },
@@ -2369,21 +2367,6 @@ mod tests {
         Raw::new(&ev_json).unwrap().cast()
     }
 
-    fn make_member_event(user_id: &UserId, name: &str) -> Raw<SyncRoomMemberEvent> {
-        let ev_json = json!({
-            "type": "m.room.member",
-            "content": assign!(RoomMemberEventContent::new(MembershipState::Join), {
-                displayname: Some(name.to_owned())
-            }),
-            "sender": user_id,
-            "state_key": user_id,
-            "event_id": "$h29iv0s1:example.com",
-            "origin_server_ts": 208,
-        });
-
-        Raw::new(&ev_json).unwrap().cast()
-    }
-
     #[async_test]
     async fn test_display_name_for_joined_room_is_empty_if_no_info() {
         let (_, room) = make_room_test_helper(RoomState::Joined);
@@ -2535,11 +2518,14 @@ mod tests {
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
+
         let mut changes = StateChanges::new("".to_owned());
         let summary = assign!(RumaSummary::new(), {
             joined_member_count: Some(2u32.into()),
             heroes: vec![me.to_owned(), matthew.to_owned()],
         });
+
+        let f = EventFactory::new().room(room_id!("!test:localhost"));
 
         let members = changes
             .state
@@ -2547,8 +2533,8 @@ mod tests {
             .or_default()
             .entry(StateEventType::RoomMember)
             .or_default();
-        members.insert(matthew.into(), make_member_event(matthew, "Matthew").cast());
-        members.insert(me.into(), make_member_event(me, "Me").cast());
+        members.insert(matthew.into(), f.member(matthew).display_name("Matthew").into_raw());
+        members.insert(me.into(), f.member(me).display_name("Me").into_raw());
 
         store.save_changes(&changes).await.unwrap();
 
@@ -2567,14 +2553,16 @@ mod tests {
         let me = user_id!("@me:example.org");
         let mut changes = StateChanges::new("".to_owned());
 
+        let f = EventFactory::new().room(room_id!("!test:localhost"));
+
         let members = changes
             .state
             .entry(room_id.to_owned())
             .or_default()
             .entry(StateEventType::RoomMember)
             .or_default();
-        members.insert(matthew.into(), make_member_event(matthew, "Matthew").cast());
-        members.insert(me.into(), make_member_event(me, "Me").cast());
+        members.insert(matthew.into(), f.member(matthew).display_name("Matthew").into_raw());
+        members.insert(me.into(), f.member(me).display_name("Me").into_raw());
 
         store.save_changes(&changes).await.unwrap();
 
@@ -2598,6 +2586,8 @@ mod tests {
 
         let mut changes = StateChanges::new("".to_owned());
 
+        let f = EventFactory::new().room(room_id!("!test:localhost"));
+
         // Save members in two batches, so that there's no implied ordering in the
         // store.
         {
@@ -2607,10 +2597,10 @@ mod tests {
                 .or_default()
                 .entry(StateEventType::RoomMember)
                 .or_default();
-            members.insert(carol.into(), make_member_event(carol, "Carol").cast());
-            members.insert(bob.into(), make_member_event(bob, "Bob").cast());
-            members.insert(fred.into(), make_member_event(fred, "Fred").cast());
-            members.insert(me.into(), make_member_event(me, "Me").cast());
+            members.insert(carol.into(), f.member(carol).display_name("Carol").into_raw());
+            members.insert(bob.into(), f.member(bob).display_name("Bob").into_raw());
+            members.insert(fred.into(), f.member(fred).display_name("Fred").into_raw());
+            members.insert(me.into(), f.member(me).display_name("Me").into_raw());
             store.save_changes(&changes).await.unwrap();
         }
 
@@ -2621,9 +2611,9 @@ mod tests {
                 .or_default()
                 .entry(StateEventType::RoomMember)
                 .or_default();
-            members.insert(alice.into(), make_member_event(alice, "Alice").cast());
-            members.insert(erica.into(), make_member_event(erica, "Erica").cast());
-            members.insert(denis.into(), make_member_event(denis, "Denis").cast());
+            members.insert(alice.into(), f.member(alice).display_name("Alice").into_raw());
+            members.insert(erica.into(), f.member(erica).display_name("Erica").into_raw());
+            members.insert(denis.into(), f.member(denis).display_name("Denis").into_raw());
             store.save_changes(&changes).await.unwrap();
         }
 
@@ -2651,6 +2641,8 @@ mod tests {
         let fred = user_id!("@fred:example.org");
         let me = user_id!("@me:example.org");
 
+        let f = EventFactory::new().room(room_id!("!test:localhost"));
+
         let mut changes = StateChanges::new("".to_owned());
 
         // Save members in two batches, so that there's no implied ordering in the
@@ -2662,10 +2654,11 @@ mod tests {
                 .or_default()
                 .entry(StateEventType::RoomMember)
                 .or_default();
-            members.insert(carol.into(), make_member_event(carol, "Carol").cast());
-            members.insert(bob.into(), make_member_event(bob, "Bob").cast());
-            members.insert(fred.into(), make_member_event(fred, "Fred").cast());
-            members.insert(me.into(), make_member_event(me, "Me").cast());
+            members.insert(carol.into(), f.member(carol).display_name("Carol").into_raw());
+            members.insert(bob.into(), f.member(bob).display_name("Bob").into_raw());
+            members.insert(fred.into(), f.member(fred).display_name("Fred").into_raw());
+            members.insert(me.into(), f.member(me).display_name("Me").into_raw());
+
             store.save_changes(&changes).await.unwrap();
         }
 
@@ -2676,9 +2669,9 @@ mod tests {
                 .or_default()
                 .entry(StateEventType::RoomMember)
                 .or_default();
-            members.insert(alice.into(), make_member_event(alice, "Alice").cast());
-            members.insert(erica.into(), make_member_event(erica, "Erica").cast());
-            members.insert(denis.into(), make_member_event(denis, "Denis").cast());
+            members.insert(alice.into(), f.member(alice).display_name("Alice").into_raw());
+            members.insert(erica.into(), f.member(erica).display_name("Erica").into_raw());
+            members.insert(denis.into(), f.member(denis).display_name("Denis").into_raw());
             store.save_changes(&changes).await.unwrap();
         }
 
@@ -2700,14 +2693,16 @@ mod tests {
             heroes: vec![me.to_owned(), matthew.to_owned()],
         });
 
+        let f = EventFactory::new().room(room_id!("!test:localhost"));
+
         let members = changes
             .state
             .entry(room_id.to_owned())
             .or_default()
             .entry(StateEventType::RoomMember)
             .or_default();
-        members.insert(matthew.into(), make_member_event(matthew, "Matthew").cast());
-        members.insert(me.into(), make_member_event(me, "Me").cast());
+        members.insert(matthew.into(), f.member(matthew).display_name("Matthew").into_raw());
+        members.insert(me.into(), f.member(me).display_name("Me").into_raw());
 
         store.save_changes(&changes).await.unwrap();
 
