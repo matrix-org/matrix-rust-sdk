@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)] // Triggered by the xshell::cmd!() invocation.
+
 mod ci;
 mod fixup;
 mod kotlin;
