@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(unexpected_cfgs)] // Triggered by the init_tracing_for_tests!() invocation.
-
 use itertools::Itertools as _;
 use matrix_sdk::deserialized_responses::TimelineEvent;
 use ruma::{events::AnyStateEvent, serde::Raw, EventId, RoomId};

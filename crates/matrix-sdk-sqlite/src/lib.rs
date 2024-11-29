@@ -15,7 +15,6 @@
     not(any(feature = "state-store", feature = "crypto-store", feature = "event-cache")),
     allow(dead_code, unused_imports)
 )]
-#![cfg_attr(test, allow(unexpected_cfgs))] // Triggered by the init_tracing_for_tests!() invocation.
 
 #[cfg(feature = "crypto-store")]
 mod crypto_store;

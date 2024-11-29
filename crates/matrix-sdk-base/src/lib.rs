@@ -16,7 +16,6 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
-#![cfg_attr(test, allow(unexpected_cfgs))] // Triggered by the init_tracing_for_tests!() invocation.
 #![warn(missing_docs, missing_debug_implementations)]
 
 pub use matrix_sdk_common::*;
