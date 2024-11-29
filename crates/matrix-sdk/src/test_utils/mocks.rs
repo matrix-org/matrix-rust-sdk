@@ -591,6 +591,22 @@ impl MatrixMockServer {
             .and(header("authorization", "Bearer 1234"));
         MockEndpoint { mock, server: &self.server, endpoint: RoomKeysVersionEndpoint }
     }
+
+    /// Create a prebuilt mock for adding key storage backups via POST
+    pub fn mock_add_room_keys_version(&self) -> MockEndpoint<'_, AddRoomKeysVersionEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path_regex(r"_matrix/client/v3/room_keys/version"))
+            .and(header("authorization", "Bearer 1234"));
+        MockEndpoint { mock, server: &self.server, endpoint: AddRoomKeysVersionEndpoint }
+    }
+
+    /// Create a prebuilt mock for adding key storage backups via POST
+    pub fn mock_delete_room_keys_version(&self) -> MockEndpoint<'_, DeleteRoomKeysVersionEndpoint> {
+        let mock = Mock::given(method("DELETE"))
+            .and(path_regex(r"_matrix/client/v3/room_keys/version/[^/]*"))
+            .and(header("authorization", "Bearer 1234"));
+        MockEndpoint { mock, server: &self.server, endpoint: DeleteRoomKeysVersionEndpoint }
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -1669,7 +1685,8 @@ impl<'a> MockEndpoint<'a, PublicRoomsEndpoint> {
     }
 }
 
-/// A prebuilt mock for `room_keys/version`: storage ("backup") of room keys.
+/// A prebuilt mock for `GET room_keys/version`: storage ("backup") of room
+/// keys.
 pub struct RoomKeysVersionEndpoint;
 
 impl<'a> MockEndpoint<'a, RoomKeysVersionEndpoint> {
@@ -1710,6 +1727,37 @@ impl<'a> MockEndpoint<'a, RoomKeysVersionEndpoint> {
     /// Returns an endpoint that 404 errors when we get it
     pub fn error404(self) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(404));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for `POST room_keys/version`: adding room key backups.
+pub struct AddRoomKeysVersionEndpoint;
+
+impl<'a> MockEndpoint<'a, AddRoomKeysVersionEndpoint> {
+    /// Returns an endpoint that may be used to add room key backups
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self
+            .mock
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+              "version": "1"
+            })))
+            .named("POST for the backup creation");
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for `DELETE room_keys/version/xxx`: deleting room key
+/// backups.
+pub struct DeleteRoomKeysVersionEndpoint;
+
+impl<'a> MockEndpoint<'a, DeleteRoomKeysVersionEndpoint> {
+    /// Returns an endpoint that allows deleting room key backups
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self
+            .mock
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .named("DELETE for the backup deletion");
         MatrixMock { server: self.server, mock }
     }
 }

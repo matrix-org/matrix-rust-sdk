@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Do not use the encrypted original file's content type as the encrypted
   thumbnail's content type.
   ([#ecf4434](https://github.com/matrix-org/matrix-rust-sdk/commit/ecf44348cf6a872b843fb7d7af1a88f724c58c3e))
+
 ### Features
 
 - Enable persistent storage for the `EventCache`. This allows events received
@@ -27,6 +28,11 @@ All notable changes to this project will be documented in this file.
 
 - [**breaking**] Make all fields of Thumbnail required
   ([#4324](https://github.com/matrix-org/matrix-rust-sdk/pull/4324))
+
+- `Backups::exists_on_server`, which always fetches up-to-date information from the
+  server about whether a key storage backup exists, was renamed to
+  `fetch_exists_on_the_server`, and a new implementation of `exists_on_server`
+  which caches the most recent answer is now provided.
 
 ## [0.8.0] - 2024-11-19
 
