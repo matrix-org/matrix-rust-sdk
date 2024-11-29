@@ -1119,35 +1119,47 @@ mod test {
     }
 
     #[async_test]
-    async fn test_exists_on_server() {
+    async fn test_when_a_backup_exists_then_exists_on_server_returns_true() {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        {
-            let _scope = mock_backup_exists(&server).await;
+        let _scope = mock_backup_exists(&server).await;
 
-            let exists = client
-                .encryption()
-                .backups()
-                .exists_on_server()
-                .await
-                .expect("We should be able to check if backups exist on the server");
+        let exists = client
+            .encryption()
+            .backups()
+            .exists_on_server()
+            .await
+            .expect("We should be able to check if backups exist on the server");
 
-            assert!(exists, "We should deduce that a backup exists on the server");
-        }
+        assert!(exists, "We should deduce that a backup exists on the server");
 
-        {
-            let _scope = mock_backup_none(&server).await;
+        server.verify().await;
+    }
 
-            let exists = client
-                .encryption()
-                .backups()
-                .exists_on_server()
-                .await
-                .expect("We should be able to check if backups exist on the server");
+    #[async_test]
+    async fn test_when_no_backup_exists_then_exists_on_server_returns_false() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
 
-            assert!(!exists, "We should deduce that no backup exists on the server");
-        }
+        let _scope = mock_backup_none(&server).await;
+
+        let exists = client
+            .encryption()
+            .backups()
+            .exists_on_server()
+            .await
+            .expect("We should be able to check if backups exist on the server");
+
+        assert!(!exists, "We should deduce that no backup exists on the server");
+
+        server.verify().await;
+    }
+
+    #[async_test]
+    async fn test_when_server_returns_an_error_then_exists_on_server_returns_an_error() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
 
         {
             let _scope = mock_backup_too_many_requests(&server).await;
