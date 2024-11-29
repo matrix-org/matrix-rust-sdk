@@ -1,9 +1,9 @@
 use std::env;
 
 use clap::{Args, Subcommand, ValueEnum};
-use xshell::{cmd, pushd};
+use xshell::cmd;
 
-use crate::{workspace, Result};
+use crate::{sh, workspace, Result};
 
 #[derive(Args)]
 pub struct ReleaseArgs {
@@ -74,7 +74,8 @@ impl ReleaseArgs {
         //
         // More info: https://git-cliff.org/docs/usage/monorepos
         if self.cmd != ReleaseCommand::Changelog {
-            let _p = pushd(workspace::root_path()?)?;
+            let sh = sh();
+            let _p = sh.push_dir(workspace::root_path()?);
         }
 
         match self.cmd {
@@ -87,14 +88,16 @@ impl ReleaseArgs {
 }
 
 fn check_prerequisites() {
-    if cmd!("cargo release --version").echo_cmd(false).ignore_stdout().run().is_err() {
+    let sh = sh();
+
+    if cmd!(sh, "cargo release --version").quiet().ignore_stdout().run().is_err() {
         eprintln!("This command requires cargo-release, please install it.");
         eprintln!("More info can be found at: https://github.com/crate-ci/cargo-release?tab=readme-ov-file#install");
 
         std::process::exit(1);
     }
 
-    if cmd!("git cliff --version").echo_cmd(false).ignore_stdout().run().is_err() {
+    if cmd!(sh, "git cliff --version").quiet().ignore_stdout().run().is_err() {
         eprintln!("This command requires git-cliff, please install it.");
         eprintln!("More info can be found at: https://git-cliff.org/docs/installation/");
 
@@ -103,7 +106,8 @@ fn check_prerequisites() {
 }
 
 fn prepare(version: ReleaseVersion, execute: bool) -> Result<()> {
-    let cmd = cmd!("cargo release --no-publish --no-tag --no-push");
+    let sh = sh();
+    let cmd = cmd!(sh, "cargo release --no-publish --no-tag --no-push");
 
     let cmd = if execute { cmd.arg("--execute") } else { cmd };
     let cmd = cmd.arg(version.as_str());
@@ -122,15 +126,17 @@ fn prepare(version: ReleaseVersion, execute: bool) -> Result<()> {
 }
 
 fn publish(execute: bool) -> Result<()> {
-    let cmd = cmd!("cargo release tag");
+    let sh = sh();
+
+    let cmd = cmd!(sh, "cargo release tag");
     let cmd = if execute { cmd.arg("--execute") } else { cmd };
     cmd.run()?;
 
-    let cmd = cmd!("cargo release publish");
+    let cmd = cmd!(sh, "cargo release publish");
     let cmd = if execute { cmd.arg("--execute") } else { cmd };
     cmd.run()?;
 
-    let cmd = cmd!("cargo release push");
+    let cmd = cmd!(sh, "cargo release push");
     let cmd = if execute { cmd.arg("--execute") } else { cmd };
     cmd.run()?;
 
@@ -138,13 +144,14 @@ fn publish(execute: bool) -> Result<()> {
 }
 
 fn weekly_report() -> Result<()> {
-    let lines = cmd!("git log --pretty=format:%H --since='1 week ago'").read()?;
+    let sh = sh();
+    let lines = cmd!(sh, "git log --pretty=format:%H --since='1 week ago'").read()?;
 
     let Some(start) = lines.split_whitespace().last() else {
         panic!("Could not find a start range for the git commit range.")
     };
 
-    cmd!("git cliff --config cliff-weekly-report.toml {start}..HEAD").run()?;
+    cmd!(sh, "git cliff --config cliff-weekly-report.toml {start}..HEAD").run()?;
 
     Ok(())
 }
@@ -167,7 +174,8 @@ fn changelog() -> Result<()> {
         println!("Generating a changelog for {}.", crate_name);
     }
 
-    let command = cmd!("git cliff")
+    let sh = sh();
+    let command = cmd!(sh, "git cliff")
         .arg("cliff")
         .arg("--config")
         .arg("../../cliff.toml")
