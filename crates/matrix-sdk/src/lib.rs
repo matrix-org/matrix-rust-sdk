@@ -17,7 +17,6 @@
 #![warn(missing_debug_implementations, missing_docs)]
 #![cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
-#![cfg_attr(test, allow(unexpected_cfgs))] // Triggered by the init_tracing_for_tests!() invocation.
 
 pub use async_trait::async_trait;
 pub use bytes;
