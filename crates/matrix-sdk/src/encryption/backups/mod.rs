@@ -1010,7 +1010,7 @@ mod test {
     use serde_json::json;
     use wiremock::{
         matchers::{header, method, path},
-        Mock, MockServer, ResponseTemplate,
+        Mock, MockGuard, MockServer, ResponseTemplate,
     };
 
     use super::*;
@@ -1124,22 +1124,7 @@ mod test {
         let client = logged_in_client(Some(server.uri())).await;
 
         {
-            let _scope = Mock::given(method("GET"))
-                .and(path("_matrix/client/r0/room_keys/version"))
-                .and(header("authorization", "Bearer 1234"))
-                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                    "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
-                    "auth_data": {
-                        "public_key": "abcdefg",
-                        "signatures": {},
-                    },
-                    "count": 42,
-                    "etag": "anopaquestring",
-                    "version": "1",
-                })))
-                .expect(1)
-                .mount_as_scoped(&server)
-                .await;
+            let _scope = mock_backup_exists(&server).await;
 
             let exists = client
                 .encryption()
@@ -1148,20 +1133,11 @@ mod test {
                 .await
                 .expect("We should be able to check if backups exist on the server");
 
-            assert!(exists, "We should deduce that a backup exist on the server");
+            assert!(exists, "We should deduce that a backup exists on the server");
         }
 
         {
-            let _scope = Mock::given(method("GET"))
-                .and(path("_matrix/client/r0/room_keys/version"))
-                .and(header("authorization", "Bearer 1234"))
-                .respond_with(ResponseTemplate::new(404).set_body_json(json!({
-                    "errcode": "M_NOT_FOUND",
-                    "error": "No current backup version"
-                })))
-                .expect(1)
-                .mount_as_scoped(&server)
-                .await;
+            let _scope = mock_backup_none(&server).await;
 
             let exists = client
                 .encryption()
@@ -1170,21 +1146,11 @@ mod test {
                 .await
                 .expect("We should be able to check if backups exist on the server");
 
-            assert!(!exists, "We should deduce that no backup exist on the server");
+            assert!(!exists, "We should deduce that no backup exists on the server");
         }
 
         {
-            let _scope = Mock::given(method("GET"))
-                .and(path("_matrix/client/r0/room_keys/version"))
-                .and(header("authorization", "Bearer 1234"))
-                .respond_with(ResponseTemplate::new(429).set_body_json(json!({
-                    "errcode": "M_LIMIT_EXCEEDED",
-                    "error": "Too many requests",
-                    "retry_after_ms": 2000
-                })))
-                .expect(1)
-                .mount_as_scoped(&server)
-                .await;
+            let _scope = mock_backup_too_many_requests(&server).await;
 
             client.encryption().backups().exists_on_server().await.expect_err(
                 "If the /version endpoint returns a non 404 error we should throw an error",
@@ -1192,13 +1158,7 @@ mod test {
         }
 
         {
-            let _scope = Mock::given(method("GET"))
-                .and(path("_matrix/client/r0/room_keys/version"))
-                .and(header("authorization", "Bearer 1234"))
-                .respond_with(ResponseTemplate::new(404))
-                .expect(1)
-                .mount_as_scoped(&server)
-                .await;
+            let _scope = mock_backup_404(&server);
 
             client.encryption().backups().exists_on_server().await.expect_err(
                 "If the /version endpoint returns a non-Matrix 404 error we should throw an error",
@@ -1281,5 +1241,61 @@ mod test {
         assert_eq!(old_duration, current_duration);
 
         server.verify().await;
+    }
+
+    async fn mock_backup_exists(server: &MockServer) -> MockGuard {
+        Mock::given(method("GET"))
+            .and(path("_matrix/client/r0/room_keys/version"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+                "auth_data": {
+                    "public_key": "abcdefg",
+                    "signatures": {},
+                },
+                "count": 42,
+                "etag": "anopaquestring",
+                "version": "1",
+            })))
+            .expect(1)
+            .mount_as_scoped(server)
+            .await
+    }
+
+    async fn mock_backup_none(server: &MockServer) -> MockGuard {
+        Mock::given(method("GET"))
+            .and(path("_matrix/client/r0/room_keys/version"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+                "errcode": "M_NOT_FOUND",
+                "error": "No current backup version"
+            })))
+            .expect(1)
+            .mount_as_scoped(server)
+            .await
+    }
+
+    async fn mock_backup_too_many_requests(server: &MockServer) -> MockGuard {
+        Mock::given(method("GET"))
+            .and(path("_matrix/client/r0/room_keys/version"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(429).set_body_json(json!({
+                "errcode": "M_LIMIT_EXCEEDED",
+                "error": "Too many requests",
+                "retry_after_ms": 2000
+            })))
+            .expect(1)
+            .mount_as_scoped(server)
+            .await
+    }
+
+    async fn mock_backup_404(server: &MockServer) -> MockGuard {
+        Mock::given(method("GET"))
+            .and(path("_matrix/client/r0/room_keys/version"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1)
+            .mount_as_scoped(server)
+            .await
     }
 }
