@@ -73,9 +73,10 @@ impl ReleaseArgs {
         // make sure to not switch back to the workspace dir.
         //
         // More info: https://git-cliff.org/docs/usage/monorepos
+        let sh = sh();
+        let _p;
         if self.cmd != ReleaseCommand::Changelog {
-            let sh = sh();
-            let _p = sh.push_dir(workspace::root_path()?);
+            _p = sh.push_dir(workspace::root_path()?);
         }
 
         match self.cmd {
