@@ -73,6 +73,9 @@ struct PendingUtdReport {
 
     /// The task that will report this UTD to the parent hook.
     report_task: JoinHandle<()>,
+
+    /// The UnableToDecryptInfo structure for this UTD event.
+    utd_info: UnableToDecryptInfo,
 }
 
 /// A manager over an existing [`UnableToDecryptHook`] that deduplicates UTDs
@@ -227,6 +230,7 @@ impl UtdHookManager {
         let reported_utds = self.reported_utds.clone();
         let parent = self.parent.clone();
         let client = self.client.clone();
+        let owned_event_id = event_id.to_owned();
 
         // Spawn a task that will wait for the given delay, and maybe call the parent
         // hook then.
@@ -243,15 +247,22 @@ impl UtdHookManager {
 
             // Remove the task from the outstanding set. But if it's already been removed,
             // it's been decrypted since the task was added!
-            if pending_delayed.lock().unwrap().remove(&info.event_id).is_some() {
-                Self::report_utd(info, &parent, &client, &mut reported_utds_lock).await;
+            let pending_report = pending_delayed.lock().unwrap().remove(&owned_event_id);
+            if let Some(pending_report) = pending_report {
+                Self::report_utd(
+                    pending_report.utd_info,
+                    &parent,
+                    &client,
+                    &mut reported_utds_lock,
+                )
+                .await;
             }
         });
 
         // Add the task to the set of pending tasks.
         self.pending_delayed.lock().unwrap().insert(
             event_id.to_owned(),
-            PendingUtdReport { marked_utd_at: Instant::now(), report_task: handle },
+            PendingUtdReport { marked_utd_at: Instant::now(), report_task: handle, utd_info: info },
         );
     }
 
@@ -260,7 +271,7 @@ impl UtdHookManager {
     ///
     /// Note: if this is called for an event that was never marked as a UTD
     /// before, it has no effect.
-    pub(crate) async fn on_late_decrypt(&self, event_id: &EventId, cause: UtdCause) {
+    pub(crate) async fn on_late_decrypt(&self, event_id: &EventId) {
         // Hold the lock on `reported_utds` throughout, to avoid races with other
         // threads.
         let mut reported_utds_lock = self.reported_utds.lock().await;
@@ -275,12 +286,9 @@ impl UtdHookManager {
         // We can also cancel the reporting task.
         pending_utd_report.report_task.abort();
 
-        // Now we can report the late decryption.
-        let info = UnableToDecryptInfo {
-            event_id: event_id.to_owned(),
-            time_to_decrypt: Some(pending_utd_report.marked_utd_at.elapsed()),
-            cause,
-        };
+        // Update the UTD Info struct with new data, then report it
+        let mut info = pending_utd_report.utd_info;
+        info.time_to_decrypt = Some(pending_utd_report.marked_utd_at.elapsed());
         Self::report_utd(info, &self.parent, &self.client, &mut reported_utds_lock).await;
     }
 
@@ -476,7 +484,7 @@ mod tests {
 
         // And I call the `on_late_decrypt` method before the event had been marked as
         // utd,
-        wrapper.on_late_decrypt(event_id!("$1"), UtdCause::Unknown).await;
+        wrapper.on_late_decrypt(event_id!("$1")).await;
 
         // Then nothing is registered in the parent hook.
         assert!(hook.utds.lock().unwrap().is_empty());
@@ -502,7 +510,7 @@ mod tests {
         }
 
         // And when I call the `on_late_decrypt` method,
-        wrapper.on_late_decrypt(event_id!("$1"), UtdCause::Unknown).await;
+        wrapper.on_late_decrypt(event_id!("$1")).await;
 
         // Then the event is not reported again as a late-decryption.
         {
@@ -573,7 +581,7 @@ mod tests {
         // If I wait for 1 second, and mark the event as late-decrypted,
         sleep(Duration::from_secs(1)).await;
 
-        wrapper.on_late_decrypt(event_id!("$1"), UtdCause::Unknown).await;
+        wrapper.on_late_decrypt(event_id!("$1")).await;
 
         // Then it's being immediately reported as a late-decryption UTD.
         {
