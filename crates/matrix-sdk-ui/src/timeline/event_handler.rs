@@ -449,7 +449,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // timeline.
                 if let Some(hook) = self.meta.unable_to_decrypt_hook.as_ref() {
                     if let Some(event_id) = &self.ctx.flow.event_id() {
-                        hook.on_utd(event_id, utd_cause, self.ctx.timestamp).await;
+                        hook.on_utd(event_id, utd_cause, self.ctx.timestamp, &self.ctx.sender)
+                            .await;
                     }
                 }
             }
