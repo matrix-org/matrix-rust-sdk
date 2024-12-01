@@ -48,6 +48,11 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, timeout::timeout};
 use mime::Mime;
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::{
+    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    SyncMessageLikeEvent,
+};
 use ruma::{
     api::client::{
         config::{set_global_account_data, set_room_account_data},
@@ -107,14 +112,6 @@ use ruma::{
     time::Instant,
     EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
-};
-#[cfg(feature = "e2e-encryption")]
-use ruma::{
-    events::{
-        room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent, SyncMessageLikeEvent,
-    },
-    MilliSecondsSinceUnixEpoch,
 };
 use serde::de::DeserializeOwned;
 use thiserror::Error;
@@ -621,11 +618,7 @@ impl Room {
     pub async fn crypto_context_info(&self) -> CryptoContextInfo {
         let encryption = self.client.encryption();
         CryptoContextInfo {
-            device_creation_ts: match encryption.get_own_device().await {
-                Ok(Some(device)) => device.first_time_seen_ts(),
-                // Should not happen, there will always be an own device
-                _ => MilliSecondsSinceUnixEpoch::now(),
-            },
+            device_creation_ts: encryption.device_creation_timestamp().await,
             is_backup_configured: encryption.backups().state() == BackupState::Enabled,
         }
     }
