@@ -68,6 +68,9 @@ pub struct UnableToDecryptInfo {
     /// the time our device was created. If negative, this event was sent
     /// *before* our device was created.
     pub event_local_age_millis: i64,
+
+    /// Whether the user had verified their own identity at the point they received the UTD event.
+    pub user_trusts_own_identity: bool,
 }
 
 /// Data about a UTD event which we are waiting to report to the parent hook.
@@ -236,12 +239,23 @@ impl UtdHookManager {
         let event_local_age_millis = i64::from(event_timestamp.get()).saturating_sub_unsigned(
             self.client.encryption().device_creation_timestamp().await.get().into(),
         );
+        let user_trusts_own_identity = if let Some(own_user_id) = self.client.user_id() {
+            if let Ok(Some(own_id)) = self.client.encryption().get_user_identity(own_user_id).await
+            {
+                own_id.is_verified()
+            } else {
+                false
+            }
+        } else {
+            false
+        };
 
         let info = UnableToDecryptInfo {
             event_id: event_id.to_owned(),
             time_to_decrypt: None,
             cause,
             event_local_age_millis,
+            user_trusts_own_identity,
         };
 
         let Some(max_delay) = self.max_delay else {
