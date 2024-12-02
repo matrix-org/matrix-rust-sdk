@@ -954,7 +954,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
             .endpoint
             .event_type
             .as_ref()
-            .map_or_else(|| "*".to_owned(), |event_type| event_type.to_string());
+            .map_or_else(|| ".*".to_owned(), |event_type| event_type.to_string());
 
         self.mock = self
             .mock
@@ -1369,7 +1369,7 @@ pub struct RoomMessagesEndpoint;
 
 /// A prebuilt mock for getting a room messages in a room.
 impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
-    /// Expects an optional limit to be set on the mock.
+    /// Expects an optional limit to be set on the request.
     pub fn limit(self, limit: u32) -> Self {
         Self { mock: self.mock.and(query_param("limit", limit.to_string())), ..self }
     }
