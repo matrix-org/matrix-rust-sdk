@@ -19,10 +19,8 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 use events::Gap;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
-    event_cache::store::EventCacheStoreLock,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
-use once_cell::sync::OnceCell;
 use ruma::{
     events::{
         relation::RelationType,
@@ -65,11 +63,11 @@ impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
     pub(super) fn new(
         client: WeakClient,
-        store: Arc<OnceCell<EventCacheStoreLock>>,
+        state: RoomEventCacheState,
         room_id: OwnedRoomId,
         all_events_cache: Arc<RwLock<AllEventsCache>>,
     ) -> Self {
-        Self { inner: Arc::new(RoomEventCacheInner::new(client, store, room_id, all_events_cache)) }
+        Self { inner: Arc::new(RoomEventCacheInner::new(client, state, room_id, all_events_cache)) }
     }
 
     /// Subscribe to room updates for this room, after getting the initial list
@@ -234,18 +232,15 @@ impl RoomEventCacheInner {
     /// to handle new timeline events.
     fn new(
         client: WeakClient,
-        store: Arc<OnceCell<EventCacheStoreLock>>,
+        state: RoomEventCacheState,
         room_id: OwnedRoomId,
         all_events_cache: Arc<RwLock<AllEventsCache>>,
     ) -> Self {
         let sender = Sender::new(32);
-
         let weak_room = WeakRoom::new(client, room_id);
-        let room_id = weak_room.room_id().to_owned();
-
         Self {
-            room_id: room_id.clone(),
-            state: RwLock::new(RoomEventCacheState::new(room_id, store)),
+            room_id: weak_room.room_id().to_owned(),
+            state: RwLock::new(state),
             all_events: all_events_cache,
             sender,
             pagination_batch_token_notifier: Default::default(),
@@ -576,14 +571,20 @@ mod private {
     }
 
     impl RoomEventCacheState {
-        /// Create a new empty state.
-        pub fn new(room: OwnedRoomId, store: Arc<OnceCell<EventCacheStoreLock>>) -> Self {
-            Self {
-                room,
-                store,
-                events: RoomEvents::default(),
-                waited_for_initial_prev_token: false,
-            }
+        /// Create a new state, or reload it from storage if it's been enabled.
+        pub async fn new(
+            room: OwnedRoomId,
+            store: Arc<OnceCell<EventCacheStoreLock>>,
+        ) -> Result<Self, EventCacheError> {
+            let events = if let Some(store) = store.get() {
+                let locked = store.lock().await?;
+                let chunks = locked.reload_linked_chunk(&room).await?;
+                RoomEvents::with_initial_chunks(chunks)
+            } else {
+                RoomEvents::default()
+            };
+
+            Ok(Self { room, store, events, waited_for_initial_prev_token: false })
         }
 
         /// Propagate changes to the underlying storage.
