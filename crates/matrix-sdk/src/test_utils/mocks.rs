@@ -316,10 +316,8 @@ impl MatrixMockServer {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn mock_room_send(&self) -> MockEndpoint<'_, RoomSendEndpoint> {
-        let mock = Mock::given(method("PUT"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
-            .and(header("authorization", "Bearer 1234"));
-        MockEndpoint { mock, server: &self.server, endpoint: RoomSendEndpoint }
+        let mock = Mock::given(method("PUT")).and(header("authorization", "Bearer 1234"));
+        MockEndpoint { mock, server: &self.server, endpoint: RoomSendEndpoint { event_type: None } }
     }
 
     /// Creates a prebuilt mock for sending a state event in a room.
@@ -351,9 +349,9 @@ impl MatrixMockServer {
     ///     .mount()
     ///     .await;
     ///
-    /// let responseNotMocked = room.send_raw("m.room.create", json!({ "body": "Hello world" })).await;
+    /// let response_not_mocked = room.send_raw("m.room.create", json!({ "body": "Hello world" })).await;
     /// // The `/send` endpoint should not be mocked by the server.
-    /// assert!(responseNotMocked.is_err());
+    /// assert!(response_not_mocked.is_err());
     ///
     ///
     /// let response = room.send_state_event_raw("m.room.message", "my_key", json!({ "body": "Hello world" })).await?;
@@ -366,9 +364,7 @@ impl MatrixMockServer {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn mock_room_send_state(&self) -> MockEndpoint<'_, RoomSendStateEndpoint> {
-        let mock = Mock::given(method("PUT"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/.*"))
-            .and(header("authorization", "Bearer 1234"));
+        let mock = Mock::given(method("PUT")).and(header("authorization", "Bearer 1234"));
         MockEndpoint { mock, server: &self.server, endpoint: RoomSendStateEndpoint::default() }
     }
 
@@ -489,13 +485,10 @@ impl MatrixMockServer {
 
     /// Create a prebuild mock for paginating room message with the `/messages`
     /// endpoint.
-    pub fn mock_room_messages(&self, limit: Option<u32>) -> MockEndpoint<'_, RoomMessagesEndpoint> {
-        let mut mock = Mock::given(method("GET"))
+    pub fn mock_room_messages(&self) -> MockEndpoint<'_, RoomMessagesEndpoint> {
+        let mock = Mock::given(method("GET"))
             .and(path_regex(r"^/_matrix/client/v3/rooms/.*/messages$"))
             .and(header("authorization", "Bearer 1234"));
-        if let Some(l) = limit {
-            mock = mock.and(query_param("limit", l.to_string()));
-        }
         MockEndpoint { mock, server: &self.server, endpoint: RoomMessagesEndpoint }
     }
 
@@ -823,7 +816,9 @@ impl<'a, T> MockEndpoint<'a, T> {
 }
 
 /// A prebuilt mock for sending a message like event in a room.
-pub struct RoomSendEndpoint;
+pub struct RoomSendEndpoint {
+    event_type: Option<MessageLikeEventType>,
+}
 
 impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// Ensures that the body of the request is a superset of the provided
@@ -901,9 +896,9 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     ///     .mount()
     ///     .await;
     ///
-    /// let responseNotMocked = room.send_raw("m.room.reaction", json!({ "body": "Hello world" })).await;
+    /// let response_not_mocked = room.send_raw("m.room.reaction", json!({ "body": "Hello world" })).await;
     /// // The `m.room.reaction` event type should not be mocked by the server.
-    /// assert!(responseNotMocked.is_err());
+    /// assert!(response_not_mocked.is_err());
     ///
     /// let response = room.send_raw("m.room.message", json!({ "body": "Hello world" })).await?;
     /// // The `m.room.message` event type should be mocked by the server.
@@ -914,13 +909,9 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// );
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn for_type(self, event_type: MessageLikeEventType) -> Self {
-        Self {
-            mock: self
-                .mock
-                .and(path_regex(format!(r"^/_matrix/client/v3/rooms/.*/send/{}", event_type))),
-            ..self
-        }
+    pub fn for_type(mut self, event_type: MessageLikeEventType) -> Self {
+        self.endpoint.event_type = Some(event_type);
+        self
     }
 
     /// Returns a send endpoint that emulates success, i.e. the event has been
@@ -958,7 +949,17 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// );
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
+    pub fn ok(mut self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
+        let event_type_path = self
+            .endpoint
+            .event_type
+            .as_ref()
+            .map_or_else(|| "*".to_owned(), |event_type| event_type.to_string());
+
+        self.mock = self
+            .mock
+            .and(path_regex(format!(r"^/_matrix/client/v3/rooms/.*/send/{event_type_path}",)));
+
         self.ok_with_event_id(returned_event_id.into())
     }
 }
@@ -971,14 +972,6 @@ pub struct RoomSendStateEndpoint {
 }
 
 impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
-    fn generate_path_regex(endpoint: &RoomSendStateEndpoint) -> String {
-        format!(
-            r"^/_matrix/client/v3/rooms/.*/state/{}/{}",
-            endpoint.event_type.as_ref().map(|t| t.to_string()).unwrap_or_else(|| ".*".to_owned()),
-            endpoint.state_key.as_ref().map(|k| k.to_string()).unwrap_or_else(|| ".*".to_owned())
-        )
-    }
-
     /// Ensures that the body of the request is a superset of the provided
     /// `body` parameter.
     ///
@@ -1081,10 +1074,9 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     ///
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn for_type(self, event_type: StateEventType) -> Self {
-        let endpoint = RoomSendStateEndpoint { event_type: Some(event_type), ..self.endpoint };
-        let matcher = path_regex(Self::generate_path_regex(&endpoint));
-        Self { endpoint, mock: self.mock.and(matcher), ..self }
+    pub fn for_type(mut self, event_type: StateEventType) -> Self {
+        self.endpoint.event_type = Some(event_type);
+        self
     }
 
     ///
@@ -1140,10 +1132,9 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// );
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn for_key(self, state_key: String) -> Self {
-        let endpoint = RoomSendStateEndpoint { state_key: Some(state_key), ..self.endpoint };
-        let matcher = path_regex(Self::generate_path_regex(&endpoint));
-        Self { endpoint, mock: self.mock.and(matcher), ..self }
+    pub fn for_key(mut self, state_key: String) -> Self {
+        self.endpoint.state_key = Some(state_key);
+        self
     }
 
     /// Returns a send endpoint that emulates success, i.e. the event has been
@@ -1166,13 +1157,13 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     ///
     /// let event_id = event_id!("$some_id");
     /// let send_guard = mock_server
-    ///     .mock_room_send()
+    ///     .mock_room_send_state()
     ///     .ok(event_id)
     ///     .expect(1)
     ///     .mount_as_scoped()
     ///     .await;
     ///
-    /// let response = room.send_raw("m.room.message", json!({ "body": "Hello world" })).await?;
+    /// let response = room.send_state_event_raw("m.room.message", "my_key", json!({ "body": "Hello world" })).await?;
     ///
     /// assert_eq!(
     ///     event_id,
@@ -1181,7 +1172,15 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// );
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
+    pub fn ok(mut self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
+        let path_regexp = format!(
+            r"^/_matrix/client/v3/rooms/.*/state/{}/{}",
+            self.endpoint.event_type.as_ref().map_or_else(|| ".*".to_owned(), |t| t.to_string()),
+            self.endpoint.state_key.as_ref().map_or_else(|| ".*".to_owned(), |k| k.to_string())
+        );
+
+        self.mock = self.mock.and(path_regex(path_regexp));
+
         self.ok_with_event_id(returned_event_id.into())
     }
 }
@@ -1370,6 +1369,11 @@ pub struct RoomMessagesEndpoint;
 
 /// A prebuilt mock for getting a room messages in a room.
 impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
+    /// Expects an optional limit to be set on the mock.
+    pub fn limit(self, limit: u32) -> Self {
+        Self { mock: self.mock.and(query_param("limit", limit.to_string())), ..self }
+    }
+
     /// Returns a messages endpoint that emulates success, i.e. the messages
     /// provided as `response` could be retrieved.
     ///

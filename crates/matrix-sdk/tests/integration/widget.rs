@@ -313,7 +313,8 @@ async fn test_read_messages_with_msgtype_capabilities() {
             f.reaction(event_id!("$event_id"), "annotation".to_owned()).into_raw_timeline(),
         ];
         mock_server
-            .mock_room_messages(Some(3))
+            .mock_room_messages()
+            .limit(3)
             .ok(start, end, chun2, Vec::<Raw<AnyStateEvent>>::new())
             .mock_once()
             .mount()
