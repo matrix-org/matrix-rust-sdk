@@ -16,7 +16,7 @@ use std::{collections::HashMap, num::NonZeroUsize, sync::RwLock as StdRwLock, ti
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    linked_chunk::{relational::RelationalLinkedChunk, LinkedChunk, Update},
+    linked_chunk::{relational::RelationalLinkedChunk, LinkedChunk, LinkedChunkBuilder, Update},
     ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
 };
@@ -95,10 +95,24 @@ impl EventCacheStore for MemoryStore {
 
     async fn reload_linked_chunk(
         &self,
-        _room_id: &RoomId,
+        room_id: &RoomId,
     ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, Self::Error> {
-        // TODO(hywan)
-        Ok(Default::default())
+        let inner = self.inner.read().unwrap();
+
+        let mut builder = LinkedChunkBuilder::new();
+
+        inner
+            .events
+            .reload_chunks(room_id, &mut builder)
+            .map_err(|err| EventCacheStoreError::InvalidData { details: err })?;
+
+        builder.with_update_history();
+
+        let result = builder.build().map_err(|err| EventCacheStoreError::InvalidData {
+            details: format!("when rebuilding a linked chunk: {err}"),
+        })?;
+
+        Ok(result)
     }
 
     async fn add_media_content(
