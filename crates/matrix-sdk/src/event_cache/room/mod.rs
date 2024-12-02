@@ -636,13 +636,16 @@ mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use matrix_sdk_base::{
-        event_cache::store::{EventCacheStore as _, MemoryStore},
-        linked_chunk::ChunkContent,
+        event_cache::{
+            store::{EventCacheStore as _, MemoryStore},
+            Gap,
+        },
+        linked_chunk::{ChunkContent, ChunkIdentifier, Position, Update},
         store::StoreConfig,
         sync::{JoinedRoomUpdate, Timeline},
     };
     use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
-    use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE};
+    use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, BOB};
     use ruma::{
         event_id,
         events::{
@@ -954,6 +957,107 @@ mod tests {
 
         // That's all, folks!
         assert!(chunks.next().is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[async_test]
+    async fn test_load_from_storage() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let event_id1 = event_id!("$1");
+        let event_id2 = event_id!("$2");
+
+        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_sync();
+        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_sync();
+
+        // Prefill the store with some data.
+        event_cache_store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    // An empty items chunk.
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    // A gap chunk.
+                    Update::NewGapChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        // Chunk IDs aren't supposed to be ordered, so use a random value here.
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                        gap: Gap { prev_token: "cheddar".to_owned() },
+                    },
+                    // Another items chunk, non-empty this time.
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(42)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![ev1.clone()],
+                    },
+                    // And another items chunk, non-empty again.
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(1)),
+                        new: ChunkIdentifier::new(2),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(2), 0),
+                        items: vec![ev2.clone()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let client = MockClientBuilder::new("http://localhost".to_owned())
+            .store_config(
+                StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
+            )
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+
+        // Don't forget to subscribe and like^W enable storage!
+        event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        let (items, _stream) = room_event_cache.subscribe().await.unwrap();
+
+        // The reloaded room must contain the two events.
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].event_id().unwrap(), event_id1);
+        assert_eq!(items[1].event_id().unwrap(), event_id2);
+
+        // A new update with one of these events leads to deduplication.
+        let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev1] };
+        room_event_cache
+            .inner
+            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
+            .await
+            .unwrap();
+
+        // The stream doesn't report these changes *yet*. Use the items vector given
+        // when subscribing, to check that the items correspond to their new
+        // positions. The duplicated item is removed (so it's not the first
+        // element anymore), and it's added to the back of the list.
+        let (items, _stream) = room_event_cache.subscribe().await.unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].event_id().unwrap(), event_id2);
+        assert_eq!(items[1].event_id().unwrap(), event_id1);
     }
 
     async fn assert_relations(
