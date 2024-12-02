@@ -148,6 +148,13 @@ pub enum EventCacheStoreError {
          current version: {0}, latest version: {1}"
     )]
     UnsupportedDatabaseVersion(usize, usize),
+
+    /// The store contains invalid data.
+    #[error("The store contains invalid data: {details}")]
+    InvalidData {
+        /// Details why the data contained in the store was invalid.
+        details: String,
+    },
 }
 
 impl EventCacheStoreError {
