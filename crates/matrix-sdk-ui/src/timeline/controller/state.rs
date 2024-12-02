@@ -537,7 +537,12 @@ impl TimelineStateTransaction<'_> {
                         visible: false,
                     };
                     let _event_added_or_updated = self
-                        .add_or_update_event(event_meta, position, room_data_provider, settings)
+                        .add_or_update_remote_event(
+                            event_meta,
+                            position,
+                            room_data_provider,
+                            settings,
+                        )
                         .await;
 
                     return HandleEventResult::default();
@@ -564,7 +569,12 @@ impl TimelineStateTransaction<'_> {
                             visible: false,
                         };
                         let _event_added_or_updated = self
-                            .add_or_update_event(event_meta, position, room_data_provider, settings)
+                            .add_or_update_remote_event(
+                                event_meta,
+                                position,
+                                room_data_provider,
+                                settings,
+                            )
                             .await;
                     }
 
@@ -583,8 +593,9 @@ impl TimelineStateTransaction<'_> {
             visible: should_add,
         };
 
-        let event_added_or_updated =
-            self.add_or_update_event(event_meta, position, room_data_provider, settings).await;
+        let event_added_or_updated = self
+            .add_or_update_remote_event(event_meta, position, room_data_provider, settings)
+            .await;
 
         // If the event has not been added or updated, it's because it's a duplicated
         // event. Let's return early.
@@ -686,7 +697,7 @@ impl TimelineStateTransaction<'_> {
     /// It returns `true` if the event has been added or updated, `false`
     /// otherwise. The latter happens if the event already exists, i.e. if
     /// an existing event is requested to be added.
-    async fn add_or_update_event<P: RoomDataProvider>(
+    async fn add_or_update_remote_event<P: RoomDataProvider>(
         &mut self,
         event_meta: FullEventMeta<'_>,
         position: TimelineItemPosition,
