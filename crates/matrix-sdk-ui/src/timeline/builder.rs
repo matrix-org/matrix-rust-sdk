@@ -183,7 +183,7 @@ impl TimelineBuilder {
                         if let Ok(events) = inner.reload_pinned_events().await {
                             inner
                                 .replace_with_initial_remote_events(
-                                    events,
+                                    events.into_iter(),
                                     RemoteEventOrigin::Pagination,
                                 )
                                 .await;
@@ -238,7 +238,7 @@ impl TimelineBuilder {
                             // current timeline.
                             match room_event_cache.subscribe().await {
                                 Ok((events, _)) => {
-                                    inner.replace_with_initial_remote_events(events, RemoteEventOrigin::Sync).await;
+                                    inner.replace_with_initial_remote_events(events.into_iter(), RemoteEventOrigin::Sync).await;
                                 }
                                 Err(err) => {
                                     warn!("Error when re-inserting initial events into the timeline: {err}");
@@ -272,7 +272,7 @@ impl TimelineBuilder {
                             trace!("Received new timeline events.");
 
                             inner.add_events_at(
-                                events,
+                                events.into_iter(),
                                 TimelineNewItemPosition::End {                                    origin: match origin {
                                         EventsOrigin::Sync => RemoteEventOrigin::Sync,
                                     }
