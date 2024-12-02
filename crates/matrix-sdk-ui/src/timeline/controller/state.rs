@@ -127,14 +127,19 @@ impl TimelineState {
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
-    pub(super) async fn add_remote_events_at<P: RoomDataProvider>(
+    pub(super) async fn add_remote_events_at<Events, RoomData>(
         &mut self,
-        events: Vec<impl Into<SyncTimelineEvent>>,
+        events: Events,
         position: TimelineNewItemPosition,
-        room_data_provider: &P,
+        room_data_provider: &RoomData,
         settings: &TimelineSettings,
-    ) -> HandleManyEventsResult {
-        if events.is_empty() {
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator + ExactSizeIterator,
+        <Events as IntoIterator>::Item: Into<SyncTimelineEvent>,
+        RoomData: RoomDataProvider,
+    {
+        if events.len() == 0 {
             return Default::default();
         }
 
@@ -292,13 +297,18 @@ impl TimelineState {
     /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
-    pub(super) async fn replace_with_remote_events<P: RoomDataProvider>(
+    pub(super) async fn replace_with_remote_events<Events, RoomData>(
         &mut self,
-        events: Vec<SyncTimelineEvent>,
+        events: Events,
         position: TimelineNewItemPosition,
-        room_data_provider: &P,
+        room_data_provider: &RoomData,
         settings: &TimelineSettings,
-    ) -> HandleManyEventsResult {
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator,
+        Events::Item: Into<SyncTimelineEvent>,
+        RoomData: RoomDataProvider,
+    {
         let mut txn = self.transaction();
         txn.clear();
         let result = txn.add_remote_events_at(events, position, room_data_provider, settings).await;
@@ -352,13 +362,18 @@ impl TimelineStateTransaction<'_> {
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
-    pub(super) async fn add_remote_events_at<P: RoomDataProvider>(
+    pub(super) async fn add_remote_events_at<Events, RoomData>(
         &mut self,
-        events: Vec<impl Into<SyncTimelineEvent>>,
+        events: Events,
         position: TimelineNewItemPosition,
-        room_data_provider: &P,
+        room_data_provider: &RoomData,
         settings: &TimelineSettings,
-    ) -> HandleManyEventsResult {
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator,
+        Events::Item: Into<SyncTimelineEvent>,
+        RoomData: RoomDataProvider,
+    {
         let mut total = HandleManyEventsResult::default();
 
         let position = position.into();
