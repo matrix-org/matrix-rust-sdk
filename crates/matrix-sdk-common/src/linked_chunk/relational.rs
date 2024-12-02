@@ -301,8 +301,15 @@ where
 
             // Look at the first chunk item type, to reconstruct the chunk at hand.
             let Some(first) = items.peek() else {
-                // No items found for this chunk; don't include it in the builder.
-                return Err(format!("chunk {} had no corresponding row", chunk_row.chunk.index()));
+                // The only possibility is that we created an empty items chunk; mark it as
+                // such, and continue.
+                builder.push_items(
+                    chunk_row.previous_chunk,
+                    chunk_row.chunk,
+                    chunk_row.next_chunk,
+                    Vec::new(),
+                );
+                continue;
             };
 
             match &first.item {
@@ -828,6 +835,31 @@ mod tests {
 
         // The builder won't return a linked chunk.
         assert!(lc.is_none());
+    }
+
+    #[test]
+    fn test_reload_linked_chunk_with_empty_items() {
+        let mut builder = LinkedChunkBuilder::<3, _, _>::new();
+
+        let room_id = room_id!("!r0:matrix.org");
+
+        let mut relational_linked_chunk = RelationalLinkedChunk::<char, char>::new();
+
+        // When I store an empty items chunks,
+        relational_linked_chunk.apply_updates(
+            room_id,
+            vec![Update::NewItemsChunk { previous: None, new: CId::new(0), next: None }],
+        );
+
+        // It correctly gets reloaded as such.
+        relational_linked_chunk.reload_chunks(room_id, &mut builder).unwrap();
+
+        let lc = builder
+            .build()
+            .expect("building succeeds")
+            .expect("this leads to a non-empty linked chunk");
+
+        assert_items_eq!(lc, []);
     }
 
     #[test]
