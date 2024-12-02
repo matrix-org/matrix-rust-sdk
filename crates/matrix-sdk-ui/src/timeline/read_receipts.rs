@@ -390,7 +390,7 @@ impl TimelineStateTransaction<'_> {
                     self.meta.read_receipts.maybe_update_read_receipt(
                         full_receipt,
                         is_own_user_id,
-                        &self.meta.all_events,
+                        &self.meta.all_remote_events,
                         &mut self.items,
                     );
                 }
@@ -425,7 +425,7 @@ impl TimelineStateTransaction<'_> {
             self.meta.read_receipts.maybe_update_read_receipt(
                 full_receipt,
                 user_id == own_user_id,
-                &self.meta.all_events,
+                &self.meta.all_remote_events,
                 &mut self.items,
             );
         }
@@ -454,7 +454,7 @@ impl TimelineStateTransaction<'_> {
         self.meta.read_receipts.maybe_update_read_receipt(
             full_receipt,
             is_own_event,
-            &self.meta.all_events,
+            &self.meta.all_remote_events,
             &mut self.items,
         );
     }
@@ -465,7 +465,7 @@ impl TimelineStateTransaction<'_> {
         // Find the previous visible event, if there is one.
         let Some(prev_event_meta) = self
             .meta
-            .all_events
+            .all_remote_events
             .iter()
             .rev()
             // Find the event item.
@@ -495,7 +495,7 @@ impl TimelineStateTransaction<'_> {
 
         let read_receipts = self.meta.read_receipts.compute_event_receipts(
             &remote_prev_event_item.event_id,
-            &self.meta.all_events,
+            &self.meta.all_remote_events,
             false,
         );
 
@@ -585,7 +585,7 @@ impl TimelineState {
 
         // Find the corresponding visible event.
         self.meta
-            .all_events
+            .all_remote_events
             .iter()
             .rev()
             .skip_while(|ev| ev.event_id != *latest_receipt_id)
