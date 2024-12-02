@@ -16,12 +16,13 @@
 
 use std::{
     borrow::Borrow,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     ops::Deref,
     sync::Arc,
     time::Duration,
 };
 
+use async_stream::stream;
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
 use async_trait::async_trait;
 use eyeball::SharedObservable;
@@ -80,6 +81,7 @@ use ruma::{
             avatar::{self, RoomAvatarEventContent},
             encryption::RoomEncryptionEventContent,
             history_visibility::HistoryVisibility,
+            member::{MembershipChange, SyncRoomMemberEvent},
             message::{
                 AudioInfo, AudioMessageEventContent, FileInfo, FileMessageEventContent,
                 FormattedBody, ImageMessageEventContent, MessageType, RoomMessageEventContent,
@@ -119,6 +121,7 @@ use ruma::{
 use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tokio::sync::broadcast;
+use tokio_stream::StreamExt;
 use tracing::{debug, info, instrument, warn};
 
 use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
@@ -137,7 +140,10 @@ use crate::{
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
     media::{MediaFormat, MediaRequestParameters},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
-    room::power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
+    room::{
+        power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
+        request_to_join::RequestToJoinRoom,
+    },
     sync::RoomUpdate,
     utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
     BaseRoom, Client, Error, HttpResult, Result, RoomState, TransmissionProgress,
@@ -151,6 +157,8 @@ pub mod identity_status_changes;
 mod member;
 mod messages;
 pub mod power_levels;
+/// Contains code related to requests to join a room.
+pub mod request_to_join;
 
 /// A struct containing methods that are common for Joined, Invited and Left
 /// Rooms
@@ -3188,6 +3196,171 @@ impl Room {
                 _ => Err(http_error.into()),
             },
         }
+    }
+
+    /// Helper to requests to join this `Room`. It returns both a list with the
+    /// initial items and any new request to join received.
+    pub async fn subscribe_to_requests_to_join(
+        &self,
+    ) -> Result<impl Stream<Item = Vec<RequestToJoinRoom>>> {
+        let this = Arc::new(self.clone());
+
+        let requests_observable =
+            this.client.observe_room_events::<SyncRoomMemberEvent, (Client, Room)>(this.room_id());
+
+        let (current_seen_ids, mut seen_request_ids_stream) =
+            this.subscribe_to_seen_requests_to_join_ids().await?;
+
+        let combined_stream = stream! {
+            // Emit current requests to join
+            match this.clone().get_current_requests_to_join(&current_seen_ids).await {
+                Ok(initial_requests) => yield initial_requests,
+                Err(e) => warn!("Failed to get initial requests to join: {e:?}")
+            }
+
+            let mut requests_stream = requests_observable.subscribe();
+
+            let mut new_event: Option<SyncRoomMemberEvent> = None;
+            let mut seen_ids = current_seen_ids.clone();
+            let mut prev_seen_ids = current_seen_ids;
+
+            loop {
+                // This is equivalent to a combine stream operation, triggering a new emission
+                // when any of the 2 sides changes
+                tokio::select! {
+                    Some((next, _)) = requests_stream.next() => { new_event = Some(next); }
+                    Some(next) = seen_request_ids_stream.next() => { seen_ids = next; }
+                    else => break,
+                }
+
+                let has_new_seen_ids = prev_seen_ids != seen_ids;
+                if has_new_seen_ids {
+                    prev_seen_ids = seen_ids.clone();
+                }
+
+                if let Some(SyncStateEvent::Original(event)) = new_event.clone() {
+                    // Reset the new event value so we can check this again in the next loop
+                    new_event = None;
+
+                    // If we can calculate the membership change, try to emit only when needed
+                    if event.prev_content().is_some() {
+                        match event.membership_change() {
+                            MembershipChange::Banned |
+                            MembershipChange::Knocked |
+                            MembershipChange::KnockAccepted |
+                            MembershipChange::KnockDenied |
+                            MembershipChange::KnockRetracted => {
+                                match this.clone().get_current_requests_to_join(&seen_ids).await {
+                                    Ok(requests) => yield requests,
+                                    Err(e) => {
+                                        warn!("Failed to get updated requests to join on membership change: {e:?}")
+                                    }
+                                }
+                            }
+                            _ => (),
+                        }
+                    } else {
+                        // If we can't calculate the membership change, assume we need to
+                        // emit updated values
+                        match this.clone().get_current_requests_to_join(&seen_ids).await {
+                            Ok(requests) => yield requests,
+                            Err(e) => {
+                                warn!("Failed to get updated requests to join on new member event: {e:?}")
+                            }
+                        }
+                    }
+                } else if has_new_seen_ids {
+                    // If seen requests have changed, we need to recalculate all the
+                    // requests to join
+                    match this.clone().get_current_requests_to_join(&seen_ids).await {
+                        Ok(requests) => yield requests,
+                        Err(e) => {
+                            warn!("Failed to get updated requests to join on seen ids changed: {e:?}")
+                        }
+                    }
+                }
+            }
+        };
+
+        Ok(combined_stream)
+    }
+
+    async fn get_current_requests_to_join(
+        self: Arc<Self>,
+        seen_request_ids: &HashSet<OwnedEventId>,
+    ) -> Result<Vec<RequestToJoinRoom>> {
+        Ok(self
+            .members(RoomMemberships::KNOCK)
+            .await?
+            .into_iter()
+            .filter_map(|member| {
+                if let Some(event_id) = member.event().event_id() {
+                    let event_id = event_id.to_owned();
+                    Some(RequestToJoinRoom::new(
+                        self.clone(),
+                        &event_id,
+                        member.event().timestamp(),
+                        member.into(),
+                        seen_request_ids.contains(&event_id),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect())
+    }
+
+    /// Mark a list of requests to join the room as seen, given their state
+    /// event ids.
+    pub async fn mark_requests_to_join_as_seen(&self, event_ids: &[OwnedEventId]) -> Result<()> {
+        let mut current_seen_events = self.get_seen_requests_to_join_ids().await?;
+
+        for event_id in event_ids {
+            current_seen_events.insert(event_id.to_owned());
+        }
+
+        self.seen_requests_to_join_ids.set(Some(current_seen_events.clone()));
+
+        self.client
+            .store()
+            .set_kv_data(
+                StateStoreDataKey::SeenRequestsToJoin(self.room_id()),
+                StateStoreDataValue::SeenRequestsToJoin(current_seen_events),
+            )
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Get the list of seen requests to join event ids in this room.
+    pub async fn get_seen_requests_to_join_ids(&self) -> Result<HashSet<OwnedEventId>> {
+        let current_requests_to_join_ids = self.seen_requests_to_join_ids.get();
+        let current_requests_to_join_ids: HashSet<OwnedEventId> =
+            if let Some(requests) = current_requests_to_join_ids.as_ref() {
+                requests.clone()
+            } else {
+                let requests = self
+                    .client
+                    .store()
+                    .get_kv_data(StateStoreDataKey::SeenRequestsToJoin(self.room_id()))
+                    .await?
+                    .and_then(|v| v.into_seen_join_requests())
+                    .unwrap_or_default();
+
+                self.seen_requests_to_join_ids.set(Some(requests.clone()));
+                requests
+            };
+        Ok(current_requests_to_join_ids)
+    }
+
+    /// Subscribes to the set of requests to join that have been marked as
+    /// 'seen'.
+    pub async fn subscribe_to_seen_requests_to_join_ids(
+        &self,
+    ) -> Result<(HashSet<OwnedEventId>, impl Stream<Item = HashSet<OwnedEventId>>)> {
+        let current = self.get_seen_requests_to_join_ids().await?;
+        let subscriber =
+            self.seen_requests_to_join_ids.subscribe().map(|values| values.unwrap_or_default());
+        Ok((current, subscriber))
     }
 }
 

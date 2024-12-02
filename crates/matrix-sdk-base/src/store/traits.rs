@@ -14,7 +14,7 @@
 
 use std::{
     borrow::Borrow,
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt,
     sync::Arc,
 };
@@ -1022,6 +1022,9 @@ pub enum StateStoreDataValue {
     ///
     /// [`ComposerDraft`]: Self::ComposerDraft
     ComposerDraft(ComposerDraft),
+
+    /// A list of requests to join marked as seen in a room.
+    SeenRequestsToJoin(HashSet<OwnedEventId>),
 }
 
 /// Current draft of the composer for the room.
@@ -1088,6 +1091,11 @@ impl StateStoreDataValue {
     pub fn into_server_capabilities(self) -> Option<ServerCapabilities> {
         as_variant!(self, Self::ServerCapabilities)
     }
+
+    /// Get this value if it is the data for the ignored join requests.
+    pub fn into_seen_join_requests(self) -> Option<HashSet<OwnedEventId>> {
+        as_variant!(self, Self::SeenRequestsToJoin)
+    }
 }
 
 /// A key for key-value data.
@@ -1117,6 +1125,9 @@ pub enum StateStoreDataKey<'a> {
     ///
     /// [`ComposerDraft`]: Self::ComposerDraft
     ComposerDraft(&'a RoomId),
+
+    /// A list of requests to join in a room marked as seen.
+    SeenRequestsToJoin(&'a RoomId),
 }
 
 impl StateStoreDataKey<'_> {
@@ -1142,6 +1153,10 @@ impl StateStoreDataKey<'_> {
     /// Key prefix to use for the [`ComposerDraft`][Self::ComposerDraft]
     /// variant.
     pub const COMPOSER_DRAFT: &'static str = "composer_draft";
+
+    /// Key prefix to use for the
+    /// [`SeenRequestsToJoin`][Self::SeenRequestsToJoin] variant.
+    pub const SEEN_REQUESTS_TO_JOIN: &'static str = "seen_requests_to_join";
 }
 
 #[cfg(test)]

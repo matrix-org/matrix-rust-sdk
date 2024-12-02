@@ -27,7 +27,10 @@ use matrix_sdk_test::{
     test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
     SyncResponseBuilder,
 };
-use ruma::{directory::PublicRoomsChunk, MxcUri, OwnedEventId, OwnedRoomId, RoomId, ServerName};
+use ruma::{
+    directory::PublicRoomsChunk, events::room::member::RoomMemberEvent, serde::Raw, MxcUri,
+    OwnedEventId, OwnedRoomId, RoomId, ServerName,
+};
 use serde::Deserialize;
 use serde_json::json;
 use wiremock::{
@@ -495,6 +498,49 @@ impl MatrixMockServer {
     pub fn mock_public_rooms(&self) -> MockEndpoint<'_, PublicRoomsEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(r"/_matrix/client/v3/publicRooms"));
         MockEndpoint { mock, server: &self.server, endpoint: PublicRoomsEndpoint }
+    }
+
+    /// Create a prebuilt mock for getting the room members in a room.
+    ///
+    /// # Examples
+    ///
+    /// ``` #
+    /// tokio_test::block_on(async {
+    /// use matrix_sdk_base::RoomMemberships;
+    /// use ruma::events::room::member::MembershipState;
+    /// use ruma::events::room::member::RoomMemberEventContent;
+    /// use ruma::user_id;
+    /// use matrix_sdk_test::event_factory::EventFactory;
+    /// use matrix_sdk::{
+    ///     ruma::{event_id, room_id},
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    /// let event_id = event_id!("$id");
+    /// let room_id = room_id!("!room_id:localhost");
+    ///
+    /// let f = EventFactory::new().room(room_id);
+    /// let alice_user_id = user_id!("@alice:b.c");
+    /// let alice_knock_event = f
+    ///     .event(RoomMemberEventContent::new(MembershipState::Knock))
+    ///     .event_id(event_id)
+    ///     .sender(alice_user_id)
+    ///     .state_key(alice_user_id)
+    ///     .into_raw_timeline()
+    ///     .cast();
+    ///
+    /// mock_server.mock_get_members().ok(vec![alice_knock_event]).mock_once().mount().await;
+    /// let room = mock_server.sync_joined_room(&client, room_id).await;
+    ///
+    /// let members = room.members(RoomMemberships::all()).await.unwrap();
+    /// assert_eq!(members.len(), 1);
+    /// # });
+    /// ```
+    pub fn mock_get_members(&self) -> MockEndpoint<'_, GetRoomMembersEndpoint> {
+        let mock =
+            Mock::given(method("GET")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/members$"));
+        MockEndpoint { mock, server: &self.server, endpoint: GetRoomMembersEndpoint }
     }
 }
 
@@ -1126,6 +1172,19 @@ impl<'a> MockEndpoint<'a, PublicRoomsEndpoint> {
                 "total_room_count_estimate": chunk.len(),
             }))
         });
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for `GET /members` request.
+pub struct GetRoomMembersEndpoint;
+
+impl<'a> MockEndpoint<'a, GetRoomMembersEndpoint> {
+    /// Returns a successful get members request with a list of members.
+    pub fn ok(self, members: Vec<Raw<RoomMemberEvent>>) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chunk": members,
+        })));
         MatrixMock { server: self.server, mock }
     }
 }

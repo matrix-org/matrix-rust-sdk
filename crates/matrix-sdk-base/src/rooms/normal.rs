@@ -145,6 +145,9 @@ pub struct Room {
     /// to disk but held in memory.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub latest_encrypted_events: Arc<SyncRwLock<RingBuffer<Raw<AnySyncTimelineEvent>>>>,
+
+    /// The event ids for seen request to join room events.
+    pub seen_requests_to_join_ids: SharedObservable<Option<HashSet<OwnedEventId>>>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -255,6 +258,7 @@ impl Room {
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
             room_info_notable_update_sender,
+            seen_requests_to_join_ids: SharedObservable::new(None),
         }
     }
 

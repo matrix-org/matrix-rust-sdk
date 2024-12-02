@@ -419,6 +419,9 @@ impl IndexeddbStateStore {
             StateStoreDataKey::ComposerDraft(room_id) => {
                 self.encode_key(keys::KV, (StateStoreDataKey::COMPOSER_DRAFT, room_id))
             }
+            StateStoreDataKey::SeenRequestsToJoin(room_id) => {
+                self.encode_key(keys::KV, (StateStoreDataKey::SEEN_REQUESTS_TO_JOIN, room_id))
+            }
         }
     }
 }
@@ -537,6 +540,10 @@ impl_state_store!({
                 .map(|f| self.deserialize_value::<ComposerDraft>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::ComposerDraft),
+            StateStoreDataKey::SeenRequestsToJoin(_) => value
+                .map(|f| self.deserialize_value::<HashSet<OwnedEventId>>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::SeenRequestsToJoin),
         };
 
         Ok(value)
@@ -573,6 +580,11 @@ impl_state_store!({
             ),
             StateStoreDataKey::ComposerDraft(_) => self.serialize_value(
                 &value.into_composer_draft().expect("Session data not a composer draft"),
+            ),
+            StateStoreDataKey::SeenRequestsToJoin(_) => self.serialize_value(
+                &value
+                    .into_seen_join_requests()
+                    .expect("Session data not a set of ignored requests to join"),
             ),
         };
 
