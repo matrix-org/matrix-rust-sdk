@@ -316,8 +316,10 @@ impl MatrixMockServer {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn mock_room_send(&self) -> MockEndpoint<'_, RoomSendEndpoint> {
-        let mock = Mock::given(method("PUT")).and(header("authorization", "Bearer 1234"));
-        MockEndpoint { mock, server: &self.server, endpoint: RoomSendEndpoint { event_type: None } }
+        let mock = Mock::given(method("PUT"))
+            .and(header("authorization", "Bearer 1234"))
+            .and(path_regex(format!(r"^/_matrix/client/v3/rooms/.*/send/.*",)));
+        MockEndpoint { mock, server: &self.server, endpoint: RoomSendEndpoint }
     }
 
     /// Creates a prebuilt mock for sending a state event in a room.
@@ -364,7 +366,9 @@ impl MatrixMockServer {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn mock_room_send_state(&self) -> MockEndpoint<'_, RoomSendStateEndpoint> {
-        let mock = Mock::given(method("PUT")).and(header("authorization", "Bearer 1234"));
+        let mock = Mock::given(method("PUT"))
+            .and(header("authorization", "Bearer 1234"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/.*/.*"));
         MockEndpoint { mock, server: &self.server, endpoint: RoomSendStateEndpoint::default() }
     }
 
@@ -816,9 +820,7 @@ impl<'a, T> MockEndpoint<'a, T> {
 }
 
 /// A prebuilt mock for sending a message like event in a room.
-pub struct RoomSendEndpoint {
-    event_type: Option<MessageLikeEventType>,
-}
+pub struct RoomSendEndpoint;
 
 impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// Ensures that the body of the request is a superset of the provided
@@ -909,9 +911,15 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// );
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn for_type(mut self, event_type: MessageLikeEventType) -> Self {
-        self.endpoint.event_type = Some(event_type);
-        self
+    pub fn for_type(self, event_type: MessageLikeEventType) -> Self {
+        Self {
+            // Note: we already defined a path when constructing the mock builder, but this one
+            // ought to be more specialized.
+            mock: self
+                .mock
+                .and(path_regex(format!(r"^/_matrix/client/v3/rooms/.*/send/{event_type}",))),
+            ..self
+        }
     }
 
     /// Returns a send endpoint that emulates success, i.e. the event has been
@@ -949,17 +957,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// );
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn ok(mut self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
-        let event_type_path = self
-            .endpoint
-            .event_type
-            .as_ref()
-            .map_or_else(|| ".*".to_owned(), |event_type| event_type.to_string());
-
-        self.mock = self
-            .mock
-            .and(path_regex(format!(r"^/_matrix/client/v3/rooms/.*/send/{event_type_path}",)));
-
+    pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
         self.ok_with_event_id(returned_event_id.into())
     }
 }
@@ -972,6 +970,14 @@ pub struct RoomSendStateEndpoint {
 }
 
 impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
+    fn generate_path_regexp(endpoint: &RoomSendStateEndpoint) -> String {
+        format!(
+            r"^/_matrix/client/v3/rooms/.*/state/{}/{}",
+            endpoint.event_type.as_ref().map_or_else(|| ".*".to_owned(), |t| t.to_string()),
+            endpoint.state_key.as_ref().map_or_else(|| ".*".to_owned(), |k| k.to_string())
+        )
+    }
+
     /// Ensures that the body of the request is a superset of the provided
     /// `body` parameter.
     ///
@@ -1076,7 +1082,9 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// ```
     pub fn for_type(mut self, event_type: StateEventType) -> Self {
         self.endpoint.event_type = Some(event_type);
-        self
+        // Note: we may have already defined a path, but this one ought to be more
+        // specialized (unless for_key/for_type were called multiple times).
+        Self { mock: self.mock.and(path_regex(Self::generate_path_regexp(&self.endpoint))), ..self }
     }
 
     ///
@@ -1134,7 +1142,9 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// ```
     pub fn for_key(mut self, state_key: String) -> Self {
         self.endpoint.state_key = Some(state_key);
-        self
+        // Note: we may have already defined a path, but this one ought to be more
+        // specialized (unless for_key/for_type were called multiple times).
+        Self { mock: self.mock.and(path_regex(Self::generate_path_regexp(&self.endpoint))), ..self }
     }
 
     /// Returns a send endpoint that emulates success, i.e. the event has been
@@ -1172,15 +1182,7 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// );
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn ok(mut self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
-        let path_regexp = format!(
-            r"^/_matrix/client/v3/rooms/.*/state/{}/{}",
-            self.endpoint.event_type.as_ref().map_or_else(|| ".*".to_owned(), |t| t.to_string()),
-            self.endpoint.state_key.as_ref().map_or_else(|| ".*".to_owned(), |k| k.to_string())
-        );
-
-        self.mock = self.mock.and(path_regex(path_regexp));
-
+    pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
         self.ok_with_event_id(returned_event_id.into())
     }
 }
