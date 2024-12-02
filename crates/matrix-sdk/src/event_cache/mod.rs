@@ -42,6 +42,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use once_cell::sync::OnceCell;
+use room::RoomEventCacheState;
 use ruma::{
     events::{relation::RelationType, AnySyncEphemeralRoomEvent},
     serde::Raw,
@@ -458,9 +459,12 @@ impl EventCacheInner {
                     return Ok(room.clone());
                 }
 
+                let room_state =
+                    RoomEventCacheState::new(room_id.to_owned(), self.store.clone()).await?;
+
                 let room_event_cache = RoomEventCache::new(
                     self.client.clone(),
-                    self.store.clone(),
+                    room_state,
                     room_id.to_owned(),
                     self.all_events.clone(),
                 );

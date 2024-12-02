@@ -52,14 +52,28 @@ impl Default for RoomEvents {
 impl RoomEvents {
     /// Build a new [`RoomEvents`] struct with zero events.
     pub fn new() -> Self {
-        let mut chunks = LinkedChunk::new_with_update_history();
+        Self::with_initial_chunks(None)
+    }
+
+    /// Build a new [`RoomEvents`] struct with prior chunks knowledge.
+    ///
+    /// The provided [`LinkedChunk`] must have been built with update history.
+    pub fn with_initial_chunks(
+        chunks: Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>,
+    ) -> Self {
+        let mut chunks = chunks.unwrap_or_else(LinkedChunk::new_with_update_history);
+
         let chunks_updates_as_vectordiffs = chunks
             .as_vector()
             // SAFETY: The `LinkedChunk` has been built with `new_with_update_history`, so
             // `as_vector` must return `Some(…)`.
-            .expect("`LinkedChunk` must have been constructor with `new_with_update_history`");
+            .expect("`LinkedChunk` must have been built with `new_with_update_history`");
 
-        Self { chunks, chunks_updates_as_vectordiffs, deduplicator: Deduplicator::new() }
+        // Let the deduplicator know about initial events.
+        let deduplicator =
+            Deduplicator::with_initial_events(chunks.items().map(|(_pos, event)| event));
+
+        Self { chunks, chunks_updates_as_vectordiffs, deduplicator }
     }
 
     /// Clear all events.
