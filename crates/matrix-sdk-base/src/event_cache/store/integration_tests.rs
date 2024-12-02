@@ -14,13 +14,85 @@
 
 //! Trait and macro of integration tests for `EventCacheStore` implementations.
 
+use assert_matches::assert_matches;
 use async_trait::async_trait;
+use matrix_sdk_common::{
+    deserialized_responses::{
+        AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, SyncTimelineEvent, TimelineEventKind,
+        VerificationState,
+    },
+    linked_chunk::{ChunkContent, Position, Update},
+};
+use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
 use ruma::{
-    api::client::media::get_content_thumbnail::v3::Method, events::room::MediaSource, mxc_uri, uint,
+    api::client::media::get_content_thumbnail::v3::Method, events::room::MediaSource, mxc_uri,
+    push::Action, room_id, uint, RoomId,
 };
 
 use super::DynEventCacheStore;
-use crate::media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings};
+use crate::{
+    event_cache::Gap,
+    media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
+};
+
+/// Create a test event with all data filled, for testing that linked chunk
+/// correctly stores event data.
+///
+/// Keep in sync with [`check_test_event`].
+pub fn make_test_event(room_id: &RoomId, content: &str) -> SyncTimelineEvent {
+    let encryption_info = EncryptionInfo {
+        sender: (*ALICE).into(),
+        sender_device: None,
+        algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+            curve25519_key: "1337".to_owned(),
+            sender_claimed_keys: Default::default(),
+        },
+        verification_state: VerificationState::Verified,
+    };
+
+    let event = EventFactory::new()
+        .text_msg(content)
+        .room(room_id)
+        .sender(*ALICE)
+        .into_raw_timeline()
+        .cast();
+
+    SyncTimelineEvent {
+        kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
+            event,
+            encryption_info,
+            unsigned_encryption_info: None,
+        }),
+        push_actions: vec![Action::Notify],
+    }
+}
+
+/// Check that an event created with [`make_test_event`] contains the expected
+/// data.
+///
+/// Keep in sync with [`make_test_event`].
+#[track_caller]
+pub fn check_test_event(event: &SyncTimelineEvent, text: &str) {
+    // Check push actions.
+    let actions = &event.push_actions;
+    assert_eq!(actions.len(), 1);
+    assert_matches!(&actions[0], Action::Notify);
+
+    // Check content.
+    assert_matches!(&event.kind, TimelineEventKind::Decrypted(d) => {
+        // Check encryption fields.
+        assert_eq!(d.encryption_info.sender, *ALICE);
+        assert_matches!(&d.encryption_info.algorithm_info, AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, .. } => {
+            assert_eq!(curve25519_key, "1337");
+        });
+
+        // Check event.
+        let deserialized = d.event.deserialize().unwrap();
+        assert_matches!(deserialized, ruma::events::AnyMessageLikeEvent::RoomMessage(msg) => {
+            assert_eq!(msg.as_original().unwrap().content.body(), text);
+        });
+    });
+}
 
 /// `EventCacheStore` integration tests.
 ///
@@ -34,6 +106,14 @@ pub trait EventCacheStoreIntegrationTests {
 
     /// Test replacing a MXID.
     async fn test_replace_media_key(&self);
+
+    /// Test handling updates to a linked chunk and reloading these updates from
+    /// the store.
+    async fn test_handle_updates_and_rebuild_linked_chunk(&self);
+
+    /// Test that rebuilding a linked chunk from an empty store doesn't return
+    /// anything.
+    async fn test_rebuild_empty_linked_chunk(&self);
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -182,6 +262,88 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // Finding with the new request does work.
         assert_eq!(self.get_media_content(&new_req).await.unwrap().unwrap(), b"hello");
     }
+
+    async fn test_handle_updates_and_rebuild_linked_chunk(&self) {
+        use matrix_sdk_common::linked_chunk::ChunkIdentifier as CId;
+
+        let room_id = room_id!("!r0:matrix.org");
+
+        self.handle_linked_chunk_updates(
+            room_id,
+            vec![
+                // new chunk
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                // new items on 0
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![
+                        make_test_event(room_id, "hello"),
+                        make_test_event(room_id, "world"),
+                    ],
+                },
+                // a gap chunk
+                Update::NewGapChunk {
+                    previous: Some(CId::new(0)),
+                    new: CId::new(1),
+                    next: None,
+                    gap: Gap { prev_token: "parmesan".to_owned() },
+                },
+                // another items chunk
+                Update::NewItemsChunk { previous: Some(CId::new(1)), new: CId::new(2), next: None },
+                // new items on 0
+                Update::PushItems {
+                    at: Position::new(CId::new(2), 0),
+                    items: vec![make_test_event(room_id, "sup")],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // The linked chunk is correctly reloaded.
+        let lc = self.reload_linked_chunk(room_id).await.unwrap().expect("linked chunk not empty");
+
+        let mut chunks = lc.chunks();
+
+        {
+            let first = chunks.next().unwrap();
+            // Note: we can't assert the previous/next chunks, as these fields and their
+            // getters are private.
+            assert_eq!(first.identifier(), CId::new(0));
+
+            assert_matches!(first.content(), ChunkContent::Items(events) => {
+                assert_eq!(events.len(), 2);
+                check_test_event(&events[0], "hello");
+                check_test_event(&events[1], "world");
+            });
+        }
+
+        {
+            let second = chunks.next().unwrap();
+            assert_eq!(second.identifier(), CId::new(1));
+
+            assert_matches!(second.content(), ChunkContent::Gap(gap) => {
+                assert_eq!(gap.prev_token, "parmesan");
+            });
+        }
+
+        {
+            let third = chunks.next().unwrap();
+            assert_eq!(third.identifier(), CId::new(2));
+
+            assert_matches!(third.content(), ChunkContent::Items(events) => {
+                assert_eq!(events.len(), 1);
+                check_test_event(&events[0], "sup");
+            });
+        }
+
+        assert!(chunks.next().is_none());
+    }
+
+    async fn test_rebuild_empty_linked_chunk(&self) {
+        // When I rebuild a linked chunk from an empty store, it's empty.
+        assert!(self.reload_linked_chunk(&DEFAULT_TEST_ROOM_ID).await.unwrap().is_none());
+    }
 }
 
 /// Macro building to allow your `EventCacheStore` implementation to run the
@@ -235,6 +397,20 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_replace_media_key().await;
+            }
+
+            #[async_test]
+            async fn test_handle_updates_and_rebuild_linked_chunk() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_handle_updates_and_rebuild_linked_chunk().await;
+            }
+
+            #[async_test]
+            async fn test_rebuild_empty_linked_chunk() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_rebuild_empty_linked_chunk().await;
             }
         }
     };

@@ -797,23 +797,20 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
-        deserialized_responses::{
-            AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, SyncTimelineEvent,
-            TimelineEventKind, VerificationState,
-        },
         event_cache::{
-            store::{EventCacheStore, EventCacheStoreError},
+            store::{
+                integration_tests::{check_test_event, make_test_event},
+                EventCacheStore, EventCacheStoreError,
+            },
             Gap,
         },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
         linked_chunk::{ChunkContent, ChunkIdentifier, Position, Update},
         media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     };
-    use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
+    use matrix_sdk_test::{async_test, DEFAULT_TEST_ROOM_ID};
     use once_cell::sync::Lazy;
-    use ruma::{
-        events::room::MediaSource, media::Method, mxc_uri, push::Action, room_id, uint, RoomId,
-    };
+    use ruma::{events::room::MediaSource, media::Method, mxc_uri, room_id, uint};
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteEventCacheStore;
@@ -1081,57 +1078,6 @@ mod tests {
         assert_eq!(gaps, vec![42, 44]);
     }
 
-    fn make_test_event(room_id: &RoomId, content: &str) -> SyncTimelineEvent {
-        let encryption_info = EncryptionInfo {
-            sender: (*ALICE).into(),
-            sender_device: None,
-            algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
-                curve25519_key: "1337".to_owned(),
-                sender_claimed_keys: Default::default(),
-            },
-            verification_state: VerificationState::Verified,
-        };
-
-        let event = EventFactory::new()
-            .text_msg(content)
-            .room(room_id)
-            .sender(*ALICE)
-            .into_raw_timeline()
-            .cast();
-
-        SyncTimelineEvent {
-            kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
-                event,
-                encryption_info,
-                unsigned_encryption_info: None,
-            }),
-            push_actions: vec![Action::Notify],
-        }
-    }
-
-    #[track_caller]
-    fn check_event(event: &SyncTimelineEvent, text: &str) {
-        // Check push actions.
-        let actions = &event.push_actions;
-        assert_eq!(actions.len(), 1);
-        assert_matches!(&actions[0], Action::Notify);
-
-        // Check content.
-        assert_matches!(&event.kind, TimelineEventKind::Decrypted(d) => {
-            // Check encryption fields.
-            assert_eq!(d.encryption_info.sender, *ALICE);
-            assert_matches!(&d.encryption_info.algorithm_info, AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, .. } => {
-                assert_eq!(curve25519_key, "1337");
-            });
-
-            // Check event.
-            let deserialized = d.event.deserialize().unwrap();
-            assert_matches!(deserialized, ruma::events::AnyMessageLikeEvent::RoomMessage(msg) => {
-                assert_eq!(msg.as_original().unwrap().content.body(), text);
-            });
-        });
-    }
-
     #[async_test]
     async fn test_linked_chunk_push_items() {
         let store = get_event_cache_store().await.expect("creating cache store failed");
@@ -1174,9 +1120,9 @@ mod tests {
         assert_matches!(c.content, ChunkContent::Items(events) => {
             assert_eq!(events.len(), 3);
 
-            check_event(&events[0], "hello");
-            check_event(&events[1], "world");
-            check_event(&events[2], "who?");
+            check_test_event(&events[0], "hello");
+            check_test_event(&events[1], "world");
+            check_test_event(&events[2], "who?");
         });
     }
 
@@ -1218,7 +1164,7 @@ mod tests {
         assert_eq!(c.next, None);
         assert_matches!(c.content, ChunkContent::Items(events) => {
             assert_eq!(events.len(), 1);
-            check_event(&events[0], "world");
+            check_test_event(&events[0], "world");
         });
 
         // Make sure the position has been updated for the remaining event.
@@ -1277,7 +1223,7 @@ mod tests {
         assert_eq!(c.next, None);
         assert_matches!(c.content, ChunkContent::Items(events) => {
             assert_eq!(events.len(), 1);
-            check_event(&events[0], "hello");
+            check_test_event(&events[0], "hello");
         });
     }
 
@@ -1324,9 +1270,9 @@ mod tests {
         assert_eq!(c.next, None);
         assert_matches!(c.content, ChunkContent::Items(events) => {
             assert_eq!(events.len(), 3);
-            check_event(&events[0], "hello");
-            check_event(&events[1], "world");
-            check_event(&events[2], "howdy");
+            check_test_event(&events[0], "hello");
+            check_test_event(&events[1], "world");
+            check_test_event(&events[2], "howdy");
         });
     }
 
@@ -1425,8 +1371,8 @@ mod tests {
         let c = chunks_room1.remove(0);
         assert_matches!(c.content, ChunkContent::Items(events) => {
             assert_eq!(events.len(), 2);
-            check_event(&events[0], "best cheese is raclette");
-            check_event(&events[1], "obviously");
+            check_test_event(&events[0], "best cheese is raclette");
+            check_test_event(&events[1], "obviously");
         });
 
         // Check chunks from room 2.
@@ -1436,7 +1382,7 @@ mod tests {
         let c = chunks_room2.remove(0);
         assert_matches!(c.content, ChunkContent::Items(events) => {
             assert_eq!(events.len(), 1);
-            check_event(&events[0], "beaufort is the best");
+            check_test_event(&events[0], "beaufort is the best");
         });
     }
 }
