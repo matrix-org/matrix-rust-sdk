@@ -601,7 +601,7 @@ impl TimelineStateTransaction<'_> {
             read_receipts: if settings.track_read_receipts && should_add {
                 self.meta.read_receipts.compute_event_receipts(
                     &event_id,
-                    &self.meta.all_events,
+                    &self.meta.all_remote_events,
                     matches!(position, TimelineItemPosition::End { .. }),
                 )
             } else {
@@ -678,8 +678,8 @@ impl TimelineStateTransaction<'_> {
         items.commit();
     }
 
-    /// Add or update an event in the [`TimelineMetadata::all_events`]
-    /// collection.
+    /// Add or update a remote  event in the
+    /// [`TimelineMetadata::all_remote_events`] collection.
     ///
     /// This method also adjusts read receipt if needed.
     ///
@@ -693,38 +693,43 @@ impl TimelineStateTransaction<'_> {
         room_data_provider: &P,
         settings: &TimelineSettings,
     ) -> bool {
-        // Detect if an event already exists in [`TimelineMetadata::all_events`].
+        // Detect if an event already exists in [`TimelineMetadata::all_remote_events`].
         //
         // Returns its position, in this case.
         fn event_already_exists(
             new_event_id: &EventId,
-            all_events: &VecDeque<EventMeta>,
+            all_remote_events: &VecDeque<EventMeta>,
         ) -> Option<usize> {
-            all_events.iter().position(|EventMeta { event_id, .. }| event_id == new_event_id)
+            all_remote_events.iter().position(|EventMeta { event_id, .. }| event_id == new_event_id)
         }
 
         match position {
             TimelineItemPosition::Start { .. } => {
-                if let Some(pos) = event_already_exists(event_meta.event_id, &self.meta.all_events)
+                if let Some(pos) =
+                    event_already_exists(event_meta.event_id, &self.meta.all_remote_events)
                 {
-                    self.meta.all_events.remove(pos);
+                    self.meta.all_remote_events.remove(pos);
                 }
 
-                self.meta.all_events.push_front(event_meta.base_meta())
+                self.meta.all_remote_events.push_front(event_meta.base_meta())
             }
 
             TimelineItemPosition::End { .. } => {
-                if let Some(pos) = event_already_exists(event_meta.event_id, &self.meta.all_events)
+                if let Some(pos) =
+                    event_already_exists(event_meta.event_id, &self.meta.all_remote_events)
                 {
-                    self.meta.all_events.remove(pos);
+                    self.meta.all_remote_events.remove(pos);
                 }
 
-                self.meta.all_events.push_back(event_meta.base_meta());
+                self.meta.all_remote_events.push_back(event_meta.base_meta());
             }
 
             TimelineItemPosition::UpdateDecrypted { .. } => {
-                if let Some(event) =
-                    self.meta.all_events.iter_mut().find(|e| e.event_id == event_meta.event_id)
+                if let Some(event) = self
+                    .meta
+                    .all_remote_events
+                    .iter_mut()
+                    .find(|e| e.event_id == event_meta.event_id)
                 {
                     if event.visible != event_meta.visible {
                         event.visible = event_meta.visible;
@@ -899,9 +904,9 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// the device has terabytes of RAM.
     next_internal_id: u64,
 
-    /// List of all the events as received in the timeline, even the ones that
-    /// are discarded in the timeline items.
-    pub all_events: VecDeque<EventMeta>,
+    /// List of all the remote events as received in the timeline, even the ones
+    /// that are discarded in the timeline items.
+    pub all_remote_events: VecDeque<EventMeta>,
 
     /// State helping matching reactions to their associated events, and
     /// stashing pending reactions.
@@ -945,7 +950,7 @@ impl TimelineMetadata {
     ) -> Self {
         Self {
             own_user_id,
-            all_events: Default::default(),
+            all_remote_events: Default::default(),
             next_internal_id: Default::default(),
             reactions: Default::default(),
             pending_poll_events: Default::default(),
@@ -965,7 +970,7 @@ impl TimelineMetadata {
     pub(crate) fn clear(&mut self) {
         // Note: we don't clear the next internal id to avoid bad cases of stale unique
         // ids across timeline clears.
-        self.all_events.clear();
+        self.all_remote_events.clear();
         self.reactions.clear();
         self.pending_poll_events.clear();
         self.pending_edits.clear();
@@ -993,7 +998,7 @@ impl TimelineMetadata {
 
         // We can make early returns here because we know all events since the end of
         // the timeline, so the first event encountered is the oldest one.
-        for meta in self.all_events.iter().rev() {
+        for meta in self.all_remote_events.iter().rev() {
             if meta.event_id == event_a {
                 return Some(RelativePosition::Before);
             }
