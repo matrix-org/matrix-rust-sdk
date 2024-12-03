@@ -675,20 +675,14 @@ async fn test_send_edit_poll() {
 
 #[async_test]
 async fn test_send_edit_when_timeline_is_clear() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
@@ -699,13 +693,13 @@ async fn test_send_edit_when_timeline_is_clear() {
         .sender(client.user_id().unwrap())
         .event_id(event_id!("$original_event"))
         .into_raw_sync();
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(raw_original_event.clone()),
-    );
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(raw_original_event.clone()),
+        )
+        .await;
 
     let hello_world_item =
         assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
@@ -713,9 +707,13 @@ async fn test_send_edit_when_timeline_is_clear() {
     assert!(!hello_world_message.is_edited());
     assert!(hello_world_item.is_editable());
 
-    // Clear the event cache (hence the timeline) to make sure the old item does not
-    // need to be available in it for the edit to work.
-    client.event_cache().add_initial_events(room_id, vec![], None).await.unwrap();
+    // Receive a limited (gappy) sync for this room, which will clear the timeline…
+    //
+    // TODO: …until the event cache storage is enabled by default, a time where
+    // we'll be able to get rid of this test entirely (or update its
+    // expectations).
+
+    server.sync_room(&client, JoinedRoomBuilder::new(room_id).set_timeline_limited()).await;
     client.event_cache().empty_immutable_cache().await;
 
     yield_now().await;
@@ -741,8 +739,7 @@ async fn test_send_edit_when_timeline_is_clear() {
     // updates, so just wait for a bit before verifying that the endpoint was
     // called.
     sleep(Duration::from_millis(200)).await;
-
-    server.verify().await;
+    assert!(timeline_stream.next().now_or_never().is_none());
 }
 
 #[async_test]
