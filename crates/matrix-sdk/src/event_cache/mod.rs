@@ -368,48 +368,6 @@ impl EventCache {
     pub async fn clear_all_rooms(&self) -> Result<()> {
         self.inner.clear_all_rooms().await
     }
-
-    /// Add an initial set of events to the event cache, reloaded from a cache.
-    ///
-    /// TODO: temporary for API compat, as the event cache should take care of
-    /// its own store.
-    #[instrument(skip(self, events))]
-    pub async fn add_initial_events(
-        &self,
-        room_id: &RoomId,
-        events: Vec<TimelineEvent>,
-        prev_batch: Option<String>,
-    ) -> Result<()> {
-        // If the event cache's storage has been enabled, do nothing.
-        if self.inner.has_storage() {
-            return Ok(());
-        }
-
-        let room_cache = self.inner.for_room(room_id).await?;
-
-        // If the linked chunked already has at least one event, ignore this request, as
-        // it should happen at most once per room.
-        if !room_cache.inner.state.read().await.events().is_empty() {
-            return Ok(());
-        }
-
-        // We could have received events during a previous sync; remove them all, since
-        // we can't know where to insert the "initial events" with respect to
-        // them.
-
-        room_cache
-            .inner
-            .replace_all_events_by(
-                events,
-                prev_batch,
-                Default::default(),
-                Default::default(),
-                EventsOrigin::Cache,
-            )
-            .await?;
-
-        Ok(())
-    }
 }
 
 struct EventCacheInner {
@@ -853,29 +811,5 @@ mod tests {
 
         // Retrieving the event at the room-wide cache works.
         assert!(room_event_cache.event(event_id).await.is_some());
-    }
-
-    #[async_test]
-    async fn test_add_initial_events() {
-        // TODO: remove this test when the event cache uses its own persistent storage.
-        let client = logged_in_client(None).await;
-        let room_id = room_id!("!galette:saucisse.bzh");
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
-        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
-        event_cache
-            .add_initial_events(room_id, vec![f.text_msg("hey").into()], None)
-            .await
-            .unwrap();
-
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        let (initial_events, _) = room_event_cache.subscribe().await;
-        // `add_initial_events` had an effect.
-        assert_eq!(initial_events.len(), 1);
     }
 }
