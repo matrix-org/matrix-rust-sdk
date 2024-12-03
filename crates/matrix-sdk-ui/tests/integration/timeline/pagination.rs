@@ -493,9 +493,9 @@ async fn test_timeline_reset_while_paginating() {
     // field.
     assert!(hit_start);
 
-    // No events in back-pagination responses, date divider + event from latest
-    // sync is present
-    assert_eq!(timeline.items().await.len(), 2);
+    // No events in back-pagination responses, date divider + both events from
+    // syncs are present
+    assert_eq!(timeline.items().await.len(), 3);
 
     // Make sure both pagination mocks were called
     server.verify().await;

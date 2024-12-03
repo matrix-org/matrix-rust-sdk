@@ -20,7 +20,6 @@ use std::{ops::Deref, sync::Arc};
 use async_once_cell::OnceCell as AsyncOnceCell;
 use matrix_sdk::SlidingSync;
 use ruma::RoomId;
-use tracing::info;
 
 use super::Error;
 use crate::{
@@ -154,30 +153,7 @@ impl Room {
     ///
     /// If the room was synced before some initial events will be added to the
     /// [`TimelineBuilder`].
-    pub async fn default_room_timeline_builder(&self) -> Result<TimelineBuilder, Error> {
-        // TODO we can remove this once the event cache handles his own cache.
-
-        let sliding_sync_room = self.inner.sliding_sync.get_room(self.inner.room.room_id()).await;
-
-        if let Some(sliding_sync_room) = sliding_sync_room {
-            self.inner
-                .room
-                .client()
-                .event_cache()
-                .add_initial_events(
-                    self.inner.room.room_id(),
-                    sliding_sync_room.timeline_queue().iter().cloned().collect(),
-                    sliding_sync_room.prev_batch(),
-                )
-                .await
-                .map_err(Error::EventCache)?;
-        } else {
-            info!(
-                "No cached sliding sync room found for `{}`, the timeline will be empty.",
-                self.room_id()
-            );
-        }
-
+    pub fn default_room_timeline_builder(&self) -> Result<TimelineBuilder, Error> {
         Ok(Timeline::builder(&self.inner.room).track_read_marker_and_receipts())
     }
 }
