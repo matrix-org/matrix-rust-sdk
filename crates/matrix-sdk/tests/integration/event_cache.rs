@@ -1,13 +1,16 @@
-use std::{future::ready, ops::ControlFlow, time::Duration};
+use std::{future::ready, ops::ControlFlow, sync::Arc, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
+    config::StoreConfig,
     event_cache::{
         paginator::PaginatorState, BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate,
         TimelineHasBeenResetWhilePaginating,
     },
+    linked_chunk::{ChunkIdentifier, Position, Update},
     test_utils::{assert_event_matches_msg, logged_in_client_with_server, mocks::MatrixMockServer},
 };
+use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, GlobalAccountDataTestEvent, JoinedRoomBuilder,
     SyncResponseBuilder,
@@ -146,45 +149,62 @@ async fn test_add_initial_events() {
 #[async_test]
 async fn test_ignored_unignored() {
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+
+    let event_cache_store = Arc::new(MemoryStore::new());
+    let client = server
+        .client_builder()
+        .store_config(
+            StoreConfig::new("hodor".to_owned()).event_cache_store(event_cache_store.clone()),
+        )
+        .build()
+        .await;
 
     // Immediately subscribe the event cache to sync updates.
     client.event_cache().subscribe().unwrap();
+    client.event_cache().enable_storage().unwrap();
 
-    // If I sync and get informed I've joined The Room, but with no events,
     let room_id = room_id!("!omelette:fromage.fr");
     let other_room_id = room_id!("!galette:saucisse.bzh");
-
-    server.sync_joined_room(&client, room_id).await;
-    server.sync_joined_room(&client, other_room_id).await;
 
     let dexter = user_id!("@dexter:lab.org");
     let ivan = user_id!("@ivan:lab.ch");
     let f = EventFactory::new();
 
-    // If I add initial events to a few rooms,
-    client
-        .event_cache()
-        .add_initial_events(
+    // Given two rooms which add initial items,
+    event_cache_store
+        .handle_linked_chunk_updates(
             room_id,
             vec![
-                f.text_msg("hey there").sender(dexter).into_sync(),
-                f.text_msg("hoy!").sender(ivan).into_sync(),
+                Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 0),
+                    items: vec![
+                        f.text_msg("hey there").sender(dexter).into_sync(),
+                        f.text_msg("hoy!").sender(ivan).into_sync(),
+                    ],
+                },
             ],
-            None,
         )
         .await
         .unwrap();
 
-    client
-        .event_cache()
-        .add_initial_events(
+    event_cache_store
+        .handle_linked_chunk_updates(
             other_room_id,
-            vec![f.text_msg("demat!").sender(ivan).into_sync()],
-            None,
+            vec![
+                Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 0),
+                    items: vec![f.text_msg("demat!").sender(ivan).into_sync()],
+                },
+            ],
         )
         .await
         .unwrap();
+
+    // If I get informed about these two rooms during sync,
+    server.sync_joined_room(&client, room_id).await;
+    server.sync_joined_room(&client, other_room_id).await;
 
     // And subscribe to the room,
     let room = client.get_room(room_id).unwrap();
