@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+<!-- next-header -->
+
+## [Unreleased] - ReleaseDate
+
+### Bug Fixes
+
+- Fix an off-by-one error in the `ObservableMap` when the `remove()` method is
+  called. Previously, items following the removed item were not shifted left by
+  one position, leaving them at incorrect indices.
+  ([#4346](https://github.com/matrix-org/matrix-rust-sdk/pull/4346))
+
 ## [0.8.0] - 2024-11-19
 
 ### Bug Fixes
