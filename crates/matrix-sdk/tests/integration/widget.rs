@@ -38,7 +38,7 @@ use ruma::{
             name::RoomNameEventContent,
             topic::RoomTopicEventContent,
         },
-        AnyStateEvent, StateEventType,
+        AnyStateEvent, MessageLikeEventType, StateEventType,
     },
     owned_room_id,
     serde::{JsonObject, Raw},
@@ -48,7 +48,7 @@ use serde::Serialize;
 use serde_json::{json, Value as JsonValue};
 use tracing::error;
 use wiremock::{
-    matchers::{header, method, path_regex, query_param},
+    matchers::{method, path_regex},
     Mock, ResponseTemplate,
 };
 
@@ -245,13 +245,12 @@ async fn test_read_messages() {
             "end": "t47409-4357353_219380_26003_2269",
             "start": "t392-516_47314_0_7_1_1_1_11444_1"
         });
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/messages$"))
-            .and(header("authorization", "Bearer 1234"))
-            .and(query_param("limit", "2"))
+        mock_server
+            .mock_room_messages()
+            .limit(2)
             .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
-            .expect(1)
-            .mount(mock_server.server())
+            .mock_once()
+            .mount()
             .await;
 
         // Ask the driver to read messages
@@ -566,15 +565,15 @@ async fn test_send_delayed_message_event() {
         ]),
     )
     .await;
-
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/m.room.message/.*"))
-        .and(query_param("org.matrix.msc4140.delay", "1000"))
+    mock_server
+        .mock_room_send()
+        .with_delay(Duration::from_micros(1000))
+        .for_type(MessageLikeEventType::RoomMessage)
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "delay_id": "1234",
         })))
-        .expect(1)
-        .mount(mock_server.server())
+        .mock_once()
+        .mount()
         .await;
 
     send_request(
@@ -613,14 +612,15 @@ async fn test_send_delayed_state_event() {
     )
     .await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.room.name/.*"))
-        .and(query_param("org.matrix.msc4140.delay", "1000"))
+    mock_server
+        .mock_room_send_state()
+        .with_delay(Duration::from_micros(1000))
+        .for_type(StateEventType::RoomName)
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "delay_id": "1234",
         })))
-        .expect(1)
-        .mount(mock_server.server())
+        .mock_once()
+        .mount()
         .await;
 
     send_request(
@@ -659,16 +659,14 @@ async fn test_fail_sending_delay_rate_limit() {
     )
     .await;
 
-    // TODO convert to mock_server.mock_room_send().for_type()... once for_type is
-    // available
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/m.room.message/.*$"))
+    mock_server
+        .mock_room_send()
         .respond_with(ResponseTemplate::new(400).set_body_json(json!({
             "errcode": "M_LIMIT_EXCEEDED",
             "error": "Sending too many delay events"
         })))
-        .expect(1)
-        .mount(mock_server.server())
+        .mock_once()
+        .mount()
         .await;
 
     send_request(
