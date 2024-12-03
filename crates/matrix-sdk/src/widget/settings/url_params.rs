@@ -15,16 +15,16 @@
 use url::Url;
 use urlencoding::encode;
 
-pub static USER_ID: &str = "$matrix_user_id";
-pub static ROOM_ID: &str = "$matrix_room_id";
-pub static WIDGET_ID: &str = "$matrix_widget_id";
-pub static AVATAR_URL: &str = "$matrix_avatar_url";
-pub static DISPLAY_NAME: &str = "$matrix_display_name";
-pub static LANGUAGE: &str = "$org.matrix.msc2873.client_language";
-pub static CLIENT_THEME: &str = "$org.matrix.msc2873.client_theme";
-pub static CLIENT_ID: &str = "$org.matrix.msc2873.client_id";
-pub static DEVICE_ID: &str = "$org.matrix.msc2873.matrix_device_id";
-pub static HOMESERVER_URL: &str = "$org.matrix.msc4039.matrix_base_url";
+pub const USER_ID: &str = "$matrix_user_id";
+pub const ROOM_ID: &str = "$matrix_room_id";
+pub const WIDGET_ID: &str = "$matrix_widget_id";
+pub const AVATAR_URL: &str = "$matrix_avatar_url";
+pub const DISPLAY_NAME: &str = "$matrix_display_name";
+pub const LANGUAGE: &str = "$org.matrix.msc2873.client_language";
+pub const CLIENT_THEME: &str = "$org.matrix.msc2873.client_theme";
+pub const CLIENT_ID: &str = "$org.matrix.msc2873.client_id";
+pub const DEVICE_ID: &str = "$org.matrix.msc2873.matrix_device_id";
+pub const HOMESERVER_URL: &str = "$org.matrix.msc4039.matrix_base_url";
 
 pub struct QueryProperties {
     pub(crate) widget_id: String,
