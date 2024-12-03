@@ -286,8 +286,13 @@ impl RoomEventCacheInner {
         }
     }
 
-    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
+    pub(super) async fn handle_joined_room_update(
+        &self,
+        has_storage: bool,
+        updates: JoinedRoomUpdate,
+    ) -> Result<()> {
         self.handle_timeline(
+            has_storage,
             updates.timeline,
             updates.ephemeral.clone(),
             updates.ambiguity_changes,
@@ -301,11 +306,12 @@ impl RoomEventCacheInner {
 
     async fn handle_timeline(
         &self,
+        has_storage: bool,
         timeline: Timeline,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
-        if timeline.limited {
+        if !has_storage && timeline.limited {
             // Ideally we'd try to reconcile existing events against those received in the
             // timeline, but we're not there yet. In the meanwhile, clear the
             // items from the room. TODO: implement Smart Matching™.
@@ -334,8 +340,13 @@ impl RoomEventCacheInner {
         Ok(())
     }
 
-    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        self.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
+    pub(super) async fn handle_left_room_update(
+        &self,
+        has_storage: bool,
+        updates: LeftRoomUpdate,
+    ) -> Result<()> {
+        self.handle_timeline(has_storage, updates.timeline, Vec::new(), updates.ambiguity_changes)
+            .await?;
         Ok(())
     }
 
@@ -990,7 +1001,7 @@ mod tests {
 
         room_event_cache
             .inner
-            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
+            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
 
@@ -1060,7 +1071,7 @@ mod tests {
 
         room_event_cache
             .inner
-            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
+            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
 
@@ -1188,7 +1199,7 @@ mod tests {
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev1] };
         room_event_cache
             .inner
-            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
+            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
 
