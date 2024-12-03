@@ -2461,7 +2461,7 @@ async fn test_room_timeline() -> Result<(), Error> {
     mock_encryption_state(&server, false).await;
 
     let room = room_list.room(room_id)?;
-    room.init_timeline_with_builder(room.default_room_timeline_builder().await.unwrap()).await?;
+    room.init_timeline_with_builder(room.default_room_timeline_builder().unwrap()).await?;
     let timeline = room.timeline().unwrap();
 
     let (previous_timeline_items, mut timeline_items_stream) = timeline.subscribe().await;
@@ -2526,7 +2526,7 @@ async fn test_room_empty_timeline() {
 
     // The room wasn't synced, but it will be available
     let room = room_list.room(&room_id).unwrap();
-    let timeline = room.default_room_timeline_builder().await.unwrap().build().await.unwrap();
+    let timeline = room.default_room_timeline_builder().unwrap().build().await.unwrap();
     let (prev_items, _) = timeline.subscribe().await;
 
     // However, since the room wasn't synced its timeline won't have any initial
@@ -2563,7 +2563,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     };
 
     let room = room_list.room(room_id)?;
-    room.init_timeline_with_builder(room.default_room_timeline_builder().await.unwrap()).await?;
+    room.init_timeline_with_builder(room.default_room_timeline_builder().unwrap()).await?;
 
     // The latest event does not exist.
     assert!(room.latest_event().await.is_none());
@@ -2890,7 +2890,7 @@ async fn test_multiple_timeline_init() {
         // Get a RoomListService::Room, initialize the timeline, start a pagination.
         let room = room_list.room(room_id).unwrap();
 
-        let builder = room.default_room_timeline_builder().await.unwrap();
+        let builder = room.default_room_timeline_builder().unwrap();
         room.init_timeline_with_builder(builder).await.unwrap();
 
         let timeline = room.timeline().unwrap();
@@ -2906,6 +2906,6 @@ async fn test_multiple_timeline_init() {
     task.abort();
 
     // A new timeline for the same room can still be constructed.
-    let builder = room.default_room_timeline_builder().await.unwrap();
+    let builder = room.default_room_timeline_builder().unwrap();
     room.init_timeline_with_builder(builder).await.unwrap();
 }
