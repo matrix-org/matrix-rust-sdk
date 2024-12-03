@@ -544,6 +544,7 @@ impl TimelineStateTransaction<'_> {
                     };
 
                     // Remember the event before returning prematurely.
+                    // See [`TimelineMetadata::all_remote_events`].
                     self.add_or_update_remote_event(
                         event_meta,
                         position,
@@ -582,6 +583,7 @@ impl TimelineStateTransaction<'_> {
                         };
 
                         // Remember the event before returning prematurely.
+                        // See [`TimelineMetadata::all_remote_events`].
                         self.add_or_update_remote_event(
                             event_meta,
                             position,
@@ -607,6 +609,7 @@ impl TimelineStateTransaction<'_> {
         };
 
         // Remember the event.
+        // See [`TimelineMetadata::all_remote_events`].
         self.add_or_update_remote_event(event_meta, position, room_data_provider, settings).await;
 
         let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
@@ -918,6 +921,9 @@ pub(in crate::timeline) struct TimelineMetadata {
 
     /// List of all the remote events as received in the timeline, even the ones
     /// that are discarded in the timeline items.
+    ///
+    /// This is useful to get this for the moment as it helps the `Timeline` to
+    /// compute read receipts and read markers.
     pub all_remote_events: VecDeque<EventMeta>,
 
     /// State helping matching reactions to their associated events, and
