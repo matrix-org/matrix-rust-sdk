@@ -24,13 +24,14 @@ use std::{
 
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
-    test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
-    SyncResponseBuilder,
+    async_test, test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder,
+    LeftRoomBuilder, SyncResponseBuilder,
 };
 use ruma::{
     directory::PublicRoomsChunk,
     events::{AnyStateEvent, AnyTimelineEvent, MessageLikeEventType, StateEventType},
     serde::Raw,
+    time::Duration,
     MxcUri, OwnedEventId, OwnedRoomId, RoomId, ServerName,
 };
 use serde::Deserialize;
@@ -922,6 +923,72 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
         }
     }
 
+    /// Ensures the event was send as a delayed event.
+    ///
+    /// Note: works with *any* room.
+    ///
+    /// # Examples
+    ///
+    /// see also [`MatrixMockServer::mock_room_send`] for more context.
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::{
+    ///         api::client::delayed_events::{delayed_message_event, DelayParameters},
+    ///         events::{message::MessageEventContent, AnyMessageLikeEventContent},
+    ///         room_id,
+    ///         time::Duration,
+    ///         TransactionId,
+    ///     },
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    /// use serde_json::json;
+    /// use wiremock::ResponseTemplate;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    ///
+    /// let room = mock_server.sync_joined_room(&client, room_id!("!room_id:localhost")).await;
+    ///
+    /// mock_server
+    ///     .mock_room_send()
+    ///     .with_delay(Duration::from_millis(500))
+    ///     .respond_with(ResponseTemplate::new(200).set_body_json(json!({"delay_id":"$some_id"})))
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let response_not_mocked =
+    ///     room.send_raw("m.room.message", json!({ "body": "Hello world" })).await;
+    ///
+    /// // A non delayed event should not be mocked by the server.
+    /// assert!(response_not_mocked.is_err());
+    ///
+    /// let r = delayed_message_event::unstable::Request::new(
+    ///     room.room_id().to_owned(),
+    ///     TransactionId::new(),
+    ///     DelayParameters::Timeout { timeout: Duration::from_millis(500) },
+    ///     &AnyMessageLikeEventContent::Message(MessageEventContent::plain("hello world")),
+    /// )
+    /// .unwrap();
+    ///
+    /// let response = room.client().send(r, None).await.unwrap();
+    /// // The delayed `m.room.message` event type should be mocked by the server.
+    /// assert_eq!("$some_id", response.delay_id);    
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn with_delay(self, delay: Duration) -> Self {
+        Self {
+            mock: self
+                .mock
+                .and(query_param("org.matrix.msc4140.delay", delay.as_millis().to_string())),
+            ..self
+        }
+    }
+
     /// Returns a send endpoint that emulates success, i.e. the event has been
     /// sent with the given event id.
     ///
@@ -1085,6 +1152,69 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
         // Note: we may have already defined a path, but this one ought to be more
         // specialized (unless for_key/for_type were called multiple times).
         Self { mock: self.mock.and(path_regex(Self::generate_path_regexp(&self.endpoint))), ..self }
+    }
+
+    /// Ensures the event was send as a delayed event.
+    ///
+    /// Note: works with *any* room.
+    ///
+    /// # Examples
+    ///
+    /// see also [`MatrixMockServer::mock_room_send`] for more context.
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::{
+    ///         api::client::delayed_events::{delayed_state_event, DelayParameters},
+    ///         events::{room::create::RoomCreateEventContent, AnyStateEventContent},
+    ///         room_id,
+    ///         time::Duration,
+    ///     },
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    /// use wiremock::ResponseTemplate;
+    /// use serde_json::json;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    ///
+    /// let room = mock_server.sync_joined_room(&client, room_id!("!room_id:localhost")).await;
+    ///
+    /// mock_server
+    ///     .mock_room_send_state()
+    ///     .with_delay(Duration::from_millis(500))
+    ///     .respond_with(ResponseTemplate::new(200).set_body_json(json!({"delay_id":"$some_id"})))
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let response_not_mocked = room.send_state_event(RoomCreateEventContent::new_v11()).await;
+    /// // A non delayed event should not be mocked by the server.
+    /// assert!(response_not_mocked.is_err());
+    ///
+    /// let r = delayed_state_event::unstable::Request::new(
+    ///     room.room_id().to_owned(),
+    ///     "".to_owned(),
+    ///     DelayParameters::Timeout { timeout: Duration::from_millis(500) },
+    ///     &AnyStateEventContent::RoomCreate(RoomCreateEventContent::new_v11()),
+    /// )
+    /// .unwrap();
+    /// let response = room.client().send(r, None).await.unwrap();
+    /// // The delayed `m.room.message` event type should be mocked by the server.
+    /// assert_eq!("$some_id", response.delay_id);
+    ///
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn with_delay(self, delay: Duration) -> Self {
+        Self {
+            mock: self
+                .mock
+                .and(query_param("org.matrix.msc4140.delay", delay.as_millis().to_string())),
+            ..self
+        }
     }
 
     ///
