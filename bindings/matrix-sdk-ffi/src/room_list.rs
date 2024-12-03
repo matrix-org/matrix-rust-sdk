@@ -654,7 +654,6 @@ impl RoomListItem {
         let mut timeline_builder = self
             .inner
             .default_room_timeline_builder()
-            .await
             .map_err(|err| RoomListError::InitializingTimeline { error: err.to_string() })?;
 
         if let Some(event_type_filter) = event_type_filter {
