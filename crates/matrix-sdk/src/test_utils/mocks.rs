@@ -318,7 +318,7 @@ impl MatrixMockServer {
     pub fn mock_room_send(&self) -> MockEndpoint<'_, RoomSendEndpoint> {
         let mock = Mock::given(method("PUT"))
             .and(header("authorization", "Bearer 1234"))
-            .and(path_regex(format!(r"^/_matrix/client/v3/rooms/.*/send/.*",)));
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*".to_owned()));
         MockEndpoint { mock, server: &self.server, endpoint: RoomSendEndpoint }
     }
 
