@@ -98,9 +98,9 @@ fn check_prerequisites() {
         std::process::exit(1);
     }
 
-    if cmd!(sh, "git cliff --version").quiet().ignore_stdout().run().is_err() {
-        eprintln!("This command requires git-cliff, please install it.");
-        eprintln!("More info can be found at: https://git-cliff.org/docs/installation/");
+    if cmd!(sh, "gh version").quiet().ignore_stdout().run().is_err() {
+        eprintln!("This command requires GitHub CLI, please install it.");
+        eprintln!("More info can be found at: https://cli.github.com/");
 
         std::process::exit(1);
     }
@@ -145,14 +145,25 @@ fn publish(execute: bool) -> Result<()> {
 }
 
 fn weekly_report() -> Result<()> {
+    const JSON_FIELDS: &'static str = "title,number,url,author";
+
     let sh = sh();
-    let lines = cmd!(sh, "git log --pretty=format:%H --since='1 week ago'").read()?;
 
-    let Some(start) = lines.split_whitespace().last() else {
-        panic!("Could not find a start range for the git commit range.")
-    };
+    let one_week_ago = cmd!(sh, "date -d '1 week ago' +%Y-%m-%d").read()?;
+    let today = cmd!(sh, "date +%Y-%m-%d").read()?;
 
-    cmd!(sh, "git cliff --config cliff-weekly-report.toml {start}..HEAD").run()?;
+    let _env_pager = sh.push_env("GH_PAGER", "");
+
+    let header = format!("# This Week in the Matrix Rust SDK ({today})\n\n");
+    let template = "{{range .}}- {{.title}} by @{{.author.login}}{{\"\\n\\n\"}}{{end}}";
+    let template = format!("{header}{template}");
+
+    cmd!(
+        sh,
+        "gh pr list --search created:>{one_week_ago} --json {JSON_FIELDS} --template {template}"
+    )
+    .quiet()
+    .run()?;
 
     Ok(())
 }
