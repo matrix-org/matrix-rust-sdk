@@ -6,7 +6,7 @@ use matrix_sdk::{
         paginator::PaginatorState, BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate,
         TimelineHasBeenResetWhilePaginating,
     },
-    test_utils::{assert_event_matches_msg, logged_in_client_with_server},
+    test_utils::{assert_event_matches_msg, logged_in_client_with_server, mocks::MatrixMockServer},
 };
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, GlobalAccountDataTestEvent, JoinedRoomBuilder,
@@ -145,7 +145,8 @@ async fn test_add_initial_events() {
 
 #[async_test]
 async fn test_ignored_unignored() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     // Immediately subscribe the event cache to sync updates.
     client.event_cache().subscribe().unwrap();
@@ -154,18 +155,12 @@ async fn test_ignored_unignored() {
     let room_id = room_id!("!omelette:fromage.fr");
     let other_room_id = room_id!("!galette:saucisse.bzh");
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder
-        .add_joined_room(JoinedRoomBuilder::new(room_id))
-        .add_joined_room(JoinedRoomBuilder::new(other_room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    client.sync_once(Default::default()).await.unwrap();
-    server.reset().await;
+    server.sync_joined_room(&client, room_id).await;
+    server.sync_joined_room(&client, other_room_id).await;
 
     let dexter = user_id!("@dexter:lab.org");
     let ivan = user_id!("@ivan:lab.ch");
-    let ev_factory = EventFactory::new();
+    let f = EventFactory::new();
 
     // If I add initial events to a few rooms,
     client
@@ -173,8 +168,8 @@ async fn test_ignored_unignored() {
         .add_initial_events(
             room_id,
             vec![
-                ev_factory.text_msg("hey there").sender(dexter).into_sync(),
-                ev_factory.text_msg("hoy!").sender(ivan).into_sync(),
+                f.text_msg("hey there").sender(dexter).into_sync(),
+                f.text_msg("hoy!").sender(ivan).into_sync(),
             ],
             None,
         )
@@ -185,7 +180,7 @@ async fn test_ignored_unignored() {
         .event_cache()
         .add_initial_events(
             other_room_id,
-            vec![ev_factory.text_msg("demat!").sender(ivan).into_sync()],
+            vec![f.text_msg("demat!").sender(ivan).into_sync()],
             None,
         )
         .await
@@ -202,17 +197,19 @@ async fn test_ignored_unignored() {
     assert_event_matches_msg(&events[1], "hoy!");
 
     // And after receiving a new ignored list,
-    sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
-        "content": {
-            "ignored_users": {
-                dexter: {}
-            }
-        },
-        "type": "m.ignored_user_list",
-    })));
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    client.sync_once(Default::default()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                "content": {
+                    "ignored_users": {
+                        dexter: {}
+                    }
+                },
+                "type": "m.ignored_user_list",
+            })));
+        })
+        .await;
 
     // It does receive one update,
     let update = timeout(Duration::from_secs(2), subscriber.recv())
@@ -224,13 +221,15 @@ async fn test_ignored_unignored() {
     assert_matches!(update, RoomEventCacheUpdate::Clear);
 
     // Receiving new events still works.
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(ev_factory.text_msg("i don't like this dexter").sender(ivan)),
-    );
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    client.sync_once(Default::default()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_timeline_event(f.text_msg("i don't like this dexter").sender(ivan)),
+            );
+        })
+        .await;
 
     // We do receive one update,
     let update = timeout(Duration::from_secs(2), subscriber.recv())
