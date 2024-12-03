@@ -265,7 +265,7 @@ pub(crate) struct ClientInner {
     pub(crate) http_client: HttpClient,
 
     /// User session data.
-    base_client: BaseClient,
+    pub(super) base_client: BaseClient,
 
     /// Server capabilities, either prefilled during building or fetched from
     /// the server.
@@ -1248,7 +1248,7 @@ impl Client {
         match session {
             AuthSession::Matrix(s) => Box::pin(self.matrix_auth().restore_session(s)).await,
             #[cfg(feature = "experimental-oidc")]
-            AuthSession::Oidc(s) => Box::pin(self.oidc().restore_session(s)).await,
+            AuthSession::Oidc(s) => Box::pin(self.oidc().restore_session(*s)).await,
         }
     }
 

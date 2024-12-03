@@ -29,8 +29,8 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    controller::TimelineEnd, event_item::RemoteEventOrigin, AnyOtherFullStateEventContent,
-    TimelineDetails, TimelineItemContent,
+    controller::TimelineNewItemPosition, event_item::RemoteEventOrigin,
+    AnyOtherFullStateEventContent, TimelineDetails, TimelineItemContent,
 };
 
 #[async_test]
@@ -141,13 +141,13 @@ async fn test_reaction_redaction_timeline_filter() {
     timeline
         .controller
         .add_events_at(
-            vec![SyncTimelineEvent::new(
+            [SyncTimelineEvent::new(
                 timeline
                     .event_builder
                     .make_sync_redacted_message_event(*ALICE, RedactedReactionEventContent::new()),
-            )],
-            TimelineEnd::Back,
-            RemoteEventOrigin::Sync,
+            )]
+            .into_iter(),
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;
     // Timeline items are actually empty.

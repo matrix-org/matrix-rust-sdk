@@ -195,7 +195,7 @@ struct PendingStoreChanges<'a> {
     operations: &'a mut Vec<PendingOperation>,
 }
 
-impl<'a> PendingStoreChanges<'a> {
+impl PendingStoreChanges<'_> {
     fn put(&mut self, key: JsValue, value: JsValue) {
         self.operations.push(PendingOperation::Put { key, value });
     }

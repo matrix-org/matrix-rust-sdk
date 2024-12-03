@@ -25,8 +25,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::crypto::{
-    backups::MegolmV1BackupKey, store::BackupDecryptionKey, types::RoomKeyBackupInfo,
-    KeysBackupRequest, OlmMachine, RoomKeyImportResult,
+    backups::MegolmV1BackupKey,
+    store::BackupDecryptionKey,
+    types::{requests::KeysBackupRequest, RoomKeyBackupInfo},
+    OlmMachine, RoomKeyImportResult,
 };
 use ruma::{
     api::client::{

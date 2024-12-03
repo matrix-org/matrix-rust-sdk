@@ -32,9 +32,11 @@ use vodozemac::Ed25519Signature;
 use super::StaticAccountData;
 use crate::{
     error::SignatureError,
-    requests::UploadSigningKeysRequest,
     store::SecretImportError,
-    types::{DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
+    types::{
+        requests::UploadSigningKeysRequest, DeviceKeys, MasterPubkey, SelfSigningPubkey,
+        UserSigningPubkey,
+    },
     Account, DeviceData, OtherUserIdentityData, OwnUserIdentity, OwnUserIdentityData,
 };
 

@@ -16,7 +16,10 @@ use std::cmp::Ordering;
 
 use eyeball_im::VectorDiff;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
-use matrix_sdk_base::linked_chunk::AsVector;
+use matrix_sdk_base::{
+    event_cache::store::DEFAULT_CHUNK_CAPACITY,
+    linked_chunk::{AsVector, ObservableUpdates},
+};
 use matrix_sdk_common::linked_chunk::{
     Chunk, ChunkIdentifier, EmptyChunk, Error, Iter, LinkedChunk, Position,
 };
@@ -24,8 +27,6 @@ use ruma::OwnedEventId;
 use tracing::{debug, error, warn};
 
 use super::super::deduplicator::{Decoration, Deduplicator};
-
-const DEFAULT_CHUNK_CAPACITY: usize = 128;
 
 /// This type represents all events of a single room.
 #[derive(Debug)]
@@ -51,14 +52,28 @@ impl Default for RoomEvents {
 impl RoomEvents {
     /// Build a new [`RoomEvents`] struct with zero events.
     pub fn new() -> Self {
-        let mut chunks = LinkedChunk::new_with_update_history();
+        Self::with_initial_chunks(None)
+    }
+
+    /// Build a new [`RoomEvents`] struct with prior chunks knowledge.
+    ///
+    /// The provided [`LinkedChunk`] must have been built with update history.
+    pub fn with_initial_chunks(
+        chunks: Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>,
+    ) -> Self {
+        let mut chunks = chunks.unwrap_or_else(LinkedChunk::new_with_update_history);
+
         let chunks_updates_as_vectordiffs = chunks
             .as_vector()
             // SAFETY: The `LinkedChunk` has been built with `new_with_update_history`, so
             // `as_vector` must return `Some(…)`.
-            .expect("`LinkedChunk` must have been constructor with `new_with_update_history`");
+            .expect("`LinkedChunk` must have been built with `new_with_update_history`");
 
-        Self { chunks, chunks_updates_as_vectordiffs, deduplicator: Deduplicator::new() }
+        // Let the deduplicator know about initial events.
+        let deduplicator =
+            Deduplicator::with_initial_events(chunks.items().map(|(_pos, event)| event));
+
+        Self { chunks, chunks_updates_as_vectordiffs, deduplicator }
     }
 
     /// Clear all events.
@@ -185,6 +200,12 @@ impl RoomEvents {
     #[allow(unused)] // gonna be useful very soon! but we need it now for test purposes
     pub fn updates_as_vector_diffs(&mut self) -> Vec<VectorDiff<Event>> {
         self.chunks_updates_as_vectordiffs.take()
+    }
+
+    /// Get a mutable reference to the [`LinkedChunk`] updates, aka
+    /// [`ObservableUpdates`].
+    pub(super) fn updates(&mut self) -> &mut ObservableUpdates<Event, Gap> {
+        self.chunks.updates().expect("this is always built with an update history in the ctor")
     }
 
     /// Deduplicate `events` considering all events in `Self::chunks`.
@@ -383,7 +404,7 @@ mod tests {
     fn test_new_room_events_has_zero_events() {
         let room_events = RoomEvents::new();
 
-        assert_eq!(room_events.chunks.len(), 0);
+        assert_eq!(room_events.events().count(), 0);
     }
 
     #[test]

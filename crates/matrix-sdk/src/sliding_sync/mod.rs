@@ -1693,7 +1693,7 @@ mod tests {
     #[async_test]
     #[cfg(feature = "e2e-encryption")]
     async fn test_no_pos_with_e2ee_marks_all_tracked_users_as_dirty() -> anyhow::Result<()> {
-        use matrix_sdk_base::crypto::{IncomingResponse, OutgoingRequests};
+        use matrix_sdk_base::crypto::types::requests::{AnyIncomingResponse, AnyOutgoingRequest};
         use matrix_sdk_test::ruma_response_from_json;
         use ruma::user_id;
 
@@ -1716,14 +1716,14 @@ mod tests {
             let outgoing_requests = olm_machine.outgoing_requests().await?;
 
             assert_eq!(outgoing_requests.len(), 2);
-            assert_matches!(outgoing_requests[0].request(), OutgoingRequests::KeysUpload(_));
-            assert_matches!(outgoing_requests[1].request(), OutgoingRequests::KeysQuery(_));
+            assert_matches!(outgoing_requests[0].request(), AnyOutgoingRequest::KeysUpload(_));
+            assert_matches!(outgoing_requests[1].request(), AnyOutgoingRequest::KeysQuery(_));
 
             // Fake responses.
             olm_machine
                 .mark_request_as_sent(
                     outgoing_requests[0].request_id(),
-                    IncomingResponse::KeysUpload(&ruma_response_from_json(&json!({
+                    AnyIncomingResponse::KeysUpload(&ruma_response_from_json(&json!({
                         "one_time_key_counts": {}
                     }))),
                 )
@@ -1732,7 +1732,7 @@ mod tests {
             olm_machine
                 .mark_request_as_sent(
                     outgoing_requests[1].request_id(),
-                    IncomingResponse::KeysQuery(&ruma_response_from_json(&json!({
+                    AnyIncomingResponse::KeysQuery(&ruma_response_from_json(&json!({
                         "device_keys": {
                             alice: {},
                             bob: {},
@@ -1745,12 +1745,12 @@ mod tests {
             let outgoing_requests = olm_machine.outgoing_requests().await?;
 
             assert_eq!(outgoing_requests.len(), 1);
-            assert_matches!(outgoing_requests[0].request(), OutgoingRequests::KeysQuery(_));
+            assert_matches!(outgoing_requests[0].request(), AnyOutgoingRequest::KeysQuery(_));
 
             olm_machine
                 .mark_request_as_sent(
                     outgoing_requests[0].request_id(),
-                    IncomingResponse::KeysQuery(&ruma_response_from_json(&json!({
+                    AnyIncomingResponse::KeysQuery(&ruma_response_from_json(&json!({
                         "device_keys": {
                             me: {},
                         }
@@ -1788,7 +1788,7 @@ mod tests {
             assert_eq!(outgoing_requests.len(), 1);
             assert_matches!(
                 outgoing_requests[0].request(),
-                OutgoingRequests::KeysQuery(request) => {
+                AnyOutgoingRequest::KeysQuery(request) => {
                     assert!(request.device_keys.contains_key(alice));
                     assert!(request.device_keys.contains_key(bob));
                     assert!(request.device_keys.contains_key(me));
@@ -1799,7 +1799,7 @@ mod tests {
             olm_machine
                 .mark_request_as_sent(
                     outgoing_requests[0].request_id(),
-                    IncomingResponse::KeysQuery(&ruma_response_from_json(&json!({
+                    AnyIncomingResponse::KeysQuery(&ruma_response_from_json(&json!({
                         "device_keys": {
                             alice: {},
                             bob: {},

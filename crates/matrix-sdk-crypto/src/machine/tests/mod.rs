@@ -66,12 +66,13 @@ use crate::{
             },
             ToDeviceEvent,
         },
+        requests::{AnyOutgoingRequest, ToDeviceRequest},
         DeviceKeys, SignedKey, SigningKeys,
     },
     utilities::json_convert,
     verification::tests::bob_id,
     Account, DecryptionSettings, DeviceData, EncryptionSettings, MegolmError, OlmError,
-    OutgoingRequests, RoomEventDecryptionResult, ToDeviceRequest, TrustRequirement,
+    RoomEventDecryptionResult, TrustRequirement,
 };
 
 mod decryption_verification_state;
@@ -448,7 +449,7 @@ async fn test_request_missing_secrets() {
         .unwrap()
         .into_iter()
         .filter(|outgoing| match outgoing.request.as_ref() {
-            OutgoingRequests::ToDeviceRequest(request) => {
+            AnyOutgoingRequest::ToDeviceRequest(request) => {
                 request.event_type.to_string() == "m.secret.request"
             }
             _ => false,
@@ -479,7 +480,7 @@ async fn test_request_missing_secrets_cross_signed() {
         .unwrap()
         .into_iter()
         .filter(|outgoing| match outgoing.request.as_ref() {
-            OutgoingRequests::ToDeviceRequest(request) => {
+            AnyOutgoingRequest::ToDeviceRequest(request) => {
                 request.event_type.to_string() == "m.secret.request"
             }
             _ => false,

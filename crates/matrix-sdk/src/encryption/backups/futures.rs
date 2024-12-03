@@ -60,7 +60,7 @@ pub struct WaitForSteadyState<'a> {
     pub(super) timeout: Option<Duration>,
 }
 
-impl<'a> WaitForSteadyState<'a> {
+impl WaitForSteadyState<'_> {
     /// Subscribe to the progress of the backup upload step while waiting for it
     /// to settle down.
     pub fn subscribe_to_progress(

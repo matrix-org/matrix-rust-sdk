@@ -54,9 +54,8 @@ use crate::{
     gossiping::{GossipMachine, GossipRequest},
     olm::{PrivateCrossSigningIdentity, StaticAccountData},
     store::{Changes, CryptoStoreWrapper},
-    types::Signatures,
-    CryptoStoreError, DeviceData, LocalTrust, OutgoingVerificationRequest, OwnUserIdentityData,
-    UserIdentityData,
+    types::{requests::OutgoingVerificationRequest, Signatures},
+    CryptoStoreError, DeviceData, LocalTrust, OwnUserIdentityData, UserIdentityData,
 };
 
 #[derive(Clone, Debug)]
@@ -746,11 +745,12 @@ pub(crate) mod tests {
     use super::{event_enums::OutgoingContent, VerificationStore};
     use crate::{
         olm::PrivateCrossSigningIdentity,
-        requests::{OutgoingRequest, OutgoingRequests},
         store::{Changes, CryptoStore, CryptoStoreWrapper, IdentityChanges, MemoryStore},
-        types::events::ToDeviceEvents,
-        Account, DeviceData, OtherUserIdentityData, OutgoingVerificationRequest,
-        OwnUserIdentityData,
+        types::{
+            events::ToDeviceEvents,
+            requests::{AnyOutgoingRequest, OutgoingRequest, OutgoingVerificationRequest},
+        },
+        Account, DeviceData, OtherUserIdentityData, OwnUserIdentityData,
     };
 
     pub(crate) fn request_to_event(
@@ -767,7 +767,7 @@ pub(crate) mod tests {
         request: &OutgoingRequest,
     ) -> ToDeviceEvents {
         match request.request() {
-            OutgoingRequests::ToDeviceRequest(r) => request_to_event(sender, &r.clone().into()),
+            AnyOutgoingRequest::ToDeviceRequest(r) => request_to_event(sender, &r.clone().into()),
             _ => panic!("Unsupported outgoing request"),
         }
     }

@@ -67,13 +67,12 @@ async fn test_echo() {
     );
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
+    let event_id = event_id!("$ev");
+
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "event_id": "$wWgymRfo7ri1uQx0NXO40vLJ" })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": event_id })))
         .mount(&server)
         .await;
 
@@ -87,14 +86,14 @@ async fn test_echo() {
     assert_let!(Some(VectorDiff::PushBack { value: local_echo }) = timeline_stream.next().await);
     let item = local_echo.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+    assert_let!(TimelineItemContent::Message(msg) = item.content());
+    assert_let!(MessageType::Text(text) = msg.msgtype());
+    assert_eq!(text.body, "Hello, World!");
+    assert!(item.event_id().is_none());
     let txn_id = item.transaction_id().unwrap();
 
     assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
-
-    assert_let!(TimelineItemContent::Message(msg) = item.content());
-    assert_let!(MessageType::Text(text) = msg.msgtype());
-    assert_eq!(text.body, "Hello, World!");
 
     // Wait for the sending to finish and assert everything was successful
     send_hdl.await.unwrap().unwrap();
@@ -104,13 +103,14 @@ async fn test_echo() {
     );
     let item = sent_confirmation.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::Sent { .. }));
+    assert_eq!(item.event_id(), Some(event_id));
 
     let f = EventFactory::new();
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id).add_timeline_event(
             f.text_msg("Hello, World!")
                 .sender(user_id!("@example:localhost"))
-                .event_id(event_id!("$7at8sd:localhost"))
+                .event_id(event_id)
                 .server_ts(152038280)
                 .unsigned_transaction_id(txn_id),
         ),

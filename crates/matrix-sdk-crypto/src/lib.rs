@@ -27,7 +27,6 @@ mod gossiping;
 mod identities;
 mod machine;
 pub mod olm;
-pub mod requests;
 pub mod secret_storage;
 mod session_manager;
 pub mod store;
@@ -96,10 +95,6 @@ use matrix_sdk_common::deserialized_responses::{DecryptedRoomEvent, UnableToDecr
 #[cfg(feature = "qrcode")]
 pub use matrix_sdk_qrcode;
 pub use olm::{Account, CrossSigningStatus, EncryptionSettings, Session};
-pub use requests::{
-    IncomingResponse, KeysBackupRequest, KeysQueryRequest, OutgoingRequest, OutgoingRequests,
-    OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,
-};
 use serde::{Deserialize, Serialize};
 pub use session_manager::CollectStrategy;
 pub use store::{
@@ -115,7 +110,7 @@ pub use verification::{QrVerification, QrVerificationState, ScanError};
 pub use vodozemac;
 
 /// The version of the matrix-sdk-cypto crate being used
-pub static VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(test)]
 matrix_sdk_test::init_tracing_for_tests!();
@@ -453,7 +448,7 @@ pub enum RoomEventDecryptionResult {
 /// # use std::collections::BTreeMap;
 /// # use ruma::api::client::keys::upload_keys::v3::Response;
 /// # use anyhow::Result;
-/// # use matrix_sdk_crypto::{OlmMachine, OutgoingRequest};
+/// # use matrix_sdk_crypto::{OlmMachine, types::requests::OutgoingRequest};
 /// # async fn send_request(request: OutgoingRequest) -> Result<Response> {
 /// #     let response = unimplemented!();
 /// #     Ok(response)
@@ -498,7 +493,7 @@ pub enum RoomEventDecryptionResult {
 /// # use std::collections::BTreeMap;
 /// # use ruma::api::client::keys::upload_keys::v3::Response;
 /// # use anyhow::Result;
-/// # use matrix_sdk_crypto::{OlmMachine, OutgoingRequest};
+/// # use matrix_sdk_crypto::{OlmMachine, types::requests::OutgoingRequest};
 /// # async fn send_request(request: &OutgoingRequest) -> Result<Response> {
 /// #     let response = unimplemented!();
 /// #     Ok(response)
@@ -925,7 +920,7 @@ pub enum RoomEventDecryptionResult {
 /// # use anyhow::Result;
 /// # use ruma::UserId;
 /// # use ruma::api::client::keys::claim_keys::v3::{Response, Request};
-/// # use matrix_sdk_crypto::{OlmMachine, requests::ToDeviceRequest, EncryptionSettings};
+/// # use matrix_sdk_crypto::{OlmMachine, types::requests::ToDeviceRequest, EncryptionSettings};
 /// # async fn send_request(request: &ToDeviceRequest) -> Result<Response> {
 /// #     let response = unimplemented!();
 /// #     Ok(response)
@@ -991,7 +986,7 @@ pub enum RoomEventDecryptionResult {
 /// # use serde_json::json;
 /// # use ruma::{UserId, RoomId, serde::Raw};
 /// # use ruma::api::client::keys::claim_keys::v3::{Response, Request};
-/// # use matrix_sdk_crypto::{EncryptionSettings, OlmMachine, ToDeviceRequest};
+/// # use matrix_sdk_crypto::{EncryptionSettings, OlmMachine, types::requests::ToDeviceRequest};
 /// # use tokio::sync::MutexGuard;
 /// # async fn send_request(request: &Request) -> Result<Response> {
 /// #     let response = unimplemented!();
@@ -1077,7 +1072,6 @@ pub enum RoomEventDecryptionResult {
 /// # Ok(())
 /// # }
 /// ```
-
 ///
 /// TODO
 ///

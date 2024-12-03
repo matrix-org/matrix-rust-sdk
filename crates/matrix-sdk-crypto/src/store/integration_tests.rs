@@ -28,7 +28,6 @@
 ///     cryptostore_integration_tests!();
 /// }
 /// ```
-
 #[allow(unused_macros)]
 #[macro_export]
 macro_rules! cryptostore_integration_tests {
@@ -67,10 +66,11 @@ macro_rules! cryptostore_integration_tests {
                         secret_send::SecretSendContent,
                         ToDeviceEvent,
                     },
+                    requests::ToDeviceRequest,
                     DeviceKeys,
                     EventEncryptionAlgorithm,
                 },
-                GossippedSecret, LocalTrust, DeviceData, SecretInfo, ToDeviceRequest, TrackedUser,
+                GossippedSecret, LocalTrust, DeviceData, SecretInfo,  TrackedUser,
                 vodozemac::{
                     megolm::{GroupSession, SessionConfig},
                 },

@@ -48,11 +48,6 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::{deserialized_responses::SyncTimelineEvent, timeout::timeout};
 use mime::Mime;
-#[cfg(feature = "e2e-encryption")]
-use ruma::events::{
-    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    SyncMessageLikeEvent,
-};
 use ruma::{
     api::client::{
         config::{set_global_account_data, set_room_account_data},
@@ -113,6 +108,14 @@ use ruma::{
     EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
+#[cfg(feature = "e2e-encryption")]
+use ruma::{
+    events::{
+        room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent,
+        AnySyncTimelineEvent, SyncMessageLikeEvent,
+    },
+    MilliSecondsSinceUnixEpoch,
+};
 use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tokio::sync::broadcast;
@@ -139,6 +142,8 @@ use crate::{
     utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
     BaseRoom, Client, Error, HttpResult, Result, RoomState, TransmissionProgress,
 };
+#[cfg(feature = "e2e-encryption")]
+use crate::{crypto::types::events::CryptoContextInfo, encryption::backups::BackupState};
 
 pub mod edit;
 pub mod futures;
@@ -610,10 +615,24 @@ impl Room {
         Ok(self.inner.is_encrypted())
     }
 
+    /// Gets additional context info about the client crypto.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn crypto_context_info(&self) -> CryptoContextInfo {
+        let encryption = self.client.encryption();
+        CryptoContextInfo {
+            device_creation_ts: match encryption.get_own_device().await {
+                Ok(Some(device)) => device.first_time_seen_ts(),
+                // Should not happen, there will always be an own device
+                _ => MilliSecondsSinceUnixEpoch::now(),
+            },
+            is_backup_configured: encryption.backups().state() == BackupState::Enabled,
+        }
+    }
+
     fn are_events_visible(&self) -> bool {
         if let RoomState::Invited = self.inner.state() {
             return matches!(
-                self.inner.history_visibility(),
+                self.inner.history_visibility_or_default(),
                 HistoryVisibility::WorldReadable | HistoryVisibility::Invited
             );
         }

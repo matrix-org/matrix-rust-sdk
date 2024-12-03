@@ -15,7 +15,10 @@
 use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
-use matrix_sdk_common::{linked_chunk::Update, AsyncTraitDeps};
+use matrix_sdk_common::{
+    linked_chunk::{LinkedChunk, Update},
+    AsyncTraitDeps,
+};
 use ruma::{MxcUri, RoomId};
 
 use super::EventCacheStoreError;
@@ -23,6 +26,10 @@ use crate::{
     event_cache::{Event, Gap},
     media::MediaRequestParameters,
 };
+
+/// A default capacity for linked chunks, when manipulating in conjunction with
+/// an `EventCacheStore` implementation.
+pub const DEFAULT_CHUNK_CAPACITY: usize = 128;
 
 /// An abstract trait that can be used to implement different store backends
 /// for the event cache of the SDK.
@@ -48,6 +55,12 @@ pub trait EventCacheStore: AsyncTraitDeps {
         room_id: &RoomId,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error>;
+
+    /// Reconstruct a full linked chunk by reloading it from storage.
+    async fn reload_linked_chunk(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, Self::Error>;
 
     /// Add a media file's content in the media store.
     ///
@@ -149,6 +162,13 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
         self.0.handle_linked_chunk_updates(room_id, updates).await.map_err(Into::into)
+    }
+
+    async fn reload_linked_chunk(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, Self::Error> {
+        self.0.reload_linked_chunk(room_id).await.map_err(Into::into)
     }
 
     async fn add_media_content(

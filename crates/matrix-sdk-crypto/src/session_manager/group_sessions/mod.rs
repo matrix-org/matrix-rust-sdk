@@ -41,8 +41,11 @@ use crate::{
         ShareInfo, ShareState,
     },
     store::{Changes, CryptoStoreWrapper, Result as StoreResult, Store},
-    types::events::{room::encrypted::RoomEncryptedEventContent, room_key_withheld::WithheldCode},
-    Device, DeviceData, EncryptionSettings, OlmError, ToDeviceRequest,
+    types::{
+        events::{room::encrypted::RoomEncryptedEventContent, room_key_withheld::WithheldCode},
+        requests::ToDeviceRequest,
+    },
+    Device, DeviceData, EncryptionSettings, OlmError,
 };
 
 #[derive(Clone, Debug)]
@@ -806,9 +809,10 @@ mod tests {
                     WithheldCode,
                 },
             },
+            requests::ToDeviceRequest,
             DeviceKeys, EventEncryptionAlgorithm,
         },
-        EncryptionSettings, LocalTrust, OlmMachine, ToDeviceRequest,
+        EncryptionSettings, LocalTrust, OlmMachine,
     };
 
     fn alice_id() -> &'static UserId {

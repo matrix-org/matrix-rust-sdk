@@ -107,7 +107,7 @@ pub enum AuthSession {
 
     /// A session using the OpenID Connect API.
     #[cfg(feature = "experimental-oidc")]
-    Oidc(oidc::OidcSession),
+    Oidc(Box<oidc::OidcSession>),
 }
 
 impl AuthSession {
@@ -157,7 +157,7 @@ impl From<matrix_auth::MatrixSession> for AuthSession {
 #[cfg(feature = "experimental-oidc")]
 impl From<oidc::OidcSession> for AuthSession {
     fn from(session: oidc::OidcSession) -> Self {
-        Self::Oidc(session)
+        Self::Oidc(session.into())
     }
 }
 

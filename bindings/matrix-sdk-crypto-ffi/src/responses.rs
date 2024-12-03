@@ -4,9 +4,12 @@ use std::collections::HashMap;
 
 use http::Response;
 use matrix_sdk_crypto::{
-    CrossSigningBootstrapRequests, IncomingResponse, KeysBackupRequest, OutgoingRequest,
-    OutgoingVerificationRequest as SdkVerificationRequest, RoomMessageRequest, ToDeviceRequest,
-    UploadSigningKeysRequest as RustUploadSigningKeysRequest,
+    types::requests::{
+        AnyIncomingResponse, KeysBackupRequest, OutgoingRequest,
+        OutgoingVerificationRequest as SdkVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+        UploadSigningKeysRequest as RustUploadSigningKeysRequest,
+    },
+    CrossSigningBootstrapRequests,
 };
 use ruma::{
     api::client::{
@@ -136,7 +139,7 @@ pub enum Request {
 
 impl From<OutgoingRequest> for Request {
     fn from(r: OutgoingRequest) -> Self {
-        use matrix_sdk_crypto::OutgoingRequests::*;
+        use matrix_sdk_crypto::types::requests::AnyOutgoingRequest::*;
 
         match r.request() {
             KeysUpload(u) => {
@@ -338,16 +341,16 @@ impl From<RoomMessageResponse> for OwnedResponse {
     }
 }
 
-impl<'a> From<&'a OwnedResponse> for IncomingResponse<'a> {
+impl<'a> From<&'a OwnedResponse> for AnyIncomingResponse<'a> {
     fn from(r: &'a OwnedResponse) -> Self {
         match r {
-            OwnedResponse::KeysClaim(r) => IncomingResponse::KeysClaim(r),
-            OwnedResponse::KeysQuery(r) => IncomingResponse::KeysQuery(r),
-            OwnedResponse::KeysUpload(r) => IncomingResponse::KeysUpload(r),
-            OwnedResponse::ToDevice(r) => IncomingResponse::ToDevice(r),
-            OwnedResponse::SignatureUpload(r) => IncomingResponse::SignatureUpload(r),
-            OwnedResponse::KeysBackup(r) => IncomingResponse::KeysBackup(r),
-            OwnedResponse::RoomMessage(r) => IncomingResponse::RoomMessage(r),
+            OwnedResponse::KeysClaim(r) => AnyIncomingResponse::KeysClaim(r),
+            OwnedResponse::KeysQuery(r) => AnyIncomingResponse::KeysQuery(r),
+            OwnedResponse::KeysUpload(r) => AnyIncomingResponse::KeysUpload(r),
+            OwnedResponse::ToDevice(r) => AnyIncomingResponse::ToDevice(r),
+            OwnedResponse::SignatureUpload(r) => AnyIncomingResponse::SignatureUpload(r),
+            OwnedResponse::KeysBackup(r) => AnyIncomingResponse::KeysBackup(r),
+            OwnedResponse::RoomMessage(r) => AnyIncomingResponse::RoomMessage(r),
         }
     }
 }

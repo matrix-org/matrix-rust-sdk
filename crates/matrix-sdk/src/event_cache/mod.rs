@@ -36,9 +36,13 @@ use std::{
 use eyeball::Subscriber;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent, TimelineEvent},
+    event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
+    store_locks::LockStoreError,
     sync::RoomUpdates,
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
+use once_cell::sync::OnceCell;
+use room::RoomEventCacheState;
 use ruma::{
     events::{relation::RelationType, AnySyncEphemeralRoomEvent},
     serde::Raw,
@@ -85,6 +89,14 @@ pub enum EventCacheError {
     /// An error has been observed while back-paginating.
     #[error("Error observed while back-paginating: {0}")]
     BackpaginationError(#[from] PaginatorError),
+
+    /// An error happening when interacting with storage.
+    #[error(transparent)]
+    Storage(#[from] EventCacheStoreError),
+
+    /// An error happening when attempting to (cross-process) lock storage.
+    #[error(transparent)]
+    LockingStorage(#[from] LockStoreError),
 
     /// The [`EventCache`] owns a weak reference to the [`Client`] it pertains
     /// to. It's possible this weak reference points to nothing anymore, at
@@ -141,12 +153,25 @@ impl EventCache {
         Self {
             inner: Arc::new(EventCacheInner {
                 client,
+                store: Default::default(),
                 multiple_room_updates_lock: Default::default(),
                 by_room: Default::default(),
                 drop_handles: Default::default(),
                 all_events: Default::default(),
             }),
         }
+    }
+
+    /// Enable storing updates to storage, and reload events from storage.
+    ///
+    /// Has an effect only the first time it's called. It's safe to call it
+    /// multiple times.
+    pub fn enable_storage(&self) -> Result<()> {
+        let _ = self.inner.store.get_or_try_init::<_, EventCacheError>(|| {
+            let client = self.inner.client()?;
+            Ok(client.event_cache_store().clone())
+        })?;
+        Ok(())
     }
 
     /// Starts subscribing the [`EventCache`] to sync responses, if not done
@@ -213,7 +238,9 @@ impl EventCache {
         async move {
             while ignore_user_list_stream.next().await.is_some() {
                 info!("received an ignore user list change");
-                inner.clear_all_rooms().await;
+                if let Err(err) = inner.clear_all_rooms().await {
+                    error!("error when clearing room storage: {err}");
+                }
             }
         }
         .instrument(span)
@@ -247,7 +274,9 @@ impl EventCache {
                     // no way to reconcile at the moment!
                     // TODO: implement Smart Matching™,
                     warn!(num_skipped, "Lagged behind room updates, clearing all rooms");
-                    inner.clear_all_rooms().await;
+                    if let Err(err) = inner.clear_all_rooms().await {
+                        error!("error when clearing storage: {err}");
+                    }
                 }
 
                 Err(RecvError::Closed) => {
@@ -317,6 +346,12 @@ struct EventCacheInner {
     /// on the owning client.
     client: WeakClient,
 
+    /// Reference to the underlying store.
+    ///
+    /// Set to none if we shouldn't use storage for reading / writing linked
+    /// chunks.
+    store: Arc<OnceCell<EventCacheStoreLock>>,
+
     /// A lock used when many rooms must be updated at once.
     ///
     /// [`Mutex`] is “fair”, as it is implemented as a FIFO. It is important to
@@ -348,7 +383,7 @@ impl EventCacheInner {
     }
 
     /// Clears all the room's data.
-    async fn clear_all_rooms(&self) {
+    async fn clear_all_rooms(&self) -> Result<()> {
         // Note: one must NOT clear the `by_room` map, because if something subscribed
         // to a room update, they would never get any new update for that room, since
         // re-creating the `RoomEventCache` would create a new unrelated sender.
@@ -362,8 +397,10 @@ impl EventCacheInner {
             // error if there aren't any.)
             let _ = room.inner.sender.send(RoomEventCacheUpdate::Clear);
             // Clear all the room state.
-            room.inner.state.write().await.reset();
+            room.inner.state.write().await.reset().await?;
         }
+
+        Ok(())
     }
 
     /// Handles a single set of room updates at once.
@@ -422,8 +459,12 @@ impl EventCacheInner {
                     return Ok(room.clone());
                 }
 
+                let room_state =
+                    RoomEventCacheState::new(room_id.to_owned(), self.store.clone()).await?;
+
                 let room_event_cache = RoomEventCache::new(
                     self.client.clone(),
+                    room_state,
                     room_id.to_owned(),
                     self.all_events.clone(),
                 );

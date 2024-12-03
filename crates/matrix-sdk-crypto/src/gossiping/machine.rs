@@ -45,16 +45,18 @@ use crate::{
     error::{EventError, OlmError, OlmResult},
     identities::IdentityManager,
     olm::{InboundGroupSession, Session},
-    requests::{OutgoingRequest, ToDeviceRequest},
     session_manager::GroupSessionCache,
     store::{Changes, CryptoStoreError, SecretImportError, Store, StoreCache},
-    types::events::{
-        forwarded_room_key::ForwardedRoomKeyContent,
-        olm_v1::{DecryptedForwardedRoomKeyEvent, DecryptedSecretSendEvent},
-        room::encrypted::EncryptedEvent,
-        room_key_request::RoomKeyRequestEvent,
-        secret_send::SecretSendContent,
-        EventType,
+    types::{
+        events::{
+            forwarded_room_key::ForwardedRoomKeyContent,
+            olm_v1::{DecryptedForwardedRoomKeyEvent, DecryptedSecretSendEvent},
+            room::encrypted::EncryptedEvent,
+            room_key_request::RoomKeyRequestEvent,
+            secret_send::SecretSendContent,
+            EventType,
+        },
+        requests::{OutgoingRequest, ToDeviceRequest},
     },
     Device, MegolmError,
 };
@@ -616,7 +618,6 @@ impl GossipMachine {
     ///   i.
     /// - `Err(x)`: Should *refuse* to share the session. `x` is the reason for
     ///   the refusal.
-
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn should_share_key(
         &self,
@@ -1116,6 +1117,7 @@ mod tests {
     use crate::{
         gossiping::KeyForwardDecision,
         olm::OutboundGroupSession,
+        types::requests::AnyOutgoingRequest,
         types::{
             events::{
                 forwarded_room_key::ForwardedRoomKeyContent, olm_v1::AnyDecryptedOlmEvent,
@@ -1123,7 +1125,7 @@ mod tests {
             },
             EventEncryptionAlgorithm,
         },
-        EncryptionSettings, OutgoingRequests,
+        EncryptionSettings,
     };
     use crate::{
         identities::{DeviceData, IdentityManager, LocalTrust},
@@ -1310,7 +1312,7 @@ mod tests {
 
     fn extract_content<'a>(
         recipient: &UserId,
-        request: &'a crate::OutgoingRequest,
+        request: &'a crate::types::requests::OutgoingRequest,
     ) -> &'a Raw<ruma::events::AnyToDeviceEventContent> {
         request
             .request()
@@ -1343,7 +1345,7 @@ mod tests {
     fn request_to_event<C>(
         recipient: &UserId,
         sender: &UserId,
-        request: &crate::OutgoingRequest,
+        request: &crate::types::requests::OutgoingRequest,
     ) -> crate::types::events::ToDeviceEvent<C>
     where
         C: crate::types::events::EventType
@@ -2064,7 +2066,7 @@ mod tests {
         assert_eq!(bob_machine.outgoing_to_device_requests().await.unwrap().len(), 1);
         assert_matches!(
             bob_machine.outgoing_to_device_requests().await.unwrap()[0].request(),
-            OutgoingRequests::KeysClaim(_)
+            AnyOutgoingRequest::KeysClaim(_)
         );
         assert!(!bob_machine.inner.users_for_key_claim.read().unwrap().is_empty());
         assert!(!bob_machine.inner.wait_queue.is_empty());

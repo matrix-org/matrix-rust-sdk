@@ -290,11 +290,11 @@ impl UtdHookManager {
     ///
     /// Must be called with the lock held on [`UtdHookManager::reported_utds`],
     /// and takes a `MutexGuard` to enforce that.
-    async fn report_utd<'a>(
+    async fn report_utd(
         info: UnableToDecryptInfo,
         parent_hook: &Arc<dyn UnableToDecryptHook>,
         client: &Client,
-        reported_utds_lock: &mut MutexGuard<'a, GrowableBloom>,
+        reported_utds_lock: &mut MutexGuard<'_, GrowableBloom>,
     ) {
         let event_id = info.event_id.clone();
         parent_hook.on_utd(info);

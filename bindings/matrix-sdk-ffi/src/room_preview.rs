@@ -92,7 +92,7 @@ pub struct RoomPreviewInfo {
     /// The room type (space, custom) or nothing, if it's a regular room.
     pub room_type: RoomType,
     /// Is the history world-readable for this room?
-    pub is_history_world_readable: bool,
+    pub is_history_world_readable: Option<bool>,
     /// The membership state for the current user, if known.
     pub membership: Option<Membership>,
     /// The join rule for this room (private, public, knock, etc.).

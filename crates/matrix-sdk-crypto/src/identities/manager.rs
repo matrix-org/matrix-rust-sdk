@@ -33,12 +33,14 @@ use crate::{
     error::OlmResult,
     identities::{DeviceData, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData},
     olm::{InboundGroupSession, PrivateCrossSigningIdentity, SenderDataFinder, SenderDataType},
-    requests::KeysQueryRequest,
     store::{
         caches::SequenceNumber, Changes, DeviceChanges, IdentityChanges, KeyQueryManager,
         Result as StoreResult, Store, StoreCache, StoreCacheGuard, UserKeyQueryResult,
     },
-    types::{CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
+    types::{
+        requests::KeysQueryRequest, CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey,
+        UserSigningPubkey,
+    },
     CryptoStoreError, LocalTrust, OwnUserIdentity, SignatureError, UserIdentity,
 };
 
@@ -548,7 +550,7 @@ impl IdentityManager {
             // First time seen, create the identity. The current MSK will be pinned.
             let identity = OtherUserIdentityData::new(master_key, self_signing)?;
             let is_verified = maybe_verified_own_identity
-                .map_or(false, |own_user_identity| own_user_identity.is_identity_signed(&identity));
+                .is_some_and(|own_user_identity| own_user_identity.is_identity_signed(&identity));
             if is_verified {
                 identity.mark_as_previously_verified();
             }
@@ -1228,9 +1230,8 @@ pub(crate) mod testing {
         identities::IdentityManager,
         olm::{Account, PrivateCrossSigningIdentity},
         store::{CryptoStoreWrapper, MemoryStore, PendingChanges, Store},
-        types::DeviceKeys,
+        types::{requests::UploadSigningKeysRequest, DeviceKeys},
         verification::VerificationMachine,
-        UploadSigningKeysRequest,
     };
 
     pub fn user_id() -> &'static UserId {

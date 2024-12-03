@@ -52,8 +52,9 @@ use super::{
     CancelInfo, Cancelled, FlowId, Verification, VerificationStore,
 };
 use crate::{
-    olm::StaticAccountData, CryptoStoreError, DeviceData, OutgoingVerificationRequest,
-    RoomMessageRequest, Sas, ToDeviceRequest,
+    olm::StaticAccountData,
+    types::requests::{OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest},
+    CryptoStoreError, DeviceData, Sas,
 };
 
 const SUPPORTED_METHODS: &[VerificationMethod] = &[
@@ -1634,6 +1635,7 @@ mod tests {
 
     use super::VerificationRequest;
     use crate::{
+        types::requests::OutgoingVerificationRequest,
         verification::{
             cache::VerificationCache,
             event_enums::{
@@ -1642,7 +1644,7 @@ mod tests {
             tests::{alice_id, bob_id, setup_stores},
             FlowId, Verification, VerificationStore,
         },
-        DeviceData, OutgoingVerificationRequest, VerificationRequestState,
+        DeviceData, VerificationRequestState,
     };
 
     #[async_test]

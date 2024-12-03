@@ -52,8 +52,8 @@ use tracing::{
 };
 
 pub(super) use self::state::{
-    EventMeta, FullEventMeta, PendingEdit, PendingEditKind, TimelineEnd, TimelineMetadata,
-    TimelineState, TimelineStateTransaction,
+    EventMeta, FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata,
+    TimelineNewItemPosition, TimelineState, TimelineStateTransaction,
 };
 use super::{
     event_handler::TimelineEventKind,
@@ -303,7 +303,11 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
                 let has_events = !events.is_empty();
 
-                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
+                self.replace_with_initial_remote_events(
+                    events.into_iter(),
+                    RemoteEventOrigin::Cache,
+                )
+                .await;
 
                 Ok(has_events)
             }
@@ -320,7 +324,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 let has_events = !start_from_result.events.is_empty();
 
                 self.replace_with_initial_remote_events(
-                    start_from_result.events.into_iter().map(Into::into).collect(),
+                    start_from_result.events.into_iter(),
                     RemoteEventOrigin::Pagination,
                 )
                 .await;
@@ -336,7 +340,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 let has_events = !loaded_events.is_empty();
 
                 self.replace_with_initial_remote_events(
-                    loaded_events,
+                    loaded_events.into_iter(),
                     RemoteEventOrigin::Pagination,
                 )
                 .await;
@@ -404,8 +408,11 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .map_err(PaginationError::Paginator)?,
         };
 
-        self.add_events_at(pagination.events, TimelineEnd::Front, RemoteEventOrigin::Pagination)
-            .await;
+        self.add_events_at(
+            pagination.events.into_iter(),
+            TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination },
+        )
+        .await;
 
         Ok(pagination.hit_end_of_timeline)
     }
@@ -428,8 +435,11 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .map_err(PaginationError::Paginator)?,
         };
 
-        self.add_events_at(pagination.events, TimelineEnd::Back, RemoteEventOrigin::Pagination)
-            .await;
+        self.add_events_at(
+            pagination.events.into_iter(),
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Pagination },
+        )
+        .await;
 
         Ok(pagination.hit_end_of_timeline)
     }
@@ -626,26 +636,21 @@ impl<P: RoomDataProvider> TimelineController<P> {
     /// is the most recent.
     ///
     /// Returns the number of timeline updates that were made.
-    pub(super) async fn add_events_at(
+    pub(super) async fn add_events_at<Events>(
         &self,
-        events: Vec<impl Into<SyncTimelineEvent>>,
-        position: TimelineEnd,
-        origin: RemoteEventOrigin,
-    ) -> HandleManyEventsResult {
-        if events.is_empty() {
+        events: Events,
+        position: TimelineNewItemPosition,
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator + ExactSizeIterator,
+        <Events as IntoIterator>::Item: Into<SyncTimelineEvent>,
+    {
+        if events.len() == 0 {
             return Default::default();
         }
 
         let mut state = self.state.write().await;
-        state
-            .add_remote_events_at(
-                events,
-                position,
-                origin,
-                &self.room_data_provider,
-                &self.settings,
-            )
-            .await
+        state.add_remote_events_at(events, position, &self.room_data_provider, &self.settings).await
     }
 
     pub(super) async fn clear(&self) {
@@ -659,11 +664,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
     ///
     /// This is all done with a single lock guard, since we don't want the state
     /// to be modified between the clear and re-insertion of new events.
-    pub(super) async fn replace_with_initial_remote_events(
+    pub(super) async fn replace_with_initial_remote_events<Events>(
         &self,
-        events: Vec<SyncTimelineEvent>,
+        events: Events,
         origin: RemoteEventOrigin,
-    ) {
+    ) where
+        Events: IntoIterator + ExactSizeIterator,
+        <Events as IntoIterator>::Item: Into<SyncTimelineEvent>,
+    {
         let mut state = self.state.write().await;
 
         let track_read_markers = self.settings.track_read_receipts;
@@ -679,12 +687,11 @@ impl<P: RoomDataProvider> TimelineController<P> {
         // Previously we just had to check the new one wasn't empty because
         // we did a clear operation before so the current one would always be empty, but
         // now we may want to replace a populated timeline with an empty one.
-        if !state.items.is_empty() || !events.is_empty() {
+        if !state.items.is_empty() || events.len() > 0 {
             state
                 .replace_with_remote_events(
                     events,
-                    TimelineEnd::Back,
-                    origin,
+                    TimelineNewItemPosition::End { origin },
                     &self.room_data_provider,
                     &self.settings,
                 )
@@ -1522,7 +1529,7 @@ impl TimelineController {
     /// it's folded into another timeline item.
     pub(crate) async fn latest_event_id(&self) -> Option<OwnedEventId> {
         let state = self.state.read().await;
-        state.meta.all_events.back().map(|event_meta| &event_meta.event_id).cloned()
+        state.meta.all_remote_events.back().map(|event_meta| &event_meta.event_id).cloned()
     }
 }
 

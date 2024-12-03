@@ -17,8 +17,8 @@ use matrix_sdk_crypto::{
     decrypt_room_key_export, encrypt_room_key_export,
     olm::ExportedRoomKey,
     store::{BackupDecryptionKey, Changes},
-    DecryptionSettings, LocalTrust, OlmMachine as InnerMachine, ToDeviceRequest,
-    UserIdentity as SdkUserIdentity,
+    types::requests::ToDeviceRequest,
+    DecryptionSettings, LocalTrust, OlmMachine as InnerMachine, UserIdentity as SdkUserIdentity,
 };
 use ruma::{
     api::{

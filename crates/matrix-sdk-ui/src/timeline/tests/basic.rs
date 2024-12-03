@@ -35,7 +35,7 @@ use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    controller::{TimelineEnd, TimelineSettings},
+    controller::{TimelineNewItemPosition, TimelineSettings},
     event_item::{AnyOtherFullStateEventContent, RemoteEventOrigin},
     tests::{ReadReceiptMap, TestRoomDataProvider},
     MembershipChange, TimelineDetails, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
@@ -50,9 +50,8 @@ async fn test_initial_events() {
     timeline
         .controller
         .add_events_at(
-            vec![f.text_msg("A").sender(*ALICE), f.text_msg("B").sender(*BOB)],
-            TimelineEnd::Back,
-            RemoteEventOrigin::Sync,
+            [f.text_msg("A").sender(*ALICE), f.text_msg("B").sender(*BOB)].into_iter(),
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;
 
@@ -91,7 +90,13 @@ async fn test_replace_with_initial_events_and_read_marker() {
     let f = &timeline.factory;
     let ev = f.text_msg("hey").sender(*ALICE).into_sync();
 
-    timeline.controller.add_events_at(vec![ev], TimelineEnd::Back, RemoteEventOrigin::Sync).await;
+    timeline
+        .controller
+        .add_events_at(
+            [ev].into_iter(),
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        )
+        .await;
 
     let items = timeline.controller.items().await;
     assert_eq!(items.len(), 2);
@@ -99,7 +104,10 @@ async fn test_replace_with_initial_events_and_read_marker() {
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "hey");
 
     let ev = f.text_msg("yo").sender(*BOB).into_sync();
-    timeline.controller.replace_with_initial_remote_events(vec![ev], RemoteEventOrigin::Sync).await;
+    timeline
+        .controller
+        .replace_with_initial_remote_events([ev].into_iter(), RemoteEventOrigin::Sync)
+        .await;
 
     let items = timeline.controller.items().await;
     assert_eq!(items.len(), 2);
@@ -307,7 +315,7 @@ async fn test_dedup_initial() {
     timeline
         .controller
         .add_events_at(
-            vec![
+            [
                 // two events
                 event_a.clone(),
                 event_b.clone(),
@@ -316,9 +324,9 @@ async fn test_dedup_initial() {
                 event_b,
                 // … and a new event also came in
                 event_c,
-            ],
-            TimelineEnd::Back,
-            RemoteEventOrigin::Sync,
+            ]
+            .into_iter(),
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;
 
@@ -354,7 +362,10 @@ async fn test_internal_id_prefix() {
 
     timeline
         .controller
-        .add_events_at(vec![ev_a, ev_b, ev_c], TimelineEnd::Back, RemoteEventOrigin::Sync)
+        .add_events_at(
+            [ev_a, ev_b, ev_c].into_iter(),
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        )
         .await;
 
     let timeline_items = timeline.controller.items().await;
@@ -516,7 +527,13 @@ async fn test_replace_with_initial_events_when_batched() {
     let f = &timeline.factory;
     let ev = f.text_msg("hey").sender(*ALICE).into_sync();
 
-    timeline.controller.add_events_at(vec![ev], TimelineEnd::Back, RemoteEventOrigin::Sync).await;
+    timeline
+        .controller
+        .add_events_at(
+            [ev].into_iter(),
+            TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
+        )
+        .await;
 
     let (items, mut stream) = timeline.controller.subscribe_batched().await;
     assert_eq!(items.len(), 2);
@@ -524,7 +541,10 @@ async fn test_replace_with_initial_events_when_batched() {
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "hey");
 
     let ev = f.text_msg("yo").sender(*BOB).into_sync();
-    timeline.controller.replace_with_initial_remote_events(vec![ev], RemoteEventOrigin::Sync).await;
+    timeline
+        .controller
+        .replace_with_initial_remote_events([ev].into_iter(), RemoteEventOrigin::Sync)
+        .await;
 
     // Assert there are more than a single Clear diff in the next batch:
     // Clear + PushBack (event) + PushFront (day divider)

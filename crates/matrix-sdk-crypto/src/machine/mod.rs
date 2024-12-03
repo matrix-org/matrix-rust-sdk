@@ -70,7 +70,6 @@ use crate::{
         KnownSenderData, OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData,
         SenderDataFinder, SessionType, StaticAccountData,
     },
-    requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
         Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
@@ -90,12 +89,16 @@ use crate::{
             },
             ToDeviceEvents,
         },
+        requests::{
+            AnyIncomingResponse, KeysQueryRequest, OutgoingRequest, ToDeviceRequest,
+            UploadSigningKeysRequest,
+        },
         EventEncryptionAlgorithm, Signatures,
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, CryptoStoreError, DecryptionSettings, DeviceData, KeysQueryRequest,
-    LocalTrust, RoomEventDecryptionResult, SignatureError, ToDeviceRequest, TrustRequirement,
+    CrossSigningKeyExport, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
+    RoomEventDecryptionResult, SignatureError, TrustRequirement,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -576,34 +579,34 @@ impl OlmMachine {
     pub async fn mark_request_as_sent<'a>(
         &self,
         request_id: &TransactionId,
-        response: impl Into<IncomingResponse<'a>>,
+        response: impl Into<AnyIncomingResponse<'a>>,
     ) -> OlmResult<()> {
         match response.into() {
-            IncomingResponse::KeysUpload(response) => {
+            AnyIncomingResponse::KeysUpload(response) => {
                 Box::pin(self.receive_keys_upload_response(response)).await?;
             }
-            IncomingResponse::KeysQuery(response) => {
+            AnyIncomingResponse::KeysQuery(response) => {
                 Box::pin(self.receive_keys_query_response(request_id, response)).await?;
             }
-            IncomingResponse::KeysClaim(response) => {
+            AnyIncomingResponse::KeysClaim(response) => {
                 Box::pin(
                     self.inner.session_manager.receive_keys_claim_response(request_id, response),
                 )
                 .await?;
             }
-            IncomingResponse::ToDevice(_) => {
+            AnyIncomingResponse::ToDevice(_) => {
                 Box::pin(self.mark_to_device_request_as_sent(request_id)).await?;
             }
-            IncomingResponse::SigningKeysUpload(_) => {
+            AnyIncomingResponse::SigningKeysUpload(_) => {
                 Box::pin(self.receive_cross_signing_upload_response()).await?;
             }
-            IncomingResponse::SignatureUpload(_) => {
+            AnyIncomingResponse::SignatureUpload(_) => {
                 self.inner.verification_machine.mark_request_as_sent(request_id);
             }
-            IncomingResponse::RoomMessage(_) => {
+            AnyIncomingResponse::RoomMessage(_) => {
                 self.inner.verification_machine.mark_request_as_sent(request_id);
             }
-            IncomingResponse::KeysBackup(_) => {
+            AnyIncomingResponse::KeysBackup(_) => {
                 Box::pin(self.inner.backup_machine.mark_request_as_sent(request_id)).await?;
             }
         };
@@ -2311,8 +2314,8 @@ impl OlmMachine {
     ///   incremented and updated it in the database. Otherwise, `false`.
     ///
     /// * The (possibly updated) generation counter.
-    pub async fn maintain_crypto_store_generation<'a>(
-        &'a self,
+    pub async fn maintain_crypto_store_generation(
+        &'_ self,
         generation: &Mutex<Option<u64>>,
     ) -> StoreResult<(bool, u64)> {
         let mut gen_guard = generation.lock().await;

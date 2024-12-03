@@ -63,7 +63,6 @@ use crate::{
     error::{EventError, OlmResult, SessionCreationError},
     identities::DeviceData,
     olm::SenderData,
-    requests::UploadSigningKeysRequest,
     store::{Changes, DeviceChanges, Store},
     types::{
         events::{
@@ -73,6 +72,7 @@ use crate::{
                 ToDeviceEncryptedEventContent,
             },
         },
+        requests::UploadSigningKeysRequest,
         CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,
     },
     OlmError, SignatureError,

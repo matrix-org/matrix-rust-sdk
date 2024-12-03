@@ -43,9 +43,9 @@ use super::{
 use crate::{
     identities::{DeviceData, UserIdentityData},
     olm::StaticAccountData,
-    requests::{OutgoingVerificationRequest, RoomMessageRequest},
     store::CryptoStoreError,
-    Emoji, ToDeviceRequest,
+    types::requests::{OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest},
+    Emoji,
 };
 
 /// Short authentication string object.

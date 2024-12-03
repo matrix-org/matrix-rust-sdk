@@ -56,7 +56,7 @@ impl<'a, R: 'a + Read + std::fmt::Debug> std::fmt::Debug for AttachmentDecryptor
     }
 }
 
-impl<'a, R: Read> Read for AttachmentDecryptor<'a, R> {
+impl<R: Read> Read for AttachmentDecryptor<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let read_bytes = self.inner.read(buf)?;
 

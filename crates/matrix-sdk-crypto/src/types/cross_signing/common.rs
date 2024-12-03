@@ -138,7 +138,7 @@ pub(crate) enum CrossSigningSubKeys<'a> {
     UserSigning(&'a UserSigningPubkey),
 }
 
-impl<'a> CrossSigningSubKeys<'a> {
+impl CrossSigningSubKeys<'_> {
     /// Get the id of the user that owns this cross signing subkey.
     pub fn user_id(&self) -> &UserId {
         match self {

@@ -160,12 +160,12 @@ impl PartialEq for DisplayName {
 
 impl DisplayName {
     /// Regex pattern matching an MXID.
-    const MXID_PATTERN: &str = "@.+[:.].+";
+    const MXID_PATTERN: &'static str = "@.+[:.].+";
 
     /// Regex pattern matching some left-to-right formatting marks:
     ///     * LTR and RTL marks U+200E and U+200F
     ///     * LTR/RTL and other directional formatting marks U+202A - U+202F
-    const LEFT_TO_RIGHT_PATTERN: &str = "[\u{202a}-\u{202f}\u{200e}\u{200f}]";
+    const LEFT_TO_RIGHT_PATTERN: &'static str = "[\u{202a}-\u{202f}\u{200e}\u{200f}]";
 
     /// Regex pattern matching bunch of unicode control characters and otherwise
     /// misleading/invisible characters.
@@ -176,7 +176,7 @@ impl DisplayName {
     ///     * Blank/invisible characters (U2800, U2062-U2063)
     ///     * Arabic Letter RTL mark U+061C
     ///     * Zero width no-break space (BOM) U+FEFF
-    const HIDDEN_CHARACTERS_PATTERN: &str =
+    const HIDDEN_CHARACTERS_PATTERN: &'static str =
         "[\u{2000}-\u{200D}\u{300}-\u{036f}\u{2062}-\u{2063}\u{2800}\u{061c}\u{feff}]";
 
     /// Creates a new [`DisplayName`] from the given raw string.

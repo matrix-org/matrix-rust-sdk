@@ -26,20 +26,20 @@ base64 = { workspace = true }
 gloo-utils = { version = "0.2.0", features = ["serde"] }
 growable-bloom-filter = { workspace = true, optional = true }
 indexed_db_futures = "0.5.0"
-js-sys = { version = "0.3.58" }
+js-sys = { workspace = true }
 matrix-sdk-base = { workspace = true, features = ["js"], optional = true }
 matrix-sdk-crypto = { workspace = true, features = ["js"], optional = true }
 matrix-sdk-store-encryption = { workspace = true }
 ruma = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde-wasm-bindgen = "0.6.1"
+serde-wasm-bindgen = "0.6.5"
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-wasm-bindgen = "0.2.83"
-web-sys = { version = "0.3.57", features = ["IdbKeyRange"] }
-hkdf = "0.12.4"
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = ["IdbKeyRange"] }
+hkdf = { workspace = true }
 zeroize = { workspace = true }
 sha2 = { workspace = true }
 
@@ -56,9 +56,9 @@ matrix-sdk-crypto = { workspace = true, features = ["js", "testing"] }
 matrix-sdk-test = { workspace = true }
 rand = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["registry", "tracing-log"] }
-uuid = "1.3.0"
-wasm-bindgen-test = "0.3.33"
-web-sys = { version = "0.3.57", features = ["IdbKeyRange", "Window", "Performance"] }
+uuid = { workspace = true }
+wasm-bindgen-test = { workspace = true }
+web-sys = { workspace = true, features = ["IdbKeyRange", "Window", "Performance"] }
 
 [lints]
 workspace = true

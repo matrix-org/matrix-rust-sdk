@@ -596,13 +596,13 @@ impl WidgetMachine {
                 let update = NotifyCapabilitiesChanged { approved, requested };
                 let (_request, action) = machine.send_to_widget_request(update);
 
-                subscribe_required.then(|| Action::Subscribe).into_iter().chain(action).collect()
+                subscribe_required.then_some(Action::Subscribe).into_iter().chain(action).collect()
             });
 
             action.map(|a| vec![a]).unwrap_or_default()
         });
 
-        unsubscribe_required.then(|| Action::Unsubscribe).into_iter().chain(action).collect()
+        unsubscribe_required.then_some(Action::Unsubscribe).into_iter().chain(action).collect()
     }
 }
 

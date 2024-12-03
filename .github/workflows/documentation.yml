@@ -36,7 +36,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2024-06-25
+          toolchain: nightly-2024-11-26
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -53,7 +53,7 @@ jobs:
         env:
           RUSTDOCFLAGS: "--enable-index-page -Zunstable-options --cfg docsrs -Dwarnings"
         run:
-          cargo doc --no-deps --workspace --features docsrs
+          cargo doc --no-deps --workspace --features docsrs --exclude=xtask
 
       - name: Upload artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

@@ -398,7 +398,7 @@ pub enum StartContent<'a> {
     Room(&'a KeyVerificationStartEventContent),
 }
 
-impl<'a> StartContent<'a> {
+impl StartContent<'_> {
     #[allow(clippy::wrong_self_convention)]
     pub fn from_device(&self) -> &DeviceId {
         match self {
@@ -458,7 +458,7 @@ impl<'a> From<&'a ToDeviceKeyVerificationDoneEventContent> for DoneContent<'a> {
     }
 }
 
-impl<'a> DoneContent<'a> {
+impl DoneContent<'_> {
     pub fn flow_id(&self) -> &str {
         match self {
             Self::ToDevice(c) => c.transaction_id.as_str(),
@@ -679,9 +679,9 @@ impl From<(OwnedRoomId, AnyMessageLikeEventContent)> for OutgoingContent {
     }
 }
 
-use crate::{
-    types::events::ToDeviceEvents, OutgoingRequest, OutgoingVerificationRequest,
-    RoomMessageRequest, ToDeviceRequest,
+use crate::types::{
+    events::ToDeviceEvents,
+    requests::{OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest},
 };
 
 impl TryFrom<OutgoingVerificationRequest> for OutgoingContent {
@@ -765,13 +765,15 @@ impl TryFrom<OutgoingRequest> for OutgoingContent {
     type Error = String;
 
     fn try_from(value: OutgoingRequest) -> Result<Self, Self::Error> {
+        use crate::types::requests::AnyOutgoingRequest;
+
         match value.request() {
-            crate::OutgoingRequests::KeysUpload(_)
-            | crate::OutgoingRequests::KeysQuery(_)
-            | crate::OutgoingRequests::SignatureUpload(_)
-            | crate::OutgoingRequests::KeysClaim(_) => Err("Invalid request type".to_owned()),
-            crate::OutgoingRequests::ToDeviceRequest(r) => Self::try_from(r.clone()),
-            crate::OutgoingRequests::RoomMessage(r) => Ok(Self::from(r.clone())),
+            AnyOutgoingRequest::KeysUpload(_)
+            | AnyOutgoingRequest::KeysQuery(_)
+            | AnyOutgoingRequest::SignatureUpload(_)
+            | AnyOutgoingRequest::KeysClaim(_) => Err("Invalid request type".to_owned()),
+            AnyOutgoingRequest::ToDeviceRequest(r) => Self::try_from(r.clone()),
+            AnyOutgoingRequest::RoomMessage(r) => Ok(Self::from(r.clone())),
         }
     }
 }

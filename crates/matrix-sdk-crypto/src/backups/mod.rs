@@ -38,8 +38,8 @@ use tracing::{debug, info, instrument, trace, warn};
 use crate::{
     olm::{BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, SignedJsonObject},
     store::{BackupDecryptionKey, BackupKeys, Changes, RoomKeyCounts, Store},
-    types::{MegolmV1AuthData, RoomKeyBackupInfo, Signatures},
-    CryptoStoreError, Device, KeysBackupRequest, RoomKeyImportResult, SignatureError,
+    types::{requests::KeysBackupRequest, MegolmV1AuthData, RoomKeyBackupInfo, Signatures},
+    CryptoStoreError, Device, RoomKeyImportResult, SignatureError,
 };
 
 mod keys;

@@ -31,7 +31,10 @@ use futures_util::{
     stream::{self, StreamExt},
 };
 use matrix_sdk_base::crypto::{
-    CrossSigningBootstrapRequests, OlmMachine, OutgoingRequest, RoomMessageRequest, ToDeviceRequest,
+    types::requests::{
+        OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+    },
+    CrossSigningBootstrapRequests, OlmMachine,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
@@ -377,7 +380,7 @@ impl Client {
     pub(crate) async fn mark_request_as_sent(
         &self,
         request_id: &TransactionId,
-        response: impl Into<matrix_sdk_base::crypto::IncomingResponse<'_>>,
+        response: impl Into<matrix_sdk_base::crypto::types::requests::AnyIncomingResponse<'_>>,
     ) -> Result<(), matrix_sdk_base::Error> {
         Ok(self
             .olm_machine()
@@ -579,13 +582,15 @@ impl Client {
 
     pub(crate) async fn send_verification_request(
         &self,
-        request: matrix_sdk_base::crypto::OutgoingVerificationRequest,
+        request: OutgoingVerificationRequest,
     ) -> Result<()> {
+        use matrix_sdk_base::crypto::types::requests::OutgoingVerificationRequest::*;
+
         match request {
-            matrix_sdk_base::crypto::OutgoingVerificationRequest::ToDevice(t) => {
+            ToDevice(t) => {
                 self.send_to_device(&t).await?;
             }
-            matrix_sdk_base::crypto::OutgoingVerificationRequest::InRoom(r) => {
+            InRoom(r) => {
                 self.room_send_helper(&r).await?;
             }
         }
@@ -608,28 +613,28 @@ impl Client {
     }
 
     async fn send_outgoing_request(&self, r: OutgoingRequest) -> Result<()> {
-        use matrix_sdk_base::crypto::OutgoingRequests;
+        use matrix_sdk_base::crypto::types::requests::AnyOutgoingRequest;
 
         match r.request() {
-            OutgoingRequests::KeysQuery(request) => {
+            AnyOutgoingRequest::KeysQuery(request) => {
                 self.keys_query(r.request_id(), request.device_keys.clone()).await?;
             }
-            OutgoingRequests::KeysUpload(request) => {
+            AnyOutgoingRequest::KeysUpload(request) => {
                 self.keys_upload(r.request_id(), request).await?;
             }
-            OutgoingRequests::ToDeviceRequest(request) => {
+            AnyOutgoingRequest::ToDeviceRequest(request) => {
                 let response = self.send_to_device(request).await?;
                 self.mark_request_as_sent(r.request_id(), &response).await?;
             }
-            OutgoingRequests::SignatureUpload(request) => {
+            AnyOutgoingRequest::SignatureUpload(request) => {
                 let response = self.send(request.clone(), None).await?;
                 self.mark_request_as_sent(r.request_id(), &response).await?;
             }
-            OutgoingRequests::RoomMessage(request) => {
+            AnyOutgoingRequest::RoomMessage(request) => {
                 let response = self.room_send_helper(request).await?;
                 self.mark_request_as_sent(r.request_id(), &response).await?;
             }
-            OutgoingRequests::KeysClaim(request) => {
+            AnyOutgoingRequest::KeysClaim(request) => {
                 let response = self.send(request.clone(), None).await?;
                 self.mark_request_as_sent(r.request_id(), &response).await?;
             }

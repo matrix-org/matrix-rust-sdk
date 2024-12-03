@@ -26,8 +26,8 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    store::DynCryptoStore, CollectStrategy, DecryptionSettings, EncryptionSettings,
-    EncryptionSyncChanges, OlmError, OlmMachine, RoomEventDecryptionResult, ToDeviceRequest,
+    store::DynCryptoStore, types::requests::ToDeviceRequest, CollectStrategy, DecryptionSettings,
+    EncryptionSettings, EncryptionSyncChanges, OlmError, OlmMachine, RoomEventDecryptionResult,
     TrustRequirement,
 };
 #[cfg(feature = "e2e-encryption")]
@@ -1459,10 +1459,14 @@ impl BaseClient {
     pub async fn share_room_key(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
         match self.olm_machine().await.as_ref() {
             Some(o) => {
-                let (history_visibility, settings) = self
-                    .get_room(room_id)
-                    .map(|r| (r.history_visibility(), r.encryption_settings()))
-                    .unwrap_or((HistoryVisibility::Joined, None));
+                let Some(room) = self.get_room(room_id) else {
+                    return Err(Error::InsufficientData);
+                };
+
+                let history_visibility = room.history_visibility_or_default();
+                let Some(room_encryption_event) = room.encryption_settings() else {
+                    return Err(Error::EncryptionNotEnabled);
+                };
 
                 // Don't share the group session with members that are invited
                 // if the history visibility is set to `Joined`
@@ -1474,9 +1478,8 @@ impl BaseClient {
 
                 let members = self.store.get_user_ids(room_id, filter).await?;
 
-                let settings = settings.ok_or(Error::EncryptionNotEnabled)?;
                 let settings = EncryptionSettings::new(
-                    settings,
+                    room_encryption_event,
                     history_visibility,
                     self.room_key_recipient_strategy.clone(),
                 );
