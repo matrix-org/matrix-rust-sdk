@@ -13,10 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{
-        vec_deque::{Iter, IterMut},
-        HashMap, VecDeque,
-    },
+    collections::{vec_deque::Iter, HashMap, VecDeque},
     future::Future,
     num::NonZeroUsize,
     sync::{Arc, RwLock},
@@ -745,11 +742,8 @@ impl TimelineStateTransaction<'_> {
             }
 
             TimelineItemPosition::UpdateDecrypted { .. } => {
-                if let Some(event) = self
-                    .meta
-                    .all_remote_events
-                    .iter_mut()
-                    .find(|e| e.event_id == event_meta.event_id)
+                if let Some(event) =
+                    self.meta.all_remote_events.get_by_event_id_mut(event_meta.event_id)
                 {
                     if event.visible != event_meta.visible {
                         event.visible = event_meta.visible;
@@ -1156,12 +1150,6 @@ impl AllRemoteEvents {
         self.0.iter()
     }
 
-    /// Return a front-to-back iterator over all remote events as mutable
-    /// references.
-    pub fn iter_mut(&mut self) -> IterMut<'_, EventMeta> {
-        self.0.iter_mut()
-    }
-
     /// Remove all remote events.
     pub fn clear(&mut self) {
         self.0.clear();
@@ -1185,6 +1173,11 @@ impl AllRemoteEvents {
     /// Return a reference to the last remote event if it exists.
     pub fn last(&self) -> Option<&EventMeta> {
         self.0.back()
+    }
+
+    /// Get a mutable reference to a specific remote event by its ID.
+    pub fn get_by_event_id_mut(&mut self, event_id: &EventId) -> Option<&mut EventMeta> {
+        self.0.iter_mut().rev().find(|event_meta| event_meta.event_id == event_id)
     }
 }
 
