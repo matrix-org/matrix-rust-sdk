@@ -110,7 +110,7 @@ pub use verification::{QrVerification, QrVerificationState, ScanError};
 pub use vodozemac;
 
 /// The version of the matrix-sdk-cypto crate being used
-pub static VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(test)]
 matrix_sdk_test::init_tracing_for_tests!();
