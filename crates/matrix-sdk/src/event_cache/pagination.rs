@@ -245,8 +245,8 @@ impl RoomPagination {
     /// Otherwise, it will immediately skip.
     #[doc(hidden)]
     pub async fn get_or_wait_for_token(&self, wait_time: Option<Duration>) -> Option<String> {
-        fn get_oldest(events: &RoomEvents) -> Option<String> {
-            events.chunks().find_map(|chunk| match chunk.content() {
+        fn get_latest(events: &RoomEvents) -> Option<String> {
+            events.rchunks().find_map(|chunk| match chunk.content() {
                 ChunkContent::Gap(gap) => Some(gap.prev_token.clone()),
                 ChunkContent::Items(..) => None,
             })
@@ -256,7 +256,7 @@ impl RoomPagination {
             // Scope for the lock guard.
             let state = self.inner.state.read().await;
             // Fast-path: we do have a previous-batch token already.
-            if let Some(found) = get_oldest(state.events()) {
+            if let Some(found) = get_latest(state.events()) {
                 return Some(found);
             }
             // If we've already waited for an initial previous-batch token before,
@@ -275,7 +275,7 @@ impl RoomPagination {
         let _ = timeout(wait_time, self.inner.pagination_batch_token_notifier.notified()).await;
 
         let mut state = self.inner.state.write().await;
-        let token = get_oldest(state.events());
+        let token = get_latest(state.events());
         state.waited_for_initial_prev_token = true;
         token
     }
@@ -321,7 +321,9 @@ mod tests {
         use std::time::{Duration, Instant};
 
         use matrix_sdk_base::RoomState;
-        use matrix_sdk_test::{async_test, sync_timeline_event};
+        use matrix_sdk_test::{
+            async_test, event_factory::EventFactory, sync_timeline_event, ALICE,
+        };
         use ruma::room_id;
         use tokio::{spawn, time::sleep};
 
@@ -505,6 +507,51 @@ mod tests {
 
             // The task succeeded.
             insert_token_task.await.unwrap();
+        }
+
+        #[async_test]
+        async fn test_get_latest_token() {
+            let client = logged_in_client(None).await;
+            let room_id = room_id!("!galette:saucisse.bzh");
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+            let event_cache = client.event_cache();
+
+            event_cache.subscribe().unwrap();
+
+            let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
+
+            let old_token = "old".to_owned();
+            let new_token = "new".to_owned();
+
+            // Assuming a room event cache that contains both an old and a new pagination
+            // token, and events in between,
+            room_event_cache
+                .inner
+                .state
+                .write()
+                .await
+                .with_events_mut(|events| {
+                    let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+                    // This simulates a valid representation of a room: first group of gap+events
+                    // were e.g. restored from the cache; second group of gap+events was received
+                    // from a subsequent sync.
+                    events.push_gap(Gap { prev_token: old_token });
+                    events.push_events([f.text_msg("oldest from cache").into()]);
+
+                    events.push_gap(Gap { prev_token: new_token.clone() });
+                    events.push_events([f.text_msg("sync'd gappy timeline").into()]);
+                })
+                .await
+                .unwrap();
+
+            let pagination = room_event_cache.pagination();
+
+            // Retrieving the pagination token will return the most recent one, not the old
+            // one.
+            let found = pagination.get_or_wait_for_token(None).await;
+            assert_eq!(found, Some(new_token));
         }
     }
 }
