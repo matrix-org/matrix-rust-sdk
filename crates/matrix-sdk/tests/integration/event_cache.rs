@@ -60,7 +60,7 @@ async fn test_must_explicitly_subscribe() {
 }
 
 #[async_test]
-async fn test_add_initial_events() {
+async fn test_event_cache_receives_events() {
     let (client, server) = logged_in_client_with_server().await;
 
     // Immediately subscribe the event cache to sync updates.
@@ -115,32 +115,6 @@ async fn test_add_initial_events() {
     assert_let!(RoomEventCacheUpdate::AddTimelineEvents { events, .. } = update);
     assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "bonjour monde");
-
-    // And when I later add initial events to this room,
-
-    // XXX: when we get rid of `add_initial_events`, we can keep this test as a
-    // smoke test for the event cache.
-    client
-        .event_cache()
-        .add_initial_events(room_id, vec![ev_factory.text_msg("new choice!").into_sync()], None)
-        .await
-        .unwrap();
-
-    // Then I receive an update that the room has been cleared,
-    let update = timeout(Duration::from_secs(2), subscriber.recv())
-        .await
-        .expect("timeout after receiving a sync update")
-        .expect("should've received a room event cache update");
-    assert_let!(RoomEventCacheUpdate::Clear = update);
-
-    // Before receiving the "initial" event.
-    let update = timeout(Duration::from_secs(2), subscriber.recv())
-        .await
-        .expect("timeout after receiving a sync update")
-        .expect("should've received a room event cache update");
-    assert_let!(RoomEventCacheUpdate::AddTimelineEvents { events, .. } = update);
-    assert_eq!(events.len(), 1);
-    assert_event_matches_msg(&events[0], "new choice!");
 
     // That's all, folks!
     assert!(subscriber.is_empty());
