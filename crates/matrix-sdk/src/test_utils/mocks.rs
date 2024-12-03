@@ -24,8 +24,8 @@ use std::{
 
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
-    async_test, test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder,
-    LeftRoomBuilder, SyncResponseBuilder,
+    test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
+    SyncResponseBuilder,
 };
 use ruma::{
     directory::PublicRoomsChunk,
