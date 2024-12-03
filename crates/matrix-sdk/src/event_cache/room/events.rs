@@ -18,10 +18,10 @@ use eyeball_im::VectorDiff;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
 use matrix_sdk_base::{
     event_cache::store::DEFAULT_CHUNK_CAPACITY,
-    linked_chunk::{AsVector, ObservableUpdates},
+    linked_chunk::{AsVector, IterBackward, ObservableUpdates},
 };
 use matrix_sdk_common::linked_chunk::{
-    Chunk, ChunkIdentifier, EmptyChunk, Error, Iter, LinkedChunk, Position,
+    Chunk, ChunkIdentifier, EmptyChunk, Error, LinkedChunk, Position,
 };
 use ruma::OwnedEventId;
 use tracing::{debug, error, warn};
@@ -177,8 +177,18 @@ impl RoomEvents {
     /// Iterate over the chunks, forward.
     ///
     /// The oldest chunk comes first.
-    pub fn chunks(&self) -> Iter<'_, DEFAULT_CHUNK_CAPACITY, Event, Gap> {
+    #[cfg(test)]
+    pub fn chunks(
+        &self,
+    ) -> matrix_sdk_common::linked_chunk::Iter<'_, DEFAULT_CHUNK_CAPACITY, Event, Gap> {
         self.chunks.chunks()
+    }
+
+    /// Iterate over the chunks, backward.
+    ///
+    /// The most recent chunk comes first.
+    pub fn rchunks(&self) -> IterBackward<'_, DEFAULT_CHUNK_CAPACITY, Event, Gap> {
+        self.chunks.rchunks()
     }
 
     /// Iterate over the events, backward.
