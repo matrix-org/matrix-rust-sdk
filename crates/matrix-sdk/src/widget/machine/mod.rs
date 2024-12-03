@@ -214,7 +214,7 @@ impl WidgetMachine {
         let request = match raw_request.deserialize() {
             Ok(r) => r,
             Err(e) => {
-                return vec![Self::send_from_widget_error_response(
+                return vec![Self::send_from_widget_response(
                     raw_request,
                     FromWidgetErrorResponse::from_error(&crate::Error::SerdeJson(e)),
                 )]
@@ -270,14 +270,14 @@ impl WidgetMachine {
                 let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
                     let text =
                         "Received send update delayed event request before capabilities were negotiated";
-                    return vec![Self::send_from_widget_error_response(
+                    return vec![Self::send_from_widget_response(
                         raw_request,
                         FromWidgetErrorResponse::from_string(text),
                     )];
                 };
 
                 if !capabilities.update_delayed_event {
-                    return vec![Self::send_from_widget_error_response(
+                    return vec![Self::send_from_widget_response(
                         raw_request,
                         FromWidgetErrorResponse::from_string(format!(
                             "Not allowed: missing the {UPDATE_DELAYED_EVENT} capability."
@@ -291,7 +291,7 @@ impl WidgetMachine {
                         delay_id: req.delay_id,
                     });
                 request.then(|result, _machine| {
-                    vec![Self::send_from_widget_result_response(
+                    vec![Self::send_from_widget_response(
                         raw_request,
                         // This is mapped to another type because the update_delay_event::Response
                         // does not impl Serialize
@@ -314,7 +314,7 @@ impl WidgetMachine {
     ) -> Option<Action> {
         let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
             let text = "Received read event request before capabilities were negotiated";
-            return Some(Self::send_from_widget_error_response(
+            return Some(Self::send_from_widget_response(
                 raw_request,
                 FromWidgetErrorResponse::from_string(text),
             ));
@@ -324,7 +324,7 @@ impl WidgetMachine {
             ReadEventRequest::ReadMessageLikeEvent { event_type, limit } => {
                 if !capabilities.read.iter().any(|f| f.matches_message_like_event_type(&event_type))
                 {
-                    return Some(Self::send_from_widget_error_response(
+                    return Some(Self::send_from_widget_response(
                         raw_request,
                         FromWidgetErrorResponse::from_string(
                             "Not allowed to read message like event",
@@ -339,24 +339,24 @@ impl WidgetMachine {
                 let (request, action) = self.send_matrix_driver_request(request);
 
                 request.then(|result, machine| {
-                    let response = match (result, &machine.capabilities) {
-                        (Ok(mut events), CapabilitiesState::Negotiated(capabilities)) => {
-                            events.retain(|e| capabilities.raw_event_matches_read_filter(e));
-                            Ok(ReadEventResponse { events })
-                        }
-                        (Ok(_), CapabilitiesState::Unset) => {
-                            Err(FromWidgetErrorResponse::from_string(
-                                "Received read event request before capabilities negotiation",
-                            ))
-                        }
-                        (Ok(_), CapabilitiesState::Negotiating) => {
+                    let response = match &machine.capabilities {
+                        CapabilitiesState::Unset => Err(FromWidgetErrorResponse::from_string(
+                            "Received read event request before capabilities negotiation",
+                        )),
+                        CapabilitiesState::Negotiating => {
                             Err(FromWidgetErrorResponse::from_string(
                                 "Received read event request while capabilities were negotiating",
                             ))
                         }
-                        (Err(e), _) => Err(FromWidgetErrorResponse::from_error(&e)),
+                        CapabilitiesState::Negotiated(capabilities) => result
+                            .map(|mut events| {
+                                events.retain(|e| capabilities.raw_event_matches_read_filter(e));
+                                ReadEventResponse { events }
+                            })
+                            .map_err(|e| FromWidgetErrorResponse::from_error(&e)),
                     };
-                    vec![Self::send_from_widget_result_response(raw_request, response)]
+
+                    vec![Self::send_from_widget_response(raw_request, response)]
                 });
 
                 action
@@ -388,11 +388,11 @@ impl WidgetMachine {
                         let response = result
                             .map(|events| ReadEventResponse { events })
                             .map_err(|e| FromWidgetErrorResponse::from_error(&e));
-                        vec![Self::send_from_widget_result_response(raw_request, response)]
+                        vec![Self::send_from_widget_response(raw_request, response)]
                     });
                     action
                 } else {
-                    Some(Self::send_from_widget_error_response(
+                    Some(Self::send_from_widget_response(
                         raw_request,
                         FromWidgetErrorResponse::from_string("Not allowed to read state event"),
                     ))
@@ -423,7 +423,7 @@ impl WidgetMachine {
         };
 
         if !capabilities.send_delayed_event && request.delay.is_some() {
-            return Some(Self::send_from_widget_error_response(
+            return Some(Self::send_from_widget_response(
                 raw_request,
                 FromWidgetErrorResponse::from_string(format!(
                     "Not allowed: missing the {SEND_DELAYED_EVENT} capability."
@@ -432,7 +432,7 @@ impl WidgetMachine {
         }
 
         if !capabilities.send.iter().any(|filter| filter.matches(&filter_in)) {
-            return Some(Self::send_from_widget_error_response(
+            return Some(Self::send_from_widget_response(
                 raw_request,
                 FromWidgetErrorResponse::from_string("Not allowed to send event"),
             ));
@@ -444,7 +444,7 @@ impl WidgetMachine {
             if let Ok(r) = result.as_mut() {
                 r.set_room_id(machine.room_id.clone());
             }
-            vec![Self::send_from_widget_result_response(
+            vec![Self::send_from_widget_response(
                 raw_request,
                 result.map_err(|e| FromWidgetErrorResponse::from_error(&e)),
             )]
@@ -521,23 +521,6 @@ impl WidgetMachine {
         let serialized = f().expect("error when attaching response to incoming request");
 
         Action::SendToWidget(serialized)
-    }
-
-    fn send_from_widget_error_response(
-        raw_request: Raw<FromWidgetRequest>,
-        error: FromWidgetErrorResponse,
-    ) -> Action {
-        Self::send_from_widget_response(raw_request, error)
-    }
-
-    fn send_from_widget_result_response(
-        raw_request: Raw<FromWidgetRequest>,
-        result: Result<impl Serialize, FromWidgetErrorResponse>,
-    ) -> Action {
-        match result {
-            Ok(res) => Self::send_from_widget_response(raw_request, res),
-            Err(msg) => Self::send_from_widget_error_response(raw_request, msg),
-        }
     }
 
     #[instrument(skip_all, fields(action = T::ACTION))]

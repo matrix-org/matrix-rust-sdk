@@ -15,14 +15,13 @@
 use ruma::{
     api::client::{
         delayed_events::{delayed_message_event, delayed_state_event, update_delayed_event},
-        error::ErrorBody,
+        error::{ErrorBody, StandardErrorBody},
     },
     events::{AnyTimelineEvent, MessageLikeEventType, StateEventType},
     serde::Raw,
     OwnedEventId, OwnedRoomId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 
 use super::{SendEventRequest, UpdateDelayedEventRequest};
 use crate::{widget::StateKeySelector, Error, HttpError};
@@ -54,15 +53,16 @@ impl FromWidgetErrorResponse {
         Self {
             error: FromWidgetError {
                 message: error.to_string(),
-                matrix_api_error: error.as_client_api_error().and_then(
-                    |api_error| match &api_error.body {
-                        ErrorBody::Standard { kind, message } => Some(FromWidgetMatrixErrorBody {
-                            http_status: api_error.status_code.as_u16().into(),
-                            response: json!({"errcode": kind.to_string(), "error": message }),
-                        }),
-                        _ => None,
-                    },
-                ),
+                matrix_api_error: error.as_client_api_error().and_then(|api_error| match api_error
+                    .body
+                    .clone()
+                {
+                    ErrorBody::Standard { kind, message } => Some(FromWidgetMatrixErrorBody {
+                        http_status: api_error.status_code.as_u16().into(),
+                        response: StandardErrorBody { kind, message },
+                    }),
+                    _ => None,
+                }),
             },
         }
     }
@@ -83,7 +83,7 @@ impl FromWidgetErrorResponse {
 }
 
 /// The serializable section of an error response send by the client as a
-/// response to a from widget request.
+/// response to a [`FromWidgetRequest`].
 #[derive(Serialize)]
 struct FromWidgetError {
     /// A unspecified error message text that caused this widget action to fail.
@@ -103,7 +103,7 @@ struct FromWidgetMatrixErrorBody {
     http_status: u32,
     /// The matrix standard error response including the `errorcode` and the
     /// `error` message as defined in the spec: https://spec.matrix.org/v1.12/client-server-api/#standard-error-response
-    response: Value,
+    response: StandardErrorBody,
 }
 
 /// The serializable section of a widget response containing the supported
