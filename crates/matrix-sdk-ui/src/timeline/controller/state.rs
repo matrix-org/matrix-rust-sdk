@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{
+        vec_deque::{Iter, IterMut},
+        HashMap, VecDeque,
+    },
     future::Future,
     num::NonZeroUsize,
     sync::{Arc, RwLock},
@@ -715,7 +718,7 @@ impl TimelineStateTransaction<'_> {
         // Returns its position, in this case.
         fn event_already_exists(
             new_event_id: &EventId,
-            all_remote_events: &VecDeque<EventMeta>,
+            all_remote_events: &AllRemoteEvents,
         ) -> Option<usize> {
             all_remote_events.iter().position(|EventMeta { event_id, .. }| event_id == new_event_id)
         }
@@ -924,7 +927,7 @@ pub(in crate::timeline) struct TimelineMetadata {
     ///
     /// This is useful to get this for the moment as it helps the `Timeline` to
     /// compute read receipts and read markers.
-    pub all_remote_events: VecDeque<EventMeta>,
+    pub all_remote_events: AllRemoteEvents,
 
     /// State helping matching reactions to their associated events, and
     /// stashing pending reactions.
@@ -1136,6 +1139,52 @@ impl TimelineMetadata {
                 }
             }
         }
+    }
+}
+
+/// A type for all remote events.
+///
+/// Having this type helps to know exactly which parts of the code and how they
+/// use all remote events. It also helps to give a bit of semantics on top of
+/// them.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct AllRemoteEvents(VecDeque<EventMeta>);
+
+impl AllRemoteEvents {
+    /// Return a front-to-back iterator over all remote events.
+    pub fn iter(&self) -> Iter<'_, EventMeta> {
+        self.0.iter()
+    }
+
+    /// Return a front-to-back iterator over all remote events as mutable
+    /// references.
+    pub fn iter_mut(&mut self) -> IterMut<'_, EventMeta> {
+        self.0.iter_mut()
+    }
+
+    /// Remove all remote events.
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    /// Insert a new remote event at the front of all the others.
+    pub fn push_front(&mut self, event_meta: EventMeta) {
+        self.0.push_front(event_meta)
+    }
+
+    /// Insert a new remote event at the back of all the others.
+    pub fn push_back(&mut self, event_meta: EventMeta) {
+        self.0.push_back(event_meta)
+    }
+
+    /// Remove one remote event at a specific index, and return it if it exists.
+    pub fn remove(&mut self, event_index: usize) -> Option<EventMeta> {
+        self.0.remove(event_index)
+    }
+
+    /// Return a reference to the last remote event if it exists.
+    pub fn back(&self) -> Option<&EventMeta> {
+        self.0.back()
     }
 }
 
