@@ -52,7 +52,7 @@ use tracing::{
 };
 
 pub(super) use self::state::{
-    EventMeta, FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata,
+    AllRemoteEvents, FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata,
     TimelineNewItemPosition, TimelineState, TimelineStateTransaction,
 };
 use super::{
