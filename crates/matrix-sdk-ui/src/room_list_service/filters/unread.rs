@@ -50,19 +50,17 @@ pub fn new_filter() -> impl Filter {
 mod tests {
     use std::ops::Not;
 
+    use matrix_sdk::test_utils::logged_in_client_with_server;
     use matrix_sdk_base::read_receipts::RoomReadReceipts;
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
-    use super::{
-        super::{client_and_server_prelude, new_rooms},
-        *,
-    };
+    use super::{super::new_rooms, *};
 
     #[async_test]
     async fn test_has_unread_notifications() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
-        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
+        let (client, server) = logged_in_client_with_server().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         for is_marked_as_unread in [true, false] {
             let matcher = UnreadRoomMatcher {
@@ -81,8 +79,8 @@ mod tests {
 
     #[async_test]
     async fn test_has_unread_messages_but_no_unread_notifications_and_is_not_marked_as_unread() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
-        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
+        let (client, server) = logged_in_client_with_server().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let matcher = UnreadRoomMatcher {
             read_receipts_and_unread: |_| {
@@ -99,8 +97,8 @@ mod tests {
 
     #[async_test]
     async fn test_has_unread_messages_but_no_unread_notifications_and_is_marked_as_unread() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
-        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
+        let (client, server) = logged_in_client_with_server().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let matcher = UnreadRoomMatcher {
             read_receipts_and_unread: |_| {
@@ -117,8 +115,8 @@ mod tests {
 
     #[async_test]
     async fn test_has_no_unread_notifications_and_is_not_marked_as_unread() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
-        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
+        let (client, server) = logged_in_client_with_server().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let matcher = UnreadRoomMatcher {
             read_receipts_and_unread: |_| (RoomReadReceipts::default(), false),
@@ -129,8 +127,8 @@ mod tests {
 
     #[async_test]
     async fn test_has_no_unread_notifications_and_is_marked_as_unread() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
-        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
+        let (client, server) = logged_in_client_with_server().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let matcher =
             UnreadRoomMatcher { read_receipts_and_unread: |_| (RoomReadReceipts::default(), true) };
