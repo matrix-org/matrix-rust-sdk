@@ -454,6 +454,7 @@ impl TimelineStateTransaction<'_> {
 
         let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
         {
+            // Classical path: the event is valid, can be deserialized, everything is alright.
             Ok(event) => {
                 let event_id = event.event_id().to_owned();
                 let room_version = room_data_provider.room_version();
@@ -513,7 +514,10 @@ impl TimelineStateTransaction<'_> {
                 )
             }
 
+            // The event seems invalid…
             Err(e) => match raw.deserialize_as::<SyncTimelineEventWithoutContent>() {
+                // The event can be partially deserialized, and it is allowed to be added to the
+                // timeline.
                 Ok(event) if settings.add_failed_to_parse => (
                     event.event_id().to_owned(),
                     event.sender().to_owned(),
@@ -523,6 +527,8 @@ impl TimelineStateTransaction<'_> {
                     true,
                 ),
 
+                // The event can be partially deserialized, but it is NOT allowed to be added to
+                // the timeline.
                 Ok(event) => {
                     let event_type = event.event_type();
                     let event_id = event.event_id();
@@ -536,24 +542,30 @@ impl TimelineStateTransaction<'_> {
                         timestamp: Some(event.origin_server_ts()),
                         visible: false,
                     };
-                    let _event_added_or_updated = self
-                        .add_or_update_remote_event(
-                            event_meta,
-                            position,
-                            room_data_provider,
-                            settings,
-                        )
-                        .await;
+
+                    // Remember the event before returning prematurely.
+                    self.add_or_update_remote_event(
+                        event_meta,
+                        position,
+                        room_data_provider,
+                        settings,
+                    )
+                    .await;
 
                     return HandleEventResult::default();
                 }
 
+                // The event can NOT be partially deserialized, it seems really broken.
                 Err(e) => {
                     let event_type: Option<String> = raw.get_field("type").ok().flatten();
                     let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
-                    warn!(event_type, event_id, "Failed to deserialize timeline event: {e}");
+                    warn!(
+                        event_type,
+                        event_id, "Failed to deserialize timeline event even without content: {e}"
+                    );
 
                     let event_id = event_id.and_then(|s| EventId::parse(s).ok());
+
                     if let Some(event_id) = &event_id {
                         let sender: Option<OwnedUserId> = raw.get_field("sender").ok().flatten();
                         let is_own_event =
@@ -568,14 +580,15 @@ impl TimelineStateTransaction<'_> {
                             timestamp,
                             visible: false,
                         };
-                        let _event_added_or_updated = self
-                            .add_or_update_remote_event(
-                                event_meta,
-                                position,
-                                room_data_provider,
-                                settings,
-                            )
-                            .await;
+
+                        // Remember the event before returning prematurely.
+                        self.add_or_update_remote_event(
+                            event_meta,
+                            position,
+                            room_data_provider,
+                            settings,
+                        )
+                        .await;
                     }
 
                     return HandleEventResult::default();
@@ -593,15 +606,8 @@ impl TimelineStateTransaction<'_> {
             visible: should_add,
         };
 
-        let event_added_or_updated = self
-            .add_or_update_remote_event(event_meta, position, room_data_provider, settings)
-            .await;
-
-        // If the event has not been added or updated, it's because it's a duplicated
-        // event. Let's return early.
-        if !event_added_or_updated {
-            return HandleEventResult::default();
-        }
+        // Remember the event.
+        self.add_or_update_remote_event(event_meta, position, room_data_provider, settings).await;
 
         let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
         let ctx = TimelineEventContext {
@@ -629,6 +635,7 @@ impl TimelineStateTransaction<'_> {
             should_add_new_items: should_add,
         };
 
+        // Handle the event to create or update a timeline item.
         TimelineEventHandler::new(self, ctx).handle_event(day_divider_adjuster, event_kind).await
     }
 
@@ -693,17 +700,13 @@ impl TimelineStateTransaction<'_> {
     /// [`TimelineMetadata::all_remote_events`] collection.
     ///
     /// This method also adjusts read receipt if needed.
-    ///
-    /// It returns `true` if the event has been added or updated, `false`
-    /// otherwise. The latter happens if the event already exists, i.e. if
-    /// an existing event is requested to be added.
     async fn add_or_update_remote_event<P: RoomDataProvider>(
         &mut self,
         event_meta: FullEventMeta<'_>,
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineSettings,
-    ) -> bool {
+    ) {
         // Detect if an event already exists in [`TimelineMetadata::all_remote_events`].
         //
         // Returns its position, in this case.
@@ -765,8 +768,6 @@ impl TimelineStateTransaction<'_> {
 
             self.maybe_add_implicit_read_receipt(event_meta);
         }
-
-        true
     }
 
     fn adjust_day_dividers(&mut self, mut adjuster: DayDividerAdjuster) {
