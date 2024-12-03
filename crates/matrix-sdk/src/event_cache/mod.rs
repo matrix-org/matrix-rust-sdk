@@ -312,6 +312,11 @@ impl EventCache {
         events: Vec<SyncTimelineEvent>,
         prev_batch: Option<String>,
     ) -> Result<()> {
+        // If the event cache's storage has been enabled, do nothing.
+        if self.inner.store.get().is_some() {
+            return Ok(());
+        }
+
         let room_cache = self.inner.for_room(room_id).await?;
 
         // We could have received events during a previous sync; remove them all, since
