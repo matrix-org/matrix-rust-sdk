@@ -300,31 +300,6 @@ impl EventCache {
 
         Ok((room, drop_handles))
     }
-
-    /// Add an initial set of events to the event cache, reloaded from a cache.
-    ///
-    /// TODO: temporary for API compat, as the event cache should take care of
-    /// its own store.
-    #[instrument(skip(self, events))]
-    pub async fn add_initial_events(
-        &self,
-        room_id: &RoomId,
-        events: Vec<SyncTimelineEvent>,
-        prev_batch: Option<String>,
-    ) -> Result<()> {
-        let room_cache = self.inner.for_room(room_id).await?;
-
-        // We could have received events during a previous sync; remove them all, since
-        // we can't know where to insert the "initial events" with respect to
-        // them.
-
-        room_cache
-            .inner
-            .replace_all_events_by(events, prev_batch, Default::default(), Default::default())
-            .await?;
-
-        Ok(())
-    }
 }
 
 type AllEventsMap = BTreeMap<OwnedEventId, (OwnedRoomId, SyncTimelineEvent)>;
@@ -382,6 +357,11 @@ impl EventCacheInner {
         self.client.get().ok_or(EventCacheError::ClientDropped)
     }
 
+    /// Has persistent storage been enabled for the event cache?
+    fn has_storage(&self) -> bool {
+        self.store.get().is_some()
+    }
+
     /// Clears all the room's data.
     async fn clear_all_rooms(&self) -> Result<()> {
         // Note: one must NOT clear the `by_room` map, because if something subscribed
@@ -414,7 +394,9 @@ impl EventCacheInner {
         for (room_id, left_room_update) in updates.leave {
             let room = self.for_room(&room_id).await?;
 
-            if let Err(err) = room.inner.handle_left_room_update(left_room_update).await {
+            if let Err(err) =
+                room.inner.handle_left_room_update(self.has_storage(), left_room_update).await
+            {
                 // Non-fatal error, try to continue to the next room.
                 error!("handling left room update: {err}");
             }
@@ -424,7 +406,9 @@ impl EventCacheInner {
         for (room_id, joined_room_update) in updates.join {
             let room = self.for_room(&room_id).await?;
 
-            if let Err(err) = room.inner.handle_joined_room_update(joined_room_update).await {
+            if let Err(err) =
+                room.inner.handle_joined_room_update(self.has_storage(), joined_room_update).await
+            {
                 // Non-fatal error, try to continue to the next room.
                 error!("handling joined room update: {err}");
             }
@@ -599,7 +583,10 @@ mod tests {
 
         room_event_cache
             .inner
-            .handle_joined_room_update(JoinedRoomUpdate { account_data, ..Default::default() })
+            .handle_joined_room_update(
+                event_cache.inner.has_storage(),
+                JoinedRoomUpdate { account_data, ..Default::default() },
+            )
             .await
             .unwrap();
 

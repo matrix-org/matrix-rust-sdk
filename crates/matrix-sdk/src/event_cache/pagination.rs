@@ -245,8 +245,8 @@ impl RoomPagination {
     /// Otherwise, it will immediately skip.
     #[doc(hidden)]
     pub async fn get_or_wait_for_token(&self, wait_time: Option<Duration>) -> Option<String> {
-        fn get_oldest(events: &RoomEvents) -> Option<String> {
-            events.chunks().find_map(|chunk| match chunk.content() {
+        fn get_latest(events: &RoomEvents) -> Option<String> {
+            events.rchunks().find_map(|chunk| match chunk.content() {
                 ChunkContent::Gap(gap) => Some(gap.prev_token.clone()),
                 ChunkContent::Items(..) => None,
             })
@@ -256,7 +256,7 @@ impl RoomPagination {
             // Scope for the lock guard.
             let state = self.inner.state.read().await;
             // Fast-path: we do have a previous-batch token already.
-            if let Some(found) = get_oldest(state.events()) {
+            if let Some(found) = get_latest(state.events()) {
                 return Some(found);
             }
             // If we've already waited for an initial previous-batch token before,
@@ -275,7 +275,7 @@ impl RoomPagination {
         let _ = timeout(wait_time, self.inner.pagination_batch_token_notifier.notified()).await;
 
         let mut state = self.inner.state.write().await;
-        let token = get_oldest(state.events());
+        let token = get_latest(state.events());
         state.waited_for_initial_prev_token = true;
         token
     }

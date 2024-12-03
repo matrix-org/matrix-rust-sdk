@@ -279,16 +279,6 @@ async fn timeline_test_helper(
         anyhow::anyhow!("Room {room_id} not found in client. Can't provide a timeline for it")
     })?;
 
-    // TODO: when the event cache handles its own cache, we can remove this.
-    client
-        .event_cache()
-        .add_initial_events(
-            room_id,
-            sliding_sync_room.timeline_queue().iter().cloned().collect(),
-            sliding_sync_room.prev_batch(),
-        )
-        .await?;
-
     let timeline = Timeline::builder(&sdk_room).track_read_marker_and_receipts().build().await?;
 
     Ok(timeline.subscribe().await)

@@ -152,6 +152,7 @@ impl TimelineBuilder {
         let event_cache = client.event_cache();
 
         // Subscribe the event cache to sync responses, in case we hadn't done it yet.
+        event_cache.enable_storage()?;
         event_cache.subscribe()?;
 
         let (room_event_cache, event_cache_drop) = room.event_cache().await?;

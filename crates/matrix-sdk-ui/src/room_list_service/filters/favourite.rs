@@ -42,18 +42,16 @@ pub fn new_filter() -> impl Filter {
 mod tests {
     use std::ops::Not;
 
+    use matrix_sdk::test_utils::logged_in_client_with_server;
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
-    use super::{
-        super::{client_and_server_prelude, new_rooms},
-        *,
-    };
+    use super::{super::new_rooms, *};
 
     #[async_test]
     async fn test_is_favourite() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
-        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
+        let (client, server) = logged_in_client_with_server().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let matcher = FavouriteRoomMatcher { is_favourite: |_| true };
 
@@ -62,8 +60,8 @@ mod tests {
 
     #[async_test]
     async fn test_is_not_favourite() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
-        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
+        let (client, server) = logged_in_client_with_server().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let matcher = FavouriteRoomMatcher { is_favourite: |_| false };
 
