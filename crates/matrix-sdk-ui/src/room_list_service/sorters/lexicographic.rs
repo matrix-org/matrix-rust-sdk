@@ -37,20 +37,17 @@ pub fn new_sorter(sorters: Vec<BoxedSorterFn>) -> impl Sorter {
 
 #[cfg(test)]
 mod tests {
+    use matrix_sdk::test_utils::logged_in_client_with_server;
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
-    use super::{
-        super::super::filters::{client_and_server_prelude, new_rooms},
-        *,
-    };
+    use super::{super::super::filters::new_rooms, *};
 
     #[async_test]
     async fn test_with_zero_sorter() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let (client, server) = logged_in_client_with_server().await;
         let [room_a, room_b] =
-            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server, &sliding_sync)
-                .await;
+            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
         let or = new_sorter(vec![]);
 
@@ -59,10 +56,9 @@ mod tests {
 
     #[async_test]
     async fn test_with_one_sorter() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let (client, server) = logged_in_client_with_server().await;
         let [room_a, room_b] =
-            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server, &sliding_sync)
-                .await;
+            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
         let sorter_1 = |_: &_, _: &_| Ordering::Less;
         let or = new_sorter(vec![Box::new(sorter_1)]);
@@ -72,10 +68,9 @@ mod tests {
 
     #[async_test]
     async fn test_with_two_sorters() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let (client, server) = logged_in_client_with_server().await;
         let [room_a, room_b] =
-            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server, &sliding_sync)
-                .await;
+            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
         let sorter_1 = |_: &_, _: &_| Ordering::Equal;
         let sorter_2 = |_: &_, _: &_| Ordering::Greater;
@@ -86,10 +81,9 @@ mod tests {
 
     #[async_test]
     async fn test_with_more_sorters() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let (client, server) = logged_in_client_with_server().await;
         let [room_a, room_b] =
-            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server, &sliding_sync)
-                .await;
+            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
         let sorter_1 = |_: &_, _: &_| Ordering::Equal;
         let sorter_2 = |_: &_, _: &_| Ordering::Equal;

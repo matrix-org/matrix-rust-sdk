@@ -79,18 +79,16 @@ pub fn new_filter(expected_category: RoomCategory) -> impl Filter {
 mod tests {
     use std::ops::Not;
 
+    use matrix_sdk::test_utils::logged_in_client_with_server;
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
-    use super::{
-        super::{client_and_server_prelude, new_rooms},
-        *,
-    };
+    use super::{super::new_rooms, *};
 
     #[async_test]
     async fn test_kind_is_group() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
-        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
+        let (client, server) = logged_in_client_with_server().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let matcher = CategoryRoomMatcher { number_of_direct_targets: |_| Some(42) };
 
@@ -111,8 +109,8 @@ mod tests {
 
     #[async_test]
     async fn test_kind_is_people() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
-        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
+        let (client, server) = logged_in_client_with_server().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let matcher = CategoryRoomMatcher { number_of_direct_targets: |_| Some(1) };
 
@@ -133,8 +131,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_kind_cannot_be_found() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
-        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server, &sliding_sync).await;
+        let (client, server) = logged_in_client_with_server().await;
+        let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let matcher = CategoryRoomMatcher { number_of_direct_targets: |_| None };
 
