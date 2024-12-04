@@ -279,11 +279,11 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
 
     /// Call the given closure for every element in this `ObservableItems`,
     /// with an entry struct that allows updating that element.
-    pub fn for_each<F>(&mut self, f: F)
+    pub fn for_each<F>(&mut self, mut f: F)
     where
-        F: FnMut(ObservableVectorTransactionEntry<'_, 'observable_items, Arc<TimelineItem>>),
+        F: FnMut(ObservableItemsTransactionEntry<'_, 'observable_items>),
     {
-        self.items.for_each(f)
+        self.items.for_each(|entry| f(ObservableItemsTransactionEntry(entry)))
     }
 
     /// Commit this transaction, persisting the changes and notifying
@@ -299,6 +299,37 @@ impl Deref for ObservableItemsTransaction<'_> {
 
     fn deref(&self) -> &Self::Target {
         &self.items
+    }
+}
+
+/// A handle to a single timeline item in an `ObservableItemsTransaction`.
+pub struct ObservableItemsTransactionEntry<'a, 'observable_items>(
+    ObservableVectorTransactionEntry<'a, 'observable_items, Arc<TimelineItem>>,
+);
+
+impl<'a, 'o> ObservableItemsTransactionEntry<'a, 'o> {
+    /// Replace the timeline item by `timeline_item`.
+    pub fn replace(this: &mut Self, timeline_item: Arc<TimelineItem>) -> Arc<TimelineItem> {
+        ObservableVectorTransactionEntry::set(&mut this.0, timeline_item)
+    }
+
+    /// Remove this timeline item.
+    ///
+    /// # Safety
+    ///
+    /// This method doesn't update `AllRemoteEvents`. Be sure that the caller
+    /// doesn't break the mapping between remote events and timeline items. See
+    /// [`EventMeta::timeline_item_index`] to learn more.
+    pub unsafe fn remove(this: Self) {
+        ObservableVectorTransactionEntry::remove(this.0);
+    }
+}
+
+impl Deref for ObservableItemsTransactionEntry<'_, '_> {
+    type Target = Arc<TimelineItem>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

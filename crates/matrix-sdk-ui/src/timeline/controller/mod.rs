@@ -54,7 +54,10 @@ use tracing::{
 #[cfg(test)]
 pub(super) use self::observable_items::ObservableItems;
 pub(super) use self::{
-    observable_items::{AllRemoteEvents, ObservableItemsEntry, ObservableItemsTransaction},
+    observable_items::{
+        AllRemoteEvents, ObservableItemsEntry, ObservableItemsTransaction,
+        ObservableItemsTransactionEntry,
+    },
     state::{
         FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata, TimelineNewItemPosition,
         TimelineState, TimelineStateTransaction,
