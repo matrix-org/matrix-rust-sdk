@@ -139,6 +139,7 @@ impl ObservableItemsEntries<'_> {
 }
 
 /// A handle to a single timeline item in an `ObservableItems`.
+#[derive(Debug)]
 pub struct ObservableItemsEntry<'a>(ObservableVectorEntry<'a, Arc<TimelineItem>>);
 
 impl ObservableItemsEntry<'_> {
@@ -333,6 +334,740 @@ impl Deref for ObservableItemsTransactionEntry<'_, '_> {
     }
 }
 
+#[cfg(test)]
+mod observable_items_tests {
+    use std::ops::Not;
+
+    use assert_matches::assert_matches;
+    use eyeball_im::VectorDiff;
+    use ruma::{
+        events::room::message::{MessageType, TextMessageEventContent},
+        owned_user_id, MilliSecondsSinceUnixEpoch,
+    };
+    use stream_assert::assert_next_matches;
+
+    use super::*;
+    use crate::timeline::{
+        controller::{EventTimelineItemKind, RemoteEventOrigin},
+        event_item::RemoteEventTimelineItem,
+        EventTimelineItem, Message, TimelineDetails, TimelineItemContent, TimelineUniqueId,
+    };
+
+    fn item(event_id: &str) -> Arc<TimelineItem> {
+        TimelineItem::new(
+            EventTimelineItem::new(
+                owned_user_id!("@ivan:mnt.io"),
+                TimelineDetails::Unavailable,
+                MilliSecondsSinceUnixEpoch(0u32.into()),
+                TimelineItemContent::Message(Message {
+                    msgtype: MessageType::Text(TextMessageEventContent::plain("hello")),
+                    in_reply_to: None,
+                    thread_root: None,
+                    edited: false,
+                    mentions: None,
+                }),
+                EventTimelineItemKind::Remote(RemoteEventTimelineItem {
+                    event_id: event_id.parse().unwrap(),
+                    transaction_id: None,
+                    read_receipts: Default::default(),
+                    is_own: false,
+                    is_highlighted: false,
+                    encryption_info: None,
+                    original_json: None,
+                    latest_edit_json: None,
+                    origin: RemoteEventOrigin::Sync,
+                }),
+                Default::default(),
+                false,
+            ),
+            TimelineUniqueId(format!("__id_{event_id}")),
+        )
+    }
+
+    fn read_marker() -> Arc<TimelineItem> {
+        TimelineItem::read_marker()
+    }
+
+    fn event_meta(event_id: &str) -> EventMeta {
+        EventMeta { event_id: event_id.parse().unwrap(), timeline_item_index: None, visible: false }
+    }
+
+    macro_rules! assert_event_id {
+        ( $timeline_item:expr, $event_id:literal $( , $message:expr )? $(,)? ) => {
+            assert_eq!($timeline_item.as_event().unwrap().event_id().unwrap().as_str(), $event_id $( , $message)? );
+        };
+    }
+
+    macro_rules! assert_mapping {
+    ( on $transaction:ident:
+      | event_id | event_index | timeline_item_index |
+      | $( - )+ | $( - )+ | $( - )+ |
+      $(
+        | $event_id:literal | $event_index:literal | $( $timeline_item_index:literal )? |
+      )+
+    ) => {
+        let all_remote_events = $transaction .all_remote_events();
+
+        $(
+            // Remote event exists at this index…
+            assert_matches!(all_remote_events.0.get( $event_index ), Some(EventMeta { event_id, timeline_item_index, .. }) => {
+                // … this is the remote event with the expected event ID
+                assert_eq!(
+                    event_id.as_str(),
+                    $event_id ,
+                    concat!("event #", $event_index, " should have ID ", $event_id)
+                );
+
+
+                // (tiny hack to handle the case where `$timeline_item_index` is absent)
+                #[allow(unused_variables)]
+                let timeline_item_index_is_expected = false;
+                $(
+                    let timeline_item_index_is_expected = true;
+                    let _ = $timeline_item_index;
+                )?
+
+                if timeline_item_index_is_expected.not() {
+                    // … this remote event does NOT map to a timeline item index
+                    assert!(
+                        timeline_item_index.is_none(),
+                        concat!("event #", $event_index, " with ID ", $event_id, " should NOT map to a timeline item index" )
+                    );
+                }
+
+                $(
+                    // … this remote event maps to a timeline item index
+                    assert_eq!(
+                        *timeline_item_index,
+                        Some( $timeline_item_index ),
+                        concat!("event #", $event_index, " with ID ", $event_id, " should map to timeline item #", $timeline_item_index )
+                    );
+
+                    // … this timeline index exists
+                    assert_matches!( $transaction .get( $timeline_item_index ), Some(timeline_item) => {
+                        // … this timelime item has the expected event ID
+                        assert_event_id!(
+                            timeline_item,
+                            $event_id ,
+                            concat!("timeline item #", $timeline_item_index, " should map to event ID ", $event_id )
+                        );
+                    });
+                )?
+            });
+        )*
+    }
+}
+
+    #[test]
+    fn test_is_empty() {
+        let mut items = ObservableItems::new();
+
+        assert!(items.is_empty());
+
+        // Push one event to check if `is_empty` returns false.
+        let mut transaction = items.transaction();
+        transaction.push_back(item("$ev0"), Some(0));
+        transaction.commit();
+
+        assert!(items.is_empty().not());
+    }
+
+    #[test]
+    fn test_subscribe() {
+        let mut items = ObservableItems::new();
+        let mut subscriber = items.subscribe().into_stream();
+
+        // Push one event to check the subscriber is emitting something.
+        let mut transaction = items.transaction();
+        transaction.push_back(item("$ev0"), Some(0));
+        transaction.commit();
+
+        // It does!
+        assert_next_matches!(subscriber, VectorDiff::PushBack { value: event } => {
+            assert_event_id!(event, "$ev0");
+        });
+    }
+
+    #[test]
+    fn test_clone() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+        transaction.push_back(item("$ev0"), Some(0));
+        transaction.push_back(item("$ev1"), Some(1));
+        transaction.commit();
+
+        let events = items.clone();
+        assert_eq!(events.len(), 2);
+        assert_event_id!(events[0], "$ev0");
+        assert_event_id!(events[1], "$ev1");
+    }
+
+    #[test]
+    fn test_replace() {
+        let mut items = ObservableItems::new();
+
+        // Push one event that will be replaced.
+        let mut transaction = items.transaction();
+        transaction.push_back(item("$ev0"), Some(0));
+        transaction.commit();
+
+        // That's time to replace it!
+        items.replace(0, item("$ev1"));
+
+        let events = items.clone();
+        assert_eq!(events.len(), 1);
+        assert_event_id!(events[0], "$ev1");
+    }
+
+    #[test]
+    fn test_entries() {
+        let mut items = ObservableItems::new();
+
+        // Push events to iterate on.
+        let mut transaction = items.transaction();
+        transaction.push_back(item("$ev0"), Some(0));
+        transaction.push_back(item("$ev1"), Some(1));
+        transaction.push_back(item("$ev2"), Some(2));
+        transaction.commit();
+
+        let mut entries = items.entries();
+
+        assert_matches!(entries.next(), Some(entry) => {
+            assert_event_id!(entry, "$ev0");
+        });
+        assert_matches!(entries.next(), Some(entry) => {
+            assert_event_id!(entry, "$ev1");
+        });
+        assert_matches!(entries.next(), Some(entry) => {
+            assert_event_id!(entry, "$ev2");
+        });
+        assert_matches!(entries.next(), None);
+    }
+
+    #[test]
+    fn test_entry_replace() {
+        let mut items = ObservableItems::new();
+
+        // Push events to iterate on.
+        let mut transaction = items.transaction();
+        transaction.push_back(item("$ev0"), Some(0));
+        transaction.commit();
+
+        let mut entries = items.entries();
+
+        // Replace one event by another one.
+        assert_matches!(entries.next(), Some(mut entry) => {
+            assert_event_id!(entry, "$ev0");
+            ObservableItemsEntry::replace(&mut entry, item("$ev1"));
+        });
+        assert_matches!(entries.next(), None);
+
+        // Check the new event.
+        let mut entries = items.entries();
+
+        assert_matches!(entries.next(), Some(entry) => {
+            assert_event_id!(entry, "$ev1");
+        });
+        assert_matches!(entries.next(), None);
+    }
+
+    #[test]
+    fn test_for_each() {
+        let mut items = ObservableItems::new();
+
+        // Push events to iterate on.
+        let mut transaction = items.transaction();
+        transaction.push_back(item("$ev0"), Some(0));
+        transaction.push_back(item("$ev1"), Some(1));
+        transaction.push_back(item("$ev2"), Some(2));
+        transaction.commit();
+
+        let mut nth = 0;
+
+        // Iterate over events.
+        items.for_each(|entry| {
+            match nth {
+                0 => {
+                    assert_event_id!(entry, "$ev0");
+                }
+                1 => {
+                    assert_event_id!(entry, "$ev1");
+                }
+                2 => {
+                    assert_event_id!(entry, "$ev2");
+                }
+                _ => unreachable!(),
+            }
+
+            nth += 1;
+        });
+    }
+
+    #[test]
+    fn test_transaction_commit() {
+        let mut items = ObservableItems::new();
+
+        // Don't commit the transaction.
+        let mut transaction = items.transaction();
+        transaction.push_back(item("$ev0"), Some(0));
+        drop(transaction);
+
+        assert!(items.is_empty());
+
+        // Commit the transaction.
+        let mut transaction = items.transaction();
+        transaction.push_back(item("$ev0"), Some(0));
+        transaction.commit();
+
+        assert!(items.is_empty().not());
+    }
+
+    #[test]
+    fn test_transaction_get() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+        transaction.push_back(item("$ev0"), Some(0));
+
+        assert_matches!(transaction.get(0), Some(event) => {
+            assert_event_id!(event, "$ev0");
+        });
+    }
+
+    #[test]
+    fn test_transaction_replace() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+        transaction.push_back(item("$ev0"), Some(0));
+        transaction.replace(0, item("$ev1"));
+
+        assert_matches!(transaction.get(0), Some(event) => {
+            assert_event_id!(event, "$ev1");
+        });
+    }
+
+    #[test]
+    fn test_transaction_insert() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev0"));
+        transaction.insert(0, item("$ev0"), Some(0));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   | // new
+        }
+
+        // Timeline item without a remote event (for example a read marker).
+        transaction.insert(0, read_marker(), None);
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 1                   | // has shifted
+        }
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev1"));
+        transaction.insert(2, item("$ev1"), Some(1));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 1                   |
+            | "$ev1"   | 1           | 2                   | // new
+        }
+
+        // Remote event without a timeline item (for example a state event).
+        transaction.push_back_remote_event(event_meta("$ev2"));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 1                   |
+            | "$ev1"   | 1           | 2                   |
+            | "$ev2"   | 2           |                     | // new
+        }
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev3"));
+        transaction.insert(3, item("$ev3"), Some(3));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 1                   |
+            | "$ev1"   | 1           | 2                   |
+            | "$ev2"   | 2           |                     |
+            | "$ev3"   | 3           | 3                   | // new
+        }
+
+        // Timeline item with a remote event, but late.
+        // I don't know if this case is possible in reality, but let's be robust.
+        transaction.insert(3, item("$ev2"), Some(2));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 1                   |
+            | "$ev1"   | 1           | 2                   |
+            | "$ev2"   | 2           | 3                   | // updated
+            | "$ev3"   | 3           | 4                   | // has shifted
+        }
+
+        // Let's move the read marker for the fun.
+        transaction.remove(0);
+        transaction.insert(2, read_marker(), None);
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   | // has shifted
+            | "$ev1"   | 1           | 1                   | // has shifted
+            | "$ev2"   | 2           | 3                   |
+            | "$ev3"   | 3           | 4                   |
+        }
+
+        assert_eq!(transaction.len(), 5);
+    }
+
+    #[test]
+    fn test_transaction_push_front() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+
+        // Remote event with its timeline item.
+        transaction.push_front_remote_event(event_meta("$ev0"));
+        transaction.push_front(item("$ev0"), Some(0));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   | // new
+        }
+
+        // Timeline item without a remote event (for example a read marker).
+        transaction.push_front(read_marker(), None);
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 1                   | // has shifted
+        }
+
+        // Remote event with its timeline item.
+        transaction.push_front_remote_event(event_meta("$ev1"));
+        transaction.push_front(item("$ev1"), Some(0));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev1"   | 0           | 0                   | // new
+            | "$ev0"   | 1           | 2                   | // has shifted
+        }
+
+        // Remote event without a timeline item (for example a state event).
+        transaction.push_front_remote_event(event_meta("$ev2"));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev2"   | 0           |                     |
+            | "$ev1"   | 1           | 0                   | // has shifted
+            | "$ev0"   | 2           | 2                   | // has shifted
+        }
+
+        // Remote event with its timeline item.
+        transaction.push_front_remote_event(event_meta("$ev3"));
+        transaction.push_front(item("$ev3"), Some(0));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev3"   | 0           | 0                   | // new
+            | "$ev2"   | 1           |                     |
+            | "$ev1"   | 2           | 1                   | // has shifted
+            | "$ev0"   | 3           | 3                   | // has shifted
+        }
+
+        assert_eq!(transaction.len(), 4);
+    }
+
+    #[test]
+    fn test_transaction_push_back() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev0"));
+        transaction.push_back(item("$ev0"), Some(0));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   | // new
+        }
+
+        // Timeline item without a remote event (for example a read marker).
+        transaction.push_back(read_marker(), None);
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   |
+        }
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev1"));
+        transaction.push_back(item("$ev1"), Some(1));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   |
+            | "$ev1"   | 1           | 2                   | // new
+        }
+
+        // Remote event without a timeline item (for example a state event).
+        transaction.push_back_remote_event(event_meta("$ev2"));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   |
+            | "$ev1"   | 1           | 2                   |
+            | "$ev2"   | 2           |                     | // new
+        }
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev3"));
+        transaction.push_back(item("$ev3"), Some(3));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   |
+            | "$ev1"   | 1           | 2                   |
+            | "$ev2"   | 2           |                     |
+            | "$ev3"   | 3           | 3                   | // new
+        }
+
+        assert_eq!(transaction.len(), 4);
+    }
+
+    #[test]
+    fn test_transaction_remove() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev0"));
+        transaction.push_back(item("$ev0"), Some(0));
+
+        // Timeline item without a remote event (for example a read marker).
+        transaction.push_back(read_marker(), None);
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev1"));
+        transaction.push_back(item("$ev1"), Some(1));
+
+        // Remote event without a timeline item (for example a state event).
+        transaction.push_back_remote_event(event_meta("$ev2"));
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev3"));
+        transaction.push_back(item("$ev3"), Some(3));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   |
+            | "$ev1"   | 1           | 2                   |
+            | "$ev2"   | 2           |                     |
+            | "$ev3"   | 3           | 3                   |
+        }
+
+        // Remove the timeline item that has no event.
+        transaction.remove(1);
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   |
+            | "$ev1"   | 1           | 1                   | // has shifted
+            | "$ev2"   | 2           |                     |
+            | "$ev3"   | 3           | 2                   | // has shifted
+        }
+
+        // Remove an timeline item that has an event.
+        transaction.remove(1);
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   |
+            | "$ev1"   | 1           |                     | // has been removed
+            | "$ev2"   | 2           |                     |
+            | "$ev3"   | 3           | 1                   | // has shifted
+        }
+
+        // Remove the last timeline item to test off by 1 error.
+        transaction.remove(1);
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   |
+            | "$ev1"   | 1           |                     |
+            | "$ev2"   | 2           |                     |
+            | "$ev3"   | 3           |                     | // has been removed
+        }
+
+        // Remove all the items \o/
+        transaction.remove(0);
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           |                     | // has been removed
+            | "$ev1"   | 1           |                     |
+            | "$ev2"   | 2           |                     |
+            | "$ev3"   | 3           |                     |
+        }
+
+        assert!(transaction.is_empty());
+    }
+
+    #[test]
+    fn test_transaction_clear() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev0"));
+        transaction.push_back(item("$ev0"), Some(0));
+
+        // Timeline item without a remote event (for example a read marker).
+        transaction.push_back(read_marker(), None);
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev1"));
+        transaction.push_back(item("$ev1"), Some(1));
+
+        // Remote event without a timeline item (for example a state event).
+        transaction.push_back_remote_event(event_meta("$ev2"));
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev3"));
+        transaction.push_back(item("$ev3"), Some(3));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   |
+            | "$ev1"   | 1           | 2                   |
+            | "$ev2"   | 2           |                     |
+            | "$ev3"   | 3           | 3                   |
+        }
+
+        assert_eq!(transaction.all_remote_events().0.len(), 4);
+        assert_eq!(transaction.len(), 4);
+
+        // Let's clear everything.
+        transaction.clear();
+
+        assert!(transaction.all_remote_events().0.is_empty());
+        assert!(transaction.is_empty());
+    }
+
+    #[test]
+    fn test_transaction_for_each() {
+        let mut items = ObservableItems::new();
+
+        // Push events to iterate on.
+        let mut transaction = items.transaction();
+        transaction.push_back(item("$ev0"), Some(0));
+        transaction.push_back(item("$ev1"), Some(1));
+        transaction.push_back(item("$ev2"), Some(2));
+
+        let mut nth = 0;
+
+        // Iterate over events.
+        transaction.for_each(|entry| {
+            match nth {
+                0 => {
+                    assert_event_id!(entry, "$ev0");
+                }
+                1 => {
+                    assert_event_id!(entry, "$ev1");
+                }
+                2 => {
+                    assert_event_id!(entry, "$ev2");
+                }
+                _ => unreachable!(),
+            }
+
+            nth += 1;
+        });
+    }
+}
+
 /// A type for all remote events.
 ///
 /// Having this type helps to know exactly which parts of the code and how they
@@ -509,12 +1244,14 @@ mod all_remote_events_tests {
     fn test_clear() {
         let mut events = AllRemoteEvents::default();
 
+        // Push some events.
         events.push_back(event_meta("$ev0", None));
         events.push_back(event_meta("$ev1", None));
         events.push_back(event_meta("$ev2", None));
 
         assert_eq!(events.iter().count(), 3);
 
+        // And clear them!
         events.clear();
 
         assert_eq!(events.iter().count(), 0);
