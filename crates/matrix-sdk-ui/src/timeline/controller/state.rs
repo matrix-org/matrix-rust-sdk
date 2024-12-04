@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use std::{
-    cmp::Ordering,
-    collections::{vec_deque::Iter, HashMap, VecDeque},
+    collections::HashMap,
     future::Future,
     num::NonZeroUsize,
     sync::{Arc, RwLock},
@@ -46,7 +45,7 @@ use ruma::{
 use tracing::{debug, instrument, trace, warn};
 
 use super::{
-    observable_items::{ObservableItems, ObservableItemsTransaction},
+    observable_items::{AllRemoteEvents, ObservableItems, ObservableItemsTransaction},
     HandleManyEventsResult, TimelineFocusKind, TimelineSettings,
 };
 use crate::{
@@ -546,7 +545,7 @@ impl TimelineStateTransaction<'_> {
                     };
 
                     // Remember the event before returning prematurely.
-                    // See [`TimelineMetadata::all_remote_events`].
+                    // See [`ObservableItems::all_remote_events`].
                     self.add_or_update_remote_event(
                         event_meta,
                         position,
@@ -585,7 +584,7 @@ impl TimelineStateTransaction<'_> {
                         };
 
                         // Remember the event before returning prematurely.
-                        // See [`TimelineMetadata::all_remote_events`].
+                        // See [`ObservableItems::all_remote_events`].
                         self.add_or_update_remote_event(
                             event_meta,
                             position,
@@ -611,7 +610,7 @@ impl TimelineStateTransaction<'_> {
         };
 
         // Remember the event.
-        // See [`TimelineMetadata::all_remote_events`].
+        // See [`ObservableItems::all_remote_events`].
         self.add_or_update_remote_event(event_meta, position, room_data_provider, settings).await;
 
         let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
@@ -623,7 +622,7 @@ impl TimelineStateTransaction<'_> {
             read_receipts: if settings.track_read_receipts && should_add {
                 self.meta.read_receipts.compute_event_receipts(
                     &event_id,
-                    &self.meta.all_remote_events,
+                    self.items.all_remote_events(),
                     matches!(position, TimelineItemPosition::End { .. }),
                 )
             } else {
@@ -702,7 +701,7 @@ impl TimelineStateTransaction<'_> {
     }
 
     /// Add or update a remote  event in the
-    /// [`TimelineMetadata::all_remote_events`] collection.
+    /// [`ObservableItems::all_remote_events`] collection.
     ///
     /// This method also adjusts read receipt if needed.
     async fn add_or_update_remote_event<P: RoomDataProvider>(
@@ -712,7 +711,7 @@ impl TimelineStateTransaction<'_> {
         room_data_provider: &P,
         settings: &TimelineSettings,
     ) {
-        // Detect if an event already exists in [`TimelineMetadata::all_remote_events`].
+        // Detect if an event already exists in [`ObservableItems::all_remote_events`].
         //
         // Returns its position, in this case.
         fn event_already_exists(
@@ -725,27 +724,27 @@ impl TimelineStateTransaction<'_> {
         match position {
             TimelineItemPosition::Start { .. } => {
                 if let Some(pos) =
-                    event_already_exists(event_meta.event_id, &self.meta.all_remote_events)
+                    event_already_exists(event_meta.event_id, &self.items.all_remote_events())
                 {
-                    self.meta.all_remote_events.remove(pos);
+                    self.items.remove_remote_event(pos);
                 }
 
-                self.meta.all_remote_events.push_front(event_meta.base_meta())
+                self.items.push_front_remote_event(event_meta.base_meta())
             }
 
             TimelineItemPosition::End { .. } => {
                 if let Some(pos) =
-                    event_already_exists(event_meta.event_id, &self.meta.all_remote_events)
+                    event_already_exists(event_meta.event_id, &self.items.all_remote_events())
                 {
-                    self.meta.all_remote_events.remove(pos);
+                    self.items.remove_remote_event(pos);
                 }
 
-                self.meta.all_remote_events.push_back(event_meta.base_meta());
+                self.items.push_back_remote_event(event_meta.base_meta());
             }
 
             TimelineItemPosition::UpdateDecrypted { .. } => {
                 if let Some(event) =
-                    self.meta.all_remote_events.get_by_event_id_mut(event_meta.event_id)
+                    self.items.get_remote_event_by_event_id_mut(event_meta.event_id)
                 {
                     if event.visible != event_meta.visible {
                         event.visible = event_meta.visible;
@@ -918,13 +917,6 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// the device has terabytes of RAM.
     next_internal_id: u64,
 
-    /// List of all the remote events as received in the timeline, even the ones
-    /// that are discarded in the timeline items.
-    ///
-    /// This is useful to get this for the moment as it helps the `Timeline` to
-    /// compute read receipts and read markers.
-    pub all_remote_events: AllRemoteEvents,
-
     /// State helping matching reactions to their associated events, and
     /// stashing pending reactions.
     pub reactions: Reactions,
@@ -967,7 +959,6 @@ impl TimelineMetadata {
     ) -> Self {
         Self {
             own_user_id,
-            all_remote_events: Default::default(),
             next_internal_id: Default::default(),
             reactions: Default::default(),
             pending_poll_events: Default::default(),
@@ -987,7 +978,6 @@ impl TimelineMetadata {
     pub(crate) fn clear(&mut self) {
         // Note: we don't clear the next internal id to avoid bad cases of stale unique
         // ids across timeline clears.
-        self.all_remote_events.clear();
         self.reactions.clear();
         self.pending_poll_events.clear();
         self.pending_edits.clear();
@@ -1008,6 +998,7 @@ impl TimelineMetadata {
         &self,
         event_a: &EventId,
         event_b: &EventId,
+        all_remote_events: &AllRemoteEvents,
     ) -> Option<RelativePosition> {
         if event_a == event_b {
             return Some(RelativePosition::Same);
@@ -1015,11 +1006,11 @@ impl TimelineMetadata {
 
         // We can make early returns here because we know all events since the end of
         // the timeline, so the first event encountered is the oldest one.
-        for meta in self.all_remote_events.iter().rev() {
-            if meta.event_id == event_a {
+        for event_meta in all_remote_events.iter().rev() {
+            if event_meta.event_id == event_a {
                 return Some(RelativePosition::Before);
             }
-            if meta.event_id == event_b {
+            if event_meta.event_id == event_b {
                 return Some(RelativePosition::After);
             }
         }
@@ -1092,8 +1083,7 @@ impl TimelineMetadata {
                 // Only insert the read marker if it is not at the end of the timeline.
                 if idx + 1 < items.len() {
                     let idx = idx + 1;
-                    items.insert(idx, TimelineItem::read_marker());
-                    self.all_remote_events.timeline_item_has_been_inserted_at(idx, None);
+                    items.insert(idx, TimelineItem::read_marker(), None);
                     self.has_up_to_date_read_marker_item = true;
                 } else {
                     // The next event might require a read marker to be inserted at the current
@@ -1114,7 +1104,6 @@ impl TimelineMetadata {
                     if from + 1 == items.len() {
                         // The read marker has nothing after it. An item disappeared; remove it.
                         items.remove(from);
-                        self.all_remote_events.timeline_item_has_been_removed_at(from);
                     }
                     self.has_up_to_date_read_marker_item = true;
                     return;
@@ -1122,158 +1111,17 @@ impl TimelineMetadata {
 
                 let prev_len = items.len();
                 let read_marker = items.remove(from);
-                self.all_remote_events.timeline_item_has_been_removed_at(from);
 
                 // Only insert the read marker if it is not at the end of the timeline.
                 if to + 1 < prev_len {
                     // Since the fully-read event's index was shifted to the left
                     // by one position by the remove call above, insert the fully-
                     // read marker at its previous position, rather than that + 1
-                    items.insert(to, read_marker);
-                    self.all_remote_events.timeline_item_has_been_inserted_at(to, None);
+                    items.insert(to, read_marker, None);
                     self.has_up_to_date_read_marker_item = true;
                 } else {
                     self.has_up_to_date_read_marker_item = false;
                 }
-            }
-        }
-    }
-}
-
-/// A type for all remote events.
-///
-/// Having this type helps to know exactly which parts of the code and how they
-/// use all remote events. It also helps to give a bit of semantics on top of
-/// them.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct AllRemoteEvents(VecDeque<EventMeta>);
-
-impl AllRemoteEvents {
-    /// Return a front-to-back iterator over all remote events.
-    pub fn iter(&self) -> Iter<'_, EventMeta> {
-        self.0.iter()
-    }
-
-    /// Remove all remote events.
-    pub fn clear(&mut self) {
-        self.0.clear();
-    }
-
-    /// Insert a new remote event at the front of all the others.
-    pub fn push_front(&mut self, event_meta: EventMeta) {
-        // If there is an associated `timeline_item_index`, shift all the
-        // `timeline_item_index` that come after this one.
-        if let Some(new_timeline_item_index) = event_meta.timeline_item_index {
-            self.increment_all_timeline_item_index_after(new_timeline_item_index);
-        }
-
-        // Push the event.
-        self.0.push_front(event_meta)
-    }
-
-    /// Insert a new remote event at the back of all the others.
-    pub fn push_back(&mut self, event_meta: EventMeta) {
-        // If there is an associated `timeline_item_index`, shift all the
-        // `timeline_item_index` that come after this one.
-        if let Some(new_timeline_item_index) = event_meta.timeline_item_index {
-            self.increment_all_timeline_item_index_after(new_timeline_item_index);
-        }
-
-        // Push the event.
-        self.0.push_back(event_meta)
-    }
-
-    /// Remove one remote event at a specific index, and return it if it exists.
-    pub fn remove(&mut self, event_index: usize) -> Option<EventMeta> {
-        // Remove the event.
-        let event_meta = self.0.remove(event_index)?;
-
-        // If there is an associated `timeline_item_index`, shift all the
-        // `timeline_item_index` that come after this one.
-        if let Some(removed_timeline_item_index) = event_meta.timeline_item_index {
-            self.decrement_all_timeline_item_index_after(removed_timeline_item_index);
-        };
-
-        Some(event_meta)
-    }
-
-    /// Return a reference to the last remote event if it exists.
-    pub fn last(&self) -> Option<&EventMeta> {
-        self.0.back()
-    }
-
-    /// Return the index of the last remote event if it exists.
-    pub fn last_index(&self) -> Option<usize> {
-        self.0.len().checked_sub(1)
-    }
-
-    /// Get a mutable reference to a specific remote event by its ID.
-    pub fn get_by_event_id_mut(&mut self, event_id: &EventId) -> Option<&mut EventMeta> {
-        self.0.iter_mut().rev().find(|event_meta| event_meta.event_id == event_id)
-    }
-
-    /// Shift to the right all timeline item indexes that are equal to or
-    /// greater than `new_timeline_item_index`.
-    fn increment_all_timeline_item_index_after(&mut self, new_timeline_item_index: usize) {
-        for event_meta in self.0.iter_mut() {
-            if let Some(timeline_item_index) = event_meta.timeline_item_index.as_mut() {
-                if *timeline_item_index >= new_timeline_item_index {
-                    *timeline_item_index += 1;
-                }
-            }
-        }
-    }
-
-    /// Shift to the left all timeline item indexes that are greater than
-    /// `removed_wtimeline_item_index`.
-    fn decrement_all_timeline_item_index_after(&mut self, removed_timeline_item_index: usize) {
-        for event_meta in self.0.iter_mut() {
-            if let Some(timeline_item_index) = event_meta.timeline_item_index.as_mut() {
-                if *timeline_item_index > removed_timeline_item_index {
-                    *timeline_item_index -= 1;
-                }
-            }
-        }
-    }
-
-    pub fn timeline_item_has_been_inserted_at(
-        &mut self,
-        new_timeline_item_index: usize,
-        event_index: Option<usize>,
-    ) {
-        self.increment_all_timeline_item_index_after(new_timeline_item_index);
-
-        if let Some(event_index) = event_index {
-            if let Some(event_meta) = self.0.get_mut(event_index) {
-                event_meta.timeline_item_index = Some(new_timeline_item_index);
-            }
-        }
-    }
-
-    pub fn timeline_item_has_been_removed_at(&mut self, timeline_item_index_to_remove: usize) {
-        for event_meta in self.0.iter_mut() {
-            let mut remove_timeline_item_index = false;
-
-            // A `timeline_item_index` is removed. Let's shift all indexes that come
-            // after the removed one.
-            if let Some(timeline_item_index) = event_meta.timeline_item_index.as_mut() {
-                match (*timeline_item_index).cmp(&timeline_item_index_to_remove) {
-                    Ordering::Equal => {
-                        remove_timeline_item_index = true;
-                    }
-
-                    Ordering::Greater => {
-                        *timeline_item_index -= 1;
-                    }
-
-                    Ordering::Less => {}
-                }
-            }
-
-            // This is the `event_meta` that holds the `timeline_item_index` that is being
-            // removed. So let's clean it.
-            if remove_timeline_item_index {
-                event_meta.timeline_item_index = None;
             }
         }
     }
@@ -1317,9 +1165,9 @@ pub(crate) struct EventMeta {
     /// Foundation for the mapping between remote events to timeline items.
     ///
     /// Let's explain it. The events represent the first set and are stored in
-    /// [`TimelineMetadata::all_remote_events`], and the timeline
+    /// [`ObservableItems::all_remote_events`], and the timeline
     /// items represent the second set and are stored in
-    /// [`TimelineState::items`].
+    /// [`ObservableItems::items`].
     ///
     /// Each event is mapped to at most one timeline item:
     ///

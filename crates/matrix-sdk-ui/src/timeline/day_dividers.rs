@@ -301,11 +301,11 @@ impl DayDividerAdjuster {
 
                     // Keep push semantics, if we're inserting at the front or the back.
                     if at == items.len() {
-                        items.push_back(item);
+                        items.push_back(item, None);
                     } else if at == 0 {
-                        items.push_front(item);
+                        items.push_front(item, None);
                     } else {
-                        items.insert(at, item);
+                        items.insert(at, item, None);
                     }
 
                     offset += 1;
@@ -654,9 +654,12 @@ mod tests {
         let timestamp_next_day =
             MilliSecondsSinceUnixEpoch((42 + 3600 * 24 * 1000).try_into().unwrap());
 
-        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp)));
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp_next_day)));
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker));
+        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp)), None);
+        txn.push_back(
+            meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp_next_day)),
+            None,
+        );
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker), None);
 
         let mut adjuster = DayDividerAdjuster::default();
         adjuster.run(&mut txn, &mut meta);
@@ -690,10 +693,13 @@ mod tests {
         assert_ne!(timestamp_to_date(timestamp), timestamp_to_date(timestamp_next_day));
 
         let event = event_with_ts(timestamp);
-        txn.push_back(meta.new_timeline_item(event.clone()));
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp_next_day)));
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker));
-        txn.push_back(meta.new_timeline_item(event));
+        txn.push_back(meta.new_timeline_item(event.clone()), None);
+        txn.push_back(
+            meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp_next_day)),
+            None,
+        );
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker), None);
+        txn.push_back(meta.new_timeline_item(event), None);
 
         let mut adjuster = DayDividerAdjuster::default();
         adjuster.run(&mut txn, &mut meta);
@@ -721,12 +727,12 @@ mod tests {
             MilliSecondsSinceUnixEpoch((42 + 3600 * 24 * 1000).try_into().unwrap());
         assert_ne!(timestamp_to_date(timestamp), timestamp_to_date(timestamp_next_day));
 
-        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp)));
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)));
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)));
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker));
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)));
-        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp_next_day)));
+        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp)), None);
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)), None);
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)), None);
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker), None);
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)), None);
+        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp_next_day)), None);
 
         let mut adjuster = DayDividerAdjuster::default();
         adjuster.run(&mut txn, &mut meta);
@@ -755,10 +761,10 @@ mod tests {
             MilliSecondsSinceUnixEpoch((42 + 3600 * 24 * 1000).try_into().unwrap());
         assert_ne!(timestamp_to_date(timestamp), timestamp_to_date(timestamp_next_day));
 
-        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp_next_day)));
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)));
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)));
-        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp_next_day)));
+        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp_next_day)), None);
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)), None);
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)), None);
+        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp_next_day)), None);
 
         let mut adjuster = DayDividerAdjuster::default();
         adjuster.run(&mut txn, &mut meta);
@@ -782,9 +788,9 @@ mod tests {
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
 
-        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp)));
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker));
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)));
+        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp)), None);
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker), None);
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)), None);
 
         let mut adjuster = DayDividerAdjuster::default();
         adjuster.run(&mut txn, &mut meta);
@@ -808,9 +814,9 @@ mod tests {
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
 
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker));
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)));
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)));
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker), None);
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)), None);
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::DayDivider(timestamp)), None);
 
         let mut adjuster = DayDividerAdjuster::default();
         adjuster.run(&mut txn, &mut meta);
@@ -831,8 +837,8 @@ mod tests {
         let mut meta = test_metadata();
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
 
-        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker));
-        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp)));
+        txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker), None);
+        txn.push_back(meta.new_timeline_item(event_with_ts(timestamp)), None);
 
         let mut adjuster = DayDividerAdjuster::default();
         adjuster.run(&mut txn, &mut meta);
