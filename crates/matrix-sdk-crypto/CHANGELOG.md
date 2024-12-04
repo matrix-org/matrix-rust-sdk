@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+- Added new `UtdCause` variants `WithheldForUnverifiedOrInsecureDevice` and `WithheldBySender`.
+  These variants provide clearer categorization for expected Unable-To-Decrypt (UTD) errors 
+  when the sender either did not wish to share or was unable to share the room_key.
+  ([#4305](https://github.com/matrix-org/matrix-rust-sdk/pull/4305))
+
 ## [0.8.0] - 2024-11-19
 
 ### Features
