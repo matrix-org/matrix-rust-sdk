@@ -1199,7 +1199,11 @@ pub(crate) struct FullEventMeta<'a> {
 
 impl FullEventMeta<'_> {
     fn base_meta(&self) -> EventMeta {
-        EventMeta { event_id: self.event_id.to_owned(), visible: self.visible }
+        EventMeta {
+            event_id: self.event_id.to_owned(),
+            visible: self.visible,
+            timeline_item_index: None,
+        }
     }
 }
 
@@ -1208,6 +1212,70 @@ impl FullEventMeta<'_> {
 pub(crate) struct EventMeta {
     /// The ID of the event.
     pub event_id: OwnedEventId,
+
     /// Whether the event is among the timeline items.
     pub visible: bool,
+
+    /// Foundation for the mapping between remote events to timeline items.
+    ///
+    /// Let's explain it. The events represent the first set and are stored in
+    /// [`TimelineMetadata::all_remote_events`], and the timeline
+    /// items represent the second set and are stored in
+    /// [`TimelineState::items`].
+    ///
+    /// Each event is mapped to at most one timeline item:
+    ///
+    /// - `None` if the event isn't rendered in the timeline (e.g. some state
+    ///   events, or malformed events) or is rendered as a timeline item that
+    ///   attaches to or groups with another item, like reactions,
+    /// - `Some(_)` if the event is rendered in the timeline.
+    ///
+    /// This is neither a surjection nor an injection. Every timeline item may
+    /// not be attached to an event, for example with a virtual timeline item.
+    /// We can formulate other rules:
+    ///
+    /// - a timeline item that doesn't _move_ and that is represented by an
+    ///   event has a mapping to an event,
+    /// - a virtual timeline item has no mapping to an event.
+    ///
+    /// Imagine the following remote events:
+    ///
+    /// | index | remote events |
+    /// +-------+---------------+
+    /// | 0     | `$ev0`        |
+    /// | 1     | `$ev1`        |
+    /// | 2     | `$ev2`        |
+    /// | 3     | `$ev3`        |
+    /// | 4     | `$ev4`        |
+    /// | 5     | `$ev5`        |
+    ///
+    /// Once rendered in a timeline, it for example produces:
+    ///
+    /// | index | item              | aside items          |
+    /// +-------+-------------------+----------------------+
+    /// | 0     | content of `$ev0` |                      |
+    /// | 1     | content of `$ev2` | reaction with `$ev4` |
+    /// | 2     | day divider       |                      |
+    /// | 3     | content of `$ev3` |                      |
+    /// | 4     | content of `$ev5` |                      |
+    ///
+    /// Note the day divider that is a virtual item. Also note ``$ev4`` which is
+    /// a reaction to `$ev2`. Finally note that `$ev1` is not rendered in
+    /// the timeline.
+    ///
+    /// The mapping between remove event index to timeline item index will look
+    /// like this:
+    ///
+    /// | remove event index | timeline item index | comment                                    |
+    /// +--------------------+---------------------+--------------------------------------------+
+    /// | 0                  | `Some(0)`           | `$ev0` is rendered as the #0 timeline item |
+    /// | 1                  | `None`              | `$ev1` isn't rendered in the timeline      |
+    /// | 2                  | `Some(1)`           | `$ev2` is rendered as the #1 timeline item |
+    /// | 3                  | `Some(3)`           | `$ev3` is rendered as the #3 timeline item |
+    /// | 4                  | `None`              | `$ev4` is a reaction to item #1            |
+    /// | 5                  | `Some(4)`           | `$ev5` is rendered as the #4 timeline item |
+    ///
+    /// Note that the #2 timeline item (the day divider) doesn't map to any
+    /// remote event, but if it moves, it has an impact on this mapping.
+    pub timeline_item_index: Option<usize>,
 }
