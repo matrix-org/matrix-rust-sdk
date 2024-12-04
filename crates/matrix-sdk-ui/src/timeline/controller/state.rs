@@ -731,7 +731,7 @@ impl TimelineStateTransaction<'_> {
         match position {
             TimelineItemPosition::Start { .. } => {
                 if let Some(pos) =
-                    event_already_exists(event_meta.event_id, &self.items.all_remote_events())
+                    event_already_exists(event_meta.event_id, self.items.all_remote_events())
                 {
                     self.items.remove_remote_event(pos);
                 }
@@ -741,7 +741,7 @@ impl TimelineStateTransaction<'_> {
 
             TimelineItemPosition::End { .. } => {
                 if let Some(pos) =
-                    event_already_exists(event_meta.event_id, &self.items.all_remote_events())
+                    event_already_exists(event_meta.event_id, self.items.all_remote_events())
                 {
                     self.items.remove_remote_event(pos);
                 }

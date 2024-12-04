@@ -485,7 +485,7 @@ impl TimelineStateTransaction<'_> {
 
         let read_receipts = self.meta.read_receipts.compute_event_receipts(
             &remote_prev_event_item.event_id,
-            &self.items.all_remote_events(),
+            self.items.all_remote_events(),
             false,
         );
 
