@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use eyeball_im::{ObservableVectorTransaction, ObservableVectorTransactionEntry};
+use eyeball_im::ObservableVectorTransactionEntry;
 use indexmap::IndexMap;
 use matrix_sdk::{
     crypto::types::events::UtdCause,
@@ -51,7 +51,9 @@ use ruma::{
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
-    controller::{PendingEditKind, TimelineMetadata, TimelineStateTransaction},
+    controller::{
+        ObservableItemsTransaction, PendingEditKind, TimelineMetadata, TimelineStateTransaction,
+    },
     day_dividers::DayDividerAdjuster,
     event_item::{
         extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
@@ -330,7 +332,7 @@ pub(super) struct HandleEventResult {
 /// existing timeline item, transforming that item or creating a new one,
 /// updating the reactive Vec).
 pub(super) struct TimelineEventHandler<'a, 'o> {
-    items: &'a mut ObservableVectorTransaction<'o, Arc<TimelineItem>>,
+    items: &'a mut ObservableItemsTransaction<'o>,
     meta: &'a mut TimelineMetadata,
     ctx: TimelineEventContext,
     result: HandleEventResult,
@@ -1243,7 +1245,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// After updating the timeline item `new_item` which id is
     /// `target_event_id`, update other items that are responses to this item.
     fn maybe_update_responses(
-        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
+        items: &mut ObservableItemsTransaction<'_>,
         target_event_id: &EventId,
         new_item: &EventTimelineItem,
     ) {

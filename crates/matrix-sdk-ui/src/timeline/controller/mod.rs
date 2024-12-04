@@ -51,9 +51,14 @@ use tracing::{
     debug, error, field, field::debug, info, info_span, instrument, trace, warn, Instrument as _,
 };
 
-pub(super) use self::state::{
-    AllRemoteEvents, FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata,
-    TimelineNewItemPosition, TimelineState, TimelineStateTransaction,
+#[cfg(test)]
+pub(super) use self::observable_items::ObservableItems;
+pub(super) use self::{
+    observable_items::ObservableItemsTransaction,
+    state::{
+        AllRemoteEvents, FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata,
+        TimelineNewItemPosition, TimelineState, TimelineStateTransaction,
+    },
 };
 use super::{
     event_handler::TimelineEventKind,
@@ -77,6 +82,7 @@ use crate::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 
+mod observable_items;
 mod state;
 
 /// Data associated to the current timeline focus.
