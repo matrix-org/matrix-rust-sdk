@@ -28,6 +28,9 @@ use ruma::EventId;
 
 use super::{state::EventMeta, TimelineItem};
 
+/// An `ObservableItems` is a type similar to
+/// [`ObservableVector<Arc<TimelineItem>>`] except the API is limited and,
+/// internally, maintains the mapping between remote events and timeline items.
 #[derive(Debug)]
 pub struct ObservableItems {
     /// All timeline items.
@@ -45,6 +48,7 @@ pub struct ObservableItems {
 }
 
 impl ObservableItems {
+    /// Create an empty `ObservableItems`.
     pub fn new() -> Self {
         Self {
             // Upstream default capacity is currently 16, which is making
@@ -55,22 +59,29 @@ impl ObservableItems {
         }
     }
 
+    /// Get a reference to all remote events.
     pub fn all_remote_events(&self) -> &AllRemoteEvents {
         &self.all_remote_events
     }
 
+    /// Check whether there is timeline items.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
+    /// Subscribe to timeline item updates.
     pub fn subscribe(&self) -> VectorSubscriber<Arc<TimelineItem>> {
         self.items.subscribe()
     }
 
+    /// Get a clone of all timeline items.
+    ///
+    /// Note that it doesn't clone `Self`, only the inner timeline items.
     pub fn clone(&self) -> Vector<Arc<TimelineItem>> {
         self.items.clone()
     }
 
+    /// Start a new transaction to make multiple updates as one unit.
     pub fn transaction(&mut self) -> ObservableItemsTransaction<'_> {
         ObservableItemsTransaction {
             items: self.items.transaction(),
@@ -78,6 +89,12 @@ impl ObservableItems {
         }
     }
 
+    /// Replace the timeline item at position `timeline_item_index` by
+    /// `timeline_item`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `timeline_item_index > total_number_of_timeline_items`.
     pub fn set(
         &mut self,
         timeline_item_index: usize,
@@ -86,10 +103,13 @@ impl ObservableItems {
         self.items.set(timeline_item_index, timeline_item)
     }
 
+    /// Get an iterator over all the entries in this `ObservableItems`.
     pub fn entries(&mut self) -> ObservableVectorEntries<'_, Arc<TimelineItem>> {
         self.items.entries()
     }
 
+    /// Call the given closure for every element in this `ObservableItems`,
+    /// with an entry struct that allows updating or removing that element.
     pub fn for_each<F>(&mut self, f: F)
     where
         F: FnMut(ObservableVectorEntry<'_, Arc<TimelineItem>>),
