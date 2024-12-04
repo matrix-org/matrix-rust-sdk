@@ -788,7 +788,7 @@ impl TimelineStateTransaction<'_> {
 
                 // Replace the existing item with a new version with the right encryption flag
                 let item = item.with_kind(cloned_event);
-                self.items.set(idx, item);
+                self.items.replace(idx, item);
             }
         }
     }

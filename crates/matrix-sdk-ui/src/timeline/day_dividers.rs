@@ -330,7 +330,7 @@ impl DayDividerAdjuster {
                         unique_id.to_owned(),
                     );
 
-                    items.set(at, item);
+                    items.replace(at, item);
                     max_i = i;
                 }
 

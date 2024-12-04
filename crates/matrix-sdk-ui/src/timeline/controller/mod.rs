@@ -597,7 +597,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
                 if reaction_info.is_some() {
                     let new_item = item.with_reactions(reactions);
-                    state.items.set(item_pos, new_item);
+                    state.items.replace(item_pos, new_item);
                 } else {
                     warn!("reaction is missing on the item, not removing it locally, but sending redaction.");
                 }
@@ -621,7 +621,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                                 .or_default()
                                 .insert(user_id.to_owned(), reaction_info);
                             let new_item = item.with_reactions(reactions);
-                            state.items.set(item_pos, new_item);
+                            state.items.replace(item_pos, new_item);
                         } else {
                             warn!("couldn't find item to re-add reaction anymore; maybe it's been redacted?");
                         }
@@ -817,7 +817,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                             {
                                 trace!("updated reaction status to sent");
                                 entry.status = ReactionStatus::RemoteToRemote(event_id.to_owned());
-                                txn.items.set(item_pos, event_item.with_reactions(reactions));
+                                txn.items.replace(item_pos, event_item.with_reactions(reactions));
                                 txn.commit();
                                 return;
                             }
@@ -863,7 +863,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         }
 
         let new_item = item.with_inner_kind(local_item.with_send_state(send_state));
-        txn.items.set(idx, new_item);
+        txn.items.replace(idx, new_item);
 
         txn.commit();
     }
@@ -910,7 +910,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             let mut reactions = item.reactions().clone();
             if reactions.remove_reaction(&full_key.sender, &full_key.key).is_some() {
                 let updated_item = item.with_reactions(reactions);
-                state.items.set(idx, updated_item);
+                state.items.replace(idx, updated_item);
             } else {
                 warn!(
                     "missing reaction {} for sender {} on timeline item",
@@ -967,7 +967,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             prev_item.internal_id.to_owned(),
         );
 
-        txn.items.set(idx, new_item);
+        txn.items.replace(idx, new_item);
 
         // This doesn't change the original sending time, so there's no need to adjust
         // day dividers.
@@ -1322,7 +1322,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         trace!("Adding local reaction to local echo");
         let new_item = item.with_reactions(reactions);
-        state.items.set(item_pos, new_item);
+        state.items.replace(item_pos, new_item);
 
         // Add it to the reaction map, so we can discard it later if needs be.
         state.meta.reactions.map.insert(
@@ -1462,7 +1462,7 @@ impl TimelineController {
                 event,
             }),
         ));
-        state.items.set(index, TimelineItem::new(item, internal_id));
+        state.items.replace(index, TimelineItem::new(item, internal_id));
 
         Ok(())
     }
@@ -1594,7 +1594,7 @@ async fn fetch_replied_to_event(
     let event_item = item.with_content(TimelineItemContent::Message(reply), None);
 
     let new_timeline_item = TimelineItem::new(event_item, internal_id);
-    state.items.set(index, new_timeline_item);
+    state.items.replace(index, new_timeline_item);
 
     // Don't hold the state lock while the network request is made
     drop(state);
