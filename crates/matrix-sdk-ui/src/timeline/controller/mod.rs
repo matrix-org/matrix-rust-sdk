@@ -52,7 +52,7 @@ use tracing::{
 };
 
 pub(super) use self::state::{
-    EventMeta, FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata,
+    AllRemoteEvents, FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata,
     TimelineNewItemPosition, TimelineState, TimelineStateTransaction,
 };
 use super::{
@@ -1529,7 +1529,7 @@ impl TimelineController {
     /// it's folded into another timeline item.
     pub(crate) async fn latest_event_id(&self) -> Option<OwnedEventId> {
         let state = self.state.read().await;
-        state.meta.all_remote_events.back().map(|event_meta| &event_meta.event_id).cloned()
+        state.meta.all_remote_events.last().map(|event_meta| &event_meta.event_id).cloned()
     }
 }
 

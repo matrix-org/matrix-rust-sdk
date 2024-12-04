@@ -17,7 +17,10 @@ use std::{collections::BTreeMap, fmt};
 use ruma::{
     events::{AnyMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent},
     push::Action,
-    serde::{JsonObject, Raw},
+    serde::{
+        AsRefStr, AsStrAsRefStr, DebugAsRefStr, DeserializeFromCowStr, FromString, JsonObject, Raw,
+        SerializeAsRefStr,
+    },
     DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedUserId,
 };
 use serde::{Deserialize, Serialize};
@@ -666,12 +669,30 @@ pub struct UnableToDecryptInfo {
     pub session_id: Option<String>,
 
     /// Reason code for the decryption failure
-    #[serde(default = "unknown_utd_reason")]
+    #[serde(default = "unknown_utd_reason", deserialize_with = "deserialize_utd_reason")]
     pub reason: UnableToDecryptReason,
 }
 
 fn unknown_utd_reason() -> UnableToDecryptReason {
     UnableToDecryptReason::Unknown
+}
+
+/// Provides basic backward compatibility for deserializing older serialized
+/// `UnableToDecryptReason` values.
+pub fn deserialize_utd_reason<'de, D>(d: D) -> Result<UnableToDecryptReason, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    // Start by deserializing as to an untyped JSON value.
+    let v: serde_json::Value = Deserialize::deserialize(d)?;
+    // Backwards compatibility: `MissingMegolmSession` used to be stored without the
+    // withheld code.
+    if v.as_str().is_some_and(|s| s == "MissingMegolmSession") {
+        return Ok(UnableToDecryptReason::MissingMegolmSession { withheld_code: None });
+    }
+    // Otherwise, use the derived deserialize impl to turn the JSON into a
+    // UnableToDecryptReason
+    serde_json::from_value::<UnableToDecryptReason>(v).map_err(serde::de::Error::custom)
 }
 
 /// Reason code for a decryption failure
@@ -689,9 +710,11 @@ pub enum UnableToDecryptReason {
 
     /// Decryption failed because we're missing the megolm session that was used
     /// to encrypt the event.
-    ///
-    /// TODO: support withheld codes?
-    MissingMegolmSession,
+    MissingMegolmSession {
+        /// If the key was withheld on purpose, the associated code. `None`
+        /// means no withheld code was received.
+        withheld_code: Option<WithheldCode>,
+    },
 
     /// Decryption failed because, while we have the megolm session that was
     /// used to encrypt the message, it is ratcheted too far forward.
@@ -723,7 +746,86 @@ impl UnableToDecryptReason {
     /// Returns true if this UTD is due to a missing room key (and hence might
     /// resolve itself if we wait a bit.)
     pub fn is_missing_room_key(&self) -> bool {
-        matches!(self, Self::MissingMegolmSession | Self::UnknownMegolmMessageIndex)
+        // In case of MissingMegolmSession with a withheld code we return false here
+        // given that this API is used to decide if waiting a bit will help.
+        matches!(
+            self,
+            Self::MissingMegolmSession { withheld_code: None } | Self::UnknownMegolmMessageIndex
+        )
+    }
+}
+
+/// A machine-readable code for why a Megolm key was not sent.
+///
+/// Normally sent as the payload of an [`m.room_key.withheld`](https://spec.matrix.org/v1.12/client-server-api/#mroom_keywithheld) to-device message.
+#[derive(
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    AsStrAsRefStr,
+    AsRefStr,
+    FromString,
+    DebugAsRefStr,
+    SerializeAsRefStr,
+    DeserializeFromCowStr,
+)]
+pub enum WithheldCode {
+    /// the user/device was blacklisted.
+    #[ruma_enum(rename = "m.blacklisted")]
+    Blacklisted,
+
+    /// the user/devices is unverified.
+    #[ruma_enum(rename = "m.unverified")]
+    Unverified,
+
+    /// The user/device is not allowed have the key. For example, this would
+    /// usually be sent in response to a key request if the user was not in
+    /// the room when the message was sent.
+    #[ruma_enum(rename = "m.unauthorised")]
+    Unauthorised,
+
+    /// Sent in reply to a key request if the device that the key is requested
+    /// from does not have the requested key.
+    #[ruma_enum(rename = "m.unavailable")]
+    Unavailable,
+
+    /// An olm session could not be established.
+    /// This may happen, for example, if the sender was unable to obtain a
+    /// one-time key from the recipient.
+    #[ruma_enum(rename = "m.no_olm")]
+    NoOlm,
+
+    #[doc(hidden)]
+    _Custom(PrivOwnedStr),
+}
+
+impl fmt::Display for WithheldCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let string = match self {
+            WithheldCode::Blacklisted => "The sender has blocked you.",
+            WithheldCode::Unverified => "The sender has disabled encrypting to unverified devices.",
+            WithheldCode::Unauthorised => "You are not authorised to read the message.",
+            WithheldCode::Unavailable => "The requested key was not found.",
+            WithheldCode::NoOlm => "Unable to establish a secure channel.",
+            _ => self.as_str(),
+        };
+
+        f.write_str(string)
+    }
+}
+
+// The Ruma macro expects the type to have this name.
+// The payload is counter intuitively made public in order to avoid having
+// multiple copies of this struct.
+#[doc(hidden)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PrivOwnedStr(pub Box<str>);
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for PrivOwnedStr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -817,7 +919,7 @@ mod tests {
     use super::{
         AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, SyncTimelineEvent, TimelineEvent,
         TimelineEventKind, UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
-        UnsignedEventLocation, VerificationState,
+        UnsignedEventLocation, VerificationState, WithheldCode,
     };
     use crate::deserialized_responses::{DeviceLinkProblem, VerificationLevel};
 
@@ -1037,5 +1139,112 @@ mod tests {
                 })
             });
         });
+    }
+
+    #[test]
+    fn sync_timeline_event_deserialisation_migration_for_withheld() {
+        // Old serialized version was
+        //    "utd_info": {
+        //         "reason": "MissingMegolmSession",
+        //         "session_id": "session000"
+        //       }
+
+        // The new version would be
+        //      "utd_info": {
+        //         "reason": {
+        //           "MissingMegolmSession": {
+        //              "withheld_code": null
+        //           }
+        //         },
+        //         "session_id": "session000"
+        //       }
+
+        let serialized = json!({
+             "kind": {
+                "UnableToDecrypt": {
+                  "event": {
+                    "content": {
+                      "algorithm": "m.megolm.v1.aes-sha2",
+                      "ciphertext": "AwgAEoABzL1JYhqhjW9jXrlT3M6H8mJ4qffYtOQOnPuAPNxsuG20oiD/Fnpv6jnQGhU6YbV9pNM+1mRnTvxW3CbWOPjLKqCWTJTc7Q0vDEVtYePg38ncXNcwMmfhgnNAoW9S7vNs8C003x3yUl6NeZ8bH+ci870BZL+kWM/lMl10tn6U7snNmSjnE3ckvRdO+11/R4//5VzFQpZdf4j036lNSls/WIiI67Fk9iFpinz9xdRVWJFVdrAiPFwb8L5xRZ8aX+e2JDMlc1eW8gk",
+                      "device_id": "SKCGPNUWAU",
+                      "sender_key": "Gim/c7uQdSXyrrUbmUOrBT6sMC0gO7QSLmOK6B7NOm0",
+                      "session_id": "hgLyeSqXfb8vc5AjQLsg6TSHVu0HJ7HZ4B6jgMvxkrs"
+                    },
+                    "event_id": "$xxxxx:example.org",
+                    "origin_server_ts": 2189,
+                    "room_id": "!someroom:example.com",
+                    "sender": "@carl:example.com",
+                    "type": "m.room.message"
+                  },
+                  "utd_info": {
+                    "reason": "MissingMegolmSession",
+                    "session_id": "session000"
+                  }
+                }
+              }
+        });
+
+        let result = serde_json::from_value(serialized);
+        assert!(result.is_ok());
+
+        // should have migrated to the new format
+        let event: SyncTimelineEvent = result.unwrap();
+        assert_matches!(
+            event.kind,
+            TimelineEventKind::UnableToDecrypt { utd_info, .. }=> {
+                assert_matches!(
+                    utd_info.reason,
+                    UnableToDecryptReason::MissingMegolmSession { withheld_code: None }
+                );
+            }
+        )
+    }
+
+    #[test]
+    fn unable_to_decrypt_info_migration_for_withheld() {
+        let old_format = json!({
+            "reason": "MissingMegolmSession",
+            "session_id": "session000"
+        });
+
+        let deserialized = serde_json::from_value::<UnableToDecryptInfo>(old_format).unwrap();
+        let session_id = Some("session000".to_owned());
+
+        assert_eq!(deserialized.session_id, session_id);
+        assert_eq!(
+            deserialized.reason,
+            UnableToDecryptReason::MissingMegolmSession { withheld_code: None },
+        );
+
+        let new_format = json!({
+             "session_id": "session000",
+              "reason": {
+                "MissingMegolmSession": {
+                  "withheld_code": null
+                }
+              }
+        });
+
+        let deserialized = serde_json::from_value::<UnableToDecryptInfo>(new_format).unwrap();
+
+        assert_eq!(
+            deserialized.reason,
+            UnableToDecryptReason::MissingMegolmSession { withheld_code: None },
+        );
+        assert_eq!(deserialized.session_id, session_id);
+    }
+
+    #[test]
+    fn unable_to_decrypt_reason_is_missing_room_key() {
+        let reason = UnableToDecryptReason::MissingMegolmSession { withheld_code: None };
+        assert!(reason.is_missing_room_key());
+
+        let reason = UnableToDecryptReason::MissingMegolmSession {
+            withheld_code: Some(WithheldCode::Blacklisted),
+        };
+        assert!(!reason.is_missing_room_key());
+
+        let reason = UnableToDecryptReason::UnknownMegolmMessageIndex;
+        assert!(reason.is_missing_room_key());
     }
 }

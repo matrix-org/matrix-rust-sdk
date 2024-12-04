@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk_base::crypto::types::SecretsBundle;
+use matrix_sdk_common::deserialized_responses::PrivOwnedStr;
 use openidconnect::{
     core::CoreDeviceAuthorizationResponse, EndUserVerificationUrl, VerificationUriComplete,
 };
@@ -182,15 +183,6 @@ where
 {
     s.serialize_str(&key.to_base64())
 }
-
-// Wrapper around `Box<str>` that cannot be used in a meaningful way outside of
-// this crate. Used for string enums because their `_Custom` variant can't be
-// truly private (only `#[doc(hidden)]`).
-// TODO: It probably makes sense to move the above messages into Ruma, if for
-// nothing else, to get rid of this `PrivOwnedStr`.
-#[doc(hidden)]
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PrivOwnedStr(Box<str>);
 
 #[cfg(test)]
 mod test {

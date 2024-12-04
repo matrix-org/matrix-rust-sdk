@@ -561,6 +561,36 @@ impl MatrixMockServer {
         let mock = Mock::given(method("POST")).and(path_regex(r"/_matrix/client/v3/publicRooms"));
         MockEndpoint { mock, server: &self.server, endpoint: PublicRoomsEndpoint }
     }
+
+    /// Create a prebuilt mock for fetching information about key storage
+    /// backups.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "e2e-encryption")]
+    /// # {
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::test_utils::mocks::MatrixMockServer;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_keys_version().exists().expect(1).mount().await;
+    ///
+    /// let exists =
+    ///     client.encryption().backups().exists_on_server().await.unwrap();
+    ///
+    /// assert!(exists);
+    /// # });
+    /// # }
+    /// ```
+    pub fn mock_room_keys_version(&self) -> MockEndpoint<'_, RoomKeysVersionEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path_regex(r"_matrix/client/v3/room_keys/version"))
+            .and(header("authorization", "Bearer 1234"));
+        MockEndpoint { mock, server: &self.server, endpoint: RoomKeysVersionEndpoint }
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -1506,6 +1536,11 @@ impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
         Self { mock: self.mock.and(query_param("limit", limit.to_string())), ..self }
     }
 
+    /// Expects an optional `from` to be set on the request.
+    pub fn from(self, from: &str) -> Self {
+        Self { mock: self.mock.and(query_param("from", from)), ..self }
+    }
+
     /// Returns a messages endpoint that emulates success, i.e. the messages
     /// provided as `response` could be retrieved.
     ///
@@ -1516,13 +1551,13 @@ impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
         start: String,
         end: Option<String>,
         chunk: Vec<impl Into<Raw<AnyTimelineEvent>>>,
-        state: Vec<impl Into<Raw<AnyStateEvent>>>,
+        state: Vec<Raw<AnyStateEvent>>,
     ) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "start": start,
             "end": end,
             "chunk": chunk.into_iter().map(|ev| ev.into()).collect::<Vec<_>>(),
-            "state": state.into_iter().map(|ev| ev.into()).collect::<Vec<_>>(),
+            "state": state,
         })));
         MatrixMock { server: self.server, mock }
     }
@@ -1630,6 +1665,51 @@ impl<'a> MockEndpoint<'a, PublicRoomsEndpoint> {
                 "total_room_count_estimate": chunk.len(),
             }))
         });
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for `room_keys/version`: storage ("backup") of room keys.
+pub struct RoomKeysVersionEndpoint;
+
+impl<'a> MockEndpoint<'a, RoomKeysVersionEndpoint> {
+    /// Returns an endpoint that says there is a single room keys backup
+    pub fn exists(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+            "auth_data": {
+                "public_key": "abcdefg",
+                "signatures": {},
+            },
+            "count": 42,
+            "etag": "anopaquestring",
+            "version": "1",
+        })));
+        MatrixMock { server: self.server, mock }
+    }
+
+    /// Returns an endpoint that says there is no room keys backup
+    pub fn none(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_NOT_FOUND",
+            "error": "No current backup version"
+        })));
+        MatrixMock { server: self.server, mock }
+    }
+
+    /// Returns an endpoint that 429 errors when we get it
+    pub fn error429(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(429).set_body_json(json!({
+            "errcode": "M_LIMIT_EXCEEDED",
+            "error": "Too many requests",
+            "retry_after_ms": 2000
+        })));
+        MatrixMock { server: self.server, mock }
+    }
+
+    /// Returns an endpoint that 404 errors when we get it
+    pub fn error404(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(404));
         MatrixMock { server: self.server, mock }
     }
 }

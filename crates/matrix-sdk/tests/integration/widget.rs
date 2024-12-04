@@ -38,10 +38,10 @@ use ruma::{
             name::RoomNameEventContent,
             topic::RoomTopicEventContent,
         },
-        AnyStateEvent, MessageLikeEventType, StateEventType,
+        MessageLikeEventType, StateEventType,
     },
     owned_room_id,
-    serde::{JsonObject, Raw},
+    serde::JsonObject,
     user_id, OwnedRoomId,
 };
 use serde::Serialize;
@@ -306,7 +306,7 @@ async fn test_read_messages_with_msgtype_capabilities() {
     {
         let start = "t392-516_47314_0_7_1_1_1_11444_1".to_owned();
         let end = Some("t47409-4357353_219380_26003_2269".to_owned());
-        let chun2 = vec![
+        let chunk2 = vec![
             f.notice("custom content").event_id(event_id!("$msda7m0df9E9op3")).into_raw_timeline(),
             f.text_msg("hello").event_id(event_id!("$msda7m0df9E9op5")).into_raw_timeline(),
             f.reaction(event_id!("$event_id"), "annotation".to_owned()).into_raw_timeline(),
@@ -314,7 +314,7 @@ async fn test_read_messages_with_msgtype_capabilities() {
         mock_server
             .mock_room_messages()
             .limit(3)
-            .ok(start, end, chun2, Vec::<Raw<AnyStateEvent>>::new())
+            .ok(start, end, chunk2, Vec::new())
             .mock_once()
             .mount()
             .await;

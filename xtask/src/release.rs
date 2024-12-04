@@ -1,9 +1,7 @@
-use std::env;
-
 use clap::{Args, Subcommand, ValueEnum};
 use xshell::cmd;
 
-use crate::{sh, workspace, Result};
+use crate::{sh, Result};
 
 #[derive(Args)]
 pub struct ReleaseArgs {
@@ -36,10 +34,6 @@ enum ReleaseCommand {
     },
     /// Get a list of interesting changes that happened in the last week.
     WeeklyReport,
-    /// Generate the changelog for a specific crate, this shouldn't be run
-    /// manually, cargo-release will call this.
-    #[clap(hide = true)]
-    Changelog,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, ValueEnum)]
@@ -68,22 +62,10 @@ impl ReleaseArgs {
     pub fn run(self) -> Result<()> {
         check_prerequisites();
 
-        // The changelog needs to be generated from the directory of the crate,
-        // `cargo-release` changes the directory for us but we need to
-        // make sure to not switch back to the workspace dir.
-        //
-        // More info: https://git-cliff.org/docs/usage/monorepos
-        let sh = sh();
-        let _p;
-        if self.cmd != ReleaseCommand::Changelog {
-            _p = sh.push_dir(workspace::root_path()?);
-        }
-
         match self.cmd {
             ReleaseCommand::Prepare { version, execute } => prepare(version, execute),
             ReleaseCommand::Publish { execute } => publish(execute),
             ReleaseCommand::WeeklyReport => weekly_report(),
-            ReleaseCommand::Changelog => changelog(),
         }
     }
 }
@@ -98,9 +80,9 @@ fn check_prerequisites() {
         std::process::exit(1);
     }
 
-    if cmd!(sh, "git cliff --version").quiet().ignore_stdout().run().is_err() {
-        eprintln!("This command requires git-cliff, please install it.");
-        eprintln!("More info can be found at: https://git-cliff.org/docs/installation/");
+    if cmd!(sh, "gh version").quiet().ignore_stdout().run().is_err() {
+        eprintln!("This command requires GitHub CLI, please install it.");
+        eprintln!("More info can be found at: https://cli.github.com/");
 
         std::process::exit(1);
     }
@@ -145,52 +127,25 @@ fn publish(execute: bool) -> Result<()> {
 }
 
 fn weekly_report() -> Result<()> {
-    let sh = sh();
-    let lines = cmd!(sh, "git log --pretty=format:%H --since='1 week ago'").read()?;
-
-    let Some(start) = lines.split_whitespace().last() else {
-        panic!("Could not find a start range for the git commit range.")
-    };
-
-    cmd!(sh, "git cliff --config cliff-weekly-report.toml {start}..HEAD").run()?;
-
-    Ok(())
-}
-
-/// Generate the changelog for a given crate.
-///
-/// This will be called by `cargo-release` and it will set the correct
-/// environment and call it from within the correct directory.
-fn changelog() -> Result<()> {
-    let dry_run = env::var("DRY_RUN").map(|dry| str::parse::<bool>(&dry)).unwrap_or(Ok(true))?;
-    let crate_name = env::var("CRATE_NAME").expect("CRATE_NAME must be set");
-    let new_version = env::var("NEW_VERSION").expect("NEW_VERSION must be set");
-
-    if dry_run {
-        println!(
-            "\nGenerating a changelog for {} (dry run), the following output will be prepended to the CHANGELOG.md file:\n",
-            crate_name
-        );
-    } else {
-        println!("Generating a changelog for {}.", crate_name);
-    }
+    const JSON_FIELDS: &'static str = "title,number,url,author";
 
     let sh = sh();
-    let command = cmd!(sh, "git cliff")
-        .arg("cliff")
-        .arg("--config")
-        .arg("../../cliff.toml")
-        .arg("--include-path")
-        .arg(format!("crates/{}/**/*", crate_name))
-        .arg("--repository")
-        .arg("../../")
-        .arg("--unreleased")
-        .arg("--tag")
-        .arg(&new_version);
 
-    let command = if dry_run { command } else { command.arg("--prepend").arg("CHANGELOG.md") };
+    let one_week_ago = cmd!(sh, "date -d '1 week ago' +%Y-%m-%d").read()?;
+    let today = cmd!(sh, "date +%Y-%m-%d").read()?;
 
-    command.run()?;
+    let _env_pager = sh.push_env("GH_PAGER", "");
+
+    let header = format!("# This Week in the Matrix Rust SDK ({today})\n\n");
+    let template = "{{range .}}- {{.title}} by @{{.author.login}}{{\"\\n\\n\"}}{{end}}";
+    let template = format!("{header}{template}");
+
+    cmd!(
+        sh,
+        "gh pr list --search created:>{one_week_ago} --json {JSON_FIELDS} --template {template}"
+    )
+    .quiet()
+    .run()?;
 
     Ok(())
 }
