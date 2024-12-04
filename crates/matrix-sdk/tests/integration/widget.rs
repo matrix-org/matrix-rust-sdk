@@ -567,7 +567,7 @@ async fn test_send_delayed_message_event() {
     .await;
     mock_server
         .mock_room_send()
-        .with_delay(Duration::from_micros(1000))
+        .with_delay(Duration::from_millis(1000))
         .for_type(MessageLikeEventType::RoomMessage)
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "delay_id": "1234",
@@ -614,7 +614,7 @@ async fn test_send_delayed_state_event() {
 
     mock_server
         .mock_room_send_state()
-        .with_delay(Duration::from_micros(1000))
+        .with_delay(Duration::from_millis(1000))
         .for_type(StateEventType::RoomName)
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "delay_id": "1234",

@@ -276,7 +276,7 @@ impl WidgetMachine {
                 if !capabilities.update_delayed_event {
                     return vec![Self::send_from_widget_error_string_response(
                         raw_request,
-                        "Not allowed: missing the {UPDATE_DELAYED_EVENT} capability.",
+                        format!("Not allowed: missing the {UPDATE_DELAYED_EVENT} capability."),
                     )];
                 }
 
