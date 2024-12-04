@@ -286,8 +286,13 @@ impl RoomEventCacheInner {
         }
     }
 
-    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
+    pub(super) async fn handle_joined_room_update(
+        &self,
+        has_storage: bool,
+        updates: JoinedRoomUpdate,
+    ) -> Result<()> {
         self.handle_timeline(
+            has_storage,
             updates.timeline,
             updates.ephemeral.clone(),
             updates.ambiguity_changes,
@@ -301,11 +306,12 @@ impl RoomEventCacheInner {
 
     async fn handle_timeline(
         &self,
+        has_storage: bool,
         timeline: Timeline,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
-        if timeline.limited {
+        if !has_storage && timeline.limited {
             // Ideally we'd try to reconcile existing events against those received in the
             // timeline, but we're not there yet. In the meanwhile, clear the
             // items from the room. TODO: implement Smart Matching™.
@@ -334,8 +340,13 @@ impl RoomEventCacheInner {
         Ok(())
     }
 
-    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        self.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
+    pub(super) async fn handle_left_room_update(
+        &self,
+        has_storage: bool,
+        updates: LeftRoomUpdate,
+    ) -> Result<()> {
+        self.handle_timeline(has_storage, updates.timeline, Vec::new(), updates.ambiguity_changes)
+            .await?;
         Ok(())
     }
 
@@ -539,9 +550,13 @@ impl RoomEventCacheInner {
 mod private {
     use std::sync::Arc;
 
-    use matrix_sdk_base::event_cache::store::EventCacheStoreLock;
+    use matrix_sdk_base::{
+        deserialized_responses::{SyncTimelineEvent, TimelineEventKind},
+        event_cache::store::EventCacheStoreLock,
+        linked_chunk::Update,
+    };
     use once_cell::sync::OnceCell;
-    use ruma::OwnedRoomId;
+    use ruma::{serde::Raw, OwnedRoomId};
 
     use super::events::RoomEvents;
     use crate::event_cache::EventCacheError;
@@ -587,13 +602,72 @@ mod private {
             Ok(Self { room, store, events, waited_for_initial_prev_token: false })
         }
 
+        /// Removes the bundled relations from an event, if they were present.
+        ///
+        /// Only replaces the present if it contained bundled relations.
+        fn strip_relations_if_present<T>(event: &mut Raw<T>) {
+            // We're going to get rid of the `unsigned`/`m.relations` field, if it's
+            // present.
+            // Use a closure that returns an option so we can quickly short-circuit.
+            let mut closure = || -> Option<()> {
+                let mut val: serde_json::Value = event.deserialize_as().ok()?;
+                let unsigned = val.get_mut("unsigned")?;
+                let unsigned_obj = unsigned.as_object_mut()?;
+                if unsigned_obj.remove("m.relations").is_some() {
+                    *event = Raw::new(&val).ok()?.cast();
+                }
+                None
+            };
+            let _ = closure();
+        }
+
+        /// Strips the bundled relations from a collection of events.
+        fn strip_relations_from_events(items: &mut [SyncTimelineEvent]) {
+            for ev in items.iter_mut() {
+                match &mut ev.kind {
+                    TimelineEventKind::Decrypted(decrypted) => {
+                        // Remove all information about encryption info for
+                        // the bundled events.
+                        decrypted.unsigned_encryption_info = None;
+
+                        // Remove the `unsigned`/`m.relations` field, if needs be.
+                        Self::strip_relations_if_present(&mut decrypted.event);
+                    }
+
+                    TimelineEventKind::UnableToDecrypt { event, .. }
+                    | TimelineEventKind::PlainText { event } => {
+                        Self::strip_relations_if_present(event);
+                    }
+                }
+            }
+        }
+
         /// Propagate changes to the underlying storage.
         async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
-            let updates = self.events.updates().take();
+            let mut updates = self.events.updates().take();
 
             if !updates.is_empty() {
                 if let Some(store) = self.store.get() {
                     let locked = store.lock().await?;
+
+                    // Strip relations from the `PushItems` updates.
+                    for up in updates.iter_mut() {
+                        match up {
+                            Update::PushItems { items, .. } => {
+                                Self::strip_relations_from_events(items)
+                            }
+                            // Other update kinds don't involve adding new events.
+                            Update::NewItemsChunk { .. }
+                            | Update::NewGapChunk { .. }
+                            | Update::RemoveChunk(_)
+                            | Update::RemoveItem { .. }
+                            | Update::DetachLastItems { .. }
+                            | Update::StartReattachItems
+                            | Update::EndReattachItems
+                            | Update::Clear => {}
+                        }
+                    }
+
                     locked.handle_linked_chunk_updates(&self.room, updates).await?;
                 }
             }
@@ -927,7 +1001,7 @@ mod tests {
 
         room_event_cache
             .inner
-            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
+            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
 
@@ -953,6 +1027,85 @@ mod tests {
             let deserialized = events[0].raw().deserialize().unwrap();
             assert_let!(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = deserialized);
             assert_eq!(msg.as_original().unwrap().content.body(), "hey yo");
+        });
+
+        // That's all, folks!
+        assert!(chunks.next().is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[async_test]
+    async fn test_write_to_storage_strips_bundled_relations() {
+        use ruma::events::BundledMessageLikeRelations;
+
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let client = MockClientBuilder::new("http://localhost".to_owned())
+            .store_config(
+                StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
+            )
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+
+        // Don't forget to subscribe and like^W enable storage!
+        event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Propagate an update for a message with bundled relations.
+        let mut relations = BundledMessageLikeRelations::new();
+        relations.replace =
+            Some(Box::new(f.text_msg("Hello, Kind Sir").sender(*ALICE).into_raw_sync()));
+        let ev = f.text_msg("hey yo").sender(*ALICE).bundled_relations(relations).into_sync();
+
+        let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev] };
+
+        room_event_cache
+            .inner
+            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
+            .await
+            .unwrap();
+
+        // The in-memory linked chunk keeps the bundled relation.
+        {
+            let (events, _) = room_event_cache.subscribe().await.unwrap();
+
+            assert_eq!(events.len(), 1);
+
+            let ev = events[0].raw().deserialize().unwrap();
+            assert_let!(
+                AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = ev
+            );
+
+            let original = msg.as_original().unwrap();
+            assert_eq!(original.content.body(), "hey yo");
+            assert!(original.unsigned.relations.replace.is_some());
+        }
+
+        // The one in storage does not.
+        let linked_chunk = event_cache_store.reload_linked_chunk(room_id).await.unwrap().unwrap();
+
+        assert_eq!(linked_chunk.chunks().count(), 1);
+
+        let mut chunks = linked_chunk.chunks();
+        assert_matches!(chunks.next().unwrap().content(), ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+
+            let ev = events[0].raw().deserialize().unwrap();
+            assert_let!(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = ev);
+
+            let original = msg.as_original().unwrap();
+            assert_eq!(original.content.body(), "hey yo");
+            assert!(original.unsigned.relations.replace.is_none());
         });
 
         // That's all, folks!
@@ -1046,7 +1199,7 @@ mod tests {
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev1] };
         room_event_cache
             .inner
-            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
+            .handle_joined_room_update(true, JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
 

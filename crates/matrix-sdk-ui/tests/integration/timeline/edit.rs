@@ -20,7 +20,9 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    config::SyncSettings, room::edit::EditedContent, test_utils::logged_in_client_with_server,
+    config::SyncSettings,
+    room::edit::EditedContent,
+    test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
     Client,
 };
 use matrix_sdk_test::{
@@ -46,7 +48,7 @@ use ruma::{
             MessageType, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             TextMessageEventContent,
         },
-        AnyMessageLikeEventContent, AnyTimelineEvent,
+        AnyMessageLikeEventContent, AnyStateEvent, AnyTimelineEvent,
     },
     owned_event_id, room_id,
     serde::Raw,
@@ -57,7 +59,7 @@ use stream_assert::assert_next_matches;
 use tokio::{task::yield_now, time::sleep};
 use wiremock::{
     matchers::{header, method, path_regex},
-    Mock, MockServer, ResponseTemplate,
+    Mock, ResponseTemplate,
 };
 
 use crate::mock_sync;
@@ -668,20 +670,14 @@ async fn test_send_edit_poll() {
 
 #[async_test]
 async fn test_send_edit_when_timeline_is_clear() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let room = server.sync_joined_room(&client, room_id).await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
@@ -692,13 +688,13 @@ async fn test_send_edit_when_timeline_is_clear() {
         .sender(client.user_id().unwrap())
         .event_id(event_id!("$original_event"))
         .into_raw_sync();
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(raw_original_event.clone()),
-    );
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(raw_original_event.clone()),
+        )
+        .await;
 
     let hello_world_item =
         assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
@@ -706,9 +702,13 @@ async fn test_send_edit_when_timeline_is_clear() {
     assert!(!hello_world_message.is_edited());
     assert!(hello_world_item.is_editable());
 
-    // Clear the event cache (hence the timeline) to make sure the old item does not
-    // need to be available in it for the edit to work.
-    client.event_cache().add_initial_events(room_id, vec![], None).await.unwrap();
+    // Receive a limited (gappy) sync for this room, which will clear the timeline…
+    //
+    // TODO: …until the event cache storage is enabled by default, a time where
+    // we'll be able to get rid of this test entirely (or update its
+    // expectations).
+
+    server.sync_room(&client, JoinedRoomBuilder::new(room_id).set_timeline_limited()).await;
     client.event_cache().empty_immutable_cache().await;
 
     yield_now().await;
@@ -734,8 +734,7 @@ async fn test_send_edit_when_timeline_is_clear() {
     // updates, so just wait for a bit before verifying that the endpoint was
     // called.
     sleep(Duration::from_millis(200)).await;
-
-    server.verify().await;
+    assert!(timeline_stream.next().now_or_never().is_none());
 }
 
 #[async_test]
@@ -851,69 +850,50 @@ async fn test_edit_local_echo_with_unsupported_content() {
 
 struct PendingEditHelper {
     client: Client,
-    server: MockServer,
+    server: MatrixMockServer,
     timeline: Timeline,
-    sync_builder: SyncResponseBuilder,
-    sync_settings: SyncSettings,
     room_id: OwnedRoomId,
 }
 
 impl PendingEditHelper {
     async fn new() -> Self {
         let room_id = room_id!("!a98sd12bjh:example.org");
-        let (client, server) = logged_in_client_with_server().await;
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-        let mut sync_builder = SyncResponseBuilder::new();
-        sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
 
-        mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-        let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-        server.reset().await;
+        client.event_cache().subscribe().unwrap();
 
-        mock_encryption_state(&server, false).await;
+        // Fill the initial prev-batch token to avoid waiting for it later.
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .set_timeline_prev_batch("prev-batch-token".to_owned()),
+            )
+            .await;
 
-        {
-            // Fill the initial prev-batch token to avoid waiting for it later.
-            let ec = client.event_cache();
-            ec.subscribe().unwrap();
-            ec.add_initial_events(room_id, vec![], Some("prev-batch-token".to_owned()))
-                .await
-                .unwrap();
-        }
+        server.mock_room_state_encryption().plain().mount().await;
 
         let room = client.get_room(room_id).unwrap();
         let timeline = room.timeline().await.unwrap();
 
-        Self { client, server, timeline, sync_builder, sync_settings, room_id: room_id.to_owned() }
+        Self { client, server, timeline, room_id: room_id.to_owned() }
     }
 
     async fn handle_sync(&mut self, joined_room_builder: JoinedRoomBuilder) {
-        self.sync_builder.add_joined_room(joined_room_builder);
-
-        mock_sync(&self.server, self.sync_builder.build_json_sync_response(), None).await;
-        let _response = self.client.sync_once(self.sync_settings.clone()).await.unwrap();
-
-        self.server.reset().await;
+        self.server.sync_room(&self.client, joined_room_builder).await;
     }
 
     async fn handle_backpagination(&mut self, events: Vec<Raw<AnyTimelineEvent>>, batch_size: u16) {
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "start": "123",
-                "end": "yolo",
-                "chunk": events,
-                "state": []
-            })))
-            .expect(1)
-            .mount(&self.server)
+        self.server
+            .mock_room_messages()
+            .ok("123".to_owned(), Some("yolo".to_owned()), events, Vec::<Raw<AnyStateEvent>>::new())
+            .mock_once()
+            .mount()
             .await;
 
         self.timeline.live_paginate_backwards(batch_size).await.unwrap();
-
-        self.server.reset().await;
     }
 }
 

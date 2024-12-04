@@ -45,9 +45,46 @@ that is, just the branch name.)
 
 # Writing changelog entries
 
-We aim to maintain clear and informative changelogs that accurately reflect the
-changes in our project. This guide will help you write useful changelog entries
-using git-cliff, which fetches changelog entries from commit messages.
+Our goal is to maintain clear, concise, and informative changelogs that
+accurately document changes in the project. Changelog entries should be written
+manually for each crate in the `/crates/$CRATE_NAME/Changelog.md` file.
+
+Be sure to include a link to the pull request for additional context. A
+well-written changelog entry should be understandable even to those who may not
+be deeply familiar with the project. Provide enough context to ensure clarity
+and ease of understanding.
+
+A couple of examples of bad changelog entry would look like:
+
+```markdown
+- Fixed a panic.
+```
+
+```markdown
+- Added the Bar function to Foo.
+```
+
+A good example of a changelog entry could look like the following:
+
+```markdown
+- Use the inviter's server name and the server name from the room alias as
+  fallback values for the via parameter when requesting the room summary from
+  the homeserver. This ensures requests succeed even when the room being
+  previewed is hosted on a federated server.
+  ([#4357](https://github.com/matrix-org/matrix-rust-sdk/pull/4357))
+```
+
+For security-related changelog entries, please include the following additional
+details alongside the pull request number:
+
+* Impact: Clearly describe the issue's potential impact on users or systems.
+* CVE Number: If available, include the CVE (Common Vulnerabilities and Exposures) identifier.
+* GitHub Advisory Link: Provide a link to the corresponding GitHub security advisory for further context.
+
+```markdown
+- Use a constant-time Base64 encoder for secret key material to mitigate
+  side-channel attacks leaking secret key material ([#156](https://github.com/matrix-org/vodozemac/pull/156)) (Low, [CVE-2024-40640](https://www.cve.org/CVERecord?id=CVE-2024-40640), [GHSA-j8cm-g7r6-hfpq](https://github.com/matrix-org/vodozemac/security/advisories/GHSA-j8cm-g7r6-hfpq)).
+```
 
 ## Commit message format
 
@@ -74,44 +111,19 @@ The type of changes which will be included in changelogs is one of the following
 The scope is optional and can specify the area of the codebase affected (e.g.,
 olm, cipher).
 
-### Changelog trailer
-
-In addition to the Conventional Commit format, you can use the `Changelog` git
-trailer to specify the changelog message explicitly. When that trailer is
-present, its value will be used as the changelog entry instead of the commit's
-leading line. The `Breaking-Change` git trailer can be used in a similar manner
-if the changelog entry should be marked as a breaking change.
-
-
-#### Example commit message
-
-```
-feat: Add a method to encode Ed25519 public keys to Base64
-
-This patch adds the `Ed25519PublicKey::to_base64()` method, which allows us to
-stringify Ed25519 and thus present them to users. It's also commonly used when
-Ed25519 keys need to be inserted into JSON.
-
-Changelog: Add the `Ed25519PublicKey::to_base64()` method which can be used to
- stringify the Ed25519 public key.
-```
-
-In this commit message, the content specified in the `Changelog` trailer will be
-used for the changelog entry.
-
-Be careful to add at least one whitespace after new lines to create a paragraph.
-
 ### Security fixes
 
 Commits addressing security vulnerabilities must include specific trailers for
-vulnerability metadata. These commits are required to include at least the
-`Security-Impact` trailer to indicate that the commit is a security fix.
+vulnerability metadata, which should also be reflected in the corresponding
+changelog entry.
 
-Security issues have some additional git-trailers:
+The metadata must be included in the following git-trailers:
 
 * `Security-Impact`: The magnitude of harm that can be expected, i.e. low/moderate/high/critical.
 * `CVE`: The CVE that was assigned to this issue.
 * `GitHub-Advisory`: The GitHub advisory identifier.
+
+Please include all of the fields that are available.
 
 Example:
 
@@ -131,9 +143,6 @@ material.
 Security-Impact: Low
 CVE: CVE-2024-40640
 GitHub-Advisory: GHSA-j8cm-g7r6-hfpq
-
-Changelog: Use a constant-time Base64 encoder for secret key material
-to mitigate side-channel attacks leaking secret key material.
 ```
 
 ## Review process

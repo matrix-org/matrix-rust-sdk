@@ -19,6 +19,7 @@ use futures_util::{pin_mut, FutureExt, StreamExt};
 use itertools::Itertools;
 use matrix_sdk_common::deserialized_responses::{
     UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation,
+    WithheldCode,
 };
 use matrix_sdk_test::{async_test, message_like_event_content, ruma_response_from_json, test_json};
 use ruma::{
@@ -61,9 +62,7 @@ use crate::{
     types::{
         events::{
             room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
-            room_key_withheld::{
-                MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, WithheldCode,
-            },
+            room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent},
             ToDeviceEvent,
         },
         requests::{AnyOutgoingRequest, ToDeviceRequest},
@@ -683,7 +682,12 @@ async fn test_withheld_unverified() {
         bob.try_decrypt_room_event(&room_event, room_id, &decryption_settings).await.unwrap();
     assert_let!(RoomEventDecryptionResult::UnableToDecrypt(utd_info) = decrypt_result);
     assert!(utd_info.session_id.is_some());
-    assert_eq!(utd_info.reason, UnableToDecryptReason::MissingMegolmSession);
+    assert_eq!(
+        utd_info.reason,
+        UnableToDecryptReason::MissingMegolmSession {
+            withheld_code: Some(WithheldCode::Unverified)
+        }
+    );
 }
 
 /// Test what happens when we feed an unencrypted event into the decryption
@@ -1362,7 +1366,7 @@ async fn test_unsigned_decryption() {
         replace_encryption_result,
         UnsignedDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
             session_id: Some(second_room_key_session_id),
-            reason: UnableToDecryptReason::MissingMegolmSession,
+            reason: UnableToDecryptReason::MissingMegolmSession { withheld_code: None },
         })
     );
 
@@ -1468,7 +1472,7 @@ async fn test_unsigned_decryption() {
         thread_encryption_result,
         UnsignedDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
             session_id: Some(third_room_key_session_id),
-            reason: UnableToDecryptReason::MissingMegolmSession,
+            reason: UnableToDecryptReason::MissingMegolmSession { withheld_code: None },
         })
     );
 

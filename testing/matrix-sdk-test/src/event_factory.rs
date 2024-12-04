@@ -211,7 +211,10 @@ impl EventBuilder<RoomEncryptedEventContent> {
 
         SyncTimelineEvent::new_utd_event(
             self.into(),
-            UnableToDecryptInfo { session_id, reason: UnableToDecryptReason::MissingMegolmSession },
+            UnableToDecryptInfo {
+                session_id,
+                reason: UnableToDecryptReason::MissingMegolmSession { withheld_code: None },
+            },
         )
     }
 }

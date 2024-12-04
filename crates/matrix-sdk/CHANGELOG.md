@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+<!-- next-header -->
+
+## [Unreleased] - ReleaseDate
+
+### Bug Fixes
+
+- Use the inviter's server name and the server name from the room alias as
+  fallback values for the via parameter when requesting the room summary from
+  the homeserver. This ensures requests succeed even when the room being
+  previewed is hosted on a federated server.
+  ([#4357](https://github.com/matrix-org/matrix-rust-sdk/pull/4357))
+
+- Do not use the encrypted original file's content type as the encrypted
+  thumbnail's content type.
+  ([#ecf4434](https://github.com/matrix-org/matrix-rust-sdk/commit/ecf44348cf6a872b843fb7d7af1a88f724c58c3e))
+### Features
+
+- Enable persistent storage for the `EventCache`. This allows events received
+  through the `/sync` endpoint or backpagination to be stored persistently,
+  enabling client applications to restore a room's view, including events,
+  without requiring server communication.
+  ([#4347](https://github.com/matrix-org/matrix-rust-sdk/pull/4347))
+
+- [**breaking**] Make all fields of Thumbnail required
+  ([#4324](https://github.com/matrix-org/matrix-rust-sdk/pull/4324))
+
 ## [0.8.0] - 2024-11-19
 
 ### Bug Fixes

@@ -12,11 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    cmp::Ordering,
-    collections::{HashMap, VecDeque},
-    sync::Arc,
-};
+use std::{cmp::Ordering, collections::HashMap, sync::Arc};
 
 use eyeball_im::ObservableVectorTransaction;
 use futures_core::Stream;
@@ -31,7 +27,7 @@ use tracing::{debug, error, warn};
 
 use super::{
     controller::{
-        EventMeta, FullEventMeta, TimelineMetadata, TimelineState, TimelineStateTransaction,
+        AllRemoteEvents, FullEventMeta, TimelineMetadata, TimelineState, TimelineStateTransaction,
     },
     traits::RoomDataProvider,
     util::{rfind_event_by_id, RelativePosition},
@@ -103,7 +99,7 @@ impl ReadReceipts {
         &mut self,
         new_receipt: FullReceipt<'_>,
         is_own_user_id: bool,
-        all_events: &VecDeque<EventMeta>,
+        all_events: &AllRemoteEvents,
         timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
     ) {
         // Get old receipt.
@@ -243,7 +239,7 @@ impl ReadReceipts {
     pub(super) fn compute_event_receipts(
         &self,
         event_id: &EventId,
-        all_events: &VecDeque<EventMeta>,
+        all_events: &AllRemoteEvents,
         at_end: bool,
     ) -> IndexMap<OwnedUserId, Receipt> {
         let mut all_receipts = self.get_event_receipts(event_id).cloned().unwrap_or_default();
