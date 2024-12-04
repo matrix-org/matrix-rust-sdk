@@ -15,7 +15,7 @@
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use as_variant::as_variant;
-use eyeball_im::{ObservableVectorEntry, VectorDiff};
+use eyeball_im::VectorDiff;
 use eyeball_im_util::vector::VectorObserverExt;
 use futures_core::Stream;
 use imbl::Vector;
@@ -54,7 +54,7 @@ use tracing::{
 #[cfg(test)]
 pub(super) use self::observable_items::ObservableItems;
 pub(super) use self::{
-    observable_items::{AllRemoteEvents, ObservableItemsTransaction},
+    observable_items::{AllRemoteEvents, ObservableItemsEntry, ObservableItemsTransaction},
     state::{
         FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata, TimelineNewItemPosition,
         TimelineState, TimelineStateTransaction,
@@ -1134,7 +1134,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 let new_item = entry.with_kind(TimelineItemKind::Event(
                     event_item.with_sender_profile(profile_state.clone()),
                 ));
-                ObservableVectorEntry::set(&mut entry, new_item);
+                ObservableItemsEntry::replace(&mut entry, new_item);
             }
         });
     }
@@ -1160,7 +1160,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     let updated_item =
                         event_item.with_sender_profile(TimelineDetails::Ready(profile));
                     let new_item = entry.with_kind(updated_item);
-                    ObservableVectorEntry::set(&mut entry, new_item);
+                    ObservableItemsEntry::replace(&mut entry, new_item);
                 }
                 None => {
                     if !event_item.sender_profile().is_unavailable() {
@@ -1168,7 +1168,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Unavailable);
                         let new_item = entry.with_kind(updated_item);
-                        ObservableVectorEntry::set(&mut entry, new_item);
+                        ObservableItemsEntry::replace(&mut entry, new_item);
                     } else {
                         debug!(event_id, transaction_id, "Profile already marked unavailable");
                     }
@@ -1204,7 +1204,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Ready(profile));
                         let new_item = entry.with_kind(updated_item);
-                        ObservableVectorEntry::set(&mut entry, new_item);
+                        ObservableItemsEntry::replace(&mut entry, new_item);
                     }
                 }
                 None => {
@@ -1213,7 +1213,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Unavailable);
                         let new_item = entry.with_kind(updated_item);
-                        ObservableVectorEntry::set(&mut entry, new_item);
+                        ObservableItemsEntry::replace(&mut entry, new_item);
                     } else {
                         debug!(event_id, transaction_id, "Profile already marked unavailable");
                     }

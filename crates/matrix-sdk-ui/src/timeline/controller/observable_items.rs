@@ -104,17 +104,17 @@ impl ObservableItems {
     }
 
     /// Get an iterator over all the entries in this `ObservableItems`.
-    pub fn entries(&mut self) -> ObservableVectorEntries<'_, Arc<TimelineItem>> {
-        self.items.entries()
+    pub fn entries(&mut self) -> ObservableItemsEntries<'_> {
+        ObservableItemsEntries(self.items.entries())
     }
 
     /// Call the given closure for every element in this `ObservableItems`,
     /// with an entry struct that allows updating or removing that element.
-    pub fn for_each<F>(&mut self, f: F)
+    pub fn for_each<F>(&mut self, mut f: F)
     where
-        F: FnMut(ObservableVectorEntry<'_, Arc<TimelineItem>>),
+        F: FnMut(ObservableItemsEntry<'_>),
     {
-        self.items.for_each(f)
+        self.items.for_each(|entry| f(ObservableItemsEntry(entry)))
     }
 }
 
@@ -124,6 +124,35 @@ impl Deref for ObservableItems {
 
     fn deref(&self) -> &Self::Target {
         &self.items
+    }
+}
+
+/// An “iterator“ that yields entries into an `ObservableItems`.
+pub struct ObservableItemsEntries<'a>(ObservableVectorEntries<'a, Arc<TimelineItem>>);
+
+impl<'a> ObservableItemsEntries<'a> {
+    /// Advance this iterator, yielding an `ObservableItemsEntry` for the next
+    /// item in the timeline, or `None` if all items have been visited.
+    pub fn next(&mut self) -> Option<ObservableItemsEntry<'_>> {
+        self.0.next().map(ObservableItemsEntry)
+    }
+}
+
+/// A handle to a single timeline item in an `ObservableItems`.
+pub struct ObservableItemsEntry<'a>(ObservableVectorEntry<'a, Arc<TimelineItem>>);
+
+impl<'a> ObservableItemsEntry<'a> {
+    /// Replace the timeline item by `timeline_item`.
+    pub fn replace(this: &mut Self, timeline_item: Arc<TimelineItem>) -> Arc<TimelineItem> {
+        ObservableVectorEntry::set(&mut this.0, timeline_item)
+    }
+}
+
+impl Deref for ObservableItemsEntry<'_> {
+    type Target = Arc<TimelineItem>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
