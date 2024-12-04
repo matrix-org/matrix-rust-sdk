@@ -514,7 +514,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // wouldn't normally be visible. Remove it.
                 trace!("Removing UTD that was successfully retried");
                 self.items.remove(timeline_item_index);
-                self.meta.all_remote_events.timeline_item_has_been_removed_at(timeline_item_index);
 
                 self.result.item_removed = true;
             }
@@ -1095,7 +1094,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 trace!("Adding new local timeline item");
 
                 let item = self.meta.new_timeline_item(item);
-                self.items.push_back(item);
+                self.items.push_back(item, None);
             }
 
             Flow::Remote { position: TimelineItemPosition::Start { .. }, event_id, .. } => {
@@ -1112,8 +1111,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 trace!("Adding new remote timeline item at the start");
 
                 let item = self.meta.new_timeline_item(item);
-                self.items.push_front(item);
-                self.meta.all_remote_events.timeline_item_has_been_inserted_at(0, Some(0));
+                self.items.push_front(item, Some(0));
             }
 
             Flow::Remote {
@@ -1189,6 +1187,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     })
                     .unwrap_or(0);
 
+                let event_index =
+                    Some(self.items.all_remote_events().last_index()
+                        // The last remote event is necessarily associated to this
+                        // timeline item, see the contract of this method.
+                        .expect("A timeline item is being added but its associated remote event is missing")
+                    );
+
                 // Try to keep precise insertion semantics here, in this exact order:
                 //
                 // * _push back_ when the new item is inserted after all items (the assumption
@@ -1199,26 +1204,17 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 if timeline_item_index == self.items.len() {
                     trace!("Adding new remote timeline item at the back");
-                    self.items.push_back(new_item);
+                    self.items.push_back(new_item, event_index);
                 } else if timeline_item_index == 0 {
                     trace!("Adding new remote timeline item at the front");
-                    self.items.push_front(new_item);
+                    self.items.push_front(new_item, event_index);
                 } else {
                     trace!(
                         timeline_item_index,
                         "Adding new remote timeline item at specific index"
                     );
-                    self.items.insert(timeline_item_index, new_item);
+                    self.items.insert(timeline_item_index, new_item, event_index);
                 }
-
-                self.meta.all_remote_events.timeline_item_has_been_inserted_at(
-                    timeline_item_index,
-                    Some(self.meta.all_remote_events.last_index()
-                        // The last remote event is necessarily associated to this
-                        // timeline item, see the contract of this method.
-                        .expect("A timeline item is being added but its associated remote event is missing")
-                    ),
-                );
             }
 
             Flow::Remote {

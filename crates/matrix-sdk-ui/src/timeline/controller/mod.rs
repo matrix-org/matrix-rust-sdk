@@ -54,10 +54,10 @@ use tracing::{
 #[cfg(test)]
 pub(super) use self::observable_items::ObservableItems;
 pub(super) use self::{
-    observable_items::ObservableItemsTransaction,
+    observable_items::{AllRemoteEvents, ObservableItemsTransaction},
     state::{
-        AllRemoteEvents, FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata,
-        TimelineNewItemPosition, TimelineState, TimelineStateTransaction,
+        FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata, TimelineNewItemPosition,
+        TimelineState, TimelineStateTransaction,
     },
 };
 use super::{
@@ -1487,13 +1487,22 @@ impl TimelineController {
 
         match receipt_type {
             SendReceiptType::Read => {
-                if let Some((old_pub_read, _)) =
-                    state.meta.user_receipt(own_user_id, ReceiptType::Read, room).await
+                if let Some((old_pub_read, _)) = state
+                    .meta
+                    .user_receipt(
+                        own_user_id,
+                        ReceiptType::Read,
+                        room,
+                        state.items.all_remote_events(),
+                    )
+                    .await
                 {
                     trace!(%old_pub_read, "found a previous public receipt");
-                    if let Some(relative_pos) =
-                        state.meta.compare_events_positions(&old_pub_read, event_id)
-                    {
+                    if let Some(relative_pos) = state.meta.compare_events_positions(
+                        &old_pub_read,
+                        event_id,
+                        state.items.all_remote_events(),
+                    ) {
                         trace!("event referred to new receipt is {relative_pos:?} the previous receipt");
                         return relative_pos == RelativePosition::After;
                     }
@@ -1506,9 +1515,11 @@ impl TimelineController {
                     state.latest_user_read_receipt(own_user_id, room).await
                 {
                     trace!(%old_priv_read, "found a previous private receipt");
-                    if let Some(relative_pos) =
-                        state.meta.compare_events_positions(&old_priv_read, event_id)
-                    {
+                    if let Some(relative_pos) = state.meta.compare_events_positions(
+                        &old_priv_read,
+                        event_id,
+                        state.items.all_remote_events(),
+                    ) {
                         trace!("event referred to new receipt is {relative_pos:?} the previous receipt");
                         return relative_pos == RelativePosition::After;
                     }
@@ -1517,9 +1528,11 @@ impl TimelineController {
             SendReceiptType::FullyRead => {
                 if let Some(prev_event_id) = self.room_data_provider.load_fully_read_marker().await
                 {
-                    if let Some(relative_pos) =
-                        state.meta.compare_events_positions(&prev_event_id, event_id)
-                    {
+                    if let Some(relative_pos) = state.meta.compare_events_positions(
+                        &prev_event_id,
+                        event_id,
+                        state.items.all_remote_events(),
+                    ) {
                         return relative_pos == RelativePosition::After;
                     }
                 }
@@ -1535,7 +1548,7 @@ impl TimelineController {
     /// it's folded into another timeline item.
     pub(crate) async fn latest_event_id(&self) -> Option<OwnedEventId> {
         let state = self.state.read().await;
-        state.meta.all_remote_events.last().map(|event_meta| &event_meta.event_id).cloned()
+        state.items.all_remote_events().last().map(|event_meta| &event_meta.event_id).cloned()
     }
 }
 
