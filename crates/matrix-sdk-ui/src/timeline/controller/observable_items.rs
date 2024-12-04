@@ -169,7 +169,7 @@ pub struct ObservableItemsTransaction<'observable_items> {
 }
 
 impl<'observable_items> ObservableItemsTransaction<'observable_items> {
-    /// Get a referene to the timeline index at position `timeline_item_index`.
+    /// Get a reference to the timeline index at position `timeline_item_index`.
     pub fn get(&self, timeline_item_index: usize) -> Option<&Arc<TimelineItem>> {
         self.items.get(timeline_item_index)
     }
@@ -429,6 +429,10 @@ impl AllRemoteEvents {
         }
     }
 
+    /// Notify that a timeline item has been inserted at
+    /// `new_timeline_item_index`. If `event_index` is `Some(_)`, it means the
+    /// remote event at `event_index` must be mapped to
+    /// `new_timeline_item_index`.
     fn timeline_item_has_been_inserted_at(
         &mut self,
         new_timeline_item_index: usize,
@@ -443,6 +447,9 @@ impl AllRemoteEvents {
         }
     }
 
+    /// Notify that a timeline item has been removed at
+    /// `new_timeline_item_index`. If `event_index` is `Some(_)`, it means the
+    /// remote event at `event_index` must be unmapped.
     fn timeline_item_has_been_removed_at(&mut self, timeline_item_index_to_remove: usize) {
         for event_meta in self.0.iter_mut() {
             let mut remove_timeline_item_index = false;
