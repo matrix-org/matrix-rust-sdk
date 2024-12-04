@@ -15,7 +15,6 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use eyeball_im::ObservableVectorTransactionEntry;
 use indexmap::IndexMap;
 use matrix_sdk::{
     crypto::types::events::UtdCause,
@@ -52,30 +51,23 @@ use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
     controller::{
-        ObservableItemsTransaction, PendingEditKind, TimelineMetadata, TimelineStateTransaction,
+        ObservableItemsTransaction, ObservableItemsTransactionEntry, PendingEdit, PendingEditKind,
+        TimelineMetadata, TimelineStateTransaction,
     },
     day_dividers::DayDividerAdjuster,
     event_item::{
         extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
         AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,
-        LocalEventTimelineItem, PollState, Profile, ReactionsByKeyBySender, RemoteEventOrigin,
-        RemoteEventTimelineItem, TimelineEventItemId,
+        LocalEventTimelineItem, PollState, Profile, ReactionInfo, ReactionStatus,
+        ReactionsByKeyBySender, RemoteEventOrigin, RemoteEventTimelineItem, TimelineEventItemId,
     },
-    reactions::FullReactionKey,
+    reactions::{FullReactionKey, PendingReaction},
+    traits::RoomDataProvider,
     util::{rfind_event_by_id, rfind_event_item},
-    EventTimelineItem, InReplyToDetails, OtherState, Sticker, TimelineDetails, TimelineItem,
-    TimelineItemContent,
+    EventTimelineItem, InReplyToDetails, OtherState, RepliedToEvent, Sticker, TimelineDetails,
+    TimelineItem, TimelineItemContent,
 };
-use crate::{
-    events::SyncTimelineEventWithoutContent,
-    timeline::{
-        controller::PendingEdit,
-        event_item::{ReactionInfo, ReactionStatus},
-        reactions::PendingReaction,
-        traits::RoomDataProvider,
-        RepliedToEvent,
-    },
-};
+use crate::events::SyncTimelineEventWithoutContent;
 
 /// When adding an event, useful information related to the source of the event.
 pub(super) enum Flow {
@@ -1262,7 +1254,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 TimelineItemContent::Message(message.with_in_reply_to(in_reply_to));
                 let new_reply_item =
                 entry.with_kind(event_item.with_content(new_reply_content, None));
-                ObservableVectorTransactionEntry::set(&mut entry, new_reply_item);
+                ObservableItemsTransactionEntry::replace(&mut entry, new_reply_item);
             }
         });
     }

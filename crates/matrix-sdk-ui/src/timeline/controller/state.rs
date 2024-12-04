@@ -19,7 +19,6 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use eyeball_im::ObservableVectorTransactionEntry;
 use itertools::Itertools as _;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer, send_queue::SendHandle,
@@ -45,7 +44,10 @@ use ruma::{
 use tracing::{debug, instrument, trace, warn};
 
 use super::{
-    observable_items::{AllRemoteEvents, ObservableItems, ObservableItemsTransaction},
+    observable_items::{
+        AllRemoteEvents, ObservableItems, ObservableItemsTransaction,
+        ObservableItemsTransactionEntry,
+    },
     HandleManyEventsResult, TimelineFocusKind, TimelineSettings,
 };
 use crate::{
@@ -655,7 +657,12 @@ impl TimelineStateTransaction<'_> {
             // Remove all remote events and the read marker
             self.items.for_each(|entry| {
                 if entry.is_remote_event() || entry.is_read_marker() {
-                    ObservableVectorTransactionEntry::remove(entry);
+                    // SAFETY: this method removes all events except local events. Local events
+                    // don't have a mapping from remote events to timeline items because… well… they
+                    // are local events, not remove events.
+                    unsafe {
+                        ObservableItemsTransactionEntry::remove(entry);
+                    }
                 }
             });
 
