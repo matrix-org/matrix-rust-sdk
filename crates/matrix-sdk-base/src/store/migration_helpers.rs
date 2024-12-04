@@ -38,7 +38,7 @@ use ruma::{
         },
         EmptyStateKey, EventContent, RedactContent, StateEventContent, StateEventType,
     },
-    OwnedRoomId, RoomId,
+    OwnedRoomId, OwnedUserId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -156,7 +156,7 @@ fn encryption_state_default() -> bool {
 struct BaseRoomInfoV1 {
     avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
     canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
-    dm_targets: HashSet<OwnedDirectUserIdentifier>,
+    dm_targets: HashSet<OwnedUserId>,
     encryption: Option<RoomEncryptionEventContent>,
     guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
     history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
@@ -201,12 +201,17 @@ impl BaseRoomInfoV1 {
             MinimalStateEvent::Redacted(ev) => MinimalStateEvent::Redacted(ev),
         });
 
+        let mut dm_targets_converted = HashSet::new();
+        for dm_target in dm_targets {
+            dm_targets_converted.insert(OwnedDirectUserIdentifier::from(dm_target));
+        }
+
         Box::new(BaseRoomInfo {
             avatar,
             beacons: BTreeMap::new(),
             canonical_alias,
             create,
-            dm_targets,
+            dm_targets: dm_targets_converted,
             encryption,
             guest_access,
             history_visibility,
