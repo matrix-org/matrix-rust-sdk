@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use as_variant::as_variant;
 use assert_matches::assert_matches;
@@ -20,15 +20,10 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    config::{StoreConfig, SyncSettings},
-    linked_chunk::{ChunkIdentifier, Update},
+    config::SyncSettings,
     room::edit::EditedContent,
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
     Client,
-};
-use matrix_sdk_base::event_cache::{
-    store::{EventCacheStore, MemoryStore},
-    Gap,
 };
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
@@ -864,47 +859,20 @@ impl PendingEditHelper {
     async fn new() -> Self {
         let room_id = room_id!("!a98sd12bjh:example.org");
 
-        let event_cache_store = Arc::new(MemoryStore::new());
         let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
 
-        let client = server
-            .client_builder()
-            .store_config(
-                StoreConfig::new("hodor".to_owned()).event_cache_store(event_cache_store.clone()),
+        client.event_cache().subscribe().unwrap();
+
+        // Fill the initial prev-batch token to avoid waiting for it later.
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .set_timeline_prev_batch("prev-batch-token".to_owned()),
             )
-            .build()
             .await;
 
-        {
-            // Fill the initial prev-batch token to avoid waiting for it later.
-            let ec = client.event_cache();
-            ec.subscribe().unwrap();
-            ec.enable_storage().unwrap();
-
-            event_cache_store
-                .handle_linked_chunk_updates(
-                    room_id,
-                    vec![
-                        // Maintain the invariant that the first chunk is an items.
-                        Update::NewItemsChunk {
-                            previous: None,
-                            new: ChunkIdentifier::new(0),
-                            next: None,
-                        },
-                        // Mind the gap!
-                        Update::NewGapChunk {
-                            previous: Some(ChunkIdentifier::new(0)),
-                            new: ChunkIdentifier::new(1),
-                            next: None,
-                            gap: Gap { prev_token: "prev-batch-token".to_owned() },
-                        },
-                    ],
-                )
-                .await
-                .unwrap();
-        }
-
-        server.sync_joined_room(&client, room_id).await;
         server.mock_room_state_encryption().plain().mount().await;
 
         let room = client.get_room(room_id).unwrap();
