@@ -504,14 +504,15 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             trace!("No new item added");
 
             if let Flow::Remote {
-                position: TimelineItemPosition::UpdateDecrypted { timeline_item_index: idx },
+                position: TimelineItemPosition::UpdateDecrypted { timeline_item_index },
                 ..
             } = self.ctx.flow
             {
                 // If add was not called, that means the UTD event is one that
                 // wouldn't normally be visible. Remove it.
                 trace!("Removing UTD that was successfully retried");
-                self.items.remove(idx);
+                self.items.remove(timeline_item_index);
+                self.meta.all_remote_events.timeline_item_has_been_removed_at(timeline_item_index);
 
                 self.result.item_removed = true;
             }
@@ -1010,6 +1011,16 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     }
 
     /// Add a new event item in the timeline.
+    ///
+    /// # Safety
+    ///
+    /// This method is not marked as unsafe **but** it manipulates
+    /// [`TimelineMetadata::all_remote_events`]. 2 rules **must** be respected:
+    ///
+    /// 1. the remote event of the item being added **must** be present in
+    ///    `all_remote_events`,
+    /// 2. the lastly added or updated remote event must be associated to the
+    ///    timeline item being added here.
     fn add_item(
         &mut self,
         content: TimelineItemContent,
@@ -1100,6 +1111,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 let item = self.meta.new_timeline_item(item);
                 self.items.push_front(item);
+                self.meta.all_remote_events.timeline_item_has_been_inserted_at(0, Some(0));
             }
 
             Flow::Remote {
@@ -1153,19 +1165,6 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     // will run to re-add the removed item
                 }
 
-                // Local echoes that are pending should stick to the bottom,
-                // find the latest event that isn't that.
-                let latest_event_idx = self
-                    .items
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .find_map(|(idx, item)| (!item.as_event()?.is_local_echo()).then_some(idx));
-
-                // Insert the next item after the latest event item that's not a
-                // pending local echo, or at the start if there is no such item.
-                let insert_idx = latest_event_idx.map_or(0, |idx| idx + 1);
-
                 trace!("Adding new remote timeline item after all non-pending events");
                 let new_item = match removed_event_item_id {
                     // If a previous version of the same item (usually a local
@@ -1175,14 +1174,49 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     None => self.meta.new_timeline_item(item),
                 };
 
-                // Keep push semantics, if we're inserting at the front or the back.
-                if insert_idx == self.items.len() {
+                // Local events are always at the bottom. Let's find the latest remote event
+                // and insert after it, otherwise, if there is no remote event, insert at 0.
+                let timeline_item_index = self
+                    .items
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .find_map(|(timeline_item_index, timeline_item)| {
+                        (!timeline_item.as_event()?.is_local_echo())
+                            .then_some(timeline_item_index + 1)
+                    })
+                    .unwrap_or(0);
+
+                // Try to keep precise insertion semantics here, in this exact order:
+                //
+                // * _push back_ when the new item is inserted after all items (the assumption
+                // being that this is the hot path, because most of the time new events
+                // come from the sync),
+                // * _push front_ when the new item is inserted at index 0,
+                // * _insert_ otherwise.
+
+                if timeline_item_index == self.items.len() {
+                    trace!("Adding new remote timeline item at the back");
                     self.items.push_back(new_item);
-                } else if insert_idx == 0 {
+                } else if timeline_item_index == 0 {
+                    trace!("Adding new remote timeline item at the front");
                     self.items.push_front(new_item);
                 } else {
-                    self.items.insert(insert_idx, new_item);
+                    trace!(
+                        timeline_item_index,
+                        "Adding new remote timeline item at specific index"
+                    );
+                    self.items.insert(timeline_item_index, new_item);
                 }
+
+                self.meta.all_remote_events.timeline_item_has_been_inserted_at(
+                    timeline_item_index,
+                    Some(self.meta.all_remote_events.last_index()
+                        // The last remote event is necessarily associated to this
+                        // timeline item, see the contract of this method.
+                        .expect("A timeline item is being added but its associated remote event is missing")
+                    ),
+                );
             }
 
             Flow::Remote {
