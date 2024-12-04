@@ -154,7 +154,7 @@ fn test_openid_fail_results_in_response_blocked() {
 
         machine.process(IncomingMessage::MatrixDriverResponse {
             request_id,
-            response: Err("Unlucky one".into()),
+            response: Err(crate::Error::UnknownError("Unlucky one".into())),
         })
     };
 
