@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use as_variant::as_variant;
 use ruma::{
     api::client::{
         delayed_events::{delayed_message_event, delayed_state_event, update_delayed_event},
@@ -24,7 +25,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 
 use super::{SendEventRequest, UpdateDelayedEventRequest};
-use crate::{widget::StateKeySelector, Error, HttpError};
+use crate::{widget::StateKeySelector, Error, HttpError, RumaApiError};
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case", content = "data")]
@@ -40,8 +41,8 @@ pub(super) enum FromWidgetRequest {
     DelayedEventUpdate(UpdateDelayedEventRequest),
 }
 
-/// The full response a client sends to a from widget request
-/// in case of an error.
+/// The full response a client sends to a [`FromWidgetRequest`] in case of an
+/// error.
 #[derive(Serialize)]
 pub(super) struct FromWidgetErrorResponse {
     error: FromWidgetError,
@@ -49,14 +50,14 @@ pub(super) struct FromWidgetErrorResponse {
 
 impl FromWidgetErrorResponse {
     /// Create a error response to send to the widget from an http error.
-    pub(crate) fn from_http_error(error: &HttpError) -> Self {
+    pub(crate) fn from_http_error(error: HttpError) -> Self {
+        let message = error.to_string();
+        let matrix_api_error = as_variant!(error, HttpError::Api(ruma::api::error::FromHttpResponseError::Server(RumaApiError::ClientApi(err))) => err);
+
         Self {
             error: FromWidgetError {
-                message: error.to_string(),
-                matrix_api_error: error.as_client_api_error().and_then(|api_error| match api_error
-                    .body
-                    .clone()
-                {
+                message,
+                matrix_api_error: matrix_api_error.and_then(|api_error| match api_error.body {
                     ErrorBody::Standard { kind, message } => Some(FromWidgetMatrixErrorBody {
                         http_status: api_error.status_code.as_u16().into(),
                         response: StandardErrorBody { kind, message },
@@ -68,8 +69,8 @@ impl FromWidgetErrorResponse {
     }
 
     /// Create a error response to send to the widget from a matrix sdk error.
-    pub(crate) fn from_error(error: &Error) -> Self {
-        match &error {
+    pub(crate) fn from_error(error: Error) -> Self {
+        match error {
             Error::Http(e) => FromWidgetErrorResponse::from_http_error(e),
             // For UnknownError's we do not want to have the `unknown error` bit in the message.
             // Hence we only convert the inner error to a string.

@@ -216,7 +216,7 @@ impl WidgetMachine {
             Err(e) => {
                 return vec![Self::send_from_widget_err_response(
                     raw_request,
-                    FromWidgetErrorResponse::from_error(&crate::Error::SerdeJson(e)),
+                    FromWidgetErrorResponse::from_error(crate::Error::SerdeJson(e)),
                 )]
             }
         };
@@ -292,7 +292,7 @@ impl WidgetMachine {
                         // does not impl Serialize
                         result
                             .map(Into::<UpdateDelayedEventResponse>::into)
-                            .map_err(|e| FromWidgetErrorResponse::from_error(&e)),
+                            .map_err(FromWidgetErrorResponse::from_error),
                     )]
                 });
 
@@ -342,7 +342,7 @@ impl WidgetMachine {
                                 events.retain(|e| capabilities.raw_event_matches_read_filter(e));
                                 ReadEventResponse { events }
                             })
-                            .map_err(|e| FromWidgetErrorResponse::from_error(&e)),
+                            .map_err(FromWidgetErrorResponse::from_error),
                     };
 
                     vec![Self::send_from_widget_response(raw_request, response)]
@@ -376,7 +376,7 @@ impl WidgetMachine {
                     request.then(|result, _machine| {
                         let response = result
                             .map(|events| ReadEventResponse { events })
-                            .map_err(|e| FromWidgetErrorResponse::from_error(&e));
+                            .map_err(FromWidgetErrorResponse::from_error);
                         vec![Self::send_from_widget_response(raw_request, response)]
                     });
                     action
@@ -433,7 +433,7 @@ impl WidgetMachine {
             }
             vec![Self::send_from_widget_response(
                 raw_request,
-                result.map_err(|e| FromWidgetErrorResponse::from_error(&e)),
+                result.map_err(FromWidgetErrorResponse::from_error),
             )]
         });
 

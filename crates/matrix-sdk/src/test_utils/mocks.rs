@@ -923,7 +923,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
         }
     }
 
-    /// Ensures the event was send as a delayed event.
+    /// Ensures the event was sent as a delayed event.
     ///
     /// Note: works with *any* room.
     ///
@@ -1154,7 +1154,7 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
         Self { mock: self.mock.and(path_regex(Self::generate_path_regexp(&self.endpoint))), ..self }
     }
 
-    /// Ensures the event was send as a delayed event.
+    /// Ensures the event was sent as a delayed event.
     ///
     /// Note: works with *any* room.
     ///
