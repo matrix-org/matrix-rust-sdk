@@ -85,27 +85,29 @@ impl FromWidgetErrorResponse {
     }
 }
 
-/// The serializable section of an error response send by the client as a
+/// Serializable section of an error response send by the client as a
 /// response to a [`FromWidgetRequest`].
 #[derive(Serialize)]
 struct FromWidgetError {
-    /// A unspecified error message text that caused this widget action to fail.
+    /// Unspecified error message text that caused this widget action to
+    /// fail.
+    ///
     /// This is useful to prompt the user on an issue but cannot be used to
     /// decide on how to deal with the error.
     message: String,
-    /// An optional matrix error that contains specified
-    /// information and helps finding a work around for specific errors.
+
+    /// Optional matrix error hinting at workarounds for specific errors.
     matrix_api_error: Option<FromWidgetMatrixErrorBody>,
 }
 
-/// The serializable section of a widget response that represents a matrix
-/// error.
+/// Serializable section of a widget response that represents a matrix error.
 #[derive(Serialize)]
 struct FromWidgetMatrixErrorBody {
-    /// The status code of the http response
+    /// Status code of the http response.
     http_status: u32,
-    /// The matrix standard error response including the `errorcode` and the
-    /// `error` message as defined in the spec: https://spec.matrix.org/v1.12/client-server-api/#standard-error-response
+
+    /// Standard error response including the `errorcode` and the `error`
+    /// message as defined in the [spec](https://spec.matrix.org/v1.12/client-server-api/#standard-error-response).
     response: StandardErrorBody,
 }
 

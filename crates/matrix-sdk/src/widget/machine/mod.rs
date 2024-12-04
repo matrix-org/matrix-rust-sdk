@@ -268,9 +268,10 @@ impl WidgetMachine {
 
             FromWidgetRequest::DelayedEventUpdate(req) => {
                 let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
-                    let text =
-                        "Received send update delayed event request before capabilities were negotiated";
-                    return vec![Self::send_from_widget_error_string_response(raw_request, text)];
+                    return vec![Self::send_from_widget_error_string_response(
+                        raw_request,
+                        "Received send update delayed event request before capabilities were negotiated"
+                    )];
                 };
 
                 if !capabilities.update_delayed_event {
@@ -307,8 +308,10 @@ impl WidgetMachine {
         raw_request: Raw<FromWidgetRequest>,
     ) -> Option<Action> {
         let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
-            let text = "Received read event request before capabilities were negotiated";
-            return Some(Self::send_from_widget_error_string_response(raw_request, text));
+            return Some(Self::send_from_widget_error_string_response(
+                raw_request,
+                "Received read event request before capabilities were negotiated",
+            ));
         };
 
         match request {
@@ -490,6 +493,7 @@ impl WidgetMachine {
             }
         }
     }
+
     fn send_from_widget_error_string_response(
         raw_request: Raw<FromWidgetRequest>,
         error: impl Into<String>,
