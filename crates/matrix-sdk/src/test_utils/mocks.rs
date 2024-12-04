@@ -1406,6 +1406,11 @@ impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
         Self { mock: self.mock.and(query_param("limit", limit.to_string())), ..self }
     }
 
+    /// Expects an optional `from` to be set on the request.
+    pub fn from(self, from: &str) -> Self {
+        Self { mock: self.mock.and(query_param("from", from)), ..self }
+    }
+
     /// Returns a messages endpoint that emulates success, i.e. the messages
     /// provided as `response` could be retrieved.
     ///
@@ -1416,13 +1421,13 @@ impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
         start: String,
         end: Option<String>,
         chunk: Vec<impl Into<Raw<AnyTimelineEvent>>>,
-        state: Vec<impl Into<Raw<AnyStateEvent>>>,
+        state: Vec<Raw<AnyStateEvent>>,
     ) -> MatrixMock<'a> {
         let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "start": start,
             "end": end,
             "chunk": chunk.into_iter().map(|ev| ev.into()).collect::<Vec<_>>(),
-            "state": state.into_iter().map(|ev| ev.into()).collect::<Vec<_>>(),
+            "state": state,
         })));
         MatrixMock { server: self.server, mock }
     }
