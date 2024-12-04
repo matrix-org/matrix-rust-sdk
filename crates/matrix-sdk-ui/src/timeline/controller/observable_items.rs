@@ -478,3 +478,286 @@ impl AllRemoteEvents {
         }
     }
 }
+
+#[cfg(test)]
+mod all_remote_events_tests {
+    use assert_matches::assert_matches;
+    use ruma::event_id;
+
+    use super::{AllRemoteEvents, EventMeta};
+
+    fn event_meta(event_id: &str, timeline_item_index: Option<usize>) -> EventMeta {
+        EventMeta { event_id: event_id.parse().unwrap(), timeline_item_index, visible: false }
+    }
+
+    macro_rules! assert_events {
+        ( $events:ident, [ $( ( $event_id:literal, $timeline_item_index:expr ) ),* $(,)? ] ) => {
+            let mut iter = $events .iter();
+
+            $(
+                assert_matches!(iter.next(), Some(EventMeta { event_id, timeline_item_index, .. }) => {
+                    assert_eq!(event_id.as_str(), $event_id );
+                    assert_eq!(*timeline_item_index, $timeline_item_index );
+                });
+            )*
+
+            assert!(iter.next().is_none(), "Not all events have been asserted");
+        }
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut events = AllRemoteEvents::default();
+
+        events.push_back(event_meta("$ev0", None));
+        events.push_back(event_meta("$ev1", None));
+        events.push_back(event_meta("$ev2", None));
+
+        assert_eq!(events.iter().count(), 3);
+
+        events.clear();
+
+        assert_eq!(events.iter().count(), 0);
+    }
+
+    #[test]
+    fn test_push_front() {
+        let mut events = AllRemoteEvents::default();
+
+        // Push front on an empty set, nothing particular.
+        events.push_front(event_meta("$ev0", Some(1)));
+
+        // Push front with no `timeline_item_index`.
+        events.push_front(event_meta("$ev1", None));
+
+        // Push front with a `timeline_item_index`.
+        events.push_front(event_meta("$ev2", Some(0)));
+
+        // Push front with the same `timeline_item_index`.
+        events.push_front(event_meta("$ev3", Some(0)));
+
+        assert_events!(
+            events,
+            [
+                // `timeline_item_index` is untouched
+                ("$ev3", Some(0)),
+                // `timeline_item_index` has been shifted once
+                ("$ev2", Some(1)),
+                // no `timeline_item_index`
+                ("$ev1", None),
+                // `timeline_item_index` has been shifted twice
+                ("$ev0", Some(3)),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_push_back() {
+        let mut events = AllRemoteEvents::default();
+
+        // Push back on an empty set, nothing particular.
+        events.push_back(event_meta("$ev0", Some(0)));
+
+        // Push back with no `timeline_item_index`.
+        events.push_back(event_meta("$ev1", None));
+
+        // Push back with a `timeline_item_index`.
+        events.push_back(event_meta("$ev2", Some(1)));
+
+        // Push back with a `timeline_item_index` pointing to a timeline item that is
+        // not the last one. Is it possible in practise? Normally not, but let's test
+        // it anyway.
+        events.push_back(event_meta("$ev3", Some(1)));
+
+        assert_events!(
+            events,
+            [
+                // `timeline_item_index` is untouched
+                ("$ev0", Some(0)),
+                // no `timeline_item_index`
+                ("$ev1", None),
+                // `timeline_item_index` has been shifted once
+                ("$ev2", Some(2)),
+                // `timeline_item_index` is untouched
+                ("$ev3", Some(1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_remove() {
+        let mut events = AllRemoteEvents::default();
+
+        // Push some events.
+        events.push_back(event_meta("$ev0", Some(0)));
+        events.push_back(event_meta("$ev1", Some(1)));
+        events.push_back(event_meta("$ev2", None));
+        events.push_back(event_meta("$ev3", Some(2)));
+
+        // Assert initial state.
+        assert_events!(
+            events,
+            [("$ev0", Some(0)), ("$ev1", Some(1)), ("$ev2", None), ("$ev3", Some(2))]
+        );
+
+        // Remove two events.
+        events.remove(2); // $ev2 has no `timeline_item_index`
+        events.remove(1); // $ev1 has a `timeline_item_index`
+
+        assert_events!(
+            events,
+            [
+                ("$ev0", Some(0)),
+                // `timeline_item_index` has shifted once
+                ("$ev3", Some(1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_last() {
+        let mut events = AllRemoteEvents::default();
+
+        assert!(events.last().is_none());
+        assert!(events.last_index().is_none());
+
+        // Push some events.
+        events.push_back(event_meta("$ev0", Some(0)));
+        events.push_back(event_meta("$ev1", Some(1)));
+
+        assert_matches!(events.last(), Some(EventMeta { event_id, .. }) => {
+            assert_eq!(event_id.as_str(), "$ev1");
+        });
+        assert_eq!(events.last_index(), Some(1));
+    }
+
+    #[test]
+    fn test_get_by_event_by_mut() {
+        let mut events = AllRemoteEvents::default();
+
+        // Push some events.
+        events.push_back(event_meta("$ev0", Some(0)));
+        events.push_back(event_meta("$ev1", Some(1)));
+
+        assert!(events.get_by_event_id_mut(event_id!("$ev0")).is_some());
+        assert!(events.get_by_event_id_mut(event_id!("$ev42")).is_none());
+    }
+
+    #[test]
+    fn test_timeline_item_has_been_inserted_at() {
+        let mut events = AllRemoteEvents::default();
+
+        // Push some events.
+        events.push_back(event_meta("$ev0", Some(0)));
+        events.push_back(event_meta("$ev1", Some(1)));
+        events.push_back(event_meta("$ev2", None));
+        events.push_back(event_meta("$ev3", None));
+        events.push_back(event_meta("$ev4", Some(2)));
+        events.push_back(event_meta("$ev5", Some(3)));
+        events.push_back(event_meta("$ev6", None));
+
+        // A timeline item has been inserted at index 2, and maps to no event.
+        events.timeline_item_has_been_inserted_at(2, None);
+
+        assert_events!(
+            events,
+            [
+                ("$ev0", Some(0)),
+                ("$ev1", Some(1)),
+                ("$ev2", None),
+                ("$ev3", None),
+                // `timeline_item_index` is shifted once
+                ("$ev4", Some(3)),
+                // `timeline_item_index` is shifted once
+                ("$ev5", Some(4)),
+                ("$ev6", None),
+            ]
+        );
+
+        // A timeline item has been inserted at the back, and maps to `$ev6`.
+        events.timeline_item_has_been_inserted_at(5, Some(6));
+
+        assert_events!(
+            events,
+            [
+                ("$ev0", Some(0)),
+                ("$ev1", Some(1)),
+                ("$ev2", None),
+                ("$ev3", None),
+                ("$ev4", Some(3)),
+                ("$ev5", Some(4)),
+                // `timeline_item_index` has been updated
+                ("$ev6", Some(5)),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_timeline_item_has_been_removed_at() {
+        let mut events = AllRemoteEvents::default();
+
+        // Push some events.
+        events.push_back(event_meta("$ev0", Some(0)));
+        events.push_back(event_meta("$ev1", Some(1)));
+        events.push_back(event_meta("$ev2", None));
+        events.push_back(event_meta("$ev3", None));
+        events.push_back(event_meta("$ev4", Some(3)));
+        events.push_back(event_meta("$ev5", Some(4)));
+        events.push_back(event_meta("$ev6", None));
+
+        // A timeline item has been removed at index 2, which maps to no event.
+        events.timeline_item_has_been_removed_at(2);
+
+        assert_events!(
+            events,
+            [
+                ("$ev0", Some(0)),
+                ("$ev1", Some(1)),
+                ("$ev2", None),
+                ("$ev3", None),
+                // `timeline_item_index` is shifted once
+                ("$ev4", Some(2)),
+                // `timeline_item_index` is shifted once
+                ("$ev5", Some(3)),
+                ("$ev6", None),
+            ]
+        );
+
+        // A timeline item has been removed at index 2, which maps to `$ev4`.
+        events.timeline_item_has_been_removed_at(2);
+
+        assert_events!(
+            events,
+            [
+                ("$ev0", Some(0)),
+                ("$ev1", Some(1)),
+                ("$ev2", None),
+                ("$ev3", None),
+                // `timeline_item_index` has been updated
+                ("$ev4", None),
+                // `timeline_item_index` has shifted once
+                ("$ev5", Some(2)),
+                ("$ev6", None),
+            ]
+        );
+
+        // A timeline item has been removed at index 0, which maps to `$ev0`.
+        events.timeline_item_has_been_removed_at(0);
+
+        assert_events!(
+            events,
+            [
+                // `timeline_item_index` has been updated
+                ("$ev0", None),
+                // `timeline_item_index` has shifted once
+                ("$ev1", Some(0)),
+                ("$ev2", None),
+                ("$ev3", None),
+                ("$ev4", None),
+                // `timeline_item_index` has shifted once
+                ("$ev5", Some(1)),
+                ("$ev6", None),
+            ]
+        );
+    }
+}
