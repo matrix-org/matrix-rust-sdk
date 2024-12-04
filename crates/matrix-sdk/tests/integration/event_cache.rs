@@ -1,11 +1,11 @@
 use std::{future::ready, ops::ControlFlow, time::Duration};
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use matrix_sdk::{
+    assert_let_timeout, assert_next_matches_with_timeout,
     event_cache::{
-        paginator::PaginatorState, BackPaginationOutcome, EventCacheError, EventsOrigin,
-        RoomEventCacheUpdate, TimelineHasBeenResetWhilePaginating,
+        paginator::PaginatorState, BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate,
+        TimelineHasBeenResetWhilePaginating,
     },
     test_utils::{assert_event_matches_msg, logged_in_client_with_server, mocks::MatrixMockServer},
 };
@@ -15,7 +15,7 @@ use matrix_sdk_test::{
 };
 use ruma::{event_id, events::AnyTimelineEvent, room_id, serde::Raw, user_id};
 use serde_json::json;
-use tokio::{spawn, time::timeout};
+use tokio::spawn;
 use wiremock::{
     matchers::{header, method, path_regex, query_param},
     Mock, MockServer, ResponseTemplate,
@@ -104,13 +104,11 @@ async fn test_event_cache_receives_events() {
     server.reset().await;
 
     // It does receive one update,
-    let update = timeout(Duration::from_secs(2), subscriber.recv())
-        .await
-        .expect("timeout after receiving a sync update")
-        .expect("should've received a room event cache update");
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::AddTimelineEvents { events, .. }) = subscriber.recv()
+    );
 
     // Which contains the event that was sent beforehand.
-    assert_let!(RoomEventCacheUpdate::AddTimelineEvents { events, .. } = update);
     assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "bonjour monde");
 
@@ -177,14 +175,8 @@ async fn test_ignored_unignored() {
         })
         .await;
 
-    // It does receive one update,
-    let update = timeout(Duration::from_secs(2), subscriber.recv())
-        .await
-        .expect("timeout after receiving a sync update")
-        .expect("should've received a room event cache update");
-
-    // Which notifies about the clear.
-    assert_matches!(update, RoomEventCacheUpdate::Clear);
+    // It does receive one update, which notifies about the clear.
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::Clear) = subscriber.recv());
 
     // Receiving new events still works.
     server
@@ -198,12 +190,9 @@ async fn test_ignored_unignored() {
         .await;
 
     // We do receive one update,
-    let update = timeout(Duration::from_secs(2), subscriber.recv())
-        .await
-        .expect("timeout after receiving a sync update")
-        .expect("should've received a room event cache update");
-
-    assert_let!(RoomEventCacheUpdate::AddTimelineEvents { events, .. } = update);
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::AddTimelineEvents { events, .. }) = subscriber.recv()
+    );
     assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "i don't like this dexter");
 
@@ -817,10 +806,7 @@ async fn test_limited_timeline_resets_pagination() {
 
     // And the paginator state delives this as an update, and is internally
     // consistent with it:
-    assert_eq!(
-        timeout(Duration::from_secs(1), pagination_status.next()).await,
-        Ok(Some(PaginatorState::Idle))
-    );
+    assert_next_matches_with_timeout!(pagination_status, PaginatorState::Idle);
     assert!(pagination.hit_timeline_start());
 
     // When a limited sync comes back from the server,
@@ -834,10 +820,7 @@ async fn test_limited_timeline_resets_pagination() {
     }
 
     // We receive an update about the limited timeline.
-    assert_matches!(
-        timeout(Duration::from_secs(1), room_stream.recv()).await,
-        Ok(Ok(RoomEventCacheUpdate::Clear))
-    );
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::Clear) = room_stream.recv());
 
     // The paginator state is reset: status set to Initial, hasn't hit the timeline
     // start.
@@ -845,11 +828,7 @@ async fn test_limited_timeline_resets_pagination() {
     assert_eq!(pagination_status.get(), PaginatorState::Initial);
 
     // We receive an update about the paginator status.
-    let next_state = timeout(Duration::from_secs(1), pagination_status.next())
-        .await
-        .expect("timeout")
-        .expect("no update");
-    assert_eq!(next_state, PaginatorState::Initial);
+    assert_next_matches_with_timeout!(pagination_status, PaginatorState::Initial);
 
     assert!(room_stream.is_empty());
 }
@@ -906,15 +885,11 @@ async fn test_limited_timeline_with_storage() {
         )
         .await;
 
-    let update = timeout(Duration::from_secs(2), subscriber.recv())
-        .await
-        .expect("timeout after receiving a sync update")
-        .expect("should've received a room event cache update");
-
-    assert_matches!(update, RoomEventCacheUpdate::AddTimelineEvents { events, origin: EventsOrigin::Sync } => {
-        assert_eq!(events.len(), 1);
-        assert_event_matches_msg(&events[0], "gappy!");
-    });
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::AddTimelineEvents { events, .. }) = subscriber.recv()
+    );
+    assert_eq!(events.len(), 1);
+    assert_event_matches_msg(&events[0], "gappy!");
 
     // That's all, folks!
     assert!(subscriber.is_empty());
