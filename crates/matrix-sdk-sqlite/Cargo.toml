@@ -37,6 +37,7 @@ vodozemac = { workspace = true }
 assert_matches = { workspace = true }
 glob = "0.3.1"
 matrix-sdk-base = { workspace = true, features = ["testing"] }
+matrix-sdk-common = { workspace = true }
 matrix-sdk-crypto = { workspace = true, features = ["testing"] }
 matrix-sdk-test = { workspace = true }
 once_cell = { workspace = true }

@@ -3369,6 +3369,7 @@ dependencies = [
  "glob",
  "itertools 0.13.0",
  "matrix-sdk-base",
+ "matrix-sdk-common",
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
  "matrix-sdk-test",

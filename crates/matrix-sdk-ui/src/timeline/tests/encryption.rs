@@ -774,7 +774,7 @@ fn utd_event_with_unsigned(unsigned: serde_json::Value) -> SyncTimelineEvent {
         raw,
         matrix_sdk::deserialized_responses::UnableToDecryptInfo {
             session_id: Some("SESSION_ID".into()),
-            reason: UnableToDecryptReason::MissingMegolmSession,
+            reason: UnableToDecryptReason::MissingMegolmSession { withheld_code: None },
         },
     )
 }
