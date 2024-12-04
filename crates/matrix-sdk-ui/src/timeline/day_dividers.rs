@@ -17,13 +17,13 @@
 
 use std::{fmt::Display, sync::Arc};
 
-use eyeball_im::ObservableVectorTransaction;
 use ruma::MilliSecondsSinceUnixEpoch;
 use tracing::{error, event_enabled, instrument, trace, warn, Level};
 
 use super::{
-    controller::TimelineMetadata, util::timestamp_to_date, TimelineItem, TimelineItemKind,
-    VirtualTimelineItem,
+    controller::{ObservableItemsTransaction, TimelineMetadata},
+    util::timestamp_to_date,
+    TimelineItem, TimelineItemKind, VirtualTimelineItem,
 };
 
 /// Algorithm ensuring that day dividers are adjusted correctly, according to
@@ -81,11 +81,7 @@ impl DayDividerAdjuster {
     /// Ensures that date separators are properly inserted/removed when needs
     /// be.
     #[instrument(skip_all)]
-    pub fn run(
-        &mut self,
-        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
-        meta: &mut TimelineMetadata,
-    ) {
+    pub fn run(&mut self, items: &mut ObservableItemsTransaction<'_>, meta: &mut TimelineMetadata) {
         // We're going to record vector operations like inserting, replacing and
         // removing day dividers. Since we may remove or insert new items,
         // recorded offsets will change as we're iterating over the array. The
@@ -284,11 +280,7 @@ impl DayDividerAdjuster {
         }
     }
 
-    fn process_ops(
-        &self,
-        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
-        meta: &mut TimelineMetadata,
-    ) {
+    fn process_ops(&self, items: &mut ObservableItemsTransaction<'_>, meta: &mut TimelineMetadata) {
         // Record the deletion offset.
         let mut offset = 0i64;
         // Remember what the maximum index was, so we can assert that it's
@@ -366,7 +358,7 @@ impl DayDividerAdjuster {
     /// Returns a report if and only if there was at least one error.
     fn check_invariants<'a, 'o>(
         &mut self,
-        items: &'a ObservableVectorTransaction<'o, Arc<TimelineItem>>,
+        items: &'a ObservableItemsTransaction<'o>,
         initial_state: Option<Vec<Arc<TimelineItem>>>,
     ) -> Option<DayDividerInvariantsReport<'a, 'o>> {
         let mut report = DayDividerInvariantsReport {
@@ -512,7 +504,7 @@ struct DayDividerInvariantsReport<'a, 'o> {
     /// The operations that have been applied on the list.
     operations: Vec<DayDividerOperation>,
     /// Final state after inserting the day dividers.
-    final_state: &'a ObservableVectorTransaction<'o, Arc<TimelineItem>>,
+    final_state: &'a ObservableItemsTransaction<'o>,
     /// Errors encountered in the algorithm.
     errors: Vec<DayDividerInsertError>,
 }
@@ -608,10 +600,9 @@ enum DayDividerInsertError {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
-    use eyeball_im::ObservableVector;
     use ruma::{owned_event_id, owned_user_id, uint, MilliSecondsSinceUnixEpoch};
 
-    use super::DayDividerAdjuster;
+    use super::{super::controller::ObservableItems, DayDividerAdjuster};
     use crate::timeline::{
         controller::TimelineMetadata,
         event_item::{EventTimelineItemKind, RemoteEventTimelineItem},
@@ -654,7 +645,7 @@ mod tests {
 
     #[test]
     fn test_no_trailing_day_divider() {
-        let mut items = ObservableVector::new();
+        let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
         let mut meta = test_metadata();
@@ -688,7 +679,7 @@ mod tests {
 
     #[test]
     fn test_read_marker_in_between_event_and_day_divider() {
-        let mut items = ObservableVector::new();
+        let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
         let mut meta = test_metadata();
@@ -720,7 +711,7 @@ mod tests {
 
     #[test]
     fn test_read_marker_in_between_day_dividers() {
-        let mut items = ObservableVector::new();
+        let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
         let mut meta = test_metadata();
@@ -754,7 +745,7 @@ mod tests {
 
     #[test]
     fn test_remove_all_day_dividers() {
-        let mut items = ObservableVector::new();
+        let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
         let mut meta = test_metadata();
@@ -784,7 +775,7 @@ mod tests {
 
     #[test]
     fn test_event_read_marker_spurious_day_divider() {
-        let mut items = ObservableVector::new();
+        let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
         let mut meta = test_metadata();
@@ -810,7 +801,7 @@ mod tests {
 
     #[test]
     fn test_multiple_trailing_day_dividers() {
-        let mut items = ObservableVector::new();
+        let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
         let mut meta = test_metadata();
@@ -834,7 +825,7 @@ mod tests {
 
     #[test]
     fn test_start_with_read_marker() {
-        let mut items = ObservableVector::new();
+        let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
         let mut meta = test_metadata();

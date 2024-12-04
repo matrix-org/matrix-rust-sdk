@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::Ordering, collections::HashMap, sync::Arc};
+use std::{cmp::Ordering, collections::HashMap};
 
-use eyeball_im::ObservableVectorTransaction;
 use futures_core::Stream;
 use indexmap::IndexMap;
 use ruma::{
@@ -27,7 +26,8 @@ use tracing::{debug, error, warn};
 
 use super::{
     controller::{
-        AllRemoteEvents, FullEventMeta, TimelineMetadata, TimelineState, TimelineStateTransaction,
+        AllRemoteEvents, FullEventMeta, ObservableItemsTransaction, TimelineMetadata,
+        TimelineState, TimelineStateTransaction,
     },
     traits::RoomDataProvider,
     util::{rfind_event_by_id, RelativePosition},
@@ -100,7 +100,7 @@ impl ReadReceipts {
         new_receipt: FullReceipt<'_>,
         is_own_user_id: bool,
         all_events: &AllRemoteEvents,
-        timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
+        timeline_items: &mut ObservableItemsTransaction<'_>,
     ) {
         // Get old receipt.
         let old_receipt = self.get_latest(new_receipt.user_id, &new_receipt.receipt_type);
@@ -284,11 +284,7 @@ struct ReadReceiptTimelineUpdate {
 
 impl ReadReceiptTimelineUpdate {
     /// Remove the old receipt from the corresponding timeline item.
-    fn remove_old_receipt(
-        &self,
-        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
-        user_id: &UserId,
-    ) {
+    fn remove_old_receipt(&self, items: &mut ObservableItemsTransaction<'_>, user_id: &UserId) {
         let Some(event_id) = &self.old_event_id else {
             // Nothing to do.
             return;
@@ -319,7 +315,7 @@ impl ReadReceiptTimelineUpdate {
     /// Add the new receipt to the corresponding timeline item.
     fn add_new_receipt(
         self,
-        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
+        items: &mut ObservableItemsTransaction<'_>,
         user_id: OwnedUserId,
         receipt: Receipt,
     ) {
@@ -348,7 +344,7 @@ impl ReadReceiptTimelineUpdate {
     /// Apply this update to the timeline.
     fn apply(
         self,
-        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
+        items: &mut ObservableItemsTransaction<'_>,
         user_id: OwnedUserId,
         receipt: Receipt,
     ) {

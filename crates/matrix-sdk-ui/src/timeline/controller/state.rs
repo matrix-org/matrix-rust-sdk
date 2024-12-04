@@ -20,7 +20,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use eyeball_im::{ObservableVector, ObservableVectorTransaction, ObservableVectorTransactionEntry};
+use eyeball_im::ObservableVectorTransactionEntry;
 use itertools::Itertools as _;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer, send_queue::SendHandle,
@@ -45,7 +45,10 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
-use super::{HandleManyEventsResult, TimelineFocusKind, TimelineSettings};
+use super::{
+    observable_items::{ObservableItems, ObservableItemsTransaction},
+    HandleManyEventsResult, TimelineFocusKind, TimelineSettings,
+};
 use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
@@ -90,7 +93,7 @@ impl From<TimelineNewItemPosition> for TimelineItemPosition {
 
 #[derive(Debug)]
 pub(in crate::timeline) struct TimelineState {
-    pub items: ObservableVector<Arc<TimelineItem>>,
+    pub items: ObservableItems,
     pub meta: TimelineMetadata,
 
     /// The kind of focus of this timeline.
@@ -107,10 +110,7 @@ impl TimelineState {
         is_room_encrypted: Option<bool>,
     ) -> Self {
         Self {
-            // Upstream default capacity is currently 16, which is making
-            // sliding-sync tests with 20 events lag. This should still be
-            // small enough.
-            items: ObservableVector::with_capacity(32),
+            items: ObservableItems::new(),
             meta: TimelineMetadata::new(
                 own_user_id,
                 room_version,
@@ -330,6 +330,7 @@ impl TimelineState {
     pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_> {
         let items = self.items.transaction();
         let meta = self.meta.clone();
+
         TimelineStateTransaction {
             items,
             previous_meta: &mut self.meta,
@@ -342,7 +343,7 @@ impl TimelineState {
 pub(in crate::timeline) struct TimelineStateTransaction<'a> {
     /// A vector transaction over the items themselves. Holds temporary state
     /// until committed.
-    pub items: ObservableVectorTransaction<'a, Arc<TimelineItem>>,
+    pub items: ObservableItemsTransaction<'a>,
 
     /// A clone of the previous meta, that we're operating on during the
     /// transaction, and that will be committed to the previous meta location in
@@ -1041,10 +1042,7 @@ impl TimelineMetadata {
     }
 
     /// Try to update the read marker item in the timeline.
-    pub(crate) fn update_read_marker(
-        &mut self,
-        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
-    ) {
+    pub(crate) fn update_read_marker(&mut self, items: &mut ObservableItemsTransaction<'_>) {
         let Some(fully_read_event) = &self.fully_read_event else { return };
         trace!(?fully_read_event, "Updating read marker");
 
@@ -1359,7 +1357,7 @@ pub(crate) struct EventMeta {
     /// | 3     | content of `$ev3` |                      |
     /// | 4     | content of `$ev5` |                      |
     ///
-    /// Note the day divider that is a virtual item. Also note ``$ev4`` which is
+    /// Note the day divider that is a virtual item. Also note `$ev4` which is
     /// a reaction to `$ev2`. Finally note that `$ev1` is not rendered in
     /// the timeline.
     ///
