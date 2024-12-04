@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    cmp::Ordering,
     collections::{vec_deque::Iter, HashMap, VecDeque},
     future::Future,
     num::NonZeroUsize,
@@ -1092,7 +1093,9 @@ impl TimelineMetadata {
             (None, Some(idx)) => {
                 // Only insert the read marker if it is not at the end of the timeline.
                 if idx + 1 < items.len() {
-                    items.insert(idx + 1, TimelineItem::read_marker());
+                    let idx = idx + 1;
+                    items.insert(idx, TimelineItem::read_marker());
+                    self.all_remote_events.timeline_item_has_been_inserted_at(idx, None);
                     self.has_up_to_date_read_marker_item = true;
                 } else {
                     // The next event might require a read marker to be inserted at the current
@@ -1113,6 +1116,7 @@ impl TimelineMetadata {
                     if from + 1 == items.len() {
                         // The read marker has nothing after it. An item disappeared; remove it.
                         items.remove(from);
+                        self.all_remote_events.timeline_item_has_been_removed_at(from);
                     }
                     self.has_up_to_date_read_marker_item = true;
                     return;
@@ -1120,6 +1124,7 @@ impl TimelineMetadata {
 
                 let prev_len = items.len();
                 let read_marker = items.remove(from);
+                self.all_remote_events.timeline_item_has_been_removed_at(from);
 
                 // Only insert the read marker if it is not at the end of the timeline.
                 if to + 1 < prev_len {
@@ -1127,6 +1132,7 @@ impl TimelineMetadata {
                     // by one position by the remove call above, insert the fully-
                     // read marker at its previous position, rather than that + 1
                     items.insert(to, read_marker);
+                    self.all_remote_events.timeline_item_has_been_inserted_at(to, None);
                     self.has_up_to_date_read_marker_item = true;
                 } else {
                     self.has_up_to_date_read_marker_item = false;
@@ -1198,6 +1204,11 @@ impl AllRemoteEvents {
         self.0.back()
     }
 
+    /// Return the index of the last remote event if it exists.
+    pub fn last_index(&self) -> Option<usize> {
+        self.0.len().checked_sub(1)
+    }
+
     /// Get a mutable reference to a specific remote event by its ID.
     pub fn get_by_event_id_mut(&mut self, event_id: &EventId) -> Option<&mut EventMeta> {
         self.0.iter_mut().rev().find(|event_meta| event_meta.event_id == event_id)
@@ -1223,6 +1234,48 @@ impl AllRemoteEvents {
                 if *timeline_item_index > removed_timeline_item_index {
                     *timeline_item_index -= 1;
                 }
+            }
+        }
+    }
+
+    pub fn timeline_item_has_been_inserted_at(
+        &mut self,
+        new_timeline_item_index: usize,
+        event_index: Option<usize>,
+    ) {
+        self.increment_all_timeline_item_index_after(new_timeline_item_index);
+
+        if let Some(event_index) = event_index {
+            if let Some(event_meta) = self.0.get_mut(event_index) {
+                event_meta.timeline_item_index = Some(new_timeline_item_index);
+            }
+        }
+    }
+
+    pub fn timeline_item_has_been_removed_at(&mut self, timeline_item_index_to_remove: usize) {
+        for event_meta in self.0.iter_mut() {
+            let mut remove_timeline_item_index = false;
+
+            // A `timeline_item_index` is removed. Let's shift all indexes that come
+            // after the removed one.
+            if let Some(timeline_item_index) = event_meta.timeline_item_index.as_mut() {
+                match (*timeline_item_index).cmp(&timeline_item_index_to_remove) {
+                    Ordering::Equal => {
+                        remove_timeline_item_index = true;
+                    }
+
+                    Ordering::Greater => {
+                        *timeline_item_index -= 1;
+                    }
+
+                    Ordering::Less => {}
+                }
+            }
+
+            // This is the `event_meta` that holds the `timeline_item_index` that is being
+            // removed. So let's clean it.
+            if remove_timeline_item_index {
+                event_meta.timeline_item_index = None;
             }
         }
     }
