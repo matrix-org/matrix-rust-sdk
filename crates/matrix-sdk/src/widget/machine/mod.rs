@@ -291,7 +291,7 @@ impl WidgetMachine {
                         // This is mapped to another type because the update_delay_event::Response
                         // does not impl Serialize
                         result
-                            .map(|r| Into::<UpdateDelayedEventResponse>::into(r))
+                            .map(Into::<UpdateDelayedEventResponse>::into)
                             .map_err(|e| FromWidgetErrorResponse::from_error(&e)),
                     )]
                 });
