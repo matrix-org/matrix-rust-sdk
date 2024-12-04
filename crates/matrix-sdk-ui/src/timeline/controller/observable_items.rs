@@ -130,7 +130,7 @@ impl Deref for ObservableItems {
 /// An “iterator“ that yields entries into an `ObservableItems`.
 pub struct ObservableItemsEntries<'a>(ObservableVectorEntries<'a, Arc<TimelineItem>>);
 
-impl<'a> ObservableItemsEntries<'a> {
+impl ObservableItemsEntries<'_> {
     /// Advance this iterator, yielding an `ObservableItemsEntry` for the next
     /// item in the timeline, or `None` if all items have been visited.
     pub fn next(&mut self) -> Option<ObservableItemsEntry<'_>> {
@@ -141,7 +141,7 @@ impl<'a> ObservableItemsEntries<'a> {
 /// A handle to a single timeline item in an `ObservableItems`.
 pub struct ObservableItemsEntry<'a>(ObservableVectorEntry<'a, Arc<TimelineItem>>);
 
-impl<'a> ObservableItemsEntry<'a> {
+impl ObservableItemsEntry<'_> {
     /// Replace the timeline item by `timeline_item`.
     pub fn replace(this: &mut Self, timeline_item: Arc<TimelineItem>) -> Arc<TimelineItem> {
         ObservableVectorEntry::set(&mut this.0, timeline_item)
@@ -176,7 +176,7 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
 
     /// Get a reference to all remote events.
     pub fn all_remote_events(&self) -> &AllRemoteEvents {
-        &self.all_remote_events
+        self.all_remote_events
     }
 
     /// Remove a remote event at position `event_index`.
@@ -307,7 +307,7 @@ pub struct ObservableItemsTransactionEntry<'a, 'observable_items>(
     ObservableVectorTransactionEntry<'a, 'observable_items, Arc<TimelineItem>>,
 );
 
-impl<'a, 'o> ObservableItemsTransactionEntry<'a, 'o> {
+impl ObservableItemsTransactionEntry<'_, '_> {
     /// Replace the timeline item by `timeline_item`.
     pub fn replace(this: &mut Self, timeline_item: Arc<TimelineItem>) -> Arc<TimelineItem> {
         ObservableVectorTransactionEntry::set(&mut this.0, timeline_item)
