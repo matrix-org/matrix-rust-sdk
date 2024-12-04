@@ -1043,17 +1043,16 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 async move {
                     let event_item = item.as_event()?;
 
-                    let (session_id, utd_cause) =
-                        match event_item.content().as_unable_to_decrypt()? {
-                            EncryptedMessage::MegolmV1AesSha2 { session_id, cause, .. }
-                                if should_retry(session_id) =>
-                            {
-                                (session_id, cause)
-                            }
-                            EncryptedMessage::MegolmV1AesSha2 { .. }
-                            | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
-                            | EncryptedMessage::Unknown => return None,
-                        };
+                    let session_id = match event_item.content().as_unable_to_decrypt()? {
+                        EncryptedMessage::MegolmV1AesSha2 { session_id, .. }
+                            if should_retry(session_id) =>
+                        {
+                            session_id
+                        }
+                        EncryptedMessage::MegolmV1AesSha2 { .. }
+                        | EncryptedMessage::OlmV1Curve25519AesSha2 { .. }
+                        | EncryptedMessage::Unknown => return None,
+                    };
 
                     tracing::Span::current().record("session_id", session_id);
 
@@ -1082,7 +1081,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                             } else {
                                 // Notify observers that we managed to eventually decrypt an event.
                                 if let Some(hook) = unable_to_decrypt_hook {
-                                    hook.on_late_decrypt(&remote_event.event_id, *utd_cause).await;
+                                    hook.on_late_decrypt(&remote_event.event_id).await;
                                 }
 
                                 Some(event)
