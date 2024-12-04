@@ -578,7 +578,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 Self::maybe_update_responses(self.items, &replacement.event_id, &new_item);
 
                 // Update the event itself.
-                self.items.set(item_pos, TimelineItem::new(new_item, internal_id));
+                self.items.replace(item_pos, TimelineItem::new(new_item, internal_id));
                 self.result.items_updated += 1;
             }
         } else if let Flow::Remote { position, raw_event, .. } = &self.ctx.flow {
@@ -732,7 +732,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 },
             );
 
-            self.items.set(idx, event_item.with_reactions(reactions));
+            self.items.replace(idx, event_item.with_reactions(reactions));
 
             self.result.items_updated += 1;
         } else {
@@ -796,7 +796,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         };
 
         trace!("Applying poll start edit.");
-        self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
+        self.items.replace(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
         self.result.items_updated += 1;
     }
 
@@ -900,7 +900,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         );
 
         trace!("Adding poll response.");
-        self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
+        self.items.replace(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
         self.result.items_updated += 1;
     }
 
@@ -919,7 +919,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let new_item = item.with_content(TimelineItemContent::Poll(poll_state), None);
 
                 trace!("Ending poll.");
-                self.items.set(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
+                self.items
+                    .replace(item_pos, TimelineItem::new(new_item, item.internal_id.to_owned()));
                 self.result.items_updated += 1;
             }
             Err(_) => {
@@ -961,7 +962,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     // the replied-to event there as well.
                     Self::maybe_update_responses(self.items, &redacted, &new_item);
 
-                    self.items.set(idx, TimelineItem::new(new_item, internal_id));
+                    self.items.replace(idx, TimelineItem::new(new_item, internal_id));
                     self.result.items_updated += 1;
                 }
             } else {
@@ -1002,7 +1003,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             let mut reactions = item.reactions.clone();
             if reactions.remove_reaction(&sender, &key).is_some() {
                 trace!("Removing reaction");
-                self.items.set(item_pos, item.with_reactions(reactions));
+                self.items.replace(item_pos, item.with_reactions(reactions));
                 self.result.items_updated += 1;
                 return true;
             }
@@ -1153,7 +1154,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         // If the old item is the last one and no day divider
                         // changes need to happen, replace and return early.
                         trace!(idx, "Replacing existing event");
-                        self.items.set(idx, TimelineItem::new(item, old_item_id.to_owned()));
+                        self.items.replace(idx, TimelineItem::new(item, old_item_id.to_owned()));
                         return;
                     }
 
@@ -1228,7 +1229,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 Self::maybe_update_responses(self.items, decrypted_event_id, &item);
 
                 let internal_id = self.items[*idx].internal_id.clone();
-                self.items.set(*idx, TimelineItem::new(item, internal_id));
+                self.items.replace(*idx, TimelineItem::new(item, internal_id));
             }
         }
 

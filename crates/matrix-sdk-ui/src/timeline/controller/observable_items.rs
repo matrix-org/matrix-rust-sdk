@@ -95,7 +95,7 @@ impl ObservableItems {
     /// # Panics
     ///
     /// Panics if `timeline_item_index > total_number_of_timeline_items`.
-    pub fn set(
+    pub fn replace(
         &mut self,
         timeline_item_index: usize,
         timeline_item: Arc<TimelineItem>,
@@ -161,7 +161,7 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         self.all_remote_events.get_by_event_id_mut(event_id)
     }
 
-    pub fn set(
+    pub fn replace(
         &mut self,
         timeline_item_index: usize,
         timeline_item: Arc<TimelineItem>,
