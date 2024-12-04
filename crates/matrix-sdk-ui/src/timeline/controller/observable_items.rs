@@ -109,7 +109,7 @@ impl ObservableItems {
     }
 
     /// Call the given closure for every element in this `ObservableItems`,
-    /// with an entry struct that allows updating or removing that element.
+    /// with an entry struct that allows updating that element.
     pub fn for_each<F>(&mut self, mut f: F)
     where
         F: FnMut(ObservableItemsEntry<'_>),
@@ -156,6 +156,12 @@ impl Deref for ObservableItemsEntry<'_> {
     }
 }
 
+/// A transaction that allows making multiple updates to an `ObservableItems` as
+/// an atomic unit.
+///
+/// For updates from the transaction to have affect, it has to be finalized with
+/// [`Self::commit`]. If the transaction is dropped without that method being
+/// called, the updates will be discarded.
 #[derive(Debug)]
 pub struct ObservableItemsTransaction<'observable_items> {
     items: ObservableVectorTransaction<'observable_items, Arc<TimelineItem>>,
@@ -163,26 +169,38 @@ pub struct ObservableItemsTransaction<'observable_items> {
 }
 
 impl<'observable_items> ObservableItemsTransaction<'observable_items> {
+    /// Get a referene to the timeline index at position `timeline_item_index`.
     pub fn get(&self, timeline_item_index: usize) -> Option<&Arc<TimelineItem>> {
         self.items.get(timeline_item_index)
     }
 
+    /// Get a reference to all remote events.
     pub fn all_remote_events(&self) -> &AllRemoteEvents {
         &self.all_remote_events
     }
 
+    /// Remove a remote event at position `event_index`.
+    ///
+    /// Not to be confused with removing a timeline item!
     pub fn remove_remote_event(&mut self, event_index: usize) -> Option<EventMeta> {
         self.all_remote_events.remove(event_index)
     }
 
+    /// Push a new remote event at the front of all remote events.
+    ///
+    /// Not to be confused with pushing front a timeline item!
     pub fn push_front_remote_event(&mut self, event_meta: EventMeta) {
         self.all_remote_events.push_front(event_meta);
     }
 
+    /// Push a new remote event at the back of all remote events.
+    ///
+    /// Not to be confused with pushing back a timeline item!
     pub fn push_back_remote_event(&mut self, event_meta: EventMeta) {
         self.all_remote_events.push_back(event_meta);
     }
 
+    /// Get a remote event by using an event ID.
     pub fn get_remote_event_by_event_id_mut(
         &mut self,
         event_id: &EventId,
@@ -190,6 +208,8 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         self.all_remote_events.get_by_event_id_mut(event_id)
     }
 
+    /// Replace a timeline item at position `timeline_item_index` by
+    /// `timeline_item`.
     pub fn replace(
         &mut self,
         timeline_item_index: usize,
@@ -198,6 +218,7 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         self.items.set(timeline_item_index, timeline_item)
     }
 
+    /// Remove a timeline item at position `timeline_item_index`.
     pub fn remove(&mut self, timeline_item_index: usize) -> Arc<TimelineItem> {
         let removed_timeline_item = self.items.remove(timeline_item_index);
         self.all_remote_events.timeline_item_has_been_removed_at(timeline_item_index);
@@ -205,6 +226,14 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         removed_timeline_item
     }
 
+    /// Insert a new `timeline_item` at position `timeline_item_index`, with an
+    /// optionally associated `event_index`.
+    ///
+    /// If `event_index` is `Some(_)`, it means `timeline_item_index` has an
+    /// associated remote event (at position `event_index`) that maps to it.
+    /// Otherwise, if it is `None`, it means there is no remote event associated
+    /// to it; that's the case for virtual timeline item for example. See
+    /// [`EventMeta::timeline_item_index`] to learn more.
     pub fn insert(
         &mut self,
         timeline_item_index: usize,
@@ -215,22 +244,41 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         self.all_remote_events.timeline_item_has_been_inserted_at(timeline_item_index, event_index);
     }
 
+    /// Push a new `timeline_item` at position 0, with an optionally associated
+    /// `event_index`.
+    ///
+    /// If `event_index` is `Some(_)`, it means `timeline_item_index` has an
+    /// associated remote event (at position `event_index`) that maps to it.
+    /// Otherwise, if it is `None`, it means there is no remote event associated
+    /// to it; that's the case for virtual timeline item for example. See
+    /// [`EventMeta::timeline_item_index`] to learn more.
     pub fn push_front(&mut self, timeline_item: Arc<TimelineItem>, event_index: Option<usize>) {
         self.items.push_front(timeline_item);
         self.all_remote_events.timeline_item_has_been_inserted_at(0, event_index);
     }
 
+    /// Push a new `timeline_item` at position `len() - 1`, with an optionally
+    /// associated `event_index`.
+    ///
+    /// If `event_index` is `Some(_)`, it means `timeline_item_index` has an
+    /// associated remote event (at position `event_index`) that maps to it.
+    /// Otherwise, if it is `None`, it means there is no remote event associated
+    /// to it; that's the case for virtual timeline item for example. See
+    /// [`EventMeta::timeline_item_index`] to learn more.
     pub fn push_back(&mut self, timeline_item: Arc<TimelineItem>, event_index: Option<usize>) {
         self.items.push_back(timeline_item);
         self.all_remote_events
             .timeline_item_has_been_inserted_at(self.items.len().saturating_sub(1), event_index);
     }
 
+    /// Clear all timeline items and all remote events.
     pub fn clear(&mut self) {
         self.items.clear();
         self.all_remote_events.clear();
     }
 
+    /// Call the given closure for every element in this `ObservableItems`,
+    /// with an entry struct that allows updating that element.
     pub fn for_each<F>(&mut self, f: F)
     where
         F: FnMut(ObservableVectorTransactionEntry<'_, 'observable_items, Arc<TimelineItem>>),
@@ -238,6 +286,8 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         self.items.for_each(f)
     }
 
+    /// Commit this transaction, persisting the changes and notifying
+    /// subscribers.
     pub fn commit(self) {
         self.items.commit()
     }
