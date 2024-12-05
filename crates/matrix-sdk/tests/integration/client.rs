@@ -35,7 +35,10 @@ use ruma::{
     assign, device_id,
     directory::Filter,
     event_id,
-    events::{direct::DirectEventContent, AnyInitialStateEvent},
+    events::{
+        direct::{DirectEventContent, OwnedDirectUserIdentifier},
+        AnyInitialStateEvent,
+    },
     room_id,
     serde::Raw,
     user_id, OwnedUserId,
@@ -496,7 +499,9 @@ async fn test_marking_room_as_dm() {
             "The body of the PUT /account_data request should be a valid DirectEventContent",
         );
 
-        let bob_entry = content.get(bob).expect("We should have bob in the direct event content");
+        let bob_entry = content
+            .get(&OwnedDirectUserIdentifier::from(bob.to_owned()))
+            .expect("We should have bob in the direct event content");
 
         assert_eq!(content.len(), 2, "We should have entries for bob and foo");
         assert_eq!(bob_entry.len(), 3, "Bob should have 3 direct rooms");

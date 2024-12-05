@@ -33,6 +33,7 @@ use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
         call::member::{CallMemberStateKey, MembershipData},
+        direct::OwnedDirectUserIdentifier,
         ignored_user_list::IgnoredUserListEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
@@ -460,7 +461,7 @@ impl Room {
     /// only be considered as guidance. We leave members in this list to allow
     /// us to re-find a DM with a user even if they have left, since we may
     /// want to re-invite them.
-    pub fn direct_targets(&self) -> HashSet<OwnedUserId> {
+    pub fn direct_targets(&self) -> HashSet<OwnedDirectUserIdentifier> {
         self.inner.read().base_info.dm_targets.clone()
     }
 

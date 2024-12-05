@@ -11,6 +11,7 @@ use matrix_sdk_test::{
 use ruma::{
     event_id,
     events::{
+        direct::DirectUserIdentifier,
         room::{
             avatar::{self, RoomAvatarEventContent},
             member::MembershipState,
@@ -830,7 +831,7 @@ async fn test_is_direct() {
     // The room is direct now.
     let direct_targets = room.direct_targets();
     assert_eq!(direct_targets.len(), 1);
-    assert!(direct_targets.contains(*BOB));
+    assert!(direct_targets.contains(<&DirectUserIdentifier>::from(*BOB)));
     assert!(room.is_direct().await.unwrap());
 
     // Unset the room as direct.

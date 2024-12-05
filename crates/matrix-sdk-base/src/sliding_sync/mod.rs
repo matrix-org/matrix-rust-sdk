@@ -911,7 +911,7 @@ mod tests {
         api::client::sync::sync_events::UnreadNotificationsCount,
         assign, event_id,
         events::{
-            direct::DirectEventContent,
+            direct::{DirectEventContent, DirectUserIdentifier, OwnedDirectUserIdentifier},
             room::{
                 avatar::RoomAvatarEventContent,
                 canonical_alias::RoomCanonicalAliasEventContent,
@@ -1337,7 +1337,7 @@ mod tests {
         create_dm(&client, room_id, user_a_id, user_b_id, MembershipState::Join).await;
 
         // (Sanity: B is a direct target, and is in Join state)
-        assert!(direct_targets(&client, room_id).contains(user_b_id));
+        assert!(direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id)));
         assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Join);
 
         // When B leaves
@@ -1346,7 +1346,7 @@ mod tests {
         // Then B is still a direct target, and is in Leave state (B is a direct target
         // because we want to return to our old DM in the UI even if the other
         // user left, so we can reinvite them. See https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
-        assert!(direct_targets(&client, room_id).contains(user_b_id));
+        assert!(direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id)));
         assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Leave);
     }
 
@@ -1362,7 +1362,7 @@ mod tests {
         create_dm(&client, room_id, user_a_id, user_b_id, MembershipState::Invite).await;
 
         // (Sanity: B is a direct target, and is in Invite state)
-        assert!(direct_targets(&client, room_id).contains(user_b_id));
+        assert!(direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id)));
         assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Invite);
 
         // When B declines the invitation (i.e. leaves)
@@ -1371,7 +1371,7 @@ mod tests {
         // Then B is still a direct target, and is in Leave state (B is a direct target
         // because we want to return to our old DM in the UI even if the other
         // user left, so we can reinvite them. See https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
-        assert!(direct_targets(&client, room_id).contains(user_b_id));
+        assert!(direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id)));
         assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Leave);
     }
 
@@ -1389,7 +1389,7 @@ mod tests {
         assert_eq!(membership(&client, room_id, user_a_id).await, MembershipState::Join);
 
         // (Sanity: B is a direct target, and is in Join state)
-        assert!(direct_targets(&client, room_id).contains(user_b_id));
+        assert!(direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id)));
         assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Join);
 
         let room = client.get_room(room_id).unwrap();
@@ -1413,7 +1413,7 @@ mod tests {
         assert_eq!(membership(&client, room_id, user_a_id).await, MembershipState::Join);
 
         // (Sanity: B is a direct target, and is in Join state)
-        assert!(direct_targets(&client, room_id).contains(user_b_id));
+        assert!(direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id)));
         assert_eq!(membership(&client, room_id, user_b_id).await, MembershipState::Invite);
 
         let room = client.get_room(room_id).unwrap();
@@ -2558,9 +2558,10 @@ mod tests {
         let mut room_response = http::response::Room::new();
         set_room_joined(&mut room_response, user_a_id);
         let mut response = response_with_room(room_id_1, room_response);
-        let mut direct_content = BTreeMap::new();
-        direct_content.insert(user_a_id.to_owned(), vec![room_id_1.to_owned()]);
-        direct_content.insert(user_b_id.to_owned(), vec![room_id_2.to_owned()]);
+        let mut direct_content: BTreeMap<OwnedDirectUserIdentifier, Vec<OwnedRoomId>> =
+            BTreeMap::new();
+        direct_content.insert(user_a_id.into(), vec![room_id_1.to_owned()]);
+        direct_content.insert(user_b_id.into(), vec![room_id_2.to_owned()]);
         response
             .extensions
             .account_data
@@ -2671,7 +2672,7 @@ mod tests {
         member.membership().clone()
     }
 
-    fn direct_targets(client: &BaseClient, room_id: &RoomId) -> HashSet<OwnedUserId> {
+    fn direct_targets(client: &BaseClient, room_id: &RoomId) -> HashSet<OwnedDirectUserIdentifier> {
         let room = client.get_room(room_id).expect("Room not found!");
         room.direct_targets()
     }
@@ -2730,8 +2731,9 @@ mod tests {
         user_id: OwnedUserId,
         room_ids: Vec<OwnedRoomId>,
     ) {
-        let mut direct_content = BTreeMap::new();
-        direct_content.insert(user_id, room_ids);
+        let mut direct_content: BTreeMap<OwnedDirectUserIdentifier, Vec<OwnedRoomId>> =
+            BTreeMap::new();
+        direct_content.insert(user_id.into(), room_ids);
         response
             .extensions
             .account_data

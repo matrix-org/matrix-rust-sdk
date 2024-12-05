@@ -1224,7 +1224,7 @@ impl Room {
             room_members.retain(|member| member.user_id() != self.own_user_id());
 
             for member in room_members {
-                let entry = content.entry(member.user_id().to_owned()).or_default();
+                let entry = content.entry(member.user_id().into()).or_default();
                 if !entry.iter().any(|room_id| room_id == this_room_id) {
                     entry.push(this_room_id.to_owned());
                 }

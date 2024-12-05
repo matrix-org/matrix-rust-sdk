@@ -18,9 +18,11 @@ use std::{
 };
 
 use ruma::{
-    events::{AnyGlobalAccountDataEvent, GlobalAccountDataEventType},
+    events::{
+        direct::OwnedDirectUserIdentifier, AnyGlobalAccountDataEvent, GlobalAccountDataEventType,
+    },
     serde::Raw,
-    OwnedUserId, RoomId,
+    RoomId,
 };
 use tracing::{debug, instrument, trace, warn};
 
@@ -94,10 +96,10 @@ impl AccountDataProcessor {
         for event in events {
             let AnyGlobalAccountDataEvent::Direct(direct_event) = event else { continue };
 
-            let mut new_dms = HashMap::<&RoomId, HashSet<OwnedUserId>>::new();
-            for (user_id, rooms) in direct_event.content.iter() {
+            let mut new_dms = HashMap::<&RoomId, HashSet<OwnedDirectUserIdentifier>>::new();
+            for (user_identifier, rooms) in direct_event.content.iter() {
                 for room_id in rooms {
-                    new_dms.entry(room_id).or_default().insert(user_id.clone());
+                    new_dms.entry(room_id).or_default().insert(user_identifier.clone());
                 }
             }
 

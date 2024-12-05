@@ -7,7 +7,10 @@ use matrix_sdk_test::{
     async_test, test_json, GlobalAccountDataTestEvent, LeftRoomBuilder, SyncResponseBuilder,
     DEFAULT_TEST_ROOM_ID,
 };
-use ruma::{events::direct::DirectEventContent, user_id, OwnedRoomOrAliasId};
+use ruma::{
+    events::direct::{DirectEventContent, DirectUserIdentifier},
+    user_id, OwnedRoomOrAliasId,
+};
 use serde_json::json;
 use wiremock::{
     matchers::{header, method, path, path_regex},
@@ -70,7 +73,7 @@ async fn test_forget_direct_room() {
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert_eq!(room.state(), RoomState::Left);
     assert!(room.is_direct().await.unwrap());
-    assert!(room.direct_targets().contains(invited_user_id));
+    assert!(room.direct_targets().contains(<&DirectUserIdentifier>::from(invited_user_id)));
 
     let direct_account_data = client
         .account()
@@ -80,7 +83,10 @@ async fn test_forget_direct_room() {
         .expect("no m.direct account data")
         .deserialize()
         .expect("failed to deserialize m.direct account data");
-    assert_matches!(direct_account_data.get(invited_user_id), Some(invited_user_dms));
+    assert_matches!(
+        direct_account_data.get(<&DirectUserIdentifier>::from(invited_user_id)),
+        Some(invited_user_dms)
+    );
     assert_eq!(invited_user_dms, &[DEFAULT_TEST_ROOM_ID.to_owned()]);
 
     Mock::given(method("POST"))

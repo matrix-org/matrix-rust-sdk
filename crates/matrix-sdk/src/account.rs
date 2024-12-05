@@ -861,7 +861,7 @@ impl Account {
         };
 
         for user_id in user_ids {
-            content.entry(user_id.to_owned()).or_default().push(room_id.to_owned());
+            content.entry(user_id.into()).or_default().push(room_id.to_owned());
         }
 
         // TODO: We should probably save the fact that we need to send this out
