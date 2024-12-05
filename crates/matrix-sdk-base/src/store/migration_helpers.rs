@@ -211,7 +211,7 @@ impl BaseRoomInfoV1 {
             beacons: BTreeMap::new(),
             canonical_alias,
             create,
-            dm_targets: dm_targets_converted,
+            dm_targets: converted_dm_targets,
             encryption,
             guest_access,
             history_visibility,
