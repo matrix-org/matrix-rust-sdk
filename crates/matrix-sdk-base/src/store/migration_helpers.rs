@@ -201,9 +201,9 @@ impl BaseRoomInfoV1 {
             MinimalStateEvent::Redacted(ev) => MinimalStateEvent::Redacted(ev),
         });
 
-        let mut dm_targets_converted = HashSet::new();
+        let mut converted_dm_targets = HashSet::new();
         for dm_target in dm_targets {
-            dm_targets_converted.insert(OwnedDirectUserIdentifier::from(dm_target));
+            converted_dm_targets.insert(OwnedDirectUserIdentifier::from(dm_target));
         }
 
         Box::new(BaseRoomInfo {
