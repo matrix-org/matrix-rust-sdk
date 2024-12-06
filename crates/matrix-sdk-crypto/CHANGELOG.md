@@ -11,6 +11,13 @@ All notable changes to this project will be documented in this file.
   when the sender either did not wish to share or was unable to share the room_key.
   ([#4305](https://github.com/matrix-org/matrix-rust-sdk/pull/4305))
 
+- `UtdCause` has two new variants that replace the existing `HistoricalMessage`:
+  `HistoricalMessageAndBackupIsDisabled` and `HistoricalMessageAndDeviceIsUnverified`.
+  These give more detail about what went wrong and allow us to suggest to users
+  what actions they can take to fix the problem. See the doc comments on these
+  variants for suggested wording.
+  ([#4384](https://github.com/matrix-org/matrix-rust-sdk/pull/4384))
+
 ## [0.8.0] - 2024-11-19
 
 ### Features

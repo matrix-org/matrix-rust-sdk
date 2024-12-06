@@ -387,6 +387,8 @@ impl RoomDataProvider for TestRoomDataProvider {
             )
             .unwrap_or(MilliSecondsSinceUnixEpoch::now()),
             is_backup_configured: false,
+            this_device_is_verified: true,
+            backup_exists_on_server: true,
         })
         .boxed()
     }
