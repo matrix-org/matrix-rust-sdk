@@ -643,11 +643,9 @@ impl Backups {
     }
 
     async fn delete_backup_from_server(&self, version: String) -> Result<(), Error> {
-        self.client.inner.e2ee.backup_state.clear_backup_exists_on_server();
-
         let request = ruma::api::client::backup::delete_backup_version::v3::Request::new(version);
 
-        match self.client.send(request, Default::default()).await {
+        let ret = match self.client.send(request, Default::default()).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 if let Some(kind) = e.client_api_error_kind() {
@@ -660,7 +658,11 @@ impl Backups {
                     Err(e.into())
                 }
             }
-        }
+        };
+
+        self.client.inner.e2ee.backup_state.clear_backup_exists_on_server();
+
+        ret
     }
 
     #[instrument(skip(self, olm_machine, request))]
