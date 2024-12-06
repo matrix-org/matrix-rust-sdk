@@ -20,10 +20,7 @@
 //!
 //! [1]: https://spec.matrix.org/unstable/client-server-api/#server-side-key-backups
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::{Arc, RwLock},
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 use futures_core::Stream;
 use futures_util::StreamExt;
@@ -65,15 +62,9 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct Backups {
     pub(super) client: Client,
-    cached_exists_on_server: Arc<RwLock<Option<bool>>>,
 }
 
 impl Backups {
-    /// Create a new instance of the [`Backups`] manager for this [`Client`].
-    pub fn new(client: Client) -> Self {
-        Backups { client, cached_exists_on_server: Arc::new(RwLock::new(None)) }
-    }
-
     /// Create a new backup version, encrypted with a new backup recovery key.
     ///
     /// The backup recovery key will be persisted locally and shared with
@@ -99,7 +90,7 @@ impl Backups {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn create(&self) -> Result<(), Error> {
-        self.clear_exists_on_server_cache();
+        self.client.inner.e2ee.backup_state.clear_backup_exists_on_server();
         let _guard = self.client.locks().backup_modify_lock.lock().await;
 
         self.set_state(BackupState::Creating);
@@ -398,7 +389,7 @@ impl Backups {
     /// homeserver and if a backup exits return `true`, otherwise `false`.
     pub async fn exists_on_server(&self) -> Result<bool, Error> {
         let exists_on_server = self.get_current_version().await?.is_some();
-        *self.cached_exists_on_server.write().unwrap() = Some(exists_on_server);
+        self.client.inner.e2ee.backup_state.set_backup_exists_on_server(exists_on_server);
         Ok(exists_on_server)
     }
 
@@ -414,21 +405,13 @@ impl Backups {
     /// such as when classifying UTDs.
     pub async fn fast_exists_on_server(&self) -> Result<bool, Error> {
         // If we have an answer cached, return it immediately
-        {
-            let guard = self.cached_exists_on_server.read().unwrap();
-            if let Some(cached_exists_on_server) = *guard {
-                return Ok(cached_exists_on_server);
-            }
+        if let Some(cached_value) = self.client.inner.e2ee.backup_state.backup_exists_on_server() {
+            return Ok(cached_value);
         }
 
-        // Otherwise, delegate to exists_on_server. It will update the cached value for
-        // us. exists_on_server takes a write lock, which is why we take care to drop
-        // `guard` above before calling this.
+        // Otherwise, delegate to exists_on_server. (It will update the cached value for
+        // us.)
         self.exists_on_server().await
-    }
-
-    fn clear_exists_on_server_cache(&self) {
-        *self.cached_exists_on_server.write().unwrap() = None;
     }
 
     /// Subscribe to a stream that notifies when a room key for the specified
@@ -660,7 +643,7 @@ impl Backups {
     }
 
     async fn delete_backup_from_server(&self, version: String) -> Result<(), Error> {
-        self.clear_exists_on_server_cache();
+        self.client.inner.e2ee.backup_state.clear_backup_exists_on_server();
 
         let request = ruma::api::client::backup::delete_backup_version::v3::Request::new(version);
 

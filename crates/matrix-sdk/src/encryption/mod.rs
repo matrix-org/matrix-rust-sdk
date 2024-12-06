@@ -1439,7 +1439,7 @@ impl Encryption {
 
     /// Get the backups manager of the client.
     pub fn backups(&self) -> Backups {
-        Backups::new(self.client.to_owned())
+        Backups { client: self.client.to_owned() }
     }
 
     /// Get the recovery manager of the client.
