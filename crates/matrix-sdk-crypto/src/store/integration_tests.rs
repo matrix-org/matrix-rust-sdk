@@ -51,7 +51,7 @@ macro_rules! cryptostore_integration_tests {
                     PrivateCrossSigningIdentity, SenderData, SenderDataType, Session
                 },
                 store::{
-                    BackupDecryptionKey, Changes, CryptoStore, DeviceChanges, GossipRequest,
+                    BackupDecryptionKey, Changes, CryptoStore, DehydratedDeviceKey, DeviceChanges, GossipRequest,
                     IdentityChanges, PendingChanges, RoomSettings,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
@@ -1216,6 +1216,31 @@ macro_rules! cryptostore_integration_tests {
                 assert!(restored.decryption_key.is_some(), "The backup decryption key should still be known");
                 assert!(restored.backup_version.is_some(), "The backup version should now be Some as well");
             }
+
+            #[async_test]
+            async fn test_dehydration_pickle_key_saving() {
+                let (_account, store) = get_loaded_store("dehydration_key_saving").await;
+
+                let restored = store.load_dehydrated_device_pickle_key().await.unwrap();
+                assert!(restored.is_none(), "Initially no pickle key should be present");
+
+                let dehydrated_device_pickle_key = Some(DehydratedDeviceKey::new().unwrap());
+                let exported_base64 = dehydrated_device_pickle_key.clone().unwrap().to_base64();
+
+                let changes = Changes { dehydrated_device_pickle_key, ..Default::default() };
+                store.save_changes(changes).await.unwrap();
+
+                let restored = store.load_dehydrated_device_pickle_key().await.unwrap();
+                assert!(restored.is_some(), "We should be able to restore a pickle key");
+                assert_eq!(restored.unwrap().to_base64(), exported_base64);
+
+                let changes = Changes { dehydrated_device_pickle_key: None, ..Default::default() };
+                store.save_changes(changes).await.unwrap();
+
+                let restored = store.load_backup_keys().await.unwrap();
+                assert!(restored.decryption_key.is_none(), "The pickle key should be deleted");
+            }
+
 
             #[async_test]
             async fn test_custom_value_saving() {
