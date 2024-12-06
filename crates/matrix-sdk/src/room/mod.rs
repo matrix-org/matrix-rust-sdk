@@ -617,9 +617,22 @@ impl Room {
     #[cfg(feature = "e2e-encryption")]
     pub async fn crypto_context_info(&self) -> CryptoContextInfo {
         let encryption = self.client.encryption();
+
+        let this_device_is_verified = match encryption.get_own_device().await {
+            Ok(Some(device)) => device.is_verified_with_cross_signing(),
+
+            // Should not happen, there will always be an own device
+            _ => true,
+        };
+
+        let backup_exists_on_server =
+            encryption.backups().exists_on_server().await.unwrap_or(false);
+
         CryptoContextInfo {
             device_creation_ts: encryption.device_creation_timestamp().await,
+            this_device_is_verified,
             is_backup_configured: encryption.backups().state() == BackupState::Enabled,
+            backup_exists_on_server,
         }
     }
 

@@ -24,6 +24,15 @@ use serde::Deserialize;
 pub enum UtdCause {
     /// We don't have an explanation for why this UTD happened - it is probably
     /// a bug, or a network split between the two homeservers.
+    ///
+    /// For example:
+    ///
+    /// - the keys for this event are missing, but a key storage backup exists
+    ///   and is working, so we should be able to find the keys in the backup.
+    ///
+    /// - the keys for this event are missing, and a key storage backup exists
+    ///   on the server, but that backup is not working on this client even
+    ///   though this device is verified.
     #[default]
     Unknown = 0,
 
@@ -49,14 +58,17 @@ pub enum UtdCause {
     UnknownDevice = 4,
 
     /// We are missing the keys for this event, but it is a "device-historical"
-    /// message and no backup is accessible or usable.
+    /// message and there is no key storage backup on the server, presumably
+    /// because the user has turned it off.
     ///
     /// Device-historical means that the message was sent before the current
     /// device existed (but the current user was probably a member of the room
     /// at the time the message was sent). Not to
     /// be confused with pre-join or pre-invite messages (see
     /// [`UtdCause::SentBeforeWeJoined`] for that).
-    HistoricalMessage = 5,
+    ///
+    /// Expected message to user: "History is not available on this device".
+    HistoricalMessageAndBackupIsDisabled = 5,
 
     /// The keys for this event are intentionally withheld.
     ///
@@ -70,6 +82,19 @@ pub enum UtdCause {
     /// this device by cherry-picking and blocking it, in which case, no action
     /// can be taken on our side.
     WithheldBySender = 7,
+
+    /// We are missing the keys for this event, but it is a "device-historical"
+    /// message, and even though a key storage backup does exist, we can't use
+    /// it because our device is unverified.
+    ///
+    /// Device-historical means that the message was sent before the current
+    /// device existed (but the current user was probably a member of the room
+    /// at the time the message was sent). Not to
+    /// be confused with pre-join or pre-invite messages (see
+    /// [`UtdCause::SentBeforeWeJoined`] for that).
+    ///
+    /// Expected message to user: "You need to verify this device".
+    HistoricalMessageAndDeviceIsUnverified = 8,
 }
 
 /// MSC4115 membership info in the unsigned area.
@@ -97,6 +122,14 @@ pub struct CryptoContextInfo {
     /// if an event is device-historical or not (sent before the current device
     /// existed).
     pub device_creation_ts: MilliSecondsSinceUnixEpoch,
+
+    /// True if this device is secure because it has been verified by us
+    pub this_device_is_verified: bool,
+
+    /// True if key storage exists on the server, even if we are unable to use
+    /// it
+    pub backup_exists_on_server: bool,
+
     /// True if key storage is correctly set up and can be used by the current
     /// client to download and decrypt message keys.
     pub is_backup_configured: bool,
@@ -134,14 +167,9 @@ impl UtdCause {
                 }
 
                 if let Ok(timeline_event) = raw_event.deserialize() {
-                    if crypto_context_info.is_backup_configured
-                        && timeline_event.origin_server_ts()
-                            < crypto_context_info.device_creation_ts
-                    {
-                        // It's a device-historical message and there is no accessible
-                        // backup. The key is missing and it
-                        // is expected.
-                        return UtdCause::HistoricalMessage;
+                    if timeline_event.origin_server_ts() < crypto_context_info.device_creation_ts {
+                        // This event was sent before this device existed, so it is "historical"
+                        return UtdCause::determine_historical(crypto_context_info);
                     }
                 }
 
@@ -161,6 +189,50 @@ impl UtdCause {
             }
 
             _ => UtdCause::Unknown,
+        }
+    }
+
+    /**
+     * Below is the flow chart we follow for deciding whether historical
+     * UTDs are expected. This function starts at position `B`.
+     *
+     * ```text
+     * A: Is the message newer than the device?
+     *   No -> B
+     *   Yes - Normal UTD error
+     *
+     * B: Is there a backup on the server?
+     *   No -> History is not available on this device
+     *   Yes -> C
+     *
+     * C: Is backup working on this device?
+     *   No -> D
+     *   Yes -> Normal UTD error
+     *
+     * D: Is this device verified?
+     *   No -> You need to verify this device
+     *   Yes -> Normal UTD error
+     * ```
+     */
+    fn determine_historical(crypto_context_info: CryptoContextInfo) -> UtdCause {
+        let backup_disabled = !crypto_context_info.backup_exists_on_server;
+        let backup_failing = !crypto_context_info.is_backup_configured;
+        let unverified = !crypto_context_info.this_device_is_verified;
+
+        if backup_disabled {
+            UtdCause::HistoricalMessageAndBackupIsDisabled
+        } else if backup_failing && unverified {
+            UtdCause::HistoricalMessageAndDeviceIsUnverified
+        } else {
+            // We didn't get the key from key storage backup, but we think we should have,
+            // because either:
+            //
+            // * backup is working (so why didn't we get it?), or
+            // * backup is not working for an unknown reason (because the device is
+            //   verified, and that is the only reason we check).
+            //
+            // In either case, we shrug and give an `Unknown` cause.
+            UtdCause::Unknown
         }
     }
 }
@@ -183,11 +255,7 @@ mod tests {
     fn test_if_there_is_no_membership_info_we_guess_unknown() {
         // If our JSON contains no membership info, then we guess the UTD is unknown.
         assert_eq!(
-            UtdCause::determine(
-                &raw_event(json!({})),
-                device_old_no_backup(),
-                &missing_megolm_session()
-            ),
+            UtdCause::determine(&raw_event(json!({})), device_old(), &missing_megolm_session()),
             UtdCause::Unknown
         );
     }
@@ -199,7 +267,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": 3 } })),
-                device_new_with_backup(),
+                device_old(),
                 &missing_megolm_session()
             ),
             UtdCause::Unknown
@@ -213,7 +281,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": "invite" } }),),
-                device_new_with_backup(),
+                device_old(),
                 &missing_megolm_session()
             ),
             UtdCause::Unknown
@@ -227,7 +295,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": "join" } })),
-                device_new_with_backup(),
+                device_old(),
                 &missing_megolm_session()
             ),
             UtdCause::Unknown
@@ -241,7 +309,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": "leave" } })),
-                device_new_with_backup(),
+                device_old(),
                 &missing_megolm_session()
             ),
             UtdCause::SentBeforeWeJoined
@@ -256,7 +324,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "membership": "leave" } })),
-                device_new_with_backup(),
+                device_old(),
                 &malformed_encrypted_event()
             ),
             UtdCause::Unknown
@@ -269,7 +337,7 @@ mod tests {
         assert_eq!(
             UtdCause::determine(
                 &raw_event(json!({ "unsigned": { "io.element.msc4115.membership": "leave" } })),
-                device_new_with_backup(),
+                device_old(),
                 &missing_megolm_session()
             ),
             UtdCause::SentBeforeWeJoined
@@ -279,11 +347,7 @@ mod tests {
     #[test]
     fn test_verification_violation_is_passed_through() {
         assert_eq!(
-            UtdCause::determine(
-                &raw_event(json!({})),
-                device_new_with_backup(),
-                &verification_violation()
-            ),
+            UtdCause::determine(&raw_event(json!({})), device_old(), &verification_violation()),
             UtdCause::VerificationViolation
         );
     }
@@ -291,11 +355,7 @@ mod tests {
     #[test]
     fn test_unsigned_device_is_passed_through() {
         assert_eq!(
-            UtdCause::determine(
-                &raw_event(json!({})),
-                device_new_with_backup(),
-                &unsigned_device()
-            ),
+            UtdCause::determine(&raw_event(json!({})), device_old(), &unsigned_device()),
             UtdCause::UnsignedDevice
         );
     }
@@ -303,95 +363,157 @@ mod tests {
     #[test]
     fn test_unknown_device_is_passed_through() {
         assert_eq!(
-            UtdCause::determine(&raw_event(json!({})), device_new_with_backup(), &missing_device()),
+            UtdCause::determine(&raw_event(json!({})), device_old(), &missing_device()),
             UtdCause::UnknownDevice
         );
     }
 
     #[test]
     fn test_old_devices_dont_cause_historical_utds() {
-        // If the device is old, we say this UTD is unexpected (missing megolm session)
-        assert_eq!(
-            UtdCause::determine(&utd_event(), device_old_with_backup(), &missing_megolm_session()),
-            UtdCause::Unknown
-        );
+        // Message key is missing.
+        let info = missing_megolm_session();
+
+        // The device is old.
+        let context = device_old();
+
+        // So we have no explanation for this UTD.
+        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
 
         // Same for unknown megolm message index
-        assert_eq!(
-            UtdCause::determine(
-                &utd_event(),
-                device_old_with_backup(),
-                &unknown_megolm_message_index()
-            ),
-            UtdCause::Unknown
-        );
+        let info = unknown_megolm_message_index();
+        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
     }
 
     #[test]
-    fn test_new_devices_cause_historical_utds() {
-        // If the device is old, we say this UTD is expected historical (missing megolm
-        // session)
+    fn test_if_backup_is_disabled_historical_utd_is_expected() {
+        // Message key is missing.
+        let info = missing_megolm_session();
+
+        // The device is new.
+        let mut context = device_new();
+
+        // There is no key storage backup on the server.
+        context.backup_exists_on_server = false;
+
+        // So this UTD is expected, and the solution (for future messages!) is to turn
+        // on key storage backups.
         assert_eq!(
-            UtdCause::determine(&utd_event(), device_new_with_backup(), &missing_megolm_session()),
-            UtdCause::HistoricalMessage
+            UtdCause::determine(&utd_event(), context, &info),
+            UtdCause::HistoricalMessageAndBackupIsDisabled
         );
 
         // Same for unknown megolm message index
+        let info = unknown_megolm_message_index();
         assert_eq!(
-            UtdCause::determine(
-                &utd_event(),
-                device_new_with_backup(),
-                &unknown_megolm_message_index()
-            ),
-            UtdCause::HistoricalMessage
+            UtdCause::determine(&utd_event(), context, &info),
+            UtdCause::HistoricalMessageAndBackupIsDisabled
         );
     }
 
     #[test]
     fn test_malformed_events_are_never_expected_utds() {
-        // Even if the device is new, if the reason for the UTD is a malformed event,
-        // it's an unexpected UTD.
-        assert_eq!(
-            UtdCause::determine(
-                &utd_event(),
-                device_new_with_backup(),
-                &malformed_encrypted_event()
-            ),
-            UtdCause::Unknown
-        );
+        // The event was malformed.
+        let info = malformed_encrypted_event();
+
+        // The device is new.
+        let mut context = device_new();
+
+        // There is no key storage backup on the server.
+        context.backup_exists_on_server = false;
+
+        // So this could be expected historical like the previous test, but because the
+        // encrypted event is malformed, that takes precedence, and it's unexpected.
+        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
 
         // Same for decryption failures
+        let info = megolm_decryption_failure();
+        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
+    }
+
+    #[test]
+    fn test_new_devices_with_nonworking_backups_because_unverified_cause_expected_utds() {
+        // Message key is missing.
+        let info = missing_megolm_session();
+
+        // The device is new.
+        let mut context = device_new();
+
+        // There is a key storage backup on the server.
+        context.backup_exists_on_server = true;
+
+        // The key storage backup is not working,
+        context.is_backup_configured = false;
+
+        // probably because...
+        // Our device is not verified.
+        context.this_device_is_verified = false;
+
+        // So this UTD is expected, and the solution is (hopefully) to verify.
         assert_eq!(
-            UtdCause::determine(
-                &utd_event(),
-                device_new_with_backup(),
-                &megolm_decryption_failure()
-            ),
-            UtdCause::Unknown
+            UtdCause::determine(&utd_event(), context, &info),
+            UtdCause::HistoricalMessageAndDeviceIsUnverified
+        );
+
+        // Same for unknown megolm message index
+        let info = unknown_megolm_message_index();
+        assert_eq!(
+            UtdCause::determine(&utd_event(), context, &info),
+            UtdCause::HistoricalMessageAndDeviceIsUnverified
         );
     }
 
     #[test]
-    fn test_if_backup_is_disabled_this_utd_is_unexpected() {
-        // If the backup is disables, even if the device is new and the reason for the
-        // UTD is missing keys, we still treat this UTD as unexpected.
-        //
-        // TODO: I (AJB) think this is wrong, but it will be addressed as part of
-        // https://github.com/element-hq/element-meta/issues/2638
-        assert_eq!(
-            UtdCause::determine(&utd_event(), device_new_no_backup(), &missing_megolm_session()),
-            UtdCause::Unknown
-        );
+    fn test_if_backup_is_working_then_historical_utd_is_unexpected() {
+        // Message key is missing.
+        let info = missing_megolm_session();
+
+        // The device is new.
+        let mut context = device_new();
+
+        // There is a key storage backup on the server.
+        context.backup_exists_on_server = true;
+
+        // The key storage backup is working.
+        context.is_backup_configured = true;
+
+        // So this UTD is unexpected since we should be able to fetch the key from
+        // storage.
+        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
 
         // Same for unknown megolm message index
-        assert_eq!(
-            UtdCause::determine(
-                &utd_event(),
-                device_new_no_backup(),
-                &unknown_megolm_message_index()
-            ),
-            UtdCause::Unknown
-        );
+        let info = unknown_megolm_message_index();
+        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
+    }
+
+    #[test]
+    fn test_if_backup_is_not_working_even_though_verified_then_historical_utd_is_unexpected() {
+        // Message key is missing.
+        let info = missing_megolm_session();
+
+        // The device is new.
+        let mut context = device_new();
+
+        // There is a key storage backup on the server.
+        context.backup_exists_on_server = true;
+
+        // The key storage backup is working.
+        context.is_backup_configured = false;
+
+        // even though...
+        // Our device is verified.
+        context.this_device_is_verified = true;
+
+        // So this UTD is unexpected since we can't explain why our backup is not
+        // working.
+        //
+        // TODO: it might be nice to tell the user that our backup is not working!
+        // Currently we don't distinguish between Unknown cases, since we want
+        // to make sure they are all reported as unexpected UTDs.
+        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
+
+        // Same for unknown megolm message index
+        let info = unknown_megolm_message_index();
+        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
     }
 
     fn utd_event() -> Raw<AnySyncTimelineEvent> {
@@ -416,31 +538,21 @@ mod tests {
         Raw::from_json(to_raw_value(&value).unwrap())
     }
 
-    fn device_old_no_backup() -> CryptoContextInfo {
+    fn device_old() -> CryptoContextInfo {
         CryptoContextInfo {
             device_creation_ts: MilliSecondsSinceUnixEpoch((BEFORE_EVENT_TIME).try_into().unwrap()),
+            this_device_is_verified: false,
             is_backup_configured: false,
+            backup_exists_on_server: false,
         }
     }
 
-    fn device_old_with_backup() -> CryptoContextInfo {
-        CryptoContextInfo {
-            device_creation_ts: MilliSecondsSinceUnixEpoch((BEFORE_EVENT_TIME).try_into().unwrap()),
-            is_backup_configured: true,
-        }
-    }
-
-    fn device_new_no_backup() -> CryptoContextInfo {
+    fn device_new() -> CryptoContextInfo {
         CryptoContextInfo {
             device_creation_ts: MilliSecondsSinceUnixEpoch((AFTER_EVENT_TIME).try_into().unwrap()),
+            this_device_is_verified: false,
             is_backup_configured: false,
-        }
-    }
-
-    fn device_new_with_backup() -> CryptoContextInfo {
-        CryptoContextInfo {
-            device_creation_ts: MilliSecondsSinceUnixEpoch((AFTER_EVENT_TIME).try_into().unwrap()),
-            is_backup_configured: true,
+            backup_exists_on_server: false,
         }
     }
 
