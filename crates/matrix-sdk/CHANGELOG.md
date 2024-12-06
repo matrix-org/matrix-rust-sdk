@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased changes
+
+### Features
+
+- `Backups::exists_on_server`, which always fetches up-to-date information from the
+  server about whether a key storage backup exists, was renamed to
+  `fetch_exists_on_the_server`, and a new implemntation of `exists_on_server`
+  which caches the most recent answer is now provided.
+
 ## [0.8.0] - 2024-11-19
 
 ### Bug Fixes

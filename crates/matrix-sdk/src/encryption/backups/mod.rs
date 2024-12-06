@@ -403,7 +403,7 @@ impl Backups {
     /// backup exists - instead use [`Self::fetch_exists_on_server`]. This
     /// method is useful when performance is more important than guaranteed
     /// accuracy, such as when classifying UTDs.
-    pub async fn fast_exists_on_server(&self) -> Result<bool, Error> {
+    pub async fn exists_on_server(&self) -> Result<bool, Error> {
         // If we have an answer cached, return it immediately
         if let Some(cached_value) = self.client.inner.e2ee.backup_state.backup_exists_on_server() {
             return Ok(cached_value);
@@ -1220,7 +1220,7 @@ mod test {
     }
 
     #[async_test]
-    async fn test_when_a_backup_exists_then_fast_exists_on_server_returns_true() {
+    async fn test_when_a_backup_exists_then_exists_on_server_returns_true() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
@@ -1229,7 +1229,7 @@ mod test {
         let exists = client
             .encryption()
             .backups()
-            .fast_exists_on_server()
+            .exists_on_server()
             .await
             .expect("We should be able to check if backups exist on the server");
 
@@ -1237,7 +1237,7 @@ mod test {
     }
 
     #[async_test]
-    async fn test_when_no_backup_exists_then_fast_exists_on_server_returns_false() {
+    async fn test_when_no_backup_exists_then_exists_on_server_returns_false() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
@@ -1246,7 +1246,7 @@ mod test {
         let exists = client
             .encryption()
             .backups()
-            .fast_exists_on_server()
+            .exists_on_server()
             .await
             .expect("We should be able to check if backups exist on the server");
 
@@ -1254,7 +1254,7 @@ mod test {
     }
 
     #[async_test]
-    async fn test_when_server_returns_an_error_then_fast_exists_on_server_returns_an_error() {
+    async fn test_when_server_returns_an_error_then_exists_on_server_returns_an_error() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
@@ -1262,7 +1262,7 @@ mod test {
             let _scope =
                 server.mock_room_keys_version().error429().expect(1).mount_as_scoped().await;
 
-            client.encryption().backups().fast_exists_on_server().await.expect_err(
+            client.encryption().backups().exists_on_server().await.expect_err(
                 "If the /version endpoint returns a non 404 error we should throw an error",
             );
         }
@@ -1271,14 +1271,14 @@ mod test {
             let _scope =
                 server.mock_room_keys_version().error404().expect(1).mount_as_scoped().await;
 
-            client.encryption().backups().fast_exists_on_server().await.expect_err(
+            client.encryption().backups().exists_on_server().await.expect_err(
                 "If the /version endpoint returns a non-Matrix 404 error we should throw an error",
             );
         }
     }
 
     #[async_test]
-    async fn test_repeated_calls_to_fast_exists_on_server_do_not_make_additional_requests() {
+    async fn test_repeated_calls_to_exists_on_server_do_not_make_additional_requests() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
@@ -1287,13 +1287,13 @@ mod test {
 
         let backups = client.encryption().backups();
 
-        // Call fast_exists_on_server several times
-        backups.fast_exists_on_server().await.unwrap();
-        backups.fast_exists_on_server().await.unwrap();
-        backups.fast_exists_on_server().await.unwrap();
+        // Call exists_on_server several times
+        backups.exists_on_server().await.unwrap();
+        backups.exists_on_server().await.unwrap();
+        backups.exists_on_server().await.unwrap();
 
         let exists = backups
-            .fast_exists_on_server()
+            .exists_on_server()
             .await
             .expect("We should be able to check if backups exist on the server");
 
@@ -1303,7 +1303,7 @@ mod test {
     }
 
     #[async_test]
-    async fn test_adding_a_backup_invalidates_fast_exists_on_server_cache() {
+    async fn test_adding_a_backup_invalidates_exists_on_server_cache() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let backups = client.encryption().backups();
@@ -1311,8 +1311,8 @@ mod test {
         {
             let _scope = server.mock_room_keys_version().none().expect(1).mount_as_scoped().await;
 
-            // Call fast_exists_on_server to fill the cache
-            let exists = backups.fast_exists_on_server().await.unwrap();
+            // Call exists_on_server to fill the cache
+            let exists = backups.exists_on_server().await.unwrap();
             assert!(!exists, "No backup exists at this point");
         }
 
@@ -1322,7 +1322,7 @@ mod test {
 
         server.mock_room_keys_version().exists().expect(1).mount().await;
         let exists = backups
-            .fast_exists_on_server()
+            .exists_on_server()
             .await
             .expect("We should be able to check if backups exist on the server");
 
@@ -1330,7 +1330,7 @@ mod test {
     }
 
     #[async_test]
-    async fn test_removing_a_backup_invalidates_fast_exists_on_server_cache() {
+    async fn test_removing_a_backup_invalidates_exists_on_server_cache() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let backups = client.encryption().backups();
@@ -1338,8 +1338,8 @@ mod test {
         {
             let _scope = server.mock_room_keys_version().exists().expect(1).mount_as_scoped().await;
 
-            // Call fast_exists_on_server to fill the cache
-            let exists = backups.fast_exists_on_server().await.unwrap();
+            // Call exists_on_server to fill the cache
+            let exists = backups.exists_on_server().await.unwrap();
             assert!(exists, "A backup exists at this point");
         }
 
@@ -1349,7 +1349,7 @@ mod test {
 
         server.mock_room_keys_version().none().expect(1).mount().await;
         let exists = backups
-            .fast_exists_on_server()
+            .exists_on_server()
             .await
             .expect("We should be able to check if backups exist on the server");
 
