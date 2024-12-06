@@ -23,7 +23,7 @@ use ruma::{
         AnyMessageLikeEventContent, EventContent as _, RawExt as _,
     },
     serde::Raw,
-    OwnedDeviceId, OwnedEventId, OwnedTransactionId, OwnedUserId, TransactionId, UInt,
+    OwnedDeviceId, OwnedEventId, OwnedTransactionId, OwnedUserId, TransactionId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -237,20 +237,9 @@ pub enum DependentQueuedRequestKind {
         /// Transaction id for the file upload.
         file_upload: OwnedTransactionId,
 
-        /// Information about the thumbnail, if present.
-        thumbnail_info: Option<FinishUploadThumbnailInfo>,
+        /// Transaction id for the thumbnail upload, if present.
+        thumbnail_upload: Option<OwnedTransactionId>,
     },
-}
-
-/// Detailed record about a thumbnail used when finishing a media upload.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FinishUploadThumbnailInfo {
-    /// Transaction id for the thumbnail upload.
-    pub txn: OwnedTransactionId,
-    /// Thumbnail's width.
-    pub width: UInt,
-    /// Thumbnail's height.
-    pub height: UInt,
 }
 
 /// A transaction id identifying a [`DependentQueuedRequest`] rather than its

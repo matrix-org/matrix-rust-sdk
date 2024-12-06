@@ -176,6 +176,17 @@ impl EventCacheStore for MemoryStore {
         Ok(())
     }
 
+    async fn get_media_content_for_uri(
+        &self,
+        uri: &MxcUri,
+    ) -> Result<Option<Vec<u8>>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+
+        Ok(inner.media.iter().find_map(|(media_uri, _media_key, media_content)| {
+            (media_uri == uri).then(|| media_content.to_owned())
+        }))
+    }
+
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         let mut inner = self.inner.write().unwrap();
 
