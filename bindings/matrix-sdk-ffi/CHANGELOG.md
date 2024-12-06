@@ -2,6 +2,12 @@
 
 Breaking changes:
 
+- `UtdCause` has two variants that replace the existing `HistoricalMessage`:
+  `HistoricalMessageAndBackupIsDisabled` and `HistoricalMessageAndDeviceIsUnverified`.
+  These give more detail about what went wrong and allow us to suggest to users
+  what actions they can take to fix the problem. See the doc comments on these
+  variants for suggested wording.
+
 - `EventSendState` now has two additional variants: `CrossSigningNotSetup` and
   `SendingFromUnverifiedDevice`. These indicate that your own device is not
   properly cross-signed, which is a requirement when using the identity-based

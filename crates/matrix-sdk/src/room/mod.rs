@@ -126,6 +126,8 @@ pub use self::{
     member::{RoomMember, RoomMemberRole},
     messages::{EventWithContextResponse, Messages, MessagesOptions},
 };
+#[cfg(feature = "e2e-encryption")]
+use crate::crypto::types::events::CryptoContextInfo;
 #[cfg(doc)]
 use crate::event_cache::EventCache;
 use crate::{
@@ -619,13 +621,26 @@ impl Room {
     #[cfg(feature = "e2e-encryption")]
     pub async fn crypto_context_info(&self) -> CryptoContextInfo {
         let encryption = self.client.encryption();
+
+        let (device_creation_ts, this_device_is_verified) = match encryption.get_own_device().await
+        {
+            Ok(Some(device)) => {
+                (device.first_time_seen_ts(), device.is_verified_with_cross_signing())
+            }
+
+            // Should not happen, there will always be an own device
+            _ => (MilliSecondsSinceUnixEpoch::now(), true),
+        };
+
+        let is_backup_configured = encryption.backups().state() == BackupState::Enabled;
+        let backup_exists_on_server =
+            encryption.backups().exists_on_server().await.unwrap_or(false);
+
         CryptoContextInfo {
-            device_creation_ts: match encryption.get_own_device().await {
-                Ok(Some(device)) => device.first_time_seen_ts(),
-                // Should not happen, there will always be an own device
-                _ => MilliSecondsSinceUnixEpoch::now(),
-            },
-            is_backup_configured: encryption.backups().state() == BackupState::Enabled,
+            device_creation_ts,
+            this_device_is_verified,
+            is_backup_configured,
+            backup_exists_on_server,
         }
     }
 
