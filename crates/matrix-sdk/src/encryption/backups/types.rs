@@ -126,7 +126,8 @@ pub enum BackupState {
     /// The reason we don't know whether a server-side backup exists is that we
     /// don't get notified by the server about the creation and deletion of
     /// backups. If we want to know the current state, we need to poll the
-    /// server, which is done using the [`Backups::exists_on_server()`] method.
+    /// server, which is done using the [`Backups::fetch_exists_on_server()`]
+    /// method.
     #[default]
     Unknown,
     /// A new backup is being created by this [`Client`]. This state will be

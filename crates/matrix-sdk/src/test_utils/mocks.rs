@@ -579,7 +579,7 @@ impl MatrixMockServer {
     /// mock_server.mock_room_keys_version().exists().expect(1).mount().await;
     ///
     /// let exists =
-    ///     client.encryption().backups().exists_on_server().await.unwrap();
+    ///     client.encryption().backups().fetch_exists_on_server().await.unwrap();
     ///
     /// assert!(exists);
     /// # });
