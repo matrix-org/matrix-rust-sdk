@@ -88,7 +88,7 @@ impl<'a> IntoFuture for Enable<'a> {
 
         let future = async move {
             if !recovery.client.encryption().backups().are_enabled().await {
-                if recovery.client.encryption().backups().exists_on_server().await? {
+                if recovery.client.encryption().backups().fetch_exists_on_server().await? {
                     return Err(RecoveryError::BackupExistsOnServer);
                 } else {
                     progress.set(EnableProgress::CreatingBackup);
