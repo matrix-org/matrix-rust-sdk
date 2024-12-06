@@ -386,8 +386,8 @@ impl Backups {
     /// Does a backup exist on the server?
     ///
     /// This method will request info about the current backup from the
-    /// homeserver and if a backup exits return `true`, otherwise `false`.
-    pub async fn exists_on_server(&self) -> Result<bool, Error> {
+    /// homeserver and if a backup exists return `true`, otherwise `false`.
+    pub async fn fetch_exists_on_server(&self) -> Result<bool, Error> {
         let exists_on_server = self.get_current_version().await?.is_some();
         self.client.inner.e2ee.backup_state.set_backup_exists_on_server(exists_on_server);
         Ok(exists_on_server)
@@ -395,23 +395,23 @@ impl Backups {
 
     /// Does a backup exist on the server?
     ///
-    /// This method is identical to [`Self::exists_on_server`] except that we
-    /// cache the latest answer in memory and only empty the cache if the local
-    /// device adds or deletes a backup itself.
+    /// This method is identical to [`Self::fetch_exists_on_server`] except that
+    /// we cache the latest answer in memory and only empty the cache if the
+    /// local device adds or deletes a backup itself.
     ///
     /// Do not use this method if you need an accurate answer about whether a
-    /// backup exists - instead use [`Self::exists_on_server`]. This method is
-    /// useful when performance is more important than guaranteed accuracy,
-    /// such as when classifying UTDs.
+    /// backup exists - instead use [`Self::fetch_exists_on_server`]. This
+    /// method is useful when performance is more important than guaranteed
+    /// accuracy, such as when classifying UTDs.
     pub async fn fast_exists_on_server(&self) -> Result<bool, Error> {
         // If we have an answer cached, return it immediately
         if let Some(cached_value) = self.client.inner.e2ee.backup_state.backup_exists_on_server() {
             return Ok(cached_value);
         }
 
-        // Otherwise, delegate to exists_on_server. (It will update the cached value for
-        // us.)
-        self.exists_on_server().await
+        // Otherwise, delegate to fetch_exists_on_server. (It will update the cached
+        // value for us.)
+        self.fetch_exists_on_server().await
     }
 
     /// Subscribe to a stream that notifies when a room key for the specified
@@ -1147,7 +1147,7 @@ mod test {
     }
 
     #[async_test]
-    async fn test_when_a_backup_exists_then_exists_on_server_returns_true() {
+    async fn test_when_a_backup_exists_then_fetch_exists_on_server_returns_true() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
@@ -1156,7 +1156,7 @@ mod test {
         let exists = client
             .encryption()
             .backups()
-            .exists_on_server()
+            .fetch_exists_on_server()
             .await
             .expect("We should be able to check if backups exist on the server");
 
@@ -1164,7 +1164,7 @@ mod test {
     }
 
     #[async_test]
-    async fn test_repeated_calls_to_exists_on_server_makes_repeated_requests() {
+    async fn test_repeated_calls_to_fetch_exists_on_server_makes_repeated_requests() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
@@ -1173,15 +1173,15 @@ mod test {
 
         let backups = client.encryption().backups();
 
-        // Call exists_on_server twice
-        backups.exists_on_server().await.unwrap();
-        let exists = backups.exists_on_server().await.unwrap();
+        // Call fetch_exists_on_server twice
+        backups.fetch_exists_on_server().await.unwrap();
+        let exists = backups.fetch_exists_on_server().await.unwrap();
 
         assert!(exists, "We should deduce that a backup exists on the server");
     }
 
     #[async_test]
-    async fn test_when_no_backup_exists_then_exists_on_server_returns_false() {
+    async fn test_when_no_backup_exists_then_fetch_exists_on_server_returns_false() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
@@ -1190,7 +1190,7 @@ mod test {
         let exists = client
             .encryption()
             .backups()
-            .exists_on_server()
+            .fetch_exists_on_server()
             .await
             .expect("We should be able to check if backups exist on the server");
 
@@ -1198,7 +1198,7 @@ mod test {
     }
 
     #[async_test]
-    async fn test_when_server_returns_an_error_then_exists_on_server_returns_an_error() {
+    async fn test_when_server_returns_an_error_then_fetch_exists_on_server_returns_an_error() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
@@ -1206,7 +1206,7 @@ mod test {
             let _scope =
                 server.mock_room_keys_version().error429().expect(1).mount_as_scoped().await;
 
-            client.encryption().backups().exists_on_server().await.expect_err(
+            client.encryption().backups().fetch_exists_on_server().await.expect_err(
                 "If the /version endpoint returns a non 404 error we should throw an error",
             );
         }
@@ -1215,7 +1215,7 @@ mod test {
             let _scope =
                 server.mock_room_keys_version().error404().expect(1).mount_as_scoped().await;
 
-            client.encryption().backups().exists_on_server().await.expect_err(
+            client.encryption().backups().fetch_exists_on_server().await.expect_err(
                 "If the /version endpoint returns a non-Matrix 404 error we should throw an error",
             );
         }
