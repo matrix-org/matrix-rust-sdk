@@ -319,6 +319,12 @@ impl EventCache {
 
         let room_cache = self.inner.for_room(room_id).await?;
 
+        // If the linked chunked already has at least one chunk (gap or events), ignore
+        // this request, as it should happen at most once per room.
+        if room_cache.inner.state.read().await.events().chunks().next().is_some() {
+            return Ok(());
+        }
+
         // We could have received events during a previous sync; remove them all, since
         // we can't know where to insert the "initial events" with respect to
         // them.
