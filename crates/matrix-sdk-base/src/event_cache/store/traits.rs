@@ -120,6 +120,23 @@ pub trait EventCacheStore: AsyncTraitDeps {
         request: &MediaRequestParameters,
     ) -> Result<(), Self::Error>;
 
+    /// Get a media file's content associated to an `MxcUri` from the
+    /// media store.
+    ///
+    /// In theory, there could be several files stored using the same URI and a
+    /// different `MediaFormat`. This API is meant to be used with a media file
+    /// that has only been stored with a single format.
+    ///
+    /// If there are several media files for a given URI in different formats,
+    /// this API will only return one of them. Which one is left as an
+    /// implementation detail.
+    ///
+    /// # Arguments
+    ///
+    /// * `uri` - The `MxcUri` of the media file.
+    async fn get_media_content_for_uri(&self, uri: &MxcUri)
+        -> Result<Option<Vec<u8>>, Self::Error>;
+
     /// Remove all the media files' content associated to an `MxcUri` from the
     /// media store.
     ///
@@ -199,6 +216,13 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         request: &MediaRequestParameters,
     ) -> Result<(), Self::Error> {
         self.0.remove_media_content(request).await.map_err(Into::into)
+    }
+
+    async fn get_media_content_for_uri(
+        &self,
+        uri: &MxcUri,
+    ) -> Result<Option<Vec<u8>>, Self::Error> {
+        self.0.get_media_content_for_uri(uri).await.map_err(Into::into)
     }
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<(), Self::Error> {
