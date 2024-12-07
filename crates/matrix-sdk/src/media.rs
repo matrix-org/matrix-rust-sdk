@@ -40,8 +40,8 @@ use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
-    attachment::Thumbnail, config::RequestConfig, futures::SendRequest, Client, Error, Result,
-    TransmissionProgress,
+    attachment::Thumbnail, config::RequestConfig, futures::SendRequest, utils::not_found_error,
+    Client, Error, Result, TransmissionProgress,
 };
 
 /// A conservative upload speed of 1Mbps
@@ -400,6 +400,10 @@ impl Media {
         request: &MediaRequestParameters,
         use_cache: bool,
     ) -> Result<Vec<u8>> {
+        if let Some(uri) = Self::as_local_uri(&request.source) {
+            return self.get_local_media_content(uri).await;
+        }
+
         // Read from the cache.
         if use_cache {
             if let Some(content) =
@@ -513,6 +517,26 @@ impl Media {
         }
 
         Ok(content)
+    }
+
+    /// Get a media file's content that is only available in the media cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `uri` - The local MXC URI of the media content.
+    async fn get_local_media_content(&self, uri: &MxcUri) -> Result<Vec<u8>> {
+        // Read from the cache.
+        self.client
+            .event_cache_store()
+            .lock()
+            .await?
+            .get_media_content_for_uri(uri)
+            .await?
+            .ok_or_else(|| {
+                // A request to the server would return a 404 NOT_FOUND error, so let's simulate
+                // that.
+                not_found_error("Unknown media ID".to_owned()).into()
+            })
     }
 
     /// Remove a media file's content from the store.
