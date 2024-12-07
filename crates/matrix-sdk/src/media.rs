@@ -48,6 +48,15 @@ use crate::{
 const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
 /// 5 min minimal upload request timeout, used to clamp the request timeout.
 const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
+/// The server name used to generate local MXC URIs.
+// This mustn't represent a potentially valid media server, otherwise it'd be
+// possible for an attacker to return malicious content under some
+// preconditions (e.g. the cache store has been cleared before the upload
+// took place). To mitigate against this, we use the .localhost TLD,
+// which is guaranteed to be on the local machine. As a result, the only attack
+// possible would be coming from the user themselves, which we consider a
+// non-threat.
+const LOCAL_MXC_SERVER_NAME: &str = "send-queue.localhost";
 
 /// A high-level API to interact with the media API.
 #[derive(Debug, Clone)]
@@ -685,14 +694,7 @@ impl Media {
     ///
     /// This uses a MXC ID that is only locally valid.
     pub(crate) fn make_local_uri(txn_id: &TransactionId) -> OwnedMxcUri {
-        // This mustn't represent a potentially valid media server, otherwise it'd be
-        // possible for an attacker to return malicious content under some
-        // preconditions (e.g. the cache store has been cleared before the upload
-        // took place). To mitigate against this, we use the .localhost TLD,
-        // which is guaranteed to be on the local machine. As a result, the only attack
-        // possible would be coming from the user themselves, which we consider a
-        // non-threat.
-        OwnedMxcUri::from(format!("mxc://send-queue.localhost/{txn_id}"))
+        OwnedMxcUri::from(format!("mxc://{LOCAL_MXC_SERVER_NAME}/{txn_id}"))
     }
 
     /// Create a [`MediaRequest`] for a file we want to store locally before
@@ -719,5 +721,91 @@ impl Media {
             source: MediaSource::Plain(Self::make_local_uri(txn_id)),
             format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(width, height)),
         }
+    }
+
+    /// Returns the local MXC URI contained by the given source, if any.
+    ///
+    /// A local MXC URI is a URI that was generated with `make_local_uri`.
+    fn as_local_uri(source: &MediaSource) -> Option<&MxcUri> {
+        let uri = match source {
+            MediaSource::Plain(uri) => uri,
+            MediaSource::Encrypted(file) => &file.url,
+        };
+
+        uri.server_name()
+            .is_ok_and(|server_name| server_name == LOCAL_MXC_SERVER_NAME)
+            .then_some(uri)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches2::assert_matches;
+    use ruma::{
+        events::room::{EncryptedFile, MediaSource},
+        mxc_uri, owned_mxc_uri, uint, MxcUri,
+    };
+    use serde_json::json;
+
+    use super::Media;
+
+    /// Create an `EncryptedFile` with the given MXC URI.
+    fn encrypted_file(mxc_uri: &MxcUri) -> Box<EncryptedFile> {
+        Box::new(
+            serde_json::from_value(json!({
+                "url": mxc_uri,
+                "key": {
+                    "kty": "oct",
+                    "key_ops": ["encrypt", "decrypt"],
+                    "alg": "A256CTR",
+                    "k": "b50ACIv6LMn9AfMCFD1POJI_UAFWIclxAN1kWrEO2X8",
+                    "ext": true,
+                },
+                "iv": "AK1wyzigZtQAAAABAAAAKK",
+                "hashes": {
+                    "sha256": "foobar",
+                },
+                "v": "v2",
+            }))
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn test_as_local_uri() {
+        let txn_id = "abcdef";
+
+        // Request generated with `make_local_file_media_request`.
+        let request = Media::make_local_file_media_request(txn_id.into());
+        assert_matches!(Media::as_local_uri(&request.source), Some(uri));
+        assert_eq!(uri.media_id(), Ok(txn_id));
+
+        // Request generated with `make_local_thumbnail_media_request`.
+        let request =
+            Media::make_local_thumbnail_media_request(txn_id.into(), uint!(100), uint!(100));
+        assert_matches!(Media::as_local_uri(&request.source), Some(uri));
+        assert_eq!(uri.media_id(), Ok(txn_id));
+
+        // Local plain source.
+        let source = MediaSource::Plain(Media::make_local_uri(txn_id.into()));
+        assert_matches!(Media::as_local_uri(&source), Some(uri));
+        assert_eq!(uri.media_id(), Ok(txn_id));
+
+        // Local encrypted source.
+        let source = MediaSource::Encrypted(encrypted_file(&Media::make_local_uri(txn_id.into())));
+        assert_matches!(Media::as_local_uri(&source), Some(uri));
+        assert_eq!(uri.media_id(), Ok(txn_id));
+
+        // Test non-local plain source.
+        let source = MediaSource::Plain(owned_mxc_uri!("mxc://server.local/poiuyt"));
+        assert_matches!(Media::as_local_uri(&source), None);
+
+        // Test non-local encrypted source.
+        let source = MediaSource::Encrypted(encrypted_file(mxc_uri!("mxc://server.local/mlkjhg")));
+        assert_matches!(Media::as_local_uri(&source), None);
+
+        // Test invalid MXC URI.
+        let source = MediaSource::Plain("https://server.local/nbvcxw".into());
+        assert_matches!(Media::as_local_uri(&source), None);
     }
 }
