@@ -1325,11 +1325,12 @@ impl_crypto_store! {
         // Get the object store and the value associated with the key
         let result = transaction
             .object_store(keys::ROOM_SETTINGS)?
-            .get(&key)
-            .await?;
+            .get(&key)?;
+
+        let value = result.await?;
 
         // Deserialize and return the result, returning Option directly if there's no value
-        result
+        value
             .map(|v| self.serializer.deserialize_value(v))
             .transpose()
 }
