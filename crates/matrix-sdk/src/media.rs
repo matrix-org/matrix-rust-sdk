@@ -32,7 +32,7 @@ use ruma::{
     },
     assign,
     events::room::{MediaSource, ThumbnailInfo},
-    MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri,
+    MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, TransactionId, UInt,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
@@ -678,5 +678,46 @@ impl Media {
         let url = response.content_uri;
 
         Ok(Some((MediaSource::Plain(url), thumbnail_info)))
+    }
+
+    /// Create an [`OwnedMxcUri`] for a file or thumbnail we want to store
+    /// locally before sending it.
+    ///
+    /// This uses a MXC ID that is only locally valid.
+    pub(crate) fn make_local_uri(txn_id: &TransactionId) -> OwnedMxcUri {
+        // This mustn't represent a potentially valid media server, otherwise it'd be
+        // possible for an attacker to return malicious content under some
+        // preconditions (e.g. the cache store has been cleared before the upload
+        // took place). To mitigate against this, we use the .localhost TLD,
+        // which is guaranteed to be on the local machine. As a result, the only attack
+        // possible would be coming from the user themselves, which we consider a
+        // non-threat.
+        OwnedMxcUri::from(format!("mxc://send-queue.localhost/{txn_id}"))
+    }
+
+    /// Create a [`MediaRequest`] for a file we want to store locally before
+    /// sending it.
+    ///
+    /// This uses a MXC ID that is only locally valid.
+    pub(crate) fn make_local_file_media_request(txn_id: &TransactionId) -> MediaRequestParameters {
+        MediaRequestParameters {
+            source: MediaSource::Plain(Self::make_local_uri(txn_id)),
+            format: MediaFormat::File,
+        }
+    }
+
+    /// Create a [`MediaRequest`] for a file we want to store locally before
+    /// sending it.
+    ///
+    /// This uses a MXC ID that is only locally valid.
+    pub(crate) fn make_local_thumbnail_media_request(
+        txn_id: &TransactionId,
+        height: UInt,
+        width: UInt,
+    ) -> MediaRequestParameters {
+        MediaRequestParameters {
+            source: MediaSource::Plain(Self::make_local_uri(txn_id)),
+            format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(width, height)),
+        }
     }
 }
