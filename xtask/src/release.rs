@@ -127,7 +127,7 @@ fn publish(execute: bool) -> Result<()> {
 }
 
 fn weekly_report() -> Result<()> {
-    const JSON_FIELDS: &'static str = "title,number,url,author";
+    const JSON_FIELDS: &str = "title,number,url,author";
 
     let sh = sh();
 
