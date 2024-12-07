@@ -46,11 +46,6 @@ use tokio::sync::Mutex;
 use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
-
-pub type RoomSettingsCache = Arc<RwLock<HashMap<String, Option<RoomSettings>>>>;
 
 use self::indexeddb_serializer::MaybeEncrypted;
 use crate::crypto_store::{
@@ -1319,36 +1314,25 @@ impl_crypto_store! {
         }
     }
 
-    pub async fn get_room_settings(
-        room_id: &RoomId,
-        serializer: &Serializer,
-        inner: &DatabaseInner,
-        cache: &RoomSettingsCache,
-    ) -> Result<Option<RoomSettings>, String> {
-        let room_id_str = room_id.to_string();
-    
-        // Check if room settings exist in cache
-        if let Some(cached) = cache.read().await.get(&room_id_str).cloned() {
-            return Ok(cached);
-        }
-    
-        // Fetch from database if not in cache
-        let key = serializer.encode_key("ROOM_SETTINGS", room_id);
-        let result = inner
-            .transaction_on_one_with_mode("ROOM_SETTINGS", IdbTransactionMode::Readonly)?
-            .object_store("ROOM_SETTINGS")?
-            .get(&key)?
-            .await?
-            .map(|v| serializer.deserialize_value(v))
-            .transpose();
-    
-        // Cache the result
-        if let Ok(settings) = &result {
-            cache.write().await.insert(room_id_str, settings.clone());
-        }
-    
+    async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
+        let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id);
+
+        // Get the transaction with the correct mode
+        let transaction = self
+            .inner
+            .transaction_on_one_with_mode(keys::ROOM_SETTINGS, IdbTransactionMode::Readonly)?;
+
+        // Get the object store and the value associated with the key
+        let result = transaction
+            .object_store(keys::ROOM_SETTINGS)?
+            .get(&key)
+            .await?;
+
+        // Deserialize and return the result, returning Option directly if there's no value
         result
-    }
+            .map(|v| self.serializer.deserialize_value(v))
+            .transpose()
+}
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
         self
