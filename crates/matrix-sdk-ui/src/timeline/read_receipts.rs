@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::Ordering, collections::HashMap, sync::Arc};
+use std::{cmp::Ordering, collections::HashMap};
 
-use eyeball_im::ObservableVectorTransaction;
 use futures_core::Stream;
 use indexmap::IndexMap;
 use ruma::{
@@ -27,7 +26,8 @@ use tracing::{debug, error, warn};
 
 use super::{
     controller::{
-        AllRemoteEvents, FullEventMeta, TimelineMetadata, TimelineState, TimelineStateTransaction,
+        AllRemoteEvents, FullEventMeta, ObservableItemsTransaction, TimelineMetadata,
+        TimelineState, TimelineStateTransaction,
     },
     traits::RoomDataProvider,
     util::{rfind_event_by_id, RelativePosition},
@@ -99,9 +99,10 @@ impl ReadReceipts {
         &mut self,
         new_receipt: FullReceipt<'_>,
         is_own_user_id: bool,
-        all_events: &AllRemoteEvents,
-        timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
+        timeline_items: &mut ObservableItemsTransaction<'_>,
     ) {
+        let all_events = timeline_items.all_remote_events();
+
         // Get old receipt.
         let old_receipt = self.get_latest(new_receipt.user_id, &new_receipt.receipt_type);
         if old_receipt
@@ -284,11 +285,7 @@ struct ReadReceiptTimelineUpdate {
 
 impl ReadReceiptTimelineUpdate {
     /// Remove the old receipt from the corresponding timeline item.
-    fn remove_old_receipt(
-        &self,
-        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
-        user_id: &UserId,
-    ) {
+    fn remove_old_receipt(&self, items: &mut ObservableItemsTransaction<'_>, user_id: &UserId) {
         let Some(event_id) = &self.old_event_id else {
             // Nothing to do.
             return;
@@ -310,7 +307,7 @@ impl ReadReceiptTimelineUpdate {
                      receipt doesn't have a receipt for the user"
                 );
             }
-            items.set(receipt_pos, TimelineItem::new(event_item, event_item_id));
+            items.replace(receipt_pos, TimelineItem::new(event_item, event_item_id));
         } else {
             warn!("received a read receipt for a local item, this should not be possible");
         }
@@ -319,7 +316,7 @@ impl ReadReceiptTimelineUpdate {
     /// Add the new receipt to the corresponding timeline item.
     fn add_new_receipt(
         self,
-        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
+        items: &mut ObservableItemsTransaction<'_>,
         user_id: OwnedUserId,
         receipt: Receipt,
     ) {
@@ -339,7 +336,7 @@ impl ReadReceiptTimelineUpdate {
 
         if let Some(remote_event_item) = event_item.as_remote_mut() {
             remote_event_item.read_receipts.insert(user_id, receipt);
-            items.set(receipt_pos, TimelineItem::new(event_item, event_item_id));
+            items.replace(receipt_pos, TimelineItem::new(event_item, event_item_id));
         } else {
             warn!("received a read receipt for a local item, this should not be possible");
         }
@@ -348,7 +345,7 @@ impl ReadReceiptTimelineUpdate {
     /// Apply this update to the timeline.
     fn apply(
         self,
-        items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
+        items: &mut ObservableItemsTransaction<'_>,
         user_id: OwnedUserId,
         receipt: Receipt,
     ) {
@@ -386,7 +383,6 @@ impl TimelineStateTransaction<'_> {
                     self.meta.read_receipts.maybe_update_read_receipt(
                         full_receipt,
                         is_own_user_id,
-                        &self.meta.all_remote_events,
                         &mut self.items,
                     );
                 }
@@ -421,7 +417,6 @@ impl TimelineStateTransaction<'_> {
             self.meta.read_receipts.maybe_update_read_receipt(
                 full_receipt,
                 user_id == own_user_id,
-                &self.meta.all_remote_events,
                 &mut self.items,
             );
         }
@@ -450,7 +445,6 @@ impl TimelineStateTransaction<'_> {
         self.meta.read_receipts.maybe_update_read_receipt(
             full_receipt,
             is_own_event,
-            &self.meta.all_remote_events,
             &mut self.items,
         );
     }
@@ -460,8 +454,8 @@ impl TimelineStateTransaction<'_> {
     pub(super) fn maybe_update_read_receipts_of_prev_event(&mut self, event_id: &EventId) {
         // Find the previous visible event, if there is one.
         let Some(prev_event_meta) = self
-            .meta
-            .all_remote_events
+            .items
+            .all_remote_events()
             .iter()
             .rev()
             // Find the event item.
@@ -491,7 +485,7 @@ impl TimelineStateTransaction<'_> {
 
         let read_receipts = self.meta.read_receipts.compute_event_receipts(
             &remote_prev_event_item.event_id,
-            &self.meta.all_remote_events,
+            self.items.all_remote_events(),
             false,
         );
 
@@ -501,7 +495,7 @@ impl TimelineStateTransaction<'_> {
         }
 
         remote_prev_event_item.read_receipts = read_receipts;
-        self.items.set(prev_item_pos, TimelineItem::new(prev_event_item, prev_event_item_id));
+        self.items.replace(prev_item_pos, TimelineItem::new(prev_event_item, prev_event_item_id));
     }
 }
 
@@ -539,18 +533,24 @@ impl TimelineState {
         user_id: &UserId,
         room_data_provider: &P,
     ) -> Option<(OwnedEventId, Receipt)> {
-        let public_read_receipt =
-            self.meta.user_receipt(user_id, ReceiptType::Read, room_data_provider).await;
-        let private_read_receipt =
-            self.meta.user_receipt(user_id, ReceiptType::ReadPrivate, room_data_provider).await;
+        let all_remote_events = self.items.all_remote_events();
+        let public_read_receipt = self
+            .meta
+            .user_receipt(user_id, ReceiptType::Read, room_data_provider, all_remote_events)
+            .await;
+        let private_read_receipt = self
+            .meta
+            .user_receipt(user_id, ReceiptType::ReadPrivate, room_data_provider, all_remote_events)
+            .await;
 
         // Let's assume that a private read receipt should be more recent than a public
         // read receipt, otherwise there's no point in the private read receipt,
         // and use it as default.
-        match self
-            .meta
-            .compare_optional_receipts(public_read_receipt.as_ref(), private_read_receipt.as_ref())
-        {
+        match self.meta.compare_optional_receipts(
+            public_read_receipt.as_ref(),
+            private_read_receipt.as_ref(),
+            self.items.all_remote_events(),
+        ) {
             Ordering::Greater => public_read_receipt,
             Ordering::Less => private_read_receipt,
             _ => unreachable!(),
@@ -572,16 +572,19 @@ impl TimelineState {
         // Let's assume that a private read receipt should be more recent than a public
         // read receipt, otherwise there's no point in the private read receipt,
         // and use it as default.
-        let (latest_receipt_id, _) =
-            match self.meta.compare_optional_receipts(public_read_receipt, private_read_receipt) {
-                Ordering::Greater => public_read_receipt?,
-                Ordering::Less => private_read_receipt?,
-                _ => unreachable!(),
-            };
+        let (latest_receipt_id, _) = match self.meta.compare_optional_receipts(
+            public_read_receipt,
+            private_read_receipt,
+            self.items.all_remote_events(),
+        ) {
+            Ordering::Greater => public_read_receipt?,
+            Ordering::Less => private_read_receipt?,
+            _ => unreachable!(),
+        };
 
         // Find the corresponding visible event.
-        self.meta
-            .all_remote_events
+        self.items
+            .all_remote_events()
             .iter()
             .rev()
             .skip_while(|ev| ev.event_id != *latest_receipt_id)
@@ -601,6 +604,7 @@ impl TimelineMetadata {
         user_id: &UserId,
         receipt_type: ReceiptType,
         room_data_provider: &P,
+        all_remote_events: &AllRemoteEvents,
     ) -> Option<(OwnedEventId, Receipt)> {
         if let Some(receipt) = self.read_receipts.get_latest(user_id, &receipt_type) {
             // Since it is in the timeline, it should be the most recent.
@@ -620,6 +624,7 @@ impl TimelineMetadata {
         match self.compare_optional_receipts(
             main_thread_read_receipt.as_ref(),
             unthreaded_read_receipt.as_ref(),
+            all_remote_events,
         ) {
             Ordering::Greater => main_thread_read_receipt,
             Ordering::Less => unthreaded_read_receipt,
@@ -637,6 +642,7 @@ impl TimelineMetadata {
         &self,
         lhs: Option<&(OwnedEventId, Receipt)>,
         rhs_or_default: Option<&(OwnedEventId, Receipt)>,
+        all_remote_events: &AllRemoteEvents,
     ) -> Ordering {
         // If we only have one, use it.
         let Some((lhs_event_id, lhs_receipt)) = lhs else {
@@ -647,7 +653,9 @@ impl TimelineMetadata {
         };
 
         // Compare by position in the timeline.
-        if let Some(relative_pos) = self.compare_events_positions(lhs_event_id, rhs_event_id) {
+        if let Some(relative_pos) =
+            self.compare_events_positions(lhs_event_id, rhs_event_id, all_remote_events)
+        {
             if relative_pos == RelativePosition::Before {
                 return Ordering::Greater;
             }

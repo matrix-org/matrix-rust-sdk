@@ -15,7 +15,7 @@
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use as_variant::as_variant;
-use eyeball_im::{ObservableVectorEntry, VectorDiff};
+use eyeball_im::VectorDiff;
 use eyeball_im_util::vector::VectorObserverExt;
 use futures_core::Stream;
 use imbl::Vector;
@@ -51,9 +51,17 @@ use tracing::{
     debug, error, field, field::debug, info, info_span, instrument, trace, warn, Instrument as _,
 };
 
-pub(super) use self::state::{
-    AllRemoteEvents, FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata,
-    TimelineNewItemPosition, TimelineState, TimelineStateTransaction,
+#[cfg(test)]
+pub(super) use self::observable_items::ObservableItems;
+pub(super) use self::{
+    observable_items::{
+        AllRemoteEvents, ObservableItemsEntry, ObservableItemsTransaction,
+        ObservableItemsTransactionEntry,
+    },
+    state::{
+        FullEventMeta, PendingEdit, PendingEditKind, TimelineMetadata, TimelineNewItemPosition,
+        TimelineState, TimelineStateTransaction,
+    },
 };
 use super::{
     event_handler::TimelineEventKind,
@@ -77,6 +85,7 @@ use crate::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 
+mod observable_items;
 mod state;
 
 /// Data associated to the current timeline focus.
@@ -591,7 +600,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
                 if reaction_info.is_some() {
                     let new_item = item.with_reactions(reactions);
-                    state.items.set(item_pos, new_item);
+                    state.items.replace(item_pos, new_item);
                 } else {
                     warn!("reaction is missing on the item, not removing it locally, but sending redaction.");
                 }
@@ -615,7 +624,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                                 .or_default()
                                 .insert(user_id.to_owned(), reaction_info);
                             let new_item = item.with_reactions(reactions);
-                            state.items.set(item_pos, new_item);
+                            state.items.replace(item_pos, new_item);
                         } else {
                             warn!("couldn't find item to re-add reaction anymore; maybe it's been redacted?");
                         }
@@ -811,7 +820,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                             {
                                 trace!("updated reaction status to sent");
                                 entry.status = ReactionStatus::RemoteToRemote(event_id.to_owned());
-                                txn.items.set(item_pos, event_item.with_reactions(reactions));
+                                txn.items.replace(item_pos, event_item.with_reactions(reactions));
                                 txn.commit();
                                 return;
                             }
@@ -857,7 +866,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         }
 
         let new_item = item.with_inner_kind(local_item.with_send_state(send_state));
-        txn.items.set(idx, new_item);
+        txn.items.replace(idx, new_item);
 
         txn.commit();
     }
@@ -904,7 +913,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             let mut reactions = item.reactions().clone();
             if reactions.remove_reaction(&full_key.sender, &full_key.key).is_some() {
                 let updated_item = item.with_reactions(reactions);
-                state.items.set(idx, updated_item);
+                state.items.replace(idx, updated_item);
             } else {
                 warn!(
                     "missing reaction {} for sender {} on timeline item",
@@ -961,7 +970,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             prev_item.internal_id.to_owned(),
         );
 
-        txn.items.set(idx, new_item);
+        txn.items.replace(idx, new_item);
 
         // This doesn't change the original sending time, so there's no need to adjust
         // day dividers.
@@ -1128,7 +1137,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 let new_item = entry.with_kind(TimelineItemKind::Event(
                     event_item.with_sender_profile(profile_state.clone()),
                 ));
-                ObservableVectorEntry::set(&mut entry, new_item);
+                ObservableItemsEntry::replace(&mut entry, new_item);
             }
         });
     }
@@ -1154,7 +1163,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     let updated_item =
                         event_item.with_sender_profile(TimelineDetails::Ready(profile));
                     let new_item = entry.with_kind(updated_item);
-                    ObservableVectorEntry::set(&mut entry, new_item);
+                    ObservableItemsEntry::replace(&mut entry, new_item);
                 }
                 None => {
                     if !event_item.sender_profile().is_unavailable() {
@@ -1162,7 +1171,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Unavailable);
                         let new_item = entry.with_kind(updated_item);
-                        ObservableVectorEntry::set(&mut entry, new_item);
+                        ObservableItemsEntry::replace(&mut entry, new_item);
                     } else {
                         debug!(event_id, transaction_id, "Profile already marked unavailable");
                     }
@@ -1198,7 +1207,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Ready(profile));
                         let new_item = entry.with_kind(updated_item);
-                        ObservableVectorEntry::set(&mut entry, new_item);
+                        ObservableItemsEntry::replace(&mut entry, new_item);
                     }
                 }
                 None => {
@@ -1207,7 +1216,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Unavailable);
                         let new_item = entry.with_kind(updated_item);
-                        ObservableVectorEntry::set(&mut entry, new_item);
+                        ObservableItemsEntry::replace(&mut entry, new_item);
                     } else {
                         debug!(event_id, transaction_id, "Profile already marked unavailable");
                     }
@@ -1316,7 +1325,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         trace!("Adding local reaction to local echo");
         let new_item = item.with_reactions(reactions);
-        state.items.set(item_pos, new_item);
+        state.items.replace(item_pos, new_item);
 
         // Add it to the reaction map, so we can discard it later if needs be.
         state.meta.reactions.map.insert(
@@ -1456,7 +1465,7 @@ impl TimelineController {
                 event,
             }),
         ));
-        state.items.set(index, TimelineItem::new(item, internal_id));
+        state.items.replace(index, TimelineItem::new(item, internal_id));
 
         Ok(())
     }
@@ -1481,13 +1490,22 @@ impl TimelineController {
 
         match receipt_type {
             SendReceiptType::Read => {
-                if let Some((old_pub_read, _)) =
-                    state.meta.user_receipt(own_user_id, ReceiptType::Read, room).await
+                if let Some((old_pub_read, _)) = state
+                    .meta
+                    .user_receipt(
+                        own_user_id,
+                        ReceiptType::Read,
+                        room,
+                        state.items.all_remote_events(),
+                    )
+                    .await
                 {
                     trace!(%old_pub_read, "found a previous public receipt");
-                    if let Some(relative_pos) =
-                        state.meta.compare_events_positions(&old_pub_read, event_id)
-                    {
+                    if let Some(relative_pos) = state.meta.compare_events_positions(
+                        &old_pub_read,
+                        event_id,
+                        state.items.all_remote_events(),
+                    ) {
                         trace!("event referred to new receipt is {relative_pos:?} the previous receipt");
                         return relative_pos == RelativePosition::After;
                     }
@@ -1500,9 +1518,11 @@ impl TimelineController {
                     state.latest_user_read_receipt(own_user_id, room).await
                 {
                     trace!(%old_priv_read, "found a previous private receipt");
-                    if let Some(relative_pos) =
-                        state.meta.compare_events_positions(&old_priv_read, event_id)
-                    {
+                    if let Some(relative_pos) = state.meta.compare_events_positions(
+                        &old_priv_read,
+                        event_id,
+                        state.items.all_remote_events(),
+                    ) {
                         trace!("event referred to new receipt is {relative_pos:?} the previous receipt");
                         return relative_pos == RelativePosition::After;
                     }
@@ -1511,9 +1531,11 @@ impl TimelineController {
             SendReceiptType::FullyRead => {
                 if let Some(prev_event_id) = self.room_data_provider.load_fully_read_marker().await
                 {
-                    if let Some(relative_pos) =
-                        state.meta.compare_events_positions(&prev_event_id, event_id)
-                    {
+                    if let Some(relative_pos) = state.meta.compare_events_positions(
+                        &prev_event_id,
+                        event_id,
+                        state.items.all_remote_events(),
+                    ) {
                         return relative_pos == RelativePosition::After;
                     }
                 }
@@ -1529,7 +1551,7 @@ impl TimelineController {
     /// it's folded into another timeline item.
     pub(crate) async fn latest_event_id(&self) -> Option<OwnedEventId> {
         let state = self.state.read().await;
-        state.meta.all_remote_events.last().map(|event_meta| &event_meta.event_id).cloned()
+        state.items.all_remote_events().last().map(|event_meta| &event_meta.event_id).cloned()
     }
 }
 
@@ -1575,7 +1597,7 @@ async fn fetch_replied_to_event(
     let event_item = item.with_content(TimelineItemContent::Message(reply), None);
 
     let new_timeline_item = TimelineItem::new(event_item, internal_id);
-    state.items.set(index, new_timeline_item);
+    state.items.replace(index, new_timeline_item);
 
     // Don't hold the state lock while the network request is made
     drop(state);
