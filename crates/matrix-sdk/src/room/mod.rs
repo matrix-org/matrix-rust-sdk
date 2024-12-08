@@ -1352,6 +1352,10 @@ impl Room {
             { reason: reason.map(ToOwned::to_owned) }
         );
         self.client.send(request, None).await?;
+
+        // Force future room members reload
+        self.mark_members_missing();
+
         Ok(())
     }
 
