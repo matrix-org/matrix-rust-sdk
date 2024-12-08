@@ -44,8 +44,8 @@ use ruma::{
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedTransactionId,
-    OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
+    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri,
+    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::{debug, warn};
@@ -444,6 +444,8 @@ struct PersistedQueuedRequest {
     is_wedged: Option<bool>,
 
     event: Option<SerializableEventContent>,
+
+    enqueue_time: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 impl PersistedQueuedRequest {
@@ -464,7 +466,13 @@ impl PersistedQueuedRequest {
         // By default, events without a priority have a priority of 0.
         let priority = self.priority.unwrap_or(0);
 
-        Some(QueuedRequest { kind, transaction_id: self.transaction_id, error, priority })
+        Some(QueuedRequest {
+            kind,
+            transaction_id: self.transaction_id,
+            error,
+            priority,
+            enqueue_time: self.enqueue_time,
+        })
     }
 }
 
@@ -1389,6 +1397,7 @@ impl_state_store!({
             is_wedged: None,
             event: None,
             priority: Some(priority),
+            enqueue_time: Some(MilliSecondsSinceUnixEpoch::now()),
         });
 
         // Save the new vector into db.
@@ -1584,6 +1593,7 @@ impl_state_store!({
             parent_transaction_id: parent_txn_id.to_owned(),
             own_transaction_id: own_txn_id,
             parent_key: None,
+            enqueue_time: None,
         });
 
         // Save the new vector into db.
