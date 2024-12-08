@@ -4,7 +4,10 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_common::store_locks::CrossProcessStoreLock;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{
+    broadcast::{self},
+    Mutex,
+};
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::{debug, trace, warn};
 
@@ -292,11 +295,12 @@ impl CryptoStoreWrapper {
     /// the stream. Updates that happen at the same time are batched into a
     /// [`Vec`].
     ///
-    /// If the reader of the stream lags too far behind, a warning will be
-    /// logged and items will be dropped.
-    pub fn room_keys_received_stream(&self) -> impl Stream<Item = Vec<RoomKeyInfo>> {
-        let stream = BroadcastStream::new(self.room_keys_received_sender.subscribe());
-        Self::filter_errors_out_of_stream(stream, "room_keys_received_stream")
+    /// If the reader of the stream lags too far behind an error will be sent to
+    /// the reader.
+    pub fn room_keys_received_stream(
+        &self,
+    ) -> impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>> {
+        BroadcastStream::new(self.room_keys_received_sender.subscribe())
     }
 
     /// Receive notifications of received `m.room_key.withheld` messages.
