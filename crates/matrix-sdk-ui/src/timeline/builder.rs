@@ -28,7 +28,7 @@ use tracing::{info, info_span, trace, warn, Instrument, Span};
 use super::{
     controller::{TimelineController, TimelineSettings},
     to_device::{handle_forwarded_room_key_event, handle_room_key_event},
-    Error, Timeline, TimelineDropHandle, TimelineFocus,
+    DateDividerMode, Error, Timeline, TimelineDropHandle, TimelineFocus,
 };
 use crate::{
     timeline::{controller::TimelineNewItemPosition, event_item::RemoteEventOrigin},
@@ -86,6 +86,13 @@ impl TimelineBuilder {
     /// timeline IDs for this timeline.
     pub fn with_internal_id_prefix(mut self, prefix: String) -> Self {
         self.internal_id_prefix = Some(prefix);
+        self
+    }
+
+    /// Chose when to insert the date separators, either in between each day
+    /// or each month.
+    pub fn with_date_divider_mode(mut self, mode: DateDividerMode) -> Self {
+        self.settings.date_divider_mode = mode;
         self
     }
 
