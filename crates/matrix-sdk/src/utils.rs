@@ -21,17 +21,9 @@ use std::sync::{Arc, RwLock};
 use futures_core::Stream;
 #[cfg(feature = "e2e-encryption")]
 use futures_util::StreamExt;
-use http::StatusCode;
 #[cfg(feature = "markdown")]
 use ruma::events::room::message::FormattedBody;
 use ruma::{
-    api::{
-        client::error::{
-            Error as ClientApiError, ErrorBody as ClientApiErrorBody,
-            ErrorKind as ClientApiErrorKind,
-        },
-        error::FromHttpResponseError,
-    },
     events::{AnyMessageLikeEventContent, AnyStateEventContent},
     serde::Raw,
     RoomAliasId,
@@ -44,7 +36,6 @@ use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 
 #[cfg(doc)]
 use crate::Room;
-use crate::{HttpError, RumaApiError};
 
 /// An observable with channel semantics.
 ///
