@@ -392,7 +392,9 @@ impl Room {
     ) -> Result<(), ClientError> {
         let content_json: serde_json::Value = match serde_json::from_str(&content) {
             Ok(json) => json,
-            Err(e) => return Err(ClientError::Generic { msg: format!("Failed to parse JSON: {}", e) }),
+            Err(e) => {
+                return Err(ClientError::Generic { msg: format!("Failed to parse JSON: {}", e) })
+            }
         };
         self.inner.send_raw(&event_type, content_json).await?;
         Ok(())
