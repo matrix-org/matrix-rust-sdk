@@ -8,6 +8,7 @@ use matrix_sdk::{
         CollectStrategy, TrustRequirement,
     },
     encryption::{BackupDownloadStrategy, EncryptionSettings},
+    event_cache::EventCacheError,
     reqwest::Certificate,
     ruma::{ServerName, UserId},
     sliding_sync::{
@@ -202,6 +203,8 @@ pub enum ClientBuildError {
     SlidingSyncVersion(VersionBuilderError),
     #[error(transparent)]
     Sdk(MatrixClientBuildError),
+    #[error(transparent)]
+    EventCache(#[from] EventCacheError),
     #[error("Failed to build the client: {message}")]
     Generic { message: String },
 }
@@ -269,6 +272,8 @@ pub struct ClientBuilder {
     room_key_recipient_strategy: CollectStrategy,
     decryption_trust_requirement: TrustRequirement,
     request_config: Option<RequestConfig>,
+
+    use_event_cache_persistent_storage: Option<bool>,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -299,7 +304,23 @@ impl ClientBuilder {
             room_key_recipient_strategy: Default::default(),
             decryption_trust_requirement: TrustRequirement::Untrusted,
             request_config: Default::default(),
+            use_event_cache_persistent_storage: None,
         })
+    }
+
+    /// Whether to use the event cache persistent storage or not.
+    ///
+    /// This is a temporary feature flag, for testing the event cache's
+    /// persistent storage. Follow new developments in https://github.com/matrix-org/matrix-rust-sdk/issues/3280.
+    ///
+    /// To enable the persistent storage: call this with `true`.
+    ///
+    /// To explicitly disable a previously-enabled persistent storage, call this
+    /// with `false` to clear the previous content in storage.
+    pub fn use_event_cache_persistent_storage(self: Arc<Self>, value: bool) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.use_event_cache_persistent_storage = Some(value);
+        Arc::new(builder)
     }
 
     pub fn cross_process_store_locks_holder_name(
@@ -623,6 +644,21 @@ impl ClientBuilder {
         }
 
         let sdk_client = inner_builder.build().await?;
+
+        if let Some(val) = builder.use_event_cache_persistent_storage {
+            if val {
+                // Enable the persistent storage \o/
+                sdk_client.event_cache().enable_storage()?;
+            } else {
+                // Get rid of the previous events, if any.
+                let store = sdk_client
+                    .event_cache_store()
+                    .lock()
+                    .await
+                    .map_err(EventCacheError::LockingStorage)?;
+                store.clear_all_rooms_chunks().await.map_err(EventCacheError::Storage)?;
+            }
+        }
 
         Ok(Arc::new(
             Client::new(sdk_client, builder.enable_oidc_refresh_lock, builder.session_delegate)
