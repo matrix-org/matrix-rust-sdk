@@ -485,6 +485,10 @@ impl TimelineStateTransaction<'_> {
                     .await;
                 }
 
+                VectorDiff::Clear => {
+                    self.clear();
+                }
+
                 v => unimplemented!("{v:?}"),
             }
         }
