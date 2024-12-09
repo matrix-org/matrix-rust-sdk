@@ -13,13 +13,16 @@ extend-ignore-re = [
     "[1-9A-Za-z]{4}( [1-9A-Za-z]{4}){8,}",
     # some heuristics for base64 strings with no false matches found at the
     # time of writing.
-    "[0-9A-Za-z+=]{38,}",
-    '"ed25519:[^"]+": "[^"]+"',
-    '"sender_key": "[^"]+"',
-    '"x": "[^"]{43}"',
-    "\\bmat ba\\b",
-    "\\bSomOlz-t3ABvRUweGuLCpHFKsI6yhGCoqPyS7o5gpfenizdfHLqq-l7kgyr7lSbW_mTSyYutby",
+    '[0-9A-Za-z_.-]{62,}',
+    '"[0-9a-z_]+": "[0-9A-Za-z/+-]{41,}"',
+    '"[0-9a-z_]+": "\$[0-9A-Za-z/+]{41,}"',
+    '"[0-9a-z_]+:[0-9A-Za-z/+]+": "[0-9A-Za-z/+]{41,}"',
+    # No other way to pinpoint these
+    '"mat ba"',
     '\bfHAblQV"',
+    '\byoCSik4NQpL7DcokDhs56UJ1LcDgQTnGLqhH2Q"',
+    '"4jbPt7jh5D2iyM4U\+3IDa\+WthgJB87IQN1ATdkau\+xk"',
+    '"SMNh04luorH5E8J3b4XYuOBFp8dldO5njacq0OFO70o"',
 ]
 
 [default.extend-identifiers]
