@@ -573,8 +573,8 @@ mod private {
 
     use matrix_sdk_base::{
         deserialized_responses::{SyncTimelineEvent, TimelineEventKind},
-        event_cache::store::EventCacheStoreLock,
-        linked_chunk::Update,
+        event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
+        linked_chunk::{LinkedChunkBuilder, Update},
     };
     use once_cell::sync::OnceCell;
     use ruma::{serde::Raw, OwnedRoomId};
@@ -614,8 +614,15 @@ mod private {
         ) -> Result<Self, EventCacheError> {
             let events = if let Some(store) = store.get() {
                 let locked = store.lock().await?;
-                let chunks = locked.reload_linked_chunk(&room).await?;
-                RoomEvents::with_initial_chunks(chunks)
+                let raw_chunks = locked.reload_linked_chunk(&room).await?;
+
+                let mut builder = LinkedChunkBuilder::from_raw_parts(raw_chunks);
+                builder.with_update_history();
+                let linked_chunk = builder.build().map_err(|err| {
+                    EventCacheStoreError::InvalidData { details: err.to_string() }
+                })?;
+
+                RoomEvents::with_initial_chunks(linked_chunk)
             } else {
                 RoomEvents::default()
             };
@@ -998,6 +1005,8 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_write_to_storage() {
+        use matrix_sdk_base::linked_chunk::LinkedChunkBuilder;
+
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
@@ -1034,7 +1043,9 @@ mod tests {
             .await
             .unwrap();
 
-        let linked_chunk = event_cache_store.reload_linked_chunk(room_id).await.unwrap().unwrap();
+        let raws = event_cache_store.reload_linked_chunk(room_id).await.unwrap();
+        let linked_chunk =
+            LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws).build().unwrap().unwrap();
 
         assert_eq!(linked_chunk.chunks().count(), 3);
 
@@ -1065,6 +1076,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_write_to_storage_strips_bundled_relations() {
+        use matrix_sdk_base::linked_chunk::LinkedChunkBuilder;
         use ruma::events::BundledMessageLikeRelations;
 
         let room_id = room_id!("!galette:saucisse.bzh");
@@ -1121,7 +1133,9 @@ mod tests {
         }
 
         // The one in storage does not.
-        let linked_chunk = event_cache_store.reload_linked_chunk(room_id).await.unwrap().unwrap();
+        let raws = event_cache_store.reload_linked_chunk(room_id).await.unwrap();
+        let linked_chunk =
+            LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws).build().unwrap().unwrap();
 
         assert_eq!(linked_chunk.chunks().count(), 1);
 
@@ -1144,6 +1158,8 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_clear() {
+        use matrix_sdk_base::linked_chunk::LinkedChunkBuilder;
+
         use crate::{assert_let_timeout, event_cache::RoomEventCacheUpdate};
 
         let room_id = room_id!("!galette:saucisse.bzh");
@@ -1244,11 +1260,13 @@ mod tests {
         assert!(items.is_empty());
 
         // The event cache store too.
-        let reloaded = event_cache_store.reload_linked_chunk(room_id).await.unwrap();
+        let raws = event_cache_store.reload_linked_chunk(room_id).await.unwrap();
+        let linked_chunk = LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws).build().unwrap();
+
         // Note: while the event cache store could return `None` here, clearing it will
         // reset it to its initial form, maintaining the invariant that it
         // contains a single items chunk that's empty.
-        let linked_chunk = reloaded.unwrap();
+        let linked_chunk = linked_chunk.unwrap();
         assert_eq!(linked_chunk.num_items(), 0);
     }
 

@@ -1419,6 +1419,22 @@ impl EmptyChunk {
     }
 }
 
+/// The raw representation of a linked chunk, as persisted in storage.
+#[derive(Debug)]
+pub struct RawLinkedChunk<Item, Gap> {
+    /// Content section of the linked chunk.
+    pub content: ChunkContent<Item, Gap>,
+
+    /// Link to the previous chunk, via its identifier.
+    pub previous: Option<ChunkIdentifier>,
+
+    /// Current chunk's identifier.
+    pub id: ChunkIdentifier,
+
+    /// Link to the next chunk, via its identifier.
+    pub next: Option<ChunkIdentifier>,
+}
+
 #[cfg(test)]
 mod tests {
     use std::{

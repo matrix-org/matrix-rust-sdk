@@ -17,7 +17,7 @@
 
 use ruma::{OwnedRoomId, RoomId};
 
-use super::LinkedChunkBuilder;
+use super::{ChunkContent, RawLinkedChunk};
 use crate::linked_chunk::{ChunkIdentifier, Position, Update};
 
 /// A row of the [`RelationalLinkedChunk::chunks`].
@@ -290,11 +290,12 @@ where
     ///
     /// Return an error result if the data was malformed in the struct, with a
     /// string message explaining details about the error.
-    pub fn reload_chunks<const CAP: usize>(
+    pub fn reload_chunks(
         &self,
         room_id: &RoomId,
-        builder: &mut LinkedChunkBuilder<CAP, Item, Gap>,
-    ) -> Result<(), String> {
+    ) -> Result<Vec<RawLinkedChunk<Item, Gap>>, String> {
+        let mut result = Vec::new();
+
         for chunk_row in self.chunks.iter().filter(|chunk| chunk.room_id == room_id) {
             // Find all items that correspond to the chunk.
             let mut items = self
@@ -309,12 +310,12 @@ where
             let Some(first) = items.peek() else {
                 // The only possibility is that we created an empty items chunk; mark it as
                 // such, and continue.
-                builder.push_items(
-                    chunk_row.previous_chunk,
-                    chunk_row.chunk,
-                    chunk_row.next_chunk,
-                    Vec::new(),
-                );
+                result.push(RawLinkedChunk {
+                    content: ChunkContent::Items(Vec::new()),
+                    previous: chunk_row.previous_chunk,
+                    id: chunk_row.chunk,
+                    next: chunk_row.next_chunk,
+                });
                 continue;
             };
 
@@ -339,12 +340,14 @@ where
                     // Sort them by their position.
                     collected_items.sort_unstable_by_key(|(_item, index)| *index);
 
-                    builder.push_items(
-                        chunk_row.previous_chunk,
-                        chunk_row.chunk,
-                        chunk_row.next_chunk,
-                        collected_items.into_iter().map(|(item, _index)| item),
-                    );
+                    result.push(RawLinkedChunk {
+                        content: ChunkContent::Items(
+                            collected_items.into_iter().map(|(item, _index)| item).collect(),
+                        ),
+                        previous: chunk_row.previous_chunk,
+                        id: chunk_row.chunk,
+                        next: chunk_row.next_chunk,
+                    });
                 }
 
                 Either::Gap(gap) => {
@@ -358,17 +361,17 @@ where
                         ));
                     }
 
-                    builder.push_gap(
-                        chunk_row.previous_chunk,
-                        chunk_row.chunk,
-                        chunk_row.next_chunk,
-                        gap.clone(),
-                    );
+                    result.push(RawLinkedChunk {
+                        content: ChunkContent::Gap(gap.clone()),
+                        previous: chunk_row.previous_chunk,
+                        id: chunk_row.chunk,
+                        next: chunk_row.next_chunk,
+                    });
                 }
             }
         }
 
-        Ok(())
+        Ok(result)
     }
 }
 
@@ -383,6 +386,7 @@ mod tests {
     use ruma::room_id;
 
     use super::{ChunkIdentifier as CId, *};
+    use crate::linked_chunk::LinkedChunkBuilder;
 
     #[test]
     fn test_new_items_chunk() {
@@ -828,25 +832,17 @@ mod tests {
     }
 
     #[test]
-    fn test_rebuild_empty_linked_chunk() {
-        let mut builder = LinkedChunkBuilder::<3, _, _>::new();
-
+    fn test_reload_empty_linked_chunk() {
         let room_id = room_id!("!r0:matrix.org");
 
-        // When I rebuild a linked chunk from an empty store,
+        // When I reload the linked chunk components from an empty store,
         let relational_linked_chunk = RelationalLinkedChunk::<char, char>::new();
-        relational_linked_chunk.reload_chunks(room_id, &mut builder).unwrap();
-
-        let lc = builder.build().expect("building succeeds");
-
-        // The builder won't return a linked chunk.
-        assert!(lc.is_none());
+        let result = relational_linked_chunk.reload_chunks(room_id).unwrap();
+        assert!(result.is_empty());
     }
 
     #[test]
     fn test_reload_linked_chunk_with_empty_items() {
-        let mut builder = LinkedChunkBuilder::<3, _, _>::new();
-
         let room_id = room_id!("!r0:matrix.org");
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<char, char>::new();
@@ -858,9 +854,8 @@ mod tests {
         );
 
         // It correctly gets reloaded as such.
-        relational_linked_chunk.reload_chunks(room_id, &mut builder).unwrap();
-
-        let lc = builder
+        let raws = relational_linked_chunk.reload_chunks(room_id).unwrap();
+        let lc = LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws)
             .build()
             .expect("building succeeds")
             .expect("this leads to a non-empty linked chunk");
@@ -870,8 +865,6 @@ mod tests {
 
     #[test]
     fn test_rebuild_linked_chunk() {
-        let mut builder = LinkedChunkBuilder::<3, _, _>::new();
-
         let room_id = room_id!("!r0:matrix.org");
         let mut relational_linked_chunk = RelationalLinkedChunk::<char, char>::new();
 
@@ -896,9 +889,8 @@ mod tests {
             ],
         );
 
-        relational_linked_chunk.reload_chunks(room_id, &mut builder).unwrap();
-
-        let lc = builder
+        let raws = relational_linked_chunk.reload_chunks(room_id).unwrap();
+        let lc = LinkedChunkBuilder::<3, _, _>::from_raw_parts(raws)
             .build()
             .expect("building succeeds")
             .expect("this leads to a non-empty linked chunk");
