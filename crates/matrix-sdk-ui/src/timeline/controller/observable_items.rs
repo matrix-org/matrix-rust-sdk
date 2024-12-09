@@ -284,7 +284,9 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
     where
         F: FnMut(ObservableItemsTransactionEntry<'_, 'observable_items>),
     {
-        self.items.for_each(|entry| f(ObservableItemsTransactionEntry(entry)))
+        self.items.for_each(|entry| {
+            f(ObservableItemsTransactionEntry { entry, all_remote_events: self.all_remote_events })
+        })
     }
 
     /// Commit this transaction, persisting the changes and notifying
@@ -304,25 +306,27 @@ impl Deref for ObservableItemsTransaction<'_> {
 }
 
 /// A handle to a single timeline item in an `ObservableItemsTransaction`.
-pub struct ObservableItemsTransactionEntry<'a, 'observable_items>(
-    ObservableVectorTransactionEntry<'a, 'observable_items, Arc<TimelineItem>>,
-);
+pub struct ObservableItemsTransactionEntry<'observable_transaction_items, 'observable_items> {
+    entry: ObservableVectorTransactionEntry<
+        'observable_transaction_items,
+        'observable_items,
+        Arc<TimelineItem>,
+    >,
+    all_remote_events: &'observable_transaction_items mut AllRemoteEvents,
+}
 
 impl ObservableItemsTransactionEntry<'_, '_> {
     /// Replace the timeline item by `timeline_item`.
     pub fn replace(this: &mut Self, timeline_item: Arc<TimelineItem>) -> Arc<TimelineItem> {
-        ObservableVectorTransactionEntry::set(&mut this.0, timeline_item)
+        ObservableVectorTransactionEntry::set(&mut this.entry, timeline_item)
     }
 
     /// Remove this timeline item.
-    ///
-    /// # Safety
-    ///
-    /// This method doesn't update `AllRemoteEvents`. Be sure that the caller
-    /// doesn't break the mapping between remote events and timeline items. See
-    /// [`EventMeta::timeline_item_index`] to learn more.
-    pub unsafe fn remove(this: Self) {
-        ObservableVectorTransactionEntry::remove(this.0);
+    pub fn remove(this: Self) {
+        let entry_index = ObservableVectorTransactionEntry::index(&this.entry);
+
+        ObservableVectorTransactionEntry::remove(this.entry);
+        this.all_remote_events.timeline_item_has_been_removed_at(entry_index);
     }
 }
 
@@ -330,7 +334,7 @@ impl Deref for ObservableItemsTransactionEntry<'_, '_> {
     type Target = Arc<TimelineItem>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.entry
     }
 }
 
@@ -1065,6 +1069,52 @@ mod observable_items_tests {
 
             nth += 1;
         });
+    }
+
+    #[test]
+    fn test_transaction_for_each_remove() {
+        let mut items = ObservableItems::new();
+
+        // Push events to iterate on.
+        let mut transaction = items.transaction();
+
+        transaction.push_back_remote_event(event_meta("$ev0"));
+        transaction.push_back(item("$ev0"), Some(0));
+
+        transaction.push_back_remote_event(event_meta("$ev1"));
+        transaction.push_back(item("$ev1"), Some(1));
+
+        transaction.push_back_remote_event(event_meta("$ev2"));
+        transaction.push_back(item("$ev2"), Some(2));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   |
+            | "$ev1"   | 1           | 1                   |
+            | "$ev2"   | 2           | 2                   |
+        }
+
+        // Iterate over events, and remove one.
+        transaction.for_each(|entry| {
+            if entry.as_event().unwrap().event_id().unwrap().as_str() == "$ev1" {
+                ObservableItemsTransactionEntry::remove(entry);
+            }
+        });
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   |
+            | "$ev2"   | 2           | 1                   | // has shifted
+        }
+
+        assert_eq!(transaction.all_remote_events().0.len(), 3);
+        assert_eq!(transaction.len(), 2);
     }
 }
 
