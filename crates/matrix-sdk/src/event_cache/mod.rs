@@ -34,6 +34,7 @@ use std::{
 };
 
 use eyeball::Subscriber;
+use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent, TimelineEvent},
     event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
@@ -543,11 +544,21 @@ pub enum RoomEventCacheUpdate {
     },
 
     /// The room has received new timeline events.
+    // TODO: remove once `UpdateTimelineEvents` is stabilized
     AddTimelineEvents {
         /// All the new events that have been added to the room's timeline.
         events: Vec<SyncTimelineEvent>,
 
         /// Where the events are coming from.
+        origin: EventsOrigin,
+    },
+
+    /// The room has received updates for the timeline as _diffs_.
+    UpdateTimelineEvents {
+        /// Diffs to apply to the timeline.
+        diffs: Vec<VectorDiff<SyncTimelineEvent>>,
+
+        /// Where the diffs are coming from.
         origin: EventsOrigin,
     },
 

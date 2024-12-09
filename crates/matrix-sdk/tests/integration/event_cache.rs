@@ -84,6 +84,8 @@ async fn test_event_cache_receives_events() {
     assert_let_timeout!(
         Ok(RoomEventCacheUpdate::AddTimelineEvents { events, .. }) = subscriber.recv()
     );
+    // It does also receive the update as `VectorDiff`.
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = subscriber.recv());
 
     // Which contains the event that was sent beforehand.
     assert_eq!(events.len(), 1);
@@ -170,6 +172,8 @@ async fn test_ignored_unignored() {
     assert_let_timeout!(
         Ok(RoomEventCacheUpdate::AddTimelineEvents { events, .. }) = subscriber.recv()
     );
+    // It does also receive the update as `VectorDiff`.
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = subscriber.recv());
     assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "i don't like this dexter");
 
@@ -197,6 +201,10 @@ async fn wait_for_initial_events(
             update = room_stream.recv().await.expect("read error");
         }
         assert_matches!(update, RoomEventCacheUpdate::AddTimelineEvents { .. });
+
+        let update = room_stream.recv().await.expect("read error");
+
+        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { .. });
     } else {
         assert_eq!(events.len(), 1);
     }
@@ -810,6 +818,10 @@ async fn test_limited_timeline_with_storage() {
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::AddTimelineEvents { events, .. }) = subscriber.recv()
         );
+        // It does also receive the update as `VectorDiff`.
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = subscriber.recv()
+        );
         assert_eq!(events.len(), 1);
         assert_event_matches_msg(&events[0], "hey yo");
     } else {
@@ -832,6 +844,8 @@ async fn test_limited_timeline_with_storage() {
     assert_let_timeout!(
         Ok(RoomEventCacheUpdate::AddTimelineEvents { events, .. }) = subscriber.recv()
     );
+    // It does also receive the update as `VectorDiff`.
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = subscriber.recv());
     assert_eq!(events.len(), 1);
     assert_event_matches_msg(&events[0], "gappy!");
 
@@ -1058,6 +1072,9 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     if events.is_empty() {
         let update = stream.recv().await.expect("read error");
         assert_matches!(update, RoomEventCacheUpdate::AddTimelineEvents { .. });
+        // It does also receive the update as `VectorDiff`.
+        let update = stream.recv().await.expect("read error");
+        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { .. });
     }
     drop(events);
 
@@ -1099,6 +1116,8 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     assert_event_matches_msg(&events[1], "world");
     assert_event_matches_msg(&events[2], "sup");
     assert_eq!(events.len(), 3);
+
+    assert!(stream.is_empty());
 }
 
 #[async_test]
@@ -1133,6 +1152,9 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     if events.is_empty() {
         let update = stream.recv().await.expect("read error");
         assert_matches!(update, RoomEventCacheUpdate::AddTimelineEvents { .. });
+        // It does also receive the update as `VectorDiff`.
+        let update = stream.recv().await.expect("read error");
+        assert_matches!(update, RoomEventCacheUpdate::UpdateTimelineEvents { .. });
     }
     drop(events);
 
