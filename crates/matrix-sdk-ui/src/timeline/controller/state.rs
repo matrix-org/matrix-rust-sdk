@@ -657,12 +657,7 @@ impl TimelineStateTransaction<'_> {
             // Remove all remote events and the read marker
             self.items.for_each(|entry| {
                 if entry.is_remote_event() || entry.is_read_marker() {
-                    // SAFETY: this method removes all events except local events. Local events
-                    // don't have a mapping from remote events to timeline items because… well… they
-                    // are local events, not remove events.
-                    unsafe {
-                        ObservableItemsTransactionEntry::remove(entry);
-                    }
+                    ObservableItemsTransactionEntry::remove(entry);
                 }
             });
 
