@@ -1180,12 +1180,18 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     })
                     .unwrap_or(0);
 
-                let event_index =
-                    Some(self.items.all_remote_events().last_index()
-                        // The last remote event is necessarily associated to this
-                        // timeline item, see the contract of this method.
-                        .expect("A timeline item is being added but its associated remote event is missing")
-                    );
+                let event_index = self
+                    .items
+                    .all_remote_events()
+                    .last_index()
+                    // The last remote event is necessarily associated to this
+                    // timeline item, see the contract of this method. Let's fallback to a similar
+                    // value as `timeline_item_index` instead of panicking.
+                    .or_else(|| {
+                        error!(?event_id, "Failed to read the last event index from `AllRemoteEvents`: at least one event must be present");
+
+                        Some(0)
+                    });
 
                 // Try to keep precise insertion semantics here, in this exact order:
                 //
