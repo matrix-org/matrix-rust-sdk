@@ -80,6 +80,12 @@ impl<Item, Gap> RelationalLinkedChunk<Item, Gap> {
         Self { chunks: Vec::new(), items: Vec::new() }
     }
 
+    /// Removes all the chunks and items from this relational linked chunk.
+    pub fn clear(&mut self) {
+        self.chunks.clear();
+        self.items.clear();
+    }
+
     /// Apply [`Update`]s. That's the only way to write data inside this
     /// relational linked chunk.
     pub fn apply_updates(&mut self, room_id: &RoomId, updates: Vec<Update<Item, Gap>>) {
