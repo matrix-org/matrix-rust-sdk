@@ -76,6 +76,11 @@ impl RoomEvents {
         Self { chunks, chunks_updates_as_vectordiffs, deduplicator }
     }
 
+    /// Returns whether the room has at least one event.
+    pub fn is_empty(&self) -> bool {
+        self.chunks.len() == 0
+    }
+
     /// Clear all events.
     ///
     /// All events, all gaps, everything is dropped, move into the void, into
