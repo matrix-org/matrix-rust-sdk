@@ -54,7 +54,7 @@ use super::{
         ObservableItemsTransaction, ObservableItemsTransactionEntry, PendingEdit, PendingEditKind,
         TimelineMetadata, TimelineStateTransaction,
     },
-    day_dividers::DateDividerAdjuster,
+    date_dividers::DateDividerAdjuster,
     event_item::{
         extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
         AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,

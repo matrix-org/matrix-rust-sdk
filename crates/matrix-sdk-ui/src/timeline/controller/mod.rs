@@ -75,7 +75,7 @@ use super::{
 };
 use crate::{
     timeline::{
-        day_dividers::DateDividerAdjuster,
+        date_dividers::DateDividerAdjuster,
         event_item::EventTimelineItemKind,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
         reactions::FullReactionKey,
