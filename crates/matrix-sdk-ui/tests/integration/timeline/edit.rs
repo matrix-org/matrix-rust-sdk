@@ -206,7 +206,7 @@ async fn test_edit_local_echo() {
     let internal_id = item.unique_id();
 
     let item = item.as_event().unwrap();
-    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { .. }));
 
     assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
@@ -255,7 +255,7 @@ async fn test_edit_local_echo() {
     assert!(item.is_local_echo());
 
     // The send state has been reset.
-    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { .. }));
 
     let edit_message = item.content().as_message().unwrap();
     assert_eq!(edit_message.body(), "hello, world");
@@ -778,7 +778,7 @@ async fn test_edit_local_echo_with_unsupported_content() {
     assert_let!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next().await);
 
     let item = item.as_event().unwrap();
-    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { .. }));
 
     assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
     assert!(day_divider.is_day_divider());
@@ -831,7 +831,7 @@ async fn test_edit_local_echo_with_unsupported_content() {
     assert_let!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next().await);
 
     let item = item.as_event().unwrap();
-    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { .. }));
 
     // Let's edit the local echo (poll start) with an unsupported type (message).
     let edit_err = timeline

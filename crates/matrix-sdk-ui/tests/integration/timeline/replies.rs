@@ -330,7 +330,7 @@ async fn test_send_reply() {
 
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
-    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet { .. }));
     let reply_message = reply_item.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();
@@ -440,7 +440,7 @@ async fn test_send_reply_to_self() {
 
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
-    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet { .. }));
     let reply_message = reply_item.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to self");
     let in_reply_to = reply_message.in_reply_to().unwrap();
@@ -533,7 +533,7 @@ async fn test_send_reply_to_threaded() {
 
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
-    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet { .. }));
     let reply_message = reply_item.content().as_message().unwrap();
 
     // The reply should be considered part of the thread.
@@ -663,7 +663,7 @@ async fn test_send_reply_with_event_id() {
 
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
-    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet { .. }));
     let reply_message = reply_item.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();
@@ -779,7 +779,7 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
 
     let reply_item = assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
 
-    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet { .. }));
     let reply_message = reply_item.content().as_message().unwrap();
     assert_eq!(reply_message.body(), "Replying to Bob");
     let in_reply_to = reply_message.in_reply_to().unwrap();

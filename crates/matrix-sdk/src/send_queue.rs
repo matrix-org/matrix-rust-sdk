@@ -162,7 +162,7 @@ use ruma::{
         AnyMessageLikeEventContent, EventContent as _,
     },
     serde::Raw,
-    OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
 };
 use tokio::sync::{broadcast, oneshot, Mutex, Notify, OwnedMutexGuard};
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -444,7 +444,7 @@ impl RoomSendQueue {
 
         let content = SerializableEventContent::from_raw(content, event_type);
 
-        let transaction_id = self.inner.queue.push(content.clone().into()).await?;
+        let (transaction_id, created_at) = self.inner.queue.push(content.clone().into()).await?;
         trace!(%transaction_id, "manager sends a raw event to the background task");
 
         self.inner.notifier.notify_one();
@@ -453,6 +453,7 @@ impl RoomSendQueue {
             room: self.clone(),
             transaction_id: transaction_id.clone(),
             media_handles: None,
+            created_at: Some(created_at),
         };
 
         let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
@@ -562,6 +563,7 @@ impl RoomSendQueue {
             };
 
             let txn_id = queued_request.transaction_id.clone();
+            let txn_created_at = queued_request.created_at.clone();
             trace!(txn_id = %txn_id, "received a request to send!");
 
             let related_txn_id = as_variant!(&queued_request.kind, QueuedRequestKind::MediaUpload { related_to, .. } => related_to.clone());
@@ -661,6 +663,7 @@ impl RoomSendQueue {
                         transaction_id: related_txn_id.unwrap_or(txn_id),
                         error,
                         is_recoverable,
+                        created_at: txn_created_at,
                     });
                 }
             }
@@ -950,10 +953,11 @@ impl QueueStorage {
     async fn push(
         &self,
         request: QueuedRequestKind,
-    ) -> Result<OwnedTransactionId, RoomSendQueueStorageError> {
+    ) -> Result<(OwnedTransactionId, MilliSecondsSinceUnixEpoch), RoomSendQueueStorageError> {
         let transaction_id = TransactionId::new();
 
-        self.store
+        let created_at = self
+            .store
             .lock()
             .await
             .client()?
@@ -966,7 +970,7 @@ impl QueueStorage {
             )
             .await?;
 
-        Ok(transaction_id)
+        Ok((transaction_id, created_at))
     }
 
     /// Peeks the next request to be sent, marking it as being sent.
@@ -1183,7 +1187,7 @@ impl QueueStorage {
         upload_file_txn: OwnedTransactionId,
         file_media_request: MediaRequestParameters,
         thumbnail: Option<(FinishUploadThumbnailInfo, MediaRequestParameters, Mime)>,
-    ) -> Result<(), RoomSendQueueStorageError> {
+    ) -> Result<MilliSecondsSinceUnixEpoch, RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
         let client = guard.client()?;
         let store = client.store();
@@ -1244,7 +1248,7 @@ impl QueueStorage {
             };
 
         // Push the dependent request for the event itself.
-        store
+        let created_at = store
             .save_dependent_queued_request(
                 &self.room_id,
                 &upload_file_txn,
@@ -1257,7 +1261,7 @@ impl QueueStorage {
             )
             .await?;
 
-        Ok(())
+        Ok(created_at)
     }
 
     /// Reacts to the given local echo of an event.
@@ -1266,7 +1270,8 @@ impl QueueStorage {
         &self,
         transaction_id: &TransactionId,
         key: String,
-    ) -> Result<Option<ChildTransactionId>, RoomSendQueueStorageError> {
+    ) -> Result<Option<(ChildTransactionId, MilliSecondsSinceUnixEpoch)>, RoomSendQueueStorageError>
+    {
         let guard = self.store.lock().await;
         let client = guard.client()?;
         let store = client.store();
@@ -1290,7 +1295,7 @@ impl QueueStorage {
 
         // Record the dependent request.
         let reaction_txn_id = ChildTransactionId::new();
-        store
+        let created_at = store
             .save_dependent_queued_request(
                 &self.room_id,
                 transaction_id,
@@ -1299,7 +1304,7 @@ impl QueueStorage {
             )
             .await?;
 
-        Ok(Some(reaction_txn_id))
+        Ok(Some((reaction_txn_id, created_at)))
     }
 
     /// Returns a list of the local echoes, that is, all the requests that we're
@@ -1323,6 +1328,7 @@ impl QueueStorage {
                                 room: room.clone(),
                                 transaction_id: queued.transaction_id,
                                 media_handles: None,
+                                created_at: queued.created_at.clone(),
                             },
                             send_error: queued.error,
                         },
@@ -1354,6 +1360,7 @@ impl QueueStorage {
                         send_handle: SendReactionHandle {
                             room: room.clone(),
                             transaction_id: dep.own_transaction_id,
+                            created_at: dep.created_at.clone(),
                         },
                         applies_to: dep.parent_transaction_id,
                     },
@@ -1382,6 +1389,7 @@ impl QueueStorage {
                                     upload_thumbnail_txn: thumbnail_info.map(|info| info.txn),
                                     upload_file_txn: file_upload,
                                 }),
+                                created_at: dep.created_at.clone(),
                             },
                             send_error: None,
                         },
@@ -1780,12 +1788,18 @@ pub enum RoomSendQueueUpdate {
         /// while an unrecoverable error will be parked, until the user
         /// decides to cancel sending it.
         is_recoverable: bool,
+
+        /// When the request was initially sent.
+        created_at: Option<MilliSecondsSinceUnixEpoch>,
     },
 
     /// The event has been unwedged and sending is now being retried.
     RetryEvent {
         /// Transaction id used to identify this event.
         transaction_id: OwnedTransactionId,
+
+        /// When the request was initially sent.
+        created_at: Option<MilliSecondsSinceUnixEpoch>,
     },
 
     /// The event has been sent to the server, and the query returned
@@ -1888,6 +1902,9 @@ pub struct SendHandle {
 
     /// Additional handles for a media upload.
     media_handles: Option<MediaHandles>,
+
+    /// The time that this send handle was first created
+    pub created_at: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 impl SendHandle {
@@ -2055,9 +2072,10 @@ impl SendHandle {
         // Wake up the queue, in case the room was asleep before unwedging the request.
         room.notifier.notify_one();
 
-        let _ = room
-            .updates
-            .send(RoomSendQueueUpdate::RetryEvent { transaction_id: self.transaction_id.clone() });
+        let _ = room.updates.send(RoomSendQueueUpdate::RetryEvent {
+            transaction_id: self.transaction_id.clone(),
+            created_at: self.created_at.clone(),
+        });
 
         Ok(())
     }
@@ -2073,7 +2091,7 @@ impl SendHandle {
     ) -> Result<Option<SendReactionHandle>, RoomSendQueueStorageError> {
         trace!("received an intent to react");
 
-        if let Some(reaction_txn_id) =
+        if let Some((reaction_txn_id, created_at)) =
             self.room.inner.queue.react(&self.transaction_id, key.clone()).await?
         {
             trace!("successfully queued react");
@@ -2085,6 +2103,7 @@ impl SendHandle {
             let send_handle = SendReactionHandle {
                 room: self.room.clone(),
                 transaction_id: reaction_txn_id.clone(),
+                created_at: Some(created_at),
             };
 
             let _ = self.room.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
@@ -2113,6 +2132,8 @@ pub struct SendReactionHandle {
     room: RoomSendQueue,
     /// The own transaction id for the reaction.
     transaction_id: ChildTransactionId,
+    /// When this send request was first created.
+    created_at: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 impl SendReactionHandle {
@@ -2138,6 +2159,8 @@ impl SendReactionHandle {
             room: self.room.clone(),
             transaction_id: self.transaction_id.clone().into(),
             media_handles: None,
+            // This isn't quite right, should this be the newly enqueued cancel event?
+            created_at: self.created_at.clone(),
         };
 
         handle.abort().await
@@ -2275,6 +2298,7 @@ mod tests {
                 .unwrap(),
             },
             parent_key: None,
+            created_at: None,
         };
         let res = canonicalize_dependent_requests(&[edit]);
 
@@ -2295,6 +2319,7 @@ mod tests {
             parent_transaction_id: txn.clone(),
             kind: DependentQueuedRequestKind::RedactEvent,
             parent_key: None,
+            created_at: None,
         };
 
         let edit = DependentQueuedRequest {
@@ -2307,6 +2332,7 @@ mod tests {
                 .unwrap(),
             },
             parent_key: None,
+            created_at: None,
         };
 
         inputs.push({
@@ -2346,6 +2372,7 @@ mod tests {
                     .unwrap(),
                 },
                 parent_key: None,
+                created_at: None,
             })
             .collect::<Vec<_>>();
 
@@ -2377,6 +2404,7 @@ mod tests {
                 kind: DependentQueuedRequestKind::RedactEvent,
                 parent_transaction_id: txn1.clone(),
                 parent_key: None,
+                created_at: None,
             },
             // This one pertains to txn2.
             DependentQueuedRequest {
@@ -2389,6 +2417,7 @@ mod tests {
                 },
                 parent_transaction_id: txn2.clone(),
                 parent_key: None,
+                created_at: None,
             },
         ];
 
@@ -2419,6 +2448,7 @@ mod tests {
             kind: DependentQueuedRequestKind::ReactEvent { key: "🧠".to_owned() },
             parent_transaction_id: txn.clone(),
             parent_key: None,
+            created_at: None,
         };
 
         let edit_id = ChildTransactionId::new();
@@ -2432,6 +2462,7 @@ mod tests {
             },
             parent_transaction_id: txn,
             parent_key: None,
+            created_at: None,
         };
 
         let res = canonicalize_dependent_requests(&[react, edit]);
