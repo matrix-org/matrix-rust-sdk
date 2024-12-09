@@ -136,7 +136,12 @@ impl Deref for ObservableItems {
     }
 }
 
-/// An “iterator“ that yields entries into an `ObservableItems`.
+/// An iterator that yields entries into an `ObservableItems`.
+///
+/// It doesn't implement [`Iterator`] though because of a lifetime conflict: the
+/// returned `Iterator::Item` could live longer than the `Iterator` itself.
+/// Ideally, `Iterator::next` should take a `&'a mut self`, but this is not
+/// possible.
 pub struct ObservableItemsEntries<'a>(ObservableVectorEntries<'a, Arc<TimelineItem>>);
 
 impl ObservableItemsEntries<'_> {
