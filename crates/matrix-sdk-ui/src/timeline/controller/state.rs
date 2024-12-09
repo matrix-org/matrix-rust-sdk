@@ -446,7 +446,26 @@ impl TimelineStateTransaction<'_> {
     ) where
         RoomData: RoomDataProvider,
     {
-        todo!()
+        let mut day_divider_adjuster = DayDividerAdjuster::default();
+
+        for diff in diffs {
+            match diff {
+                VectorDiff::Append { values: events } => {
+                    for event in events {
+                        self.handle_remote_event(
+                            event,
+                            TimelineItemPosition::End { origin },
+                            room_data_provider,
+                            settings,
+                            &mut day_divider_adjuster,
+                        )
+                        .await;
+                    }
+                }
+
+                v => unimplemented!("{v:?}"),
+            }
+        }
     }
 
     fn check_no_unused_unique_ids(&self) {
