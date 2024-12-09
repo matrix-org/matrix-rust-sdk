@@ -39,7 +39,7 @@ use crate::{
     room_info::RoomInfo,
     room_member::RoomMember,
     ruma::{ImageInfo, Mentions, NotifyType},
-    timeline::{FocusEventError, ReceiptType, SendHandle, Timeline},
+    timeline::{DateDividerMode, FocusEventError, ReceiptType, SendHandle, Timeline},
     utils::u64_to_uint,
     TaskHandle,
 };
@@ -278,12 +278,15 @@ impl Room {
         &self,
         internal_id_prefix: Option<String>,
         allowed_message_types: Vec<RoomMessageEventMessageType>,
+        date_divider_mode: DateDividerMode,
     ) -> Result<Arc<Timeline>, ClientError> {
         let mut builder = matrix_sdk_ui::timeline::Timeline::builder(&self.inner);
 
         if let Some(internal_id_prefix) = internal_id_prefix {
             builder = builder.with_internal_id_prefix(internal_id_prefix);
         }
+
+        builder = builder.with_date_divider_mode(date_divider_mode.into());
 
         builder = builder.event_filter(move |event, room_version_id| {
             default_event_filter(event, room_version_id)

@@ -177,6 +177,13 @@ impl TimelineFocus {
     }
 }
 
+/// Changes how dividers get inserted, either in between each day or in between each month
+#[derive(Debug, Clone)]
+pub enum DateDividerMode {
+    Daily,
+    Monthly,
+}
+
 impl Timeline {
     /// Create a new [`TimelineBuilder`] for the given room.
     pub fn builder(room: &Room) -> TimelineBuilder {
