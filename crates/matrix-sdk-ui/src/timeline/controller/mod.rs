@@ -61,9 +61,9 @@ use super::{
     item::TimelineUniqueId,
     traits::{Decryptor, RoomDataProvider},
     util::{rfind_event_by_id, rfind_event_item, RelativePosition},
-    Error, EventSendState, EventTimelineItem, InReplyToDetails, Message, PaginationError, Profile,
-    ReactionInfo, RepliedToEvent, TimelineDetails, TimelineEventItemId, TimelineFocus,
-    TimelineItem, TimelineItemContent, TimelineItemKind,
+    DateDividerMode, Error, EventSendState, EventTimelineItem, InReplyToDetails, Message,
+    PaginationError, Profile, ReactionInfo, RepliedToEvent, TimelineDetails, TimelineEventItemId,
+    TimelineFocus, TimelineItem, TimelineItemContent, TimelineItemKind,
 };
 use crate::{
     timeline::{
@@ -127,6 +127,8 @@ pub(super) struct TimelineSettings {
     pub(super) event_filter: Arc<TimelineEventFilterFn>,
     /// Are unparsable events added as timeline items of their own kind?
     pub(super) add_failed_to_parse: bool,
+    /// Should the timeline items be grouped by day or month?
+    pub(super) date_divider_mode: DateDividerMode,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -145,6 +147,7 @@ impl Default for TimelineSettings {
             track_read_receipts: false,
             event_filter: Arc::new(default_event_filter),
             add_failed_to_parse: true,
+            date_divider_mode: DateDividerMode::Daily,
         }
     }
 }
@@ -733,9 +736,19 @@ impl<P: RoomDataProvider> TimelineController<P> {
         // Only add new items if the timeline is live.
         let should_add_new_items = self.is_live().await;
 
+        let date_divider_mode = self.settings.date_divider_mode.clone();
+
         let mut state = self.state.write().await;
         state
-            .handle_local_event(sender, profile, should_add_new_items, txn_id, send_handle, content)
+            .handle_local_event(
+                sender,
+                profile,
+                should_add_new_items,
+                date_divider_mode,
+                txn_id,
+                send_handle,
+                content,
+            )
             .await;
     }
 
@@ -775,7 +788,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 txn.items.remove(idx);
 
                 // Adjust the day dividers, if needs be.
-                let mut adjuster = DayDividerAdjuster::default();
+                let mut adjuster = DayDividerAdjuster::new(self.settings.date_divider_mode.clone());
                 adjuster.run(&mut txn.items, &mut txn.meta);
             }
 
@@ -874,7 +887,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
             // A read marker or a day divider may have been inserted before the local echo.
             // Ensure both are up to date.
-            let mut adjuster = DayDividerAdjuster::default();
+            let mut adjuster = DayDividerAdjuster::new(self.settings.date_divider_mode.clone());
             adjuster.run(&mut txn.items, &mut txn.meta);
 
             txn.meta.update_read_marker(&mut txn.items);

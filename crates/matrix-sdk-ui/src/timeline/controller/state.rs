@@ -44,7 +44,7 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
-use super::{HandleManyEventsResult, TimelineFocusKind, TimelineSettings};
+use super::{DateDividerMode, HandleManyEventsResult, TimelineFocusKind, TimelineSettings};
 use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
@@ -196,6 +196,7 @@ impl TimelineState {
         own_user_id: OwnedUserId,
         own_profile: Option<Profile>,
         should_add_new_items: bool,
+        date_divider_mode: DateDividerMode,
         txn_id: OwnedTransactionId,
         send_handle: Option<SendHandle>,
         content: TimelineEventKind,
@@ -214,7 +215,7 @@ impl TimelineState {
 
         let mut txn = self.transaction();
 
-        let mut day_divider_adjuster = DayDividerAdjuster::default();
+        let mut day_divider_adjuster = DayDividerAdjuster::new(date_divider_mode);
 
         TimelineEventHandler::new(&mut txn, ctx)
             .handle_event(&mut day_divider_adjuster, content)
@@ -237,7 +238,7 @@ impl TimelineState {
     {
         let mut txn = self.transaction();
 
-        let mut day_divider_adjuster = DayDividerAdjuster::default();
+        let mut day_divider_adjuster = DayDividerAdjuster::new(settings.date_divider_mode.clone());
 
         // Loop through all the indices, in order so we don't decrypt edits
         // before the event being edited, if both were UTD. Keep track of
@@ -378,7 +379,7 @@ impl TimelineStateTransaction<'_> {
 
         let position = position.into();
 
-        let mut day_divider_adjuster = DayDividerAdjuster::default();
+        let mut day_divider_adjuster = DayDividerAdjuster::new(settings.date_divider_mode.clone());
 
         // Implementation note: when `position` is `TimelineEnd::Front`, events are in
         // the reverse topological order. Prepending them one by one in the order they
