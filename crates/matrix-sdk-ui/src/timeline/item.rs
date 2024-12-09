@@ -26,13 +26,14 @@ use super::{EventTimelineItem, VirtualTimelineItem};
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TimelineUniqueId(pub String);
 
+/// The type of timeline item.
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum TimelineItemKind {
     /// An event or aggregation of multiple events.
     Event(EventTimelineItem),
     /// An item that doesn't correspond to an event, for example the user's
-    /// own read marker.
+    /// own read marker, or a day divider.
     Virtual(VirtualTimelineItem),
 }
 
