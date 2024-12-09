@@ -189,7 +189,7 @@ pub struct ObservableItemsTransaction<'observable_items> {
 }
 
 impl<'observable_items> ObservableItemsTransaction<'observable_items> {
-    /// Get a reference to the timeline index at position `timeline_item_index`.
+    /// Get a reference to the timeline item at position `timeline_item_index`.
     pub fn get(&self, timeline_item_index: usize) -> Option<&Arc<TimelineItem>> {
         self.items.get(timeline_item_index)
     }
