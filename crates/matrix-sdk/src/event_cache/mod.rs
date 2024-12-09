@@ -352,6 +352,13 @@ struct AllEventsCache {
     relations: RelationsMap,
 }
 
+impl AllEventsCache {
+    fn clear(&mut self) {
+        self.events.clear();
+        self.relations.clear();
+    }
+}
+
 struct EventCacheInner {
     /// A weak reference to the inner client, useful when trying to get a handle
     /// on the owning client.

@@ -615,7 +615,7 @@ impl Client {
     }
 
     /// Get a reference to the event cache store.
-    pub(crate) fn event_cache_store(&self) -> &EventCacheStoreLock {
+    pub fn event_cache_store(&self) -> &EventCacheStoreLock {
         self.base_client().event_cache_store()
     }
 

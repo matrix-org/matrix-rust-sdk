@@ -16,7 +16,7 @@ use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    linked_chunk::{LinkedChunk, Update},
+    linked_chunk::{RawLinkedChunk, Update},
     AsyncTraitDeps,
 };
 use ruma::{MxcUri, RoomId};
@@ -29,6 +29,7 @@ use crate::{
 
 /// A default capacity for linked chunks, when manipulating in conjunction with
 /// an `EventCacheStore` implementation.
+// TODO: move back?
 pub const DEFAULT_CHUNK_CAPACITY: usize = 128;
 
 /// An abstract trait that can be used to implement different store backends
@@ -56,11 +57,18 @@ pub trait EventCacheStore: AsyncTraitDeps {
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error>;
 
-    /// Reconstruct a full linked chunk by reloading it from storage.
+    /// Return all the raw components of a linked chunk, so the caller may
+    /// reconstruct the linked chunk later.
     async fn reload_linked_chunk(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, Self::Error>;
+    ) -> Result<Vec<RawLinkedChunk<Event, Gap>>, Self::Error>;
+
+    /// Clear persisted events for all the rooms.
+    ///
+    /// This will empty and remove all the linked chunks stored previously,
+    /// using the above [`Self::handle_linked_chunk_updates`] methods.
+    async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error>;
 
     /// Add a media file's content in the media store.
     ///
@@ -184,8 +192,12 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
     async fn reload_linked_chunk(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, Self::Error> {
+    ) -> Result<Vec<RawLinkedChunk<Event, Gap>>, Self::Error> {
         self.0.reload_linked_chunk(room_id).await.map_err(Into::into)
+    }
+
+    async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error> {
+        self.0.clear_all_rooms_chunks().await.map_err(Into::into)
     }
 
     async fn add_media_content(

@@ -21,7 +21,9 @@ use matrix_sdk_common::{
         AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, SyncTimelineEvent, TimelineEventKind,
         VerificationState,
     },
-    linked_chunk::{ChunkContent, Position, Update},
+    linked_chunk::{
+        ChunkContent, LinkedChunk, LinkedChunkBuilder, Position, RawLinkedChunk, Update,
+    },
 };
 use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
 use ruma::{
@@ -31,7 +33,7 @@ use ruma::{
 
 use super::DynEventCacheStore;
 use crate::{
-    event_cache::Gap,
+    event_cache::{Event, Gap},
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
 };
 
@@ -114,6 +116,15 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test that rebuilding a linked chunk from an empty store doesn't return
     /// anything.
     async fn test_rebuild_empty_linked_chunk(&self);
+
+    /// Test that clear all the rooms' linked chunks works.
+    async fn test_clear_all_rooms_chunks(&self);
+}
+
+fn rebuild_linked_chunk(
+    raws: Vec<RawLinkedChunk<Event, Gap>>,
+) -> Option<LinkedChunk<3, Event, Gap>> {
+    LinkedChunkBuilder::from_raw_parts(raws).build().unwrap()
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -329,7 +340,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .unwrap();
 
         // The linked chunk is correctly reloaded.
-        let lc = self.reload_linked_chunk(room_id).await.unwrap().expect("linked chunk not empty");
+        let raws = self.reload_linked_chunk(room_id).await.unwrap();
+        let lc = rebuild_linked_chunk(raws).expect("linked chunk not empty");
 
         let mut chunks = lc.chunks();
 
@@ -370,7 +382,67 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
     async fn test_rebuild_empty_linked_chunk(&self) {
         // When I rebuild a linked chunk from an empty store, it's empty.
-        assert!(self.reload_linked_chunk(&DEFAULT_TEST_ROOM_ID).await.unwrap().is_none());
+        let raw_parts = self.reload_linked_chunk(&DEFAULT_TEST_ROOM_ID).await.unwrap();
+        assert!(rebuild_linked_chunk(raw_parts).is_none());
+    }
+
+    async fn test_clear_all_rooms_chunks(&self) {
+        use matrix_sdk_common::linked_chunk::ChunkIdentifier as CId;
+
+        let r0 = room_id!("!r0:matrix.org");
+        let r1 = room_id!("!r1:matrix.org");
+
+        // Add updates for the first room.
+        self.handle_linked_chunk_updates(
+            r0,
+            vec![
+                // new chunk
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                // new items on 0
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![make_test_event(r0, "hello"), make_test_event(r0, "world")],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Add updates for the second room.
+        self.handle_linked_chunk_updates(
+            r1,
+            vec![
+                // Empty items chunk.
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                // a gap chunk
+                Update::NewGapChunk {
+                    previous: Some(CId::new(0)),
+                    new: CId::new(1),
+                    next: None,
+                    gap: Gap { prev_token: "bleu d'auvergne".to_owned() },
+                },
+                // another items chunk
+                Update::NewItemsChunk { previous: Some(CId::new(1)), new: CId::new(2), next: None },
+                // new items on 0
+                Update::PushItems {
+                    at: Position::new(CId::new(2), 0),
+                    items: vec![make_test_event(r0, "yummy")],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Sanity check: both linked chunks can be reloaded.
+        assert!(rebuild_linked_chunk(self.reload_linked_chunk(r0).await.unwrap()).is_some());
+        assert!(rebuild_linked_chunk(self.reload_linked_chunk(r1).await.unwrap()).is_some());
+
+        // Clear the chunks.
+        self.clear_all_rooms_chunks().await.unwrap();
+
+        // Both rooms now have no linked chunk.
+        assert!(rebuild_linked_chunk(self.reload_linked_chunk(r0).await.unwrap()).is_none());
+        assert!(rebuild_linked_chunk(self.reload_linked_chunk(r1).await.unwrap()).is_none());
     }
 }
 
@@ -439,6 +511,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_rebuild_empty_linked_chunk().await;
+            }
+
+            #[async_test]
+            async fn test_clear_all_rooms_chunks() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_clear_all_rooms_chunks().await;
             }
         }
     };

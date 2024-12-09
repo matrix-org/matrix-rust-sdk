@@ -1074,6 +1074,15 @@ pub enum ChunkContent<Item, Gap> {
     Items(Vec<Item>),
 }
 
+impl<Item: Clone, Gap: Clone> Clone for ChunkContent<Item, Gap> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Gap(gap) => Self::Gap(gap.clone()),
+            Self::Items(items) => Self::Items(items.clone()),
+        }
+    }
+}
+
 /// A chunk is a node in the [`LinkedChunk`].
 pub struct Chunk<const CAPACITY: usize, Item, Gap> {
     /// The previous chunk.
@@ -1416,6 +1425,33 @@ pub enum EmptyChunk {
 impl EmptyChunk {
     fn remove(&self) -> bool {
         matches!(self, Self::Remove)
+    }
+}
+
+/// The raw representation of a linked chunk, as persisted in storage.
+#[derive(Debug)]
+pub struct RawLinkedChunk<Item, Gap> {
+    /// Content section of the linked chunk.
+    pub content: ChunkContent<Item, Gap>,
+
+    /// Link to the previous chunk, via its identifier.
+    pub previous: Option<ChunkIdentifier>,
+
+    /// Current chunk's identifier.
+    pub id: ChunkIdentifier,
+
+    /// Link to the next chunk, via its identifier.
+    pub next: Option<ChunkIdentifier>,
+}
+
+impl<Item: Clone, Gap: Clone> Clone for RawLinkedChunk<Item, Gap> {
+    fn clone(&self) -> Self {
+        Self {
+            content: self.content.clone(),
+            previous: self.previous.clone(),
+            id: self.id.clone(),
+            next: self.next.clone(),
+        }
     }
 }
 
