@@ -82,7 +82,7 @@ impl ObservableItems {
     /// Get a clone of all timeline items.
     ///
     /// Note that it doesn't clone `Self`, only the inner timeline items.
-    pub fn clone(&self) -> Vector<Arc<TimelineItem>> {
+    pub fn clone_items(&self) -> Vector<Arc<TimelineItem>> {
         self.items.clone()
     }
 
@@ -498,7 +498,7 @@ mod observable_items_tests {
     }
 
     #[test]
-    fn test_clone() {
+    fn test_clone_items() {
         let mut items = ObservableItems::new();
 
         let mut transaction = items.transaction();
@@ -506,10 +506,10 @@ mod observable_items_tests {
         transaction.push_back(item("$ev1"), Some(1));
         transaction.commit();
 
-        let events = items.clone();
-        assert_eq!(events.len(), 2);
-        assert_event_id!(events[0], "$ev0");
-        assert_event_id!(events[1], "$ev1");
+        let items = items.clone_items();
+        assert_eq!(items.len(), 2);
+        assert_event_id!(items[0], "$ev0");
+        assert_event_id!(items[1], "$ev1");
     }
 
     #[test]
@@ -524,9 +524,9 @@ mod observable_items_tests {
         // That's time to replace it!
         items.replace(0, item("$ev1"));
 
-        let events = items.clone();
-        assert_eq!(events.len(), 1);
-        assert_event_id!(events[0], "$ev1");
+        let items = items.clone_items();
+        assert_eq!(items.len(), 1);
+        assert_event_id!(items[0], "$ev1");
     }
 
     #[test]
