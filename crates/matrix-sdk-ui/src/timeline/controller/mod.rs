@@ -676,6 +676,27 @@ impl<P: RoomDataProvider> TimelineController<P> {
         state.add_remote_events_at(events, position, &self.room_data_provider, &self.settings).await
     }
 
+    /// Handle updates on events as [`VectorDiff`]s.
+    pub(super) async fn handle_remote_events_with_diffs(
+        &self,
+        diffs: Vec<VectorDiff<SyncTimelineEvent>>,
+        origin: RemoteEventOrigin,
+    ) {
+        if diffs.is_empty() {
+            return Default::default();
+        }
+
+        let mut state = self.state.write().await;
+        state
+            .handle_remote_events_with_diffs(
+                diffs,
+                origin,
+                &self.room_data_provider,
+                &self.settings,
+            )
+            .await
+    }
+
     pub(super) async fn clear(&self) {
         self.state.write().await.clear();
     }

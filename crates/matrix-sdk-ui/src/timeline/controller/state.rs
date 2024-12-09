@@ -19,6 +19,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use eyeball_im::VectorDiff;
 use itertools::Itertools as _;
 use matrix_sdk::{
     deserialized_responses::SyncTimelineEvent, ring_buffer::RingBuffer, send_queue::SendHandle,
@@ -151,6 +152,25 @@ impl TimelineState {
         txn.commit();
 
         handle_many_res
+    }
+
+    /// Handle updates on events as [`VectorDiff`]s.
+    pub(super) async fn handle_remote_events_with_diffs<RoomData>(
+        &mut self,
+        diffs: Vec<VectorDiff<SyncTimelineEvent>>,
+        origin: RemoteEventOrigin,
+        room_data: &RoomData,
+        settings: &TimelineSettings,
+    ) where
+        RoomData: RoomDataProvider,
+    {
+        if diffs.is_empty() {
+            return Default::default();
+        }
+
+        let mut transaction = self.transaction();
+        transaction.handle_remote_events_with_diffs(diffs, origin, room_data, settings).await;
+        transaction.commit();
     }
 
     /// Marks the given event as fully read, using the read marker received from
@@ -414,6 +434,19 @@ impl TimelineStateTransaction<'_> {
 
         self.check_no_unused_unique_ids();
         total
+    }
+
+    /// Handle updates on events as [`VectorDiff`]s.
+    pub(super) async fn handle_remote_events_with_diffs<RoomData>(
+        &mut self,
+        diffs: Vec<VectorDiff<SyncTimelineEvent>>,
+        origin: RemoteEventOrigin,
+        room_data_provider: &RoomData,
+        settings: &TimelineSettings,
+    ) where
+        RoomData: RoomDataProvider,
+    {
+        todo!()
     }
 
     fn check_no_unused_unique_ids(&self) {
