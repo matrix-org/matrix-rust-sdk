@@ -220,6 +220,13 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         self.all_remote_events.push_back(event_meta);
     }
 
+    /// Insert a new remote event at a specific index.
+    ///
+    /// Not to be confused with inserting a timeline item!
+    pub fn insert_remote_event(&mut self, event_index: usize, event_meta: EventMeta) {
+        self.all_remote_events.insert(event_index, event_meta);
+    }
+
     /// Get a remote event by using an event ID.
     pub fn get_remote_event_by_event_id_mut(
         &mut self,
@@ -1189,6 +1196,18 @@ impl AllRemoteEvents {
         self.0.push_back(event_meta)
     }
 
+    /// Insert a new remote event at a specific index.
+    fn insert(&mut self, event_index: usize, event_meta: EventMeta) {
+        // If there is an associated `timeline_item_index`, shift all the
+        // `timeline_item_index` that come after this one.
+        if let Some(new_timeline_item_index) = event_meta.timeline_item_index {
+            self.increment_all_timeline_item_index_after(new_timeline_item_index);
+        }
+
+        // Insert the event.
+        self.0.insert(event_index, event_meta)
+    }
+
     /// Remove one remote event at a specific index, and return it if it exists.
     fn remove(&mut self, event_index: usize) -> Option<EventMeta> {
         // Remove the event.
@@ -1395,6 +1414,37 @@ mod all_remote_events_tests {
                 ("$ev2", Some(2)),
                 // `timeline_item_index` is untouched
                 ("$ev3", Some(1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_insert() {
+        let mut events = AllRemoteEvents::default();
+
+        // Insert on an empty set, nothing particular.
+        events.insert(0, event_meta("$ev0", Some(0)));
+
+        // Insert at the end with no `timeline_item_index`.
+        events.insert(1, event_meta("$ev1", None));
+
+        // Insert at the end with a `timeline_item_index`.
+        events.insert(2, event_meta("$ev2", Some(1)));
+
+        // Insert at the start, with a `timeline_item_index`.
+        events.insert(0, event_meta("$ev3", Some(0)));
+
+        assert_events!(
+            events,
+            [
+                // `timeline_item_index` is untouched
+                ("$ev3", Some(0)),
+                // `timeline_item_index` has been shifted once
+                ("$ev0", Some(1)),
+                // no `timeline_item_index`
+                ("$ev1", None),
+                // `timeline_item_index` has been shifted once
+                ("$ev2", Some(2)),
             ]
         );
     }
