@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 criterion = { version = "0.5.1", features = ["async", "async_tokio", "html_reports"] }
+futures-util = { workspace = true }
 matrix-sdk-base = { workspace = true }
 matrix-sdk-crypto = { workspace = true }
 matrix-sdk-sqlite = { workspace = true, features = ["crypto-store"] }
@@ -35,6 +36,10 @@ harness = false
 
 [[bench]]
 name = "room_bench"
+harness = false
+
+[[bench]]
+name = "room_list_bench"
 harness = false
 
 [package.metadata.release]
