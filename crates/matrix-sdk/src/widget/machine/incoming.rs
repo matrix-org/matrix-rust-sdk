@@ -37,8 +37,11 @@ pub(crate) enum IncomingMessage {
         /// The ID of the request that this response corresponds to.
         request_id: Uuid,
 
-        /// The result of the request: response data or error message.
-        response: Result<MatrixDriverResponse, String>,
+        /// Result of the request: the response data, or a matrix sdk error.
+        ///
+        /// Http errors will be forwarded to the widget in a specified format so
+        /// the widget can parse the error.
+        response: Result<MatrixDriverResponse, crate::Error>,
     },
 
     /// The `MatrixDriver` notified the `WidgetMachine` of a new matrix event.

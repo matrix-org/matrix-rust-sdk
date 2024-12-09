@@ -12,11 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    cmp::Ordering,
-    collections::{HashMap, VecDeque},
-    sync::Arc,
-};
+use std::{cmp::Ordering, collections::HashMap, sync::Arc};
 
 use eyeball_im::ObservableVectorTransaction;
 use futures_core::Stream;
@@ -31,7 +27,7 @@ use tracing::{debug, error, warn};
 
 use super::{
     controller::{
-        EventMeta, FullEventMeta, TimelineMetadata, TimelineState, TimelineStateTransaction,
+        AllRemoteEvents, FullEventMeta, TimelineMetadata, TimelineState, TimelineStateTransaction,
     },
     traits::RoomDataProvider,
     util::{rfind_event_by_id, RelativePosition},
@@ -103,7 +99,7 @@ impl ReadReceipts {
         &mut self,
         new_receipt: FullReceipt<'_>,
         is_own_user_id: bool,
-        all_events: &VecDeque<EventMeta>,
+        all_events: &AllRemoteEvents,
         timeline_items: &mut ObservableVectorTransaction<'_, Arc<TimelineItem>>,
     ) {
         // Get old receipt.
@@ -243,7 +239,7 @@ impl ReadReceipts {
     pub(super) fn compute_event_receipts(
         &self,
         event_id: &EventId,
-        all_events: &VecDeque<EventMeta>,
+        all_events: &AllRemoteEvents,
         at_end: bool,
     ) -> IndexMap<OwnedUserId, Receipt> {
         let mut all_receipts = self.get_event_receipts(event_id).cloned().unwrap_or_default();
@@ -390,7 +386,7 @@ impl TimelineStateTransaction<'_> {
                     self.meta.read_receipts.maybe_update_read_receipt(
                         full_receipt,
                         is_own_user_id,
-                        &self.meta.all_events,
+                        &self.meta.all_remote_events,
                         &mut self.items,
                     );
                 }
@@ -425,7 +421,7 @@ impl TimelineStateTransaction<'_> {
             self.meta.read_receipts.maybe_update_read_receipt(
                 full_receipt,
                 user_id == own_user_id,
-                &self.meta.all_events,
+                &self.meta.all_remote_events,
                 &mut self.items,
             );
         }
@@ -454,7 +450,7 @@ impl TimelineStateTransaction<'_> {
         self.meta.read_receipts.maybe_update_read_receipt(
             full_receipt,
             is_own_event,
-            &self.meta.all_events,
+            &self.meta.all_remote_events,
             &mut self.items,
         );
     }
@@ -465,7 +461,7 @@ impl TimelineStateTransaction<'_> {
         // Find the previous visible event, if there is one.
         let Some(prev_event_meta) = self
             .meta
-            .all_events
+            .all_remote_events
             .iter()
             .rev()
             // Find the event item.
@@ -495,7 +491,7 @@ impl TimelineStateTransaction<'_> {
 
         let read_receipts = self.meta.read_receipts.compute_event_receipts(
             &remote_prev_event_item.event_id,
-            &self.meta.all_events,
+            &self.meta.all_remote_events,
             false,
         );
 
@@ -585,7 +581,7 @@ impl TimelineState {
 
         // Find the corresponding visible event.
         self.meta
-            .all_events
+            .all_remote_events
             .iter()
             .rev()
             .skip_while(|ev| ev.event_id != *latest_receipt_id)

@@ -38,9 +38,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tracing::error;
 
 use super::{machine::SendEventResponse, StateKeySelector};
-use crate::{
-    event_handler::EventHandlerDropGuard, room::MessagesOptions, HttpResult, Result, Room,
-};
+use crate::{event_handler::EventHandlerDropGuard, room::MessagesOptions, Error, Result, Room};
 
 /// Thin wrapper around a [`Room`] that provides functionality relevant for
 /// widgets.
@@ -55,9 +53,9 @@ impl MatrixDriver {
     }
 
     /// Requests an OpenID token for the current user.
-    pub(crate) async fn get_open_id(&self) -> HttpResult<OpenIdResponse> {
+    pub(crate) async fn get_open_id(&self) -> Result<OpenIdResponse> {
         let user_id = self.room.own_user_id().to_owned();
-        self.room.client.send(OpenIdRequest::new(user_id), None).await
+        self.room.client.send(OpenIdRequest::new(user_id), None).await.map_err(Error::Http)
     }
 
     /// Reads the latest `limit` events of a given `event_type` from the room.
@@ -172,9 +170,9 @@ impl MatrixDriver {
         &self,
         delay_id: String,
         action: UpdateAction,
-    ) -> HttpResult<delayed_events::update_delayed_event::unstable::Response> {
+    ) -> Result<delayed_events::update_delayed_event::unstable::Response> {
         let r = delayed_events::update_delayed_event::unstable::Request::new(delay_id, action);
-        self.room.client.send(r, None).await
+        self.room.client.send(r, None).await.map_err(Error::Http)
     }
 
     /// Starts forwarding new room events. Once the returned `EventReceiver`

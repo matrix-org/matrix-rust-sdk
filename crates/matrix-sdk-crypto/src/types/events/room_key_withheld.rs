@@ -16,19 +16,14 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{
-    exports::ruma_macros::AsStrAsRefStr,
-    serde::{AsRefStr, DebugAsRefStr, DeserializeFromCowStr, FromString, SerializeAsRefStr},
-    OwnedDeviceId, OwnedRoomId,
-};
+use matrix_sdk_common::deserialized_responses::WithheldCode;
+use ruma::{OwnedDeviceId, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
 
 use super::{EventType, ToDeviceEvent};
-use crate::types::{
-    deserialize_curve_key, serialize_curve_key, EventEncryptionAlgorithm, PrivOwnedStr,
-};
+use crate::types::{deserialize_curve_key, serialize_curve_key, EventEncryptionAlgorithm};
 
 /// The `m.room_key_request` to-device event.
 pub type RoomKeyWithheldEvent = ToDeviceEvent<RoomKeyWithheldContent>;
@@ -158,65 +153,6 @@ impl RoomKeyWithheldContent {
 
 impl EventType for RoomKeyWithheldContent {
     const EVENT_TYPE: &'static str = "m.room_key.withheld";
-}
-
-/// A machine-readable code for why the megolm key was not sent.
-#[derive(
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    AsStrAsRefStr,
-    AsRefStr,
-    FromString,
-    DebugAsRefStr,
-    SerializeAsRefStr,
-    DeserializeFromCowStr,
-)]
-#[non_exhaustive]
-pub enum WithheldCode {
-    /// the user/device was blacklisted.
-    #[ruma_enum(rename = "m.blacklisted")]
-    Blacklisted,
-
-    /// the user/devices is unverified.
-    #[ruma_enum(rename = "m.unverified")]
-    Unverified,
-
-    /// The user/device is not allowed have the key. For example, this would
-    /// usually be sent in response to a key request if the user was not in
-    /// the room when the message was sent.
-    #[ruma_enum(rename = "m.unauthorised")]
-    Unauthorised,
-
-    /// Sent in reply to a key request if the device that the key is requested
-    /// from does not have the requested key.
-    #[ruma_enum(rename = "m.unavailable")]
-    Unavailable,
-
-    /// An olm session could not be established.
-    /// This may happen, for example, if the sender was unable to obtain a
-    /// one-time key from the recipient.
-    #[ruma_enum(rename = "m.no_olm")]
-    NoOlm,
-
-    #[doc(hidden)]
-    _Custom(PrivOwnedStr),
-}
-
-impl std::fmt::Display for WithheldCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        let string = match self {
-            WithheldCode::Blacklisted => "The sender has blocked you.",
-            WithheldCode::Unverified => "The sender has disabled encrypting to unverified devices.",
-            WithheldCode::Unauthorised => "You are not authorised to read the message.",
-            WithheldCode::Unavailable => "The requested key was not found.",
-            WithheldCode::NoOlm => "Unable to establish a secure channel.",
-            _ => self.as_str(),
-        };
-
-        f.write_str(string)
-    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -490,15 +426,14 @@ pub(super) mod tests {
 
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
+    use matrix_sdk_common::deserialized_responses::WithheldCode;
     use ruma::{device_id, room_id, serde::Raw, to_device::DeviceIdOrAllDevices, user_id};
     use serde_json::{json, Value};
     use vodozemac::Curve25519PublicKey;
 
     use super::RoomKeyWithheldEvent;
     use crate::types::{
-        events::room_key_withheld::{
-            MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, WithheldCode,
-        },
+        events::room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent},
         EventEncryptionAlgorithm,
     };
 

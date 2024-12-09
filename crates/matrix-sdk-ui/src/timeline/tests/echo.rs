@@ -272,12 +272,12 @@ async fn test_no_read_marker_with_local_echo() {
     timeline
         .controller
         .replace_with_initial_remote_events(
-            vec![f
-                .text_msg("msg1")
+            [f.text_msg("msg1")
                 .sender(user_id!("@a:b.c"))
                 .event_id(event_id)
                 .server_ts(MilliSecondsSinceUnixEpoch::now())
-                .into_sync()],
+                .into_sync()]
+            .into_iter(),
             RemoteEventOrigin::Sync,
         )
         .await;

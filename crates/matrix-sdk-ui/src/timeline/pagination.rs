@@ -81,7 +81,7 @@ impl super::Timeline {
                     // `matrix_sdk::event_cache::RoomEventCacheUpdate` from
                     // `matrix_sdk::event_cache::RoomPagination::run_backwards`.
                     self.controller
-                        .add_events_at(events, TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination })
+                        .add_events_at(events.into_iter(), TimelineNewItemPosition::Start { origin: RemoteEventOrigin::Pagination })
                         .await;
 
                     if num_events == 0 && !reached_start {

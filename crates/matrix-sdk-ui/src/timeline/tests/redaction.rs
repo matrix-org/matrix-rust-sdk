@@ -141,11 +141,12 @@ async fn test_reaction_redaction_timeline_filter() {
     timeline
         .controller
         .add_events_at(
-            vec![SyncTimelineEvent::new(
+            [SyncTimelineEvent::new(
                 timeline
                     .event_builder
                     .make_sync_redacted_message_event(*ALICE, RedactedReactionEventContent::new()),
-            )],
+            )]
+            .into_iter(),
             TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;

@@ -35,7 +35,7 @@ jobs:
             os-name: 🐧
             cachekey-id: linux
 
-          - os: macos-14
+          - os: macos-15
             os-name: 🍏
             cachekey-id: macos
 

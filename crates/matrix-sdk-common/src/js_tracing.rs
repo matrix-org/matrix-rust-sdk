@@ -306,7 +306,7 @@ impl<'a> JsFieldVisitor<'a> {
     }
 }
 
-impl<'a> tracing::field::Visit for JsFieldVisitor<'a> {
+impl tracing::field::Visit for JsFieldVisitor<'_> {
     fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
         if self.result.is_err() {
             return;

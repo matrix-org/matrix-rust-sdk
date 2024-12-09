@@ -23,6 +23,7 @@ use std::{
 use matrix_sdk_common::deserialized_responses::SyncTimelineEvent;
 use ruma::{
     events::{
+        direct::OwnedDirectUserIdentifier,
         room::{
             avatar::RoomAvatarEventContent,
             canonical_alias::RoomCanonicalAliasEventContent,
@@ -200,12 +201,17 @@ impl BaseRoomInfoV1 {
             MinimalStateEvent::Redacted(ev) => MinimalStateEvent::Redacted(ev),
         });
 
+        let mut converted_dm_targets = HashSet::new();
+        for dm_target in dm_targets {
+            converted_dm_targets.insert(OwnedDirectUserIdentifier::from(dm_target));
+        }
+
         Box::new(BaseRoomInfo {
             avatar,
             beacons: BTreeMap::new(),
             canonical_alias,
             create,
-            dm_targets,
+            dm_targets: converted_dm_targets,
             encryption,
             guest_access,
             history_visibility,

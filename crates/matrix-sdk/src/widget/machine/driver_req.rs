@@ -74,9 +74,11 @@ where
         Self { request_meta: None, _phantom: PhantomData }
     }
 
+    /// Setup a callback function that will be called once the matrix driver has
+    /// processed the request.
     pub(crate) fn then(
         self,
-        response_handler: impl FnOnce(Result<T, String>, &mut WidgetMachine) -> Vec<Action>
+        response_handler: impl FnOnce(Result<T, crate::Error>, &mut WidgetMachine) -> Vec<Action>
             + Send
             + 'static,
     ) {

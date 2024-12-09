@@ -4,9 +4,9 @@ use std::{
 };
 
 use clap::{Args, Subcommand};
-use xshell::{cmd, pushd};
+use xshell::cmd;
 
-use crate::{build_docs, workspace, DenyWarnings, Result, NIGHTLY};
+use crate::{build_docs, sh, workspace, DenyWarnings, Result, NIGHTLY};
 
 const WASM_TIMEOUT_ENV_KEY: &str = "WASM_BINDGEN_TEST_TIMEOUT";
 const WASM_TIMEOUT_VALUE: &str = "120";
@@ -100,7 +100,8 @@ enum WasmFeatureSet {
 
 impl CiArgs {
     pub fn run(self) -> Result<()> {
-        let _p = pushd(workspace::root_path()?)?;
+        let sh = sh();
+        let _p = sh.push_dir(workspace::root_path()?);
 
         match self.cmd {
             Some(cmd) => match cmd {
@@ -132,8 +133,10 @@ impl CiArgs {
 }
 
 fn check_bindings() -> Result<()> {
-    cmd!("rustup run stable cargo build -p matrix-sdk-crypto-ffi -p matrix-sdk-ffi").run()?;
+    let sh = sh();
+    cmd!(sh, "rustup run stable cargo build -p matrix-sdk-crypto-ffi -p matrix-sdk-ffi").run()?;
     cmd!(
+        sh,
         "
         rustup run stable cargo run -p uniffi-bindgen -- generate
             --library
@@ -145,6 +148,7 @@ fn check_bindings() -> Result<()> {
     )
     .run()?;
     cmd!(
+        sh,
         "
         rustup run stable cargo run -p uniffi-bindgen -- generate
             --library
@@ -160,27 +164,32 @@ fn check_bindings() -> Result<()> {
 }
 
 fn check_examples() -> Result<()> {
-    cmd!("rustup run stable cargo check -p example-*").run()?;
+    let sh = sh();
+    cmd!(sh, "rustup run stable cargo check -p example-*").run()?;
     Ok(())
 }
 
 fn check_style() -> Result<()> {
-    cmd!("rustup run {NIGHTLY} cargo fmt -- --check").run()?;
+    let sh = sh();
+    cmd!(sh, "rustup run {NIGHTLY} cargo fmt -- --check").run()?;
     Ok(())
 }
 
 fn check_typos() -> Result<()> {
+    let sh = sh();
     // FIXME: Print install instructions if command-not-found (needs an xshell
     //        change: https://github.com/matklad/xshell/issues/46)
-    cmd!("typos").run()?;
+    cmd!(sh, "typos").run()?;
     Ok(())
 }
 
 fn check_clippy() -> Result<()> {
-    cmd!("rustup run {NIGHTLY} cargo clippy --all-targets --features testing -- -D warnings")
+    let sh = sh();
+    cmd!(sh, "rustup run {NIGHTLY} cargo clippy --all-targets --features testing -- -D warnings")
         .run()?;
 
     cmd!(
+        sh,
         "rustup run {NIGHTLY} cargo clippy --workspace --all-targets
             --exclude matrix-sdk-crypto --exclude xtask
             --no-default-features
@@ -190,6 +199,7 @@ fn check_clippy() -> Result<()> {
     .run()?;
 
     cmd!(
+        sh,
         "rustup run {NIGHTLY} cargo clippy --all-targets -p matrix-sdk-crypto
             --no-default-features -- -D warnings"
     )
@@ -223,11 +233,12 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
         (FeatureSet::SsoLogin, "--features sso-login,testing"),
     ]);
 
+    let sh = sh();
     let run = |arg_set: &str| {
-        cmd!("rustup run stable cargo nextest run -p matrix-sdk")
+        cmd!(sh, "rustup run stable cargo nextest run -p matrix-sdk")
             .args(arg_set.split_whitespace())
             .run()?;
-        cmd!("rustup run stable cargo test --doc -p matrix-sdk")
+        cmd!(sh, "rustup run stable cargo test --doc -p matrix-sdk")
             .args(arg_set.split_whitespace())
             .run()
     };
@@ -247,25 +258,31 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
 }
 
 fn run_crypto_tests() -> Result<()> {
-    cmd!("rustup run stable cargo clippy -p matrix-sdk-crypto -- -D warnings").run()?;
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --no-default-features --features testing").run()?;
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --features=testing").run()?;
-    cmd!("rustup run stable cargo test --doc -p matrix-sdk-crypto --features=testing").run()?;
+    let sh = sh();
+    cmd!(sh, "rustup run stable cargo clippy -p matrix-sdk-crypto -- -D warnings").run()?;
+    cmd!(sh, "rustup run stable cargo nextest run -p matrix-sdk-crypto --no-default-features --features testing").run()?;
+    cmd!(sh, "rustup run stable cargo nextest run -p matrix-sdk-crypto --features=testing")
+        .run()?;
+    cmd!(sh, "rustup run stable cargo test --doc -p matrix-sdk-crypto --features=testing").run()?;
     cmd!(
+        sh,
         "rustup run stable cargo clippy -p matrix-sdk-crypto --features=experimental-algorithms -- -D warnings"
     )
     .run()?;
     cmd!(
+        sh,
         "rustup run stable cargo nextest run -p matrix-sdk-crypto --features=experimental-algorithms,testing"
     ).run()?;
     cmd!(
+        sh,
         "rustup run stable cargo test --doc -p matrix-sdk-crypto --features=experimental-algorithms,testing"
     )
     .run()?;
 
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto-ffi").run()?;
+    cmd!(sh, "rustup run stable cargo nextest run -p matrix-sdk-crypto-ffi").run()?;
 
     cmd!(
+        sh,
         "rustup run stable cargo nextest run -p matrix-sdk-sqlite --features crypto-store,testing"
     )
     .run()?;
@@ -308,8 +325,9 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         ),
     ]);
 
+    let sh = sh();
     let run = |arg_set: &str| {
-        cmd!("rustup run stable cargo clippy --target wasm32-unknown-unknown")
+        cmd!(sh, "rustup run stable cargo clippy --target wasm32-unknown-unknown")
             .args(arg_set.split_whitespace())
             .args(["--", "-D", "warnings"])
             .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
@@ -370,14 +388,15 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
         ),
     ]);
 
+    let sh = sh();
     let run = |(folder, arg_set): (&str, &str)| {
-        let _pwd = pushd(folder)?;
-        cmd!("pwd").env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE).run()?; // print dir so we know what might have failed
-        cmd!("wasm-pack test --node -- ")
+        let _pwd = sh.push_dir(folder);
+        cmd!(sh, "pwd").env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE).run()?; // print dir so we know what might have failed
+        cmd!(sh, "wasm-pack test --node -- ")
             .args(arg_set.split_whitespace())
             .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
             .run()?;
-        cmd!("wasm-pack test --firefox --headless --")
+        cmd!(sh, "wasm-pack test --firefox --headless --")
             .args(arg_set.split_whitespace())
             .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
             .run()

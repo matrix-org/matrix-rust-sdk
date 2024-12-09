@@ -132,6 +132,7 @@ use crate::{
     error::{BeaconError, WrongRoomState},
     event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
+    live_location_share::ObservableLiveLocation,
     media::{MediaFormat, MediaRequestParameters},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     room::power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
@@ -1217,7 +1218,7 @@ impl Room {
             room_members.retain(|member| member.user_id() != self.own_user_id());
 
             for member in room_members {
-                let entry = content.entry(member.user_id().to_owned()).or_default();
+                let entry = content.entry(member.user_id().into()).or_default();
                 if !entry.iter().any(|room_id| room_id == this_room_id) {
                     entry.push(this_room_id.to_owned());
                 }
@@ -3006,17 +3007,18 @@ impl Room {
         Ok(())
     }
 
-    /// Get the beacon information event in the room for the current user.
+    /// Get the beacon information event in the room for the `user_id`.
     ///
     /// # Errors
     ///
     /// Returns an error if the event is redacted, stripped, not found or could
     /// not be deserialized.
-    async fn get_user_beacon_info(
+    pub(crate) async fn get_user_beacon_info(
         &self,
+        user_id: &UserId,
     ) -> Result<OriginalSyncStateEvent<BeaconInfoEventContent>, BeaconError> {
         let raw_event = self
-            .get_state_event_static_for_key::<BeaconInfoEventContent, _>(self.own_user_id())
+            .get_state_event_static_for_key::<BeaconInfoEventContent, _>(user_id)
             .await?
             .ok_or(BeaconError::NotFound)?;
 
@@ -3069,7 +3071,7 @@ impl Room {
     ) -> Result<send_state_event::v3::Response, BeaconError> {
         self.ensure_room_joined()?;
 
-        let mut beacon_info_event = self.get_user_beacon_info().await?;
+        let mut beacon_info_event = self.get_user_beacon_info(self.own_user_id()).await?;
         beacon_info_event.content.stop();
         Ok(self.send_state_event_for_key(self.own_user_id(), beacon_info_event.content).await?)
     }
@@ -3091,7 +3093,7 @@ impl Room {
     ) -> Result<send_message_event::v3::Response, BeaconError> {
         self.ensure_room_joined()?;
 
-        let beacon_info_event = self.get_user_beacon_info().await?;
+        let beacon_info_event = self.get_user_beacon_info(self.own_user_id()).await?;
 
         if beacon_info_event.content.is_live() {
             let content = BeaconEventContent::new(beacon_info_event.event_id, geo_uri, None);
@@ -3181,6 +3183,14 @@ impl Room {
                 _ => Err(http_error.into()),
             },
         }
+    }
+
+    /// Observe live location sharing events for this room.
+    ///
+    /// The returned observable will receive the newest event for each sync
+    /// response that contains an `m.beacon` event.
+    pub fn observe_live_location_shares(&self) -> ObservableLiveLocation {
+        ObservableLiveLocation::new(&self.client, self.room_id())
     }
 }
 

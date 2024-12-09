@@ -11,7 +11,7 @@ use matrix_sdk::{
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType,
     RoomHero as SdkRoomHero, RoomMemberships, RoomState,
 };
-use matrix_sdk_ui::timeline::{PaginationError, RoomExt, TimelineFocus};
+use matrix_sdk_ui::timeline::{default_event_filter, PaginationError, RoomExt, TimelineFocus};
 use mime::Mime;
 use ruma::{
     api::client::room::report_content,
@@ -23,7 +23,7 @@ use ruma::{
             message::RoomMessageEventContentWithoutRelation,
             power_levels::RoomPowerLevels as RumaPowerLevels, MediaSource,
         },
-        TimelineEventType,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent, TimelineEventType,
     },
     EventId, Int, OwnedDeviceId, OwnedUserId, RoomAliasId, UserId,
 };
@@ -34,7 +34,7 @@ use super::RUNTIME;
 use crate::{
     chunk_iterator::ChunkIterator,
     error::{ClientError, MediaInfoError, RoomError},
-    event::{MessageLikeEventType, StateEventType},
+    event::{MessageLikeEventType, RoomMessageEventMessageType, StateEventType},
     identity_status_change::IdentityStatusChange,
     room_info::RoomInfo,
     room_member::RoomMember,
@@ -257,6 +257,48 @@ impl Room {
             .build()
             .await?;
 
+        Ok(Timeline::new(timeline))
+    }
+
+    /// A timeline instance that can be configured to only include RoomMessage
+    /// type events and filter those further based on their message type.
+    ///
+    /// Virtual timeline items will still be provided and the
+    /// `default_event_filter` will be applied before everything else.
+    ///
+    /// # Arguments
+    ///
+    /// * `internal_id_prefix` - An optional String that will be prepended to
+    ///   all the timeline item's internal IDs, making it possible to
+    ///   distinguish different timeline instances from each other.
+    ///
+    /// * `allowed_message_types` - A list of `RoomMessageEventMessageType` that
+    ///   will be allowed to appear in the timeline
+    pub async fn message_filtered_timeline(
+        &self,
+        internal_id_prefix: Option<String>,
+        allowed_message_types: Vec<RoomMessageEventMessageType>,
+    ) -> Result<Arc<Timeline>, ClientError> {
+        let mut builder = matrix_sdk_ui::timeline::Timeline::builder(&self.inner);
+
+        if let Some(internal_id_prefix) = internal_id_prefix {
+            builder = builder.with_internal_id_prefix(internal_id_prefix);
+        }
+
+        builder = builder.event_filter(move |event, room_version_id| {
+            default_event_filter(event, room_version_id)
+                && match event {
+                    AnySyncTimelineEvent::MessageLike(msg) => match msg.original_content() {
+                        Some(AnyMessageLikeEventContent::RoomMessage(content)) => {
+                            allowed_message_types.contains(&content.msgtype.into())
+                        }
+                        _ => false,
+                    },
+                    _ => false,
+                }
+        });
+
+        let timeline = builder.build().await?;
         Ok(Timeline::new(timeline))
     }
 

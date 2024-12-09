@@ -53,6 +53,37 @@ pub(crate) struct BackupClientState {
     pub(crate) upload_progress: ChannelObservable<UploadState>,
     pub(super) global_state: ChannelObservable<BackupState>,
     pub(super) room_keys_broadcaster: broadcast::Sender<RoomKeyImportResult>,
+
+    /// Whether a key storage backup exists on the server, as far as we know.
+    ///
+    /// This is `None` if we have not asked the server yet, and `Some`
+    /// otherwise. This value is not always up-to-date: if the backup status
+    /// on the server was changed by some other client, we will have a old
+    /// value.
+    pub(super) backup_exists_on_server: RwLock<Option<bool>>,
+}
+
+impl BackupClientState {
+    /// Update the cached value indicating whether a key storage backup exists
+    /// on the server
+    pub(crate) fn set_backup_exists_on_server(&self, exists_on_server: bool) {
+        *self.backup_exists_on_server.write().unwrap() = Some(exists_on_server);
+    }
+
+    /// Ask whether the key storage backup exists on the server. Returns `None`
+    /// if we haven't checked. Note that this value will be out-of-date if
+    /// some other client changed the state since the last time we checked.
+    pub(crate) fn backup_exists_on_server(&self) -> Option<bool> {
+        *self.backup_exists_on_server.read().unwrap()
+    }
+
+    /// Clear out the cached value indicating whether a key storage backup
+    /// exists on the server, meaning that the code in
+    /// [`super::Backups`] will repopulate it when needed
+    /// with an up-to-date value.
+    pub(crate) fn clear_backup_exists_on_server(&self) {
+        *self.backup_exists_on_server.write().unwrap() = None;
+    }
 }
 
 const DEFAULT_BACKUP_UPLOAD_DELAY: Duration = Duration::from_millis(100);
@@ -64,6 +95,7 @@ impl Default for BackupClientState {
             upload_progress: ChannelObservable::new(UploadState::Idle),
             global_state: Default::default(),
             room_keys_broadcaster: broadcast::Sender::new(100),
+            backup_exists_on_server: RwLock::new(None),
         }
     }
 }
@@ -94,7 +126,8 @@ pub enum BackupState {
     /// The reason we don't know whether a server-side backup exists is that we
     /// don't get notified by the server about the creation and deletion of
     /// backups. If we want to know the current state, we need to poll the
-    /// server, which is done using the [`Backups::exists_on_server()`] method.
+    /// server, which is done using the [`Backups::fetch_exists_on_server()`]
+    /// method.
     #[default]
     Unknown,
     /// A new backup is being created by this [`Client`]. This state will be

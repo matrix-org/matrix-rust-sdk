@@ -196,14 +196,15 @@ async fn test_initial_reaction_timestamp_is_stored() {
     timeline
         .controller
         .add_events_at(
-            vec![
+            [
                 // Reaction comes first.
                 f.reaction(&message_event_id, REACTION_KEY.to_owned())
                     .server_ts(reaction_timestamp)
                     .into_sync(),
                 // Event comes next.
                 f.text_msg("A").event_id(&message_event_id).into_sync(),
-            ],
+            ]
+            .into_iter(),
             TimelineNewItemPosition::End { origin: RemoteEventOrigin::Sync },
         )
         .await;

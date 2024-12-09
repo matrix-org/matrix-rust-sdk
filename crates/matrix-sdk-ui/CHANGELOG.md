@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+<!-- next-header -->
+
+## [Unreleased] - ReleaseDate
+
+### Bug Fixes
+
+- Add the `m.room.create` and the `m.room.history_visibility` state events to
+  the required state for the sync. These two state events are required to
+  properly compute the room preview of a joined room.
+  ([#4325](https://github.com/matrix-org/matrix-rust-sdk/pull/4325))
+
+### Features
+
+- Introduce a new variant to the `UtdCause` enum tailored for device-historical
+  messages. These messages cannot be decrypted unless the client regains access
+  to message history through key storage (e.g., room key backups).
+  ([#4375](https://github.com/matrix-org/matrix-rust-sdk/pull/4375))
+
 ## [0.8.0] - 2024-11-19
 
 ### Bug Fixes

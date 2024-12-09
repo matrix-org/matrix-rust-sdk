@@ -15,7 +15,10 @@
 use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
-use matrix_sdk_common::{linked_chunk::Update, AsyncTraitDeps};
+use matrix_sdk_common::{
+    linked_chunk::{LinkedChunk, Update},
+    AsyncTraitDeps,
+};
 use ruma::{MxcUri, RoomId};
 
 use super::EventCacheStoreError;
@@ -23,6 +26,10 @@ use crate::{
     event_cache::{Event, Gap},
     media::MediaRequestParameters,
 };
+
+/// A default capacity for linked chunks, when manipulating in conjunction with
+/// an `EventCacheStore` implementation.
+pub const DEFAULT_CHUNK_CAPACITY: usize = 128;
 
 /// An abstract trait that can be used to implement different store backends
 /// for the event cache of the SDK.
@@ -48,6 +55,12 @@ pub trait EventCacheStore: AsyncTraitDeps {
         room_id: &RoomId,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error>;
+
+    /// Reconstruct a full linked chunk by reloading it from storage.
+    async fn reload_linked_chunk(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, Self::Error>;
 
     /// Add a media file's content in the media store.
     ///
@@ -107,6 +120,23 @@ pub trait EventCacheStore: AsyncTraitDeps {
         request: &MediaRequestParameters,
     ) -> Result<(), Self::Error>;
 
+    /// Get a media file's content associated to an `MxcUri` from the
+    /// media store.
+    ///
+    /// In theory, there could be several files stored using the same URI and a
+    /// different `MediaFormat`. This API is meant to be used with a media file
+    /// that has only been stored with a single format.
+    ///
+    /// If there are several media files for a given URI in different formats,
+    /// this API will only return one of them. Which one is left as an
+    /// implementation detail.
+    ///
+    /// # Arguments
+    ///
+    /// * `uri` - The `MxcUri` of the media file.
+    async fn get_media_content_for_uri(&self, uri: &MxcUri)
+        -> Result<Option<Vec<u8>>, Self::Error>;
+
     /// Remove all the media files' content associated to an `MxcUri` from the
     /// media store.
     ///
@@ -151,6 +181,13 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         self.0.handle_linked_chunk_updates(room_id, updates).await.map_err(Into::into)
     }
 
+    async fn reload_linked_chunk(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, Self::Error> {
+        self.0.reload_linked_chunk(room_id).await.map_err(Into::into)
+    }
+
     async fn add_media_content(
         &self,
         request: &MediaRequestParameters,
@@ -179,6 +216,13 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         request: &MediaRequestParameters,
     ) -> Result<(), Self::Error> {
         self.0.remove_media_content(request).await.map_err(Into::into)
+    }
+
+    async fn get_media_content_for_uri(
+        &self,
+        uri: &MxcUri,
+    ) -> Result<Option<Vec<u8>>, Self::Error> {
+        self.0.get_media_content_for_uri(uri).await.map_err(Into::into)
     }
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<(), Self::Error> {

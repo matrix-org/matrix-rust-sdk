@@ -3,9 +3,9 @@ use std::fs::create_dir_all;
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand, ValueEnum};
 use uniffi_bindgen::{bindings::KotlinBindingGenerator, library_mode::generate_bindings};
-use xshell::{cmd, pushd};
+use xshell::cmd;
 
-use crate::{workspace, Result};
+use crate::{sh, workspace, Result};
 
 struct PackageValues {
     name: &'static str,
@@ -59,7 +59,8 @@ enum KotlinCommand {
 
 impl KotlinArgs {
     pub fn run(self) -> Result<()> {
-        let _p = pushd(workspace::root_path()?)?;
+        let sh = sh();
+        let _p = sh.push_dir(workspace::root_path()?);
 
         match self.cmd {
             KotlinCommand::BuildAndroidLibrary {
@@ -130,8 +131,12 @@ fn build_for_android_target(
     dest_dir: &str,
     package_name: &str,
 ) -> Result<Utf8PathBuf> {
-    cmd!("cargo ndk --target {target} -o {dest_dir} build --profile {profile} -p {package_name}")
-        .run()?;
+    let sh = sh();
+    cmd!(
+        sh,
+        "cargo ndk --target {target} -o {dest_dir} build --profile {profile} -p {package_name}"
+    )
+    .run()?;
 
     // The builtin dev profile has its files stored under target/debug, all
     // other targets have matching directory names

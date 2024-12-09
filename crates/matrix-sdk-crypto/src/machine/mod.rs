@@ -2582,7 +2582,9 @@ fn megolm_error_to_utd_info(
     let reason = match error {
         EventError(_) => UnableToDecryptReason::MalformedEncryptedEvent,
         Decode(_) => UnableToDecryptReason::MalformedEncryptedEvent,
-        MissingRoomKey(_) => UnableToDecryptReason::MissingMegolmSession,
+        MissingRoomKey(maybe_withheld) => {
+            UnableToDecryptReason::MissingMegolmSession { withheld_code: maybe_withheld }
+        }
         Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
             UnableToDecryptReason::UnknownMegolmMessageIndex
         }

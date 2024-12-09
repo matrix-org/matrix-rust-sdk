@@ -19,6 +19,7 @@ use std::{
 };
 
 use itertools::{Either, Itertools};
+use matrix_sdk_common::deserialized_responses::WithheldCode;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
@@ -27,7 +28,6 @@ use super::OutboundGroupSession;
 use crate::{
     error::{OlmResult, SessionRecipientCollectionError},
     store::Store,
-    types::events::room_key_withheld::WithheldCode,
     DeviceData, EncryptionSettings, LocalTrust, OlmError, OwnUserIdentityData, UserIdentityData,
 };
 #[cfg(doc)]
@@ -517,6 +517,7 @@ mod tests {
 
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
+    use matrix_sdk_common::deserialized_responses::WithheldCode;
     use matrix_sdk_test::{
         async_test, test_json,
         test_json::keys_query_sets::{
@@ -536,7 +537,6 @@ mod tests {
             group_sessions::share_strategy::collect_session_recipients, CollectStrategy,
         },
         testing::simulate_key_query_response_for_verification,
-        types::events::room_key_withheld::WithheldCode,
         CrossSigningKeyExport, EncryptionSettings, LocalTrust, OlmError, OlmMachine,
     };
 

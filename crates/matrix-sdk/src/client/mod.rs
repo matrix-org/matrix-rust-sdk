@@ -265,7 +265,7 @@ pub(crate) struct ClientInner {
     pub(crate) http_client: HttpClient,
 
     /// User session data.
-    base_client: BaseClient,
+    pub(super) base_client: BaseClient,
 
     /// Server capabilities, either prefilled during building or fetched from
     /// the server.

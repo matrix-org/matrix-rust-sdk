@@ -97,6 +97,7 @@ matrix-sdk-sqlite = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }
 mime = { workspace = true }
 mime2ext = "0.1.53"
+once_cell = { workspace = true }
 pin-project-lite = { workspace = true }
 rand = { workspace = true , optional = true }
 ruma = { workspace = true, features = ["rand", "unstable-msc2448", "unstable-msc2965", "unstable-msc3930", "unstable-msc3245-v1-compat", "unstable-msc2867"] }
@@ -140,7 +141,6 @@ dirs = "5.0.1"
 futures-executor = { workspace = true }
 matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-test = { workspace = true }
-once_cell = { workspace = true }
 serde_urlencoded = "0.7.1"
 similar-asserts = { workspace = true }
 stream_assert = { workspace = true }

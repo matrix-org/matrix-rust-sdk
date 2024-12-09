@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand};
-use xshell::{cmd, pushd};
+use xshell::cmd;
 
-use crate::{workspace, Result, NIGHTLY};
+use crate::{sh, workspace, Result, NIGHTLY};
 
 #[derive(Args)]
 pub struct FixupArgs {
@@ -21,7 +21,8 @@ enum FixupCommand {
 
 impl FixupArgs {
     pub fn run(self) -> Result<()> {
-        let _p = pushd(workspace::root_path()?)?;
+        let sh = sh();
+        let _p = sh.push_dir(workspace::root_path()?);
 
         match self.cmd {
             Some(cmd) => match cmd {
@@ -41,25 +42,30 @@ impl FixupArgs {
 }
 
 fn fix_style() -> Result<()> {
-    cmd!("rustup run {NIGHTLY} cargo fmt").run()?;
+    let sh = sh();
+    cmd!(sh, "rustup run {NIGHTLY} cargo fmt").run()?;
     Ok(())
 }
 
 fn fix_typos() -> Result<()> {
+    let sh = sh();
     // FIXME: Print install instructions if command-not-found (needs an xshell
     //        change: https://github.com/matklad/xshell/issues/46)
-    cmd!("typos --write-changes").run()?;
+    cmd!(sh, "typos --write-changes").run()?;
     Ok(())
 }
 
 fn fix_clippy() -> Result<()> {
+    let sh = sh();
     cmd!(
+        sh,
         "rustup run {NIGHTLY} cargo clippy --all-targets
         --fix --allow-dirty --allow-staged
         -- -D warnings "
     )
     .run()?;
     cmd!(
+        sh,
         "rustup run {NIGHTLY} cargo clippy --workspace --all-targets
             --fix --allow-dirty --allow-staged
             --exclude matrix-sdk-crypto --exclude xtask
@@ -68,6 +74,7 @@ fn fix_clippy() -> Result<()> {
     )
     .run()?;
     cmd!(
+        sh,
         "rustup run {NIGHTLY} cargo clippy --all-targets -p matrix-sdk-crypto
             --allow-dirty --allow-staged --fix
             --no-default-features -- -D warnings"

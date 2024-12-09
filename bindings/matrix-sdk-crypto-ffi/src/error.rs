@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_withheld_error_mapping() {
-        use matrix_sdk_crypto::types::events::room_key_withheld::WithheldCode;
+        use matrix_sdk_common::deserialized_responses::WithheldCode;
 
         let inner_error = MegolmError::MissingRoomKey(Some(WithheldCode::Unverified));
 

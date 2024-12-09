@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{vec_deque::Iter, HashMap, VecDeque},
     future::Future,
     num::NonZeroUsize,
     sync::{Arc, RwLock},
@@ -127,14 +127,19 @@ impl TimelineState {
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
-    pub(super) async fn add_remote_events_at<P: RoomDataProvider>(
+    pub(super) async fn add_remote_events_at<Events, RoomData>(
         &mut self,
-        events: Vec<impl Into<SyncTimelineEvent>>,
+        events: Events,
         position: TimelineNewItemPosition,
-        room_data_provider: &P,
+        room_data_provider: &RoomData,
         settings: &TimelineSettings,
-    ) -> HandleManyEventsResult {
-        if events.is_empty() {
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator + ExactSizeIterator,
+        <Events as IntoIterator>::Item: Into<SyncTimelineEvent>,
+        RoomData: RoomDataProvider,
+    {
+        if events.len() == 0 {
             return Default::default();
         }
 
@@ -292,13 +297,18 @@ impl TimelineState {
     /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
-    pub(super) async fn replace_with_remote_events<P: RoomDataProvider>(
+    pub(super) async fn replace_with_remote_events<Events, RoomData>(
         &mut self,
-        events: Vec<SyncTimelineEvent>,
+        events: Events,
         position: TimelineNewItemPosition,
-        room_data_provider: &P,
+        room_data_provider: &RoomData,
         settings: &TimelineSettings,
-    ) -> HandleManyEventsResult {
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator,
+        Events::Item: Into<SyncTimelineEvent>,
+        RoomData: RoomDataProvider,
+    {
         let mut txn = self.transaction();
         txn.clear();
         let result = txn.add_remote_events_at(events, position, room_data_provider, settings).await;
@@ -352,13 +362,18 @@ impl TimelineStateTransaction<'_> {
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
     #[tracing::instrument(skip(self, events, room_data_provider, settings))]
-    pub(super) async fn add_remote_events_at<P: RoomDataProvider>(
+    pub(super) async fn add_remote_events_at<Events, RoomData>(
         &mut self,
-        events: Vec<impl Into<SyncTimelineEvent>>,
+        events: Events,
         position: TimelineNewItemPosition,
-        room_data_provider: &P,
+        room_data_provider: &RoomData,
         settings: &TimelineSettings,
-    ) -> HandleManyEventsResult {
+    ) -> HandleManyEventsResult
+    where
+        Events: IntoIterator,
+        Events::Item: Into<SyncTimelineEvent>,
+        RoomData: RoomDataProvider,
+    {
         let mut total = HandleManyEventsResult::default();
 
         let position = position.into();
@@ -439,6 +454,7 @@ impl TimelineStateTransaction<'_> {
 
         let (event_id, sender, timestamp, txn_id, event_kind, should_add) = match raw.deserialize()
         {
+            // Classical path: the event is valid, can be deserialized, everything is alright.
             Ok(event) => {
                 let event_id = event.event_id().to_owned();
                 let room_version = room_data_provider.room_version();
@@ -498,7 +514,10 @@ impl TimelineStateTransaction<'_> {
                 )
             }
 
+            // The event seems invalid…
             Err(e) => match raw.deserialize_as::<SyncTimelineEventWithoutContent>() {
+                // The event can be partially deserialized, and it is allowed to be added to the
+                // timeline.
                 Ok(event) if settings.add_failed_to_parse => (
                     event.event_id().to_owned(),
                     event.sender().to_owned(),
@@ -508,6 +527,8 @@ impl TimelineStateTransaction<'_> {
                     true,
                 ),
 
+                // The event can be partially deserialized, but it is NOT allowed to be added to
+                // the timeline.
                 Ok(event) => {
                     let event_type = event.event_type();
                     let event_id = event.event_id();
@@ -521,19 +542,31 @@ impl TimelineStateTransaction<'_> {
                         timestamp: Some(event.origin_server_ts()),
                         visible: false,
                     };
-                    let _event_added_or_updated = self
-                        .add_or_update_event(event_meta, position, room_data_provider, settings)
-                        .await;
+
+                    // Remember the event before returning prematurely.
+                    // See [`TimelineMetadata::all_remote_events`].
+                    self.add_or_update_remote_event(
+                        event_meta,
+                        position,
+                        room_data_provider,
+                        settings,
+                    )
+                    .await;
 
                     return HandleEventResult::default();
                 }
 
+                // The event can NOT be partially deserialized, it seems really broken.
                 Err(e) => {
                     let event_type: Option<String> = raw.get_field("type").ok().flatten();
                     let event_id: Option<String> = raw.get_field("event_id").ok().flatten();
-                    warn!(event_type, event_id, "Failed to deserialize timeline event: {e}");
+                    warn!(
+                        event_type,
+                        event_id, "Failed to deserialize timeline event even without content: {e}"
+                    );
 
                     let event_id = event_id.and_then(|s| EventId::parse(s).ok());
+
                     if let Some(event_id) = &event_id {
                         let sender: Option<OwnedUserId> = raw.get_field("sender").ok().flatten();
                         let is_own_event =
@@ -548,9 +581,16 @@ impl TimelineStateTransaction<'_> {
                             timestamp,
                             visible: false,
                         };
-                        let _event_added_or_updated = self
-                            .add_or_update_event(event_meta, position, room_data_provider, settings)
-                            .await;
+
+                        // Remember the event before returning prematurely.
+                        // See [`TimelineMetadata::all_remote_events`].
+                        self.add_or_update_remote_event(
+                            event_meta,
+                            position,
+                            room_data_provider,
+                            settings,
+                        )
+                        .await;
                     }
 
                     return HandleEventResult::default();
@@ -568,14 +608,9 @@ impl TimelineStateTransaction<'_> {
             visible: should_add,
         };
 
-        let event_added_or_updated =
-            self.add_or_update_event(event_meta, position, room_data_provider, settings).await;
-
-        // If the event has not been added or updated, it's because it's a duplicated
-        // event. Let's return early.
-        if !event_added_or_updated {
-            return HandleEventResult::default();
-        }
+        // Remember the event.
+        // See [`TimelineMetadata::all_remote_events`].
+        self.add_or_update_remote_event(event_meta, position, room_data_provider, settings).await;
 
         let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
         let ctx = TimelineEventContext {
@@ -586,7 +621,7 @@ impl TimelineStateTransaction<'_> {
             read_receipts: if settings.track_read_receipts && should_add {
                 self.meta.read_receipts.compute_event_receipts(
                     &event_id,
-                    &self.meta.all_events,
+                    &self.meta.all_remote_events,
                     matches!(position, TimelineItemPosition::End { .. }),
                 )
             } else {
@@ -603,6 +638,7 @@ impl TimelineStateTransaction<'_> {
             should_add_new_items: should_add,
         };
 
+        // Handle the event to create or update a timeline item.
         TimelineEventHandler::new(self, ctx).handle_event(day_divider_adjuster, event_kind).await
     }
 
@@ -663,53 +699,51 @@ impl TimelineStateTransaction<'_> {
         items.commit();
     }
 
-    /// Add or update an event in the [`TimelineMetadata::all_events`]
-    /// collection.
+    /// Add or update a remote  event in the
+    /// [`TimelineMetadata::all_remote_events`] collection.
     ///
     /// This method also adjusts read receipt if needed.
-    ///
-    /// It returns `true` if the event has been added or updated, `false`
-    /// otherwise. The latter happens if the event already exists, i.e. if
-    /// an existing event is requested to be added.
-    async fn add_or_update_event<P: RoomDataProvider>(
+    async fn add_or_update_remote_event<P: RoomDataProvider>(
         &mut self,
         event_meta: FullEventMeta<'_>,
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineSettings,
-    ) -> bool {
-        // Detect if an event already exists in [`TimelineMetadata::all_events`].
+    ) {
+        // Detect if an event already exists in [`TimelineMetadata::all_remote_events`].
         //
         // Returns its position, in this case.
         fn event_already_exists(
             new_event_id: &EventId,
-            all_events: &VecDeque<EventMeta>,
+            all_remote_events: &AllRemoteEvents,
         ) -> Option<usize> {
-            all_events.iter().position(|EventMeta { event_id, .. }| event_id == new_event_id)
+            all_remote_events.iter().position(|EventMeta { event_id, .. }| event_id == new_event_id)
         }
 
         match position {
             TimelineItemPosition::Start { .. } => {
-                if let Some(pos) = event_already_exists(event_meta.event_id, &self.meta.all_events)
+                if let Some(pos) =
+                    event_already_exists(event_meta.event_id, &self.meta.all_remote_events)
                 {
-                    self.meta.all_events.remove(pos);
+                    self.meta.all_remote_events.remove(pos);
                 }
 
-                self.meta.all_events.push_front(event_meta.base_meta())
+                self.meta.all_remote_events.push_front(event_meta.base_meta())
             }
 
             TimelineItemPosition::End { .. } => {
-                if let Some(pos) = event_already_exists(event_meta.event_id, &self.meta.all_events)
+                if let Some(pos) =
+                    event_already_exists(event_meta.event_id, &self.meta.all_remote_events)
                 {
-                    self.meta.all_events.remove(pos);
+                    self.meta.all_remote_events.remove(pos);
                 }
 
-                self.meta.all_events.push_back(event_meta.base_meta());
+                self.meta.all_remote_events.push_back(event_meta.base_meta());
             }
 
             TimelineItemPosition::UpdateDecrypted { .. } => {
                 if let Some(event) =
-                    self.meta.all_events.iter_mut().find(|e| e.event_id == event_meta.event_id)
+                    self.meta.all_remote_events.get_by_event_id_mut(event_meta.event_id)
                 {
                     if event.visible != event_meta.visible {
                         event.visible = event_meta.visible;
@@ -734,8 +768,6 @@ impl TimelineStateTransaction<'_> {
 
             self.maybe_add_implicit_read_receipt(event_meta);
         }
-
-        true
     }
 
     fn adjust_day_dividers(&mut self, mut adjuster: DayDividerAdjuster) {
@@ -884,9 +916,12 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// the device has terabytes of RAM.
     next_internal_id: u64,
 
-    /// List of all the events as received in the timeline, even the ones that
-    /// are discarded in the timeline items.
-    pub all_events: VecDeque<EventMeta>,
+    /// List of all the remote events as received in the timeline, even the ones
+    /// that are discarded in the timeline items.
+    ///
+    /// This is useful to get this for the moment as it helps the `Timeline` to
+    /// compute read receipts and read markers.
+    pub all_remote_events: AllRemoteEvents,
 
     /// State helping matching reactions to their associated events, and
     /// stashing pending reactions.
@@ -930,7 +965,7 @@ impl TimelineMetadata {
     ) -> Self {
         Self {
             own_user_id,
-            all_events: Default::default(),
+            all_remote_events: Default::default(),
             next_internal_id: Default::default(),
             reactions: Default::default(),
             pending_poll_events: Default::default(),
@@ -950,7 +985,7 @@ impl TimelineMetadata {
     pub(crate) fn clear(&mut self) {
         // Note: we don't clear the next internal id to avoid bad cases of stale unique
         // ids across timeline clears.
-        self.all_events.clear();
+        self.all_remote_events.clear();
         self.reactions.clear();
         self.pending_poll_events.clear();
         self.pending_edits.clear();
@@ -978,7 +1013,7 @@ impl TimelineMetadata {
 
         // We can make early returns here because we know all events since the end of
         // the timeline, so the first event encountered is the oldest one.
-        for meta in self.all_events.iter().rev() {
+        for meta in self.all_remote_events.iter().rev() {
             if meta.event_id == event_a {
                 return Some(RelativePosition::Before);
             }
@@ -1098,6 +1133,51 @@ impl TimelineMetadata {
                 }
             }
         }
+    }
+}
+
+/// A type for all remote events.
+///
+/// Having this type helps to know exactly which parts of the code and how they
+/// use all remote events. It also helps to give a bit of semantics on top of
+/// them.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct AllRemoteEvents(VecDeque<EventMeta>);
+
+impl AllRemoteEvents {
+    /// Return a front-to-back iterator over all remote events.
+    pub fn iter(&self) -> Iter<'_, EventMeta> {
+        self.0.iter()
+    }
+
+    /// Remove all remote events.
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    /// Insert a new remote event at the front of all the others.
+    pub fn push_front(&mut self, event_meta: EventMeta) {
+        self.0.push_front(event_meta)
+    }
+
+    /// Insert a new remote event at the back of all the others.
+    pub fn push_back(&mut self, event_meta: EventMeta) {
+        self.0.push_back(event_meta)
+    }
+
+    /// Remove one remote event at a specific index, and return it if it exists.
+    pub fn remove(&mut self, event_index: usize) -> Option<EventMeta> {
+        self.0.remove(event_index)
+    }
+
+    /// Return a reference to the last remote event if it exists.
+    pub fn last(&self) -> Option<&EventMeta> {
+        self.0.back()
+    }
+
+    /// Get a mutable reference to a specific remote event by its ID.
+    pub fn get_by_event_id_mut(&mut self, event_id: &EventId) -> Option<&mut EventMeta> {
+        self.0.iter_mut().rev().find(|event_meta| event_meta.event_id == event_id)
     }
 }
 

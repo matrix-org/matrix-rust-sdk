@@ -55,6 +55,8 @@ allow-git = [
     "https://github.com/element-hq/tracing.git",
     # Sam as for the tracing dependency.
     "https://github.com/element-hq/paranoid-android.git",
+    # Well, it's Ruma.
+    "https://github.com/ruma/ruma",
     # A patch override for the bindings: https://github.com/rodrimati1992/const_panic/pull/10
     "https://github.com/jplatte/const_panic",
     # A patch override for the bindings: https://github.com/smol-rs/async-compat/pull/22

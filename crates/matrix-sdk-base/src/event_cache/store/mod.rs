@@ -36,7 +36,7 @@ pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 pub use self::integration_tests::EventCacheStoreIntegrationTests;
 pub use self::{
     memory_store::MemoryStore,
-    traits::{DynEventCacheStore, EventCacheStore, IntoEventCacheStore},
+    traits::{DynEventCacheStore, EventCacheStore, IntoEventCacheStore, DEFAULT_CHUNK_CAPACITY},
 };
 
 /// The high-level public type to represent an `EventCacheStore` lock.
@@ -148,6 +148,13 @@ pub enum EventCacheStoreError {
          current version: {0}, latest version: {1}"
     )]
     UnsupportedDatabaseVersion(usize, usize),
+
+    /// The store contains invalid data.
+    #[error("The store contains invalid data: {details}")]
+    InvalidData {
+        /// Details why the data contained in the store was invalid.
+        details: String,
+    },
 }
 
 impl EventCacheStoreError {

@@ -1,6 +1,5 @@
 // The http mocking library is not supported for wasm32
 #![cfg(not(target_arch = "wasm32"))]
-#![allow(unexpected_cfgs)] // Triggered by the init_tracing_for_tests!() invocation.
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server, Client};
 use matrix_sdk_test::test_json;
 use serde::Serialize;
