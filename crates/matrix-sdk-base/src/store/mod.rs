@@ -74,9 +74,8 @@ pub use self::integration_tests::StateStoreIntegrationTests;
 pub use self::{
     memory_store::MemoryStore,
     send_queue::{
-        ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
-        FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-        SentMediaInfo, SentRequestKey, SerializableEventContent,
+        ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError,
+        QueuedRequest, QueuedRequestKind, SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
     traits::{
         ComposerDraft, ComposerDraftType, DynStateStore, IntoStateStore, ServerCapabilities,

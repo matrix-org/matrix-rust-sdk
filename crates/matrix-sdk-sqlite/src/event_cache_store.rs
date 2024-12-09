@@ -734,6 +734,35 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(())
     }
 
+    async fn get_media_content_for_uri(
+        &self,
+        uri: &ruma::MxcUri,
+    ) -> Result<Option<Vec<u8>>, Self::Error> {
+        let uri = self.encode_key(keys::MEDIA, uri);
+        let conn = self.acquire().await?;
+        let data = conn
+            .with_transaction::<_, rusqlite::Error, _>(move |txn| {
+                // Update the last access.
+                // We need to do this first so the transaction is in write mode right away.
+                // See: https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
+                txn.execute(
+                    "UPDATE media SET last_access = CAST(strftime('%s') as INT) \
+                     WHERE uri = ?",
+                    (&uri,),
+                )?;
+
+                txn.query_row::<Vec<u8>, _, _>(
+                    "SELECT data FROM media WHERE uri = ?",
+                    (&uri,),
+                    |row| row.get(0),
+                )
+                .optional()
+            })
+            .await?;
+
+        data.map(|v| self.decode_value(&v).map(Into::into)).transpose()
+    }
+
     async fn remove_media_content_for_uri(&self, uri: &ruma::MxcUri) -> Result<()> {
         let uri = self.encode_key(keys::MEDIA, uri);
 

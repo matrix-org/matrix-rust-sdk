@@ -21,9 +21,17 @@ use std::sync::{Arc, RwLock};
 use futures_core::Stream;
 #[cfg(feature = "e2e-encryption")]
 use futures_util::StreamExt;
+use http::StatusCode;
 #[cfg(feature = "markdown")]
 use ruma::events::room::message::FormattedBody;
 use ruma::{
+    api::{
+        client::error::{
+            Error as ClientApiError, ErrorBody as ClientApiErrorBody,
+            ErrorKind as ClientApiErrorKind,
+        },
+        error::FromHttpResponseError,
+    },
     events::{AnyMessageLikeEventContent, AnyStateEventContent},
     serde::Raw,
     RoomAliasId,
@@ -36,6 +44,7 @@ use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 
 #[cfg(doc)]
 use crate::Room;
+use crate::{HttpError, RumaApiError};
 
 /// An observable with channel semantics.
 ///
@@ -235,6 +244,16 @@ pub fn formatted_body_from(
     } else {
         body.and_then(FormattedBody::markdown)
     }
+}
+
+/// Construct a `404 NOT_FOUND` error response from the server, with the given
+/// message.
+pub(crate) fn not_found_error(message: String) -> HttpError {
+    FromHttpResponseError::Server(RumaApiError::ClientApi(ClientApiError::new(
+        StatusCode::NOT_FOUND,
+        ClientApiErrorBody::Standard { kind: ClientApiErrorKind::NotFound, message },
+    )))
+    .into()
 }
 
 #[cfg(test)]
