@@ -177,7 +177,8 @@ impl TimelineFocus {
     }
 }
 
-/// Changes how dividers get inserted, either in between each day or in between each month
+/// Changes how dividers get inserted, either in between each day or in between
+/// each month
 #[derive(Debug, Clone)]
 pub enum DateDividerMode {
     Daily,

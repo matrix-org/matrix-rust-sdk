@@ -832,7 +832,7 @@ impl App {
                 }
 
                 TimelineItemKind::Virtual(virt) => match virt {
-                    VirtualTimelineItem::DayDivider(unix_ts) => {
+                    VirtualTimelineItem::DateDivider(unix_ts) => {
                         content.push(format!("Date: {unix_ts:?}"));
                     }
                     VirtualTimelineItem::ReadMarker => {

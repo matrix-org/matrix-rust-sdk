@@ -84,8 +84,8 @@ async fn test_in_reply_to_details() {
     assert_eq!(in_reply_to.event_id, event_id!("$event1"));
     assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
 
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert!(date_divider.is_date_divider());
 
     // Add an reply to an unknown event to the timeline
     let event_id_2 = event_id!("$event2");
@@ -198,7 +198,7 @@ async fn test_transfer_in_reply_to_details_to_re_received_item() {
     server.reset().await;
 
     let items = timeline.items().await;
-    assert_eq!(items.len(), 2); // day divider, reply
+    assert_eq!(items.len(), 2); // date divider, reply
     let event_item = items[1].as_event().unwrap();
     let in_reply_to = event_item.content().as_message().unwrap().in_reply_to().unwrap();
     assert_eq!(in_reply_to.event_id, event_id_1);

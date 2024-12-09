@@ -76,8 +76,8 @@ async fn test_abort_before_being_sent() {
     let item_id = item.identifier();
     assert_eq!(item.content().as_message().unwrap().body(), "hello");
 
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = stream.next().await);
-    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = stream.next().await);
+    assert!(date_divider.is_date_divider());
 
     // Now we try to add two reactions to this message…
 
@@ -223,8 +223,8 @@ async fn test_redact_failed() {
         assert_eq!(item.as_event().unwrap().reactions().len(), 1);
     });
 
-    assert_next_matches_with_timeout!(stream, VectorDiff::PushFront { value: day_divider } => {
-        assert!(day_divider.is_day_divider());
+    assert_next_matches_with_timeout!(stream, VectorDiff::PushFront { value: date_divider } => {
+        assert!(date_divider.is_date_divider());
     });
 
     // Now, redact the annotation we previously added.
@@ -315,9 +315,9 @@ async fn test_local_reaction_to_local_echo() {
         item.identifier()
     });
 
-    // Good ol' day divider.
-    assert_next_matches_with_timeout!(stream, VectorDiff::PushFront { value: day_divider } => {
-        assert!(day_divider.is_day_divider());
+    // Good ol' date divider.
+    assert_next_matches_with_timeout!(stream, VectorDiff::PushFront { value: date_divider } => {
+        assert!(date_divider.is_date_divider());
     });
 
     // Add a reaction before the remote echo comes back.

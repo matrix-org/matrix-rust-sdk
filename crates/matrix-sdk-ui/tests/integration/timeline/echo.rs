@@ -92,8 +92,8 @@ async fn test_echo() {
     assert!(item.event_id().is_none());
     let txn_id = item.transaction_id().unwrap();
 
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert!(date_divider.is_date_divider());
 
     // Wait for the sending to finish and assert everything was successful
     send_hdl.await.unwrap().unwrap();
@@ -127,10 +127,10 @@ async fn test_echo() {
     assert!(item.is_own());
     assert_eq!(item.timestamp(), MilliSecondsSinceUnixEpoch(uint!(152038280)));
 
-    // The day divider is also replaced.
-    let day_divider =
+    // The date divider is also replaced.
+    let date_divider =
         assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => value);
-    assert!(day_divider.is_day_divider());
+    assert!(date_divider.is_date_divider());
 }
 
 #[async_test]
@@ -255,9 +255,9 @@ async fn test_dedup_by_event_id_late() {
     let item = local_echo.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
-    // Timeline: [day-divider, local echo]
-    let day_divider = assert_next_matches_with_timeout!( timeline_stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    // Timeline: [date-divider, local echo]
+    let date_divider = assert_next_matches_with_timeout!( timeline_stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 
     let f = EventFactory::new();
     sync_builder.add_joined_room(
@@ -273,20 +273,20 @@ async fn test_dedup_by_event_id_late() {
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
 
-    // Timeline: [remote-echo, day-divider, local echo]
+    // Timeline: [remote-echo, date-divider, local echo]
     let remote_echo =
         assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => value);
     let item = remote_echo.as_event().unwrap();
     assert_eq!(item.event_id(), Some(event_id));
 
-    // Timeline: [day-divider, remote-echo, day-divider, local echo]
-    let day_divider = assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    // Timeline: [date-divider, remote-echo, date-divider, local echo]
+    let date_divider = assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 
-    // Local echo and its day divider are removed.
-    // Timeline: [day-divider, remote-echo, day-divider]
+    // Local echo and its date divider are removed.
+    // Timeline: [date-divider, remote-echo, date-divider]
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 3 }));
-    // Timeline: [day-divider, remote-echo]
+    // Timeline: [date-divider, remote-echo]
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 2 }));
 }
 

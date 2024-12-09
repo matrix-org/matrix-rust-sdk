@@ -54,7 +54,7 @@ async fn test_read_receipts_updates_on_live_events() {
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    let _date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
     // Implicit read receipt of Bob.
     let item_b = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -124,7 +124,7 @@ async fn test_read_receipts_updates_on_back_paginated_events() {
 
     let items = timeline.controller.items().await;
     assert_eq!(items.len(), 3);
-    assert!(items[0].is_day_divider());
+    assert!(items[0].is_date_divider());
 
     // Implicit read receipt of Bob.
     let event_a = items[2].as_event().unwrap();
@@ -155,7 +155,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    let _date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
     // Implicit read receipt of Bob.
     let item_a = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
@@ -240,7 +240,7 @@ async fn test_read_receipts_updates_on_filtered_events_with_stored() {
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    let _date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
     // Stored read receipt of Bob.
     let item_a = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
@@ -301,8 +301,8 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 
     // Add non-filtered event to show read receipts.
     timeline
@@ -318,11 +318,11 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
     assert!(event_c.read_receipts().get(*BOB).is_some());
     assert!(event_c.read_receipts().get(*CAROL).is_some());
 
-    // Reinsert a new day divider before the first back-paginated event.
-    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    // Reinsert a new date divider before the first back-paginated event.
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 
-    // Remove the last day divider.
+    // Remove the last date divider.
     assert_next_matches!(stream, VectorDiff::Remove { index: 2 });
 
     assert_pending!(stream);
@@ -413,7 +413,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
     assert_eq!(clear_event.read_receipts().len(), 1);
     assert!(clear_event.read_receipts().get(*CAROL).is_some());
 
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    let _date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
     // The second event is encrypted and only has Bob's receipt.
     let encrypted_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);

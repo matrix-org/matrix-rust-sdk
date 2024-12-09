@@ -75,9 +75,9 @@ async fn test_local_sent_in_clear_shield() {
     assert_eq!(shield, None);
 
     {
-        // The day divider comes in late.
-        let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-        assert!(day_divider.is_day_divider());
+        // The date divider comes in late.
+        let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+        assert!(date_divider.is_date_divider());
     }
 
     // When the event is sent (but without a remote echo).

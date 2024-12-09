@@ -229,8 +229,8 @@ async fn send_first_message(
     let event_id = event_item.event_id().unwrap().to_owned();
     let position = timeline.len().await - 1;
 
-    let day_divider = assert_next_matches!(*stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    let date_divider = assert_next_matches!(*stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 
     (item_id, event_id, position)
 }

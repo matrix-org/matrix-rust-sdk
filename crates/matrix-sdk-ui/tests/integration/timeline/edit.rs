@@ -103,8 +103,8 @@ async fn test_edit() {
     assert_matches!(msg.in_reply_to(), None);
     assert!(!msg.is_edited());
 
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert!(date_divider.is_date_divider());
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
@@ -208,8 +208,8 @@ async fn test_edit_local_echo() {
     let item = item.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert!(date_divider.is_date_divider());
 
     // We haven't set a route for sending events, so this will fail.
 
@@ -780,8 +780,8 @@ async fn test_edit_local_echo_with_unsupported_content() {
     let item = item.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
 
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert!(date_divider.is_date_divider());
 
     // We haven't set a route for sending events, so this will fail.
 
@@ -939,9 +939,9 @@ async fn test_pending_edit() {
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "[edit]");
 
-    // The day divider.
+    // The date divider.
     assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
 
     // And nothing else.
@@ -992,9 +992,9 @@ async fn test_pending_edit_overrides() {
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "bonjour");
 
-    // The day divider.
+    // The date divider.
     assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
 
     // And nothing else.
@@ -1040,9 +1040,9 @@ async fn test_pending_edit_from_backpagination() {
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "hello");
 
-    // The day divider.
+    // The date divider.
     assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
 
     // And nothing else.
@@ -1100,9 +1100,9 @@ async fn test_pending_edit_from_backpagination_doesnt_override_pending_edit_from
     assert!(msg.is_edited());
     assert_eq!(msg.body(), "[edit]");
 
-    // The day divider.
+    // The date divider.
     assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
 
     // And nothing else.
@@ -1170,9 +1170,9 @@ async fn test_pending_poll_edit() {
     assert_eq!(results.answers[0].text, "Yes");
     assert_eq!(results.answers[1].text, "No");
 
-    // The day divider.
+    // The date divider.
     assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
 
     // And nothing else.
