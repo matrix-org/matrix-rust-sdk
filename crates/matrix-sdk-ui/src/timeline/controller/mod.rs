@@ -467,7 +467,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     ///
     /// Cheap because `im::Vector` is cheap to clone.
     pub(super) async fn items(&self) -> Vector<Arc<TimelineItem>> {
-        self.state.read().await.items.clone()
+        self.state.read().await.items.clone_items()
     }
 
     pub(super) async fn subscribe(
@@ -475,7 +475,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Send) {
         trace!("Creating timeline items signal");
         let state = self.state.read().await;
-        (state.items.clone(), state.items.subscribe().into_stream())
+        (state.items.clone_items(), state.items.subscribe().into_stream())
     }
 
     pub(super) async fn subscribe_batched(
@@ -483,7 +483,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
         trace!("Creating timeline items signal");
         let state = self.state.read().await;
-        (state.items.clone(), state.items.subscribe().into_batched_stream())
+        (state.items.clone_items(), state.items.subscribe().into_batched_stream())
     }
 
     pub(super) async fn subscribe_filter_map<U, F>(
