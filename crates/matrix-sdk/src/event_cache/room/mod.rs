@@ -574,14 +574,17 @@ mod private {
     use matrix_sdk_base::{
         deserialized_responses::{SyncTimelineEvent, TimelineEventKind},
         event_cache::{
-            store::{EventCacheStoreError, EventCacheStoreLock},
+            store::{
+                EventCacheStoreError, EventCacheStoreLock, EventCacheStoreLockGuard,
+                DEFAULT_CHUNK_CAPACITY,
+            },
             Event, Gap,
         },
-        linked_chunk::{ChunkContent, LinkedChunkBuilder, RawLinkedChunk, Update},
+        linked_chunk::{ChunkContent, LinkedChunk, LinkedChunkBuilder, RawLinkedChunk, Update},
     };
     use once_cell::sync::OnceCell;
-    use ruma::{serde::Raw, OwnedRoomId};
-    use tracing::trace;
+    use ruma::{serde::Raw, OwnedRoomId, RoomId};
+    use tracing::{error, trace};
 
     use super::events::RoomEvents;
     use crate::event_cache::EventCacheError;
@@ -611,6 +614,30 @@ mod private {
     }
 
     impl RoomEventCacheState {
+        async fn try_reload_linked_chunk(
+            room: &RoomId,
+            locked: &EventCacheStoreLockGuard<'_>,
+        ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, EventCacheError>
+        {
+            let raw_chunks = locked.reload_linked_chunk(room).await?;
+
+            let mut builder = LinkedChunkBuilder::from_raw_parts(raw_chunks.clone());
+
+            builder.with_update_history();
+
+            Ok(builder.build().map_err(|err| {
+                // Show a debug string representing the known chunks.
+                if tracing::enabled!(tracing::Level::TRACE) {
+                    trace!("couldn't build a linked chunk from the raw parts. Raw chunks:");
+                    for line in raw_chunks_debug_string(raw_chunks) {
+                        trace!("{line}");
+                    }
+                }
+
+                EventCacheStoreError::InvalidData { details: err.to_string() }
+            })?)
+        }
+
         /// Create a new state, or reload it from storage if it's been enabled.
         pub async fn new(
             room: OwnedRoomId,
@@ -618,23 +645,21 @@ mod private {
         ) -> Result<Self, EventCacheError> {
             let events = if let Some(store) = store.get() {
                 let locked = store.lock().await?;
-                let raw_chunks = locked.reload_linked_chunk(&room).await?;
 
-                let mut builder = LinkedChunkBuilder::from_raw_parts(raw_chunks.clone());
+                // Try to reload a linked chunk from storage. If it fails, log the error and
+                // restart with a fresh, empty linked chunk.
+                let linked_chunk = match Self::try_reload_linked_chunk(&room, &locked).await {
+                    Ok(linked_chunk) => linked_chunk,
+                    Err(err) => {
+                        error!("error when reloading a linked chunk from memory: {err}");
 
-                builder.with_update_history();
+                        // Clear storage for this room.
+                        locked.handle_linked_chunk_updates(&room, vec![Update::Clear]).await?;
 
-                let linked_chunk = builder.build().map_err(|err| {
-                    // Show a debug string representing the known chunks.
-                    if tracing::enabled!(tracing::Level::TRACE) {
-                        trace!("couldn't build a linked chunk from the raw parts. Raw chunks:");
-                        for line in raw_chunks_debug_string(raw_chunks) {
-                            trace!("{line}");
-                        }
+                        // Restart with an empty linked chunk.
+                        None
                     }
-
-                    EventCacheStoreError::InvalidData { details: err.to_string() }
-                })?;
+                };
 
                 RoomEvents::with_initial_chunks(linked_chunk)
             } else {
@@ -1463,6 +1488,62 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].event_id().unwrap(), event_id2);
         assert_eq!(items[1].event_id().unwrap(), event_id1);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[async_test]
+    async fn test_load_from_storage_resilient_to_failure() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        // Prefill the store with invalid data: two chunks that form a cycle.
+        event_cache_store
+            .handle_linked_chunk_updates(
+                room_id,
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: Some(ChunkIdentifier::new(0)),
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let client = MockClientBuilder::new("http://localhost".to_owned())
+            .store_config(
+                StoreConfig::new("holder".to_owned()).event_cache_store(event_cache_store.clone()),
+            )
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+
+        // Don't forget to subscribe and like^W enable storage!
+        event_cache.subscribe().unwrap();
+        event_cache.enable_storage().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        let (items, _stream) = room_event_cache.subscribe().await.unwrap();
+
+        // Because the persisted content was invalid, the room store is reset: there are
+        // no events in the cache.
+        assert!(items.is_empty());
+
+        // Storage doesn't contain anything. It would also be valid that it contains a
+        // single initial empty items chunk.
+        let raw_chunks = event_cache_store.reload_linked_chunk(room_id).await.unwrap();
+        assert!(raw_chunks.is_empty());
     }
 
     async fn assert_relations(
