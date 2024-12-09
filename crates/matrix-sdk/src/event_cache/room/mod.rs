@@ -573,11 +573,15 @@ mod private {
 
     use matrix_sdk_base::{
         deserialized_responses::{SyncTimelineEvent, TimelineEventKind},
-        event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
-        linked_chunk::{LinkedChunkBuilder, Update},
+        event_cache::{
+            store::{EventCacheStoreError, EventCacheStoreLock},
+            Event, Gap,
+        },
+        linked_chunk::{ChunkContent, LinkedChunkBuilder, RawLinkedChunk, Update},
     };
     use once_cell::sync::OnceCell;
     use ruma::{serde::Raw, OwnedRoomId};
+    use tracing::trace;
 
     use super::events::RoomEvents;
     use crate::event_cache::EventCacheError;
@@ -616,9 +620,19 @@ mod private {
                 let locked = store.lock().await?;
                 let raw_chunks = locked.reload_linked_chunk(&room).await?;
 
-                let mut builder = LinkedChunkBuilder::from_raw_parts(raw_chunks);
+                let mut builder = LinkedChunkBuilder::from_raw_parts(raw_chunks.clone());
+
                 builder.with_update_history();
+
                 let linked_chunk = builder.build().map_err(|err| {
+                    // Show a debug string representing the known chunks.
+                    if tracing::enabled!(tracing::Level::TRACE) {
+                        trace!("couldn't build a linked chunk from the raw parts. Raw chunks:");
+                        for line in raw_chunks_debug_string(raw_chunks) {
+                            trace!("{line}");
+                        }
+                    }
+
                     EventCacheStoreError::InvalidData { details: err.to_string() }
                 })?;
 
@@ -733,6 +747,86 @@ mod private {
             let output = func(&mut self.events);
             self.propagate_changes().await?;
             Ok(output)
+        }
+    }
+
+    /// Create a debug string over multiple lines (one String per line),
+    /// offering a debug representation of a [`RawLinkedChunk`] loaded from
+    /// disk.
+    fn raw_chunks_debug_string(mut raw_chunks: Vec<RawLinkedChunk<Event, Gap>>) -> Vec<String> {
+        let mut result = Vec::new();
+
+        // Sort the chunks by id, for the output to be deterministic.
+        raw_chunks.sort_by_key(|c| c.id.index());
+
+        for c in raw_chunks {
+            let content = match c.content {
+                ChunkContent::Gap(Gap { prev_token }) => {
+                    format!("gap['{prev_token}']")
+                }
+                ChunkContent::Items(vec) => {
+                    let items = vec
+                        .into_iter()
+                        .map(|event| {
+                            event
+                                .event_id()
+                                .map_or_else(|| "<no event id>".to_owned(), |id| id.to_string())
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("events[{items}]")
+                }
+            };
+
+            let prev =
+                c.previous.map_or_else(|| "<none>".to_owned(), |prev| prev.index().to_string());
+            let next = c.next.map_or_else(|| "<none>".to_owned(), |prev| prev.index().to_string());
+
+            let line = format!("chunk #{} (prev={prev}, next={next}): {content}", c.id.index());
+
+            result.push(line);
+        }
+
+        result
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use matrix_sdk_base::{
+            event_cache::Gap,
+            linked_chunk::{ChunkContent, ChunkIdentifier as CId, RawLinkedChunk},
+        };
+        use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
+        use ruma::event_id;
+
+        use super::raw_chunks_debug_string;
+
+        #[test]
+        fn test_raw_chunks_debug_string() {
+            let mut raws = Vec::new();
+            let f = EventFactory::new().room(&DEFAULT_TEST_ROOM_ID).sender(*ALICE);
+
+            raws.push(RawLinkedChunk {
+                content: ChunkContent::Items(vec![
+                    f.text_msg("hey").event_id(event_id!("$1")).into_sync(),
+                    f.text_msg("you").event_id(event_id!("$2")).into_sync(),
+                ]),
+                id: CId::new(1),
+                previous: Some(CId::new(0)),
+                next: None,
+            });
+
+            raws.push(RawLinkedChunk {
+                content: ChunkContent::Gap(Gap { prev_token: "prev-token".to_owned() }),
+                id: CId::new(0),
+                previous: None,
+                next: Some(CId::new(1)),
+            });
+
+            let output = raw_chunks_debug_string(raws);
+            assert_eq!(output.len(), 2);
+            assert_eq!(&output[0], "chunk #0 (prev=<none>, next=1): gap['prev-token']");
+            assert_eq!(&output[1], "chunk #1 (prev=0, next=<none>): events[$1, $2]");
         }
     }
 }
