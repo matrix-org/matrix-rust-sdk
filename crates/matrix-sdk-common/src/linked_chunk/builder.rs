@@ -356,7 +356,7 @@ mod tests {
         assert!(chunks.next().is_none());
 
         // The linked chunk had 5 items.
-        assert_eq!(lc.len(), 5);
+        assert_eq!(lc.num_items(), 5);
 
         // Now, if we add a new chunk, its identifier should be the previous one we used
         // + 1.
