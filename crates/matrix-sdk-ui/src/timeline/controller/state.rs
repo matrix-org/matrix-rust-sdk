@@ -53,7 +53,7 @@ use super::{
 use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
-        day_dividers::DayDividerAdjuster,
+        day_dividers::DateDividerAdjuster,
         event_handler::{
             Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
             TimelineItemPosition,
@@ -192,6 +192,7 @@ impl TimelineState {
     }
 
     /// Adds a local echo (for an event) to the timeline.
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all)]
     pub(super) async fn handle_local_event(
         &mut self,
@@ -217,13 +218,13 @@ impl TimelineState {
 
         let mut txn = self.transaction();
 
-        let mut day_divider_adjuster = DayDividerAdjuster::new(date_divider_mode);
+        let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
 
         TimelineEventHandler::new(&mut txn, ctx)
-            .handle_event(&mut day_divider_adjuster, content)
+            .handle_event(&mut date_divider_adjuster, content)
             .await;
 
-        txn.adjust_day_dividers(day_divider_adjuster);
+        txn.adjust_date_dividers(date_divider_adjuster);
 
         txn.commit();
     }
@@ -240,7 +241,8 @@ impl TimelineState {
     {
         let mut txn = self.transaction();
 
-        let mut day_divider_adjuster = DayDividerAdjuster::new(settings.date_divider_mode.clone());
+        let mut date_divider_adjuster =
+            DateDividerAdjuster::new(settings.date_divider_mode.clone());
 
         // Loop through all the indices, in order so we don't decrypt edits
         // before the event being edited, if both were UTD. Keep track of
@@ -262,7 +264,7 @@ impl TimelineState {
                     TimelineItemPosition::UpdateDecrypted { timeline_item_index: idx },
                     room_data_provider,
                     settings,
-                    &mut day_divider_adjuster,
+                    &mut date_divider_adjuster,
                 )
                 .await;
 
@@ -273,7 +275,7 @@ impl TimelineState {
             }
         }
 
-        txn.adjust_day_dividers(day_divider_adjuster);
+        txn.adjust_date_dividers(date_divider_adjuster);
 
         txn.commit();
     }
@@ -382,7 +384,8 @@ impl TimelineStateTransaction<'_> {
 
         let position = position.into();
 
-        let mut day_divider_adjuster = DayDividerAdjuster::new(settings.date_divider_mode.clone());
+        let mut date_divider_adjuster =
+            DateDividerAdjuster::new(settings.date_divider_mode.clone());
 
         // Implementation note: when `position` is `TimelineEnd::Front`, events are in
         // the reverse topological order. Prepending them one by one in the order they
@@ -399,7 +402,7 @@ impl TimelineStateTransaction<'_> {
                     position,
                     room_data_provider,
                     settings,
-                    &mut day_divider_adjuster,
+                    &mut date_divider_adjuster,
                 )
                 .await;
 
@@ -407,7 +410,7 @@ impl TimelineStateTransaction<'_> {
             total.items_updated += handle_one_res.items_updated as u64;
         }
 
-        self.adjust_day_dividers(day_divider_adjuster);
+        self.adjust_date_dividers(date_divider_adjuster);
 
         self.check_no_unused_unique_ids();
         total
@@ -443,7 +446,7 @@ impl TimelineStateTransaction<'_> {
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineSettings,
-        day_divider_adjuster: &mut DayDividerAdjuster,
+        date_divider_adjuster: &mut DateDividerAdjuster,
     ) -> HandleEventResult {
         let SyncTimelineEvent { push_actions, kind } = event;
         let encryption_info = kind.encryption_info().cloned();
@@ -643,7 +646,7 @@ impl TimelineStateTransaction<'_> {
         };
 
         // Handle the event to create or update a timeline item.
-        TimelineEventHandler::new(self, ctx).handle_event(day_divider_adjuster, event_kind).await
+        TimelineEventHandler::new(self, ctx).handle_event(date_divider_adjuster, event_kind).await
     }
 
     fn clear(&mut self) {
@@ -662,11 +665,11 @@ impl TimelineStateTransaction<'_> {
                 }
             });
 
-            // Remove stray day dividers
+            // Remove stray date dividers
             let mut idx = 0;
             while idx < self.items.len() {
-                if self.items[idx].is_day_divider()
-                    && self.items.get(idx + 1).map_or(true, |item| item.is_day_divider())
+                if self.items[idx].is_date_divider()
+                    && self.items.get(idx + 1).map_or(true, |item| item.is_date_divider())
                 {
                     self.items.remove(idx);
                     // don't increment idx because all elements have shifted
@@ -774,7 +777,7 @@ impl TimelineStateTransaction<'_> {
         }
     }
 
-    fn adjust_day_dividers(&mut self, mut adjuster: DayDividerAdjuster) {
+    fn adjust_date_dividers(&mut self, mut adjuster: DateDividerAdjuster) {
         adjuster.run(&mut self.items, &mut self.meta);
     }
 

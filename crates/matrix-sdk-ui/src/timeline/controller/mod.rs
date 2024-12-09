@@ -75,7 +75,7 @@ use super::{
 };
 use crate::{
     timeline::{
-        day_dividers::DayDividerAdjuster,
+        day_dividers::DateDividerAdjuster,
         event_item::EventTimelineItemKind,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
         reactions::FullReactionKey,
@@ -796,8 +796,9 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 warn!("Message echo got duplicated, removing the local one");
                 txn.items.remove(idx);
 
-                // Adjust the day dividers, if needs be.
-                let mut adjuster = DayDividerAdjuster::new(self.settings.date_divider_mode.clone());
+                // Adjust the date dividers, if needs be.
+                let mut adjuster =
+                    DateDividerAdjuster::new(self.settings.date_divider_mode.clone());
                 adjuster.run(&mut txn.items, &mut txn.meta);
             }
 
@@ -894,9 +895,9 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
             txn.items.remove(idx);
 
-            // A read marker or a day divider may have been inserted before the local echo.
+            // A read marker or a date divider may have been inserted before the local echo.
             // Ensure both are up to date.
-            let mut adjuster = DayDividerAdjuster::new(self.settings.date_divider_mode.clone());
+            let mut adjuster = DateDividerAdjuster::new(self.settings.date_divider_mode.clone());
             adjuster.run(&mut txn.items, &mut txn.meta);
 
             txn.meta.update_read_marker(&mut txn.items);
@@ -986,7 +987,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         txn.items.replace(idx, new_item);
 
         // This doesn't change the original sending time, so there's no need to adjust
-        // day dividers.
+        // date dividers.
 
         txn.commit();
 

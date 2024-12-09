@@ -62,8 +62,8 @@ async fn test_new_pinned_events_are_added_on_sync() {
     // Load timeline items
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
-    assert_eq!(items.len(), 1 + 1); // event item + a day divider
-    assert!(items[0].is_day_divider());
+    assert_eq!(items.len(), 1 + 1); // event item + a date divider
+    assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
     assert_pending!(timeline_stream);
     test_helper.server.reset().await;
@@ -96,7 +96,7 @@ async fn test_new_pinned_events_are_added_on_sync() {
         assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
     });
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
     test_helper.server.reset().await;
 }
@@ -142,8 +142,8 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
 
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
-    assert_eq!(items.len(), 1 + 1); // event item + a day divider
-    assert!(items[0].is_day_divider());
+    assert_eq!(items.len(), 1 + 1); // event item + a date divider
+    assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
     assert_pending!(timeline_stream);
     test_helper.server.reset().await;
@@ -164,7 +164,7 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
         assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
     });
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
     assert_pending!(timeline_stream);
     test_helper.server.reset().await;
@@ -375,8 +375,8 @@ async fn test_edited_events_are_reflected_in_sync() {
     // Load timeline items
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
-    assert_eq!(items.len(), 1 + 1); // event item + a day divider
-    assert!(items[0].is_day_divider());
+    assert_eq!(items.len(), 1 + 1); // event item + a date divider
+    assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
     assert_pending!(timeline_stream);
     test_helper.server.reset().await;
@@ -402,7 +402,7 @@ async fn test_edited_events_are_reflected_in_sync() {
         assert_eq!(event.event_id().unwrap(), event_id!("$1"));
     });
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
     // The edit replaces the original event
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Set { index, value } => {
@@ -451,8 +451,8 @@ async fn test_redacted_events_are_reflected_in_sync() {
     // Load timeline items
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
-    assert_eq!(items.len(), 1 + 1); // event item + a day divider
-    assert!(items[0].is_day_divider());
+    assert_eq!(items.len(), 1 + 1); // event item + a date divider
+    assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
     assert_pending!(timeline_stream);
     test_helper.server.reset().await;
@@ -474,7 +474,7 @@ async fn test_redacted_events_are_reflected_in_sync() {
         assert_eq!(event.event_id().unwrap(), event_id!("$1"));
     });
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
     // The redaction replaces the original event
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Set { index, value } => {
@@ -518,8 +518,8 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
     // Load timeline items
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
-    assert_eq!(items.len(), 1 + 1); // event item + a day divider
-    assert!(items[0].is_day_divider());
+    assert_eq!(items.len(), 1 + 1); // event item + a date divider
+    assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
     assert_pending!(timeline_stream);
     test_helper.server.reset().await;
@@ -547,7 +547,7 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
         assert_eq!(event.event_id().unwrap(), event_id!("$1"));
     });
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
     // The edit replaces the original event
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::Set { index, value } => {
@@ -601,7 +601,7 @@ async fn test_edited_events_survive_pinned_event_ids_change() {
         assert_eq!(event.event_id().unwrap(), event_id!("$3"));
     });
     assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
     assert_pending!(timeline_stream);
 }

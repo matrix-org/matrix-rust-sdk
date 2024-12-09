@@ -47,7 +47,7 @@ async fn test_default_filter() {
     timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    let _date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     let first_event_id = item.as_event().unwrap().event_id().unwrap();
 
     timeline
@@ -134,7 +134,7 @@ async fn test_custom_filter() {
     let f = &timeline.factory;
     timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
     let _item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    let _day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    let _date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
     timeline
         .handle_live_redacted_message_event(&ALICE, RedactedRoomMessageEventContent::new())

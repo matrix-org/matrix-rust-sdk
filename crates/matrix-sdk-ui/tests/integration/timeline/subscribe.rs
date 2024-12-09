@@ -60,7 +60,7 @@ async fn test_batched() {
     let hdl = tokio::spawn(async move {
         let next_batch = timeline_stream.next().await.unwrap();
         // There can be more than three updates because we add things like
-        // day dividers and implicit read receipts
+        // date dividers and implicit read receipts
         assert!(next_batch.len() >= 3);
     });
 
@@ -133,8 +133,8 @@ async fn test_event_filter() {
     assert_matches!(msg.msgtype(), MessageType::Text(_));
     assert!(!msg.is_edited());
 
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert!(date_divider.is_date_divider());
 
     let second_event_id = event_id!("$Ga6Y2l0gKY");
     let edit_event_id = event_id!("$7i9In0gEmB");
@@ -251,7 +251,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
         assert_eq!(value.as_event().unwrap().event_id(), Some(third_event_id));
     });
     assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
     assert_pending!(timeline_stream);
 
@@ -299,7 +299,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
         assert_eq!(value.as_event().unwrap().event_id(), Some(fifth_event_id));
     });
     assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
     assert_pending!(timeline_stream);
 }
@@ -370,7 +370,7 @@ async fn test_profile_updates() {
     assert_matches!(event_2_item.sender_profile(), TimelineDetails::Unavailable);
 
     assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
 
     assert_pending!(timeline_stream);

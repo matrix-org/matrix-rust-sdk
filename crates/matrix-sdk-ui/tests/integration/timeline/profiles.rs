@@ -79,7 +79,7 @@ async fn test_update_sender_profiles() {
 
     let timeline_items = timeline.items().await;
     assert_eq!(timeline_items.len(), 4);
-    assert!(timeline_items[0].is_day_divider());
+    assert!(timeline_items[0].is_date_divider());
     // We have seen a member event for alice from alice => we have a profile
     // albeit empty.
     assert_matches!(
@@ -104,7 +104,7 @@ async fn test_update_sender_profiles() {
 
     let timeline_items = timeline.items().await;
     assert_eq!(timeline_items.len(), 4);
-    assert!(timeline_items[0].is_day_divider());
+    assert!(timeline_items[0].is_date_divider());
     assert_matches!(
         timeline_items[1].as_event().unwrap().sender_profile(),
         TimelineDetails::Ready(_)
@@ -166,7 +166,7 @@ async fn test_update_sender_profiles() {
 
     let timeline_items = timeline.items().await;
     assert_eq!(timeline_items.len(), 4);
-    assert!(timeline_items[0].is_day_divider());
+    assert!(timeline_items[0].is_date_divider());
     assert_matches!(
         timeline_items[1].as_event().unwrap().sender_profile(),
         TimelineDetails::Ready(_)
@@ -185,7 +185,7 @@ async fn test_update_sender_profiles() {
 
     let timeline_items = timeline.items().await;
     assert_eq!(timeline_items.len(), 4);
-    assert!(timeline_items[0].is_day_divider());
+    assert!(timeline_items[0].is_date_divider());
     assert_matches!(
         timeline_items[1].as_event().unwrap().sender_profile(),
         TimelineDetails::Ready(_)
