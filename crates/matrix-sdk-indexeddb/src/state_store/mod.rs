@@ -439,13 +439,15 @@ struct PersistedQueuedRequest {
 
     priority: Option<usize>,
 
+    /// The time the original message was first attempted to be sent at.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    created_at: Option<MilliSecondsSinceUnixEpoch>,
+    
     // Migrated fields: keep these private, they're not used anymore elsewhere in the code base.
     /// Deprecated (from old format), now replaced with error field.
     is_wedged: Option<bool>,
 
     event: Option<SerializableEventContent>,
-
-    enqueue_time: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 impl PersistedQueuedRequest {
@@ -471,7 +473,7 @@ impl PersistedQueuedRequest {
             transaction_id: self.transaction_id,
             error,
             priority,
-            enqueue_time: self.enqueue_time,
+            created_at: self.created_at,
         })
     }
 }
@@ -1397,7 +1399,7 @@ impl_state_store!({
             is_wedged: None,
             event: None,
             priority: Some(priority),
-            enqueue_time: Some(MilliSecondsSinceUnixEpoch::now()),
+            created_at: Some(MilliSecondsSinceUnixEpoch::now()),
         });
 
         // Save the new vector into db.
@@ -1593,7 +1595,7 @@ impl_state_store!({
             parent_transaction_id: parent_txn_id.to_owned(),
             own_transaction_id: own_txn_id,
             parent_key: None,
-            enqueue_time: None,
+            created_at: None,
         });
 
         // Save the new vector into db.
