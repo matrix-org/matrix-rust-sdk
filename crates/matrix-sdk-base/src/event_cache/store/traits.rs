@@ -62,6 +62,12 @@ pub trait EventCacheStore: AsyncTraitDeps {
         room_id: &RoomId,
     ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, Self::Error>;
 
+    /// Clear persisted events for all the rooms.
+    ///
+    /// This will empty and remove all the linked chunks stored previously,
+    /// using the above [`Self::handle_linked_chunk_updates`] methods.
+    async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error>;
+
     /// Add a media file's content in the media store.
     ///
     /// # Arguments
@@ -186,6 +192,10 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         room_id: &RoomId,
     ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, Self::Error> {
         self.0.reload_linked_chunk(room_id).await.map_err(Into::into)
+    }
+
+    async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error> {
+        self.0.clear_all_rooms_chunks().await.map_err(Into::into)
     }
 
     async fn add_media_content(
