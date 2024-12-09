@@ -21,11 +21,8 @@ use std::{borrow::Cow, fmt, path::Path, sync::Arc};
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
-    event_cache::{
-        store::{EventCacheStore, DEFAULT_CHUNK_CAPACITY},
-        Event, Gap,
-    },
-    linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunk, LinkedChunkBuilder, Update},
+    event_cache::{store::EventCacheStore, Event, Gap},
+    linked_chunk::{ChunkContent, ChunkIdentifier, RawLinkedChunk, Update},
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -147,49 +144,11 @@ impl SqliteEventCacheStore {
         ))
     }
 
-    async fn load_chunks(&self, room_id: &RoomId) -> Result<Vec<RawLinkedChunk>> {
-        let room_id = room_id.to_owned();
-        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, &room_id);
-
-        let this = self.clone();
-
-        let result = self
-            .acquire()
-            .await?
-            .with_transaction(move |txn| -> Result<_> {
-                let mut items = Vec::new();
-
-                // Use `ORDER BY id` to get a deterministic ordering for testing purposes.
-                for data in txn
-                    .prepare(
-                        "SELECT id, previous, next, type FROM linked_chunks WHERE room_id = ? ORDER BY id",
-                    )?
-                    .query_map((&hashed_room_id,), Self::map_row_to_chunk)?
-                {
-                    let (id, previous, next, chunk_type) = data?;
-                    let new = txn.rebuild_chunk(
-                        &this,
-                        &hashed_room_id,
-                        previous,
-                        id,
-                        next,
-                        chunk_type.as_str(),
-                    )?;
-                    items.push(new);
-                }
-
-                Ok(items)
-            })
-            .await?;
-
-        Ok(result)
-    }
-
     async fn load_chunk_with_id(
         &self,
         room_id: &RoomId,
         chunk_id: ChunkIdentifier,
-    ) -> Result<RawLinkedChunk> {
+    ) -> Result<RawLinkedChunk<Event, Gap>> {
         let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
 
         let this = self.clone();
@@ -217,7 +176,7 @@ trait TransactionExtForLinkedChunks {
         index: u64,
         next: Option<u64>,
         chunk_type: &str,
-    ) -> Result<RawLinkedChunk>;
+    ) -> Result<RawLinkedChunk<Event, Gap>>;
 
     fn load_gap_content(
         &self,
@@ -243,7 +202,7 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
         id: u64,
         next: Option<u64>,
         chunk_type: &str,
-    ) -> Result<RawLinkedChunk> {
+    ) -> Result<RawLinkedChunk<Event, Gap>> {
         let previous = previous.map(ChunkIdentifier::new);
         let next = next.map(ChunkIdentifier::new);
         let id = ChunkIdentifier::new(id);
@@ -315,14 +274,6 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
 
         Ok(events)
     }
-}
-
-struct RawLinkedChunk {
-    content: ChunkContent<Event, Gap>,
-
-    previous: Option<ChunkIdentifier>,
-    id: ChunkIdentifier,
-    next: Option<ChunkIdentifier>,
 }
 
 async fn create_pool(path: &Path) -> Result<SqlitePool, OpenStoreError> {
@@ -586,27 +537,42 @@ impl EventCacheStore for SqliteEventCacheStore {
     async fn reload_linked_chunk(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, Self::Error> {
-        let chunks = self.load_chunks(room_id).await?;
+    ) -> Result<Vec<RawLinkedChunk<Event, Gap>>, Self::Error> {
+        let room_id = room_id.to_owned();
+        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, &room_id);
 
-        let mut builder = LinkedChunkBuilder::new();
+        let this = self.clone();
 
-        for c in chunks {
-            match c.content {
-                ChunkContent::Gap(gap) => {
-                    builder.push_gap(c.previous, c.id, c.next, gap);
+        let result = self
+            .acquire()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let mut items = Vec::new();
+
+                // Use `ORDER BY id` to get a deterministic ordering for testing purposes.
+                for data in txn
+                    .prepare(
+                        "SELECT id, previous, next, type FROM linked_chunks WHERE room_id = ? ORDER BY id",
+                    )?
+                    .query_map((&hashed_room_id,), Self::map_row_to_chunk)?
+                {
+                    let (id, previous, next, chunk_type) = data?;
+                    let new = txn.rebuild_chunk(
+                        &this,
+                        &hashed_room_id,
+                        previous,
+                        id,
+                        next,
+                        chunk_type.as_str(),
+                    )?;
+                    items.push(new);
                 }
-                ChunkContent::Items(items) => {
-                    builder.push_items(c.previous, c.id, c.next, items);
-                }
-            }
-        }
 
-        builder.with_update_history();
+                Ok(items)
+            })
+            .await?;
 
-        builder.build().map_err(|err| Error::InvalidData {
-            details: format!("when rebuilding a linked chunk: {err}"),
-        })
+        Ok(result)
     }
 
     async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error> {
@@ -931,7 +897,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_chunks(room_id).await.unwrap();
+        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 3);
 
@@ -982,7 +948,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_chunks(room_id).await.unwrap();
+        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -1030,7 +996,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_chunks(room_id).await.unwrap();
+        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 2);
 
@@ -1103,7 +1069,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_chunks(room_id).await.unwrap();
+        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -1148,7 +1114,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_chunks(room_id).await.unwrap();
+        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -1207,7 +1173,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_chunks(room_id).await.unwrap();
+        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -1254,7 +1220,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_chunks(room_id).await.unwrap();
+        let mut chunks = store.reload_linked_chunk(room_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -1305,7 +1271,7 @@ mod tests {
             .await
             .unwrap();
 
-        let chunks = store.load_chunks(room_id).await.unwrap();
+        let chunks = store.reload_linked_chunk(room_id).await.unwrap();
         assert!(chunks.is_empty());
     }
 
@@ -1359,7 +1325,7 @@ mod tests {
             .unwrap();
 
         // Check chunks from room 1.
-        let mut chunks_room1 = store.load_chunks(room1).await.unwrap();
+        let mut chunks_room1 = store.reload_linked_chunk(room1).await.unwrap();
         assert_eq!(chunks_room1.len(), 1);
 
         let c = chunks_room1.remove(0);
@@ -1370,7 +1336,7 @@ mod tests {
         });
 
         // Check chunks from room 2.
-        let mut chunks_room2 = store.load_chunks(room2).await.unwrap();
+        let mut chunks_room2 = store.reload_linked_chunk(room2).await.unwrap();
         assert_eq!(chunks_room2.len(), 1);
 
         let c = chunks_room2.remove(0);
@@ -1415,7 +1381,7 @@ mod tests {
         // If the updates have been handled transactionally, then no new chunks should
         // have been added; failure of the second update leads to the first one being
         // rolled back.
-        let chunks = store.load_chunks(room_id).await.unwrap();
+        let chunks = store.reload_linked_chunk(room_id).await.unwrap();
         assert!(chunks.is_empty());
     }
 }
