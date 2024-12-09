@@ -879,7 +879,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     }
 
     /// Returns the number of items of the linked chunk.
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.items().count()
     }
 }
