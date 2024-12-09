@@ -609,6 +609,17 @@ impl EventCacheStore for SqliteEventCacheStore {
         })
     }
 
+    async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error> {
+        self.acquire()
+            .await?
+            .with_transaction(move |txn| {
+                // Remove all the chunks, and let cascading do its job.
+                txn.execute("DELETE FROM linked_chunks", ())
+            })
+            .await?;
+        Ok(())
+    }
+
     async fn add_media_content(
         &self,
         request: &MediaRequestParameters,
