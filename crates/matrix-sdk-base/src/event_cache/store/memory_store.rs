@@ -115,6 +115,11 @@ impl EventCacheStore for MemoryStore {
         Ok(result)
     }
 
+    async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error> {
+        self.inner.write().unwrap().events.clear();
+        Ok(())
+    }
+
     async fn add_media_content(
         &self,
         request: &MediaRequestParameters,
