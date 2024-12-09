@@ -180,8 +180,8 @@ impl Deref for ObservableItemsEntry<'_> {
 /// an atomic unit.
 ///
 /// For updates from the transaction to have affect, it has to be finalized with
-/// [`Self::commit`]. If the transaction is dropped without that method being
-/// called, the updates will be discarded.
+/// [`ObservableItemsTransaction::commit`]. If the transaction is dropped
+/// without that method being called, the updates will be discarded.
 #[derive(Debug)]
 pub struct ObservableItemsTransaction<'observable_items> {
     items: ObservableVectorTransaction<'observable_items, Arc<TimelineItem>>,
