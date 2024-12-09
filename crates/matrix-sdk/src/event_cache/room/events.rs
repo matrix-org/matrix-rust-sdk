@@ -78,7 +78,7 @@ impl RoomEvents {
 
     /// Returns whether the room has at least one event.
     pub fn is_empty(&self) -> bool {
-        self.chunks.len() == 0
+        self.chunks.num_items() == 0
     }
 
     /// Clear all events.
