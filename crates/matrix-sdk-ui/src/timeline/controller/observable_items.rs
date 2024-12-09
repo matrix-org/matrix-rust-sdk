@@ -124,6 +124,10 @@ impl ObservableItems {
 }
 
 // It's fine to deref to an immutable reference to `Vector`.
+//
+// We don't want, however, to deref to a mutable reference: it should be done
+// via proper methods to control precisely the mapping between remote events and
+// timeline items.
 impl Deref for ObservableItems {
     type Target = Vector<Arc<TimelineItem>>;
 
@@ -154,6 +158,11 @@ impl ObservableItemsEntry<'_> {
     }
 }
 
+// It's fine to deref to an immutable reference to `Arc<TimelineItem>`.
+//
+// We don't want, however, to deref to a mutable reference: it should be done
+// via proper methods to control precisely the mapping between remote events and
+// timeline items.
 impl Deref for ObservableItemsEntry<'_> {
     type Target = Arc<TimelineItem>;
 
@@ -302,6 +311,10 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
 }
 
 // It's fine to deref to an immutable reference to `Vector`.
+//
+// We don't want, however, to deref to a mutable reference: it should be done
+// via proper methods to control precisely the mapping between remote events and
+// timeline items.
 impl Deref for ObservableItemsTransaction<'_> {
     type Target = Vector<Arc<TimelineItem>>;
 
@@ -335,6 +348,11 @@ impl ObservableItemsTransactionEntry<'_, '_> {
     }
 }
 
+// It's fine to deref to an immutable reference to `Arc<TimelineItem>`.
+//
+// We don't want, however, to deref to a mutable reference: it should be done
+// via proper methods to control precisely the mapping between remote events and
+// timeline items.
 impl Deref for ObservableItemsTransactionEntry<'_, '_> {
     type Target = Arc<TimelineItem>;
 
