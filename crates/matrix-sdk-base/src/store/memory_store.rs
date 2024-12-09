@@ -815,7 +815,7 @@ impl StateStore for MemoryStore {
                 transaction_id,
                 error: None,
                 priority,
-                enqueue_time: Some(MilliSecondsSinceUnixEpoch::now()),
+                created_at: Some(MilliSecondsSinceUnixEpoch::now()),
             },
         );
         Ok(())
@@ -915,7 +915,7 @@ impl StateStore for MemoryStore {
                 parent_transaction_id: parent_transaction_id.to_owned(),
                 own_transaction_id,
                 parent_key: None,
-                enqueue_time: None,
+                created_at: None,
             },
         );
         Ok(())

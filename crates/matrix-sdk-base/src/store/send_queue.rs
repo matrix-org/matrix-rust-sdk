@@ -134,7 +134,7 @@ pub struct QueuedRequest {
     pub priority: usize,
 
     /// The time that the request was original attempted.
-    pub enqueue_time: Option<MilliSecondsSinceUnixEpoch>,
+    pub created_at: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 impl QueuedRequest {
@@ -371,7 +371,8 @@ pub struct DependentQueuedRequest {
     pub parent_key: Option<SentRequestKey>,
 
     /// The time that the request was original attempted.
-    pub enqueue_time: Option<MilliSecondsSinceUnixEpoch>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 impl DependentQueuedRequest {

@@ -2275,7 +2275,7 @@ mod tests {
                 .unwrap(),
             },
             parent_key: None,
-            enqueue_time: None,
+            created_at: None,
         };
         let res = canonicalize_dependent_requests(&[edit]);
 
@@ -2296,7 +2296,7 @@ mod tests {
             parent_transaction_id: txn.clone(),
             kind: DependentQueuedRequestKind::RedactEvent,
             parent_key: None,
-            enqueue_time: None,
+            created_at: None,
         };
 
         let edit = DependentQueuedRequest {
@@ -2309,7 +2309,7 @@ mod tests {
                 .unwrap(),
             },
             parent_key: None,
-            enqueue_time: None,
+            created_at: None,
         };
 
         inputs.push({
@@ -2349,7 +2349,7 @@ mod tests {
                     .unwrap(),
                 },
                 parent_key: None,
-                enqueue_time: None,
+                created_at: None,
             })
             .collect::<Vec<_>>();
 
@@ -2381,7 +2381,7 @@ mod tests {
                 kind: DependentQueuedRequestKind::RedactEvent,
                 parent_transaction_id: txn1.clone(),
                 parent_key: None,
-                enqueue_time: None,
+                created_at: None,
             },
             // This one pertains to txn2.
             DependentQueuedRequest {
@@ -2394,7 +2394,7 @@ mod tests {
                 },
                 parent_transaction_id: txn2.clone(),
                 parent_key: None,
-                enqueue_time: None,
+                created_at: None,
             },
         ];
 
@@ -2425,7 +2425,7 @@ mod tests {
             kind: DependentQueuedRequestKind::ReactEvent { key: "🧠".to_owned() },
             parent_transaction_id: txn.clone(),
             parent_key: None,
-            enqueue_time: None,
+            created_at: None,
         };
 
         let edit_id = ChildTransactionId::new();
@@ -2439,7 +2439,7 @@ mod tests {
             },
             parent_transaction_id: txn,
             parent_key: None,
-            enqueue_time: None,
+            created_at: None,
         };
 
         let res = canonicalize_dependent_requests(&[react, edit]);
