@@ -145,9 +145,9 @@ async fn test_reaction() {
     let senders: Vec<_> = group.keys().collect();
     assert_eq!(senders.as_slice(), [user_id!("@bob:example.org")]);
 
-    // The day divider.
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
+    // The date divider.
+    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert!(date_divider.is_date_divider());
 
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
@@ -228,8 +228,8 @@ async fn test_redacted_message() {
     assert_let!(Some(VectorDiff::PushBack { value: first }) = timeline_stream.next().await);
     assert_matches!(first.as_event().unwrap().content(), TimelineItemContent::RedactedMessage);
 
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert!(date_divider.is_date_divider());
 }
 
 #[async_test]
@@ -270,8 +270,8 @@ async fn test_redact_message() {
         "buy my bitcoins bro"
     );
 
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert!(date_divider.is_date_divider());
 
     // Redacting a remote event works.
     mock_redaction(event_id!("$42")).mount(&server).await;
@@ -347,11 +347,11 @@ async fn test_redact_local_sent_message() {
     assert!(event.is_local_echo());
     assert_matches!(event.send_state(), Some(EventSendState::NotSentYet));
 
-    // As well as a day divider.
+    // As well as a date divider.
     assert_let_timeout!(
-        Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next()
+        Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next()
     );
-    assert!(day_divider.is_day_divider());
+    assert!(date_divider.is_date_divider());
 
     // We receive an update in the timeline from the send queue.
     assert_let_timeout!(Some(VectorDiff::Set { index, value: item }) = timeline_stream.next());
@@ -439,8 +439,8 @@ async fn test_read_marker() {
     assert_let!(Some(VectorDiff::PushBack { value: message }) = timeline_stream.next().await);
     assert_matches!(message.as_event().unwrap().content(), TimelineItemContent::Message(_));
 
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert!(date_divider.is_date_divider());
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id).add_account_data(RoomAccountDataTestEvent::FullyRead),
@@ -525,8 +525,8 @@ async fn test_sync_highlighted() {
     // Own events don't trigger push rules.
     assert!(!remote_event.is_highlighted());
 
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert!(date_divider.is_date_divider());
 
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
         sync_timeline_event!({
@@ -589,7 +589,7 @@ async fn test_duplicate_maintains_correct_order() {
     let items = timeline.items().await;
     assert_eq!(items.len(), 2);
 
-    assert!(items[0].is_day_divider());
+    assert!(items[0].is_date_divider());
     let content = items[1].as_event().unwrap().content().as_message().unwrap().body();
     assert_eq!(content, "C");
 
@@ -609,7 +609,7 @@ async fn test_duplicate_maintains_correct_order() {
     let items = timeline.items().await;
     assert_eq!(items.len(), 4, "{items:?}");
 
-    assert!(items[0].is_day_divider());
+    assert!(items[0].is_date_divider());
     let content = items[1].as_event().unwrap().content().as_message().unwrap().body();
     assert_eq!(content, "A");
     let content = items[2].as_event().unwrap().content().as_message().unwrap().body();

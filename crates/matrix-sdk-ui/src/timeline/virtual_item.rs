@@ -17,11 +17,12 @@ use ruma::MilliSecondsSinceUnixEpoch;
 /// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.
 #[derive(Clone, Debug)]
 pub enum VirtualTimelineItem {
-    /// A divider between messages of two days.
+    /// A divider between messages of two days or months depending on the
+    /// timeline configuration.
     ///
     /// The value is a timestamp in milliseconds since Unix Epoch on the given
     /// day in local time.
-    DayDivider(MilliSecondsSinceUnixEpoch),
+    DateDivider(MilliSecondsSinceUnixEpoch),
 
     /// The user's own read marker.
     ReadMarker,

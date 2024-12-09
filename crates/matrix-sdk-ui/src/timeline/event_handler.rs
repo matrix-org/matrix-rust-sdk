@@ -54,7 +54,7 @@ use super::{
         ObservableItemsTransaction, ObservableItemsTransactionEntry, PendingEdit, PendingEditKind,
         TimelineMetadata, TimelineStateTransaction,
     },
-    day_dividers::DayDividerAdjuster,
+    day_dividers::DateDividerAdjuster,
     event_item::{
         extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
         AnyOtherFullStateEventContent, EventSendState, EventTimelineItemKind,
@@ -348,12 +348,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     #[instrument(skip_all, fields(txn_id, event_id, position))]
     pub(super) async fn handle_event(
         mut self,
-        day_divider_adjuster: &mut DayDividerAdjuster,
+        date_divider_adjuster: &mut DateDividerAdjuster,
         event_kind: TimelineEventKind,
     ) -> HandleEventResult {
         let span = tracing::Span::current();
 
-        day_divider_adjuster.mark_used();
+        date_divider_adjuster.mark_used();
 
         match &self.ctx.flow {
             Flow::Local { txn_id, .. } => {
@@ -1143,7 +1143,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     let old_item_id = old_item.internal_id;
 
                     if idx == self.items.len() - 1 {
-                        // If the old item is the last one and no day divider
+                        // If the old item is the last one and no date divider
                         // changes need to happen, replace and return early.
                         trace!(idx, "Replacing existing event");
                         self.items.replace(idx, TimelineItem::new(item, old_item_id.to_owned()));

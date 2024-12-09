@@ -2448,7 +2448,7 @@ async fn test_room_timeline() -> Result<(), Error> {
     // Previous timeline items.
     assert_matches!(
         **previous_timeline_items[0],
-        TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(_))
+        TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_))
     );
     assert_matches!(
         &**previous_timeline_items[1],
