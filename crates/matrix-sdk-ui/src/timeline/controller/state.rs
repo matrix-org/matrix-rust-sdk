@@ -48,7 +48,7 @@ use super::{DateDividerMode, HandleManyEventsResult, TimelineFocusKind, Timeline
 use crate::{
     events::SyncTimelineEventWithoutContent,
     timeline::{
-        day_dividers::DateDividerAdjuster,
+        date_dividers::DateDividerAdjuster,
         event_handler::{
             Flow, HandleEventResult, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
             TimelineItemPosition,
