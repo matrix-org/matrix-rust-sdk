@@ -45,9 +45,10 @@ pub struct ObservableItems {
     /// List of all the remote events as received in the timeline, even the ones
     /// that are discarded in the timeline items.
     ///
-    /// This is useful to get this for the moment as it helps the `Timeline` to
-    /// compute read receipts and read markers. It also helps to map event to
-    /// timeline item, see [`EventMeta::timeline_item_index`] to learn more.
+    /// The list of all remote events is used to compute the read receipts and
+    /// read markers; additionally it's used to map events to timeline items,
+    /// for more info about that, take a look at the documentation for
+    /// [`EventMeta::timeline_item_index`].
     all_remote_events: AllRemoteEvents,
 }
 
