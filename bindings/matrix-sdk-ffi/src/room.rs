@@ -898,6 +898,16 @@ impl Room {
 
         Ok(())
     }
+
+    /// Clear the event cache storage for the current room.
+    ///
+    /// This will remove all the information related to the event cache, in
+    /// memory and in the persisted storage, if enabled.
+    pub async fn clear_event_cache_storage(&self) -> Result<(), ClientError> {
+        let (room_event_cache, _drop_handles) = self.inner.event_cache().await?;
+        room_event_cache.clear().await?;
+        Ok(())
+    }
 }
 
 /// Generates a `matrix.to` permalink to the given room alias.
