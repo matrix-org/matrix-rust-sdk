@@ -246,16 +246,6 @@ pub fn formatted_body_from(
     }
 }
 
-/// Construct a `404 NOT_FOUND` error response from the server, with the given
-/// message.
-pub(crate) fn not_found_error(message: String) -> HttpError {
-    FromHttpResponseError::Server(RumaApiError::ClientApi(ClientApiError::new(
-        StatusCode::NOT_FOUND,
-        ClientApiErrorBody::Standard { kind: ClientApiErrorKind::NotFound, message },
-    )))
-    .into()
-}
-
 #[cfg(test)]
 mod test {
     #[cfg(feature = "markdown")]

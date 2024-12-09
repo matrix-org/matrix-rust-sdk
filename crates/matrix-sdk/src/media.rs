@@ -40,8 +40,8 @@ use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
-    attachment::Thumbnail, config::RequestConfig, futures::SendRequest, utils::not_found_error,
-    Client, Error, Result, TransmissionProgress,
+    attachment::Thumbnail, config::RequestConfig, futures::SendRequest, Client, Error, Result,
+    TransmissionProgress,
 };
 
 /// A conservative upload speed of 1Mbps
@@ -137,6 +137,10 @@ pub enum MediaError {
     /// Preallocated media already had content, cannot overwrite.
     #[error("preallocated media already had content, cannot overwrite")]
     CannotOverwriteMedia,
+
+    /// Local-only media content was not found.
+    #[error("local-only media content was not found")]
+    LocalMediaNotFound,
 }
 
 /// `IntoFuture` returned by [`Media::upload`].
@@ -400,6 +404,8 @@ impl Media {
         request: &MediaRequestParameters,
         use_cache: bool,
     ) -> Result<Vec<u8>> {
+        // Ignore request parameters for local medias, notably those pending in the send
+        // queue.
         if let Some(uri) = Self::as_local_uri(&request.source) {
             return self.get_local_media_content(uri).await;
         }
@@ -532,11 +538,7 @@ impl Media {
             .await?
             .get_media_content_for_uri(uri)
             .await?
-            .ok_or_else(|| {
-                // A request to the server would return a 404 NOT_FOUND error, so let's simulate
-                // that.
-                not_found_error("Unknown media ID".to_owned()).into()
-            })
+            .ok_or_else(|| MediaError::LocalMediaNotFound.into())
     }
 
     /// Remove a media file's content from the store.
