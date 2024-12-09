@@ -27,7 +27,7 @@ use std::{
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use matrix_sdk::{crypto::types::events::UtdCause, Client};
 use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue, StoreError};
-use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, UserId};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedServerName, UserId};
 use tokio::{
     spawn,
     sync::{Mutex as AsyncMutex, MutexGuard},
@@ -73,11 +73,12 @@ pub struct UnableToDecryptInfo {
     /// received the UTD event.
     pub user_trusts_own_identity: bool,
 
-    /// True if the sender of the event was on a different server to our user.
-    pub is_federated: bool,
+    /// The homserver of the user that sent the undecryptable event.
+    pub sender_homeserver: OwnedServerName,
 
-    /// True if our user is using the `matrix.org` homeserver.
-    pub is_matrix_dot_org: bool,
+    /// Our local user's own homeserver, or `None` if the client is not logged
+    /// in.
+    pub own_homeserver: Option<OwnedServerName>,
 }
 
 /// Data about a UTD event which we are waiting to report to the parent hook.
@@ -262,11 +263,8 @@ impl UtdHookManager {
             false
         };
 
-        let is_federated = own_user_id
-            .is_some_and(|own_user_id| own_user_id.server_name() != sender_user_id.server_name());
-
-        let is_matrix_dot_org =
-            own_user_id.is_some_and(|own_user_id| own_user_id.server_name() == "matrix.org");
+        let own_homeserver = own_user_id.map(|id| id.server_name().to_owned());
+        let sender_homeserver = sender_user_id.server_name().to_owned();
 
         let info = UnableToDecryptInfo {
             event_id: event_id.to_owned(),
@@ -274,8 +272,8 @@ impl UtdHookManager {
             cause,
             event_local_age_millis,
             user_trusts_own_identity,
-            is_federated,
-            is_matrix_dot_org,
+            own_homeserver,
+            sender_homeserver,
         };
 
         let Some(max_delay) = self.max_delay else {
@@ -402,7 +400,7 @@ impl Drop for UtdHookManager {
 mod tests {
     use matrix_sdk::test_utils::{logged_in_client, no_retry_test_client};
     use matrix_sdk_test::async_test;
-    use ruma::{event_id, user_id};
+    use ruma::{event_id, server_name, user_id};
 
     use super::*;
 
@@ -455,11 +453,11 @@ mod tests {
             assert!(utd_local_age >= 0);
             assert!(utd_local_age <= 1000);
 
-            assert!(!utds[0].is_federated);
-            assert!(utds[1].is_federated);
-            assert!(!utds[2].is_federated);
+            assert_eq!(utds[0].sender_homeserver, server_name!("localhost"));
+            assert_eq!(utds[0].own_homeserver, Some(server_name!("localhost").to_owned()));
 
-            assert!(!utds[0].is_matrix_dot_org);
+            assert_eq!(utds[1].sender_homeserver, server_name!("example.com"));
+            assert_eq!(utds[1].own_homeserver, Some(server_name!("localhost").to_owned()));
         }
     }
 
