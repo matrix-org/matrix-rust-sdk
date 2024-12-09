@@ -199,7 +199,7 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         self.all_remote_events
     }
 
-    /// Remove a remote event at position `event_index`.
+    /// Remove a remote event at the `event_index` position.
     ///
     /// Not to be confused with removing a timeline item!
     pub fn remove_remote_event(&mut self, event_index: usize) -> Option<EventMeta> {
@@ -208,14 +208,14 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
 
     /// Push a new remote event at the front of all remote events.
     ///
-    /// Not to be confused with pushing front a timeline item!
+    /// Not to be confused with pushing a timeline item to the front!
     pub fn push_front_remote_event(&mut self, event_meta: EventMeta) {
         self.all_remote_events.push_front(event_meta);
     }
 
     /// Push a new remote event at the back of all remote events.
     ///
-    /// Not to be confused with pushing back a timeline item!
+    /// Not to be confused with pushing a timeline item to the back!
     pub fn push_back_remote_event(&mut self, event_meta: EventMeta) {
         self.all_remote_events.push_back(event_meta);
     }
