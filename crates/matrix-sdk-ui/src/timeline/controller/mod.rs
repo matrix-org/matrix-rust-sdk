@@ -973,7 +973,9 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 warn!("We looked for a local item, but it transitioned as remote??");
                 return false;
             };
-            prev_local_item.with_send_state(EventSendState::NotSentYet)
+            prev_local_item.with_send_state(EventSendState::NotSentYet {
+                created_at: prev_local_item.send_handle.clone().map(|h| h.created_at).flatten(),
+            })
         };
 
         // Replace the local-related state (kind) and the content state.
@@ -1282,6 +1284,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     }
                 };
 
+                let created_at = send_handle.created_at.clone();
                 self.handle_local_event(
                     echo.transaction_id.clone(),
                     TimelineEventKind::Message { content, relations: Default::default() },
@@ -1295,6 +1298,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         EventSendState::SendingFailed {
                             error: Arc::new(matrix_sdk::Error::SendQueueWedgeError(send_error)),
                             is_recoverable: false,
+                            created_at,
                         },
                     )
                     .await;
@@ -1378,16 +1382,25 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 }
             }
 
-            RoomSendQueueUpdate::SendError { transaction_id, error, is_recoverable } => {
+            RoomSendQueueUpdate::SendError {
+                transaction_id,
+                error,
+                is_recoverable,
+                created_at,
+            } => {
                 self.update_event_send_state(
                     &transaction_id,
-                    EventSendState::SendingFailed { error, is_recoverable },
+                    EventSendState::SendingFailed { error, is_recoverable, created_at },
                 )
                 .await;
             }
 
-            RoomSendQueueUpdate::RetryEvent { transaction_id } => {
-                self.update_event_send_state(&transaction_id, EventSendState::NotSentYet).await;
+            RoomSendQueueUpdate::RetryEvent { transaction_id, created_at } => {
+                self.update_event_send_state(
+                    &transaction_id,
+                    EventSendState::NotSentYet { created_at },
+                )
+                .await;
             }
 
             RoomSendQueueUpdate::SentEvent { transaction_id, event_id } => {

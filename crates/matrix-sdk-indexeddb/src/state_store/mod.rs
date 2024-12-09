@@ -37,8 +37,12 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        room::member::{
-            MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent,
+        room::{
+            create,
+            member::{
+                MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
+                SyncRoomMemberEvent,
+            },
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, SyncStateEvent,
@@ -442,7 +446,7 @@ struct PersistedQueuedRequest {
     /// The time the original message was first attempted to be sent at.
     #[serde(skip_serializing_if = "Option::is_none")]
     created_at: Option<MilliSecondsSinceUnixEpoch>,
-    
+
     // Migrated fields: keep these private, they're not used anymore elsewhere in the code base.
     /// Deprecated (from old format), now replaced with error field.
     is_wedged: Option<bool>,
@@ -1370,7 +1374,7 @@ impl_state_store!({
         transaction_id: OwnedTransactionId,
         kind: QueuedRequestKind,
         priority: usize,
-    ) -> Result<()> {
+    ) -> Result<MilliSecondsSinceUnixEpoch> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
         let tx = self
@@ -1389,7 +1393,7 @@ impl_state_store!({
             || Ok(Vec::new()),
             |val| self.deserialize_value::<Vec<PersistedQueuedRequest>>(&val),
         )?;
-
+        let created_at = MilliSecondsSinceUnixEpoch::now();
         // Push the new request.
         prev.push(PersistedQueuedRequest {
             room_id: room_id.to_owned(),
@@ -1399,7 +1403,7 @@ impl_state_store!({
             is_wedged: None,
             event: None,
             priority: Some(priority),
-            created_at: Some(MilliSecondsSinceUnixEpoch::now()),
+            created_at: Some(created_at.clone()),
         });
 
         // Save the new vector into db.
@@ -1407,7 +1411,7 @@ impl_state_store!({
 
         tx.await.into_result()?;
 
-        Ok(())
+        Ok(created_at)
     }
 
     async fn update_send_queue_request(
@@ -1570,7 +1574,7 @@ impl_state_store!({
         parent_txn_id: &TransactionId,
         own_txn_id: ChildTransactionId,
         content: DependentQueuedRequestKind,
-    ) -> Result<()> {
+    ) -> Result<MilliSecondsSinceUnixEpoch> {
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
 
         let tx = self.inner.transaction_on_one_with_mode(
@@ -1589,13 +1593,14 @@ impl_state_store!({
             |val| self.deserialize_value::<Vec<DependentQueuedRequest>>(&val),
         )?;
 
+        let created_at = MilliSecondsSinceUnixEpoch::now();
         // Push the new request.
         prev.push(DependentQueuedRequest {
             kind: content,
             parent_transaction_id: parent_txn_id.to_owned(),
             own_transaction_id: own_txn_id,
             parent_key: None,
-            created_at: None,
+            created_at: Some(created_at.clone()),
         });
 
         // Save the new vector into db.
@@ -1603,7 +1608,7 @@ impl_state_store!({
 
         tx.await.into_result()?;
 
-        Ok(())
+        Ok(created_at)
     }
 
     async fn update_dependent_queued_request(
