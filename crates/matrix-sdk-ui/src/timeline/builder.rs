@@ -163,6 +163,7 @@ impl TimelineBuilder {
     )]
     pub async fn build(self) -> Result<Timeline, Error> {
         let Self { room, settings, unable_to_decrypt_hook, focus, internal_id_prefix } = self;
+        let settings_vectordiffs_as_inputs = settings.vectordiffs_as_inputs;
 
         let client = room.client();
         let event_cache = client.event_cache();
@@ -284,16 +285,32 @@ impl TimelineBuilder {
                             inner.clear().await;
                         }
 
+                        // TODO: remove once `UpdateTimelineEvents` is stabilized.
                         RoomEventCacheUpdate::AddTimelineEvents { events, origin } => {
-                            trace!("Received new timeline events.");
+                            if !settings_vectordiffs_as_inputs {
+                                trace!("Received new timeline events.");
 
-                            inner.add_events_at(
-                                events.into_iter(),
-                                TimelineNewItemPosition::End {                                    origin: match origin {
+                                inner.add_events_at(
+                                    events.into_iter(),
+                                    TimelineNewItemPosition::End {                                    origin: match origin {
+                                            EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                                        }
+                                    }
+                                ).await;
+                            }
+                        }
+
+                        RoomEventCacheUpdate::UpdateTimelineEvents { diffs, origin } => {
+                            if settings_vectordiffs_as_inputs {
+                                trace!("Received new timeline events diffs");
+
+                                inner.handle_remote_events_with_diffs(
+                                    diffs,
+                                    match origin {
                                         EventsOrigin::Sync => RemoteEventOrigin::Sync,
                                     }
-                                }
-                            ).await;
+                                ).await;
+                            }
                         }
 
                         RoomEventCacheUpdate::AddEphemeralEvents { events } => {
