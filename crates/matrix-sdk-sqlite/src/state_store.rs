@@ -1759,7 +1759,7 @@ impl StateStore for SqliteStateStore {
         transaction_id: OwnedTransactionId,
         content: QueuedRequestKind,
         priority: usize,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<MilliSecondsSinceUnixEpoch, Self::Error> {
         let room_id_key = self.encode_key(keys::SEND_QUEUE, room_id);
         let room_id_value = self.serialize_value(&room_id.to_owned())?;
 
@@ -1769,11 +1769,13 @@ impl StateStore for SqliteStateStore {
         // it (with encode_key) or encrypt it (through serialize_value). After
         // all, it carries no personal information, so this is considered fine.
 
+        let created_at = MilliSecondsSinceUnixEpoch::now();
+        let created_at_ts: u64 = created_at.0.into();
         self.acquire()
             .await?
             .with_transaction(move |txn| {
-                txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content, priority) VALUES (?, ?, ?, ?, ?)")?.execute((room_id_key, room_id_value, transaction_id.to_string(), content, priority))?;
-                Ok(())
+                txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content, priority, created_at) VALUES (?, ?, ?, ?, ?, ?)")?.execute((room_id_key, room_id_value, transaction_id.to_string(), content, priority, created_at_ts))?;
+                Ok(created_at)
             })
             .await
     }
@@ -1914,7 +1916,7 @@ impl StateStore for SqliteStateStore {
         parent_txn_id: &TransactionId,
         own_txn_id: ChildTransactionId,
         content: DependentQueuedRequestKind,
-    ) -> Result<()> {
+    ) -> Result<MilliSecondsSinceUnixEpoch> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
         let content = self.serialize_json(&content)?;
 
@@ -1922,16 +1924,24 @@ impl StateStore for SqliteStateStore {
         let parent_txn_id = parent_txn_id.to_string();
         let own_txn_id = own_txn_id.to_string();
 
+        let created_at = MilliSecondsSinceUnixEpoch::now();
+        let created_at_ts: u64 = created_at.0.into();
         self.acquire()
             .await?
             .with_transaction(move |txn| {
                 txn.prepare_cached(
                     r#"INSERT INTO dependent_send_queue_events
-                         (room_id, parent_transaction_id, own_transaction_id, content)
-                       VALUES (?, ?, ?, ?)"#,
+                         (room_id, parent_transaction_id, own_transaction_id, content, created_at)
+                       VALUES (?, ?, ?, ?, ?)"#,
                 )?
-                .execute((room_id, parent_txn_id, own_txn_id, content))?;
-                Ok(())
+                .execute((
+                    room_id,
+                    parent_txn_id,
+                    own_txn_id,
+                    content,
+                    created_at_ts,
+                ))?;
+                Ok(created_at)
             })
             .await
     }

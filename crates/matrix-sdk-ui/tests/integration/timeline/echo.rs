@@ -85,7 +85,7 @@ async fn test_echo() {
 
     assert_let!(Some(VectorDiff::PushBack { value: local_echo }) = timeline_stream.next().await);
     let item = local_echo.as_event().unwrap();
-    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { .. }));
     assert_let!(TimelineItemContent::Message(msg) = item.content());
     assert_let!(MessageType::Text(text) = msg.msgtype());
     assert_eq!(text.body, "Hello, World!");
@@ -172,7 +172,7 @@ async fn test_retry_failed() {
 
     // First, local echo is added.
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_matches!(value.send_state(), Some(EventSendState::NotSentYet));
+        assert_matches!(value.send_state(), Some(EventSendState::NotSentYet{ ..}));
     });
 
     // Sending fails, because the error is a transient one that's recoverable,
@@ -253,7 +253,7 @@ async fn test_dedup_by_event_id_late() {
     let local_echo =
         assert_next_matches_with_timeout!(timeline_stream, VectorDiff::PushBack { value } => value);
     let item = local_echo.as_event().unwrap();
-    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { .. }));
 
     // Timeline: [day-divider, local echo]
     let day_divider = assert_next_matches_with_timeout!( timeline_stream, VectorDiff::PushFront { value } => value);
@@ -318,7 +318,7 @@ async fn test_cancel_failed() {
 
     // Local echo is added (immediately)
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
-        assert_matches!(value.send_state(), Some(EventSendState::NotSentYet));
+        assert_matches!(value.send_state(), Some(EventSendState::NotSentYet{ ..}));
     });
 
     // Sending fails, the mock server has no matching route

@@ -287,7 +287,7 @@ async fn test_redact_message() {
     assert_let!(Some(VectorDiff::PushBack { value: second }) = timeline_stream.next().await);
 
     let second = second.as_event().unwrap();
-    assert_matches!(second.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(second.send_state(), Some(EventSendState::NotSentYet { .. }));
 
     // We haven't set a route for sending events, so this will fail.
     assert_let!(Some(VectorDiff::Set { index, value: second }) = timeline_stream.next().await);
@@ -345,7 +345,7 @@ async fn test_redact_local_sent_message() {
     assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
     let event = item.as_event().unwrap();
     assert!(event.is_local_echo());
-    assert_matches!(event.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(event.send_state(), Some(EventSendState::NotSentYet { .. }));
 
     // As well as a day divider.
     assert_let_timeout!(
