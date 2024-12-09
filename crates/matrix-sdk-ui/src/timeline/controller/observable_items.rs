@@ -35,7 +35,11 @@ use super::{state::EventMeta, TimelineItem};
 pub struct ObservableItems {
     /// All timeline items.
     ///
-    /// Yeah, there are here!
+    /// Yeah, there are here! This [`ObservableVector`] contains all the
+    /// timeline items that are rendered in your magnificent Matrix client.
+    ///
+    /// These items are the _core_ of the timeline, see [`TimelineItem`] to
+    /// learn more.
     items: ObservableVector<Arc<TimelineItem>>,
 
     /// List of all the remote events as received in the timeline, even the ones
