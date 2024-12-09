@@ -1199,7 +1199,7 @@ pub(crate) struct EventMeta {
     ///
     /// Once rendered in a timeline, it for example produces:
     ///
-    /// | index | item              | aside items          |
+    /// | index | item              | related items        |
     /// +-------+-------------------+----------------------+
     /// | 0     | content of `$ev0` |                      |
     /// | 1     | content of `$ev2` | reaction with `$ev4` |
@@ -1211,10 +1211,10 @@ pub(crate) struct EventMeta {
     /// a reaction to `$ev2`. Finally note that `$ev1` is not rendered in
     /// the timeline.
     ///
-    /// The mapping between remove event index to timeline item index will look
+    /// The mapping between remote event index to timeline item index will look
     /// like this:
     ///
-    /// | remove event index | timeline item index | comment                                    |
+    /// | remote event index | timeline item index | comment                                    |
     /// +--------------------+---------------------+--------------------------------------------+
     /// | 0                  | `Some(0)`           | `$ev0` is rendered as the #0 timeline item |
     /// | 1                  | `None`              | `$ev1` isn't rendered in the timeline      |
