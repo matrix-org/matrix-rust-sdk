@@ -474,6 +474,17 @@ impl TimelineStateTransaction<'_> {
                     .await;
                 }
 
+                VectorDiff::PushBack { value: event } => {
+                    self.handle_remote_event(
+                        event,
+                        TimelineItemPosition::End { origin },
+                        room_data_provider,
+                        settings,
+                        &mut day_divider_adjuster,
+                    )
+                    .await;
+                }
+
                 v => unimplemented!("{v:?}"),
             }
         }
