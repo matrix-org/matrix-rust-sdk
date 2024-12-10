@@ -1,7 +1,7 @@
 use std::{collections::HashMap, pin::pin, sync::Arc};
 
 use anyhow::{Context, Result};
-use futures_util::StreamExt;
+use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     crypto::LocalTrust,
     event_cache::paginator::PaginatorError,
@@ -910,6 +910,108 @@ impl Room {
         let (room_event_cache, _drop_handles) = self.inner.event_cache().await?;
         room_event_cache.clear().await?;
         Ok(())
+    }
+
+    /// Subscribes to requests to join this room, using a `listener` to be
+    /// notified of the changes.
+    ///
+    /// The current requests to join the room will be emitted immediately
+    /// when subscribing, along with a [`TaskHandle`] to cancel the
+    /// subscription.
+    pub async fn subscribe_to_join_requests(
+        self: Arc<Self>,
+        listener: Box<dyn JoinRequestsListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        let stream = self.inner.subscribe_to_join_requests().await?;
+
+        let handle = Arc::new(TaskHandle::new(RUNTIME.spawn(async move {
+            pin_mut!(stream);
+            while let Some(requests) = stream.next().await {
+                listener.call(requests.into_iter().map(Into::into).collect());
+            }
+        })));
+
+        Ok(handle)
+    }
+}
+
+impl From<matrix_sdk::room::request_to_join::JoinRequest> for JoinRequest {
+    fn from(request: matrix_sdk::room::request_to_join::JoinRequest) -> Self {
+        Self {
+            event_id: request.event_id.to_string(),
+            user_id: request.member_info.user_id.to_string(),
+            room_id: request.room_id().to_string(),
+            display_name: request.member_info.display_name.clone(),
+            avatar_url: request.member_info.avatar_url.as_ref().map(|url| url.to_string()),
+            reason: request.member_info.reason.clone(),
+            timestamp: request.timestamp.map(|ts| ts.into()),
+            is_seen: request.is_seen,
+            actions: Arc::new(JoinRequestActions { inner: request }),
+        }
+    }
+}
+
+/// A listener for receiving new requests to a join a room.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait JoinRequestsListener: Send + Sync {
+    fn call(&self, join_requests: Vec<JoinRequest>);
+}
+
+/// An FFI representation of a request to join a room.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct JoinRequest {
+    /// The event id of the event that contains the `knock` membership change.
+    pub event_id: String,
+    /// The user id of the user who's requesting to join the room.
+    pub user_id: String,
+    /// The room id of the room whose access was requested.
+    pub room_id: String,
+    /// The optional display name of the user who's requesting to join the room.
+    pub display_name: Option<String>,
+    /// The optional avatar url of the user who's requesting to join the room.
+    pub avatar_url: Option<String>,
+    /// An optional reason why the user wants join the room.
+    pub reason: Option<String>,
+    /// The timestamp when this request was created.
+    pub timestamp: Option<u64>,
+    /// Whether the request to join has been marked as `seen` so it can be
+    /// filtered by the client.
+    pub is_seen: bool,
+    /// A set of actions to perform for this request to join.
+    pub actions: Arc<JoinRequestActions>,
+}
+
+/// A set of actions to perform for a request to join.
+#[derive(Debug, Clone, uniffi::Object)]
+pub struct JoinRequestActions {
+    inner: matrix_sdk::room::request_to_join::JoinRequest,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl JoinRequestActions {
+    /// Accepts the request to join by inviting the user to the room.
+    pub async fn accept(&self) -> Result<(), ClientError> {
+        self.inner.accept().await.map_err(Into::into)
+    }
+
+    /// Declines the request to join by kicking the user from the room with an
+    /// optional reason.
+    pub async fn decline(&self, reason: Option<String>) -> Result<(), ClientError> {
+        self.inner.decline(reason.as_deref()).await.map_err(Into::into)
+    }
+
+    /// Declines the request to join by banning the user from the room with an
+    /// optional reason.
+    pub async fn decline_and_ban(&self, reason: Option<String>) -> Result<(), ClientError> {
+        self.inner.decline_and_ban(reason.as_deref()).await.map_err(Into::into)
+    }
+
+    /// Marks the request as 'seen'.
+    ///
+    /// **IMPORTANT**: this won't update the current reference to this request,
+    /// a new one with the updated value should be emitted instead.
+    pub async fn mark_as_seen(&self) -> Result<(), ClientError> {
+        self.inner.clone().mark_as_seen().await.map_err(Into::into)
     }
 }
 
