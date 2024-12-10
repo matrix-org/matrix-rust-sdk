@@ -58,8 +58,8 @@ async fn test_live_redacted() {
 
     assert_eq!(timeline.controller.items().await.len(), 2);
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 }
 
 #[async_test]
@@ -81,8 +81,8 @@ async fn test_live_sanitized() {
     assert_eq!(text.body, "**original** message");
     assert_eq!(text.formatted.as_ref().unwrap().body, "<strong>original</strong> message");
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 
     let first_event_id = first_event.event_id().unwrap();
 
@@ -151,8 +151,8 @@ async fn test_aggregated_sanitized() {
     assert_eq!(text.body, "!!edited!! **better** message");
     assert_eq!(text.formatted.as_ref().unwrap().body, " <strong>better</strong> message");
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 }
 
 #[async_test]
@@ -288,8 +288,8 @@ async fn test_relations_edit_overrides_pending_edit_msg() {
     let text = event.content().as_message().unwrap();
     assert_eq!(text.body(), "edit 2");
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 
     assert_pending!(stream);
 }
@@ -366,8 +366,8 @@ async fn test_relations_edit_overrides_pending_edit_poll() {
     );
     assert_eq!(poll.start_event_content.poll_start.answers.len(), 3);
 
-    let day_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
-    assert!(day_divider.is_day_divider());
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
 
     assert_pending!(stream);
 }

@@ -59,7 +59,7 @@ use crate::timeline::pinned_events_loader::PinnedEventsRoom;
 
 mod builder;
 mod controller;
-mod day_dividers;
+mod date_dividers;
 mod error;
 mod event_handler;
 mod event_item;
@@ -175,6 +175,14 @@ impl TimelineFocus {
             TimelineFocus::PinnedEvents { .. } => "pinned-events".to_owned(),
         }
     }
+}
+
+/// Changes how dividers get inserted, either in between each day or in between
+/// each month
+#[derive(Debug, Clone)]
+pub enum DateDividerMode {
+    Daily,
+    Monthly,
 }
 
 impl Timeline {

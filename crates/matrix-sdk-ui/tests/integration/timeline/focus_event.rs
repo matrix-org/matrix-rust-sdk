@@ -91,8 +91,8 @@ async fn test_new_focused() {
 
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
-    assert_eq!(items.len(), 5 + 1); // event items + a day divider
-    assert!(items[0].is_day_divider());
+    assert_eq!(items.len(), 5 + 1); // event items + a date divider
+    assert!(items[0].is_date_divider());
     assert_eq!(
         items[1].as_event().unwrap().content().as_message().unwrap().body(),
         "i tried so hard"
@@ -141,9 +141,9 @@ async fn test_new_focused() {
         "I kept everything inside"
     );
 
-    // Day divider post processing.
+    // Date divider post processing.
     assert_let!(Some(VectorDiff::PushFront { value: item }) = timeline_stream.next().await);
-    assert!(item.is_day_divider());
+    assert!(item.is_date_divider());
     assert_let!(Some(VectorDiff::Remove { index }) = timeline_stream.next().await);
     assert_eq!(index, 3);
 
@@ -227,8 +227,8 @@ async fn test_focused_timeline_reacts() {
 
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
-    assert_eq!(items.len(), 1 + 1); // event items + a day divider
-    assert!(items[0].is_day_divider());
+    assert_eq!(items.len(), 1 + 1); // event items + a date divider
+    assert!(items[0].is_date_divider());
 
     let event_item = items[1].as_event().unwrap();
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
@@ -309,8 +309,8 @@ async fn test_focused_timeline_local_echoes() {
 
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
-    assert_eq!(items.len(), 1 + 1); // event items + a day divider
-    assert!(items[0].is_day_divider());
+    assert_eq!(items.len(), 1 + 1); // event items + a date divider
+    assert!(items[0].is_date_divider());
 
     let event_item = items[1].as_event().unwrap();
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
@@ -385,8 +385,8 @@ async fn test_focused_timeline_doesnt_show_local_echoes() {
 
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
-    assert_eq!(items.len(), 1 + 1); // event items + a day divider
-    assert!(items[0].is_day_divider());
+    assert_eq!(items.len(), 1 + 1); // event items + a date divider
+    assert!(items[0].is_date_divider());
 
     let event_item = items[1].as_event().unwrap();
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");

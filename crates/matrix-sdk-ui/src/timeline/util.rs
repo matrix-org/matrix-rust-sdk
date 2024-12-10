@@ -132,6 +132,12 @@ pub(super) struct Date {
     day: u32,
 }
 
+impl Date {
+    pub fn is_same_month_as(&self, date: Date) -> bool {
+        self.year == date.year && self.month == date.month
+    }
+}
+
 /// Converts a timestamp since Unix Epoch to a year, month and day.
 pub(super) fn timestamp_to_date(ts: MilliSecondsSinceUnixEpoch) -> Date {
     let datetime = Local

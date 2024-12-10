@@ -986,7 +986,7 @@ impl TimelineItem {
     pub fn as_virtual(self: Arc<Self>) -> Option<VirtualTimelineItem> {
         use matrix_sdk_ui::timeline::VirtualTimelineItem as VItem;
         match self.0.as_virtual()? {
-            VItem::DayDivider(ts) => Some(VirtualTimelineItem::DayDivider { ts: ts.0.into() }),
+            VItem::DateDivider(ts) => Some(VirtualTimelineItem::DateDivider { ts: ts.0.into() }),
             VItem::ReadMarker => Some(VirtualTimelineItem::ReadMarker),
         }
     }
@@ -1255,8 +1255,9 @@ impl SendAttachmentJoinHandle {
 /// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.
 #[derive(uniffi::Enum)]
 pub enum VirtualTimelineItem {
-    /// A divider between messages of two days.
-    DayDivider {
+    /// A divider between messages of different day or month depending on
+    /// timeline settings.
+    DateDivider {
         /// A timestamp in milliseconds since Unix Epoch on that day in local
         /// time.
         ts: u64,
@@ -1356,5 +1357,22 @@ impl LazyTimelineItemProvider {
     /// remote echoes.
     fn get_send_handle(&self) -> Option<Arc<SendHandle>> {
         self.0.local_echo_send_handle().map(|handle| Arc::new(SendHandle::new(handle)))
+    }
+}
+
+/// Changes how date dividers get inserted, either in between each day or in
+/// between each month
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum DateDividerMode {
+    Daily,
+    Monthly,
+}
+
+impl From<DateDividerMode> for matrix_sdk_ui::timeline::DateDividerMode {
+    fn from(value: DateDividerMode) -> Self {
+        match value {
+            DateDividerMode::Daily => Self::Daily,
+            DateDividerMode::Monthly => Self::Monthly,
+        }
     }
 }

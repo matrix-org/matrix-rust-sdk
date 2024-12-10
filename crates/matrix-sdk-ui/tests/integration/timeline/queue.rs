@@ -335,7 +335,7 @@ async fn test_clear_with_echoes() {
 
         // Wait for the first message to fail. Don't use time, but listen for the first
         // timeline item diff to get back signalling the error.
-        let _day_divider = timeline_stream.next().await;
+        let _date_divider = timeline_stream.next().await;
         let _local_echo = timeline_stream.next().await;
         let _local_echo_replaced_with_failure = timeline_stream.next().await;
     }
@@ -389,7 +389,7 @@ async fn test_clear_with_echoes() {
 }
 
 #[async_test]
-async fn test_no_duplicate_day_divider() {
+async fn test_no_duplicate_date_divider() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -448,7 +448,7 @@ async fn test_no_duplicate_day_divider() {
     });
 
     assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
 
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => {
@@ -515,12 +515,12 @@ async fn test_no_duplicate_day_divider() {
         assert_eq!(value.event_id().unwrap(), "$5E2kLK/Sg342bgBU9ceEIEPYpbFaqJpZ");
     });
 
-    // A new day divider is inserted -> [DD First DD Second]
+    // A new date divider is inserted -> [DD First DD Second]
     assert_next_matches!(timeline_stream, VectorDiff::PushFront { value } => {
-        assert!(value.is_day_divider());
+        assert!(value.is_date_divider());
     });
 
-    // The useless day divider is removed. -> [DD First Second]
+    // The useless date divider is removed. -> [DD First Second]
     assert_next_matches!(timeline_stream, VectorDiff::Remove { index: 2 });
 
     assert_pending!(timeline_stream);
