@@ -461,7 +461,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         Update::PushItems { at, items } => {
                             let chunk_id = at.chunk_identifier().index();
 
-                            trace!(%room_id, "pushing items @ {chunk_id}");
+                            trace!(%room_id, "pushing {} items @ {chunk_id}", items.len());
 
                             for (i, event) in items.into_iter().enumerate() {
                                 let serialized = serde_json::to_vec(&event)?;
