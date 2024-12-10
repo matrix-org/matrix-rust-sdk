@@ -15,7 +15,7 @@
 use std::{
     cmp::Ordering,
     collections::{vec_deque::Iter, VecDeque},
-    ops::Deref,
+    ops::{Deref, RangeBounds},
     sync::Arc,
 };
 
@@ -1167,6 +1167,15 @@ impl AllRemoteEvents {
         self.0.iter()
     }
 
+    /// Return a front-to-back iterator covering ranges of all remote events
+    /// describes by `range`.
+    pub fn range<R>(&self, range: R) -> Iter<'_, EventMeta>
+    where
+        R: RangeBounds<usize>,
+    {
+        self.0.range(range)
+    }
+
     /// Remove all remote events.
     fn clear(&mut self) {
         self.0.clear();
@@ -1335,6 +1344,29 @@ mod all_remote_events_tests {
 
             assert!(iter.next().is_none(), "Not all events have been asserted");
         }
+    }
+
+    #[test]
+    fn test_range() {
+        let mut events = AllRemoteEvents::default();
+
+        // Push some events.
+        events.push_back(event_meta("$ev0", None));
+        events.push_back(event_meta("$ev1", None));
+        events.push_back(event_meta("$ev2", None));
+
+        assert_eq!(events.iter().count(), 3);
+
+        // Iterate on some of them.
+        let mut some_events = events.range(1..);
+
+        assert_matches!(some_events.next(), Some(EventMeta { event_id, .. }) => {
+            assert_eq!(event_id.as_str(), "$ev1");
+        });
+        assert_matches!(some_events.next(), Some(EventMeta { event_id, .. }) => {
+            assert_eq!(event_id.as_str(), "$ev2");
+        });
+        assert!(some_events.next().is_none());
     }
 
     #[test]
