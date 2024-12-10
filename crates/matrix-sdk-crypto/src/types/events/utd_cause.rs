@@ -370,7 +370,7 @@ mod tests {
         let context = device_old();
 
         // So we have no explanation for this UTD.
-        assert_eq!(UtdCause::determine(&utd_event(), context.clone(), &info), UtdCause::Unknown);
+        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
 
         // Same for unknown megolm message index
         let info = unknown_megolm_message_index();
@@ -391,7 +391,7 @@ mod tests {
         // So this UTD is expected, and the solution (for future messages!) is to turn
         // on key storage backups.
         assert_eq!(
-            UtdCause::determine(&utd_event(), context.clone(), &info),
+            UtdCause::determine(&utd_event(), context, &info),
             UtdCause::HistoricalMessageAndBackupIsDisabled
         );
 
@@ -416,7 +416,7 @@ mod tests {
 
         // So this could be expected historical like the previous test, but because the
         // encrypted event is malformed, that takes precedence, and it's unexpected.
-        assert_eq!(UtdCause::determine(&utd_event(), context.clone(), &info), UtdCause::Unknown);
+        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
 
         // Same for decryption failures
         let info = megolm_decryption_failure();
@@ -471,7 +471,7 @@ mod tests {
 
         // So this UTD is unexpected since we should be able to fetch the key from
         // storage.
-        assert_eq!(UtdCause::determine(&utd_event(), context.clone(), &info), UtdCause::Unknown);
+        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
 
         // Same for unknown megolm message index
         let info = unknown_megolm_message_index();
@@ -502,7 +502,7 @@ mod tests {
         // TODO: it might be nice to tell the user that our backup is not working!
         // Currently we don't distinguish between Unknown cases, since we want
         // to make sure they are all reported as unexpected UTDs.
-        assert_eq!(UtdCause::determine(&utd_event(), context.clone(), &info), UtdCause::Unknown);
+        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
 
         // Same for unknown megolm message index
         let info = unknown_megolm_message_index();
