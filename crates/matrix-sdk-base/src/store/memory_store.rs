@@ -806,10 +806,10 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         kind: QueuedRequestKind,
         priority: usize,
-    ) -> Result<MilliSecondsSinceUnixEpoch, Self::Error> {
-        let created_at = MilliSecondsSinceUnixEpoch::now();
+    ) -> Result<(), Self::Error> {
         self.send_queue_events.write().unwrap().entry(room_id.to_owned()).or_default().push(
             QueuedRequest {
                 kind,
@@ -819,7 +819,7 @@ impl StateStore for MemoryStore {
                 created_at: Some(created_at),
             },
         );
-        Ok(created_at)
+        Ok(())
     }
 
     async fn update_send_queue_request(
@@ -908,9 +908,9 @@ impl StateStore for MemoryStore {
         room: &RoomId,
         parent_transaction_id: &TransactionId,
         own_transaction_id: ChildTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         content: DependentQueuedRequestKind,
-    ) -> Result<MilliSecondsSinceUnixEpoch, Self::Error> {
-        let created_at = MilliSecondsSinceUnixEpoch::now();
+    ) -> Result<(), Self::Error> {
         self.dependent_send_queue_events.write().unwrap().entry(room.to_owned()).or_default().push(
             DependentQueuedRequest {
                 kind: content,
@@ -920,7 +920,7 @@ impl StateStore for MemoryStore {
                 created_at: Some(created_at),
             },
         );
-        Ok(created_at)
+        Ok(())
     }
 
     async fn mark_dependent_queued_requests_as_ready(

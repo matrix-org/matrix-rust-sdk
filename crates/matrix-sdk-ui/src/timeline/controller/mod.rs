@@ -974,7 +974,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 return false;
             };
             prev_local_item.with_send_state(EventSendState::NotSentYet {
-                created_at: prev_local_item.send_handle.clone().map(|h| h.created_at).flatten(),
+                created_at: prev_local_item.send_handle.clone().and_then(|h| h.created_at),
             })
         };
 
@@ -1284,7 +1284,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     }
                 };
 
-                let created_at = send_handle.created_at.clone();
+                let created_at = send_handle.created_at;
                 self.handle_local_event(
                     echo.transaction_id.clone(),
                     TimelineEventKind::Message { content, relations: Default::default() },

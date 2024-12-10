@@ -28,7 +28,7 @@ use ruma::{
         room::message::{FormattedBody, MessageType, RoomMessageEventContent},
         AnyMessageLikeEventContent,
     },
-    OwnedTransactionId, TransactionId,
+    MilliSecondsSinceUnixEpoch, OwnedTransactionId, TransactionId,
 };
 use tracing::{debug, error, instrument, trace, warn, Span};
 
@@ -184,14 +184,15 @@ impl RoomSendQueue {
             config.mentions,
         );
 
+        let created_at = MilliSecondsSinceUnixEpoch::now();
         // Save requests in the queue storage.
-        let created_at = self
-            .inner
+        self.inner
             .queue
             .push_media(
                 event_content.clone(),
                 content_type,
                 send_event_txn.clone().into(),
+                created_at,
                 upload_file_txn.clone(),
                 file_media_request,
                 queue_thumbnail_info,
@@ -305,6 +306,7 @@ impl QueueStorage {
             .save_send_queue_request(
                 &self.room_id,
                 event_txn,
+                MilliSecondsSinceUnixEpoch::now(),
                 new_content.into(),
                 Self::HIGH_PRIORITY,
             )
@@ -349,7 +351,13 @@ impl QueueStorage {
 
         client
             .store()
-            .save_send_queue_request(&self.room_id, next_upload_txn, request, Self::HIGH_PRIORITY)
+            .save_send_queue_request(
+                &self.room_id,
+                next_upload_txn,
+                MilliSecondsSinceUnixEpoch::now(),
+                request,
+                Self::HIGH_PRIORITY,
+            )
             .await
             .map_err(RoomSendQueueStorageError::StateStoreError)?;
 
@@ -577,6 +585,7 @@ impl QueueStorage {
                         &self.room_id,
                         txn,
                         ChildTransactionId::new(),
+                        MilliSecondsSinceUnixEpoch::now(),
                         DependentQueuedRequestKind::EditEvent { new_content: new_serialized },
                     )
                     .await?;

@@ -1372,9 +1372,10 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         kind: QueuedRequestKind,
         priority: usize,
-    ) -> Result<MilliSecondsSinceUnixEpoch> {
+    ) -> Result<()> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
         let tx = self
@@ -1393,7 +1394,6 @@ impl_state_store!({
             || Ok(Vec::new()),
             |val| self.deserialize_value::<Vec<PersistedQueuedRequest>>(&val),
         )?;
-        let created_at = MilliSecondsSinceUnixEpoch::now();
         // Push the new request.
         prev.push(PersistedQueuedRequest {
             room_id: room_id.to_owned(),
@@ -1403,7 +1403,7 @@ impl_state_store!({
             is_wedged: None,
             event: None,
             priority: Some(priority),
-            created_at: Some(created_at.clone()),
+            created_at: Some(created_at),
         });
 
         // Save the new vector into db.
@@ -1411,7 +1411,7 @@ impl_state_store!({
 
         tx.await.into_result()?;
 
-        Ok(created_at)
+        Ok(())
     }
 
     async fn update_send_queue_request(
@@ -1573,8 +1573,9 @@ impl_state_store!({
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         own_txn_id: ChildTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         content: DependentQueuedRequestKind,
-    ) -> Result<MilliSecondsSinceUnixEpoch> {
+    ) -> Result<()> {
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
 
         let tx = self.inner.transaction_on_one_with_mode(
@@ -1593,14 +1594,13 @@ impl_state_store!({
             |val| self.deserialize_value::<Vec<DependentQueuedRequest>>(&val),
         )?;
 
-        let created_at = MilliSecondsSinceUnixEpoch::now();
         // Push the new request.
         prev.push(DependentQueuedRequest {
             kind: content,
             parent_transaction_id: parent_txn_id.to_owned(),
             own_transaction_id: own_txn_id,
             parent_key: None,
-            created_at: Some(created_at.clone()),
+            created_at: Some(created_at),
         });
 
         // Save the new vector into db.
@@ -1608,7 +1608,7 @@ impl_state_store!({
 
         tx.await.into_result()?;
 
-        Ok(created_at)
+        Ok(())
     }
 
     async fn update_dependent_queued_request(

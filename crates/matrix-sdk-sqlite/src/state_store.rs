@@ -1757,9 +1757,10 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         content: QueuedRequestKind,
         priority: usize,
-    ) -> Result<MilliSecondsSinceUnixEpoch, Self::Error> {
+    ) -> Result<(), Self::Error> {
         let room_id_key = self.encode_key(keys::SEND_QUEUE, room_id);
         let room_id_value = self.serialize_value(&room_id.to_owned())?;
 
@@ -1769,13 +1770,12 @@ impl StateStore for SqliteStateStore {
         // it (with encode_key) or encrypt it (through serialize_value). After
         // all, it carries no personal information, so this is considered fine.
 
-        let created_at = MilliSecondsSinceUnixEpoch::now();
         let created_at_ts: u64 = created_at.0.into();
         self.acquire()
             .await?
             .with_transaction(move |txn| {
                 txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content, priority, created_at) VALUES (?, ?, ?, ?, ?, ?)")?.execute((room_id_key, room_id_value, transaction_id.to_string(), content, priority, created_at_ts))?;
-                Ok(created_at)
+                Ok(())
             })
             .await
     }
@@ -1851,7 +1851,7 @@ impl StateStore for SqliteStateStore {
 
         let mut requests = Vec::with_capacity(res.len());
         for entry in res {
-            let created_at = UInt::new(entry.4).map(|e| MilliSecondsSinceUnixEpoch(e));
+            let created_at = UInt::new(entry.4).map(MilliSecondsSinceUnixEpoch);
             requests.push(QueuedRequest {
                 transaction_id: entry.0.into(),
                 kind: self.deserialize_json(&entry.1)?,
@@ -1915,8 +1915,9 @@ impl StateStore for SqliteStateStore {
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         own_txn_id: ChildTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         content: DependentQueuedRequestKind,
-    ) -> Result<MilliSecondsSinceUnixEpoch> {
+    ) -> Result<()> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
         let content = self.serialize_json(&content)?;
 
@@ -1924,7 +1925,6 @@ impl StateStore for SqliteStateStore {
         let parent_txn_id = parent_txn_id.to_string();
         let own_txn_id = own_txn_id.to_string();
 
-        let created_at = MilliSecondsSinceUnixEpoch::now();
         let created_at_ts: u64 = created_at.0.into();
         self.acquire()
             .await?
@@ -1941,7 +1941,7 @@ impl StateStore for SqliteStateStore {
                     content,
                     created_at_ts,
                 ))?;
-                Ok(created_at)
+                Ok(())
             })
             .await
     }
@@ -2048,7 +2048,7 @@ impl StateStore for SqliteStateStore {
 
         let mut dependent_events = Vec::with_capacity(res.len());
         for entry in res {
-            let created_at = UInt::new(entry.4).map(|e| MilliSecondsSinceUnixEpoch(e));
+            let created_at = UInt::new(entry.4).map(MilliSecondsSinceUnixEpoch);
             dependent_events.push(DependentQueuedRequest {
                 own_transaction_id: entry.0.into(),
                 parent_transaction_id: entry.1.into(),
@@ -2412,6 +2412,7 @@ mod migration_tests {
                 room_id,
                 &local_tx,
                 ChildTransactionId::new(),
+                MilliSecondsSinceUnixEpoch::now(),
                 DependentQueuedRequestKind::RedactEvent,
             )
             .await
