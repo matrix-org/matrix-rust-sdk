@@ -273,7 +273,9 @@ pub struct ClientBuilder {
     decryption_trust_requirement: TrustRequirement,
     request_config: Option<RequestConfig>,
 
-    use_event_cache_persistent_storage: Option<bool>,
+    /// Whether to enable use of the event cache store, for reloading events
+    /// when building timelines et al.
+    use_event_cache_persistent_storage: bool,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -304,7 +306,7 @@ impl ClientBuilder {
             room_key_recipient_strategy: Default::default(),
             decryption_trust_requirement: TrustRequirement::Untrusted,
             request_config: Default::default(),
-            use_event_cache_persistent_storage: None,
+            use_event_cache_persistent_storage: false,
         })
     }
 
@@ -313,13 +315,15 @@ impl ClientBuilder {
     /// This is a temporary feature flag, for testing the event cache's
     /// persistent storage. Follow new developments in https://github.com/matrix-org/matrix-rust-sdk/issues/3280.
     ///
-    /// To enable the persistent storage: call this with `true`.
+    /// This is disabled by default. When disabled, a one-time cleanup is
+    /// performed when creating the client, and it will clear all the events
+    /// previously stored in the event cache.
     ///
-    /// To explicitly disable a previously-enabled persistent storage, call this
-    /// with `false` to clear the previous content in storage.
+    /// When enabled, it will attempt to store events in the event cache as
+    /// they're received, and reuse them when reconstructing timelines.
     pub fn use_event_cache_persistent_storage(self: Arc<Self>, value: bool) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.use_event_cache_persistent_storage = Some(value);
+        builder.use_event_cache_persistent_storage = value;
         Arc::new(builder)
     }
 
@@ -645,19 +649,17 @@ impl ClientBuilder {
 
         let sdk_client = inner_builder.build().await?;
 
-        if let Some(val) = builder.use_event_cache_persistent_storage {
-            if val {
-                // Enable the persistent storage \o/
-                sdk_client.event_cache().enable_storage()?;
-            } else {
-                // Get rid of the previous events, if any.
-                let store = sdk_client
-                    .event_cache_store()
-                    .lock()
-                    .await
-                    .map_err(EventCacheError::LockingStorage)?;
-                store.clear_all_rooms_chunks().await.map_err(EventCacheError::Storage)?;
-            }
+        if builder.use_event_cache_persistent_storage {
+            // Enable the persistent storage \o/
+            sdk_client.event_cache().enable_storage()?;
+        } else {
+            // Get rid of all the previous events, if any.
+            let store = sdk_client
+                .event_cache_store()
+                .lock()
+                .await
+                .map_err(EventCacheError::LockingStorage)?;
+            store.clear_all_rooms_chunks().await.map_err(EventCacheError::Storage)?;
         }
 
         Ok(Arc::new(
