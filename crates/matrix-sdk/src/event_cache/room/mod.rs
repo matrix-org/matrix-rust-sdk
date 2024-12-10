@@ -349,9 +349,14 @@ impl RoomEventCacheInner {
             // Add all the events to the backend.
             trace!("adding new events");
 
+            // Only keep the previous-batch token if we have a limited timeline; otherwise,
+            // we know about all the events, and we don't need to back-paginate,
+            // so we wouldn't make use of the given previous-batch token.
+            let prev_batch = if timeline.limited { timeline.prev_batch } else { None };
+
             self.append_new_events(
                 timeline.events,
-                timeline.prev_batch,
+                prev_batch,
                 ephemeral_events,
                 ambiguity_changes,
             )
@@ -1170,7 +1175,7 @@ mod tests {
 
         // Propagate an update for a message and a prev-batch token.
         let timeline = Timeline {
-            limited: false,
+            limited: true,
             prev_batch: Some("raclette".to_owned()),
             events: vec![f.text_msg("hey yo").sender(*ALICE).into_sync()],
         };
@@ -1563,6 +1568,101 @@ mod tests {
         // single initial empty items chunk.
         let raw_chunks = event_cache_store.reload_linked_chunk(room_id).await.unwrap();
         assert!(raw_chunks.is_empty());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[async_test]
+    async fn test_no_useless_gaps() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+
+        let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let has_storage = true; // for testing purposes only
+        event_cache.enable_storage().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+        // Propagate an update including a limited timeline with one message and a
+        // prev-batch token.
+        room_event_cache
+            .inner
+            .handle_joined_room_update(
+                has_storage,
+                JoinedRoomUpdate {
+                    timeline: Timeline {
+                        limited: true,
+                        prev_batch: Some("raclette".to_owned()),
+                        events: vec![f.text_msg("hey yo").into_sync()],
+                    },
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        {
+            let state = room_event_cache.inner.state.read().await;
+
+            let mut num_gaps = 0;
+            let mut num_events = 0;
+
+            for c in state.events().chunks() {
+                match c.content() {
+                    ChunkContent::Items(items) => num_events += items.len(),
+                    ChunkContent::Gap(_) => num_gaps += 1,
+                }
+            }
+
+            // The gap must have been stored.
+            assert_eq!(num_gaps, 1);
+            assert_eq!(num_events, 1);
+        }
+
+        // Now, propagate an update for another message, but the timeline isn't limited
+        // this time.
+        room_event_cache
+            .inner
+            .handle_joined_room_update(
+                has_storage,
+                JoinedRoomUpdate {
+                    timeline: Timeline {
+                        limited: false,
+                        prev_batch: Some("fondue".to_owned()),
+                        events: vec![f.text_msg("sup").into_sync()],
+                    },
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        {
+            let state = room_event_cache.inner.state.read().await;
+
+            let mut num_gaps = 0;
+            let mut num_events = 0;
+
+            for c in state.events().chunks() {
+                match c.content() {
+                    ChunkContent::Items(items) => num_events += items.len(),
+                    ChunkContent::Gap(gap) => {
+                        assert_eq!(gap.prev_token, "raclette");
+                        num_gaps += 1;
+                    }
+                }
+            }
+
+            // There's only the previous gap, no new ones.
+            assert_eq!(num_gaps, 1);
+            assert_eq!(num_events, 2);
+        }
     }
 
     async fn assert_relations(
