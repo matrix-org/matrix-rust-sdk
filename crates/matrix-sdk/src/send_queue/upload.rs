@@ -137,20 +137,15 @@ impl RoomSendQueue {
 
             // Process the thumbnail, if it's been provided.
             if let Some(thumbnail) = config.thumbnail.take() {
-                // Normalize information to retrieve the thumbnail in the cache store.
-                let height = thumbnail.height;
-                let width = thumbnail.width;
-
                 let txn = TransactionId::new();
-                trace!(upload_thumbnail_txn = %txn, thumbnail_size = ?(height, width), "attachment has a thumbnail");
+                trace!(upload_thumbnail_txn = %txn, "attachment has a thumbnail");
 
                 // Create the information required for filling the thumbnail section of the
                 // media event.
                 let (data, content_type, thumbnail_info) = thumbnail.into_parts();
 
                 // Cache thumbnail in the cache store.
-                let thumbnail_media_request =
-                    Media::make_local_thumbnail_media_request(&txn, height, width);
+                let thumbnail_media_request = Media::make_local_file_media_request(&txn);
                 cache_store
                     .add_media_content(&thumbnail_media_request, data)
                     .await
@@ -160,7 +155,7 @@ impl RoomSendQueue {
                     Some(txn.clone()),
                     Some((thumbnail_media_request.source.clone(), thumbnail_info)),
                     Some((
-                        FinishUploadThumbnailInfo { txn, width, height },
+                        FinishUploadThumbnailInfo { txn, width: None, height: None },
                         thumbnail_media_request,
                         content_type,
                     )),
@@ -266,18 +261,20 @@ impl QueueStorage {
             if let Some((info, new_source)) =
                 thumbnail_info.as_ref().zip(sent_media.thumbnail.clone())
             {
-                let from_req =
-                    Media::make_local_thumbnail_media_request(&info.txn, info.height, info.width);
+                // Previously the media request used `MediaFormat::Thumbnail`. Handle this case
+                // for send queue requests that were in the state store before the change.
+                let from_req = if let Some((height, width)) = info.height.zip(info.width) {
+                    Media::make_local_thumbnail_media_request(&info.txn, height, width)
+                } else {
+                    Media::make_local_file_media_request(&info.txn)
+                };
 
                 trace!(from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
-
-                // Reuse the same format for the cached thumbnail with the final MXC ID.
-                let new_format = from_req.format.clone();
 
                 cache_store
                     .replace_media_key(
                         &from_req,
-                        &MediaRequestParameters { source: new_source, format: new_format },
+                        &MediaRequestParameters { source: new_source, format: MediaFormat::File },
                     )
                     .await
                     .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
