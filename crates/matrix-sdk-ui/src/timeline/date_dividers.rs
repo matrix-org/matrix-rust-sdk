@@ -200,7 +200,7 @@ impl DateDividerAdjuster {
         match prev_item.kind() {
             TimelineItemKind::Event(event) => {
                 // This date divider is preceded by an event.
-                if self.is_same_date_as(event.timestamp(), ts) {
+                if self.is_same_date_divider_group_as(event.timestamp(), ts) {
                     // The event has the same date as the date divider: remove the current date
                     // divider.
                     trace!("removing date divider following event with same timestamp @ {i}");
@@ -246,7 +246,7 @@ impl DateDividerAdjuster {
                 // insert a date divider.
                 let prev_ts = prev_event.timestamp();
 
-                if !self.is_same_date_as(prev_ts, ts) {
+                if !self.is_same_date_divider_group_as(prev_ts, ts) {
                     trace!(
                         "inserting date divider @ {} between two events with different dates",
                         i
@@ -419,7 +419,7 @@ impl DateDividerAdjuster {
 
                     // We have the same date as the previous event we've seen.
                     if let Some(prev_ts) = prev_event_ts {
-                        if !self.is_same_date_as(prev_ts, ts) {
+                        if !self.is_same_date_divider_group_as(prev_ts, ts) {
                             report.errors.push(
                                 DateDividerInsertError::MissingDateDividerBetweenEvents { at: i },
                             );
@@ -428,7 +428,7 @@ impl DateDividerAdjuster {
 
                     // There is a date divider before us, and it's the same date as our timestamp.
                     if let Some(prev_ts) = prev_date_divider_ts {
-                        if !self.is_same_date_as(prev_ts, ts) {
+                        if !self.is_same_date_divider_group_as(prev_ts, ts) {
                             report.errors.push(
                                 DateDividerInsertError::InconsistentDateAfterPreviousDateDivider {
                                     at: i,
@@ -447,7 +447,7 @@ impl DateDividerAdjuster {
                 {
                     // The previous date divider is for a different date.
                     if let Some(prev_ts) = prev_date_divider_ts {
-                        if self.is_same_date_as(prev_ts, *ts) {
+                        if self.is_same_date_divider_group_as(prev_ts, *ts) {
                             report
                                 .errors
                                 .push(DateDividerInsertError::DuplicateDateDivider { at: i });
@@ -479,7 +479,7 @@ impl DateDividerAdjuster {
 
     /// Returns whether the two dates for the given timestamps are the same or
     /// not.
-    fn is_same_date_as(
+    fn is_same_date_divider_group_as(
         &self,
         lhs: MilliSecondsSinceUnixEpoch,
         rhs: MilliSecondsSinceUnixEpoch,
@@ -867,7 +867,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dayly_divider_mode() {
+    fn test_daily_divider_mode() {
         let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
@@ -878,11 +878,11 @@ mod tests {
             None,
         );
         txn.push_back(
-            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(100000000)))),
+            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(86_400_000)))), // One day later
             None,
         );
         txn.push_back(
-            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch::now())),
+            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(2_678_400_000)))), // One month later
             None,
         );
 
@@ -914,11 +914,11 @@ mod tests {
             None,
         );
         txn.push_back(
-            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(100000000)))),
+            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(86_400_000)))), // One day later
             None,
         );
         txn.push_back(
-            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch::now())),
+            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(2_678_400_000)))), // One month later
             None,
         );
 
