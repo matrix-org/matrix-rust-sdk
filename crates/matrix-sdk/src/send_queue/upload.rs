@@ -97,6 +97,11 @@ impl RoomSendQueue {
     /// client's sending queue will be disabled, and it will need to be
     /// manually re-enabled by the caller (e.g. after network is back, or when
     /// something has been done about the faulty requests).
+    ///
+    /// The attachment and its optional thumbnail are stored in the media cache
+    /// and can be retrieved at any time, by calling
+    /// [`Media::get_media_content()`] with the `MediaSource` that can be found
+    /// in the local or remote echo, and using a `MediaFormat::File`.
     #[instrument(skip_all, fields(event_txn))]
     pub async fn send_attachment(
         &self,
