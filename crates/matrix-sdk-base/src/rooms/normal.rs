@@ -150,6 +150,9 @@ pub struct Room {
     /// to disk but held in memory.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub latest_encrypted_events: Arc<SyncRwLock<RingBuffer<Raw<AnySyncTimelineEvent>>>>,
+
+    /// The event ids for seen request to join room events.
+    pub seen_join_request_ids: SharedObservable<Option<HashSet<OwnedEventId>>>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -272,6 +275,7 @@ impl Room {
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
             room_info_notable_update_sender,
+            seen_join_request_ids: SharedObservable::new(None),
         }
     }
 
@@ -1296,6 +1300,11 @@ impl RoomInfo {
     /// Mark this Room as still missing member information.
     pub fn mark_members_missing(&mut self) {
         self.members_synced = false;
+    }
+
+    /// Returns whether the room members are synced.
+    pub fn are_members_synced(&self) -> bool {
+        self.members_synced
     }
 
     /// Mark this Room as still missing some state information.
