@@ -1893,10 +1893,7 @@ async fn test_media_uploads() {
         .get_media_content(
             &MediaRequestParameters {
                 source: local_thumbnail_source.clone(),
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    tinfo.width.unwrap(),
-                    tinfo.height.unwrap(),
-                )),
+                format: MediaFormat::File,
             },
             true,
         )
@@ -1910,7 +1907,10 @@ async fn test_media_uploads() {
         .get_media_content(
             &MediaRequestParameters {
                 source: local_thumbnail_source.clone(),
-                format: MediaFormat::File,
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                    tinfo.width.unwrap(),
+                    tinfo.height.unwrap(),
+                )),
             },
             true,
         )
@@ -1968,13 +1968,7 @@ async fn test_media_uploads() {
     let thumbnail_media = client
         .media()
         .get_media_content(
-            &MediaRequestParameters {
-                source: new_thumbnail_source,
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    tinfo.width.unwrap(),
-                    tinfo.height.unwrap(),
-                )),
-            },
+            &MediaRequestParameters { source: new_thumbnail_source, format: MediaFormat::File },
             true,
         )
         .await
@@ -2150,7 +2144,6 @@ async fn abort_and_verify(
     let file_source = img_content.source;
     let info = img_content.info.unwrap();
     let thumbnail_source = info.thumbnail_source.unwrap();
-    let thumbnail_info = info.thumbnail_info.unwrap();
 
     let aborted = upload_handle.abort().await.unwrap();
     assert!(aborted, "upload must have been aborted");
@@ -2170,13 +2163,7 @@ async fn abort_and_verify(
     client
         .media()
         .get_media_content(
-            &MediaRequestParameters {
-                source: thumbnail_source,
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    thumbnail_info.width.unwrap(),
-                    thumbnail_info.height.unwrap(),
-                )),
-            },
+            &MediaRequestParameters { source: thumbnail_source, format: MediaFormat::File },
             true,
         )
         .await
