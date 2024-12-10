@@ -57,7 +57,7 @@ use tracing::{instrument, trace};
 use vodozemac::LibolmPickleError;
 
 use crate::{
-    store::{CryptoStoreWrapper, MemoryStore, RoomKeyInfo, Store},
+    store::{CryptoStoreWrapper, DehydratedDeviceKey, MemoryStore, RoomKeyInfo, Store},
     verification::VerificationMachine,
     Account, CryptoStoreError, EncryptionSyncChanges, OlmError, OlmMachine, SignatureError,
 };
@@ -68,6 +68,10 @@ pub enum DehydrationError {
     /// The dehydrated device could not be unpickled.
     #[error(transparent)]
     Pickle(#[from] LibolmPickleError),
+
+    /// The pickle key has an invalid length
+    #[error("The pickle key has an invalid length, expected 32 bytes, got {0}")]
+    PickleKeyLength(usize),
 
     /// The dehydrated device could not be signed by our user identity,
     /// we're missing the self-signing key.
@@ -132,11 +136,11 @@ impl DehydratedDevices {
     ///   private keys of the device.
     pub async fn rehydrate(
         &self,
-        pickle_key: &[u8; 32],
+        pickle_key: DehydratedDeviceKey,
         device_id: &DeviceId,
         device_data: Raw<DehydratedDeviceData>,
     ) -> Result<RehydratedDevice, DehydrationError> {
-        let pickle_key = expand_pickle_key(pickle_key, device_id);
+        let pickle_key = expand_pickle_key(pickle_key.inner.as_ref(), device_id);
         let rehydrated = self.inner.rehydrate(&pickle_key, device_id, device_data).await?;
 
         Ok(RehydratedDevice { rehydrated, original: self.inner.to_owned() })
@@ -314,7 +318,7 @@ impl DehydratedDevice {
     pub async fn keys_for_upload(
         &self,
         initial_device_display_name: String,
-        pickle_key: &[u8; 32],
+        pickle_key: DehydratedDeviceKey,
     ) -> Result<put_dehydrated_device::unstable::Request, DehydrationError> {
         let mut transaction = self.store.transaction().await;
 
@@ -330,7 +334,8 @@ impl DehydratedDevice {
 
         trace!("Creating an upload request for a dehydrated device");
 
-        let pickle_key = expand_pickle_key(pickle_key, &self.store.static_account().device_id);
+        let pickle_key =
+            expand_pickle_key(pickle_key.inner.as_ref(), &self.store.static_account().device_id);
         let device_id = self.store.static_account().device_id.clone();
         let device_data = account.dehydrate(&pickle_key);
         let initial_device_display_name = Some(initial_device_display_name);
@@ -467,7 +472,7 @@ mod tests {
         let dehydrated_device = olm_machine.dehydrated_devices().create().await.unwrap();
 
         let request = dehydrated_device
-            .keys_for_upload("Foo".to_owned(), PICKLE_KEY)
+            .keys_for_upload("Foo".to_owned(), PICKLE_KEY.into())
             .await
             .expect("We should be able to create a request to upload a dehydrated device");
 
@@ -497,7 +502,7 @@ mod tests {
         let dehydrated_device = alice.dehydrated_devices().create().await.unwrap();
 
         let mut request = dehydrated_device
-            .keys_for_upload("Foo".to_owned(), PICKLE_KEY)
+            .keys_for_upload("Foo".to_owned(), PICKLE_KEY.into())
             .await
             .expect("We should be able to create a request to upload a dehydrated device");
 
@@ -531,7 +536,7 @@ mod tests {
         // Rehydrate the device.
         let rehydrated = bob
             .dehydrated_devices()
-            .rehydrate(PICKLE_KEY, &request.device_id, request.device_data)
+            .rehydrate(PICKLE_KEY.into(), &request.device_id, request.device_data)
             .await
             .expect("We should be able to rehydrate the device");
 

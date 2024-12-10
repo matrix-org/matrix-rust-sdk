@@ -822,6 +822,17 @@ impl TryFrom<matrix_sdk_crypto::store::BackupKeys> for BackupKeys {
     }
 }
 
+/// Dehydrated device key
+#[derive(uniffi::Record)]
+pub struct DehydratedDeviceKey {
+    pub(crate) inner: Vec<u8>,
+}
+
+impl From<matrix_sdk_crypto::store::DehydratedDeviceKey> for DehydratedDeviceKey {
+    fn from(pickle_key: matrix_sdk_crypto::store::DehydratedDeviceKey) -> Self {
+        DehydratedDeviceKey { inner: pickle_key.into() }
+    }
+}
 impl From<matrix_sdk_crypto::store::RoomKeyCounts> for RoomKeyCounts {
     fn from(count: matrix_sdk_crypto::store::RoomKeyCounts) -> Self {
         Self { total: count.total as i64, backed_up: count.backed_up as i64 }
