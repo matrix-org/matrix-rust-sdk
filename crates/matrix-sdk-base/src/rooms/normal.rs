@@ -1356,6 +1356,11 @@ impl RoomInfo {
         self.members_synced = false;
     }
 
+    /// Returns whether the room members are synced.
+    pub fn are_members_synced(&self) -> bool {
+        self.members_synced
+    }
+
     /// Mark this Room as still missing some state information.
     pub fn mark_state_partially_synced(&mut self) {
         self.sync_info = SyncInfo::PartiallySynced;
