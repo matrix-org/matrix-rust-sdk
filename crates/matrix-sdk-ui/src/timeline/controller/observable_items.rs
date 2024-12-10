@@ -1162,6 +1162,11 @@ mod observable_items_tests {
 pub struct AllRemoteEvents(VecDeque<EventMeta>);
 
 impl AllRemoteEvents {
+    /// Return a reference to a remote event.
+    pub fn get(&self, event_index: usize) -> Option<&EventMeta> {
+        self.0.get(event_index)
+    }
+
     /// Return a front-to-back iterator over all remote events.
     pub fn iter(&self) -> Iter<'_, EventMeta> {
         self.0.iter()
@@ -1289,8 +1294,7 @@ impl AllRemoteEvents {
     }
 
     /// Notify that a timeline item has been removed at
-    /// `new_timeline_item_index`. If `event_index` is `Some(_)`, it means the
-    /// remote event at `event_index` must be unmapped.
+    /// `new_timeline_item_index`.
     fn timeline_item_has_been_removed_at(&mut self, timeline_item_index_to_remove: usize) {
         for event_meta in self.0.iter_mut() {
             let mut remove_timeline_item_index = false;

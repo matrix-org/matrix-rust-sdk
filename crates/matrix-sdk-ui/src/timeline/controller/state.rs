@@ -496,6 +496,10 @@ impl TimelineStateTransaction<'_> {
                     .await;
                 }
 
+                VectorDiff::Remove { index: event_index } => {
+                    self.remove_timeline_item(event_index, &mut day_divider_adjuster);
+                }
+
                 VectorDiff::Clear => {
                     self.clear();
                 }
@@ -503,6 +507,9 @@ impl TimelineStateTransaction<'_> {
                 v => unimplemented!("{v:?}"),
             }
         }
+
+        self.adjust_day_dividers(day_divider_adjuster);
+        self.check_no_unused_unique_ids();
     }
 
     fn check_no_unused_unique_ids(&self) {
@@ -737,6 +744,34 @@ impl TimelineStateTransaction<'_> {
 
         // Handle the event to create or update a timeline item.
         TimelineEventHandler::new(self, ctx).handle_event(date_divider_adjuster, event_kind).await
+    }
+
+    /// Remove one timeline item by its `event_index`.
+    fn remove_timeline_item(
+        &mut self,
+        event_index: usize,
+        day_divider_adjuster: &mut DayDividerAdjuster,
+    ) {
+        day_divider_adjuster.mark_used();
+
+        // We need to be careful here.
+        //
+        // We must first remove the timeline item, which will update the mapping between
+        // remote events and timeline items. Removing the timeline item will “unlink”
+        // this mapping as the remote event will be updated to map to nothing. Only
+        // after that, we can remove the remote event. Doing this in the other order
+        // will update the mapping twice, and will result in a corrupted state.
+
+        // Remove the timeline item first.
+        if let Some(event_meta) = self.items.all_remote_events().get(event_index) {
+            // Fetch the `timeline_item_index` associated to the remote event.
+            if let Some(timeline_item_index) = event_meta.timeline_item_index {
+                let _removed_timeine_item = self.items.remove(timeline_item_index);
+            }
+
+            // Now we can remove the remote event.
+            self.items.remove_remote_event(event_index);
+        }
     }
 
     fn clear(&mut self) {
