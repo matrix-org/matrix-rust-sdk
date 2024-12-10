@@ -21,7 +21,9 @@ use matrix_sdk_common::{
         AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, SyncTimelineEvent, TimelineEventKind,
         VerificationState,
     },
-    linked_chunk::{ChunkContent, Position, Update},
+    linked_chunk::{
+        ChunkContent, LinkedChunk, LinkedChunkBuilder, Position, RawLinkedChunk, Update,
+    },
 };
 use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
 use ruma::{
@@ -31,7 +33,7 @@ use ruma::{
 
 use super::DynEventCacheStore;
 use crate::{
-    event_cache::Gap,
+    event_cache::{Event, Gap},
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
 };
 
@@ -117,6 +119,12 @@ pub trait EventCacheStoreIntegrationTests {
 
     /// Test that clear all the rooms' linked chunks works.
     async fn test_clear_all_rooms_chunks(&self);
+}
+
+fn rebuild_linked_chunk(
+    raws: Vec<RawLinkedChunk<Event, Gap>>,
+) -> Option<LinkedChunk<3, Event, Gap>> {
+    LinkedChunkBuilder::from_raw_parts(raws).build().unwrap()
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -332,7 +340,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .unwrap();
 
         // The linked chunk is correctly reloaded.
-        let lc = self.reload_linked_chunk(room_id).await.unwrap().expect("linked chunk not empty");
+        let raws = self.reload_linked_chunk(room_id).await.unwrap();
+        let lc = rebuild_linked_chunk(raws).expect("linked chunk not empty");
 
         let mut chunks = lc.chunks();
 
@@ -373,7 +382,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
     async fn test_rebuild_empty_linked_chunk(&self) {
         // When I rebuild a linked chunk from an empty store, it's empty.
-        assert!(self.reload_linked_chunk(&DEFAULT_TEST_ROOM_ID).await.unwrap().is_none());
+        let raw_parts = self.reload_linked_chunk(&DEFAULT_TEST_ROOM_ID).await.unwrap();
+        assert!(rebuild_linked_chunk(raw_parts).is_none());
     }
 
     async fn test_clear_all_rooms_chunks(&self) {
@@ -424,15 +434,15 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .unwrap();
 
         // Sanity check: both linked chunks can be reloaded.
-        assert!(self.reload_linked_chunk(r0).await.unwrap().is_some());
-        assert!(self.reload_linked_chunk(r1).await.unwrap().is_some());
+        assert!(rebuild_linked_chunk(self.reload_linked_chunk(r0).await.unwrap()).is_some());
+        assert!(rebuild_linked_chunk(self.reload_linked_chunk(r1).await.unwrap()).is_some());
 
         // Clear the chunks.
         self.clear_all_rooms_chunks().await.unwrap();
 
         // Both rooms now have no linked chunk.
-        assert!(self.reload_linked_chunk(r0).await.unwrap().is_none());
-        assert!(self.reload_linked_chunk(r1).await.unwrap().is_none());
+        assert!(rebuild_linked_chunk(self.reload_linked_chunk(r0).await.unwrap()).is_none());
+        assert!(rebuild_linked_chunk(self.reload_linked_chunk(r1).await.unwrap()).is_none());
     }
 }
 

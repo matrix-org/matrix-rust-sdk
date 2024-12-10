@@ -273,7 +273,8 @@ async fn test_wait_for_token() {
                 &ALICE,
                 RoomMessageEventContent::text_plain("live event!"),
             ))
-            .set_timeline_prev_batch(from.to_owned()),
+            .set_timeline_prev_batch(from.to_owned())
+            .set_timeline_limited(),
     );
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 
@@ -385,7 +386,8 @@ async fn test_timeline_reset_while_paginating() {
                 &ALICE,
                 RoomMessageEventContent::text_plain("live event!"),
             ))
-            .set_timeline_prev_batch("pagination_1".to_owned()),
+            .set_timeline_prev_batch("pagination_1".to_owned())
+            .set_timeline_limited(),
     );
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     client.sync_once(sync_settings.clone()).await.unwrap();
@@ -399,8 +401,8 @@ async fn test_timeline_reset_while_paginating() {
                 &BOB,
                 RoomMessageEventContent::text_plain("new live event."),
             ))
-            .set_timeline_limited()
-            .set_timeline_prev_batch("pagination_2".to_owned()),
+            .set_timeline_prev_batch("pagination_2".to_owned())
+            .set_timeline_limited(),
     );
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 

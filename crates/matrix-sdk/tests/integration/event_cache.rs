@@ -227,7 +227,8 @@ async fn test_backpaginate_once() {
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
                 .add_timeline_event(f.text_msg("heyo"))
-                .set_timeline_prev_batch("prev_batch".to_owned()),
+                .set_timeline_prev_batch("prev_batch".to_owned())
+                .set_timeline_limited(),
         )
         .await;
 
@@ -305,7 +306,8 @@ async fn test_backpaginate_many_times_with_many_iterations() {
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
                 .add_timeline_event(f.text_msg("heyo"))
-                .set_timeline_prev_batch("prev_batch".to_owned()),
+                .set_timeline_prev_batch("prev_batch".to_owned())
+                .set_timeline_limited(),
         )
         .await;
 
@@ -426,7 +428,8 @@ async fn test_backpaginate_many_times_with_one_iteration() {
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
                 .add_timeline_event(f.text_msg("heyo"))
-                .set_timeline_prev_batch("prev_batch".to_owned()),
+                .set_timeline_prev_batch("prev_batch".to_owned())
+                .set_timeline_limited(),
         )
         .await;
 
@@ -552,7 +555,8 @@ async fn test_reset_while_backpaginating() {
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
                 .add_timeline_event(f.text_msg("heyo").into_raw_sync())
-                .set_timeline_prev_batch("first_backpagination".to_owned()),
+                .set_timeline_prev_batch("first_backpagination".to_owned())
+                .set_timeline_limited(),
         )
         .await;
 
