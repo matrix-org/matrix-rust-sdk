@@ -2408,23 +2408,22 @@ mod migration_tests {
             let wedge_tx = wedged_event_transaction_id.clone();
             let local_tx = local_event_transaction_id.clone();
 
-            db.save_dependent_queued_request(
-                room_id,
-                &local_tx,
-                ChildTransactionId::new(),
-                MilliSecondsSinceUnixEpoch::now(),
-                DependentQueuedRequestKind::RedactEvent,
-            )
-            .await
-            .unwrap();
-
-            conn.with_transaction(move |txn| {
-                add_send_queue_event_v7(&db, txn, &wedge_tx, room_id, true)?;
-                add_send_queue_event_v7(&db, txn, &local_tx, room_id, false)?;
-                Result::<_, Error>::Ok(())
-            })
-            .await
-            .unwrap();
+            let _ = conn
+                .with_transaction(move |txn| {
+                    add_dependent_send_queue_event_v7(
+                        &db,
+                        txn,
+                        room_id,
+                        &local_tx,
+                        ChildTransactionId::new(),
+                        DependentQueuedRequestKind::RedactEvent,
+                    )?;
+                    add_send_queue_event_v7(&db, txn, &wedge_tx, room_id, true)?;
+                    add_send_queue_event_v7(&db, txn, &local_tx, room_id, false)?;
+                    Result::<_, Error>::Ok(())
+                })
+                .await
+                .unwrap();
         }
 
         // This transparently migrates to the latest version, which clears up all
@@ -2455,6 +2454,29 @@ mod migration_tests {
 
         txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content, wedged) VALUES (?, ?, ?, ?, ?)")?
             .execute((room_id_key, room_id_value, transaction_id.to_string(), content, is_wedged))?;
+
+        Ok(())
+    }
+    fn add_dependent_send_queue_event_v7(
+        this: &SqliteStateStore,
+        txn: &Transaction<'_>,
+        room_id: &RoomId,
+        parent_txn_id: &TransactionId,
+        own_txn_id: ChildTransactionId,
+        content: DependentQueuedRequestKind,
+    ) -> Result<(), Error> {
+        let room_id_value = this.serialize_value(&room_id.to_owned())?;
+
+        let parent_txn_id = parent_txn_id.to_string();
+        let own_txn_id = own_txn_id.to_string();
+        let content = this.serialize_json(&content)?;
+
+        txn.prepare_cached(
+            "INSERT INTO dependent_send_queue_events
+                         (room_id, parent_transaction_id, own_transaction_id, content)
+                       VALUES (?, ?, ?, ?)",
+        )?
+        .execute((room_id_value, parent_txn_id, own_txn_id, content))?;
 
         Ok(())
     }

@@ -38,7 +38,6 @@ use ruma::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
-            create,
             member::{
                 MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent,
                 SyncRoomMemberEvent,
