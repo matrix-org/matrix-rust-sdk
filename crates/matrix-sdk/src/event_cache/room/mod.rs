@@ -723,8 +723,6 @@ mod private {
 
             if !updates.is_empty() {
                 if let Some(store) = self.store.get() {
-                    let locked = store.lock().await?;
-
                     // Strip relations from the `PushItems` updates.
                     for up in updates.iter_mut() {
                         match up {
@@ -743,7 +741,28 @@ mod private {
                         }
                     }
 
-                    locked.handle_linked_chunk_updates(&self.room, updates).await?;
+                    // Spawn a task to make sure that all the changes are effectively forwarded to
+                    // the store, even if the call to this method gets aborted.
+                    //
+                    // The store cross-process locking involves an actual mutex, which ensures that
+                    // storing updates happens in the expected order.
+
+                    let store = store.clone();
+                    let room_id = self.room.clone();
+
+                    matrix_sdk_common::executor::spawn(async move {
+                        let locked = store.lock().await?;
+
+                        if let Err(err) =
+                            locked.handle_linked_chunk_updates(&room_id, updates).await
+                        {
+                            error!("unable to handle linked chunk updates: {err}");
+                        }
+
+                        super::Result::Ok(())
+                    })
+                    .await
+                    .expect("joining failed")?;
                 }
             }
 
