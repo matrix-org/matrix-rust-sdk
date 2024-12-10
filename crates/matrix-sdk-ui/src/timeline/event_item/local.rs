@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use as_variant::as_variant;
 use matrix_sdk::{send_queue::SendHandle, Error};
-use ruma::{EventId, OwnedEventId, OwnedTransactionId};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId};
 
 use super::TimelineEventItemId;
 
@@ -65,7 +65,10 @@ impl LocalEventTimelineItem {
 #[derive(Clone, Debug)]
 pub enum EventSendState {
     /// The local event has not been sent yet.
-    NotSentYet,
+    NotSentYet {
+        /// When the send was first enqueued by the user.
+        created_at: Option<MilliSecondsSinceUnixEpoch>,
+    },
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
     SendingFailed {
@@ -77,6 +80,9 @@ pub enum EventSendState {
         /// while an unrecoverable error will be parked, until the user
         /// decides to cancel sending it.
         is_recoverable: bool,
+
+        /// When the send was first enqueued by the user.
+        created_at: Option<MilliSecondsSinceUnixEpoch>,
     },
     /// The local event has been sent successfully to the server.
     Sent {

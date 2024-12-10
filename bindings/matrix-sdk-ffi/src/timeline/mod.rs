@@ -1005,7 +1005,10 @@ impl TimelineItem {
 #[derive(Clone, uniffi::Enum)]
 pub enum EventSendState {
     /// The local event has not been sent yet.
-    NotSentYet,
+    NotSentYet {
+        /// When the send was first enqueued by the user.
+        created_at: Option<u64>,
+    },
 
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
@@ -1019,6 +1022,9 @@ pub enum EventSendState {
         /// while an unrecoverable error will be parked, until the user
         /// decides to cancel sending it.
         is_recoverable: bool,
+
+        /// When the send was first enqueued by the user.
+        created_at: Option<u64>,
     },
 
     /// The local event has been sent successfully to the server.
@@ -1030,12 +1036,15 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
         use matrix_sdk_ui::timeline::EventSendState::*;
 
         match value {
-            NotSentYet => Self::NotSentYet,
-            SendingFailed { error, is_recoverable } => {
+            NotSentYet { created_at } => {
+                Self::NotSentYet { created_at: created_at.map(|ts| ts.as_secs().into()) }
+            }
+            SendingFailed { error, is_recoverable, created_at } => {
                 let as_queue_wedge_error: matrix_sdk::QueueWedgeError = (&**error).into();
                 Self::SendingFailed {
                     is_recoverable: *is_recoverable,
                     error: as_queue_wedge_error.into(),
+                    created_at: created_at.map(|ts| ts.as_secs().into()),
                 }
             }
             Sent { event_id } => Self::Sent { event_id: event_id.to_string() },

@@ -214,7 +214,7 @@ macro_rules! assert_update {
     // Check the next stream event is a retry event, with optional checks on txn=$txn
     ($watch:ident => retry { $(txn=$txn:expr)? }) => {
         assert_let!(
-            Ok(Ok(RoomSendQueueUpdate::RetryEvent { transaction_id: _txn })) =
+            Ok(Ok(RoomSendQueueUpdate::RetryEvent { transaction_id: _txn, created_at: _created_at })) =
                 timeout(Duration::from_secs(1), $watch.recv()).await
         );
 
@@ -239,7 +239,7 @@ macro_rules! assert_update {
     // Returns the error for additional checks.
     ($watch:ident => error { $(recoverable=$recoverable:expr,)? $(txn=$txn:expr)? }) => {{
         assert_let!(
-            Ok(Ok(RoomSendQueueUpdate::SendError { transaction_id: _txn, error, is_recoverable: _is_recoverable })) =
+            Ok(Ok(RoomSendQueueUpdate::SendError { transaction_id: _txn, error, is_recoverable: _is_recoverable, created_at: _created_at })) =
                 timeout(Duration::from_secs(10), $watch.recv()).await
         );
 

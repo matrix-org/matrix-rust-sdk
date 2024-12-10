@@ -35,8 +35,8 @@ use ruma::{
     },
     serde::Raw,
     time::SystemTime,
-    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId,
-    TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedRoomId,
+    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -359,6 +359,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         request: QueuedRequestKind,
         priority: usize,
     ) -> Result<(), Self::Error>;
@@ -421,6 +422,7 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         own_txn_id: ChildTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         content: DependentQueuedRequestKind,
     ) -> Result<(), Self::Error>;
 
@@ -657,11 +659,12 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         content: QueuedRequestKind,
         priority: usize,
     ) -> Result<(), Self::Error> {
         self.0
-            .save_send_queue_request(room_id, transaction_id, content, priority)
+            .save_send_queue_request(room_id, transaction_id, created_at, content, priority)
             .await
             .map_err(Into::into)
     }
@@ -711,10 +714,11 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         own_txn_id: ChildTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         content: DependentQueuedRequestKind,
     ) -> Result<(), Self::Error> {
         self.0
-            .save_dependent_queued_request(room_id, parent_txn_id, own_txn_id, content)
+            .save_dependent_queued_request(room_id, parent_txn_id, own_txn_id, created_at, content)
             .await
             .map_err(Into::into)
     }
