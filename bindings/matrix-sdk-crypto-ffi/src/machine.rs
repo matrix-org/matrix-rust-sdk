@@ -56,10 +56,11 @@ use crate::{
     parse_user_id,
     responses::{response_from_string, OwnedResponse},
     BackupKeys, BackupRecoveryKey, BootstrapCrossSigningResult, CrossSigningKeyExport,
-    CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists, EncryptionSettings,
-    EventEncryptionAlgorithm, KeyImportError, KeysImportResult, MegolmV1BackupKey,
-    ProgressListener, Request, RequestType, RequestVerificationResult, RoomKeyCounts, RoomSettings,
-    Sas, SignatureUploadRequest, StartSasResult, UserIdentity, Verification, VerificationRequest,
+    CrossSigningStatus, DecodeError, DecryptedEvent, DehydratedDeviceKey, Device, DeviceLists,
+    EncryptionSettings, EventEncryptionAlgorithm, KeyImportError, KeysImportResult,
+    MegolmV1BackupKey, ProgressListener, Request, RequestType, RequestVerificationResult,
+    RoomKeyCounts, RoomSettings, Sas, SignatureUploadRequest, StartSasResult, UserIdentity,
+    Verification, VerificationRequest,
 };
 
 /// The return value for the [`OlmMachine::receive_sync_changes()`] method.
@@ -1531,6 +1532,36 @@ impl OlmMachine {
             runtime: self.runtime.handle().to_owned(),
         }
         .into()
+    }
+
+    /// Get the cached dehydrated device pickle key if any.
+    ///
+    /// None if the key was not previously cached (via
+    /// [`Self::save_dehydrated_device_pickle_key`]).
+    ///
+    /// Should be used to periodically rotate the dehydrated device to avoid
+    /// OTK exhaustion and accumulation of to_device messages.
+    pub fn get_dehydrated_device_key(
+        &self,
+    ) -> Result<Option<DehydratedDeviceKey>, CryptoStoreError> {
+        Ok(self
+            .runtime
+            .block_on(self.inner.get_dehydrated_device_pickle_key())?
+            .map(DehydratedDeviceKey::from))
+    }
+
+    /// Store the dehydrated device pickle key in the crypto store.
+    ///
+    /// Use `None` to delete any previously saved pickle key.
+    ///
+    /// This is useful if the client wants to periodically rotate dehydrated
+    /// devices to avoid OTK exhaustion and accumulated to_device problems.
+    pub fn save_dehydrated_device_key(
+        &self,
+        pickle_key: Option<DehydratedDeviceKey>,
+    ) -> Result<(), CryptoStoreError> {
+        let sdk_pickle_key = pickle_key.map(|k| k.inner.try_into()).and_then(|res| res.ok());
+        Ok(self.runtime.block_on(self.inner.save_dehydrated_device_pickle_key(sdk_pickle_key))?)
     }
 }
 

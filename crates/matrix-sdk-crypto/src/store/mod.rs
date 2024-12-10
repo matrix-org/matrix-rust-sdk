@@ -96,6 +96,7 @@ use matrix_sdk_common::{store_locks::CrossProcessStoreLock, timeout::timeout};
 pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
+use crate::dehydrated_devices::DehydrationError;
 pub use crate::gossiping::{GossipRequest, SecretInfo};
 
 /// A wrapper for our CryptoStore trait object.
@@ -778,6 +779,33 @@ impl DehydratedDeviceKey {
     /// Export the [`DehydratedDeviceKey`] as a base64 encoded string.
     pub fn to_base64(&self) -> String {
         base64_encode(self.inner.as_slice())
+    }
+}
+
+impl From<&[u8; 32]> for DehydratedDeviceKey {
+    fn from(value: &[u8; 32]) -> Self {
+        DehydratedDeviceKey { inner: Box::new(*value) }
+    }
+}
+
+impl From<DehydratedDeviceKey> for Vec<u8> {
+    fn from(key: DehydratedDeviceKey) -> Self {
+        key.inner.to_vec()
+    }
+}
+
+impl TryFrom<Vec<u8>> for DehydratedDeviceKey {
+    type Error = DehydrationError;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        if value.len() == 32 {
+            // Convert the Vec<u8> to a Box<[u8; 32]>
+            let mut key = Box::new([0u8; 32]);
+            key.copy_from_slice(&value);
+            Ok(DehydratedDeviceKey { inner: key })
+        } else {
+            Err(DehydrationError::PickleKeyLength(value.len()))
+        }
     }
 }
 

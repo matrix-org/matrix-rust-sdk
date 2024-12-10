@@ -1,13 +1,15 @@
 use std::{mem::ManuallyDrop, sync::Arc};
 
-use matrix_sdk_crypto::dehydrated_devices::{
-    DehydratedDevice as InnerDehydratedDevice, DehydratedDevices as InnerDehydratedDevices,
-    RehydratedDevice as InnerRehydratedDevice,
+use matrix_sdk_crypto::{
+    dehydrated_devices::{
+        DehydratedDevice as InnerDehydratedDevice, DehydratedDevices as InnerDehydratedDevices,
+        RehydratedDevice as InnerRehydratedDevice,
+    },
+    store::DehydratedDeviceKey,
 };
 use ruma::{api::client::dehydrated_device, events::AnyToDeviceEvent, serde::Raw, OwnedDeviceId};
 use serde_json::json;
 use tokio::runtime::Handle;
-use zeroize::Zeroize;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
@@ -33,6 +35,9 @@ impl From<matrix_sdk_crypto::dehydrated_devices::DehydrationError> for Dehydrati
                 Self::MissingSigningKey(e)
             }
             matrix_sdk_crypto::dehydrated_devices::DehydrationError::Store(e) => Self::Store(e),
+            matrix_sdk_crypto::dehydrated_devices::DehydrationError::PickleKeyLength(l) => {
+                Self::PickleKeyLength(l)
+            }
         }
     }
 }
@@ -73,19 +78,17 @@ impl DehydratedDevices {
         let device_data: Raw<_> = serde_json::from_str(&device_data)?;
         let device_id: OwnedDeviceId = device_id.into();
 
-        let mut key = get_pickle_key(&pickle_key)?;
+        let key: DehydratedDeviceKey = pickle_key.try_into()?;
 
         let ret = RehydratedDevice {
             runtime: self.runtime.to_owned(),
             inner: ManuallyDrop::new(self.runtime.block_on(self.inner.rehydrate(
-                &key,
+                key,
                 &device_id,
                 device_data,
             ))?),
         }
         .into();
-
-        key.zeroize();
 
         Ok(ret)
     }
@@ -140,12 +143,10 @@ impl DehydratedDevice {
         device_display_name: String,
         pickle_key: Vec<u8>,
     ) -> Result<UploadDehydratedDeviceRequest, DehydrationError> {
-        let mut key = get_pickle_key(&pickle_key)?;
+        let key: DehydratedDeviceKey = pickle_key.try_into()?;
 
         let request =
-            self.runtime.block_on(self.inner.keys_for_upload(device_display_name, &key))?;
-
-        key.zeroize();
+            self.runtime.block_on(self.inner.keys_for_upload(device_display_name, key))?;
 
         Ok(request.into())
     }
@@ -174,18 +175,5 @@ impl From<dehydrated_device::put_dehydrated_device::unstable::Request>
             .expect("We should be able to serialize the PUT dehydrated devices request body");
 
         Self { body }
-    }
-}
-
-fn get_pickle_key(pickle_key: &[u8]) -> Result<Box<[u8; 32]>, DehydrationError> {
-    let pickle_key_length = pickle_key.len();
-
-    if pickle_key_length == 32 {
-        let mut key = Box::new([0u8; 32]);
-        key.copy_from_slice(pickle_key);
-
-        Ok(key)
-    } else {
-        Err(DehydrationError::PickleKeyLength(pickle_key_length))
     }
 }
