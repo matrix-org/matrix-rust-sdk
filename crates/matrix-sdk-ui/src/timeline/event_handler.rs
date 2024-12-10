@@ -290,6 +290,15 @@ pub(super) enum TimelineItemPosition {
         origin: RemoteEventOrigin,
     },
 
+    /// One item is inserted to the timeline.
+    At {
+        /// Where to insert the remote event.
+        event_index: usize,
+
+        /// The origin of the new item.
+        origin: RemoteEventOrigin,
+    },
+
     /// A single item is updated, after it's been successfully decrypted.
     ///
     /// This happens when an item that was a UTD must be replaced with the
@@ -619,7 +628,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
             }
 
-            TimelineItemPosition::End { .. } => {
+            TimelineItemPosition::At { .. } | TimelineItemPosition::End { .. } => {
                 // This is a more recent edit, coming either live from sync or from a
                 // forward-pagination: it's fine to overwrite the previous one, if
                 // available.
@@ -1039,7 +1048,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             Flow::Remote { event_id, raw_event, position, txn_id, encryption_info, .. } => {
                 let origin = match *position {
                     TimelineItemPosition::Start { origin }
-                    | TimelineItemPosition::End { origin } => origin,
+                    | TimelineItemPosition::End { origin }
+                    | TimelineItemPosition::At { origin, .. } => origin,
 
                     // For updates, reuse the origin of the encrypted event.
                     TimelineItemPosition::UpdateDecrypted { timeline_item_index: idx } => self
@@ -1106,6 +1116,55 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                 let item = self.meta.new_timeline_item(item);
                 self.items.push_front(item, Some(0));
+            }
+
+            Flow::Remote { position: TimelineItemPosition::At { event_index, .. }, .. } => {
+                let event_index = *event_index;
+                let timeline_item_index = self
+                    .items
+                    .all_remote_events()
+                    // The remote events at the left.
+                    //
+                    // Note: the case where `event_index = 0` is matched with
+                    // `TimelineItemPosition::Start`.
+                    .range(0..=event_index)
+                    .rev()
+                    .find_map(|event_meta| event_meta.timeline_item_index)
+                    // The new `timeline_item_index` is the previous + 1.
+                    .map(|timeline_item_index| timeline_item_index + 1)
+                    //
+                    // No index? Look for the closest `timeline_item_index` at the right of the
+                    // current events.
+                    .or_else(|| {
+                        self.items
+                            .all_remote_events()
+                            // The events at the right.
+                            .range(event_index + 1..)
+                            .find_map(|event_meta| event_meta.timeline_item_index)
+                    })
+                    //
+                    // No index? Well, it means there is no existing `timeline_item_index`
+                    // so we are inserting at the last non-local item position as a fallback.
+                    .unwrap_or_else(|| {
+                        self.items
+                            .iter()
+                            .enumerate()
+                            .rev()
+                            .find_map(|(timeline_item_index, timeline_item)| {
+                                (!timeline_item.as_event()?.is_local_echo())
+                                    .then_some(timeline_item_index + 1)
+                            })
+                            .unwrap_or(0)
+                    });
+
+                trace!(
+                    ?event_index,
+                    ?timeline_item_index,
+                    "Adding new remote timeline at specific event index"
+                );
+
+                let item = self.meta.new_timeline_item(item);
+                self.items.insert(timeline_item_index, item, Some(event_index));
             }
 
             Flow::Remote {

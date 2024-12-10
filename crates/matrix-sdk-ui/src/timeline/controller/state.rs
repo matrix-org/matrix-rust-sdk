@@ -485,6 +485,17 @@ impl TimelineStateTransaction<'_> {
                     .await;
                 }
 
+                VectorDiff::Insert { index: event_index, value: event } => {
+                    self.handle_remote_event(
+                        event,
+                        TimelineItemPosition::At { event_index, origin },
+                        room_data_provider,
+                        settings,
+                        &mut day_divider_adjuster,
+                    )
+                    .await;
+                }
+
                 VectorDiff::Clear => {
                     self.clear();
                 }
@@ -550,7 +561,8 @@ impl TimelineStateTransaction<'_> {
                     // Retrieve the origin of the event.
                     let origin = match position {
                         TimelineItemPosition::End { origin }
-                        | TimelineItemPosition::Start { origin } => origin,
+                        | TimelineItemPosition::Start { origin }
+                        | TimelineItemPosition::At { origin, .. } => origin,
 
                         TimelineItemPosition::UpdateDecrypted { timeline_item_index: idx } => self
                             .items
@@ -826,6 +838,10 @@ impl TimelineStateTransaction<'_> {
                 self.items.push_back_remote_event(event_meta.base_meta());
             }
 
+            TimelineItemPosition::At { event_index, .. } => {
+                self.items.insert_remote_event(event_index, event_meta.base_meta());
+            }
+
             TimelineItemPosition::UpdateDecrypted { .. } => {
                 if let Some(event) =
                     self.items.get_remote_event_by_event_id_mut(event_meta.event_id)
@@ -846,7 +862,9 @@ impl TimelineStateTransaction<'_> {
         if settings.track_read_receipts
             && matches!(
                 position,
-                TimelineItemPosition::Start { .. } | TimelineItemPosition::End { .. }
+                TimelineItemPosition::Start { .. }
+                    | TimelineItemPosition::End { .. }
+                    | TimelineItemPosition::At { .. }
             )
         {
             self.load_read_receipts_for_event(event_meta.event_id, room_data_provider).await;
