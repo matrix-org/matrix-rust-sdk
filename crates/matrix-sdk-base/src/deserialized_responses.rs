@@ -30,7 +30,7 @@ use ruma::{
         StateEventContent, StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
     },
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, UInt, UserId,
 };
 use serde::Serialize;
 use unicode_normalization::UnicodeNormalization;
@@ -475,6 +475,23 @@ impl MemberEvent {
                 .and_then(|c| c.displayname.as_deref())
                 .unwrap_or_else(|| self.user_id().localpart()),
         )
+    }
+
+    /// The optional reason why the membership changed.
+    pub fn reason(&self) -> Option<&str> {
+        match self {
+            MemberEvent::Sync(SyncStateEvent::Original(c)) => c.content.reason.as_deref(),
+            MemberEvent::Stripped(e) => e.content.reason.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// The optional timestamp for this member event.
+    pub fn timestamp(&self) -> Option<UInt> {
+        match self {
+            MemberEvent::Sync(SyncStateEvent::Original(c)) => Some(c.origin_server_ts.0),
+            _ => None,
+        }
     }
 }
 
