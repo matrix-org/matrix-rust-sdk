@@ -385,16 +385,12 @@ impl Room {
     /// * `event_type` - The type of the event to send.
     ///
     /// * `content` - The content of the event to send encoded as JSON string.
-    pub async fn send_raw(
-        &self,
-        event_type: String,
-        content: String,
-    ) -> Result<(), ClientError> {
+    pub async fn send_raw(&self, event_type: String, content: String) -> Result<(), ClientError> {
         let content_json: serde_json::Value = serde_json::from_str(&content)
             .map_err(|e| ClientError::Generic { msg: format!("Failed to parse JSON: {e}") })?;
 
         self.inner.send_raw(&event_type, content_json).await?;
-        
+
         Ok(())
     }
 
