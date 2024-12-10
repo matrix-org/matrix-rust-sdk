@@ -2159,8 +2159,7 @@ impl SendReactionHandle {
             room: self.room.clone(),
             transaction_id: self.transaction_id.clone().into(),
             media_handles: None,
-            // This isn't quite right, should this be the newly enqueued cancel event?
-            created_at: self.created_at.clone(),
+            created_at: Some(MilliSecondsSinceUnixEpoch::now()),
         };
 
         handle.abort().await

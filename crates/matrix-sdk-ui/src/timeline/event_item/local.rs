@@ -66,7 +66,7 @@ impl LocalEventTimelineItem {
 pub enum EventSendState {
     /// The local event has not been sent yet.
     NotSentYet {
-        /// When the send was first attempted.
+        /// When the send was first enqueued by the user.
         created_at: Option<MilliSecondsSinceUnixEpoch>,
     },
     /// The local event has been sent to the server, but unsuccessfully: The
@@ -81,7 +81,7 @@ pub enum EventSendState {
         /// decides to cancel sending it.
         is_recoverable: bool,
 
-        /// When the send was first attempted.
+        /// When the send was first enqueued by the user.
         created_at: Option<MilliSecondsSinceUnixEpoch>,
     },
     /// The local event has been sent successfully to the server.
