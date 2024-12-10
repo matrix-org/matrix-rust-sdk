@@ -149,6 +149,8 @@ pub mod identity_status_changes;
 mod member;
 mod messages;
 pub mod power_levels;
+/// Contains code related to requests to join a room.
+pub mod request_to_join;
 
 /// A struct containing methods that are common for Joined, Invited and Left
 /// Rooms
