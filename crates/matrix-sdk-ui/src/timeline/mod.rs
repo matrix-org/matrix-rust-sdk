@@ -524,6 +524,12 @@ impl Timeline {
     /// If the encryption feature is enabled, this method will transparently
     /// encrypt the room message if the room is encrypted.
     ///
+    /// The attachment and its optional thumbnail are stored in the media cache
+    /// and can be retrieved at any time, by calling
+    /// [`Media::get_media_content()`] with the `MediaSource` that can be found
+    /// in the corresponding `TimelineEventItem`, and using a
+    /// `MediaFormat::File`.
+    ///
     /// # Arguments
     ///
     /// * `path` - The path of the file to be sent.
@@ -532,6 +538,8 @@ impl Timeline {
     ///
     /// * `config` - An attachment configuration object containing details about
     ///   the attachment like a thumbnail, its size, duration etc.
+    ///
+    /// [`Media::get_media_content()`]: matrix_sdk::Media::get_media_content
     #[instrument(skip_all)]
     pub fn send_attachment(
         &self,
