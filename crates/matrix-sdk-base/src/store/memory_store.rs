@@ -82,6 +82,7 @@ struct MemoryStoreInner {
     custom: HashMap<Vec<u8>, Vec<u8>>,
     send_queue_events: BTreeMap<OwnedRoomId, Vec<QueuedRequest>>,
     dependent_send_queue_events: BTreeMap<OwnedRoomId, Vec<DependentQueuedRequest>>,
+    seen_knock_requests: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OwnedUserId>>,
 }
 
 /// In-memory, non-persistent implementation of the `StateStore`.
@@ -168,6 +169,11 @@ impl StateStore for MemoryStore {
             StateStoreDataKey::ComposerDraft(room_id) => {
                 inner.composer_drafts.get(room_id).cloned().map(StateStoreDataValue::ComposerDraft)
             }
+            StateStoreDataKey::SeenKnockRequests(room_id) => inner
+                .seen_knock_requests
+                .get(room_id)
+                .cloned()
+                .map(StateStoreDataValue::SeenKnockRequests),
         })
     }
 
@@ -222,6 +228,14 @@ impl StateStore for MemoryStore {
                         .expect("Session data not containing server capabilities"),
                 );
             }
+            StateStoreDataKey::SeenKnockRequests(room_id) => {
+                inner.seen_knock_requests.insert(
+                    room_id.to_owned(),
+                    value
+                        .into_seen_join_requests()
+                        .expect("Session data is not a set of seen join request ids"),
+                );
+            }
         }
 
         Ok(())
@@ -244,6 +258,9 @@ impl StateStore for MemoryStore {
             StateStoreDataKey::UtdHookManagerData => inner.utd_hook_manager_data = None,
             StateStoreDataKey::ComposerDraft(room_id) => {
                 inner.composer_drafts.remove(room_id);
+            }
+            StateStoreDataKey::SeenKnockRequests(room_id) => {
+                inner.seen_knock_requests.remove(room_id);
             }
         }
         Ok(())
