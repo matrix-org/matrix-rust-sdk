@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+- Expose new API `OlmMachine::get_dehydrated_device_pickle_key` and `OlmMachine::save_dehydrated_device_pickle_key`
+  to store/load the dehydrated device pickle key. This allows client to automatically rotate the dehydrated device 
+  to avoid one-time-keys exhaustion and to_device accumulation.
+  ([#4383](https://github.com/matrix-org/matrix-rust-sdk/pull/4383))
+
 - Added new `UtdCause` variants `WithheldForUnverifiedOrInsecureDevice` and `WithheldBySender`.
   These variants provide clearer categorization for expected Unable-To-Decrypt (UTD) errors 
   when the sender either did not wish to share or was unable to share the room_key.
