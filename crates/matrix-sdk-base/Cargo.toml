@@ -51,7 +51,7 @@ assert_matches2 = { workspace = true, optional = true }
 async-trait = { workspace = true }
 bitflags = { version = "2.6.0", features = ["serde"] }
 decancer = "3.2.8"
-eyeball = { workspace = true }
+eyeball = { workspace = true, features = ["async-lock"] }
 eyeball-im = { workspace = true }
 futures-util = { workspace = true }
 growable-bloom-filter = { workspace = true }

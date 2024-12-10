@@ -22,7 +22,7 @@ use std::{
 
 use as_variant::as_variant;
 use bitflags::bitflags;
-use eyeball::{SharedObservable, Subscriber};
+use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable, Subscriber};
 use futures_util::{Stream, StreamExt};
 #[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_common::deserialized_responses::TimelineEventKind;
@@ -52,7 +52,7 @@ use ruma::{
         },
         tag::{TagEventContent, Tags},
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
-        RoomAccountDataEventType, SyncStateEvent,
+        RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
     room::RoomType,
     serde::Raw,
@@ -77,7 +77,8 @@ use crate::{
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
-    Error, MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships,
+    Error, MinimalStateEvent, OriginalMinimalStateEvent, RoomMemberships, StateStoreDataKey,
+    StateStoreDataValue, StoreError,
 };
 
 /// Indicates that a notable update of `RoomInfo` has been applied, and why.
@@ -167,6 +168,12 @@ pub struct Room {
     /// to disk but held in memory.
     #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub latest_encrypted_events: Arc<SyncRwLock<RingBuffer<Raw<AnySyncTimelineEvent>>>>,
+
+    /// A map for ids of room membership events in the knocking state linked to
+    /// the user id of the user affected by the member event, that the current
+    /// user has marked as seen so they can be ignored.
+    pub seen_knock_request_ids_map:
+        SharedObservable<Option<BTreeMap<OwnedEventId, OwnedUserId>>, AsyncLock>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -289,6 +296,7 @@ impl Room {
                 Self::MAX_ENCRYPTED_EVENTS,
             ))),
             room_info_notable_update_sender,
+            seen_knock_request_ids_map: SharedObservable::new_async(None),
         }
     }
 

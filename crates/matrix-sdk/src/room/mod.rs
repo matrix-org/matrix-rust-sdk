@@ -16,7 +16,7 @@
 
 use std::{
     borrow::Borrow,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     ops::Deref,
     sync::Arc,
     time::Duration,
@@ -3205,6 +3205,48 @@ impl Room {
     pub fn observe_live_location_shares(&self) -> ObservableLiveLocation {
         ObservableLiveLocation::new(&self.client, self.room_id())
     }
+
+    /// Mark a list of requests to join the room as seen, given their state
+    /// event ids.
+    pub async fn mark_join_requests_as_seen(&self, event_ids: &[OwnedEventId]) -> Result<()> {
+        let mut current_seen_events = self.get_seen_join_request_ids().await?;
+
+        for event_id in event_ids {
+            current_seen_events.insert(event_id.to_owned());
+        }
+
+        self.seen_join_request_ids.set(Some(current_seen_events.clone()));
+
+        self.client
+            .store()
+            .set_kv_data(
+                StateStoreDataKey::SeenJoinRequests(self.room_id()),
+                StateStoreDataValue::SeenJoinRequests(current_seen_events),
+            )
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Get the list of seen requests to join event ids in this room.
+    pub async fn get_seen_join_request_ids(&self) -> Result<HashSet<OwnedEventId>> {
+        let current_join_request_ids = self.seen_join_request_ids.get();
+        let current_join_request_ids: HashSet<OwnedEventId> =
+            if let Some(requests) = current_join_request_ids.as_ref() {
+                requests.clone()
+            } else {
+                let requests = self
+                    .client
+                    .store()
+                    .get_kv_data(StateStoreDataKey::SeenJoinRequests(self.room_id()))
+                    .await?
+                    .and_then(|v| v.into_seen_join_requests())
+                    .unwrap_or_default();
+
+                self.seen_join_request_ids.set(Some(requests.clone()));
+                requests
+            };
+        Ok(current_join_request_ids)
+    }
 }
 
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
@@ -3495,8 +3537,9 @@ mod tests {
     use matrix_sdk_base::{store::ComposerDraftType, ComposerDraft, SessionMeta};
     use matrix_sdk_test::{
         async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
+        DEFAULT_TEST_ROOM_ID,
     };
-    use ruma::{device_id, int, user_id};
+    use ruma::{device_id, event_id, int, user_id};
     use wiremock::{
         matchers::{header, method, path_regex},
         Mock, MockServer, ResponseTemplate,
@@ -3506,7 +3549,7 @@ mod tests {
     use crate::{
         config::RequestConfig,
         matrix_auth::{MatrixSession, MatrixSessionTokens},
-        test_utils::logged_in_client,
+        test_utils::{logged_in_client, mocks::MatrixMockServer},
         Client,
     };
 
@@ -3680,5 +3723,30 @@ mod tests {
 
         room.clear_composer_draft().await.unwrap();
         assert_eq!(room.load_composer_draft().await.unwrap(), None);
+    }
+
+    #[async_test]
+    async fn test_mark_join_requests_as_seen() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let event_id = event_id!("$a:b.c");
+
+        let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+
+        // When loading the initial seen ids, there are none
+        let seen_ids =
+            room.get_seen_join_request_ids().await.expect("Couldn't load seen join request ids");
+        assert!(seen_ids.is_empty());
+
+        // We mark a random event id as seen
+        room.mark_join_requests_as_seen(&[event_id.to_owned()])
+            .await
+            .expect("Couldn't mark join request as seen");
+
+        // Then we can check it was successfully marked as seen
+        let seen_ids =
+            room.get_seen_join_request_ids().await.expect("Couldn't load seen join request ids");
+        assert_eq!(seen_ids.len(), 1);
+        assert_eq!(seen_ids.into_iter().next().expect("No next value"), event_id)
     }
 }
