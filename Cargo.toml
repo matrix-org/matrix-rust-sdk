@@ -108,6 +108,7 @@ matrix-sdk-sqlite = { path = "crates/matrix-sdk-sqlite", version = "0.8.0", defa
 matrix-sdk-store-encryption = { path = "crates/matrix-sdk-store-encryption", version = "0.8.0" }
 matrix-sdk-test = { path = "testing/matrix-sdk-test", version = "0.7.0" }
 matrix-sdk-ui = { path = "crates/matrix-sdk-ui", version = "0.8.0", default-features = false }
+cached = { version = "0.36.0", features = ["proc_macro"] }
 
 # Default release profile, select with `--release`
 [profile.release]

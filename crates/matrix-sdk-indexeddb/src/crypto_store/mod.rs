@@ -46,7 +46,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
-
+use cached::proc_macro::cached;
 use self::indexeddb_serializer::MaybeEncrypted;
 use crate::crypto_store::{
     indexeddb_serializer::IndexeddbSerializer, migrations::open_and_upgrade_db,
@@ -1313,7 +1313,7 @@ impl_crypto_store! {
             Ok(None)
         }
     }
-
+    #[cached(size = 100)]
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
         let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id);
         self
