@@ -60,7 +60,7 @@ pub struct RoomInfo {
     pinned_event_ids: Vec<String>,
     /// The join rule for this room, if known.
     join_rule: Option<JoinRule>,
-    /// The history visiblity for this room, if known.
+    /// The history visibility for this room, if known.
     history_visibility: Option<RoomHistoryVisibility>,
 }
 
