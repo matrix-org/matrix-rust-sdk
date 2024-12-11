@@ -6,7 +6,7 @@ use tracing::warn;
 use crate::{
     client::JoinRule,
     notification_settings::RoomNotificationMode,
-    room::{Membership, RoomHero},
+    room::{Membership, RoomHero, RoomHistoryVisibility},
     room_member::RoomMember,
 };
 
@@ -60,6 +60,8 @@ pub struct RoomInfo {
     pinned_event_ids: Vec<String>,
     /// The join rule for this room, if known.
     join_rule: Option<JoinRule>,
+    /// The history visibility for this room, if known.
+    history_visibility: Option<RoomHistoryVisibility>,
 }
 
 impl RoomInfo {
@@ -128,6 +130,7 @@ impl RoomInfo {
             num_unread_mentions: room.num_unread_mentions(),
             pinned_event_ids,
             join_rule: join_rule.ok(),
+            history_visibility: room.history_visibility().and_then(|h| h.try_into().ok()),
         })
     }
 }
