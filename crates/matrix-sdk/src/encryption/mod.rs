@@ -54,7 +54,7 @@ use ruma::{
         direct::DirectUserIdentifier,
         room::{MediaSource, ThumbnailInfo},
     },
-    DeviceId, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
 use serde::Deserialize;
 use tokio::sync::{Mutex, RwLockReadGuard};
@@ -718,6 +718,15 @@ impl Encryption {
         self.client.olm_machine().await.as_ref().map(|o| o.identity_keys().curve25519)
     }
 
+    /// Get the current device creation timestamp.
+    pub async fn device_creation_timestamp(&self) -> MilliSecondsSinceUnixEpoch {
+        match self.get_own_device().await {
+            Ok(Some(device)) => device.first_time_seen_ts(),
+            // Should not happen, there should always be an own device
+            _ => MilliSecondsSinceUnixEpoch::now(),
+        }
+    }
+
     #[cfg(feature = "experimental-oidc")]
     pub(crate) async fn import_secrets_bundle(
         &self,
@@ -1153,7 +1162,7 @@ impl Encryption {
     /// # let client = Client::new(homeserver).await?;
     /// # let user_id = unimplemented!();
     /// let encryption = client.encryption();
-    ///       
+    ///
     /// if let Some(handle) = encryption.reset_cross_signing().await? {
     ///     match handle.auth_type() {
     ///         CrossSigningResetAuthType::Uiaa(uiaa) => {

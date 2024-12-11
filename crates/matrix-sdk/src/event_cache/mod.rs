@@ -319,9 +319,9 @@ impl EventCache {
 
         let room_cache = self.inner.for_room(room_id).await?;
 
-        // If the linked chunked already has at least one chunk (gap or events), ignore
-        // this request, as it should happen at most once per room.
-        if room_cache.inner.state.read().await.events().chunks().next().is_some() {
+        // If the linked chunked already has at least one event, ignore this request, as
+        // it should happen at most once per room.
+        if !room_cache.inner.state.read().await.events().is_empty() {
             return Ok(());
         }
 
@@ -350,6 +350,13 @@ struct AllEventsCache {
     /// A cache of related event ids for an event id. The key is the original
     /// event id and the value a list of event ids related to it.
     relations: RelationsMap,
+}
+
+impl AllEventsCache {
+    fn clear(&mut self) {
+        self.events.clear();
+        self.relations.clear();
+    }
 }
 
 struct EventCacheInner {
@@ -736,5 +743,29 @@ mod tests {
         // After clearing, both fail to find the event.
         assert!(room_event_cache.event(event_id).await.is_none());
         assert!(event_cache.event(event_id).await.is_none());
+    }
+
+    #[async_test]
+    async fn test_add_initial_events() {
+        // TODO: remove this test when the event cache uses its own persistent storage.
+        let client = logged_in_client(None).await;
+        let room_id = room_id!("!galette:saucisse.bzh");
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+        event_cache
+            .add_initial_events(room_id, vec![f.text_msg("hey").into()], None)
+            .await
+            .unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (initial_events, _) = room_event_cache.subscribe().await.unwrap();
+        // `add_initial_events` had an effect.
+        assert_eq!(initial_events.len(), 1);
     }
 }

@@ -39,7 +39,7 @@ use crate::{
     room_info::RoomInfo,
     room_member::RoomMember,
     ruma::{ImageInfo, Mentions, NotifyType},
-    timeline::{FocusEventError, ReceiptType, SendHandle, Timeline},
+    timeline::{DateDividerMode, FocusEventError, ReceiptType, SendHandle, Timeline},
     utils::u64_to_uint,
     TaskHandle,
 };
@@ -278,12 +278,15 @@ impl Room {
         &self,
         internal_id_prefix: Option<String>,
         allowed_message_types: Vec<RoomMessageEventMessageType>,
+        date_divider_mode: DateDividerMode,
     ) -> Result<Arc<Timeline>, ClientError> {
         let mut builder = matrix_sdk_ui::timeline::Timeline::builder(&self.inner);
 
         if let Some(internal_id_prefix) = internal_id_prefix {
             builder = builder.with_internal_id_prefix(internal_id_prefix);
         }
+
+        builder = builder.with_date_divider_mode(date_divider_mode.into());
 
         builder = builder.event_filter(move |event, room_version_id| {
             default_event_filter(event, room_version_id)
@@ -375,6 +378,22 @@ impl Room {
         tag_order: Option<f64>,
     ) -> Result<(), ClientError> {
         self.inner.set_is_low_priority(is_low_priority, tag_order).await?;
+        Ok(())
+    }
+
+    /// Send a raw event to the room.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_type` - The type of the event to send.
+    ///
+    /// * `content` - The content of the event to send encoded as JSON string.
+    pub async fn send_raw(&self, event_type: String, content: String) -> Result<(), ClientError> {
+        let content_json: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| ClientError::Generic { msg: format!("Failed to parse JSON: {e}") })?;
+
+        self.inner.send_raw(&event_type, content_json).await?;
+
         Ok(())
     }
 
@@ -880,6 +899,16 @@ impl Room {
 
         send_handle.try_resend().await?;
 
+        Ok(())
+    }
+
+    /// Clear the event cache storage for the current room.
+    ///
+    /// This will remove all the information related to the event cache, in
+    /// memory and in the persisted storage, if enabled.
+    pub async fn clear_event_cache_storage(&self) -> Result<(), ClientError> {
+        let (room_event_cache, _drop_handles) = self.inner.event_cache().await?;
+        room_event_cache.clear().await?;
         Ok(())
     }
 }

@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 mod ci;
 mod fixup;
 mod kotlin;

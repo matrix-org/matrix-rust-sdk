@@ -16,13 +16,13 @@ use std::{collections::HashMap, num::NonZeroUsize, sync::RwLock as StdRwLock, ti
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    linked_chunk::{relational::RelationalLinkedChunk, LinkedChunk, LinkedChunkBuilder, Update},
+    linked_chunk::{relational::RelationalLinkedChunk, RawChunk, Update},
     ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
 };
 use ruma::{MxcUri, OwnedMxcUri, RoomId};
 
-use super::{EventCacheStore, EventCacheStoreError, Result, DEFAULT_CHUNK_CAPACITY};
+use super::{EventCacheStore, EventCacheStoreError, Result};
 use crate::{
     event_cache::{Event, Gap},
     media::{MediaRequestParameters, UniqueKey as _},
@@ -96,23 +96,17 @@ impl EventCacheStore for MemoryStore {
     async fn reload_linked_chunk(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, Self::Error> {
+    ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
         let inner = self.inner.read().unwrap();
-
-        let mut builder = LinkedChunkBuilder::new();
-
         inner
             .events
-            .reload_chunks(room_id, &mut builder)
-            .map_err(|err| EventCacheStoreError::InvalidData { details: err })?;
+            .reload_chunks(room_id)
+            .map_err(|err| EventCacheStoreError::InvalidData { details: err })
+    }
 
-        builder.with_update_history();
-
-        let result = builder.build().map_err(|err| EventCacheStoreError::InvalidData {
-            details: format!("when rebuilding a linked chunk: {err}"),
-        })?;
-
-        Ok(result)
+    async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error> {
+        self.inner.write().unwrap().events.clear();
+        Ok(())
     }
 
     async fn add_media_content(
@@ -174,6 +168,17 @@ impl EventCacheStore for MemoryStore {
         inner.media.remove(index);
 
         Ok(())
+    }
+
+    async fn get_media_content_for_uri(
+        &self,
+        uri: &MxcUri,
+    ) -> Result<Option<Vec<u8>>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+
+        Ok(inner.media.iter().find_map(|(media_uri, _media_key, media_content)| {
+            (media_uri == uri).then(|| media_content.to_owned())
+        }))
     }
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {

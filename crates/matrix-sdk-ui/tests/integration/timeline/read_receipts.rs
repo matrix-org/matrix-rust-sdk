@@ -162,8 +162,8 @@ async fn test_read_receipts_updates() {
     let (alice_receipt_event_id, _) = timeline.latest_user_read_receipt(alice).await.unwrap();
     assert_eq!(alice_receipt_event_id, third_event_id);
 
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert!(date_divider.is_date_divider());
 
     // Read receipt on unknown event is ignored.
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(
@@ -412,8 +412,8 @@ async fn test_read_receipts_updates_on_filtered_events() {
         timeline.latest_user_read_receipt_timeline_event_id(*ALICE).await.unwrap();
     assert_eq!(alice_receipt_timeline_event, event_c_id);
 
-    assert_let!(Some(VectorDiff::PushFront { value: day_divider }) = timeline_stream.next().await);
-    assert!(day_divider.is_day_divider());
+    assert_let!(Some(VectorDiff::PushFront { value: date_divider }) = timeline_stream.next().await);
+    assert!(date_divider.is_date_divider());
 
     // Read receipt on filtered event.
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_ephemeral_event(

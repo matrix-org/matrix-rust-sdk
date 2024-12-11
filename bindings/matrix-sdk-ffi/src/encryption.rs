@@ -254,7 +254,7 @@ impl Encryption {
     /// Therefore it is necessary to poll the server for an answer every time
     /// you want to differentiate between those two states.
     pub async fn backup_exists_on_server(&self) -> Result<bool, ClientError> {
-        Ok(self.inner.backups().exists_on_server().await?)
+        Ok(self.inner.backups().fetch_exists_on_server().await?)
     }
 
     pub fn recovery_state(&self) -> RecoveryState {

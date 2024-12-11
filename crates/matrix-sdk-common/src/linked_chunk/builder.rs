@@ -21,7 +21,7 @@ use tracing::error;
 
 use super::{
     Chunk, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, Ends, LinkedChunk,
-    ObservableUpdates,
+    ObservableUpdates, RawChunk,
 };
 
 /// A temporary chunk representation in the [`LinkedChunkBuilder`].
@@ -260,6 +260,22 @@ impl<const CAP: usize, Item, Gap> LinkedChunkBuilder<CAP, Item, Gap> {
 
         Ok(Some(LinkedChunk { links, chunk_identifier_generator, updates, marker: PhantomData }))
     }
+
+    /// Fills a linked chunk builder from all the given raw parts.
+    pub fn from_raw_parts(raws: Vec<RawChunk<Item, Gap>>) -> Self {
+        let mut this = Self::new();
+        for raw in raws {
+            match raw.content {
+                ChunkContent::Gap(gap) => {
+                    this.push_gap(raw.previous, raw.identifier, raw.next, gap);
+                }
+                ChunkContent::Items(vec) => {
+                    this.push_items(raw.previous, raw.identifier, raw.next, vec);
+                }
+            }
+        }
+        this
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -356,7 +372,7 @@ mod tests {
         assert!(chunks.next().is_none());
 
         // The linked chunk had 5 items.
-        assert_eq!(lc.len(), 5);
+        assert_eq!(lc.num_items(), 5);
 
         // Now, if we add a new chunk, its identifier should be the previous one we used
         // + 1.

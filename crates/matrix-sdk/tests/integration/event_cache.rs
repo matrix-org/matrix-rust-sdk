@@ -1,8 +1,10 @@
 use std::{future::ready, ops::ControlFlow, time::Duration};
 
 use assert_matches::assert_matches;
+use futures_util::FutureExt as _;
 use matrix_sdk::{
     assert_let_timeout, assert_next_matches_with_timeout,
+    deserialized_responses::SyncTimelineEvent,
     event_cache::{
         paginator::PaginatorState, BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate,
         TimelineHasBeenResetWhilePaginating,
@@ -15,7 +17,7 @@ use matrix_sdk_test::{
 };
 use ruma::{event_id, room_id, user_id};
 use serde_json::json;
-use tokio::spawn;
+use tokio::{spawn, sync::broadcast};
 use wiremock::ResponseTemplate;
 
 use crate::mock_sync;
@@ -205,6 +207,23 @@ async fn test_ignored_unignored() {
     assert!(subscriber.is_empty());
 }
 
+/// Small helper for backpagination tests, to wait for things to stabilize.
+async fn wait_for_initial_events(
+    events: Vec<SyncTimelineEvent>,
+    room_stream: &mut broadcast::Receiver<RoomEventCacheUpdate>,
+) {
+    if events.is_empty() {
+        let mut update = room_stream.recv().await.expect("read error");
+        // Could be a clear because of the limited timeline.
+        if matches!(update, RoomEventCacheUpdate::Clear) {
+            update = room_stream.recv().await.expect("read error");
+        }
+        assert_matches!(update, RoomEventCacheUpdate::AddTimelineEvents { .. });
+    } else {
+        assert_eq!(events.len(), 1);
+    }
+}
+
 #[async_test]
 async fn test_backpaginate_once() {
     let server = MatrixMockServer::new().await;
@@ -226,8 +245,9 @@ async fn test_backpaginate_once() {
             JoinedRoomBuilder::new(room_id)
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
-                .add_timeline_event(f.text_msg("heyo"))
-                .set_timeline_prev_batch("prev_batch".to_owned()),
+                .add_timeline_event(f.text_msg("heyo").event_id(event_id!("$1")))
+                .set_timeline_prev_batch("prev_batch".to_owned())
+                .set_timeline_limited(),
         )
         .await;
 
@@ -238,11 +258,7 @@ async fn test_backpaginate_once() {
     // This is racy: either the initial message has been processed by the event
     // cache (and no room updates will happen in this case), or it hasn't, and
     // the stream will return the next message soon.
-    if events.is_empty() {
-        let _ = room_stream.recv().await.expect("read error");
-    } else {
-        assert_eq!(events.len(), 1);
-    }
+    wait_for_initial_events(events, &mut room_stream).await;
 
     let outcome = {
         // Note: events must be presented in reversed order, since this is
@@ -279,7 +295,8 @@ async fn test_backpaginate_once() {
     assert_event_matches_msg(&events[1], "hello");
     assert_eq!(events.len(), 2);
 
-    assert!(room_stream.is_empty());
+    let next = room_stream.recv().now_or_never();
+    assert_matches!(next, None);
 }
 
 #[async_test]
@@ -305,7 +322,8 @@ async fn test_backpaginate_many_times_with_many_iterations() {
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
                 .add_timeline_event(f.text_msg("heyo"))
-                .set_timeline_prev_batch("prev_batch".to_owned()),
+                .set_timeline_prev_batch("prev_batch".to_owned())
+                .set_timeline_limited(),
         )
         .await;
 
@@ -316,11 +334,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     // This is racy: either the initial message has been processed by the event
     // cache (and no room updates will happen in this case), or it hasn't, and
     // the stream will return the next message soon.
-    if events.is_empty() {
-        let _ = room_stream.recv().await.expect("read error");
-    } else {
-        assert_eq!(events.len(), 1);
-    }
+    wait_for_initial_events(events, &mut room_stream).await;
 
     let mut num_iterations = 0;
     let mut num_paginations = 0;
@@ -426,7 +440,8 @@ async fn test_backpaginate_many_times_with_one_iteration() {
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
                 .add_timeline_event(f.text_msg("heyo"))
-                .set_timeline_prev_batch("prev_batch".to_owned()),
+                .set_timeline_prev_batch("prev_batch".to_owned())
+                .set_timeline_limited(),
         )
         .await;
 
@@ -438,11 +453,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     // This is racy: either the initial message has been processed by the event
     // cache (and no room updates will happen in this case), or it hasn't, and
     // the stream will return the next message soon.
-    if events.is_empty() {
-        let _ = room_stream.recv().await.expect("read error");
-    } else {
-        assert_eq!(events.len(), 1);
-    }
+    wait_for_initial_events(events, &mut room_stream).await;
 
     let mut num_iterations = 0;
     let mut num_paginations = 0;
@@ -552,7 +563,8 @@ async fn test_reset_while_backpaginating() {
                 // Note to self: a timeline must have at least single event to be properly
                 // serialized.
                 .add_timeline_event(f.text_msg("heyo").into_raw_sync())
-                .set_timeline_prev_batch("first_backpagination".to_owned()),
+                .set_timeline_prev_batch("first_backpagination".to_owned())
+                .set_timeline_limited(),
         )
         .await;
 
