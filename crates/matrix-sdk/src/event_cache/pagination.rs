@@ -137,105 +137,87 @@ impl RoomPagination {
 
         // Check that the previous token still exists; otherwise it's a sign that the
         // room's timeline has been cleared.
-        let gap_identifier = if let Some(token) = prev_token {
-            let gap_identifier = state.events().chunk_identifier(|chunk| {
+        let prev_gap_id = if let Some(token) = prev_token {
+            let gap_id = state.events().chunk_identifier(|chunk| {
                 matches!(chunk.content(), ChunkContent::Gap(Gap { ref prev_token }) if *prev_token == token)
             });
 
-            // The method has been called with `token` but it doesn't exist in `RoomEvents`,
-            // it's an error.
-            if gap_identifier.is_none() {
+            // We got a previous-batch token from the linked chunk *before* running the
+            // request, which is missing from the linked chunk *after*
+            // completing the request. It may be a sign the linked chunk has
+            // been reset, and it's an error in any case.
+            if gap_id.is_none() {
                 return Ok(None);
             }
 
-            gap_identifier
+            gap_id
         } else {
             None
         };
 
-        let prev_token = paginator.prev_batch_token().map(|prev_token| Gap { prev_token });
+        let new_gap = paginator.prev_batch_token().map(|prev_token| Gap { prev_token });
 
-        Ok(Some(state.with_events_mut(move |room_events| {
-            // Note: The chunk could be empty.
-            //
-            // If there's any event, they are presented in reverse order (i.e. the first one
-            // should be prepended first).
+        Ok(Some(
+            state
+                .with_events_mut(move |room_events| {
+                    // Note: The chunk could be empty.
+                    //
+                    // If there's any event, they are presented in reverse order (i.e. the first one
+                    // should be prepended first).
 
-            let sync_events = events
-                .iter()
-                // Reverse the order of the events as `/messages` has been called with `dir=b`
-                // (backward). The `RoomEvents` API expects the first event to be the oldest.
-                .rev()
-                .cloned()
-                .map(SyncTimelineEvent::from);
+                    let sync_events = events
+                        .iter()
+                        // Reverse the order of the events as `/messages` has been called with
+                        // `dir=b` (backward). The `RoomEvents` API expects
+                        // the first event to be the oldest.
+                        .rev()
+                        .cloned()
+                        .map(SyncTimelineEvent::from);
 
+                    // There is a prior gap, let's replace it by new events!
+                    if let Some(gap_id) = prev_gap_id {
+                        // Replace the gap chunk with an items chunk containing the new events.
+                        let events_chunk_pos = room_events
+                            .replace_gap_at(sync_events, gap_id)
+                            .expect("gap_identifier is a valid chunk id we read previously")
+                            .first_position();
 
-            // There is a `token`/gap, let's replace it by new events!
-            if let Some(gap_identifier) = gap_identifier {
-                let new_position = {
-                    // Replace the gap by new events.
-                    let new_chunk = room_events
-                        .replace_gap_at(sync_events, gap_identifier)
-                        // SAFETY: we are sure that `gap_identifier` represents a valid
-                        // `ChunkIdentifier` for a `Gap` chunk.
-                        .expect("The `gap_identifier` must represent a `Gap`");
+                        // And insert a new gap if needs be.
+                        if let Some(new_gap) = new_gap {
+                            room_events
+                                .insert_gap_at(new_gap, events_chunk_pos)
+                                .expect("events_chunk_pos represents a valid chunk position");
+                        }
 
-                    new_chunk.first_position()
-                };
+                        trace!("replaced gap with new events from backpagination");
+                        return BackPaginationOutcome { events, reached_start };
+                    }
 
-                // And insert a new gap if there is any `prev_token`.
-                if let Some(prev_token_gap) = prev_token {
-                    room_events
-                        .insert_gap_at(prev_token_gap, new_position)
-                        // SAFETY: we are sure that `new_position` represents a valid
-                        // `ChunkIdentifier` for an `Item` chunk.
-                        .expect("The `new_position` must represent an `Item`");
-                }
+                    // There is no known previous gap. Let's assume we must prepend the new events.
+                    let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
 
-                trace!("replaced gap with new events from backpagination");
+                    if let Some(pos) = first_event_pos {
+                        if let Some(new_gap) = new_gap {
+                            room_events
+                                .insert_gap_at(new_gap, pos)
+                                .expect("pos is a valid position we just read above");
+                        }
 
-                // TODO: implement smarter reconciliation later
-                //let _ = self.sender.send(RoomEventCacheUpdate::Prepend { events });
-
-                return BackPaginationOutcome { events, reached_start };
-            }
-
-            // There is no `token`/gap identifier. Let's assume we must prepend the new
-            // events.
-            let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
-
-            match first_event_pos {
-                // Is there a first item? Insert at this position.
-                Some(first_event_pos) => {
-                    if let Some(prev_token_gap) = prev_token {
                         room_events
-                            .insert_gap_at(prev_token_gap, first_event_pos)
-                            // SAFETY: The `first_event_pos` can only be an `Item` chunk, it's
-                            // an invariant of `LinkedChunk`. Also, it can only represent a valid
-                            // `ChunkIdentifier` as the data structure isn't modified yet.
-                            .expect("`first_event_pos` must point to a valid `Item` chunk when inserting a gap");
+                            .insert_events_at(sync_events, pos)
+                            .expect("pos is a valid position we just read above");
+                    } else {
+                        if let Some(prev_token_gap) = new_gap {
+                            room_events.push_gap(prev_token_gap);
+                        }
+
+                        room_events.push_events(sync_events);
                     }
 
-                    room_events
-                        .insert_events_at(sync_events, first_event_pos)
-                        // SAFETY: The `first_event_pos` can only be an `Item` chunk, it's
-                        // an invariant of `LinkedChunk`. The chunk it points to has not been
-                        // removed.
-                        .expect("The `first_event_pos` must point to a valid `Item` chunk when inserting events");
-                }
-
-                // There is no first item. Let's simply push.
-                None => {
-                    if let Some(prev_token_gap) = prev_token {
-                        room_events.push_gap(prev_token_gap);
-                    }
-
-                    room_events.push_events(sync_events);
-                }
-            }
-
-            BackPaginationOutcome { events, reached_start }
-        }).await?))
+                    BackPaginationOutcome { events, reached_start }
+                })
+                .await?,
+        ))
     }
 
     /// Get the latest pagination token, as stored in the room events linked
