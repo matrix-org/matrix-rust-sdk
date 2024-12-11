@@ -34,7 +34,7 @@ use tracing::error;
 use super::RUNTIME;
 use crate::{
     chunk_iterator::ChunkIterator,
-    client::JoinRule,
+    client::{JoinRule, RoomVisibility},
     error::{ClientError, MediaInfoError, NotYetImplemented, RoomError},
     event::{MessageLikeEventType, RoomMessageEventMessageType, StateEventType},
     identity_status_change::IdentityStatusChange,
@@ -943,6 +943,14 @@ impl Room {
     pub async fn update_join_rules(&self, new_rule: JoinRule) -> Result<(), ClientError> {
         let new_rule: RumaJoinRule = new_rule.try_into()?;
         self.inner.update_join_rule(new_rule).await.map_err(Into::into)
+    }
+
+    /// Update the room's visibility in the room directory.
+    pub async fn update_room_visibility(
+        &self,
+        visibility: RoomVisibility,
+    ) -> Result<(), ClientError> {
+        self.inner.update_room_visibility(visibility.into()).await.map_err(Into::into)
     }
 }
 

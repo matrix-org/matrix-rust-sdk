@@ -1,5 +1,5 @@
 use ruma::{
-    api::client::state::send_state_event,
+    api::client::{directory::set_room_visibility, room::Visibility, state::send_state_event},
     assign,
     events::{
         room::{
@@ -89,12 +89,22 @@ impl Room {
         self.client.remove_room_alias(&previous_alias).await?;
         Ok(())
     }
+
+    /// Update the visibility for this room in the room directory.
+    pub async fn update_room_visibility(&self, visibility: Visibility) -> Result<()> {
+        let request = set_room_visibility::v3::Request::new(self.room_id().to_owned(), visibility);
+
+        self.client.send(request, None).await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use matrix_sdk_test::{async_test, JoinedRoomBuilder, StateTestEvent};
     use ruma::{
+        api::client::room::Visibility,
         event_id,
         events::{
             room::{history_visibility::HistoryVisibility, join_rules::JoinRule},
@@ -411,6 +421,20 @@ mod tests {
             .await;
 
         let ret = room.update_join_rule(JoinRule::Public).await;
+        assert!(ret.is_ok());
+    }
+
+    #[async_test]
+    async fn test_update_room_visibility() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        server.mock_room_directory_set_room_visibility().ok().mock_once().mount().await;
+
+        let ret = room.update_room_visibility(Visibility::Private).await;
         assert!(ret.is_ok());
     }
 }
