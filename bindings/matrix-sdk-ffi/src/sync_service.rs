@@ -201,6 +201,22 @@ pub struct UnableToDecryptInfo {
     /// What we know about what caused this UTD. E.g. was this event sent when
     /// we were not a member of this room?
     pub cause: UtdCause,
+
+    /// The difference between the event creation time (`origin_server_ts`) and
+    /// the time our device was created. If negative, this event was sent
+    /// *before* our device was created.
+    pub event_local_age_millis: i64,
+
+    /// Whether the user had verified their own identity at the point they
+    /// received the UTD event.
+    pub user_trusts_own_identity: bool,
+
+    /// The homeserver of the user that sent the undecryptable event.
+    pub sender_homeserver: String,
+
+    /// Our local user's own homeserver, or `None` if the client is not logged
+    /// in.
+    pub own_homeserver: Option<String>,
 }
 
 impl From<SdkUnableToDecryptInfo> for UnableToDecryptInfo {
@@ -209,6 +225,10 @@ impl From<SdkUnableToDecryptInfo> for UnableToDecryptInfo {
             event_id: value.event_id.to_string(),
             time_to_decrypt_ms: value.time_to_decrypt.map(|ttd| ttd.as_millis() as u64),
             cause: value.cause,
+            event_local_age_millis: value.event_local_age_millis,
+            user_trusts_own_identity: value.user_trusts_own_identity,
+            sender_homeserver: value.sender_homeserver.to_string(),
+            own_homeserver: value.own_homeserver.map(String::from),
         }
     }
 }
