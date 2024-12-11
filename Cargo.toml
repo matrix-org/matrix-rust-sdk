@@ -22,6 +22,7 @@ rust-version = "1.82"
 
 [workspace.dependencies]
 anyhow = "1.0.93"
+cached = "0.36.0"
 aquamarine = "0.6.0"
 assert-json-diff = "2.0.2"
 assert_matches = "1.5.0"
