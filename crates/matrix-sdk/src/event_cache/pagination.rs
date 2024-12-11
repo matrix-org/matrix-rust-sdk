@@ -157,67 +157,65 @@ impl RoomPagination {
 
         let new_gap = paginator.prev_batch_token().map(|prev_token| Gap { prev_token });
 
-        Ok(Some(
-            state
-                .with_events_mut(move |room_events| {
-                    // Note: The chunk could be empty.
-                    //
-                    // If there's any event, they are presented in reverse order (i.e. the first one
-                    // should be prepended first).
+        let result = state
+            .with_events_mut(move |room_events| {
+                // Note: The chunk could be empty.
+                //
+                // If there's any event, they are presented in reverse order (i.e. the first one
+                // should be prepended first).
 
-                    let sync_events = events
-                        .iter()
-                        // Reverse the order of the events as `/messages` has been called with
-                        // `dir=b` (backward). The `RoomEvents` API expects
-                        // the first event to be the oldest.
-                        .rev()
-                        .cloned()
-                        .map(SyncTimelineEvent::from);
+                let sync_events = events
+                    .iter()
+                    // Reverse the order of the events as `/messages` has been called with `dir=b`
+                    // (backward). The `RoomEvents` API expects the first event to be the oldest.
+                    .rev()
+                    .cloned()
+                    .map(SyncTimelineEvent::from);
 
-                    let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
+                let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
 
-                    // First, insert events.
-                    let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
-                        // There is a prior gap, let's replace it by new events!
-                        trace!("replaced gap with new events from backpagination");
-                        Some(
-                            room_events
-                                .replace_gap_at(sync_events, gap_id)
-                                .expect("gap_identifier is a valid chunk id we read previously")
-                                .first_position(),
-                        )
-                    } else if let Some(pos) = first_event_pos
-                    {
-                        // No prior gap, but we had some events: assume we need to prepend events
-                        // before those.
-                        trace!("inserted events before the first known event");
+                // First, insert events.
+                let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
+                    // There is a prior gap, let's replace it by new events!
+                    trace!("replaced gap with new events from backpagination");
+                    Some(
                         room_events
-                            .insert_events_at(sync_events, pos)
-                            .expect("pos is a valid position we just read above");
-                        Some(pos)
+                            .replace_gap_at(sync_events, gap_id)
+                            .expect("gap_identifier is a valid chunk id we read previously")
+                            .first_position(),
+                    )
+                } else if let Some(pos) = first_event_pos {
+                    // No prior gap, but we had some events: assume we need to prepend events
+                    // before those.
+                    trace!("inserted events before the first known event");
+                    room_events
+                        .insert_events_at(sync_events, pos)
+                        .expect("pos is a valid position we just read above");
+                    Some(pos)
+                } else {
+                    // No prior gap, and no prior events: push the events.
+                    trace!("pushing events received from back-pagination");
+                    room_events.push_events(sync_events);
+                    // A new gap may be inserted before the new events, if there are any.
+                    room_events.events().next().map(|(item_pos, _)| item_pos)
+                };
+
+                // And insert the new gap if needs be.
+                if let Some(new_gap) = new_gap {
+                    if let Some(new_pos) = insert_new_gap_pos {
+                        room_events
+                            .insert_gap_at(new_gap, new_pos)
+                            .expect("events_chunk_pos represents a valid chunk position");
                     } else {
-                        // No prior gap, and no prior events: push the events.
-                        trace!("pushing events received from back-pagination, as there were no previous events");
-                        room_events.push_events(sync_events);
-                        // A new gap may be inserted before the new events, if there are any.
-                        room_events.events().next().map(|(item_pos, _)| item_pos)
-                    };
-
-                    // And insert the new gap if needs be.
-                    if let Some(new_gap) = new_gap {
-                        if let Some(new_pos) = insert_new_gap_pos {
-                            room_events
-                                .insert_gap_at(new_gap, new_pos)
-                                .expect("events_chunk_pos represents a valid chunk position");
-                        } else {
-                            room_events.push_gap(new_gap);
-                        }
+                        room_events.push_gap(new_gap);
                     }
+                }
 
-                    BackPaginationOutcome { events, reached_start }
-                })
-                .await?,
-        ))
+                BackPaginationOutcome { events, reached_start }
+            })
+            .await?;
+
+        Ok(Some(result))
     }
 
     /// Get the latest pagination token, as stored in the room events linked
