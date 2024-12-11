@@ -197,15 +197,16 @@ impl RoomPagination {
                     let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
 
                     if let Some(pos) = first_event_pos {
+                        room_events
+                            .insert_events_at(sync_events, pos)
+                            .expect("pos is a valid position we just read above");
+
                         if let Some(new_gap) = new_gap {
+                            // Insert the gap, before the events we just inserted at pos.
                             room_events
                                 .insert_gap_at(new_gap, pos)
                                 .expect("pos is a valid position we just read above");
                         }
-
-                        room_events
-                            .insert_events_at(sync_events, pos)
-                            .expect("pos is a valid position we just read above");
                     } else {
                         if let Some(prev_token_gap) = new_gap {
                             room_events.push_gap(prev_token_gap);
