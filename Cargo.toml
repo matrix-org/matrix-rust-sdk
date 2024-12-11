@@ -22,7 +22,6 @@ rust-version = "1.82"
 
 [workspace.dependencies]
 anyhow = "1.0.93"
-cached = "0.36.0"
 aquamarine = "0.6.0"
 assert-json-diff = "2.0.2"
 assert_matches = "1.5.0"
@@ -109,6 +108,7 @@ matrix-sdk-sqlite = { path = "crates/matrix-sdk-sqlite", version = "0.8.0", defa
 matrix-sdk-store-encryption = { path = "crates/matrix-sdk-store-encryption", version = "0.8.0" }
 matrix-sdk-test = { path = "testing/matrix-sdk-test", version = "0.7.0" }
 matrix-sdk-ui = { path = "crates/matrix-sdk-ui", version = "0.8.0", default-features = false }
+cached = { version = "0.36.0", features = ["proc_macro"] }
 
 # Default release profile, select with `--release`
 [profile.release]
