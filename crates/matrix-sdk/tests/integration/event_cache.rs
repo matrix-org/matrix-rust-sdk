@@ -9,18 +9,15 @@ use matrix_sdk::{
         paginator::PaginatorState, BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate,
         TimelineHasBeenResetWhilePaginating,
     },
-    test_utils::{assert_event_matches_msg, logged_in_client_with_server, mocks::MatrixMockServer},
+    test_utils::{assert_event_matches_msg, mocks::MatrixMockServer},
 };
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, GlobalAccountDataTestEvent, JoinedRoomBuilder,
-    SyncResponseBuilder,
 };
 use ruma::{event_id, room_id, user_id};
 use serde_json::json;
 use tokio::{spawn, sync::broadcast};
 use wiremock::ResponseTemplate;
-
-use crate::mock_sync;
 
 async fn once(
     outcome: BackPaginationOutcome,
@@ -31,24 +28,14 @@ async fn once(
 
 #[async_test]
 async fn test_must_explicitly_subscribe() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let room_id = room_id!("!omelette:fromage.fr");
 
-    {
-        // Make sure the client is aware of the room.
-        let mut sync_builder = SyncResponseBuilder::new();
-        sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-        let response_body = sync_builder.build_json_sync_response();
-
-        mock_sync(&server, response_body, None).await;
-        client.sync_once(Default::default()).await.unwrap();
-        server.reset().await;
-    }
-
     // If I create a room event subscriber for a room before subscribing the event
     // cache,
-    let room = client.get_room(room_id).unwrap();
+    let room = server.sync_joined_room(&client, room_id).await;
     let result = room.event_cache().await;
 
     // Then it fails, because one must explicitly call `.subscribe()` on the event
@@ -58,25 +45,17 @@ async fn test_must_explicitly_subscribe() {
 
 #[async_test]
 async fn test_event_cache_receives_events() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     // Immediately subscribe the event cache to sync updates.
     client.event_cache().subscribe().unwrap();
 
     // If I sync and get informed I've joined The Room, but with no events,
     let room_id = room_id!("!omelette:fromage.fr");
-
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-    let response_body = sync_builder.build_json_sync_response();
-
-    mock_sync(&server, response_body, None).await;
-    client.sync_once(Default::default()).await.unwrap();
-    server.reset().await;
+    let room = server.sync_joined_room(&client, room_id).await;
 
     // If I create a room event subscriber,
-
-    let room = client.get_room(room_id).unwrap();
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
     let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
 
@@ -84,23 +63,21 @@ async fn test_event_cache_receives_events() {
     assert!(events.is_empty());
     assert!(subscriber.is_empty());
 
-    let ev_factory = EventFactory::new().sender(user_id!("@dexter:lab.org"));
+    let f = EventFactory::new().sender(user_id!("@dexter:lab.org"));
 
     // And after a sync, yielding updates to two rooms,
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(ev_factory.text_msg("bonjour monde")),
-    );
-
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id!("!parallel:universe.uk"))
-            .add_timeline_event(ev_factory.text_msg("hi i'm learning French")),
-    );
-
-    let response_body = sync_builder.build_json_sync_response();
-
-    mock_sync(&server, response_body, None).await;
-    client.sync_once(Default::default()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("bonjour monde")),
+            );
+            sync_builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id!("!parallel:universe.uk"))
+                    .add_timeline_event(f.text_msg("hi i'm learning French")),
+            );
+        })
+        .await;
 
     // It does receive one update,
     assert_let_timeout!(
