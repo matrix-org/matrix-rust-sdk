@@ -21,9 +21,7 @@ use matrix_sdk_common::{
         AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, SyncTimelineEvent, TimelineEventKind,
         VerificationState,
     },
-    linked_chunk::{
-        ChunkContent, LinkedChunk, LinkedChunkBuilder, Position, RawLinkedChunk, Update,
-    },
+    linked_chunk::{ChunkContent, LinkedChunk, LinkedChunkBuilder, Position, RawChunk, Update},
 };
 use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
 use ruma::{
@@ -121,9 +119,7 @@ pub trait EventCacheStoreIntegrationTests {
     async fn test_clear_all_rooms_chunks(&self);
 }
 
-fn rebuild_linked_chunk(
-    raws: Vec<RawLinkedChunk<Event, Gap>>,
-) -> Option<LinkedChunk<3, Event, Gap>> {
+fn rebuild_linked_chunk(raws: Vec<RawChunk<Event, Gap>>) -> Option<LinkedChunk<3, Event, Gap>> {
     LinkedChunkBuilder::from_raw_parts(raws).build().unwrap()
 }
 

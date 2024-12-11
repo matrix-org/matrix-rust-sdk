@@ -1064,7 +1064,7 @@ impl<'a, const CAP: usize, Item, Gap> Iterator for Iter<'a, CAP, Item, Gap> {
 }
 
 /// This enum represents the content of a [`Chunk`].
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ChunkContent<Item, Gap> {
     /// The chunk represents a gap in the linked chunk, i.e. a hole. It
     /// means that some items are missing in this location.
@@ -1072,15 +1072,6 @@ pub enum ChunkContent<Item, Gap> {
 
     /// The chunk contains items.
     Items(Vec<Item>),
-}
-
-impl<Item: Clone, Gap: Clone> Clone for ChunkContent<Item, Gap> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Gap(gap) => Self::Gap(gap.clone()),
-            Self::Items(items) => Self::Items(items.clone()),
-        }
-    }
 }
 
 /// A chunk is a node in the [`LinkedChunk`].
@@ -1429,8 +1420,12 @@ impl EmptyChunk {
 }
 
 /// The raw representation of a linked chunk, as persisted in storage.
-#[derive(Debug)]
-pub struct RawLinkedChunk<Item, Gap> {
+///
+/// It may rebuilt into [`Chunk`] and shares the same internal representation,
+/// except that links are materialized using [`ChunkIdentifier`] instead of raw
+/// pointers to the previous and next chunks.
+#[derive(Clone, Debug)]
+pub struct RawChunk<Item, Gap> {
     /// Content section of the linked chunk.
     pub content: ChunkContent<Item, Gap>,
 
@@ -1438,21 +1433,10 @@ pub struct RawLinkedChunk<Item, Gap> {
     pub previous: Option<ChunkIdentifier>,
 
     /// Current chunk's identifier.
-    pub id: ChunkIdentifier,
+    pub identifier: ChunkIdentifier,
 
     /// Link to the next chunk, via its identifier.
     pub next: Option<ChunkIdentifier>,
-}
-
-impl<Item: Clone, Gap: Clone> Clone for RawLinkedChunk<Item, Gap> {
-    fn clone(&self) -> Self {
-        Self {
-            content: self.content.clone(),
-            previous: self.previous,
-            id: self.id,
-            next: self.next,
-        }
-    }
 }
 
 #[cfg(test)]

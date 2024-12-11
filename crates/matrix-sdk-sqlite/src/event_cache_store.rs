@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     event_cache::{store::EventCacheStore, Event, Gap},
-    linked_chunk::{ChunkContent, ChunkIdentifier, RawLinkedChunk, Update},
+    linked_chunk::{ChunkContent, ChunkIdentifier, RawChunk, Update},
     media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_store_encryption::StoreCipher;
@@ -148,7 +148,7 @@ impl SqliteEventCacheStore {
         &self,
         room_id: &RoomId,
         chunk_id: ChunkIdentifier,
-    ) -> Result<RawLinkedChunk<Event, Gap>> {
+    ) -> Result<RawChunk<Event, Gap>> {
         let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
 
         let this = self.clone();
@@ -176,7 +176,7 @@ trait TransactionExtForLinkedChunks {
         index: u64,
         next: Option<u64>,
         chunk_type: &str,
-    ) -> Result<RawLinkedChunk<Event, Gap>>;
+    ) -> Result<RawChunk<Event, Gap>>;
 
     fn load_gap_content(
         &self,
@@ -202,7 +202,7 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
         id: u64,
         next: Option<u64>,
         chunk_type: &str,
-    ) -> Result<RawLinkedChunk<Event, Gap>> {
+    ) -> Result<RawChunk<Event, Gap>> {
         let previous = previous.map(ChunkIdentifier::new);
         let next = next.map(ChunkIdentifier::new);
         let id = ChunkIdentifier::new(id);
@@ -212,13 +212,18 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
                 // It's a gap! There's at most one row for it in the database, so a
                 // call to `query_row` is sufficient.
                 let gap = self.load_gap_content(store, room_id, id)?;
-                Ok(RawLinkedChunk { content: ChunkContent::Gap(gap), previous, id, next })
+                Ok(RawChunk { content: ChunkContent::Gap(gap), previous, identifier: id, next })
             }
 
             CHUNK_TYPE_EVENT_TYPE_STRING => {
                 // It's events!
                 let events = self.load_events_content(store, room_id, id)?;
-                Ok(RawLinkedChunk { content: ChunkContent::Items(events), previous, id, next })
+                Ok(RawChunk {
+                    content: ChunkContent::Items(events),
+                    previous,
+                    identifier: id,
+                    next,
+                })
             }
 
             other => {
@@ -537,7 +542,7 @@ impl EventCacheStore for SqliteEventCacheStore {
     async fn reload_linked_chunk(
         &self,
         room_id: &RoomId,
-    ) -> Result<Vec<RawLinkedChunk<Event, Gap>>, Self::Error> {
+    ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
         let room_id = room_id.to_owned();
         let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, &room_id);
 
@@ -904,7 +909,7 @@ mod tests {
         {
             // Chunks are ordered from smaller to bigger IDs.
             let c = chunks.remove(0);
-            assert_eq!(c.id, ChunkIdentifier::new(13));
+            assert_eq!(c.identifier, ChunkIdentifier::new(13));
             assert_eq!(c.previous, Some(ChunkIdentifier::new(42)));
             assert_eq!(c.next, Some(ChunkIdentifier::new(37)));
             assert_matches!(c.content, ChunkContent::Items(events) => {
@@ -912,7 +917,7 @@ mod tests {
             });
 
             let c = chunks.remove(0);
-            assert_eq!(c.id, ChunkIdentifier::new(37));
+            assert_eq!(c.identifier, ChunkIdentifier::new(37));
             assert_eq!(c.previous, Some(ChunkIdentifier::new(13)));
             assert_eq!(c.next, None);
             assert_matches!(c.content, ChunkContent::Items(events) => {
@@ -920,7 +925,7 @@ mod tests {
             });
 
             let c = chunks.remove(0);
-            assert_eq!(c.id, ChunkIdentifier::new(42));
+            assert_eq!(c.identifier, ChunkIdentifier::new(42));
             assert_eq!(c.previous, None);
             assert_eq!(c.next, Some(ChunkIdentifier::new(13)));
             assert_matches!(c.content, ChunkContent::Items(events) => {
@@ -954,7 +959,7 @@ mod tests {
 
         // Chunks are ordered from smaller to bigger IDs.
         let c = chunks.remove(0);
-        assert_eq!(c.id, ChunkIdentifier::new(42));
+        assert_eq!(c.identifier, ChunkIdentifier::new(42));
         assert_eq!(c.previous, None);
         assert_eq!(c.next, None);
         assert_matches!(c.content, ChunkContent::Gap(gap) => {
@@ -1002,7 +1007,7 @@ mod tests {
 
         // Chunks are ordered from smaller to bigger IDs.
         let c = chunks.remove(0);
-        assert_eq!(c.id, ChunkIdentifier::new(42));
+        assert_eq!(c.identifier, ChunkIdentifier::new(42));
         assert_eq!(c.previous, None);
         assert_eq!(c.next, Some(ChunkIdentifier::new(44)));
         assert_matches!(c.content, ChunkContent::Gap(gap) => {
@@ -1010,7 +1015,7 @@ mod tests {
         });
 
         let c = chunks.remove(0);
-        assert_eq!(c.id, ChunkIdentifier::new(44));
+        assert_eq!(c.identifier, ChunkIdentifier::new(44));
         assert_eq!(c.previous, Some(ChunkIdentifier::new(42)));
         assert_eq!(c.next, None);
         assert_matches!(c.content, ChunkContent::Gap(gap) => {
@@ -1074,7 +1079,7 @@ mod tests {
         assert_eq!(chunks.len(), 1);
 
         let c = chunks.remove(0);
-        assert_eq!(c.id, ChunkIdentifier::new(42));
+        assert_eq!(c.identifier, ChunkIdentifier::new(42));
         assert_eq!(c.previous, None);
         assert_eq!(c.next, None);
         assert_matches!(c.content, ChunkContent::Items(events) => {
@@ -1119,7 +1124,7 @@ mod tests {
         assert_eq!(chunks.len(), 1);
 
         let c = chunks.remove(0);
-        assert_eq!(c.id, ChunkIdentifier::new(42));
+        assert_eq!(c.identifier, ChunkIdentifier::new(42));
         assert_eq!(c.previous, None);
         assert_eq!(c.next, None);
         assert_matches!(c.content, ChunkContent::Items(events) => {
@@ -1178,7 +1183,7 @@ mod tests {
         assert_eq!(chunks.len(), 1);
 
         let c = chunks.remove(0);
-        assert_eq!(c.id, ChunkIdentifier::new(42));
+        assert_eq!(c.identifier, ChunkIdentifier::new(42));
         assert_eq!(c.previous, None);
         assert_eq!(c.next, None);
         assert_matches!(c.content, ChunkContent::Items(events) => {
@@ -1225,7 +1230,7 @@ mod tests {
         assert_eq!(chunks.len(), 1);
 
         let c = chunks.remove(0);
-        assert_eq!(c.id, ChunkIdentifier::new(42));
+        assert_eq!(c.identifier, ChunkIdentifier::new(42));
         assert_eq!(c.previous, None);
         assert_eq!(c.next, None);
         assert_matches!(c.content, ChunkContent::Items(events) => {

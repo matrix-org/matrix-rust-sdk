@@ -16,7 +16,7 @@ use std::{collections::HashMap, num::NonZeroUsize, sync::RwLock as StdRwLock, ti
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    linked_chunk::{relational::RelationalLinkedChunk, RawLinkedChunk, Update},
+    linked_chunk::{relational::RelationalLinkedChunk, RawChunk, Update},
     ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
 };
@@ -96,7 +96,7 @@ impl EventCacheStore for MemoryStore {
     async fn reload_linked_chunk(
         &self,
         room_id: &RoomId,
-    ) -> Result<Vec<RawLinkedChunk<Event, Gap>>, Self::Error> {
+    ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
         let inner = self.inner.read().unwrap();
         inner
             .events
