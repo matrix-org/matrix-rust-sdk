@@ -1315,25 +1315,16 @@ impl_crypto_store! {
     }
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
-        let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id);
-
-        // Get the transaction with the correct mode
-        let transaction = self
-            .inner
-            .transaction_on_one_with_mode(keys::ROOM_SETTINGS, IdbTransactionMode::Readonly)?;
-
-        // Get the object store and the value associated with the key
-        let result = transaction
-            .object_store(keys::ROOM_SETTINGS)?
-            .get(&key)?;
-
-        let value = result.await?;
-
-        // Deserialize and return the result, returning Option directly if there's no value
-        value
-            .map(|v| self.serializer.deserialize_value(v))
-            .transpose()
-}
+        let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id); 
+        self
+             .inner 
+             .transaction_on_one_with_mode(keys::ROOM_SETTINGS, IdbTransactionMode::Readonly)? 
+             .object_store(keys::ROOM_SETTINGS)? 
+             .get(&key)? 
+             .await? 
+             .map(|v| self.serializer.deserialize_value(v)) 
+             .transpose() 
+     } 
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
         self
