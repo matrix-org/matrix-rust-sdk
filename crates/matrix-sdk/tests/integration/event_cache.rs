@@ -857,3 +857,85 @@ async fn test_limited_timeline_with_storage() {
     // That's all, folks!
     assert!(subscriber.is_empty());
 }
+
+#[async_test]
+async fn test_backpaginate_with_no_initial_events() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+
+    // Immediately subscribe the event cache to sync updates.
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    // Start with a room with an event, but no prev-batch token.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello").event_id(event_id!("$3"))),
+        )
+        .await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+    wait_for_initial_events(events, &mut stream).await;
+
+    // The first back-pagination will return these two events.
+    //
+    // Note: it's important to return the same event that came from sync: since we
+    // will back-paginate without a prev-batch token first, we'll back-paginate
+    // from the end of the timeline, which must include the event we got from
+    // sync.
+
+    server
+        .mock_room_messages()
+        .ok(
+            "start-token-unused1".to_owned(),
+            Some("prev_batch".to_owned()),
+            vec![
+                f.text_msg("world").event_id(event_id!("$2")),
+                f.text_msg("hello").event_id(event_id!("$3")),
+            ],
+            Vec::new(),
+        )
+        .mock_once()
+        .mount()
+        .await;
+
+    // The second round of back-pagination will return this one.
+    server
+        .mock_room_messages()
+        .from("prev_batch")
+        .ok(
+            "start-token-unused2".to_owned(),
+            None,
+            vec![f.text_msg("oh well").event_id(event_id!("$1"))],
+            Vec::new(),
+        )
+        .mock_once()
+        .mount()
+        .await;
+
+    let pagination = room_event_cache.pagination();
+
+    // Run pagination: since there's no token, we'll wait a bit for a sync to return
+    // one, and since there's none, we'll end up starting from the end of the
+    // timeline.
+    pagination.run_backwards(20, once).await.unwrap();
+    // Second pagination will be instant.
+    pagination.run_backwards(20, once).await.unwrap();
+
+    // The linked chunk should contain the events in the correct order.
+    let (events, _stream) = room_event_cache.subscribe().await.unwrap();
+
+    assert_event_matches_msg(&events[0], "oh well");
+    assert_event_matches_msg(&events[1], "hello");
+    assert_event_matches_msg(&events[2], "world");
+    assert_eq!(events.len(), 3);
+}
