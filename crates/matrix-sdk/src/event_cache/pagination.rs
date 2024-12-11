@@ -174,45 +174,44 @@ impl RoomPagination {
                         .cloned()
                         .map(SyncTimelineEvent::from);
 
-                    // There is a prior gap, let's replace it by new events!
-                    if let Some(gap_id) = prev_gap_id {
-                        // Replace the gap chunk with an items chunk containing the new events.
-                        let events_chunk_pos = room_events
-                            .replace_gap_at(sync_events, gap_id)
-                            .expect("gap_identifier is a valid chunk id we read previously")
-                            .first_position();
-
-                        // And insert a new gap if needs be.
-                        if let Some(new_gap) = new_gap {
-                            room_events
-                                .insert_gap_at(new_gap, events_chunk_pos)
-                                .expect("events_chunk_pos represents a valid chunk position");
-                        }
-
-                        trace!("replaced gap with new events from backpagination");
-                        return BackPaginationOutcome { events, reached_start };
-                    }
-
-                    // There is no known previous gap. Let's assume we must prepend the new events.
                     let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
 
-                    if let Some(pos) = first_event_pos {
+                    // First, insert events.
+                    let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
+                        // There is a prior gap, let's replace it by new events!
+                        trace!("replaced gap with new events from backpagination");
+                        Some(
+                            room_events
+                                .replace_gap_at(sync_events, gap_id)
+                                .expect("gap_identifier is a valid chunk id we read previously")
+                                .first_position(),
+                        )
+                    } else if let Some(pos) = first_event_pos
+                    {
+                        // No prior gap, but we had some events: assume we need to prepend events
+                        // before those.
+                        trace!("inserted events before the first known event");
                         room_events
                             .insert_events_at(sync_events, pos)
                             .expect("pos is a valid position we just read above");
-
-                        if let Some(new_gap) = new_gap {
-                            // Insert the gap, before the events we just inserted at pos.
-                            room_events
-                                .insert_gap_at(new_gap, pos)
-                                .expect("pos is a valid position we just read above");
-                        }
+                        Some(pos)
                     } else {
-                        if let Some(prev_token_gap) = new_gap {
-                            room_events.push_gap(prev_token_gap);
-                        }
-
+                        // No prior gap, and no prior events: push the events.
+                        trace!("pushing events received from back-pagination, as there were no previous events");
                         room_events.push_events(sync_events);
+                        // A new gap may be inserted before the new events, if there are any.
+                        room_events.events().next().map(|(item_pos, _)| item_pos)
+                    };
+
+                    // And insert the new gap if needs be.
+                    if let Some(new_gap) = new_gap {
+                        if let Some(new_pos) = insert_new_gap_pos {
+                            room_events
+                                .insert_gap_at(new_gap, new_pos)
+                                .expect("events_chunk_pos represents a valid chunk position");
+                        } else {
+                            room_events.push_gap(new_gap);
+                        }
                     }
 
                     BackPaginationOutcome { events, reached_start }

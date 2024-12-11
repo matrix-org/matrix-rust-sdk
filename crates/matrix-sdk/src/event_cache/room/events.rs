@@ -111,7 +111,7 @@ impl RoomEvents {
 
     /// Push a gap after all events or gaps.
     pub fn push_gap(&mut self, gap: Gap) {
-        self.chunks.push_gap_back(gap)
+        self.chunks.push_gap_back(gap);
     }
 
     /// Insert events at a specified position.
