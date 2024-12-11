@@ -16,7 +16,7 @@ use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    linked_chunk::{RawLinkedChunk, Update},
+    linked_chunk::{RawChunk, Update},
     AsyncTraitDeps,
 };
 use ruma::{MxcUri, RoomId};
@@ -62,7 +62,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     async fn reload_linked_chunk(
         &self,
         room_id: &RoomId,
-    ) -> Result<Vec<RawLinkedChunk<Event, Gap>>, Self::Error>;
+    ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error>;
 
     /// Clear persisted events for all the rooms.
     ///
@@ -192,7 +192,7 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
     async fn reload_linked_chunk(
         &self,
         room_id: &RoomId,
-    ) -> Result<Vec<RawLinkedChunk<Event, Gap>>, Self::Error> {
+    ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
         self.0.reload_linked_chunk(room_id).await.map_err(Into::into)
     }
 

@@ -585,7 +585,7 @@ mod private {
             },
             Event, Gap,
         },
-        linked_chunk::{ChunkContent, LinkedChunk, LinkedChunkBuilder, RawLinkedChunk, Update},
+        linked_chunk::{ChunkContent, LinkedChunk, LinkedChunkBuilder, RawChunk, Update},
     };
     use once_cell::sync::OnceCell;
     use ruma::{serde::Raw, OwnedRoomId, RoomId};
@@ -800,13 +800,12 @@ mod private {
     }
 
     /// Create a debug string over multiple lines (one String per line),
-    /// offering a debug representation of a [`RawLinkedChunk`] loaded from
-    /// disk.
-    fn raw_chunks_debug_string(mut raw_chunks: Vec<RawLinkedChunk<Event, Gap>>) -> Vec<String> {
+    /// offering a debug representation of a [`RawChunk`] loaded from disk.
+    fn raw_chunks_debug_string(mut raw_chunks: Vec<RawChunk<Event, Gap>>) -> Vec<String> {
         let mut result = Vec::new();
 
         // Sort the chunks by id, for the output to be deterministic.
-        raw_chunks.sort_by_key(|c| c.id.index());
+        raw_chunks.sort_by_key(|c| c.identifier.index());
 
         for c in raw_chunks {
             let content = match c.content {
@@ -831,7 +830,8 @@ mod private {
                 c.previous.map_or_else(|| "<none>".to_owned(), |prev| prev.index().to_string());
             let next = c.next.map_or_else(|| "<none>".to_owned(), |prev| prev.index().to_string());
 
-            let line = format!("chunk #{} (prev={prev}, next={next}): {content}", c.id.index());
+            let line =
+                format!("chunk #{} (prev={prev}, next={next}): {content}", c.identifier.index());
 
             result.push(line);
         }
@@ -843,7 +843,7 @@ mod private {
     mod tests {
         use matrix_sdk_base::{
             event_cache::Gap,
-            linked_chunk::{ChunkContent, ChunkIdentifier as CId, RawLinkedChunk},
+            linked_chunk::{ChunkContent, ChunkIdentifier as CId, RawChunk},
         };
         use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
         use ruma::event_id;
@@ -855,19 +855,19 @@ mod private {
             let mut raws = Vec::new();
             let f = EventFactory::new().room(&DEFAULT_TEST_ROOM_ID).sender(*ALICE);
 
-            raws.push(RawLinkedChunk {
+            raws.push(RawChunk {
                 content: ChunkContent::Items(vec![
                     f.text_msg("hey").event_id(event_id!("$1")).into_sync(),
                     f.text_msg("you").event_id(event_id!("$2")).into_sync(),
                 ]),
-                id: CId::new(1),
+                identifier: CId::new(1),
                 previous: Some(CId::new(0)),
                 next: None,
             });
 
-            raws.push(RawLinkedChunk {
+            raws.push(RawChunk {
                 content: ChunkContent::Gap(Gap { prev_token: "prev-token".to_owned() }),
-                id: CId::new(0),
+                identifier: CId::new(0),
                 previous: None,
                 next: Some(CId::new(1)),
             });

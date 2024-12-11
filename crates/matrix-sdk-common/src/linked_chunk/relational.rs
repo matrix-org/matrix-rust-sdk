@@ -17,7 +17,7 @@
 
 use ruma::{OwnedRoomId, RoomId};
 
-use super::{ChunkContent, RawLinkedChunk};
+use super::{ChunkContent, RawChunk};
 use crate::linked_chunk::{ChunkIdentifier, Position, Update};
 
 /// A row of the [`RelationalLinkedChunk::chunks`].
@@ -290,10 +290,7 @@ where
     ///
     /// Return an error result if the data was malformed in the struct, with a
     /// string message explaining details about the error.
-    pub fn reload_chunks(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Vec<RawLinkedChunk<Item, Gap>>, String> {
+    pub fn reload_chunks(&self, room_id: &RoomId) -> Result<Vec<RawChunk<Item, Gap>>, String> {
         let mut result = Vec::new();
 
         for chunk_row in self.chunks.iter().filter(|chunk| chunk.room_id == room_id) {
@@ -310,10 +307,10 @@ where
             let Some(first) = items.peek() else {
                 // The only possibility is that we created an empty items chunk; mark it as
                 // such, and continue.
-                result.push(RawLinkedChunk {
+                result.push(RawChunk {
                     content: ChunkContent::Items(Vec::new()),
                     previous: chunk_row.previous_chunk,
-                    id: chunk_row.chunk,
+                    identifier: chunk_row.chunk,
                     next: chunk_row.next_chunk,
                 });
                 continue;
@@ -340,12 +337,12 @@ where
                     // Sort them by their position.
                     collected_items.sort_unstable_by_key(|(_item, index)| *index);
 
-                    result.push(RawLinkedChunk {
+                    result.push(RawChunk {
                         content: ChunkContent::Items(
                             collected_items.into_iter().map(|(item, _index)| item).collect(),
                         ),
                         previous: chunk_row.previous_chunk,
-                        id: chunk_row.chunk,
+                        identifier: chunk_row.chunk,
                         next: chunk_row.next_chunk,
                     });
                 }
@@ -361,10 +358,10 @@ where
                         ));
                     }
 
-                    result.push(RawLinkedChunk {
+                    result.push(RawChunk {
                         content: ChunkContent::Gap(gap.clone()),
                         previous: chunk_row.previous_chunk,
-                        id: chunk_row.chunk,
+                        identifier: chunk_row.chunk,
                         next: chunk_row.next_chunk,
                     });
                 }
