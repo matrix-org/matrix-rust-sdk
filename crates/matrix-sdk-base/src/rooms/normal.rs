@@ -119,6 +119,23 @@ bitflags! {
     }
 }
 
+/// The result of a room summary computation.
+///
+/// If the homeserver does not provide a room summary, we perform a best-effort
+/// computation to generate one ourselves. If the homeserver does provide the
+/// summary, we augment it with additional information about the service members
+/// in the room.
+struct ComputedSummary {
+    /// The list of display names that will be used to calculate the room
+    /// display name.
+    heroes: Vec<String>,
+    /// The number of joined service members in the room.
+    num_service_members: u64,
+    /// The number of joined and invited members, not including any service
+    /// members.
+    num_joined_invited_guess: Option<u64>,
+}
+
 impl Default for RoomInfoNotableUpdateReasons {
     fn default() -> Self {
         Self::empty()
@@ -646,15 +663,17 @@ impl Room {
         &self,
         summary: RoomSummary,
     ) -> StoreResult<RoomDisplayName> {
-        let summary_member_count = summary.joined_member_count + summary.invited_member_count;
-
-        let (heroes, num_joined_invited_guess) = if !summary.room_heroes.is_empty() {
-            let heroes = self.extract_heroes(&summary.room_heroes).await?;
-            (heroes, None)
+        let computed_summary = if !summary.room_heroes.is_empty() {
+            self.extract_and_augment_summary(&summary).await?
         } else {
-            let (heroes, num_joined_invited) = self.compute_summary().await?;
-            (heroes, Some(num_joined_invited))
+            self.compute_summary().await?
         };
+
+        let ComputedSummary { heroes, num_service_members, num_joined_invited_guess } =
+            computed_summary;
+
+        let summary_member_count = (summary.joined_member_count + summary.invited_member_count)
+            .saturating_sub(num_service_members);
 
         let num_joined_invited = if self.state() == RoomState::Invited {
             // when we were invited we don't have a proper summary, we have to do best
@@ -689,14 +708,33 @@ impl Room {
         Ok(display_name)
     }
 
-    /// Extract and collect the display names of the room heroes from a
-    /// [`RoomSummary`].
+    /// Extracts and enhances the [`RoomSummary`] provided by the homeserver.
     ///
-    /// Returns the display names as a list of strings.
-    async fn extract_heroes(&self, heroes: &[RoomHero]) -> StoreResult<Vec<String>> {
+    /// This method extracts the relevant data from the [`RoomSummary`] and
+    /// augments it with additional information that may not be included in
+    /// the initial response, such as details about service members in the
+    /// room.
+    ///
+    /// Returns a [`ComputedSummary`] with the
+    /// [`ComputedSummary::num_joined_invited_guess`] field set to `None`.
+    async fn extract_and_augment_summary(
+        &self,
+        summary: &RoomSummary,
+    ) -> StoreResult<ComputedSummary> {
+        let heroes = &summary.room_heroes;
+
         let mut names = Vec::with_capacity(heroes.len());
         let own_user_id = self.own_user_id();
         let member_hints = self.get_member_hints().await?;
+
+        // If we have some service members in the heroes, that means that they are also
+        // part of the joined member counts. They shouldn't be so, otherwise
+        // we'll wrongly assume that there are more members in the room than
+        // they are for the "Bob and 2 others" case.
+        let num_service_members = heroes
+            .iter()
+            .filter(|hero| member_hints.service_members.contains(&hero.user_id))
+            .count() as u64;
 
         // Construct a filter that is specific to this own user id, set of member hints,
         // and accepts a `RoomHero` type.
@@ -721,15 +759,15 @@ impl Room {
             }
         }
 
-        Ok(names)
+        Ok(ComputedSummary { heroes: names, num_service_members, num_joined_invited_guess: None })
     }
 
     /// Compute the room summary with the data present in the store.
     ///
     /// The summary might be incorrect if the database info is outdated.
     ///
-    /// Returns a `(heroes_names, num_joined_invited)` tuple.
-    async fn compute_summary(&self) -> StoreResult<(Vec<String>, u64)> {
+    /// Returns the [`ComputedSummary`].
+    async fn compute_summary(&self) -> StoreResult<ComputedSummary> {
         let member_hints = self.get_member_hints().await?;
 
         // Construct a filter that is specific to this own user id, set of member hints,
@@ -779,7 +817,14 @@ impl Room {
             "Computed a room summary since we didn't receive one."
         );
 
-        Ok((heroes, num_joined_invited as u64))
+        let num_service_members = num_service_members as u64;
+        let num_joined_invited = num_joined_invited as u64;
+
+        Ok(ComputedSummary {
+            heroes,
+            num_service_members,
+            num_joined_invited_guess: Some(num_joined_invited),
+        })
     }
 
     async fn get_member_hints(&self) -> StoreResult<MemberHintsEventContent> {
@@ -2619,7 +2664,7 @@ mod tests {
 
         let mut changes = StateChanges::new("".to_owned());
         let summary = assign!(RumaSummary::new(), {
-            joined_member_count: Some(2u32.into()),
+            joined_member_count: Some(3u32.into()),
             heroes: vec![me.to_owned(), matthew.to_owned(), bot.to_owned()],
         });
 
@@ -2653,6 +2698,48 @@ mod tests {
             room.compute_display_name().await.unwrap(),
             RoomDisplayName::Calculated("Matthew".to_owned())
         );
+    }
+
+    #[async_test]
+    async fn test_display_name_dm_joined_alone_with_service_members() {
+        let (store, room) = make_room_test_helper(RoomState::Joined);
+        let room_id = room_id!("!test:localhost");
+
+        let me = user_id!("@me:example.org");
+        let bot = user_id!("@bot:example.org");
+
+        let mut changes = StateChanges::new("".to_owned());
+        let summary = assign!(RumaSummary::new(), {
+            joined_member_count: Some(2u32.into()),
+            heroes: vec![me.to_owned(), bot.to_owned()],
+        });
+
+        let f = EventFactory::new().room(room_id!("!test:localhost"));
+
+        let members = changes
+            .state
+            .entry(room_id.to_owned())
+            .or_default()
+            .entry(StateEventType::RoomMember)
+            .or_default();
+        members.insert(me.into(), f.member(me).display_name("Me").into_raw());
+        members.insert(bot.into(), f.member(bot).display_name("Bot").into_raw());
+
+        let member_hints_content =
+            f.member_hints(BTreeSet::from([bot.to_owned()])).sender(me).into_raw();
+        changes
+            .state
+            .entry(room_id.to_owned())
+            .or_default()
+            .entry(StateEventType::MemberHints)
+            .or_default()
+            .insert("".to_owned(), member_hints_content);
+
+        store.save_changes(&changes).await.unwrap();
+
+        room.inner.update_if(|info| info.update_from_ruma_summary(&summary));
+        // Bot should not contribute to the display name.
+        assert_eq!(room.compute_display_name().await.unwrap(), RoomDisplayName::Empty);
     }
 
     #[async_test]
