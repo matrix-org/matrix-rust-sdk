@@ -29,7 +29,8 @@ use ruma::{
     },
     owned_event_id, owned_mxc_uri, room_id,
     serde::Raw,
-    uint, user_id, EventId, OwnedEventId, OwnedUserId, RoomId, TransactionId, UserId,
+    uint, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomId,
+    TransactionId, UserId,
 };
 use serde_json::{json, value::Value as JsonValue};
 
@@ -980,13 +981,21 @@ impl StateStoreIntegrationTests for DynStateStore {
             let ev =
                 SerializableEventContent::new(&RoomMessageEventContent::text_plain("sup").into())
                     .unwrap();
-            self.save_send_queue_request(room_id, txn.clone(), ev.into(), 0).await?;
+            self.save_send_queue_request(
+                room_id,
+                txn.clone(),
+                MilliSecondsSinceUnixEpoch::now(),
+                ev.into(),
+                0,
+            )
+            .await?;
 
             // Add a single dependent queue request.
             self.save_dependent_queued_request(
                 room_id,
                 &txn,
                 ChildTransactionId::new(),
+                MilliSecondsSinceUnixEpoch::now(),
                 DependentQueuedRequestKind::RedactEvent,
             )
             .await?;
@@ -1242,7 +1251,15 @@ impl StateStoreIntegrationTests for DynStateStore {
         let event0 =
             SerializableEventContent::new(&RoomMessageEventContent::text_plain("msg0").into())
                 .unwrap();
-        self.save_send_queue_request(room_id, txn0.clone(), event0.into(), 0).await.unwrap();
+        self.save_send_queue_request(
+            room_id,
+            txn0.clone(),
+            MilliSecondsSinceUnixEpoch::now(),
+            event0.into(),
+            0,
+        )
+        .await
+        .unwrap();
 
         // Reading it will work.
         let pending = self.load_send_queue_requests(room_id).await.unwrap();
@@ -1266,7 +1283,15 @@ impl StateStoreIntegrationTests for DynStateStore {
             )
             .unwrap();
 
-            self.save_send_queue_request(room_id, txn, event.into(), 0).await.unwrap();
+            self.save_send_queue_request(
+                room_id,
+                txn,
+                MilliSecondsSinceUnixEpoch::now(),
+                event.into(),
+                0,
+            )
+            .await
+            .unwrap();
         }
 
         // Reading all the events should work.
@@ -1364,7 +1389,15 @@ impl StateStoreIntegrationTests for DynStateStore {
             let event =
                 SerializableEventContent::new(&RoomMessageEventContent::text_plain("room2").into())
                     .unwrap();
-            self.save_send_queue_request(room_id2, txn.clone(), event.into(), 0).await.unwrap();
+            self.save_send_queue_request(
+                room_id2,
+                txn.clone(),
+                MilliSecondsSinceUnixEpoch::now(),
+                event.into(),
+                0,
+            )
+            .await
+            .unwrap();
         }
 
         // Add and remove one event for room3.
@@ -1374,7 +1407,15 @@ impl StateStoreIntegrationTests for DynStateStore {
             let event =
                 SerializableEventContent::new(&RoomMessageEventContent::text_plain("room3").into())
                     .unwrap();
-            self.save_send_queue_request(room_id3, txn.clone(), event.into(), 0).await.unwrap();
+            self.save_send_queue_request(
+                room_id3,
+                txn.clone(),
+                MilliSecondsSinceUnixEpoch::now(),
+                event.into(),
+                0,
+            )
+            .await
+            .unwrap();
 
             self.remove_send_queue_request(room_id3, &txn).await.unwrap();
         }
@@ -1399,21 +1440,45 @@ impl StateStoreIntegrationTests for DynStateStore {
         let ev0 =
             SerializableEventContent::new(&RoomMessageEventContent::text_plain("low0").into())
                 .unwrap();
-        self.save_send_queue_request(room_id, low0_txn.clone(), ev0.into(), 2).await.unwrap();
+        self.save_send_queue_request(
+            room_id,
+            low0_txn.clone(),
+            MilliSecondsSinceUnixEpoch::now(),
+            ev0.into(),
+            2,
+        )
+        .await
+        .unwrap();
 
         // Saving one request with higher priority should work.
         let high_txn = TransactionId::new();
         let ev1 =
             SerializableEventContent::new(&RoomMessageEventContent::text_plain("high").into())
                 .unwrap();
-        self.save_send_queue_request(room_id, high_txn.clone(), ev1.into(), 10).await.unwrap();
+        self.save_send_queue_request(
+            room_id,
+            high_txn.clone(),
+            MilliSecondsSinceUnixEpoch::now(),
+            ev1.into(),
+            10,
+        )
+        .await
+        .unwrap();
 
         // Saving another request with the low priority should work.
         let low1_txn = TransactionId::new();
         let ev2 =
             SerializableEventContent::new(&RoomMessageEventContent::text_plain("low1").into())
                 .unwrap();
-        self.save_send_queue_request(room_id, low1_txn.clone(), ev2.into(), 2).await.unwrap();
+        self.save_send_queue_request(
+            room_id,
+            low1_txn.clone(),
+            MilliSecondsSinceUnixEpoch::now(),
+            ev2.into(),
+            2,
+        )
+        .await
+        .unwrap();
 
         // The requests should be ordered from higher priority to lower, and when equal,
         // should use the insertion order instead.
@@ -1453,7 +1518,15 @@ impl StateStoreIntegrationTests for DynStateStore {
         let event0 =
             SerializableEventContent::new(&RoomMessageEventContent::text_plain("hey").into())
                 .unwrap();
-        self.save_send_queue_request(room_id, txn0.clone(), event0.into(), 0).await.unwrap();
+        self.save_send_queue_request(
+            room_id,
+            txn0.clone(),
+            MilliSecondsSinceUnixEpoch::now(),
+            event0.into(),
+            0,
+        )
+        .await
+        .unwrap();
 
         // No dependents, to start with.
         assert!(self.load_dependent_queued_requests(room_id).await.unwrap().is_empty());
@@ -1464,6 +1537,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             room_id,
             &txn0,
             child_txn.clone(),
+            MilliSecondsSinceUnixEpoch::now(),
             DependentQueuedRequestKind::RedactEvent,
         )
         .await
@@ -1515,12 +1589,21 @@ impl StateStoreIntegrationTests for DynStateStore {
         let event1 =
             SerializableEventContent::new(&RoomMessageEventContent::text_plain("hey2").into())
                 .unwrap();
-        self.save_send_queue_request(room_id, txn1.clone(), event1.into(), 0).await.unwrap();
+        self.save_send_queue_request(
+            room_id,
+            txn1.clone(),
+            MilliSecondsSinceUnixEpoch::now(),
+            event1.into(),
+            0,
+        )
+        .await
+        .unwrap();
 
         self.save_dependent_queued_request(
             room_id,
             &txn0,
             ChildTransactionId::new(),
+            MilliSecondsSinceUnixEpoch::now(),
             DependentQueuedRequestKind::RedactEvent,
         )
         .await
@@ -1531,6 +1614,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             room_id,
             &txn1,
             ChildTransactionId::new(),
+            MilliSecondsSinceUnixEpoch::now(),
             DependentQueuedRequestKind::EditEvent {
                 new_content: SerializableEventContent::new(
                     &RoomMessageEventContent::text_plain("edit").into(),
@@ -1563,6 +1647,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             room_id,
             &txn,
             child_txn.clone(),
+            MilliSecondsSinceUnixEpoch::now(),
             DependentQueuedRequestKind::RedactEvent,
         )
         .await
