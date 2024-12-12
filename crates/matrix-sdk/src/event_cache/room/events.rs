@@ -26,7 +26,10 @@ use matrix_sdk_common::linked_chunk::{
 use ruma::OwnedEventId;
 use tracing::{debug, error, warn};
 
-use super::super::deduplicator::{Decoration, Deduplicator};
+use super::{
+    super::deduplicator::{Decoration, Deduplicator},
+    chunk_debug_string,
+};
 
 /// This type represents all events of a single room.
 #[derive(Debug)]
@@ -177,7 +180,6 @@ impl RoomEvents {
     /// Iterate over the chunks, forward.
     ///
     /// The oldest chunk comes first.
-    #[cfg(test)]
     pub fn chunks(
         &self,
     ) -> matrix_sdk_common::linked_chunk::Iter<'_, DEFAULT_CHUNK_CAPACITY, Event, Gap> {
@@ -261,6 +263,18 @@ impl RoomEvents {
             .collect();
 
         (deduplicated_events, duplicated_event_ids)
+    }
+
+    /// Return a nice debug string (a vector of lines) for the linked chunk of
+    /// events for this room.
+    pub fn debug_string(&self) -> Vec<String> {
+        let mut result = Vec::new();
+        for c in self.chunks() {
+            let content = chunk_debug_string(c.content());
+            let line = format!("chunk #{}: {content}", c.identifier().index());
+            result.push(line);
+        }
+        result
     }
 }
 
