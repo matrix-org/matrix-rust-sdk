@@ -19,6 +19,7 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 use events::Gap;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, SyncTimelineEvent},
+    linked_chunk::ChunkContent,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
@@ -214,6 +215,12 @@ impl RoomEventCache {
                 warn!("couldn't save event without event id in the event cache");
             }
         }
+    }
+
+    /// Return a nice debug string (a vector of lines) for the linked chunk of
+    /// events for this room.
+    pub async fn debug_string(&self) -> Vec<String> {
+        self.inner.state.read().await.events().debug_string()
     }
 }
 
@@ -572,6 +579,29 @@ impl RoomEventCacheInner {
     }
 }
 
+/// Create a debug string for a [`ChunkContent`] for an event/gap pair.
+fn chunk_debug_string(content: &ChunkContent<SyncTimelineEvent, Gap>) -> String {
+    match content {
+        ChunkContent::Gap(Gap { prev_token }) => {
+            format!("gap['{prev_token}']")
+        }
+        ChunkContent::Items(vec) => {
+            let items = vec
+                .iter()
+                .map(|event| {
+                    // Limit event ids to 8 chars *after* the $.
+                    event.event_id().map_or_else(
+                        || "<no event id>".to_owned(),
+                        |id| id.as_str().chars().take(1 + 8).collect(),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("events[{items}]")
+        }
+    }
+}
+
 // Use a private module to hide `events` to this parent module.
 mod private {
     use std::sync::Arc;
@@ -585,13 +615,13 @@ mod private {
             },
             Event, Gap,
         },
-        linked_chunk::{ChunkContent, LinkedChunk, LinkedChunkBuilder, RawChunk, Update},
+        linked_chunk::{LinkedChunk, LinkedChunkBuilder, RawChunk, Update},
     };
     use once_cell::sync::OnceCell;
     use ruma::{serde::Raw, OwnedRoomId, RoomId};
     use tracing::{error, trace};
 
-    use super::events::RoomEvents;
+    use super::{chunk_debug_string, events::RoomEvents};
     use crate::event_cache::EventCacheError;
 
     /// State for a single room's event cache.
@@ -808,25 +838,7 @@ mod private {
         raw_chunks.sort_by_key(|c| c.identifier.index());
 
         for c in raw_chunks {
-            let content = match c.content {
-                ChunkContent::Gap(Gap { prev_token }) => {
-                    format!("gap['{prev_token}']")
-                }
-                ChunkContent::Items(vec) => {
-                    let items = vec
-                        .into_iter()
-                        .map(|event| {
-                            // Limit event ids to 8 chars *after* the $.
-                            event.event_id().map_or_else(
-                                || "<no event id>".to_owned(),
-                                |id| id.as_str().chars().take(1 + 8).collect(),
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    format!("events[{items}]")
-                }
-            };
+            let content = chunk_debug_string(&c.content);
 
             let prev =
                 c.previous.map_or_else(|| "<none>".to_owned(), |prev| prev.index().to_string());
