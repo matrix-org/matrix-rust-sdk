@@ -816,9 +816,11 @@ mod private {
                     let items = vec
                         .into_iter()
                         .map(|event| {
-                            event
-                                .event_id()
-                                .map_or_else(|| "<no event id>".to_owned(), |id| id.to_string())
+                            // Limit event ids to 8 chars *after* the $.
+                            event.event_id().map_or_else(
+                                || "<no event id>".to_owned(),
+                                |id| id.as_str().chars().take(1 + 8).collect(),
+                            )
                         })
                         .collect::<Vec<_>>()
                         .join(", ");
@@ -857,7 +859,9 @@ mod private {
 
             raws.push(RawChunk {
                 content: ChunkContent::Items(vec![
-                    f.text_msg("hey").event_id(event_id!("$1")).into_sync(),
+                    f.text_msg("hey")
+                        .event_id(event_id!("$123456789101112131415617181920"))
+                        .into_sync(),
                     f.text_msg("you").event_id(event_id!("$2")).into_sync(),
                 ]),
                 identifier: CId::new(1),
@@ -875,7 +879,7 @@ mod private {
             let output = raw_chunks_debug_string(raws);
             assert_eq!(output.len(), 2);
             assert_eq!(&output[0], "chunk #0 (prev=<none>, next=1): gap['prev-token']");
-            assert_eq!(&output[1], "chunk #1 (prev=0, next=<none>): events[$1, $2]");
+            assert_eq!(&output[1], "chunk #1 (prev=0, next=<none>): events[$12345678, $2]");
         }
     }
 }
