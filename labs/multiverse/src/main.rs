@@ -117,6 +117,7 @@ enum DetailsMode {
     #[default]
     TimelineItems,
     Events,
+    LinkedChunk,
 }
 
 struct Timeline {
@@ -517,13 +518,17 @@ impl App {
                                 };
                             }
 
-                            Char('l') => self.toggle_reaction_to_latest_msg().await,
+                            Char('L') => self.toggle_reaction_to_latest_msg().await,
 
                             Char('r') => self.details_mode = DetailsMode::ReadReceipts,
                             Char('t') => self.details_mode = DetailsMode::TimelineItems,
                             Char('e') => self.details_mode = DetailsMode::Events,
+                            Char('l') => self.details_mode = DetailsMode::LinkedChunk,
 
-                            Char('b') if self.details_mode == DetailsMode::TimelineItems => {
+                            Char('b')
+                                if self.details_mode == DetailsMode::TimelineItems
+                                    || self.details_mode == DetailsMode::LinkedChunk =>
+                            {
                                 self.back_paginate();
                             }
 
@@ -751,6 +756,29 @@ impl App {
                     }
                 }
 
+                DetailsMode::LinkedChunk => {
+                    // In linked chunk mode, show a rough representation of the chunks.
+                    match self.ui_rooms.lock().unwrap().get(&room_id).cloned() {
+                        Some(room) => {
+                            let lines = tokio::task::block_in_place(|| {
+                                Handle::current().block_on(async {
+                                    let (cache, _drop_guards) = room
+                                        .event_cache()
+                                        .await
+                                        .expect("no event cache for that room");
+                                    cache.debug_string().await
+                                })
+                            });
+                            render_paragraph(buf, lines.join("\n"));
+                        }
+
+                        None => render_paragraph(
+                            buf,
+                            "(room disappeared in the room list service)".to_owned(),
+                        ),
+                    }
+                }
+
                 DetailsMode::Events => match self.ui_rooms.lock().unwrap().get(&room_id).cloned() {
                     Some(room) => {
                         let events = tokio::task::block_in_place(|| {
@@ -883,10 +911,13 @@ impl App {
                     "\nUse j/k to move, s/S to start/stop the sync service, m to mark as read, t to show the timeline, e to show events.".to_owned()
                 }
                 DetailsMode::TimelineItems => {
-                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, e to show events, Q to enable/disable the send queue, M to send a message.".to_owned()
+                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, e to show events, Q to enable/disable the send queue, M to send a message, L to like the last message.".to_owned()
                 }
                 DetailsMode::Events => {
                     "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, t to show the timeline".to_owned()
+                }
+                DetailsMode::LinkedChunk => {
+                    "\nUse j/k to move, s/S to start/stop the sync service, r to show read receipts, t to show the timeline, e to show events".to_owned()
                 }
             }
         };
