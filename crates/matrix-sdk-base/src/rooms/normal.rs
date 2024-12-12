@@ -133,7 +133,7 @@ struct ComputedSummary {
     num_service_members: u64,
     /// The number of joined and invited members, not including any service
     /// members.
-    num_joined_invited_guess: Option<u64>,
+    num_joined_invited_guess: u64,
 }
 
 impl Default for RoomInfoNotableUpdateReasons {
@@ -680,14 +680,7 @@ impl Room {
             // guessing
             heroes.len() as u64 + 1
         } else if summary_member_count == 0 {
-            if let Some(num_joined_invited) = num_joined_invited_guess {
-                num_joined_invited
-            } else {
-                self.store
-                    .get_user_ids(self.room_id(), RoomMemberships::JOIN | RoomMemberships::INVITE)
-                    .await?
-                    .len() as u64
-            }
+            num_joined_invited_guess
         } else {
             summary_member_count
         };
@@ -715,8 +708,7 @@ impl Room {
     /// the initial response, such as details about service members in the
     /// room.
     ///
-    /// Returns a [`ComputedSummary`] with the
-    /// [`ComputedSummary::num_joined_invited_guess`] field set to `None`.
+    /// Returns a [`ComputedSummary`].
     async fn extract_and_augment_summary(
         &self,
         summary: &RoomSummary,
@@ -759,7 +751,24 @@ impl Room {
             }
         }
 
-        Ok(ComputedSummary { heroes: names, num_service_members, num_joined_invited_guess: None })
+        let num_joined_invited_guess = summary.joined_member_count + summary.invited_member_count;
+
+        // If the summary doesn't provide the number of joined/invited members, let's
+        // guess something.
+        let num_joined_invited_guess = if num_joined_invited_guess == 0 {
+            let guess = self
+                .store
+                .get_user_ids(self.room_id(), RoomMemberships::JOIN | RoomMemberships::INVITE)
+                .await?
+                .len() as u64;
+
+            guess.saturating_sub(num_service_members)
+        } else {
+            // Otherwise, accept the numbers provided by the summary as the guess.
+            num_joined_invited_guess
+        };
+
+        Ok(ComputedSummary { heroes: names, num_service_members, num_joined_invited_guess })
     }
 
     /// Compute the room summary with the data present in the store.
@@ -818,13 +827,9 @@ impl Room {
         );
 
         let num_service_members = num_service_members as u64;
-        let num_joined_invited = num_joined_invited as u64;
+        let num_joined_invited_guess = num_joined_invited as u64;
 
-        Ok(ComputedSummary {
-            heroes,
-            num_service_members,
-            num_joined_invited_guess: Some(num_joined_invited),
-        })
+        Ok(ComputedSummary { heroes, num_service_members, num_joined_invited_guess })
     }
 
     async fn get_member_hints(&self) -> StoreResult<MemberHintsEventContent> {
