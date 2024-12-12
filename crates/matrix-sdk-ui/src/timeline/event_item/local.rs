@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use as_variant::as_variant;
 use matrix_sdk::{send_queue::SendHandle, Error};
-use ruma::{EventId, OwnedEventId, OwnedTransactionId};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId};
 
 use super::TimelineEventItemId;
 
@@ -30,6 +30,8 @@ pub(in crate::timeline) struct LocalEventTimelineItem {
     pub transaction_id: OwnedTransactionId,
     /// A handle to manipulate this event before it is sent, if possible.
     pub send_handle: Option<SendHandle>,
+    /// The time that the event was created locally
+    pub created_at: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 impl LocalEventTimelineItem {

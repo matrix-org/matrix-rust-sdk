@@ -30,8 +30,8 @@ use ruma::{
     },
     serde::Raw,
     time::Instant,
-    CanonicalJsonObject, EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedTransactionId,
-    OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
+    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri,
+    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
 use tracing::{debug, instrument, warn};
 
@@ -750,16 +750,19 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         transaction_id: OwnedTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         kind: QueuedRequestKind,
         priority: usize,
     ) -> Result<(), Self::Error> {
-        self.inner
-            .write()
-            .unwrap()
-            .send_queue_events
-            .entry(room_id.to_owned())
-            .or_default()
-            .push(QueuedRequest { kind, transaction_id, error: None, priority });
+        self.inner.write().unwrap().send_queue_events.entry(room_id.to_owned()).or_default().push(
+            QueuedRequest {
+                kind,
+                transaction_id,
+                error: None,
+                priority,
+                created_at: Some(created_at),
+            },
+        );
         Ok(())
     }
 
@@ -858,6 +861,7 @@ impl StateStore for MemoryStore {
         room: &RoomId,
         parent_transaction_id: &TransactionId,
         own_transaction_id: ChildTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
         content: DependentQueuedRequestKind,
     ) -> Result<(), Self::Error> {
         self.inner
@@ -871,6 +875,7 @@ impl StateStore for MemoryStore {
                 parent_transaction_id: parent_transaction_id.to_owned(),
                 own_transaction_id,
                 parent_key: None,
+                created_at: Some(created_at),
             });
         Ok(())
     }

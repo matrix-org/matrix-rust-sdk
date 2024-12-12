@@ -273,7 +273,7 @@ async fn test_reloaded_failed_local_echoes_are_marked_as_failed() {
     // Local echoes are updated with the failed send state as soon as the error
     // response has been received.
     assert_let!(Some(VectorDiff::Set { index: 0, value: first }) = timeline_stream.next().await);
-    let (error, is_recoverable) = assert_matches!(first.send_state().unwrap(), EventSendState::SendingFailed { error, is_recoverable } => (error, is_recoverable));
+    let (error, is_recoverable) = assert_matches!(first.send_state().unwrap(), EventSendState::SendingFailed { error, is_recoverable, .. } => (error, is_recoverable));
 
     // The error is not recoverable.
     assert!(!is_recoverable);
@@ -292,7 +292,7 @@ async fn test_reloaded_failed_local_echoes_are_marked_as_failed() {
     assert_eq!(initial.len(), 1);
     assert_eq!(initial[0].content().as_message().unwrap().body(), "wall of text");
     assert_let!(
-        Some(EventSendState::SendingFailed { error, is_recoverable }) = initial[0].send_state()
+        Some(EventSendState::SendingFailed { error, is_recoverable, .. }) = initial[0].send_state()
     );
 
     // Same recoverable status as above.

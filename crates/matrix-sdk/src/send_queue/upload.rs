@@ -28,7 +28,7 @@ use ruma::{
         room::message::{FormattedBody, MessageType, RoomMessageEventContent},
         AnyMessageLikeEventContent, Mentions,
     },
-    OwnedTransactionId, TransactionId,
+    MilliSecondsSinceUnixEpoch, OwnedTransactionId, TransactionId,
 };
 use tracing::{debug, error, instrument, trace, warn, Span};
 
@@ -185,6 +185,7 @@ impl RoomSendQueue {
             config.mentions,
         );
 
+        let created_at = MilliSecondsSinceUnixEpoch::now();
         // Save requests in the queue storage.
         self.inner
             .queue
@@ -192,6 +193,7 @@ impl RoomSendQueue {
                 event_content.clone(),
                 content_type,
                 send_event_txn.clone().into(),
+                created_at,
                 upload_file_txn.clone(),
                 file_media_request,
                 queue_thumbnail_info,
@@ -206,6 +208,7 @@ impl RoomSendQueue {
             room: self.clone(),
             transaction_id: send_event_txn.clone().into(),
             media_handles: Some(MediaHandles { upload_thumbnail_txn, upload_file_txn }),
+            created_at: Some(created_at),
         };
 
         let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
@@ -306,6 +309,7 @@ impl QueueStorage {
             .save_send_queue_request(
                 &self.room_id,
                 event_txn,
+                MilliSecondsSinceUnixEpoch::now(),
                 new_content.into(),
                 Self::HIGH_PRIORITY,
             )
@@ -350,7 +354,13 @@ impl QueueStorage {
 
         client
             .store()
-            .save_send_queue_request(&self.room_id, next_upload_txn, request, Self::HIGH_PRIORITY)
+            .save_send_queue_request(
+                &self.room_id,
+                next_upload_txn,
+                MilliSecondsSinceUnixEpoch::now(),
+                request,
+                Self::HIGH_PRIORITY,
+            )
             .await
             .map_err(RoomSendQueueStorageError::StateStoreError)?;
 
@@ -579,6 +589,7 @@ impl QueueStorage {
                         &self.room_id,
                         txn,
                         ChildTransactionId::new(),
+                        MilliSecondsSinceUnixEpoch::now(),
                         DependentQueuedRequestKind::EditEvent { new_content: new_serialized },
                     )
                     .await?;

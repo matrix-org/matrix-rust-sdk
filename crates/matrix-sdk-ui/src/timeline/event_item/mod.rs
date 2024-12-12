@@ -268,6 +268,11 @@ impl EventTimelineItem {
         as_variant!(&self.kind, EventTimelineItemKind::Local(local) => &local.send_state)
     }
 
+    /// Get the local time that the event was enqueued at.
+    pub fn local_created_at(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        as_variant!(&self.kind, EventTimelineItemKind::Local(local) => local.created_at).flatten()
+    }
+
     /// Get the unique identifier of this item.
     ///
     /// Returns the transaction ID for a local echo item that has not been sent
