@@ -365,6 +365,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.join_rules", ""],
                         ["m.room.create", ""],
                         ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
                     ],
                     "include_heroes": true,
                     "filters": {
@@ -2232,6 +2233,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.join_rules", ""],
                         ["m.room.create", ""],
                         ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2272,6 +2274,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.join_rules", ""],
                         ["m.room.create", ""],
                         ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
