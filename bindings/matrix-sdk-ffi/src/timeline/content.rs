@@ -22,6 +22,7 @@ use super::ProfileDetails;
 use crate::{
     error::ClientError,
     ruma::{ImageInfo, MediaSource, MediaSourceExt, Mentions, MessageType, PollKind},
+    utils::Timestamp,
 };
 
 impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent {
@@ -187,7 +188,7 @@ pub enum TimelineItemContent {
         max_selections: u64,
         answers: Vec<PollAnswer>,
         votes: HashMap<String, Vec<String>>,
-        end_time: Option<u64>,
+        end_time: Option<Timestamp>,
         has_been_edited: bool,
     },
     CallInvite,
@@ -319,7 +320,7 @@ pub struct Reaction {
 #[derive(Clone, uniffi::Record)]
 pub struct ReactionSenderData {
     pub sender_id: String,
-    pub timestamp: u64,
+    pub timestamp: Timestamp,
 }
 
 #[derive(Clone, uniffi::Enum)]
@@ -481,7 +482,7 @@ impl From<PollResult> for TimelineItemContent {
                 .map(|i| PollAnswer { id: i.id, text: i.text })
                 .collect(),
             votes: value.votes,
-            end_time: value.end_time,
+            end_time: value.end_time.map(|t| t.into()),
             has_been_edited: value.has_been_edited,
         }
     }

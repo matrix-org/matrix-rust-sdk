@@ -75,6 +75,7 @@ use crate::{
         VideoInfo,
     },
     task_handle::TaskHandle,
+    utils::Timestamp,
     RUNTIME,
 };
 
@@ -986,7 +987,7 @@ impl TimelineItem {
     pub fn as_virtual(self: Arc<Self>) -> Option<VirtualTimelineItem> {
         use matrix_sdk_ui::timeline::VirtualTimelineItem as VItem;
         match self.0.as_virtual()? {
-            VItem::DateDivider(ts) => Some(VirtualTimelineItem::DateDivider { ts: ts.0.into() }),
+            VItem::DateDivider(ts) => Some(VirtualTimelineItem::DateDivider { ts: (*ts).into() }),
             VItem::ReadMarker => Some(VirtualTimelineItem::ReadMarker),
         }
     }
@@ -1081,7 +1082,7 @@ pub struct EventTimelineItem {
     is_own: bool,
     is_editable: bool,
     content: TimelineItemContent,
-    timestamp: u64,
+    timestamp: Timestamp,
     reactions: Vec<Reaction>,
     local_send_state: Option<EventSendState>,
     read_receipts: HashMap<String, Receipt>,
@@ -1101,7 +1102,7 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
                     .into_iter()
                     .map(|(sender_id, info)| ReactionSenderData {
                         sender_id: sender_id.to_string(),
-                        timestamp: info.timestamp.0.into(),
+                        timestamp: info.timestamp.into(),
                     })
                     .collect(),
             })
@@ -1118,7 +1119,7 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             is_own: item.is_own(),
             is_editable: item.is_editable(),
             content: item.content().clone().into(),
-            timestamp: item.timestamp().0.into(),
+            timestamp: item.timestamp().into(),
             reactions,
             local_send_state: item.send_state().map(|s| s.into()),
             read_receipts,
@@ -1131,12 +1132,12 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
 
 #[derive(Clone, uniffi::Record)]
 pub struct Receipt {
-    pub timestamp: Option<u64>,
+    pub timestamp: Option<Timestamp>,
 }
 
 impl From<ruma::events::receipt::Receipt> for Receipt {
     fn from(value: ruma::events::receipt::Receipt) -> Self {
-        Receipt { timestamp: value.ts.map(|ts| ts.0.into()) }
+        Receipt { timestamp: value.ts.map(|ts| ts.into()) }
     }
 }
 
@@ -1260,7 +1261,7 @@ pub enum VirtualTimelineItem {
     DateDivider {
         /// A timestamp in milliseconds since Unix Epoch on that day in local
         /// time.
-        ts: u64,
+        ts: Timestamp,
     },
 
     /// The user's own read marker.
