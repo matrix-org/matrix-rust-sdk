@@ -446,7 +446,8 @@ impl TimelineStateTransaction<'_> {
     ) where
         RoomData: RoomDataProvider,
     {
-        let mut day_divider_adjuster = DayDividerAdjuster::default();
+        let mut date_divider_adjuster =
+            DateDividerAdjuster::new(settings.date_divider_mode.clone());
 
         for diff in diffs {
             match diff {
@@ -457,7 +458,7 @@ impl TimelineStateTransaction<'_> {
                             TimelineItemPosition::End { origin },
                             room_data_provider,
                             settings,
-                            &mut day_divider_adjuster,
+                            &mut date_divider_adjuster,
                         )
                         .await;
                     }
@@ -469,7 +470,7 @@ impl TimelineStateTransaction<'_> {
                         TimelineItemPosition::Start { origin },
                         room_data_provider,
                         settings,
-                        &mut day_divider_adjuster,
+                        &mut date_divider_adjuster,
                     )
                     .await;
                 }
@@ -480,7 +481,7 @@ impl TimelineStateTransaction<'_> {
                         TimelineItemPosition::End { origin },
                         room_data_provider,
                         settings,
-                        &mut day_divider_adjuster,
+                        &mut date_divider_adjuster,
                     )
                     .await;
                 }
@@ -491,13 +492,13 @@ impl TimelineStateTransaction<'_> {
                         TimelineItemPosition::At { event_index, origin },
                         room_data_provider,
                         settings,
-                        &mut day_divider_adjuster,
+                        &mut date_divider_adjuster,
                     )
                     .await;
                 }
 
                 VectorDiff::Remove { index: event_index } => {
-                    self.remove_timeline_item(event_index, &mut day_divider_adjuster);
+                    self.remove_timeline_item(event_index, &mut date_divider_adjuster);
                 }
 
                 VectorDiff::Clear => {
@@ -508,7 +509,7 @@ impl TimelineStateTransaction<'_> {
             }
         }
 
-        self.adjust_day_dividers(day_divider_adjuster);
+        self.adjust_date_dividers(date_divider_adjuster);
         self.check_no_unused_unique_ids();
     }
 
