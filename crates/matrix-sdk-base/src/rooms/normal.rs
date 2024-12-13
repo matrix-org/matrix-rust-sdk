@@ -1177,6 +1177,88 @@ impl Room {
     pub fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
         self.inner.read().pinned_event_ids()
     }
+
+    /// Mark a list of requests to join the room as seen, given their state
+    /// event ids.
+    pub async fn mark_knock_requests_as_seen(&self, user_ids: &[OwnedUserId]) -> StoreResult<()> {
+        let raw_user_ids: Vec<&str> = user_ids.iter().map(|id| id.as_str()).collect();
+        let member_raw_events = self
+            .store
+            .get_state_events_for_keys(self.room_id(), StateEventType::RoomMember, &raw_user_ids)
+            .await?;
+        let mut event_to_user_ids = Vec::with_capacity(member_raw_events.len());
+
+        // Map the list of events ids to their user ids, if they are event ids for knock
+        // membership events. Log an error and continue otherwise.
+        for raw_event in member_raw_events {
+            let event = raw_event.cast::<RoomMemberEventContent>().deserialize()?;
+            match event {
+                SyncOrStrippedState::Sync(SyncStateEvent::Original(event)) => {
+                    if event.content.membership == MembershipState::Knock {
+                        event_to_user_ids.push((event.event_id, event.state_key))
+                    } else {
+                        warn!("Could not mark knock event as seen: event {} for user {} is not in Knock membership state.", event.event_id, event.state_key);
+                    }
+                }
+                _ => warn!(
+                    "Could not mark knock event as seen: event for user {} is not valid.",
+                    event.state_key()
+                ),
+            }
+        }
+
+        let mut current_seen_events_guard = self.seen_knock_request_ids_map.write().await;
+        // We're not calling `get_seen_join_request_ids` here because we need to keep
+        // the Mutex's guard until we've updated the data
+        let mut current_seen_events = if current_seen_events_guard.is_none() {
+            self.load_cached_knock_request_ids().await?
+        } else {
+            current_seen_events_guard.clone().unwrap()
+        };
+
+        current_seen_events.extend(event_to_user_ids);
+
+        ObservableWriteGuard::set(
+            &mut current_seen_events_guard,
+            Some(current_seen_events.clone()),
+        );
+
+        self.store
+            .set_kv_data(
+                StateStoreDataKey::SeenKnockRequests(self.room_id()),
+                StateStoreDataValue::SeenKnockRequests(current_seen_events),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    /// Get the list of seen knock request event ids in this room.
+    pub async fn get_seen_knock_request_ids(
+        &self,
+    ) -> Result<BTreeMap<OwnedEventId, OwnedUserId>, StoreError> {
+        let mut guard = self.seen_knock_request_ids_map.write().await;
+        if guard.is_none() {
+            ObservableWriteGuard::set(
+                &mut guard,
+                Some(self.load_cached_knock_request_ids().await?),
+            );
+        }
+        Ok(guard.clone().unwrap_or_default())
+    }
+
+    /// This loads the current list of seen knock request ids from the state
+    /// store.
+    async fn load_cached_knock_request_ids(
+        &self,
+    ) -> StoreResult<BTreeMap<OwnedEventId, OwnedUserId>> {
+        Ok(self
+            .store
+            .get_kv_data(StateStoreDataKey::SeenKnockRequests(self.room_id()))
+            .await?
+            .and_then(|v| v.into_seen_knock_requests())
+            .unwrap_or_default())
+    }
 }
 
 // See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.

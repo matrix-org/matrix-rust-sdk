@@ -232,7 +232,7 @@ impl StateStore for MemoryStore {
                 inner.seen_knock_requests.insert(
                     room_id.to_owned(),
                     value
-                        .into_seen_join_requests()
+                        .into_seen_knock_requests()
                         .expect("Session data is not a set of seen join request ids"),
                 );
             }
