@@ -1093,7 +1093,7 @@ impl StateStoreDataValue {
     }
 
     /// Get this value if it is the data for the ignored join requests.
-    pub fn into_seen_join_requests(self) -> Option<BTreeMap<OwnedEventId, OwnedUserId>> {
+    pub fn into_seen_knock_requests(self) -> Option<BTreeMap<OwnedEventId, OwnedUserId>> {
         as_variant!(self, Self::SeenKnockRequests)
     }
 }
@@ -1126,7 +1126,7 @@ pub enum StateStoreDataKey<'a> {
     /// [`ComposerDraft`]: Self::ComposerDraft
     ComposerDraft(&'a RoomId),
 
-    /// A list of requests to join in a room marked as seen.
+    /// A list of knock request ids marked as seen in a room.
     SeenKnockRequests(&'a RoomId),
 }
 

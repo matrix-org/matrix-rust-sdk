@@ -34,6 +34,7 @@ use ruma::{
     int, mxc_uri, owned_event_id, room_id, thirdparty, user_id, OwnedUserId, TransactionId,
 };
 use serde_json::{from_value, json, Value};
+use stream_assert::assert_pending;
 use wiremock::{
     matchers::{body_json, body_partial_json, header, method, path_regex},
     Mock, ResponseTemplate,
@@ -848,55 +849,56 @@ async fn test_subscribe_to_requests_to_join() {
     let room_id = room_id!("!a:b.c");
     let f = EventFactory::new().room(room_id);
 
-    let alice_user_id = user_id!("@alice:b.c");
-    let alice_knock_event_id = event_id!("$alice-knock:b.c");
-    let alice_knock_event = f
+    let user_id = user_id!("@alice:b.c");
+    let knock_event_id = event_id!("$alice-knock:b.c");
+    let knock_event = f
         .event(RoomMemberEventContent::new(MembershipState::Knock))
-        .event_id(alice_knock_event_id)
-        .sender(alice_user_id)
-        .state_key(alice_user_id)
+        .event_id(knock_event_id)
+        .sender(user_id)
+        .state_key(user_id)
         .into_raw_timeline()
         .cast();
 
-    server.mock_get_members().ok(vec![alice_knock_event]).mock_once().mount().await;
+    server.mock_get_members().ok(vec![knock_event]).mock_once().mount().await;
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let stream = room.subscribe_to_join_requests().await.unwrap();
+    let stream = room.subscribe_to_knock_requests().await.unwrap();
 
     pin_mut!(stream);
 
-    // We receive an initial request to join from Alice
+    // We receive an initial knock request from Alice
     let initial = assert_next_with_timeout!(stream, 100);
-    assert!(!initial.is_empty());
+    assert_eq!(initial.len(), 1);
 
-    let alices_request_to_join = &initial[0];
-    assert_eq!(alices_request_to_join.event_id, alice_knock_event_id);
-    assert!(!alices_request_to_join.is_seen);
+    let knock_request = &initial[0];
+    assert_eq!(knock_request.event_id, knock_event_id);
+    assert!(!knock_request.is_seen);
 
-    // We then mark the request to join as seen
-    room.mark_join_requests_as_seen(&[alice_knock_event_id.to_owned()]).await.unwrap();
+    // We then mark the knock request as seen
+    room.mark_knock_requests_as_seen(&[user_id.to_owned()]).await.unwrap();
 
     // Now it's received again as seen
     let seen = assert_next_with_timeout!(stream, 100);
-    assert!(!seen.is_empty());
-    let alices_seen_request_to_join = &seen[0];
-    assert_eq!(alices_seen_request_to_join.event_id, alice_knock_event_id);
-    assert!(alices_seen_request_to_join.is_seen);
+    assert_eq!(initial.len(), 1);
+    let seen_knock = &seen[0];
+    assert_eq!(seen_knock.event_id, knock_event_id);
+    assert!(seen_knock.is_seen);
 
     // If we then receive a new member event for Alice that's not 'knock'
-    let alice_join_event_id = event_id!("$alice-join:b.c");
     let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f
         .event(RoomMemberEventContent::new(MembershipState::Invite))
-        .event_id(alice_join_event_id)
-        .sender(alice_user_id)
-        .state_key(alice_user_id)
+        .sender(user_id)
+        .state_key(user_id)
         .into_raw_timeline()
         .cast()]);
     server.sync_room(&client, joined_room_builder).await;
 
-    // The requests to join are now empty
+    // The knock requests are now empty
     let updated_requests = assert_next_with_timeout!(stream, 100);
     assert!(updated_requests.is_empty());
+
+    // There should be no other knock requests
+    assert_pending!(stream)
 }
 
 #[async_test]
@@ -909,19 +911,17 @@ async fn test_subscribe_to_requests_to_join_reloads_members_on_limited_sync() {
     let room_id = room_id!("!a:b.c");
     let f = EventFactory::new().room(room_id);
 
-    let alice_user_id = user_id!("@alice:b.c");
-    let alice_knock_event_id = event_id!("$alice-knock:b.c");
-    let alice_knock_event = f
+    let user_id = user_id!("@alice:b.c");
+    let knock_event = f
         .event(RoomMemberEventContent::new(MembershipState::Knock))
-        .event_id(alice_knock_event_id)
-        .sender(alice_user_id)
-        .state_key(alice_user_id)
+        .sender(user_id)
+        .state_key(user_id)
         .into_raw_timeline()
         .cast();
 
     server
         .mock_get_members()
-        .ok(vec![alice_knock_event])
+        .ok(vec![knock_event])
         // The endpoint will be called twice:
         // 1. For the initial loading of room members.
         // 2. When a gappy (limited) sync is received.
@@ -930,18 +930,21 @@ async fn test_subscribe_to_requests_to_join_reloads_members_on_limited_sync() {
         .await;
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let stream = room.subscribe_to_join_requests().await.unwrap();
+    let stream = room.subscribe_to_knock_requests().await.unwrap();
 
     pin_mut!(stream);
 
-    // We receive an initial request to join from Alice
+    // We receive an initial knock request from Alice
     let initial = assert_next_with_timeout!(stream, 500);
     assert!(!initial.is_empty());
 
-    // This limited sync should trigger a new emission of join requests, with a
+    // This limited sync should trigger a new emission of knock requests, with a
     // reloading of the room members
     server.sync_room(&client, JoinedRoomBuilder::new(room_id).set_timeline_limited()).await;
 
-    // We should receive a new list of join requests
+    // We should receive a new list of knock requests
     assert_next_with_timeout!(stream, 500);
+
+    // There should be no other knock requests
+    assert_pending!(stream)
 }

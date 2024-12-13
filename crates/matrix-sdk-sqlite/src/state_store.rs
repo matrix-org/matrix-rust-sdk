@@ -1037,8 +1037,8 @@ impl StateStore for SqliteStateStore {
             )?,
             StateStoreDataKey::SeenKnockRequests(_) => self.serialize_value(
                 &value
-                    .into_seen_join_requests()
-                    .expect("Session data is not a set of seen join request ids"),
+                    .into_seen_knock_requests()
+                    .expect("Session data is not a set of seen knock request ids"),
             )?,
         };
 
