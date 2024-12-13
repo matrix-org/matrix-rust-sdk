@@ -225,14 +225,14 @@ pub enum RoomState {
     Invited,
     /// The room is in a knocked state.
     Knocked,
+    /// The room is in a banned state.
+    Banned,
 }
 
 impl From<&MembershipState> for RoomState {
     fn from(membership_state: &MembershipState) -> Self {
-        // We consider Ban, Knock and Leave to be Left, because they all mean we are not
-        // in the room.
         match membership_state {
-            MembershipState::Ban => Self::Left,
+            MembershipState::Ban => Self::Banned,
             MembershipState::Invite => Self::Invited,
             MembershipState::Join => Self::Joined,
             MembershipState::Knock => Self::Knocked,
@@ -465,7 +465,7 @@ impl Room {
     #[instrument(skip_all, fields(room_id = ?self.room_id))]
     pub async fn is_direct(&self) -> StoreResult<bool> {
         match self.state() {
-            RoomState::Joined | RoomState::Left => {
+            RoomState::Joined | RoomState::Left | RoomState::Banned => {
                 Ok(!self.inner.read().base_info.dm_targets.is_empty())
             }
 
@@ -1420,6 +1420,11 @@ impl RoomInfo {
         self.set_state(RoomState::Knocked);
     }
 
+    /// Mark this Room as banned.
+    pub fn mark_as_banned(&mut self) {
+        self.set_state(RoomState::Banned);
+    }
+
     /// Set the membership RoomState of this Room
     pub fn set_state(&mut self, room_state: RoomState) {
         if room_state != self.room_state {
@@ -1981,6 +1986,8 @@ bitflags! {
         const LEFT     = 0b00000100;
         /// The room is in a knocked state.
         const KNOCKED  = 0b00001000;
+        /// The room is in a banned state.
+        const BANNED   = 0b00010000;
     }
 }
 
@@ -1996,6 +2003,7 @@ impl RoomStateFilter {
             RoomState::Left => Self::LEFT,
             RoomState::Invited => Self::INVITED,
             RoomState::Knocked => Self::KNOCKED,
+            RoomState::Banned => Self::BANNED,
         };
 
         self.contains(bit_state)
@@ -2013,6 +2021,12 @@ impl RoomStateFilter {
         }
         if self.contains(Self::INVITED) {
             states.push(RoomState::Invited);
+        }
+        if self.contains(Self::KNOCKED) {
+            states.push(RoomState::Knocked);
+        }
+        if self.contains(Self::BANNED) {
+            states.push(RoomState::Banned);
         }
 
         states
@@ -2093,7 +2107,7 @@ mod tests {
             },
             AnySyncStateEvent, EmptyStateKey, StateEventType, StateUnsigned, SyncStateEvent,
         },
-        owned_event_id, owned_user_id, room_alias_id, room_id,
+        owned_event_id, owned_room_id, owned_user_id, room_alias_id, room_id,
         serde::Raw,
         time::SystemTime,
         user_id, DeviceId, EventEncryptionAlgorithm, EventId, MilliSecondsSinceUnixEpoch,
@@ -2109,8 +2123,9 @@ mod tests {
     use crate::{
         rooms::RoomNotableTags,
         store::{IntoStateStore, MemoryStore, StateChanges, StateStore, StoreConfig},
+        test_utils::logged_in_base_client,
         BaseClient, MinimalStateEvent, OriginalMinimalStateEvent, RoomDisplayName,
-        RoomInfoNotableUpdateReasons, SessionMeta,
+        RoomInfoNotableUpdateReasons, RoomStateFilter, SessionMeta,
     };
 
     #[test]
@@ -3629,5 +3644,78 @@ mod tests {
         room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
         assert_eq!(room.prev_state(), Some(RoomState::Joined));
         assert_eq!(room.state(), RoomState::Left);
+
+        // Left -> Banned
+        let mut room_info = room.clone_info();
+        room_info.mark_as_banned();
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
+        assert_eq!(room.prev_state(), Some(RoomState::Left));
+        assert_eq!(room.state(), RoomState::Banned);
+    }
+
+    #[async_test]
+    async fn test_room_state_filters() {
+        let client = logged_in_base_client(None).await;
+
+        let joined_room_id = owned_room_id!("!joined:example.org");
+        client.get_or_create_room(&joined_room_id, RoomState::Joined);
+
+        let invited_room_id = owned_room_id!("!invited:example.org");
+        client.get_or_create_room(&invited_room_id, RoomState::Invited);
+
+        let left_room_id = owned_room_id!("!left:example.org");
+        client.get_or_create_room(&left_room_id, RoomState::Left);
+
+        let knocked_room_id = owned_room_id!("!knocked:example.org");
+        client.get_or_create_room(&knocked_room_id, RoomState::Knocked);
+
+        let banned_room_id = owned_room_id!("!banned:example.org");
+        client.get_or_create_room(&banned_room_id, RoomState::Banned);
+
+        let joined_rooms = client.rooms_filtered(RoomStateFilter::JOINED);
+        assert_eq!(joined_rooms.len(), 1);
+        assert_eq!(joined_rooms[0].state(), RoomState::Joined);
+        assert_eq!(joined_rooms[0].room_id, joined_room_id);
+
+        let invited_rooms = client.rooms_filtered(RoomStateFilter::INVITED);
+        assert_eq!(invited_rooms.len(), 1);
+        assert_eq!(invited_rooms[0].state(), RoomState::Invited);
+        assert_eq!(invited_rooms[0].room_id, invited_room_id);
+
+        let left_rooms = client.rooms_filtered(RoomStateFilter::LEFT);
+        assert_eq!(left_rooms.len(), 1);
+        assert_eq!(left_rooms[0].state(), RoomState::Left);
+        assert_eq!(left_rooms[0].room_id, left_room_id);
+
+        let knocked_rooms = client.rooms_filtered(RoomStateFilter::KNOCKED);
+        assert_eq!(knocked_rooms.len(), 1);
+        assert_eq!(knocked_rooms[0].state(), RoomState::Knocked);
+        assert_eq!(knocked_rooms[0].room_id, knocked_room_id);
+
+        let banned_rooms = client.rooms_filtered(RoomStateFilter::BANNED);
+        assert_eq!(banned_rooms.len(), 1);
+        assert_eq!(banned_rooms[0].state(), RoomState::Banned);
+        assert_eq!(banned_rooms[0].room_id, banned_room_id);
+    }
+
+    #[test]
+    fn test_room_state_filters_as_vec() {
+        assert_eq!(RoomStateFilter::JOINED.as_vec(), vec![RoomState::Joined]);
+        assert_eq!(RoomStateFilter::LEFT.as_vec(), vec![RoomState::Left]);
+        assert_eq!(RoomStateFilter::INVITED.as_vec(), vec![RoomState::Invited]);
+        assert_eq!(RoomStateFilter::KNOCKED.as_vec(), vec![RoomState::Knocked]);
+        assert_eq!(RoomStateFilter::BANNED.as_vec(), vec![RoomState::Banned]);
+
+        // Check all filters are taken into account
+        assert_eq!(
+            RoomStateFilter::all().as_vec(),
+            vec![
+                RoomState::Joined,
+                RoomState::Left,
+                RoomState::Invited,
+                RoomState::Knocked,
+                RoomState::Banned
+            ]
+        );
     }
 }

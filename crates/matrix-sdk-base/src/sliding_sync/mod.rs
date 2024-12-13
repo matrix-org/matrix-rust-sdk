@@ -269,7 +269,7 @@ impl BaseClient {
                         .or_insert_with(JoinedRoomUpdate::default)
                         .account_data
                         .append(&mut raw.to_vec()),
-                    RoomState::Left => new_rooms
+                    RoomState::Left | RoomState::Banned => new_rooms
                         .leave
                         .entry(room_id.to_owned())
                         .or_insert_with(LeftRoomUpdate::default)
@@ -546,7 +546,7 @@ impl BaseClient {
                 ))
             }
 
-            RoomState::Left => Ok((
+            RoomState::Left | RoomState::Banned => Ok((
                 room_info,
                 None,
                 Some(LeftRoomUpdate::new(
@@ -1247,7 +1247,7 @@ mod tests {
             room.required_state.push(make_state_event(
                 user_b_id,
                 user_a_id.as_str(),
-                RoomMemberEventContent::new(membership),
+                RoomMemberEventContent::new(membership.clone()),
                 None,
             ));
             let response = response_with_room(room_id, room);
@@ -1256,8 +1256,17 @@ mod tests {
                 .await
                 .expect("Failed to process sync");
 
-            // The room is left.
-            assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
+            match membership {
+                MembershipState::Leave => {
+                    // The room is left.
+                    assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
+                }
+                MembershipState::Ban => {
+                    // The room is banned.
+                    assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Banned);
+                }
+                _ => panic!("Unexpected membership state found: {membership}"),
+            }
 
             // And it is added to the list of left rooms only.
             assert!(!sync_resp.rooms.join.contains_key(room_id));
