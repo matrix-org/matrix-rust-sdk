@@ -145,6 +145,14 @@ impl TimelineBuilder {
         self
     }
 
+    /// Use `VectorDiff`s as the new “input mechanism” for the `Timeline`.
+    ///
+    /// Read `TimelineSettings::vectordiffs_as_inputs` to learn more.
+    pub fn with_vectordiffs_as_inputs(mut self) -> Self {
+        self.settings.vectordiffs_as_inputs = true;
+        self
+    }
+
     /// Create a [`Timeline`] with the options set on this builder.
     #[tracing::instrument(
         skip(self),
