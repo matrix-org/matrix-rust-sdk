@@ -31,8 +31,8 @@ use vodozemac::Curve25519PublicKey;
 
 use super::{
     caches::{DeviceStore, GroupSessionStore},
-    Account, BackupKeys, Changes, CryptoStore, InboundGroupSession, PendingChanges, RoomKeyCounts,
-    RoomSettings, Session,
+    Account, BackupKeys, Changes, CryptoStore, DehydratedDeviceKey, InboundGroupSession,
+    PendingChanges, RoomKeyCounts, RoomSettings, Session,
 };
 use crate::{
     gossiping::{GossipRequest, GossippedSecret, SecretInfo},
@@ -93,6 +93,7 @@ pub struct MemoryStore {
     leases: StdRwLock<HashMap<String, (String, Instant)>>,
     secret_inbox: StdRwLock<HashMap<String, Vec<GossippedSecret>>>,
     backup_keys: RwLock<BackupKeys>,
+    dehydrated_device_pickle_key: RwLock<Option<DehydratedDeviceKey>>,
     next_batch_token: RwLock<Option<String>>,
     room_settings: StdRwLock<HashMap<OwnedRoomId, RoomSettings>>,
 }
@@ -116,6 +117,7 @@ impl Default for MemoryStore {
             custom_values: Default::default(),
             leases: Default::default(),
             backup_keys: Default::default(),
+            dehydrated_device_pickle_key: Default::default(),
             secret_inbox: Default::default(),
             next_batch_token: Default::default(),
             room_settings: Default::default(),
@@ -266,6 +268,11 @@ impl CryptoStore for MemoryStore {
 
         if let Some(version) = changes.backup_version {
             self.backup_keys.write().await.backup_version = Some(version);
+        }
+
+        if let Some(pickle_key) = changes.dehydrated_device_pickle_key {
+            let mut lock = self.dehydrated_device_pickle_key.write().await;
+            *lock = Some(pickle_key);
         }
 
         {
@@ -484,6 +491,16 @@ impl CryptoStore for MemoryStore {
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {
         Ok(self.backup_keys.read().await.to_owned())
+    }
+
+    async fn load_dehydrated_device_pickle_key(&self) -> Result<Option<DehydratedDeviceKey>> {
+        Ok(self.dehydrated_device_pickle_key.read().await.to_owned())
+    }
+
+    async fn delete_dehydrated_device_pickle_key(&self) -> Result<()> {
+        let mut lock = self.dehydrated_device_pickle_key.write().await;
+        *lock = None;
+        Ok(())
     }
 
     async fn get_outbound_group_session(
@@ -1125,7 +1142,10 @@ mod integration_tests {
             InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
             SenderDataType, StaticAccountData,
         },
-        store::{BackupKeys, Changes, CryptoStore, PendingChanges, RoomKeyCounts, RoomSettings},
+        store::{
+            BackupKeys, Changes, CryptoStore, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
+            RoomSettings,
+        },
         types::events::room_key_withheld::RoomKeyWithheldEvent,
         Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, Session, TrackedUser,
         UserIdentityData,
@@ -1286,6 +1306,16 @@ mod integration_tests {
 
         async fn load_backup_keys(&self) -> Result<BackupKeys, Self::Error> {
             self.0.load_backup_keys().await
+        }
+
+        async fn load_dehydrated_device_pickle_key(
+            &self,
+        ) -> Result<Option<DehydratedDeviceKey>, Self::Error> {
+            self.0.load_dehydrated_device_pickle_key().await
+        }
+
+        async fn delete_dehydrated_device_pickle_key(&self) -> Result<(), Self::Error> {
+            self.0.delete_dehydrated_device_pickle_key().await
         }
 
         async fn get_outbound_group_session(

@@ -257,6 +257,9 @@ pub(crate) trait SqliteKeyValueStoreConnExt {
     /// Store the given value for the given key.
     fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()>;
 
+    /// Removes the current key and value if exists.
+    fn clear_kv(&self, key: &str) -> rusqlite::Result<()>;
+
     /// Set the version of the database.
     fn set_db_version(&self, version: u8) -> rusqlite::Result<()> {
         self.set_kv("version", &[version])
@@ -269,6 +272,11 @@ impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
             "INSERT INTO kv VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = ?2",
             (key, value),
         )?;
+        Ok(())
+    }
+
+    fn clear_kv(&self, key: &str) -> rusqlite::Result<()> {
+        self.execute("DELETE FROM kv WHERE key = ?1", (key,))?;
         Ok(())
     }
 }
@@ -306,6 +314,9 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
 
     /// Store the given value for the given key.
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()>;
+
+    /// Clears the given value for the given key.
+    async fn clear_kv(&self, key: &str) -> rusqlite::Result<()>;
 
     /// Get the version of the database.
     async fn db_version(&self) -> Result<u8, OpenStoreError> {
@@ -350,6 +361,13 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()> {
         let key = key.to_owned();
         self.interact(move |conn| conn.set_kv(&key, &value)).await.unwrap()?;
+
+        Ok(())
+    }
+
+    async fn clear_kv(&self, key: &str) -> rusqlite::Result<()> {
+        let key = key.to_owned();
+        self.interact(move |conn| conn.clear_kv(&key)).await.unwrap()?;
 
         Ok(())
     }

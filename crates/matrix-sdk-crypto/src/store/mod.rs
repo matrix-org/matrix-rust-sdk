@@ -518,6 +518,7 @@ pub struct Changes {
     pub private_identity: Option<PrivateCrossSigningIdentity>,
     pub backup_version: Option<String>,
     pub backup_decryption_key: Option<BackupDecryptionKey>,
+    pub dehydrated_device_pickle_key: Option<DehydratedDeviceKey>,
     pub sessions: Vec<Session>,
     pub message_hashes: Vec<OlmMessageHash>,
     pub inbound_group_sessions: Vec<InboundGroupSession>,
@@ -550,6 +551,7 @@ impl Changes {
         self.private_identity.is_none()
             && self.backup_version.is_none()
             && self.backup_decryption_key.is_none()
+            && self.dehydrated_device_pickle_key.is_none()
             && self.sessions.is_empty()
             && self.message_hashes.is_empty()
             && self.inbound_group_sessions.is_empty()
@@ -746,6 +748,51 @@ impl BackupDecryptionKey {
 impl Debug for BackupDecryptionKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("BackupDecryptionKey").field(&"...").finish()
+    }
+}
+
+/// The pickle key used to safely store the dehydrated device pickle.
+///
+/// This input key material will be expanded using HKDF into an AES key, MAC
+/// key, and an initialization vector (IV).
+#[derive(Clone, Zeroize, ZeroizeOnDrop, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct DehydratedDeviceKey {
+    pub(crate) inner: Box<[u8; DehydratedDeviceKey::KEY_SIZE]>,
+}
+
+impl DehydratedDeviceKey {
+    /// The number of bytes the encryption key will hold.
+    pub const KEY_SIZE: usize = 32;
+
+    /// Generates a new random pickle key.
+    pub fn new() -> Result<Self, rand::Error> {
+        let mut rng = rand::thread_rng();
+
+        let mut key = Box::new([0u8; Self::KEY_SIZE]);
+        rand::Fill::try_fill(key.as_mut_slice(), &mut rng)?;
+
+        Ok(Self { inner: key })
+    }
+
+    /// Creates a dehydration pickle key from the given bytes.
+    pub fn from_bytes(raw_key: &[u8; 32]) -> Self {
+        let mut inner = Box::new([0u8; Self::KEY_SIZE]);
+        inner.copy_from_slice(raw_key);
+
+        Self { inner }
+    }
+
+    /// Export the [`DehydratedDeviceKey`] as a base64 encoded string.
+    pub fn to_base64(&self) -> String {
+        base64_encode(self.inner.as_slice())
+    }
+}
+
+#[cfg(not(tarpaulin_include))]
+impl Debug for DehydratedDeviceKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("DehydratedDeviceKey").field(&"...").finish()
     }
 }
 
