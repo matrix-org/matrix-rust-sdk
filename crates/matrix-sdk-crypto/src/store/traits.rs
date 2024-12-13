@@ -22,7 +22,8 @@ use ruma::{
 use vodozemac::Curve25519PublicKey;
 
 use super::{
-    BackupKeys, Changes, CryptoStoreError, PendingChanges, Result, RoomKeyCounts, RoomSettings,
+    BackupKeys, Changes, CryptoStoreError, DehydratedDeviceKey, PendingChanges, Result,
+    RoomKeyCounts, RoomSettings,
 };
 #[cfg(doc)]
 use crate::olm::SenderData;
@@ -194,6 +195,14 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Get the backup keys we have stored.
     async fn load_backup_keys(&self) -> Result<BackupKeys, Self::Error>;
+
+    /// Get the dehydrated device pickle key we have stored.
+    async fn load_dehydrated_device_pickle_key(
+        &self,
+    ) -> Result<Option<DehydratedDeviceKey>, Self::Error>;
+
+    /// Deletes the previously stored dehydrated device pickle key.
+    async fn delete_dehydrated_device_pickle_key(&self) -> Result<(), Self::Error>;
 
     /// Get the outbound group session we have stored that is used for the
     /// given room.
@@ -463,6 +472,14 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {
         self.0.load_backup_keys().await.map_err(Into::into)
+    }
+
+    async fn load_dehydrated_device_pickle_key(&self) -> Result<Option<DehydratedDeviceKey>> {
+        self.0.load_dehydrated_device_pickle_key().await.map_err(Into::into)
+    }
+
+    async fn delete_dehydrated_device_pickle_key(&self) -> Result<(), Self::Error> {
+        self.0.delete_dehydrated_device_pickle_key().await.map_err(Into::into)
     }
 
     async fn get_outbound_group_session(

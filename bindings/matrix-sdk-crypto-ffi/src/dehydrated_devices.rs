@@ -1,8 +1,11 @@
 use std::{mem::ManuallyDrop, sync::Arc};
 
-use matrix_sdk_crypto::dehydrated_devices::{
-    DehydratedDevice as InnerDehydratedDevice, DehydratedDevices as InnerDehydratedDevices,
-    RehydratedDevice as InnerRehydratedDevice,
+use matrix_sdk_crypto::{
+    dehydrated_devices::{
+        DehydratedDevice as InnerDehydratedDevice, DehydratedDevices as InnerDehydratedDevices,
+        RehydratedDevice as InnerRehydratedDevice,
+    },
+    store::DehydratedDeviceKey,
 };
 use ruma::{api::client::dehydrated_device, events::AnyToDeviceEvent, serde::Raw, OwnedDeviceId};
 use serde_json::json;
@@ -177,13 +180,13 @@ impl From<dehydrated_device::put_dehydrated_device::unstable::Request>
     }
 }
 
-fn get_pickle_key(pickle_key: &[u8]) -> Result<Box<[u8; 32]>, DehydrationError> {
+fn get_pickle_key(pickle_key: &[u8]) -> Result<DehydratedDeviceKey, DehydrationError> {
     let pickle_key_length = pickle_key.len();
 
     if pickle_key_length == 32 {
-        let mut key = Box::new([0u8; 32]);
-        key.copy_from_slice(pickle_key);
-
+        let mut raw_bytes = [0u8; 32];
+        raw_bytes.copy_from_slice(pickle_key);
+        let key = DehydratedDeviceKey::from_bytes(&raw_bytes);
         Ok(key)
     } else {
         Err(DehydrationError::PickleKeyLength(pickle_key_length))
