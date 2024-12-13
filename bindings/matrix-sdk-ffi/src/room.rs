@@ -50,6 +50,7 @@ pub enum Membership {
     Joined,
     Left,
     Knocked,
+    Banned,
 }
 
 impl From<RoomState> for Membership {
@@ -59,6 +60,7 @@ impl From<RoomState> for Membership {
             RoomState::Joined => Membership::Joined,
             RoomState::Left => Membership::Left,
             RoomState::Knocked => Membership::Knocked,
+            RoomState::Banned => Membership::Banned,
         }
     }
 }
