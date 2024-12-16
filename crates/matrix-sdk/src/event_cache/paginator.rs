@@ -64,7 +64,7 @@ pub enum PaginatorError {
     },
 
     /// There was another SDK error while paginating.
-    #[error("an error happened while paginating")]
+    #[error("an error happened while paginating: {0}")]
     SdkError(#[from] Box<crate::Error>),
 }
 
