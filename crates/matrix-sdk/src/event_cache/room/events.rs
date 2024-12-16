@@ -145,13 +145,13 @@ impl RoomEvents {
     /// Because the `gap_identifier` can represent non-gap chunk, this method
     /// returns a `Result`.
     ///
-    /// This method returns a reference to the (first if many) newly created
-    /// `Chunk` that contains the `items`.
+    /// This method returns either the position of the first chunk that's been
+    /// created, or the next insert position if the chunk has been removed.
     pub fn replace_gap_at<I>(
         &mut self,
         events: I,
         gap_identifier: ChunkIdentifier,
-    ) -> Result<&Chunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>, Error>
+    ) -> Result<Option<Position>, Error>
     where
         I: IntoIterator<Item = Event>,
     {
@@ -165,8 +165,14 @@ impl RoomEvents {
         // because of the removals.
         self.remove_events(duplicated_event_ids);
 
-        // Replace the gap by new events.
-        self.chunks.replace_gap_at(unique_events, gap_identifier)
+        if unique_events.is_empty() {
+            // There are no new events, so there's no need to create a new empty items
+            // chunk; instead, remove the gap.
+            self.chunks.remove_gap_at(gap_identifier)
+        } else {
+            // Replace the gap by new events.
+            Ok(Some(self.chunks.replace_gap_at(unique_events, gap_identifier)?.first_position()))
+        }
     }
 
     /// Search for a chunk, and return its identifier.
@@ -711,9 +717,8 @@ mod tests {
 
         let chunk_identifier_of_gap = room_events
             .chunks()
-            .find_map(|chunk| chunk.is_gap().then_some(chunk.first_position()))
-            .unwrap()
-            .chunk_identifier();
+            .find_map(|chunk| chunk.is_gap().then_some(chunk.identifier()))
+            .unwrap();
 
         room_events.replace_gap_at([event_1, event_2], chunk_identifier_of_gap).unwrap();
 
@@ -752,9 +757,8 @@ mod tests {
 
         let chunk_identifier_of_gap = room_events
             .chunks()
-            .find_map(|chunk| chunk.is_gap().then_some(chunk.first_position()))
-            .unwrap()
-            .chunk_identifier();
+            .find_map(|chunk| chunk.is_gap().then_some(chunk.identifier()))
+            .unwrap();
 
         assert_events_eq!(
             room_events.events(),
@@ -788,6 +792,40 @@ mod tests {
 
             assert!(chunks.next().is_none());
         }
+    }
+
+    #[test]
+    fn test_replace_gap_at_with_no_new_events() {
+        let (_, event_0) = new_event("$ev0");
+        let (_, event_1) = new_event("$ev1");
+        let (_, event_2) = new_event("$ev2");
+
+        let mut room_events = RoomEvents::new();
+
+        room_events.push_events([event_0, event_1]);
+        room_events.push_gap(Gap { prev_token: "middle".to_owned() });
+        room_events.push_events([event_2]);
+        room_events.push_gap(Gap { prev_token: "end".to_owned() });
+
+        // Remove the first gap.
+        let first_gap_id = room_events
+            .chunks()
+            .find_map(|chunk| chunk.is_gap().then_some(chunk.identifier()))
+            .unwrap();
+
+        // The next insert position is the next chunk's start.
+        let pos = room_events.replace_gap_at([], first_gap_id).unwrap();
+        assert_eq!(pos, Some(Position::new(ChunkIdentifier::new(2), 0)));
+
+        // Remove the second gap.
+        let second_gap_id = room_events
+            .chunks()
+            .find_map(|chunk| chunk.is_gap().then_some(chunk.identifier()))
+            .unwrap();
+
+        // No next insert position.
+        let pos = room_events.replace_gap_at([], second_gap_id).unwrap();
+        assert!(pos.is_none());
     }
 
     #[test]
