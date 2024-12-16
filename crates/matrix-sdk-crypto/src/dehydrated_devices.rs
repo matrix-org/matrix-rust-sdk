@@ -43,7 +43,6 @@
 
 use std::sync::Arc;
 
-use hkdf::Hkdf;
 use ruma::{
     api::client::dehydrated_device::{put_dehydrated_device, DehydratedDeviceData},
     assign,
@@ -51,7 +50,6 @@ use ruma::{
     serde::Raw,
     DeviceId,
 };
-use sha2::Sha256;
 use thiserror::Error;
 use tracing::{instrument, trace};
 use vodozemac::LibolmPickleError;
@@ -136,7 +134,6 @@ impl DehydratedDevices {
         device_id: &DeviceId,
         device_data: Raw<DehydratedDeviceData>,
     ) -> Result<RehydratedDevice, DehydrationError> {
-        let pickle_key = expand_pickle_key(pickle_key, device_id);
         let rehydrated = self.inner.rehydrate(&pickle_key, device_id, device_data).await?;
 
         Ok(RehydratedDevice { rehydrated, original: self.inner.to_owned() })
@@ -330,7 +327,6 @@ impl DehydratedDevice {
 
         trace!("Creating an upload request for a dehydrated device");
 
-        let pickle_key = expand_pickle_key(pickle_key, &self.store.static_account().device_id);
         let device_id = self.store.static_account().device_id.clone();
         let device_data = account.dehydrate(&pickle_key);
         let initial_device_display_name = Some(initial_device_display_name);
@@ -343,36 +339,6 @@ impl DehydratedDevice {
             }),
         )
     }
-}
-
-/// We're using the libolm-compatible pickle format and its encryption scheme.
-///
-/// The libolm pickle encryption scheme uses HKDF to deterministically expand an
-/// input key material, usually 32 bytes, into a AES key, MAC key, and the
-/// initialization vector (IV).
-///
-/// This means that the same input key material will always end up producing the
-/// same AES key, and IV.
-///
-/// This encryption scheme is used in the Olm double ratchet and was designed to
-/// minimize the size of the ciphertext. As a tradeof, it requires a unique
-/// input key material for each plaintext that gets encrypted, otherwise IV
-/// reuse happens.
-///
-/// To combat the IV reuse, we're going to create a per-dehydrated-device unique
-/// pickle key by expanding the key itself with the device ID used as the salt.
-fn expand_pickle_key(key: &[u8; 32], device_id: &DeviceId) -> Box<[u8; 32]> {
-    // TODO: Perhaps we should put this into vodozemac with a new pickle
-    // minimalistic pickle format using the [`matrix_pickle`] crate.
-    //
-    // [`matrix_pickle`]: https://docs.rs/matrix-pickle/latest/matrix_pickle/
-    let kdf: Hkdf<Sha256> = Hkdf::new(Some(device_id.as_bytes()), key);
-    let mut key = Box::new([0u8; 32]);
-
-    kdf.expand(b"dehydrated-device-pickle-key", key.as_mut_slice())
-        .expect("We should be able to expand the 32 byte pickle key");
-
-    key
 }
 
 #[cfg(test)]

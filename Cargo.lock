@@ -6366,8 +6366,7 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 [[package]]
 name = "vodozemac"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd4b56780b7827dd72c3c6398c3048752bebf8d1d84ec19b606b15dbc3c850b8"
+source = "git+https://github.com/uhoreg/vodozemac.git?branch=dehydration_format#048b0f3b74998d3cc90181807e5e079f85bc343c"
 dependencies = [
  "aes",
  "arrayvec",

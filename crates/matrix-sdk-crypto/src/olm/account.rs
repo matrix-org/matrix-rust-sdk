@@ -694,7 +694,7 @@ impl Account {
     pub(crate) fn dehydrate(&self, pickle_key: &[u8; 32]) -> Raw<DehydratedDeviceData> {
         let device_pickle = self
             .inner
-            .to_libolm_pickle(pickle_key)
+            .to_dehydrated_device(pickle_key)
             .expect("We should be able to convert a freshly created Account into a libolm pickle");
 
         let data = DehydratedDeviceData::V1(DehydratedDeviceV1::new(device_pickle));
@@ -711,7 +711,7 @@ impl Account {
 
         match data {
             DehydratedDeviceData::V1(d) => {
-                let account = InnerAccount::from_libolm_pickle(&d.device_pickle, pickle_key)?;
+                let account = InnerAccount::from_dehydrated_device(&d.device_pickle, device_id.as_str(), pickle_key)?;
                 Ok(Self::new_helper(account, user_id, device_id))
             }
             _ => Err(DehydrationError::Json(serde_json::Error::custom(format!(
