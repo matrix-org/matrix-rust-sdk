@@ -23,6 +23,7 @@ use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
 use ruma::{api::Direction, EventId, OwnedEventId, UInt};
 
+use super::pagination::PaginationToken;
 use crate::{
     room::{EventWithContextResponse, Messages, MessagesOptions, WeakRoom},
     Room,
@@ -65,29 +66,6 @@ pub enum PaginatorError {
     /// There was another SDK error while paginating.
     #[error("an error happened while paginating")]
     SdkError(#[from] Box<crate::Error>),
-}
-
-/// Pagination token data, indicating in which state is the current pagination.
-#[derive(Clone, Debug)]
-enum PaginationToken {
-    /// We never had a pagination token, so we'll start back-paginating from the
-    /// end, or forward-paginating from the start.
-    None,
-    /// We paginated once before, and we received a prev/next batch token that
-    /// we may reuse for the next query.
-    HasMore(String),
-    /// We've hit one end of the timeline (either the start or the actual end),
-    /// so there's no need to continue paginating.
-    HitEnd,
-}
-
-impl From<Option<String>> for PaginationToken {
-    fn from(token: Option<String>) -> Self {
-        match token {
-            Some(val) => Self::HasMore(val),
-            None => Self::None,
-        }
-    }
 }
 
 /// Paginations tokens used for backward and forward pagination.
