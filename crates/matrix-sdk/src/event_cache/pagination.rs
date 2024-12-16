@@ -178,12 +178,9 @@ impl RoomPagination {
                 let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
                     // There is a prior gap, let's replace it by new events!
                     trace!("replaced gap with new events from backpagination");
-                    Some(
-                        room_events
-                            .replace_gap_at(sync_events, gap_id)
-                            .expect("gap_identifier is a valid chunk id we read previously")
-                            .first_position(),
-                    )
+                    room_events
+                        .replace_gap_at(sync_events, gap_id)
+                        .expect("gap_identifier is a valid chunk id we read previously")
                 } else if let Some(pos) = first_event_pos {
                     // No prior gap, but we had some events: assume we need to prepend events
                     // before those.
