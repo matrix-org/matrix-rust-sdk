@@ -120,7 +120,7 @@ impl TryFrom<PusherKind> for RumaPusherKind {
                 let mut ruma_data = RumaHttpPusherData::new(data.url);
                 if let Some(payload) = data.default_payload {
                     let json: Value = serde_json::from_str(&payload)?;
-                    ruma_data.default_payload = json;
+                    ruma_data.data.insert("default_payload".to_owned(), json);
                 }
                 ruma_data.format = data.format.map(Into::into);
                 Ok(Self::Http(ruma_data))
