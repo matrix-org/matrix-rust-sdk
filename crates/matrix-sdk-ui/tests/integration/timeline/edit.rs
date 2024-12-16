@@ -1054,20 +1054,23 @@ async fn test_pending_edit_from_backpagination_doesnt_override_pending_edit_from
     let mut h = PendingEditHelper::new().await;
     let f = EventFactory::new();
 
-    let (_, mut timeline_stream) = h.timeline.subscribe().await;
-
     // When I receive an edit live from a sync for an event I don't know about…
     let original_event_id = event_id!("$original");
     let edit_event_id = event_id!("$edit");
     h.handle_sync(
-        JoinedRoomBuilder::new(&h.room_id).add_timeline_event(
-            f.text_msg("* hello")
-                .sender(&ALICE)
-                .event_id(edit_event_id)
-                .edit(original_event_id, RoomMessageEventContent::text_plain("[edit]").into()),
-        ),
+        JoinedRoomBuilder::new(&h.room_id)
+            .add_timeline_event(
+                f.text_msg("* hello")
+                    .sender(&ALICE)
+                    .event_id(edit_event_id)
+                    .edit(original_event_id, RoomMessageEventContent::text_plain("[edit]").into()),
+            )
+            .set_timeline_prev_batch("prev-batch-token".to_owned())
+            .set_timeline_limited(),
     )
     .await;
+
+    let (_, mut timeline_stream) = h.timeline.subscribe().await;
 
     // And then I receive an edit from a back-pagination for the same event…
     let edit_event_id2 = event_id!("$edit2");
@@ -1084,7 +1087,7 @@ async fn test_pending_edit_from_backpagination_doesnt_override_pending_edit_from
     .await;
 
     // Nothing happens.
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_matches!(timeline_stream.next().now_or_never(), None);
 
     // And then I receive the original event after a bit…
     h.handle_sync(

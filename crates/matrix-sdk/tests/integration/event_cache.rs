@@ -1,13 +1,14 @@
 use std::{future::ready, ops::ControlFlow, time::Duration};
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use futures_util::FutureExt as _;
 use matrix_sdk::{
     assert_let_timeout, assert_next_matches_with_timeout,
     deserialized_responses::SyncTimelineEvent,
     event_cache::{
-        paginator::PaginatorState, BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate,
-        TimelineHasBeenResetWhilePaginating,
+        paginator::PaginatorState, BackPaginationOutcome, EventCacheError, PaginationToken,
+        RoomEventCacheUpdate, TimelineHasBeenResetWhilePaginating,
     },
     test_utils::{assert_event_matches_msg, mocks::MatrixMockServer},
 };
@@ -16,7 +17,7 @@ use matrix_sdk_test::{
 };
 use ruma::{event_id, events::AnyTimelineEvent, room_id, serde::Raw, user_id};
 use serde_json::json;
-use tokio::{spawn, sync::broadcast};
+use tokio::{spawn, sync::broadcast, time::sleep};
 use wiremock::ResponseTemplate;
 
 async fn once(
@@ -259,7 +260,7 @@ async fn test_backpaginate_once() {
         // Then if I backpaginate,
         let pagination = room_event_cache.pagination();
 
-        assert!(pagination.get_or_wait_for_token(None).await.is_some());
+        assert_matches!(pagination.get_or_wait_for_token(None).await, PaginationToken::HasMore(_));
 
         pagination.run_backwards(20, once).await.unwrap()
     };
@@ -351,7 +352,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
 
     // Then if I backpaginate in a loop,
     let pagination = room_event_cache.pagination();
-    while pagination.get_or_wait_for_token(None).await.is_some() {
+    while matches!(pagination.get_or_wait_for_token(None).await, PaginationToken::HasMore(_)) {
         pagination
             .run_backwards(20, |outcome, timeline_has_been_reset| {
                 num_paginations += 1;
@@ -470,7 +471,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
 
     // Then if I backpaginate in a loop,
     let pagination = room_event_cache.pagination();
-    while pagination.get_or_wait_for_token(None).await.is_some() {
+    while matches!(pagination.get_or_wait_for_token(None).await, PaginationToken::HasMore(_)) {
         pagination
             .run_backwards(20, |outcome, timeline_has_been_reset| {
                 num_paginations += 1;
@@ -606,8 +607,9 @@ async fn test_reset_while_backpaginating() {
     // Run the pagination!
     let pagination = room_event_cache.pagination();
 
-    let first_token = pagination.get_or_wait_for_token(None).await;
-    assert!(first_token.is_some());
+    assert_let!(
+        PaginationToken::HasMore(first_token) = pagination.get_or_wait_for_token(None).await
+    );
 
     let backpagination = spawn({
         let pagination = room_event_cache.pagination();
@@ -645,8 +647,10 @@ async fn test_reset_while_backpaginating() {
     assert!(!events.is_empty());
 
     // Now if we retrieve the oldest token, it's set to something else.
-    let second_token = pagination.get_or_wait_for_token(None).await.unwrap();
-    assert!(first_token.unwrap() != second_token);
+    assert_let!(
+        PaginationToken::HasMore(second_token) = pagination.get_or_wait_for_token(None).await
+    );
+    assert!(first_token != second_token);
     assert_eq!(second_token, "third_backpagination");
 }
 
@@ -687,7 +691,7 @@ async fn test_backpaginating_without_token() {
 
     // We don't have a token.
     let pagination = room_event_cache.pagination();
-    assert!(pagination.get_or_wait_for_token(None).await.is_none());
+    assert_eq!(pagination.get_or_wait_for_token(None).await, PaginationToken::None);
 
     // If we try to back-paginate with a token, it will hit the end of the timeline
     // and give us the resulting event.
@@ -850,18 +854,9 @@ async fn test_backpaginate_with_no_initial_events() {
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
     // Start with a room with an event, but no prev-batch token.
-    let room = server
-        .sync_room(
-            &client,
-            JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("hello").event_id(event_id!("$3"))),
-        )
-        .await;
+    let room = server.sync_joined_room(&client, room_id).await;
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-
-    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
-    wait_for_initial_events(events, &mut stream).await;
 
     // The first back-pagination will return these two events.
     //
@@ -870,16 +865,37 @@ async fn test_backpaginate_with_no_initial_events() {
     // from the end of the timeline, which must include the event we got from
     // sync.
 
+    // We need to trigger the following conditions:
+    // - a back-pagination starts,
+    // - but then we get events from sync, before the back-pagination is done.
+    //
+    // The following things will happen:
+    // - We don't have a prev-batch token to start with, so the first
+    //   back-pagination doesn't start
+    // before DEFAULT_WAIT_FOR_TOKEN_DURATION seconds.
+    // - While the back-pagination is actually running, we need a sync adding events
+    //   to happen
+    // (after DEFAULT_WAIT_FOR_TOKEN_DURATION + 500 milliseconds).
+    // - The back-pagination finishes after this sync (after
+    //   DEFAULT_WAIT_FOR_TOKEN_DURATION + 1
+    // second).
+
+    let wait_time = Duration::from_millis(500);
     server
         .mock_room_messages()
-        .ok(
-            "start-token-unused1".to_owned(),
-            Some("prev_batch".to_owned()),
-            vec![
-                f.text_msg("world").event_id(event_id!("$2")),
-                f.text_msg("hello").event_id(event_id!("$3")),
-            ],
-            Vec::new(),
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({
+                    "chunk": vec![
+                        f.text_msg("world").event_id(event_id!("$2")).into_raw_timeline(),
+                        f.text_msg("hello").event_id(event_id!("$3")).into_raw_timeline(),
+                    ],
+                    "start": "start-token-unused1",
+                    "end": "prev_batch"
+                }))
+                // This is why we don't use `server.mock_room_messages()`.
+                // This delay has to be greater than the one used to return the sync response.
+                .set_delay(2 * wait_time),
         )
         .mock_once()
         .mount()
@@ -904,17 +920,33 @@ async fn test_backpaginate_with_no_initial_events() {
     // Run pagination: since there's no token, we'll wait a bit for a sync to return
     // one, and since there's none, we'll end up starting from the end of the
     // timeline.
-    pagination.run_backwards(20, once).await.unwrap();
+    let pagination_clone = pagination.clone();
+
+    let first_pagination = spawn(async move { pagination_clone.run_backwards(20, once).await });
+
+    // Make sure we've waited for the initial token long enough (3 seconds, as of
+    // 2024-12-16).
+    sleep(Duration::from_millis(3000) + wait_time).await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello").event_id(event_id!("$3"))),
+        )
+        .await;
+
+    first_pagination.await.expect("joining must work").expect("first backpagination must work");
+
     // Second pagination will be instant.
     pagination.run_backwards(20, once).await.unwrap();
 
     // The linked chunk should contain the events in the correct order.
     let (events, _stream) = room_event_cache.subscribe().await.unwrap();
 
+    assert_eq!(events.len(), 3, "{events:?}");
     assert_event_matches_msg(&events[0], "oh well");
     assert_event_matches_msg(&events[1], "hello");
     assert_event_matches_msg(&events[2], "world");
-    assert_eq!(events.len(), 3);
 }
 
 #[async_test]
