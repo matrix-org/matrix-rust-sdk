@@ -506,17 +506,111 @@ impl MatrixMockServer {
     }
 
     /// Create a prebuilt mock for resolving room aliases.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::{owned_room_id, room_alias_id},
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    /// use ruma::api::client::room::Visibility;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server
+    ///     .mock_room_directory_resolve_alias()
+    ///     .ok("!a:b.c", Vec::new())
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let res = client
+    ///     .resolve_room_alias(room_alias_id!("#a:b.c"))
+    ///     .await
+    ///     .expect("We should be able to resolve the room alias");
+    /// assert_eq!(res.room_id, owned_room_id!("!a:b.c"));
+    /// # anyhow::Ok(()) });
+    /// ```
     pub fn mock_room_directory_resolve_alias(&self) -> MockEndpoint<'_, ResolveRoomAliasEndpoint> {
         let mock =
             Mock::given(method("GET")).and(path_regex(r"/_matrix/client/v3/directory/room/.*"));
         MockEndpoint { mock, server: &self.server, endpoint: ResolveRoomAliasEndpoint }
     }
 
-    /// Create a prebuilt mock for creating room aliases.
-    pub fn mock_create_room_alias(&self) -> MockEndpoint<'_, CreateRoomAliasEndpoint> {
+    /// Create a prebuilt mock for publishing room aliases in the room
+    /// directory.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::{room_alias_id, room_id},
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    /// use ruma::api::client::room::Visibility;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server
+    ///     .mock_room_directory_create_room_alias()
+    ///     .ok()
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// client
+    ///     .create_room_alias(room_alias_id!("#a:b.c"), room_id!("!a:b.c"))
+    ///     .await
+    ///     .expect("We should be able to create a room alias");
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn mock_room_directory_create_room_alias(
+        &self,
+    ) -> MockEndpoint<'_, CreateRoomAliasEndpoint> {
         let mock =
             Mock::given(method("PUT")).and(path_regex(r"/_matrix/client/v3/directory/room/.*"));
         MockEndpoint { mock, server: &self.server, endpoint: CreateRoomAliasEndpoint }
+    }
+
+    /// Create a prebuilt mock for removing room aliases from the room
+    /// directory.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::room_alias_id, test_utils::mocks::MatrixMockServer,
+    /// };
+    /// use ruma::api::client::room::Visibility;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server
+    ///     .mock_room_directory_remove_room_alias()
+    ///     .ok()
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// client
+    ///     .remove_room_alias(room_alias_id!("#a:b.c"))
+    ///     .await
+    ///     .expect("We should be able to remove the room alias");
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn mock_room_directory_remove_room_alias(
+        &self,
+    ) -> MockEndpoint<'_, RemoveRoomAliasEndpoint> {
+        let mock =
+            Mock::given(method("DELETE")).and(path_regex(r"/_matrix/client/v3/directory/room/.*"));
+        MockEndpoint { mock, server: &self.server, endpoint: RemoveRoomAliasEndpoint }
     }
 
     /// Create a prebuilt mock for listing public rooms.
@@ -560,6 +654,43 @@ impl MatrixMockServer {
     pub fn mock_public_rooms(&self) -> MockEndpoint<'_, PublicRoomsEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(r"/_matrix/client/v3/publicRooms"));
         MockEndpoint { mock, server: &self.server, endpoint: PublicRoomsEndpoint }
+    }
+
+    /// Create a prebuilt mock for setting a room's visibility in the room
+    /// directory.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    /// use ruma::api::client::room::Visibility;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server
+    ///     .mock_room_directory_set_room_visibility()
+    ///     .ok()
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// room.update_room_visibility(Visibility::Private)
+    ///     .await
+    ///     .expect("We should be able to update the room's visibility");
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn mock_room_directory_set_room_visibility(
+        &self,
+    ) -> MockEndpoint<'_, SetRoomVisibilityEndpoint> {
+        let mock = Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/v3/directory/list/room/.*$"));
+        MockEndpoint { mock, server: &self.server, endpoint: SetRoomVisibilityEndpoint }
     }
 
     /// Create a prebuilt mock for fetching information about key storage
@@ -695,6 +826,11 @@ impl MatrixMock<'_> {
     /// Also verifies that it's been called once.
     pub fn mock_once(self) -> Self {
         Self { mock: self.mock.up_to_n_times(1).expect(1), ..self }
+    }
+
+    /// Makes sure the endpoint is never reached.
+    pub fn never(self) -> Self {
+        Self { mock: self.mock.expect(0), ..self }
     }
 
     /// Specify an upper limit to the number of times you would like this
@@ -1023,7 +1159,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     ///
     /// let response = room.client().send(r, None).await.unwrap();
     /// // The delayed `m.room.message` event type should be mocked by the server.
-    /// assert_eq!("$some_id", response.delay_id);    
+    /// assert_eq!("$some_id", response.delay_id);
     /// # anyhow::Ok(()) });
     /// ```
     pub fn with_delay(self, delay: Duration) -> Self {
@@ -1632,6 +1768,17 @@ impl<'a> MockEndpoint<'a, CreateRoomAliasEndpoint> {
     }
 }
 
+/// A prebuilt mock for removing a room alias.
+pub struct RemoveRoomAliasEndpoint;
+
+impl<'a> MockEndpoint<'a, RemoveRoomAliasEndpoint> {
+    /// Returns a data endpoint for removing a room alias.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
 /// A prebuilt mock for paginating the public room list.
 pub struct PublicRoomsEndpoint;
 
@@ -1681,6 +1828,17 @@ impl<'a> MockEndpoint<'a, PublicRoomsEndpoint> {
                 "total_room_count_estimate": chunk.len(),
             }))
         });
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for setting the room's visibility in the room directory.
+pub struct SetRoomVisibilityEndpoint;
+
+impl<'a> MockEndpoint<'a, SetRoomVisibilityEndpoint> {
+    /// Returns an endpoint that updates the room's visibility.
+    pub fn ok(self) -> MatrixMock<'a> {
+        let mock = self.mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
         MatrixMock { server: self.server, mock }
     }
 }

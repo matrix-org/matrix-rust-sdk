@@ -150,6 +150,9 @@ mod member;
 mod messages;
 pub mod power_levels;
 
+/// Contains all the functionality for modifying the privacy settings in a room.
+pub mod privacy_settings;
+
 /// A struct containing methods that are common for Joined, Invited and Left
 /// Rooms
 #[derive(Debug, Clone)]

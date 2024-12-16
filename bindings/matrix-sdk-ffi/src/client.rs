@@ -1152,17 +1152,6 @@ impl Client {
         let alias = RoomAliasId::parse(alias)?;
         self.inner.is_room_alias_available(&alias).await.map_err(Into::into)
     }
-
-    /// Creates a new room alias associated with the provided room id.
-    pub async fn create_room_alias(
-        &self,
-        room_alias: String,
-        room_id: String,
-    ) -> Result<(), ClientError> {
-        let room_alias = RoomAliasId::parse(room_alias)?;
-        let room_id = RoomId::parse(room_id)?;
-        self.inner.create_room_alias(&room_alias, &room_id).await.map_err(Into::into)
-    }
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
